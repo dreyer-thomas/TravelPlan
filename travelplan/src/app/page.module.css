@@ -34,6 +34,13 @@
   gap: 48px;
 }
 
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 16px;
+}
+
 .brand {
   font-family: var(--font-fraunces), "Fraunces", serif;
   font-size: 20px;
