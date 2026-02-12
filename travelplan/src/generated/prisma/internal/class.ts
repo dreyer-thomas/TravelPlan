@@ -20,7 +20,7 @@ const config: runtime.GetPrismaClientConfig = {
   "clientVersion": "7.3.0",
   "engineVersion": "9d6ad21cbbceab97458517b147a6a09ff43aa735",
   "activeProvider": "sqlite",
-  "inlineSchema": "generator client {\n  provider   = \"prisma-client\"\n  output     = \"../src/generated/prisma\"\n  engineType = \"binary\"\n}\n\ndatasource db {\n  provider = \"sqlite\"\n}\n\nenum UserRole {\n  OWNER\n  VIEWER\n}\n\nmodel User {\n  id           String   @id @default(cuid()) @map(\"id\")\n  email        String   @unique @map(\"email\")\n  passwordHash String   @map(\"password_hash\")\n  role         UserRole @default(OWNER) @map(\"role\")\n  createdAt    DateTime @default(now()) @map(\"created_at\")\n  updatedAt    DateTime @updatedAt @map(\"updated_at\")\n\n  @@map(\"users\")\n}\n",
+  "inlineSchema": "generator client {\n  provider   = \"prisma-client\"\n  output     = \"../src/generated/prisma\"\n  engineType = \"binary\"\n}\n\ndatasource db {\n  provider = \"sqlite\"\n}\n\nenum UserRole {\n  OWNER\n  VIEWER\n}\n\nmodel User {\n  id                  String               @id @default(cuid()) @map(\"id\")\n  email               String               @unique @map(\"email\")\n  passwordHash        String               @map(\"password_hash\")\n  role                UserRole             @default(OWNER) @map(\"role\")\n  createdAt           DateTime             @default(now()) @map(\"created_at\")\n  updatedAt           DateTime             @updatedAt @map(\"updated_at\")\n  passwordResetTokens PasswordResetToken[]\n\n  @@map(\"users\")\n}\n\nmodel PasswordResetToken {\n  id        String    @id @default(cuid()) @map(\"id\")\n  userId    String    @map(\"user_id\")\n  tokenHash String    @map(\"token_hash\")\n  expiresAt DateTime  @map(\"expires_at\")\n  used      Boolean   @default(false) @map(\"used\")\n  usedAt    DateTime? @map(\"used_at\")\n  createdAt DateTime  @default(now()) @map(\"created_at\")\n\n  user User @relation(fields: [userId], references: [id], onDelete: Cascade)\n\n  @@unique([tokenHash])\n  @@index([userId])\n  @@map(\"password_reset_tokens\")\n}\n",
   "runtimeDataModel": {
     "models": {},
     "enums": {},
@@ -28,7 +28,7 @@ const config: runtime.GetPrismaClientConfig = {
   }
 }
 
-config.runtimeDataModel = JSON.parse("{\"models\":{\"User\":{\"fields\":[{\"name\":\"id\",\"kind\":\"scalar\",\"type\":\"String\",\"dbName\":\"id\"},{\"name\":\"email\",\"kind\":\"scalar\",\"type\":\"String\",\"dbName\":\"email\"},{\"name\":\"passwordHash\",\"kind\":\"scalar\",\"type\":\"String\",\"dbName\":\"password_hash\"},{\"name\":\"role\",\"kind\":\"enum\",\"type\":\"UserRole\",\"dbName\":\"role\"},{\"name\":\"createdAt\",\"kind\":\"scalar\",\"type\":\"DateTime\",\"dbName\":\"created_at\"},{\"name\":\"updatedAt\",\"kind\":\"scalar\",\"type\":\"DateTime\",\"dbName\":\"updated_at\"}],\"dbName\":\"users\"}},\"enums\":{},\"types\":{}}")
+config.runtimeDataModel = JSON.parse("{\"models\":{\"User\":{\"fields\":[{\"name\":\"id\",\"kind\":\"scalar\",\"type\":\"String\",\"dbName\":\"id\"},{\"name\":\"email\",\"kind\":\"scalar\",\"type\":\"String\",\"dbName\":\"email\"},{\"name\":\"passwordHash\",\"kind\":\"scalar\",\"type\":\"String\",\"dbName\":\"password_hash\"},{\"name\":\"role\",\"kind\":\"enum\",\"type\":\"UserRole\",\"dbName\":\"role\"},{\"name\":\"createdAt\",\"kind\":\"scalar\",\"type\":\"DateTime\",\"dbName\":\"created_at\"},{\"name\":\"updatedAt\",\"kind\":\"scalar\",\"type\":\"DateTime\",\"dbName\":\"updated_at\"},{\"name\":\"passwordResetTokens\",\"kind\":\"object\",\"type\":\"PasswordResetToken\",\"relationName\":\"PasswordResetTokenToUser\"}],\"dbName\":\"users\"},\"PasswordResetToken\":{\"fields\":[{\"name\":\"id\",\"kind\":\"scalar\",\"type\":\"String\",\"dbName\":\"id\"},{\"name\":\"userId\",\"kind\":\"scalar\",\"type\":\"String\",\"dbName\":\"user_id\"},{\"name\":\"tokenHash\",\"kind\":\"scalar\",\"type\":\"String\",\"dbName\":\"token_hash\"},{\"name\":\"expiresAt\",\"kind\":\"scalar\",\"type\":\"DateTime\",\"dbName\":\"expires_at\"},{\"name\":\"used\",\"kind\":\"scalar\",\"type\":\"Boolean\",\"dbName\":\"used\"},{\"name\":\"usedAt\",\"kind\":\"scalar\",\"type\":\"DateTime\",\"dbName\":\"used_at\"},{\"name\":\"createdAt\",\"kind\":\"scalar\",\"type\":\"DateTime\",\"dbName\":\"created_at\"},{\"name\":\"user\",\"kind\":\"object\",\"type\":\"User\",\"relationName\":\"PasswordResetTokenToUser\"}],\"dbName\":\"password_reset_tokens\"}},\"enums\":{},\"types\":{}}")
 
 async function decodeBase64AsWasm(wasmBase64: string): Promise<WebAssembly.Module> {
   const { Buffer } = await import('node:buffer')
@@ -185,6 +185,16 @@ export interface PrismaClient<
     * ```
     */
   get user(): Prisma.UserDelegate<ExtArgs, { omit: OmitOpts }>;
+
+  /**
+   * `prisma.passwordResetToken`: Exposes CRUD operations for the **PasswordResetToken** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more PasswordResetTokens
+    * const passwordResetTokens = await prisma.passwordResetToken.findMany()
+    * ```
+    */
+  get passwordResetToken(): Prisma.PasswordResetTokenDelegate<ExtArgs, { omit: OmitOpts }>;
 }
 
 export function getPrismaClientClass(): PrismaClientConstructor {
