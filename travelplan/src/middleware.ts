@@ -3,25 +3,43 @@ import type { NextRequest } from "next/server";
 import { verifySessionJwt } from "@/lib/auth/jwt";
 
 const isProtectedPath = (pathname: string) => pathname.startsWith("/trips");
+const isHomePath = (pathname: string) => pathname === "/";
 
-export const middleware = async (request: NextRequest) => {
-  if (!isProtectedPath(request.nextUrl.pathname)) {
-    return NextResponse.next();
-  }
-
-  const token = request.cookies.get("session")?.value;
+const isSessionValid = async (token?: string) => {
   if (!token) {
-    return NextResponse.redirect(new URL("/auth/login", request.url));
+    return false;
   }
 
   try {
     await verifySessionJwt(token);
-    return NextResponse.next();
+    return true;
   } catch {
-    return NextResponse.redirect(new URL("/auth/login", request.url));
+    return false;
   }
 };
 
+export const middleware = async (request: NextRequest) => {
+  const { pathname } = request.nextUrl;
+  const token = request.cookies.get("session")?.value;
+
+  if (isHomePath(pathname)) {
+    if (await isSessionValid(token)) {
+      return NextResponse.redirect(new URL("/trips", request.url));
+    }
+    return NextResponse.next();
+  }
+
+  if (!isProtectedPath(pathname)) {
+    return NextResponse.next();
+  }
+
+  if (!(await isSessionValid(token))) {
+    return NextResponse.redirect(new URL("/auth/login", request.url));
+  }
+
+  return NextResponse.next();
+};
+
 export const config = {
-  matcher: ["/trips/:path*"],
+  matcher: ["/", "/trips/:path*"],
 };

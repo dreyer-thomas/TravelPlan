@@ -83,6 +83,64 @@
   gap: 12px;
 }
 
+.howItWorks {
+  display: grid;
+  gap: 36px;
+  transition: max-height 0.35s ease, opacity 0.35s ease;
+  max-height: 1200px;
+  opacity: 1;
+}
+
+.howItWorksCollapsed {
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.sectionHeading {
+  display: grid;
+  gap: 12px;
+  max-width: 640px;
+}
+
+.sectionKicker {
+  font-weight: 600;
+  color: var(--sunrise-coral);
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 12px;
+  margin: 0;
+}
+
+.sectionTitle {
+  font-family: var(--font-fraunces), "Fraunces", serif;
+  font-size: clamp(26px, 3.5vw, 38px);
+  line-height: 1.15;
+  margin: 0;
+}
+
+.sectionIntro {
+  font-size: 17px;
+  line-height: 1.7;
+  color: var(--slate);
+  margin: 0;
+}
+
+.stepsGrid {
+  display: grid;
+  gap: 28px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.stepIndex {
+  font-size: 12px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--deep-teal);
+}
+
 .primary,
 .secondary {
   display: inline-flex;
@@ -107,12 +165,6 @@
   border: 1px solid rgba(15, 107, 109, 0.3);
 }
 
-.highlights {
-  display: grid;
-  gap: 20px;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-}
-
 .card {
   background: var(--surface);
   padding: 24px;
@@ -122,7 +174,7 @@
   gap: 12px;
 }
 
-.card h2 {
+.card h3 {
   font-family: var(--font-fraunces), "Fraunces", serif;
   font-size: 20px;
   margin: 0;

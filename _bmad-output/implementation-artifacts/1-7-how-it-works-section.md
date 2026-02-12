@@ -1,6 +1,6 @@
 # Story 1.7: How It Works Section
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -27,10 +27,10 @@ so that I quickly understand the product before signing up.
 
 ## Tasks / Subtasks
 
-- [ ] Add a “How it works” section to the home page with 3–5 steps (AC: #1, #3)
-- [ ] Wire the “See how it works” link to the section anchor (AC: #1)
-- [ ] Hide the “See how it works” link and section when a session cookie exists (AC: #2)
-- [ ] Ensure styling matches the existing calm/clear UX baseline (AC: #3)
+- [x] Add a “How it works” section to the home page with 3–5 steps (AC: #1, #3)
+- [x] Wire the “See how it works” link to the section anchor (AC: #1)
+- [x] Hide the “See how it works” link and section when a session cookie exists (AC: #2)
+- [x] Ensure styling matches the existing calm/clear UX baseline (AC: #3)
 
 ## Dev Notes
 
@@ -63,7 +63,7 @@ so that I quickly understand the product before signing up.
 
 ## Story Completion Status
 
-- Status: ready-for-dev
+- Status: review
 - Completion note: Story created for How it works section and signed-in hiding behavior.
 
 ## Dev Agent Record
@@ -72,14 +72,36 @@ so that I quickly understand the product before signing up.
 
 gpt-5 (Codex)
 
+### Implementation Plan
+
+- Update home page CTA anchor to target the new How It Works section.
+- Add signed-out-only How It Works section with 4 steps and supportive copy.
+- Style the new section with existing palette and typography tokens.
+
 ### Debug Log References
 
 2026-02-12: Story created for how-it-works home section with signed-in hiding behavior.
 
 ### Completion Notes List
 
-- New story added to cover how-it-works section and signed-in hiding rules.
+- Implemented a signed-out-only How It Works section with four steps and updated CTA anchor.
+- Redirect signed-in users from `/` to `/trips` via middleware so the How It Works section and CTA are not shown for valid sessions.
+- Added middleware coverage for home redirects and signed-out access.
+- Collapsed the How It Works section behind the CTA button and increased spacing between the intro and cards.
+- Tests run: not run after latest UI toggle changes.
 
 ### File List
 
 - _bmad-output/implementation-artifacts/1-7-how-it-works-section.md
+- _bmad-output/implementation-artifacts/sprint-status.yaml
+- travelplan/src/components/HomeHero.tsx
+- travelplan/src/middleware.ts
+- travelplan/src/app/page.module.css
+- travelplan/src/app/page.tsx
+- travelplan/test/middleware.test.ts
+
+## Change Log
+
+- 2026-02-12: Added How It Works section, anchor wiring, and signed-in hiding behavior; refreshed home page styling.
+- 2026-02-12: Redirect signed-in users from `/` to `/trips` and added middleware tests for home behavior.
+- 2026-02-12: Collapsed How It Works behind CTA toggle and increased spacing between intro and cards.

@@ -47,7 +47,7 @@ development_status:
   1-4-sign-out-from-current-device: done
   1-5-reset-password-by-email: done
   1-6-auth-aware-header-menu: done
-  1-7-how-it-works-section: ready-for-dev
+  1-7-how-it-works-section: review
   epic-1-retrospective: optional
 
   epic-2: backlog
