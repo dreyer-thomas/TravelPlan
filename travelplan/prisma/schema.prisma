@@ -1,0 +1,25 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+  engineType = "binary"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum UserRole {
+  OWNER
+  VIEWER
+}
+
+model User {
+  id           String   @id @default(cuid()) @map("id")
+  email        String   @unique @map("email")
+  passwordHash String   @map("password_hash")
+  role         UserRole @default(OWNER) @map("role")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("users")
+}
