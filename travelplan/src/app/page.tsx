@@ -36,15 +36,23 @@ export default async function Home() {
             details, and see gaps disappear.
           </p>
           <div className={styles.ctas}>
-            <Link className={styles.primary} href="/auth/register">
-              Create account
-            </Link>
-            <Link className={styles.secondary} href="/auth/login">
-              Sign in
-            </Link>
-            <Link className={styles.secondary} href="#highlights">
-              See how it works
-            </Link>
+            {hasSession ? (
+              <Link className={styles.primary} href="/trips">
+                Go to trips
+              </Link>
+            ) : (
+              <>
+                <Link className={styles.primary} href="/auth/register">
+                  Create account
+                </Link>
+                <Link className={styles.secondary} href="/auth/login">
+                  Sign in
+                </Link>
+                <Link className={styles.secondary} href="#highlights">
+                  See how it works
+                </Link>
+              </>
+            )}
           </div>
         </section>
         <section id="highlights" className={styles.highlights}>
