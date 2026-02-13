@@ -104,7 +104,7 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
 
   if (loading) {
     return (
-      <Paper elevation={1} sx={{ p: 3 }}>
+      <Paper elevation={1} sx={{ p: 3, borderRadius: 3 }}>
         <Box display="flex" flexDirection="column" gap={2}>
           <Skeleton variant="text" width="50%" height={34} />
           <Skeleton variant="text" width="35%" height={24} />
@@ -121,7 +121,7 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
 
   if (notFound) {
     return (
-      <Paper elevation={1} sx={{ p: 3 }}>
+      <Paper elevation={1} sx={{ p: 3, borderRadius: 3 }}>
         <Box display="flex" flexDirection="column" gap={2}>
           <Typography variant="h6" fontWeight={600}>
             Trip not found
@@ -160,7 +160,14 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
       {error && <Alert severity="error">{error}</Alert>}
 
       {detail && (
-        <Paper elevation={1} sx={{ p: 3 }}>
+        <Paper
+          elevation={1}
+          sx={{
+            p: 3,
+            borderRadius: 3,
+            background: "#ffffff",
+          }}
+        >
           <Box display="flex" flexDirection="column" gap={2}>
             <Box display="flex" flexDirection="column" gap={1.5}>
               <Box display="flex" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={2}>
@@ -207,7 +214,11 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                       )
                     }
                   >
-                    <ListItemText primary={`Day ${day.dayIndex}`} secondary={formatDate(day.date)} />
+                    <ListItemText
+                      primary={`Day ${day.dayIndex}`}
+                      secondary={formatDate(day.date)}
+                      sx={{ py: 0.5 }}
+                    />
                   </ListItem>
                 ))}
               </List>

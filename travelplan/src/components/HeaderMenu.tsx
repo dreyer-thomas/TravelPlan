@@ -95,7 +95,20 @@ export default function HeaderMenu({ isAuthenticated }: HeaderMenuProps) {
 
   return (
     <>
-      <IconButton aria-label="Open menu" onClick={handleOpen} size="large" sx={{ color: "inherit" }}>
+      <IconButton
+        aria-label="Open menu"
+        onClick={handleOpen}
+        size="large"
+        sx={{
+          color: "inherit",
+          border: "none",
+          borderRadius: 0,
+          padding: 0,
+          width: 32,
+          height: 32,
+          backgroundColor: "transparent",
+        }}
+      >
         <Box
           component="span"
           sx={{
@@ -107,7 +120,22 @@ export default function HeaderMenu({ isAuthenticated }: HeaderMenuProps) {
           }}
         />
       </IconButton>
-      <Menu anchorEl={anchorEl} open={open} onClose={handleClose} keepMounted>
+      <Menu
+        anchorEl={anchorEl}
+        open={open}
+        onClose={handleClose}
+        keepMounted
+        PaperProps={{
+          sx: {
+            mt: 1.5,
+            borderRadius: 3,
+            px: 1,
+            backgroundColor: "#ffffff",
+            border: "1px solid rgba(17, 18, 20, 0.08)",
+            boxShadow: "0 20px 40px rgba(17, 18, 20, 0.18)",
+          },
+        }}
+      >
         {items.map((item) => {
           if (item.key === "logout") {
             return (

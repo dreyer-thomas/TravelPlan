@@ -1,17 +1,18 @@
 import type { Metadata } from "next";
-import { AppRouterCacheProvider } from "@mui/material-nextjs/v16-appRouter";
-import CssBaseline from "@mui/material/CssBaseline";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Fraunces, Source_Sans_3 } from "next/font/google";
+import ThemeRegistry from "@/app/theme-registry";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const fraunces = Fraunces({
   subsets: ["latin"],
+  weight: ["600", "700"],
+  variable: "--font-display",
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const sourceSans = Source_Sans_3({
   subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  variable: "--font-body",
 });
 
 export const metadata: Metadata = {
@@ -26,11 +27,8 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${geistSans.variable} ${geistMono.variable}`}>
-        <AppRouterCacheProvider>
-          <CssBaseline />
-          {children}
-        </AppRouterCacheProvider>
+      <body className={`${sourceSans.variable} ${fraunces.variable}`}>
+        <ThemeRegistry>{children}</ThemeRegistry>
       </body>
     </html>
   );

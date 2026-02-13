@@ -10,6 +10,7 @@ import {
   CircularProgress,
   Container,
   FormControlLabel,
+  Paper,
   TextField,
   Typography,
 } from "@mui/material";
@@ -122,51 +123,63 @@ export default function RegisterPage() {
   );
 
   return (
-    <Container maxWidth="sm" sx={{ py: 8 }}>
-      <Box display="flex" flexDirection="column" gap={3}>
-        <Box>
-          <Typography variant="h4" fontWeight={600} gutterBottom>
-            Create your account
-          </Typography>
-          <Typography variant="body1" color="text.secondary">
-            Register with your email and password to start planning trips.
-          </Typography>
-        </Box>
-
-        {serverError && <Alert severity="error">{serverError}</Alert>}
-        {success && <Alert severity="success">Account created successfully.</Alert>}
-
-        <Box component="form" onSubmit={handleSubmit(onSubmit)} display="flex" flexDirection="column" gap={2}>
-          <TextField
-            label="Email"
-            type="email"
-            error={Boolean(errors.email)}
-            helperText={errors.email?.message}
-            {...register("email", emailRules)}
-            fullWidth
-          />
-          <TextField
-            label="Password"
-            type="password"
-            error={Boolean(errors.password)}
-            helperText={errors.password?.message}
-            {...register("password", passwordRules)}
-            fullWidth
-          />
-          <FormControlLabel
-            control={<Checkbox {...register("consent", { required: "Consent is required" })} />}
-            label="I consent to data storage for trip planning"
-          />
-          {errors.consent && (
-            <Typography color="error" variant="body2">
-              {errors.consent.message}
+    <Container maxWidth="sm" sx={{ py: { xs: 6, md: 10 } }}>
+      <Paper
+        elevation={1}
+        sx={{
+          p: { xs: 3, md: 4 },
+          borderRadius: 4,
+          background: "#ffffff",
+        }}
+      >
+        <Box display="flex" flexDirection="column" gap={3}>
+          <Box>
+            <Typography variant="overline" color="text.secondary" letterSpacing="0.25em">
+              TravelPlan
             </Typography>
-          )}
-          <Button type="submit" variant="contained" size="large" disabled={isSubmitting}>
-            {isSubmitting ? <CircularProgress size={22} /> : "Create account"}
-          </Button>
+            <Typography variant="h4" fontWeight={600} gutterBottom>
+              Create your account
+            </Typography>
+            <Typography variant="body1" color="text.secondary">
+              Register with your email and password to start planning trips.
+            </Typography>
+          </Box>
+
+          {serverError && <Alert severity="error">{serverError}</Alert>}
+          {success && <Alert severity="success">Account created successfully.</Alert>}
+
+          <Box component="form" onSubmit={handleSubmit(onSubmit)} display="flex" flexDirection="column" gap={2}>
+            <TextField
+              label="Email"
+              type="email"
+              error={Boolean(errors.email)}
+              helperText={errors.email?.message}
+              {...register("email", emailRules)}
+              fullWidth
+            />
+            <TextField
+              label="Password"
+              type="password"
+              error={Boolean(errors.password)}
+              helperText={errors.password?.message}
+              {...register("password", passwordRules)}
+              fullWidth
+            />
+            <FormControlLabel
+              control={<Checkbox {...register("consent", { required: "Consent is required" })} />}
+              label="I consent to data storage for trip planning"
+            />
+            {errors.consent && (
+              <Typography color="error" variant="body2">
+                {errors.consent.message}
+              </Typography>
+            )}
+            <Button type="submit" variant="contained" size="large" disabled={isSubmitting}>
+              {isSubmitting ? <CircularProgress size={22} /> : "Create account"}
+            </Button>
+          </Box>
         </Box>
-      </Box>
+      </Paper>
     </Container>
   );
 }

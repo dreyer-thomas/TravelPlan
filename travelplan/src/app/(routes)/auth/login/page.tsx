@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useRouter } from "next/navigation";
-import { Alert, Box, Button, CircularProgress, Container, TextField, Typography } from "@mui/material";
+import { Alert, Box, Button, CircularProgress, Container, Paper, TextField, Typography } from "@mui/material";
 
 type LoginFormValues = {
   email: string;
@@ -125,42 +125,54 @@ export default function LoginPage() {
   );
 
   return (
-    <Container maxWidth="sm" sx={{ py: 8 }}>
-      <Box display="flex" flexDirection="column" gap={3}>
-        <Box>
-          <Typography variant="h4" fontWeight={600} gutterBottom>
-            Welcome back
-          </Typography>
-          <Typography variant="body1" color="text.secondary">
-            Sign in with your email and password to continue planning.
-          </Typography>
-        </Box>
+    <Container maxWidth="sm" sx={{ py: { xs: 6, md: 10 } }}>
+      <Paper
+        elevation={1}
+        sx={{
+          p: { xs: 3, md: 4 },
+          borderRadius: 4,
+          background: "#ffffff",
+        }}
+      >
+        <Box display="flex" flexDirection="column" gap={3}>
+          <Box>
+            <Typography variant="overline" color="text.secondary" letterSpacing="0.25em">
+              TravelPlan
+            </Typography>
+            <Typography variant="h4" fontWeight={600} gutterBottom>
+              Welcome back
+            </Typography>
+            <Typography variant="body1" color="text.secondary">
+              Sign in with your email and password to continue planning.
+            </Typography>
+          </Box>
 
-        {serverError && <Alert severity="error">{serverError}</Alert>}
-        {success && <Alert severity="success">Signed in successfully.</Alert>}
+          {serverError && <Alert severity="error">{serverError}</Alert>}
+          {success && <Alert severity="success">Signed in successfully.</Alert>}
 
-        <Box component="form" onSubmit={handleSubmit(onSubmit)} display="flex" flexDirection="column" gap={2}>
-          <TextField
-            label="Email"
-            type="email"
-            error={Boolean(errors.email)}
-            helperText={errors.email?.message}
-            {...register("email", emailRules)}
-            fullWidth
-          />
-          <TextField
-            label="Password"
-            type="password"
-            error={Boolean(errors.password)}
-            helperText={errors.password?.message}
-            {...register("password", passwordRules)}
-            fullWidth
-          />
-          <Button type="submit" variant="contained" size="large" disabled={isSubmitting}>
-            {isSubmitting ? <CircularProgress size={22} /> : "Sign in"}
-          </Button>
+          <Box component="form" onSubmit={handleSubmit(onSubmit)} display="flex" flexDirection="column" gap={2}>
+            <TextField
+              label="Email"
+              type="email"
+              error={Boolean(errors.email)}
+              helperText={errors.email?.message}
+              {...register("email", emailRules)}
+              fullWidth
+            />
+            <TextField
+              label="Password"
+              type="password"
+              error={Boolean(errors.password)}
+              helperText={errors.password?.message}
+              {...register("password", passwordRules)}
+              fullWidth
+            />
+            <Button type="submit" variant="contained" size="large" disabled={isSubmitting}>
+              {isSubmitting ? <CircularProgress size={22} /> : "Sign in"}
+            </Button>
+          </Box>
         </Box>
-      </Box>
+      </Paper>
     </Container>
   );
 }

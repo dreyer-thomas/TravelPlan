@@ -1,6 +1,6 @@
 # Story 1.7: How It Works Section
 
-Status: review
+Status: in-progress
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -63,7 +63,7 @@ so that I quickly understand the product before signing up.
 
 ## Story Completion Status
 
-- Status: review
+- Status: in-progress
 - Completion note: Story created for How it works section and signed-in hiding behavior.
 
 ## Dev Agent Record
@@ -88,7 +88,9 @@ gpt-5 (Codex)
 - Redirect signed-in users from `/` to `/trips` via middleware so the How It Works section and CTA are not shown for valid sessions.
 - Added middleware coverage for home redirects and signed-out access.
 - Collapsed the How It Works section behind the CTA button and increased spacing between the intro and cards.
-- Tests run: not run after latest UI toggle changes.
+- Updated home page auth resolution and gated How It Works content/CTA when a valid session cookie exists.
+- Converted the "See how it works" CTA to a true anchor link to the section.
+- Tests run: `npm test` (fails: `registerRoute.test.ts`, `loginRoute.test.ts`, `passwordResetConfirmRoute.test.ts` timeouts).
 
 ### File List
 

@@ -1,30 +1,33 @@
+import { cookies } from "next/headers";
 import styles from "./page.module.css";
-import { Fraunces, Source_Sans_3 } from "next/font/google";
 import HeaderMenu from "@/components/HeaderMenu";
 import HomeHero from "@/components/HomeHero";
+import { verifySessionJwt } from "@/lib/auth/jwt";
 
-const fraunces = Fraunces({
-  subsets: ["latin"],
-  weight: ["600", "700"],
-  variable: "--font-fraunces",
-});
+const resolveAuthState = async () => {
+  const cookieStore = await cookies();
+  const token = cookieStore.get("session")?.value;
+  if (!token) return false;
 
-const sourceSans = Source_Sans_3({
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
-  variable: "--font-source-sans",
-});
+  try {
+    await verifySessionJwt(token);
+    return true;
+  } catch {
+    return false;
+  }
+};
 
-export default function Home() {
+export default async function Home() {
+  const isAuthenticated = await resolveAuthState();
   return (
-    <div className={`${styles.page} ${sourceSans.variable} ${fraunces.variable}`}>
+    <div className={styles.page}>
       <div className={styles.backdrop} aria-hidden="true" />
       <main className={styles.main}>
         <header className={styles.topbar}>
-          <HeaderMenu isAuthenticated={false} />
+          <HeaderMenu isAuthenticated={isAuthenticated} />
           <span className={styles.brand}>TravelPlan</span>
         </header>
-        <HomeHero />
+        <HomeHero showHowItWorks={!isAuthenticated} />
       </main>
     </div>
   );

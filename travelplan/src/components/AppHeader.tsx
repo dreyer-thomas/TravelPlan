@@ -20,11 +20,20 @@ export default async function AppHeader() {
   const isAuthenticated = await resolveAuthState();
 
   return (
-    <AppBar position="static" color="transparent" elevation={0}>
+    <AppBar
+      position="static"
+      color="transparent"
+      elevation={0}
+      sx={{
+        borderBottom: "1px solid rgba(17, 18, 20, 0.08)",
+        backdropFilter: "blur(8px)",
+        backgroundColor: "rgba(255, 255, 255, 0.92)",
+      }}
+    >
       <Container maxWidth="lg">
-        <Toolbar disableGutters sx={{ minHeight: 64, display: "flex", justifyContent: "space-between" }}>
+        <Toolbar disableGutters sx={{ minHeight: 72, display: "flex", justifyContent: "space-between" }}>
           <Box display="flex" alignItems="center" gap={2}>
-            <Typography variant="h6" fontWeight={700}>
+            <Typography variant="h6" fontWeight={700} sx={{ letterSpacing: "0.12em", textTransform: "uppercase" }}>
               TravelPlan
             </Typography>
           </Box>

@@ -109,7 +109,7 @@ export default function TripsDashboard() {
         {error && <Alert severity="error">{error}</Alert>}
 
         {loading && (
-          <Paper elevation={1} sx={{ p: 2 }}>
+          <Paper elevation={1} sx={{ p: 3, borderRadius: 3 }}>
             <Box display="flex" flexDirection="column" gap={1.5}>
               <Skeleton variant="text" width="60%" height={28} />
               <Skeleton variant="text" width="45%" height={22} />
@@ -119,7 +119,7 @@ export default function TripsDashboard() {
         )}
 
         {listEmpty && (
-          <Paper elevation={1} sx={{ p: 2 }}>
+          <Paper elevation={1} sx={{ p: 3, borderRadius: 3 }}>
             <Box display="flex" flexDirection="column" gap={1.5} alignItems="flex-start">
               <Typography variant="body2" color="text.secondary">
                 No trips yet. Select Add trip to start building your plan.
@@ -132,11 +132,19 @@ export default function TripsDashboard() {
         )}
 
         {!loading && trips.length > 0 && (
-          <Paper elevation={1} sx={{ p: 2 }}>
+          <Paper elevation={1} sx={{ p: 3, borderRadius: 3 }}>
             <List disablePadding>
               {trips.map((trip) => (
                 <ListItem key={trip.id} divider disablePadding>
-                  <ListItemButton component={Link} href={`/trips/${trip.id}`}>
+                  <ListItemButton
+                    component={Link}
+                    href={`/trips/${trip.id}`}
+                    sx={{
+                      borderRadius: 2,
+                      my: 0.5,
+                      "&:hover": { backgroundColor: "rgba(241, 90, 36, 0.08)" },
+                    }}
+                  >
                     <ListItemText
                       primary={trip.name}
                       secondary={`${buildDateRange(trip)} - ${trip.dayCount} days`}

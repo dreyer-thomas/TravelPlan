@@ -5,7 +5,15 @@ export default function TripsPage() {
   return (
     <Container maxWidth="md" sx={{ py: { xs: 6, md: 10 } }}>
       <Box display="flex" flexDirection="column" gap={4}>
-        <Box>
+        <Box
+          sx={{
+            p: { xs: 3, md: 4 },
+            borderRadius: 4,
+            background: "#ffffff",
+            boxShadow: "0 22px 40px rgba(17, 18, 20, 0.1)",
+            border: "1px solid rgba(17, 18, 20, 0.08)",
+          }}
+        >
           <Typography variant="h3" fontWeight={700} gutterBottom>
             Your trips
           </Typography>
