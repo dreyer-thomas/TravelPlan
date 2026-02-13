@@ -2,8 +2,9 @@ import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-const testDbPath = path.resolve(process.cwd(), "prisma", "test.db");
-const migrateLockPath = path.resolve(process.cwd(), "prisma", "test-migrate.lock");
+const workerId = process.env.VITEST_WORKER_ID ?? process.env.VITEST_POOL_ID ?? "0";
+const testDbPath = path.resolve(process.cwd(), "prisma", `test-${workerId}.db`);
+const migrateLockPath = path.resolve(process.cwd(), "prisma", `test-migrate-${workerId}.lock`);
 
 const wait = (ms: number) => {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
@@ -33,9 +34,13 @@ process.env.DATABASE_URL = process.env.DATABASE_URL ?? `file:${testDbPath}`;
 process.env.JWT_SECRET = process.env.JWT_SECRET ?? "test-secret";
 process.env.NODE_ENV = "test";
 
-const globalForTests = globalThis as unknown as { prismaMigrated?: boolean };
+const globalForTests = globalThis as unknown as { prismaMigrated?: Record<string, boolean> };
 
 if (!globalForTests.prismaMigrated) {
+  globalForTests.prismaMigrated = {};
+}
+
+if (!globalForTests.prismaMigrated[workerId]) {
   acquireMigrationLock();
   try {
     if (!fs.existsSync(testDbPath)) {
@@ -49,7 +54,7 @@ if (!globalForTests.prismaMigrated) {
         DATABASE_URL: process.env.DATABASE_URL,
       },
     });
-    globalForTests.prismaMigrated = true;
+    globalForTests.prismaMigrated[workerId] = true;
   } finally {
     if (fs.existsSync(migrateLockPath)) {
       fs.unlinkSync(migrateLockPath);

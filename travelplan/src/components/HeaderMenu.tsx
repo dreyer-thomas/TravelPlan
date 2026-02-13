@@ -27,8 +27,13 @@ export default function HeaderMenu({ isAuthenticated }: HeaderMenuProps) {
 
   const fetchCsrfToken = async (): Promise<string | null> => {
     try {
-      const response = await fetch("/api/auth/csrf", { method: "GET" });
+      const response = await fetch("/api/auth/csrf", { method: "GET", credentials: "include", cache: "no-store" });
       const body = (await response.json()) as ApiEnvelope<{ csrfToken: string }>;
+      if (!response.ok || body.error) {
+        setCsrfToken(null);
+        return null;
+      }
+
       if (body.data?.csrfToken) {
         setCsrfToken(body.data.csrfToken);
         return body.data.csrfToken;
@@ -65,6 +70,7 @@ export default function HeaderMenu({ isAuthenticated }: HeaderMenuProps) {
     const attemptLogout = async (csrf: string) =>
       fetch("/api/auth/logout", {
         method: "POST",
+        credentials: "include",
         headers: {
           "x-csrf-token": csrf,
         },

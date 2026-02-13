@@ -21,6 +21,7 @@ model User {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
   passwordResetTokens PasswordResetToken[]
+  trips        Trip[]
 
   @@map("users")
 }
@@ -36,7 +37,62 @@ model PasswordResetToken {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId])
+  @@index([userId], map: "idx_trips_user_id")
   @@unique([tokenHash])
   @@map("password_reset_tokens")
+}
+
+model Trip {
+  id        String   @id @default(cuid()) @map("id")
+  userId    String   @map("user_id")
+  name      String   @map("name")
+  startDate DateTime @map("start_date")
+  endDate   DateTime @map("end_date")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user  User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  days  TripDay[]
+
+  @@index([userId])
+  @@map("trips")
+}
+
+model TripDay {
+  id        String   @id @default(cuid()) @map("id")
+  tripId    String   @map("trip_id")
+  date      DateTime @map("date")
+  dayIndex  Int      @map("day_index")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  trip Trip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  accommodation Accommodation?
+  dayPlanItems  DayPlanItem[]
+
+  @@index([tripId], map: "idx_trip_days_trip_id")
+  @@map("trip_days")
+}
+
+model Accommodation {
+  id        String   @id @default(cuid()) @map("id")
+  tripDayId String   @unique(map: "idx_accommodations_trip_day_id") @map("trip_day_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tripDay TripDay @relation(fields: [tripDayId], references: [id], onDelete: Cascade)
+
+  @@map("accommodations")
+}
+
+model DayPlanItem {
+  id        String   @id @default(cuid()) @map("id")
+  tripDayId String   @map("trip_day_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tripDay TripDay @relation(fields: [tripDayId], references: [id], onDelete: Cascade)
+
+  @@index([tripDayId], map: "idx_day_plan_items_trip_day_id")
+  @@map("day_plan_items")
 }

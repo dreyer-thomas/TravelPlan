@@ -10,4 +10,8 @@
  */
 export type * from './models/User'
 export type * from './models/PasswordResetToken'
+export type * from './models/Trip'
+export type * from './models/TripDay'
+export type * from './models/Accommodation'
+export type * from './models/DayPlanItem'
 export type * from './commonInputTypes'

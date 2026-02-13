@@ -12,7 +12,11 @@
 
 # testing
 /coverage
+prisma/dev.db
+prisma/*.db
 prisma/test.db
+prisma/test-*.db
+prisma/test-migrate-*.lock
 
 # next.js
 /.next/

@@ -50,11 +50,11 @@ development_status:
   1-7-how-it-works-section: review
   epic-1-retrospective: optional
 
-  epic-2: backlog
-  2-1-create-trip-with-date-range-and-auto-generated-days: backlog
-  2-2-view-trips-list-and-open-trip-timeline: backlog
-  2-3-edit-or-delete-trip-details: backlog
-  2-4-see-planning-gaps-in-day-view: backlog
+  epic-2: in-progress
+  2-1-create-trip-with-date-range-and-auto-generated-days: done
+  2-2-view-trips-list-and-open-trip-timeline: done
+  2-3-edit-or-delete-trip-details: done
+  2-4-see-planning-gaps-in-day-view: done
   2-5-add-or-update-nightly-accommodation: backlog
   2-6-track-accommodation-status-cost-and-link: backlog
   2-7-create-and-edit-day-plan-items-with-links: backlog

@@ -27,3 +27,23 @@ export type User = Prisma.UserModel
  * 
  */
 export type PasswordResetToken = Prisma.PasswordResetTokenModel
+/**
+ * Model Trip
+ * 
+ */
+export type Trip = Prisma.TripModel
+/**
+ * Model TripDay
+ * 
+ */
+export type TripDay = Prisma.TripDayModel
+/**
+ * Model Accommodation
+ * 
+ */
+export type Accommodation = Prisma.AccommodationModel
+/**
+ * Model DayPlanItem
+ * 
+ */
+export type DayPlanItem = Prisma.DayPlanItemModel
