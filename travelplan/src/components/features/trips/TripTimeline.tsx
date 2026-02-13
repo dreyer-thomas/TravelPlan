@@ -18,6 +18,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import TripDeleteDialog from "@/components/features/trips/TripDeleteDialog";
 import TripEditDialog, { type TripDetail as EditableTripDetail } from "@/components/features/trips/TripEditDialog";
+import TripAccommodationDialog from "@/components/features/trips/TripAccommodationDialog";
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
 
@@ -41,6 +42,7 @@ type TripDay = {
   dayIndex: number;
   missingAccommodation: boolean;
   missingPlan: boolean;
+  accommodation: { id: string; name: string; notes: string | null } | null;
 };
 
 type TripDetail = {
@@ -60,6 +62,8 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
   const [notFound, setNotFound] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [stayOpen, setStayOpen] = useState(false);
+  const [stayDay, setStayDay] = useState<TripDay | null>(null);
   const router = useRouter();
 
   const formatDate = useMemo(
@@ -181,6 +185,22 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
     router.push("/trips");
   };
 
+  const handleStayOpen = (day: TripDay) => {
+    setStayDay(day);
+    setStayOpen(true);
+  };
+
+  const handleStayClose = () => {
+    setStayOpen(false);
+    setStayDay(null);
+  };
+
+  const handleStaySaved = () => {
+    setStayOpen(false);
+    setStayDay(null);
+    loadTrip();
+  };
+
   return (
     <Box display="flex" flexDirection="column" gap={2}>
       {error && <Alert severity="error">{error}</Alert>}
@@ -231,16 +251,21 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                     divider
                     disablePadding
                     secondaryAction={
-                      (day.missingAccommodation || day.missingPlan) && (
-                        <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
-                          {day.missingAccommodation && (
-                            <Chip label={t("trips.timeline.missingStay")} size="small" color="warning" variant="outlined" />
-                          )}
-                          {day.missingPlan && (
-                            <Chip label={t("trips.timeline.missingPlan")} size="small" color="warning" variant="outlined" />
-                          )}
-                        </Box>
-                      )
+                      <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                        {(day.missingAccommodation || day.missingPlan) && (
+                          <>
+                            {day.missingAccommodation && (
+                              <Chip label={t("trips.timeline.missingStay")} size="small" color="warning" variant="outlined" />
+                            )}
+                            {day.missingPlan && (
+                              <Chip label={t("trips.timeline.missingPlan")} size="small" color="warning" variant="outlined" />
+                            )}
+                          </>
+                        )}
+                        <Button size="small" variant="text" onClick={() => handleStayOpen(day)}>
+                          {day.accommodation ? t("trips.stay.editAction") : t("trips.stay.addAction")}
+                        </Button>
+                      </Box>
                     }
                   >
                     <ListItemText
@@ -265,6 +290,13 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
             tripName={detail.trip.name}
             onClose={handleDeleteClose}
             onDeleted={handleDeleted}
+          />
+          <TripAccommodationDialog
+            open={stayOpen}
+            tripId={detail.trip.id}
+            day={stayDay}
+            onClose={handleStayClose}
+            onSaved={handleStaySaved}
           />
         </>
       )}

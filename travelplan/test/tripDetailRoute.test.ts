@@ -64,16 +64,23 @@ describe("GET /api/trips/[id]", () => {
       orderBy: { dayIndex: "asc" },
     });
 
-    await prisma.accommodation.create({ data: { tripDayId: days[0].id } });
+    await prisma.accommodation.create({ data: { tripDayId: days[0].id, name: "Harbor Hotel", notes: "Ocean view" } });
     await prisma.dayPlanItem.create({ data: { tripDayId: days[1].id } });
-    await prisma.accommodation.create({ data: { tripDayId: days[2].id } });
+    await prisma.accommodation.create({ data: { tripDayId: days[2].id, name: "   " } });
     await prisma.dayPlanItem.create({ data: { tripDayId: days[2].id } });
 
     const request = buildRequest(trip.id, { session: token });
     const response = await GET(request, { params: { id: trip.id } });
     const payload = (await response.json()) as ApiEnvelope<{
       trip: { id: string; name: string; startDate: string; endDate: string; dayCount: number };
-      days: { id: string; date: string; dayIndex: number; missingAccommodation: boolean; missingPlan: boolean }[];
+      days: {
+        id: string;
+        date: string;
+        dayIndex: number;
+        missingAccommodation: boolean;
+        missingPlan: boolean;
+        accommodation: { id: string; name: string; notes: string | null } | null;
+      }[];
     }>;
 
     expect(response.status).toBe(200);
@@ -84,7 +91,12 @@ describe("GET /api/trips/[id]", () => {
     expect(payload.data?.days.map((day) => [day.missingAccommodation, day.missingPlan])).toEqual([
       [false, true],
       [true, false],
-      [false, false],
+      [true, false],
+    ]);
+    expect(payload.data?.days.map((day) => day.accommodation?.name ?? null)).toEqual([
+      "Harbor Hotel",
+      null,
+      null,
     ]);
   });
 

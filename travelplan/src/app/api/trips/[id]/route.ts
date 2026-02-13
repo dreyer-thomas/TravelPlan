@@ -57,6 +57,13 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
         dayIndex: day.dayIndex,
         missingAccommodation: day.missingAccommodation,
         missingPlan: day.missingPlan,
+        accommodation: day.accommodation
+          ? {
+              id: day.accommodation.id,
+              name: day.accommodation.name,
+              notes: day.accommodation.notes,
+            }
+          : null,
       })),
     });
   } catch {
@@ -126,6 +133,13 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
         dayIndex: day.dayIndex,
         missingAccommodation: day.missingAccommodation,
         missingPlan: day.missingPlan,
+        accommodation: day.accommodation
+          ? {
+              id: day.accommodation.id,
+              name: day.accommodation.name,
+              notes: day.accommodation.notes,
+            }
+          : null,
       })),
     });
   } catch {

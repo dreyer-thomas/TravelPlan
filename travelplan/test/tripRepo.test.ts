@@ -160,16 +160,19 @@ describe("tripRepo", () => {
     });
 
     await prisma.accommodation.create({
-      data: { tripDayId: days[0].id },
+      data: { tripDayId: days[0].id, name: "Lake Cabin", notes: "Bring snacks" },
     });
     await prisma.dayPlanItem.create({
       data: { tripDayId: days[1].id },
     });
     await prisma.accommodation.create({
-      data: { tripDayId: days[2].id },
+      data: { tripDayId: days[2].id, name: "Forest Lodge" },
     });
     await prisma.dayPlanItem.create({
       data: { tripDayId: days[2].id },
+    });
+    await prisma.accommodation.create({
+      data: { tripDayId: days[3].id, name: "   " },
     });
 
     const detail = await getTripWithDaysForUser(user.id, trip.id);
@@ -180,6 +183,12 @@ describe("tripRepo", () => {
       [true, false],
       [false, false],
       [true, true],
+    ]);
+    expect(detail?.days.map((day) => day.accommodation?.name ?? null)).toEqual([
+      "Lake Cabin",
+      null,
+      "Forest Lodge",
+      null,
     ]);
   });
 

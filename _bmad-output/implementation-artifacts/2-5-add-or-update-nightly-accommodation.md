@@ -1,6 +1,6 @@
 # Story 2.5: Add or Update Nightly Accommodation
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -33,26 +33,26 @@ so that each night in the trip is covered.
 
 ## Tasks / Subtasks
 
-- [ ] Data model: add minimal accommodation details (AC: 1,2)
-  - [ ] Add required `name` field to `Accommodation` (mapped to `property_name`)
-  - [ ] Add optional `notes` field (mapped to `notes`) for freeform context (keep small)
-- [ ] Repository: accommodation CRUD scoped to user + trip + day (AC: 1,2,3)
-  - [ ] Add `lib/repositories/accommodationRepo.ts` with create/update/delete by `tripDayId`
-  - [ ] Validate `tripDayId` belongs to `tripId` and `userId`
-- [ ] API: accommodations endpoint (AC: 1,2,3)
-  - [ ] Add `POST /api/trips/[id]/accommodations` to create an accommodation for a day
-  - [ ] Add `PATCH /api/trips/[id]/accommodations` to update the accommodation for a day
-  - [ ] Add `DELETE /api/trips/[id]/accommodations` to remove the accommodation for a day
-  - [ ] All state-changing routes require CSRF validation
-- [ ] API: return accommodation in trip detail (AC: 1,2)
-  - [ ] Extend `GET /api/trips/[id]` response with `accommodation` per day (id + name + notes)
-- [ ] UI: day list accommodation editor (AC: 1,2,3)
-  - [ ] Add inline “Add stay” / “Edit stay” action in `TripTimeline`
-  - [ ] Implement a dialog/form to edit accommodation name/notes
-  - [ ] On delete, refresh trip detail so gap badges update
-- [ ] Tests (AC: 1,2,3)
-  - [ ] Repo tests for create/update/delete and trip/day ownership enforcement
-  - [ ] API tests for POST/PATCH/DELETE and response shape
+- [x] Data model: add minimal accommodation details (AC: 1,2)
+  - [x] Add required `name` field to `Accommodation` (mapped to `property_name`)
+  - [x] Add optional `notes` field (mapped to `notes`) for freeform context (keep small)
+- [x] Repository: accommodation CRUD scoped to user + trip + day (AC: 1,2,3)
+  - [x] Add `lib/repositories/accommodationRepo.ts` with create/update/delete by `tripDayId`
+  - [x] Validate `tripDayId` belongs to `tripId` and `userId`
+- [x] API: accommodations endpoint (AC: 1,2,3)
+  - [x] Add `POST /api/trips/[id]/accommodations` to create an accommodation for a day
+  - [x] Add `PATCH /api/trips/[id]/accommodations` to update the accommodation for a day
+  - [x] Add `DELETE /api/trips/[id]/accommodations` to remove the accommodation for a day
+  - [x] All state-changing routes require CSRF validation
+- [x] API: return accommodation in trip detail (AC: 1,2)
+  - [x] Extend `GET /api/trips/[id]` response with `accommodation` per day (id + name + notes)
+- [x] UI: day list accommodation editor (AC: 1,2,3)
+  - [x] Add inline “Add stay” / “Edit stay” action in `TripTimeline`
+  - [x] Implement a dialog/form to edit accommodation name/notes
+  - [x] On delete, refresh trip detail so gap badges update
+- [x] Tests (AC: 1,2,3)
+  - [x] Repo tests for create/update/delete and trip/day ownership enforcement
+  - [x] API tests for POST/PATCH/DELETE and response shape
 
 ## Dev Notes
 
@@ -80,10 +80,44 @@ so that each night in the trip is covered.
 Codex (GPT-5)
 
 ### Debug Log References
+- `npm test` (vitest run)
+- `npm test` (vitest run) - 2026-02-13
 
 ### Completion Notes List
+- Added accommodation name/notes fields with migration and regenerated Prisma client.
+- Implemented scoped accommodation repo + API routes with CSRF validation and trip/day ownership checks.
+- Extended trip detail payload and TripTimeline with add/edit stay dialog; gap badges refresh on save/delete.
+- Added repo/route tests for accommodation CRUD and updated trip detail tests.
+- Fixed missing-accommodation handling for blank names, clarified PATCH error responses, and reset dialog state; updated tests.
 
 ### File List
+- _bmad-output/implementation-artifacts/2-5-add-or-update-nightly-accommodation.md
+- _bmad-output/implementation-artifacts/sprint-status.yaml
+- travelplan/prisma/schema.prisma
+- travelplan/prisma/migrations/20260213180000_add_accommodation_details/migration.sql
+- travelplan/src/app/api/trips/[id]/route.ts
+- travelplan/src/app/api/trips/[id]/accommodations/route.ts
+- travelplan/src/components/features/trips/TripAccommodationDialog.tsx
+- travelplan/src/components/features/trips/TripEditDialog.tsx
+- travelplan/src/components/features/trips/TripTimeline.tsx
+- travelplan/src/generated/prisma/commonInputTypes.ts
+- travelplan/src/generated/prisma/internal/class.ts
+- travelplan/src/generated/prisma/internal/prismaNamespace.ts
+- travelplan/src/generated/prisma/internal/prismaNamespaceBrowser.ts
+- travelplan/src/generated/prisma/models/Accommodation.ts
+- travelplan/src/i18n/en.ts
+- travelplan/src/i18n/de.ts
+- travelplan/src/lib/repositories/accommodationRepo.ts
+- travelplan/src/lib/repositories/tripRepo.ts
+- travelplan/src/lib/validation/accommodationSchemas.ts
+- travelplan/test/accommodationRepo.test.ts
+- travelplan/test/tripAccommodationRoute.test.ts
+- travelplan/test/tripDetailRoute.test.ts
+- travelplan/test/tripRepo.test.ts
+
+### Change Log
+- 2026-02-13: Implemented accommodation details, CRUD API, UI editor, and tests.
+- 2026-02-13: Addressed code review findings for accommodation updates and gap detection.
 
 ## Developer Context
 

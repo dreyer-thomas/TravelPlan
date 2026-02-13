@@ -35,6 +35,17 @@ const theme = createTheme({
         },
       },
     },
+    MuiInputLabel: {
+      styleOverrides: {
+        root: {
+          "&.MuiInputLabel-shrink": {
+            backgroundColor: "#ffffff",
+            padding: "0 6px",
+            marginLeft: -6,
+          },
+        },
+      },
+    },
     MuiPaper: {
       styleOverrides: {
         root: {
@@ -71,6 +82,9 @@ const theme = createTheme({
         root: {
           borderRadius: 14,
           backgroundColor: "#ffffff",
+        },
+        notchedOutline: {
+          borderRadius: 14,
         },
       },
     },

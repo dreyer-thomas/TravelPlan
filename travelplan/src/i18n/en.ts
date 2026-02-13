@@ -111,6 +111,18 @@ const en: Dictionary = {
   "trips.timeline.missingStay": "Missing stay",
   "trips.timeline.missingPlan": "Missing plan",
   "trips.timeline.dayLabel": "Day {index}",
+  "trips.stay.addAction": "Add stay",
+  "trips.stay.editAction": "Edit stay",
+  "trips.stay.addTitle": "Add stay",
+  "trips.stay.editTitle": "Edit stay",
+  "trips.stay.nameLabel": "Stay name",
+  "trips.stay.notesLabel": "Notes",
+  "trips.stay.save": "Save stay",
+  "trips.stay.delete": "Remove stay",
+  "trips.stay.initError": "Unable to initialize stay editor. Please refresh.",
+  "trips.stay.error": "Stay update failed. Please try again.",
+  "trips.stay.deleteError": "Stay removal failed. Please try again.",
+  "trips.stay.nameRequired": "Stay name is required",
   "common.cancel": "Cancel"
 };
 

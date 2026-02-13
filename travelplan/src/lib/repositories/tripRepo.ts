@@ -21,6 +21,7 @@ export type TripDaySummary = {
   dayIndex: number;
   missingAccommodation: boolean;
   missingPlan: boolean;
+  accommodation: { id: string; name: string; notes: string | null } | null;
 };
 
 export type TripWithDays = {
@@ -163,7 +164,7 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
       days: {
         orderBy: [{ dayIndex: "asc" }, { date: "asc" }],
         include: {
-          accommodation: { select: { id: true } },
+          accommodation: { select: { id: true, name: true, notes: true } },
           _count: { select: { dayPlanItems: true } },
         },
       },
@@ -181,13 +182,21 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
     startDate: trip.startDate,
     endDate: trip.endDate,
     dayCount: trip._count.days,
-    days: trip.days.map((day) => ({
-      id: day.id,
-      date: day.date,
-      dayIndex: day.dayIndex,
-      missingAccommodation: !day.accommodation,
-      missingPlan: day._count.dayPlanItems === 0,
-    })),
+    days: trip.days.map((day) => {
+      const accommodationName = day.accommodation?.name?.trim() ?? "";
+      const hasAccommodation = accommodationName.length > 0;
+
+      return {
+        id: day.id,
+        date: day.date,
+        dayIndex: day.dayIndex,
+        missingAccommodation: !hasAccommodation,
+        missingPlan: day._count.dayPlanItems === 0,
+        accommodation: hasAccommodation
+          ? { id: day.accommodation!.id, name: accommodationName, notes: day.accommodation!.notes }
+          : null,
+      };
+    }),
   };
 };
 

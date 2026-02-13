@@ -27,6 +27,8 @@ export type AggregateAccommodation = {
 export type AccommodationMinAggregateOutputType = {
   id: string | null
   tripDayId: string | null
+  name: string | null
+  notes: string | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -34,6 +36,8 @@ export type AccommodationMinAggregateOutputType = {
 export type AccommodationMaxAggregateOutputType = {
   id: string | null
   tripDayId: string | null
+  name: string | null
+  notes: string | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -41,6 +45,8 @@ export type AccommodationMaxAggregateOutputType = {
 export type AccommodationCountAggregateOutputType = {
   id: number
   tripDayId: number
+  name: number
+  notes: number
   createdAt: number
   updatedAt: number
   _all: number
@@ -50,6 +56,8 @@ export type AccommodationCountAggregateOutputType = {
 export type AccommodationMinAggregateInputType = {
   id?: true
   tripDayId?: true
+  name?: true
+  notes?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -57,6 +65,8 @@ export type AccommodationMinAggregateInputType = {
 export type AccommodationMaxAggregateInputType = {
   id?: true
   tripDayId?: true
+  name?: true
+  notes?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -64,6 +74,8 @@ export type AccommodationMaxAggregateInputType = {
 export type AccommodationCountAggregateInputType = {
   id?: true
   tripDayId?: true
+  name?: true
+  notes?: true
   createdAt?: true
   updatedAt?: true
   _all?: true
@@ -144,6 +156,8 @@ export type AccommodationGroupByArgs<ExtArgs extends runtime.Types.Extensions.In
 export type AccommodationGroupByOutputType = {
   id: string
   tripDayId: string
+  name: string
+  notes: string | null
   createdAt: Date
   updatedAt: Date
   _count: AccommodationCountAggregateOutputType | null
@@ -172,6 +186,8 @@ export type AccommodationWhereInput = {
   NOT?: Prisma.AccommodationWhereInput | Prisma.AccommodationWhereInput[]
   id?: Prisma.StringFilter<"Accommodation"> | string
   tripDayId?: Prisma.StringFilter<"Accommodation"> | string
+  name?: Prisma.StringFilter<"Accommodation"> | string
+  notes?: Prisma.StringNullableFilter<"Accommodation"> | string | null
   createdAt?: Prisma.DateTimeFilter<"Accommodation"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Accommodation"> | Date | string
   tripDay?: Prisma.XOR<Prisma.TripDayScalarRelationFilter, Prisma.TripDayWhereInput>
@@ -180,6 +196,8 @@ export type AccommodationWhereInput = {
 export type AccommodationOrderByWithRelationInput = {
   id?: Prisma.SortOrder
   tripDayId?: Prisma.SortOrder
+  name?: Prisma.SortOrder
+  notes?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   tripDay?: Prisma.TripDayOrderByWithRelationInput
@@ -191,6 +209,8 @@ export type AccommodationWhereUniqueInput = Prisma.AtLeast<{
   AND?: Prisma.AccommodationWhereInput | Prisma.AccommodationWhereInput[]
   OR?: Prisma.AccommodationWhereInput[]
   NOT?: Prisma.AccommodationWhereInput | Prisma.AccommodationWhereInput[]
+  name?: Prisma.StringFilter<"Accommodation"> | string
+  notes?: Prisma.StringNullableFilter<"Accommodation"> | string | null
   createdAt?: Prisma.DateTimeFilter<"Accommodation"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Accommodation"> | Date | string
   tripDay?: Prisma.XOR<Prisma.TripDayScalarRelationFilter, Prisma.TripDayWhereInput>
@@ -199,6 +219,8 @@ export type AccommodationWhereUniqueInput = Prisma.AtLeast<{
 export type AccommodationOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
   tripDayId?: Prisma.SortOrder
+  name?: Prisma.SortOrder
+  notes?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   _count?: Prisma.AccommodationCountOrderByAggregateInput
@@ -212,12 +234,16 @@ export type AccommodationScalarWhereWithAggregatesInput = {
   NOT?: Prisma.AccommodationScalarWhereWithAggregatesInput | Prisma.AccommodationScalarWhereWithAggregatesInput[]
   id?: Prisma.StringWithAggregatesFilter<"Accommodation"> | string
   tripDayId?: Prisma.StringWithAggregatesFilter<"Accommodation"> | string
+  name?: Prisma.StringWithAggregatesFilter<"Accommodation"> | string
+  notes?: Prisma.StringNullableWithAggregatesFilter<"Accommodation"> | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"Accommodation"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"Accommodation"> | Date | string
 }
 
 export type AccommodationCreateInput = {
   id?: string
+  name: string
+  notes?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   tripDay: Prisma.TripDayCreateNestedOneWithoutAccommodationInput
@@ -226,12 +252,16 @@ export type AccommodationCreateInput = {
 export type AccommodationUncheckedCreateInput = {
   id?: string
   tripDayId: string
+  name: string
+  notes?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
 
 export type AccommodationUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   tripDay?: Prisma.TripDayUpdateOneRequiredWithoutAccommodationNestedInput
@@ -240,6 +270,8 @@ export type AccommodationUpdateInput = {
 export type AccommodationUncheckedUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   tripDayId?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -247,12 +279,16 @@ export type AccommodationUncheckedUpdateInput = {
 export type AccommodationCreateManyInput = {
   id?: string
   tripDayId: string
+  name: string
+  notes?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
 
 export type AccommodationUpdateManyMutationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -260,6 +296,8 @@ export type AccommodationUpdateManyMutationInput = {
 export type AccommodationUncheckedUpdateManyInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   tripDayId?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -272,6 +310,8 @@ export type AccommodationNullableScalarRelationFilter = {
 export type AccommodationCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
   tripDayId?: Prisma.SortOrder
+  name?: Prisma.SortOrder
+  notes?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -279,6 +319,8 @@ export type AccommodationCountOrderByAggregateInput = {
 export type AccommodationMaxOrderByAggregateInput = {
   id?: Prisma.SortOrder
   tripDayId?: Prisma.SortOrder
+  name?: Prisma.SortOrder
+  notes?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -286,6 +328,8 @@ export type AccommodationMaxOrderByAggregateInput = {
 export type AccommodationMinOrderByAggregateInput = {
   id?: Prisma.SortOrder
   tripDayId?: Prisma.SortOrder
+  name?: Prisma.SortOrder
+  notes?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -322,14 +366,22 @@ export type AccommodationUncheckedUpdateOneWithoutTripDayNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.AccommodationUpdateToOneWithWhereWithoutTripDayInput, Prisma.AccommodationUpdateWithoutTripDayInput>, Prisma.AccommodationUncheckedUpdateWithoutTripDayInput>
 }
 
+export type NullableStringFieldUpdateOperationsInput = {
+  set?: string | null
+}
+
 export type AccommodationCreateWithoutTripDayInput = {
   id?: string
+  name: string
+  notes?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
 
 export type AccommodationUncheckedCreateWithoutTripDayInput = {
   id?: string
+  name: string
+  notes?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -352,12 +404,16 @@ export type AccommodationUpdateToOneWithWhereWithoutTripDayInput = {
 
 export type AccommodationUpdateWithoutTripDayInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
 export type AccommodationUncheckedUpdateWithoutTripDayInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -367,6 +423,8 @@ export type AccommodationUncheckedUpdateWithoutTripDayInput = {
 export type AccommodationSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
   tripDayId?: boolean
+  name?: boolean
+  notes?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   tripDay?: boolean | Prisma.TripDayDefaultArgs<ExtArgs>
@@ -375,6 +433,8 @@ export type AccommodationSelect<ExtArgs extends runtime.Types.Extensions.Interna
 export type AccommodationSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
   tripDayId?: boolean
+  name?: boolean
+  notes?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   tripDay?: boolean | Prisma.TripDayDefaultArgs<ExtArgs>
@@ -383,6 +443,8 @@ export type AccommodationSelectCreateManyAndReturn<ExtArgs extends runtime.Types
 export type AccommodationSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
   tripDayId?: boolean
+  name?: boolean
+  notes?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   tripDay?: boolean | Prisma.TripDayDefaultArgs<ExtArgs>
@@ -391,11 +453,13 @@ export type AccommodationSelectUpdateManyAndReturn<ExtArgs extends runtime.Types
 export type AccommodationSelectScalar = {
   id?: boolean
   tripDayId?: boolean
+  name?: boolean
+  notes?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }
 
-export type AccommodationOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "tripDayId" | "createdAt" | "updatedAt", ExtArgs["result"]["accommodation"]>
+export type AccommodationOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "tripDayId" | "name" | "notes" | "createdAt" | "updatedAt", ExtArgs["result"]["accommodation"]>
 export type AccommodationInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   tripDay?: boolean | Prisma.TripDayDefaultArgs<ExtArgs>
 }
@@ -414,6 +478,8 @@ export type $AccommodationPayload<ExtArgs extends runtime.Types.Extensions.Inter
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
     tripDayId: string
+    name: string
+    notes: string | null
     createdAt: Date
     updatedAt: Date
   }, ExtArgs["result"]["accommodation"]>
@@ -842,6 +908,8 @@ export interface Prisma__AccommodationClient<T, Null = never, ExtArgs extends ru
 export interface AccommodationFieldRefs {
   readonly id: Prisma.FieldRef<"Accommodation", 'String'>
   readonly tripDayId: Prisma.FieldRef<"Accommodation", 'String'>
+  readonly name: Prisma.FieldRef<"Accommodation", 'String'>
+  readonly notes: Prisma.FieldRef<"Accommodation", 'String'>
   readonly createdAt: Prisma.FieldRef<"Accommodation", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"Accommodation", 'DateTime'>
 }

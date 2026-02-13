@@ -83,6 +83,8 @@ model TripDay {
 model Accommodation {
   id        String   @id @default(cuid()) @map("id")
   tripDayId String   @unique(map: "idx_accommodations_trip_day_id") @map("trip_day_id")
+  name      String   @map("property_name")
+  notes     String?  @map("notes")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 

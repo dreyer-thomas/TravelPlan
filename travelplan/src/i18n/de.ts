@@ -111,6 +111,18 @@ const de: Dictionary = {
   "trips.timeline.missingStay": "Unterkunft fehlt",
   "trips.timeline.missingPlan": "Plan fehlt",
   "trips.timeline.dayLabel": "Tag {index}",
+  "trips.stay.addAction": "Unterkunft hinzufügen",
+  "trips.stay.editAction": "Unterkunft bearbeiten",
+  "trips.stay.addTitle": "Unterkunft hinzufügen",
+  "trips.stay.editTitle": "Unterkunft bearbeiten",
+  "trips.stay.nameLabel": "Name der Unterkunft",
+  "trips.stay.notesLabel": "Notizen",
+  "trips.stay.save": "Unterkunft speichern",
+  "trips.stay.delete": "Unterkunft entfernen",
+  "trips.stay.initError": "Unterkunft-Editor konnte nicht initialisiert werden. Bitte aktualisieren.",
+  "trips.stay.error": "Unterkunft konnte nicht gespeichert werden. Bitte erneut versuchen.",
+  "trips.stay.deleteError": "Unterkunft konnte nicht entfernt werden. Bitte erneut versuchen.",
+  "trips.stay.nameRequired": "Name der Unterkunft ist erforderlich",
   "common.cancel": "Abbrechen"
 };
 

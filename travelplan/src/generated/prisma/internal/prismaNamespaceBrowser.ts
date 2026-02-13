@@ -126,6 +126,8 @@ export type TripDayScalarFieldEnum = (typeof TripDayScalarFieldEnum)[keyof typeo
 export const AccommodationScalarFieldEnum = {
   id: 'id',
   tripDayId: 'tripDayId',
+  name: 'name',
+  notes: 'notes',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const

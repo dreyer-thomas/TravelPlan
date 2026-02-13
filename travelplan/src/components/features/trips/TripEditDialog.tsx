@@ -35,6 +35,7 @@ type TripDay = {
   dayIndex: number;
   missingAccommodation: boolean;
   missingPlan: boolean;
+  accommodation?: { id: string; name: string; notes: string | null } | null;
 };
 
 export type TripDetail = {
