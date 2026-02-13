@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useSearchParams } from "next/navigation";
 import { Alert, Box, Button, CircularProgress, Container, Paper, TextField, Typography } from "@mui/material";
+import { useI18n } from "@/i18n/provider";
 
 type ResetPasswordValues = {
   token: string;
@@ -18,6 +19,7 @@ type ApiEnvelope<T> = {
 export default function ResetPasswordPage() {
   const searchParams = useSearchParams();
   const initialToken = searchParams.get("token") ?? "";
+  const { t } = useI18n();
 
   const {
     register,
@@ -46,7 +48,7 @@ export default function ResetPasswordPage() {
           setCsrfToken(body.data.csrfToken);
         }
       } catch {
-        setServerError("Unable to initialize password reset. Please refresh.");
+        setServerError(t("auth.reset.initError"));
       }
     };
 
@@ -64,7 +66,7 @@ export default function ResetPasswordPage() {
     setSuccess(false);
 
     if (!csrfToken) {
-      setServerError("Security token missing. Please refresh and try again.");
+      setServerError(t("errors.csrfMissing"));
       return;
     }
 
@@ -79,7 +81,7 @@ export default function ResetPasswordPage() {
         body: JSON.stringify(values),
       });
     } catch {
-      setServerError("Unable to reach the server. Please try again.");
+      setServerError(t("errors.network"));
       return;
     }
 
@@ -87,7 +89,7 @@ export default function ResetPasswordPage() {
     try {
       body = (await response.json()) as ApiEnvelope<{ success: boolean }>;
     } catch {
-      setServerError("Password reset failed. Please try again.");
+      setServerError(t("auth.reset.error"));
       return;
     }
 
@@ -104,7 +106,22 @@ export default function ResetPasswordPage() {
         return;
       }
 
-      setServerError(body.error?.message ?? "Password reset failed. Please try again.");
+      const resolveApiError = (code?: string) => {
+        switch (code) {
+          case "rate_limited":
+            return t("errors.rateLimited");
+          case "csrf_invalid":
+            return t("errors.csrfInvalid");
+          case "server_error":
+            return t("errors.server");
+          case "invalid_json":
+            return t("errors.invalidJson");
+          default:
+            return t("auth.reset.error");
+        }
+      };
+
+      setServerError(resolveApiError(body.error?.code));
       return;
     }
 
@@ -114,18 +131,18 @@ export default function ResetPasswordPage() {
 
   const tokenRules = useMemo(
     () => ({
-      required: "Reset token is required",
+      required: t("auth.reset.tokenRequired"),
     }),
-    [],
+    [t],
   );
 
   const passwordRules = useMemo(
     () => ({
-      required: "Password is required",
-      minLength: { value: 8, message: "Password must be at least 8 characters" },
-      maxLength: { value: 72, message: "Password must be at most 72 characters" },
+      required: t("auth.passwordRequired"),
+      minLength: { value: 8, message: t("auth.passwordMin") },
+      maxLength: { value: 72, message: t("auth.passwordMax") },
     }),
-    [],
+    [t],
   );
 
   return (
@@ -141,29 +158,29 @@ export default function ResetPasswordPage() {
         <Box display="flex" flexDirection="column" gap={3}>
           <Box>
             <Typography variant="overline" color="text.secondary" letterSpacing="0.25em">
-              TravelPlan
+              {t("app.brand")}
             </Typography>
             <Typography variant="h4" fontWeight={600} gutterBottom>
-              Set a new password
+              {t("auth.reset.title")}
             </Typography>
             <Typography variant="body1" color="text.secondary">
-              Enter the reset token and your new password.
+              {t("auth.reset.subtitle")}
             </Typography>
           </Box>
 
           {serverError && <Alert severity="error">{serverError}</Alert>}
-          {success && <Alert severity="success">Password updated. You can now sign in.</Alert>}
+          {success && <Alert severity="success">{t("auth.reset.success")}</Alert>}
 
           <Box component="form" onSubmit={handleSubmit(onSubmit)} display="flex" flexDirection="column" gap={2}>
             <TextField
-              label="Reset token"
+              label={t("auth.reset.tokenLabel")}
               error={Boolean(errors.token)}
               helperText={errors.token?.message}
               {...register("token", tokenRules)}
               fullWidth
             />
             <TextField
-              label="New password"
+              label={t("auth.reset.newPassword")}
               type="password"
               error={Boolean(errors.password)}
               helperText={errors.password?.message}
@@ -171,7 +188,7 @@ export default function ResetPasswordPage() {
               fullWidth
             />
             <Button type="submit" variant="contained" size="large" disabled={isSubmitting}>
-              {isSubmitting ? <CircularProgress size={22} /> : "Update password"}
+              {isSubmitting ? <CircularProgress size={22} /> : t("auth.reset.submit")}
             </Button>
           </Box>
         </Box>

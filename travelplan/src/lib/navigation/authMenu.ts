@@ -1,16 +1,16 @@
 export type AuthMenuItem = {
   key: "login" | "register" | "logout";
-  label: string;
+  labelKey: string;
   href?: string;
 };
 
 export const getAuthMenuItems = (isAuthenticated: boolean): AuthMenuItem[] => {
   if (isAuthenticated) {
-    return [{ key: "logout", label: "Sign out" }];
+    return [{ key: "logout", labelKey: "auth.logout" }];
   }
 
   return [
-    { key: "login", label: "Login", href: "/auth/login" },
-    { key: "register", label: "Register", href: "/auth/register" },
+    { key: "login", labelKey: "auth.login", href: "/auth/login" },
+    { key: "register", labelKey: "auth.register", href: "/auth/register" },
   ];
 };

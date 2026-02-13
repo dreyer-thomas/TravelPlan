@@ -1,6 +1,6 @@
 # Story 1.7: How It Works Section
 
-Status: in-progress
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -37,6 +37,9 @@ so that I quickly understand the product before signing up.
 - Keep the section on the home page (no separate route).
 - Use the session cookie presence to toggle visibility.
 - Content should be concise and readable on desktop and mobile.
+- The "How it works" section must remain always visible for signed-out users (no CTA toggle). Do not reintroduce a collapse button.
+- Hero background uses `public/hero-mountains.jpg` behind the title/subtitle only, with a bottom dark gradient for readability.
+- Keep title and subtitle text on the image block (subtitle in white). Section is below the hero, not gated by a toggle.
 
 ### Project Structure Notes
 
@@ -63,7 +66,7 @@ so that I quickly understand the product before signing up.
 
 ## Story Completion Status
 
-- Status: in-progress
+- Status: done
 - Completion note: Story created for How it works section and signed-in hiding behavior.
 
 ## Dev Agent Record
@@ -90,7 +93,9 @@ gpt-5 (Codex)
 - Collapsed the How It Works section behind the CTA button and increased spacing between the intro and cards.
 - Updated home page auth resolution and gated How It Works content/CTA when a valid session cookie exists.
 - Converted the "See how it works" CTA to a true anchor link to the section.
-- Tests run: `npm test` (fails: `registerRoute.test.ts`, `loginRoute.test.ts`, `passwordResetConfirmRoute.test.ts` timeouts).
+- Adjusted hero layout with image-backed title/subtitle and kept the How It Works section always visible for signed-out users.
+- Reduced bcrypt rounds in test mode to avoid auth test timeouts.
+- Tests run: `npm test`.
 
 ### File List
 
@@ -100,7 +105,11 @@ gpt-5 (Codex)
 - travelplan/src/middleware.ts
 - travelplan/src/app/page.module.css
 - travelplan/src/app/page.tsx
+- travelplan/src/components/HeaderMenu.tsx
+- travelplan/src/lib/auth/bcrypt.ts
+- travelplan/public/hero-mountains.jpg
 - travelplan/test/middleware.test.ts
+- docs/project-overview.md
 
 ## Change Log
 

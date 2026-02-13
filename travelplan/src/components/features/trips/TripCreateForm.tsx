@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { Alert, Box, Button, CircularProgress, TextField } from "@mui/material";
+import { useI18n } from "@/i18n/provider";
+import { formatMessage } from "@/i18n";
 
 type ApiEnvelope<T> = {
   data: T | null;
@@ -36,9 +38,10 @@ export default function TripCreateForm({
   onSuccess,
   onSubmittingChange,
   formId,
-  submitLabel = "Create trip",
+  submitLabel,
   showSubmit = true,
 }: TripCreateFormProps) {
+  const { t } = useI18n();
   const {
     register,
     handleSubmit,
@@ -64,7 +67,7 @@ export default function TripCreateForm({
         const body = (await response.json()) as ApiEnvelope<{ csrfToken: string }>;
 
         if (!response.ok || body.error) {
-          setServerError(body.error?.message ?? "Unable to initialize trip creation. Please refresh.");
+          setServerError(t("trips.create.initError"));
           return;
         }
 
@@ -73,9 +76,9 @@ export default function TripCreateForm({
           return;
         }
 
-        setServerError("Unable to initialize trip creation. Please refresh.");
+        setServerError(t("trips.create.initError"));
       } catch {
-        setServerError("Unable to initialize trip creation. Please refresh.");
+        setServerError(t("trips.create.initError"));
       }
     };
 
@@ -91,7 +94,7 @@ export default function TripCreateForm({
     setSuccess(null);
 
     if (!csrfToken) {
-      setServerError("Security token missing. Please refresh and try again.");
+      setServerError(t("errors.csrfMissing"));
       return;
     }
 
@@ -126,12 +129,31 @@ export default function TripCreateForm({
         return;
       }
 
-      setServerError(body.error?.message ?? "Trip creation failed. Please try again.");
+      const resolveApiError = (code?: string) => {
+        switch (code) {
+          case "unauthorized":
+            return t("errors.unauthorized");
+          case "csrf_invalid":
+            return t("errors.csrfInvalid");
+          case "server_error":
+            return t("errors.server");
+          case "invalid_json":
+            return t("errors.invalidJson");
+          default:
+            return t("trips.create.error");
+        }
+      };
+
+      setServerError(resolveApiError(body.error?.code));
       return;
     }
 
     if (body.data) {
-      setSuccess(`Trip created with ${body.data.dayCount} days.`);
+      setSuccess(
+        formatMessage(t("trips.create.success"), {
+          count: body.data.dayCount,
+        }),
+      );
       reset({ name: "", startDate: "", endDate: "" });
       onCreated?.(body.data);
       onSuccess?.();
@@ -140,16 +162,16 @@ export default function TripCreateForm({
 
   const nameRules = useMemo(
     () => ({
-      required: "Trip name is required",
+      required: t("trips.form.nameRequired"),
     }),
-    [],
+    [t],
   );
 
   const dateRules = useMemo(
     () => ({
-      required: "Date is required",
+      required: t("trips.form.dateRequired"),
     }),
-    [],
+    [t],
   );
 
   return (
@@ -166,15 +188,15 @@ export default function TripCreateForm({
         gap={2}
       >
         <TextField
-          label="Trip name"
-          placeholder="e.g. Spring in Kyoto"
+          label={t("trips.form.name")}
+          placeholder={t("trips.form.namePlaceholder")}
           error={Boolean(errors.name)}
           helperText={errors.name?.message}
           {...register("name", nameRules)}
           fullWidth
         />
         <TextField
-          label="Start date"
+          label={t("trips.form.startDate")}
           type="date"
           error={Boolean(errors.startDate)}
           helperText={errors.startDate?.message}
@@ -183,7 +205,7 @@ export default function TripCreateForm({
           fullWidth
         />
         <TextField
-          label="End date"
+          label={t("trips.form.endDate")}
           type="date"
           error={Boolean(errors.endDate)}
           helperText={errors.endDate?.message}
@@ -193,7 +215,7 @@ export default function TripCreateForm({
         />
         {showSubmit && (
           <Button type="submit" variant="contained" size="large" disabled={isSubmitting}>
-            {isSubmitting ? <CircularProgress size={22} /> : submitLabel}
+            {isSubmitting ? <CircularProgress size={22} /> : submitLabel ?? t("trips.create.submit")}
           </Button>
         )}
       </Box>

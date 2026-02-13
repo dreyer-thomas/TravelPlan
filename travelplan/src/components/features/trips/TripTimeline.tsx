@@ -18,6 +18,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import TripDeleteDialog from "@/components/features/trips/TripDeleteDialog";
 import TripEditDialog, { type TripDetail as EditableTripDetail } from "@/components/features/trips/TripEditDialog";
+import { useI18n } from "@/i18n/provider";
+import { formatMessage } from "@/i18n";
 
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 type ApiEnvelope<T> = {
@@ -46,18 +48,12 @@ type TripDetail = {
   days: TripDay[];
 };
 
-const formatDate = (value: string) =>
-  new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }).format(
-    new Date(value),
-  );
-
-const buildDateRange = (trip: TripSummary) => `${formatDate(trip.startDate)} - ${formatDate(trip.endDate)}`;
-
 type TripTimelineProps = {
   tripId: string;
 };
 
 export default function TripTimeline({ tripId }: TripTimelineProps) {
+  const { language, t } = useI18n();
   const [detail, setDetail] = useState<TripDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -65,6 +61,21 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const router = useRouter();
+
+  const formatDate = useMemo(
+    () => (value: string) =>
+      new Intl.DateTimeFormat(language === "de" ? "de-DE" : "en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        timeZone: "UTC",
+      }).format(new Date(value)),
+    [language],
+  );
+  const buildDateRange = useCallback(
+    (trip: TripSummary) => `${formatDate(trip.startDate)} - ${formatDate(trip.endDate)}`,
+    [formatDate],
+  );
 
   const loadTrip = useCallback(async () => {
     setLoading(true);
@@ -82,19 +93,34 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
       }
 
       if (!response.ok || body.error || !body.data) {
-        setError(body.error?.message ?? "Unable to load trip.");
+        const resolveApiError = (code?: string) => {
+          switch (code) {
+            case "unauthorized":
+              return t("errors.unauthorized");
+            case "csrf_invalid":
+              return t("errors.csrfInvalid");
+            case "server_error":
+              return t("errors.server");
+            case "invalid_json":
+              return t("errors.invalidJson");
+            default:
+              return t("trips.detail.loadError");
+          }
+        };
+
+        setError(resolveApiError(body.error?.code));
         setDetail(null);
         return;
       }
 
       setDetail(body.data);
     } catch {
-      setError("Unable to load trip.");
+      setError(t("trips.detail.loadError"));
       setDetail(null);
     } finally {
       setLoading(false);
     }
-  }, [tripId]);
+  }, [tripId, t]);
 
   useEffect(() => {
     loadTrip();
@@ -124,13 +150,13 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
       <Paper elevation={1} sx={{ p: 3, borderRadius: 3 }}>
         <Box display="flex" flexDirection="column" gap={2}>
           <Typography variant="h6" fontWeight={600}>
-            Trip not found
+            {t("trips.detail.notFoundTitle")}
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            This trip might have been deleted or you may not have access to it.
+            {t("trips.detail.notFoundBody")}
           </Typography>
           <Button component={Link} href="/trips" variant="outlined" sx={{ alignSelf: "flex-start" }}>
-            Back to trips
+            {t("trips.detail.back")}
           </Button>
         </Box>
       </Paper>
@@ -176,15 +202,16 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                 </Typography>
                 <Box display="flex" alignItems="center" gap={1}>
                   <Button variant="outlined" onClick={() => setEditOpen(true)}>
-                    Edit trip
+                    {t("trips.edit.open")}
                   </Button>
                   <Button variant="outlined" color="error" onClick={() => setDeleteOpen(true)}>
-                    Delete trip
+                    {t("trips.delete.open")}
                   </Button>
                 </Box>
               </Box>
               <Typography variant="body1" color="text.secondary">
-                {buildDateRange(detail.trip)} · {detail.trip.dayCount} days
+                {buildDateRange(detail.trip)} ·{" "}
+                {formatMessage(t("trips.dashboard.dayCount"), { count: detail.trip.dayCount })}
               </Typography>
             </Box>
 
@@ -192,7 +219,7 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
 
             {listEmpty && (
               <Typography variant="body2" color="text.secondary">
-                No days found for this trip yet.
+                {t("trips.timeline.empty")}
               </Typography>
             )}
 
@@ -207,15 +234,17 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                       (day.missingAccommodation || day.missingPlan) && (
                         <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
                           {day.missingAccommodation && (
-                            <Chip label="Missing stay" size="small" color="warning" variant="outlined" />
+                            <Chip label={t("trips.timeline.missingStay")} size="small" color="warning" variant="outlined" />
                           )}
-                          {day.missingPlan && <Chip label="Missing plan" size="small" color="warning" variant="outlined" />}
+                          {day.missingPlan && (
+                            <Chip label={t("trips.timeline.missingPlan")} size="small" color="warning" variant="outlined" />
+                          )}
                         </Box>
                       )
                     }
                   >
                     <ListItemText
-                      primary={`Day ${day.dayIndex}`}
+                      primary={formatMessage(t("trips.timeline.dayLabel"), { index: day.dayIndex })}
                       secondary={formatDate(day.date)}
                       sx={{ py: 0.5 }}
                     />

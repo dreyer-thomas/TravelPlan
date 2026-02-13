@@ -47,8 +47,8 @@ development_status:
   1-4-sign-out-from-current-device: done
   1-5-reset-password-by-email: done
   1-6-auth-aware-header-menu: done
-  1-7-how-it-works-section: in-progress
-  1-8-ui-i18n-en-de: ready-for-dev
+  1-7-how-it-works-section: done
+  1-8-ui-i18n-en-de: done
   epic-1-retrospective: optional
 
   epic-2: in-progress
@@ -56,7 +56,7 @@ development_status:
   2-2-view-trips-list-and-open-trip-timeline: done
   2-3-edit-or-delete-trip-details: done
   2-4-see-planning-gaps-in-day-view: done
-  2-5-add-or-update-nightly-accommodation: backlog
+  2-5-add-or-update-nightly-accommodation: ready-for-dev
   2-6-track-accommodation-status-cost-and-link: backlog
   2-7-create-and-edit-day-plan-items-with-links: backlog
   2-8-budget-totals-by-trip-and-by-day: backlog

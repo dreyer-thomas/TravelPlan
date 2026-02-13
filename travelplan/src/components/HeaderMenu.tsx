@@ -5,6 +5,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Box, IconButton, Menu, MenuItem, Typography } from "@mui/material";
 import { getAuthMenuItems } from "@/lib/navigation/authMenu";
+import LanguageSwitcherMenuItem from "@/components/LanguageSwitcherMenuItem";
+import type { Language } from "@/i18n";
+import { useI18n } from "@/i18n/provider";
 
 type HeaderMenuProps = {
   isAuthenticated: boolean;
@@ -17,9 +20,12 @@ type ApiEnvelope<T> = {
 
 export default function HeaderMenu({ isAuthenticated }: HeaderMenuProps) {
   const router = useRouter();
+  const { t } = useI18n();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const [languageAnchorEl, setLanguageAnchorEl] = useState<null | HTMLElement>(null);
   const [authState, setAuthState] = useState(isAuthenticated);
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
+  const [languageError, setLanguageError] = useState<string | null>(null);
 
   useEffect(() => {
     setAuthState(isAuthenticated);
@@ -51,13 +57,70 @@ export default function HeaderMenu({ isAuthenticated }: HeaderMenuProps) {
 
   const items = useMemo(() => getAuthMenuItems(authState), [authState]);
   const open = Boolean(anchorEl);
+  const languageMenuOpen = Boolean(languageAnchorEl);
 
   const handleOpen = (event: React.MouseEvent<HTMLElement>) => {
+    setLanguageError(null);
     setAnchorEl(event.currentTarget);
   };
 
   const handleClose = () => {
     setAnchorEl(null);
+    setLanguageAnchorEl(null);
+    setLanguageError(null);
+  };
+
+  const handleOpenLanguageMenu = (event: React.MouseEvent<HTMLElement>) => {
+    event.stopPropagation();
+    setLanguageAnchorEl(event.currentTarget);
+  };
+
+  const handleCloseLanguageMenu = () => {
+    setLanguageAnchorEl(null);
+  };
+
+  const persistLanguage = async (value: Language) => {
+    if (!authState) {
+      return true;
+    }
+
+    let token = csrfToken ?? (await fetchCsrfToken());
+    if (!token) {
+      setLanguageError(t("language.saveError"));
+      return false;
+    }
+
+    const attemptUpdate = async (csrf: string) =>
+      fetch("/api/users/me/language", {
+        method: "PATCH",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "x-csrf-token": csrf,
+        },
+        body: JSON.stringify({ preferredLanguage: value }),
+      });
+
+    let response = await attemptUpdate(token);
+    if (response.status === 403) {
+      token = await fetchCsrfToken();
+      if (token) {
+        response = await attemptUpdate(token);
+      }
+    }
+
+    if (!response.ok) {
+      setLanguageError(t("language.saveError"));
+      return false;
+    }
+
+    setLanguageError(null);
+    return true;
+  };
+
+  const handleLanguageChange = async (value: Language) => {
+    await persistLanguage(value);
+    router.refresh();
   };
 
   const handleLogout = async () => {
@@ -96,7 +159,7 @@ export default function HeaderMenu({ isAuthenticated }: HeaderMenuProps) {
   return (
     <>
       <IconButton
-        aria-label="Open menu"
+        aria-label={t("header.openMenu")}
         onClick={handleOpen}
         size="large"
         sx={{
@@ -136,21 +199,33 @@ export default function HeaderMenu({ isAuthenticated }: HeaderMenuProps) {
           },
         }}
       >
+        <LanguageSwitcherMenuItem
+          anchorEl={languageAnchorEl}
+          open={languageMenuOpen}
+          onOpen={handleOpenLanguageMenu}
+          onClose={handleCloseLanguageMenu}
+          onLanguageChange={handleLanguageChange}
+        />
         {items.map((item) => {
           if (item.key === "logout") {
             return (
               <MenuItem key={item.key} onClick={handleLogout}>
-                <Typography>Sign out</Typography>
+                <Typography>{t(item.labelKey)}</Typography>
               </MenuItem>
             );
           }
 
           return (
             <MenuItem key={item.key} component={Link} href={item.href ?? "#"} onClick={handleClose}>
-              <Typography>{item.label}</Typography>
+              <Typography>{t(item.labelKey)}</Typography>
             </MenuItem>
           );
         })}
+        {languageError && (
+          <MenuItem disabled>
+            <Typography color="error">{languageError}</Typography>
+          </MenuItem>
+        )}
       </Menu>
     </>
   );

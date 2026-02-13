@@ -1,7 +1,10 @@
 import { Box, Container, Typography } from "@mui/material";
 import TripsDashboard from "@/components/features/trips/TripsDashboard";
+import { getServerT } from "@/i18n/server";
 
-export default function TripsPage() {
+export default async function TripsPage() {
+  const t = await getServerT();
+
   return (
     <Container maxWidth="md" sx={{ py: { xs: 6, md: 10 } }}>
       <Box display="flex" flexDirection="column" gap={4}>
@@ -15,10 +18,10 @@ export default function TripsPage() {
           }}
         >
           <Typography variant="h3" fontWeight={700} gutterBottom>
-            Your trips
+            {t("trips.page.title")}
           </Typography>
           <Typography variant="body1" color="text.secondary">
-            Set a date range, generate your planning days, and keep the whole journey in view.
+            {t("trips.page.subtitle")}
           </Typography>
         </Box>
 

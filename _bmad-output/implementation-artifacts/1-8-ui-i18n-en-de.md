@@ -1,6 +1,6 @@
 # Story 1.8: UI i18n (English + German)
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -34,14 +34,14 @@ so that the app displays text in my preferred language.
 
 ## Tasks / Subtasks
 
-- [ ] Add `preferredLanguage` to User model with default `en` and migrate DB.
-- [ ] Create i18n dictionary files for `en` and `de`.
-- [ ] Build a lightweight translation helper and provider (client + server-safe).
-- [ ] Add language switcher to `HeaderMenu`.
-- [ ] Persist language choice to user profile via API.
-- [ ] Persist language choice in cookie for unauthenticated users.
-- [ ] Update existing UI copy to use translation keys.
-- [ ] Add tests for language preference persistence.
+- [x] Add `preferredLanguage` to User model with default `en` and migrate DB.
+- [x] Create i18n dictionary files for `en` and `de`.
+- [x] Build a lightweight translation helper and provider (client + server-safe).
+- [x] Add language switcher to `HeaderMenu`.
+- [x] Persist language choice to user profile via API.
+- [x] Persist language choice in cookie for unauthenticated users.
+- [x] Update existing UI copy to use translation keys.
+- [x] Add tests for language preference persistence.
 
 ## Dev Notes
 
@@ -117,10 +117,129 @@ Codex (GPT-5)
 
 N/A
 
+### Implementation Plan
+
+- Add `PreferredLanguage` enum and `preferredLanguage` column with default `en` in Prisma schema.
+- Add migration to introduce `preferred_language` with default `en`.
+- Add schema test covering column presence and default.
+
 ### Completion Notes List
 
 - Added UI i18n story with EN/DE support and profile persistence.
+- Added `preferredLanguage` to the User schema with default `en` and a migration.
+- Added a schema test for `preferred_language` default.
+- Tests: `npm test -- userLanguageSchema.test.ts`
+- Tests: `npm test`
+- Added i18n dictionary scaffolding for `en` and `de`.
+- Added i18n dictionary test coverage.
+- Tests: `npm test -- i18nDictionaries.test.ts`
+- Tests: `npm test`
+- Added i18n helper utilities (language resolution + translate fallback) and provider.
+- Added server helper for cookie-based language resolution.
+- Added i18n helper/provider tests.
+- Tests: `npm test -- i18nHelpers.test.ts i18nProvider.test.tsx`
+- Tests: `npm test`
+- Added language switcher menu item in `HeaderMenu` with nested language selection menu.
+- Wrapped app layout with `I18nProvider` and server-resolved language.
+- Added language label translations for menu.
+- Added HeaderMenu language switcher test.
+- Tests: `npm test -- headerMenuLanguageSwitcher.test.tsx`
+- Tests: `npm test`
+- Added user language update API route with validation + auth/CSRF checks.
+- Wired language switcher to persist preference for authenticated users.
+- Added language API validation schema and tests.
+- Tests: `npm test -- userLanguageRoute.test.ts`
+- Tests: `npm test`
+- Added client-side cookie persistence on language change for signed-out users.
+- Added language cookie tests.
+- Tests: `npm test -- languageCookie.test.ts languageCookiePersistence.test.tsx`
+- Tests: `npm test`
+- Replaced UI copy with translation keys across Home, Auth, Trips, and dialogs.
+- Added full EN/DE translations for current UI strings and error messages.
+- Updated server and client components to use localized labels and dates.
+- Updated TripsDashboard test to wrap i18n provider and adjust timing.
+- Tests: `npm test`
+- Added authenticated language persistence test in header menu.
+- Tests: `npm test`
+- Story complete. Full test suite passing.
+- Added language preference cookie sync on login and language update API.
+- Added language save error state in header menu and localized load error for trips dashboard.
+- Updated language switcher labels to use translations consistently.
+- Tests: `npm test -- loginRoute.test.ts userLanguageRoute.test.ts headerMenuLanguageSwitcher.test.tsx languageCookiePersistence.test.tsx`
 
 ### File List
 
-- `/Users/tommy/Development/TravelPlan/_bmad-output/implementation-artifacts/1-8-ui-i18n-en-de.md`
+- `_bmad-output/implementation-artifacts/1-8-ui-i18n-en-de.md`
+- `_bmad-output/implementation-artifacts/1-7-how-it-works-section.md`
+- `_bmad-output/implementation-artifacts/2-5-add-or-update-nightly-accommodation.md`
+- `_bmad-output/implementation-artifacts/sprint-status.yaml`
+- `docs/project-overview.md`
+- `travelplan/prisma/schema.prisma`
+- `travelplan/prisma/migrations/20260213113500_add_preferred_language/migration.sql`
+- `travelplan/src/generated/prisma/commonInputTypes.ts`
+- `travelplan/src/generated/prisma/enums.ts`
+- `travelplan/src/generated/prisma/internal/class.ts`
+- `travelplan/src/generated/prisma/internal/prismaNamespace.ts`
+- `travelplan/src/generated/prisma/internal/prismaNamespaceBrowser.ts`
+- `travelplan/src/generated/prisma/models/User.ts`
+- `travelplan/src/i18n/index.ts`
+- `travelplan/src/i18n/en.ts`
+- `travelplan/src/i18n/de.ts`
+- `travelplan/src/i18n/provider.tsx`
+- `travelplan/src/i18n/server.ts`
+- `travelplan/src/app/api/auth/login/route.ts`
+- `travelplan/src/lib/validation/userSchemas.ts`
+- `travelplan/src/lib/auth/bcrypt.ts`
+- `travelplan/src/lib/navigation/authMenu.ts`
+- `travelplan/src/components/LanguageSwitcherMenuItem.tsx`
+- `travelplan/src/components/HeaderMenu.tsx`
+- `travelplan/src/components/HomeHero.tsx`
+- `travelplan/src/components/AppHeader.tsx`
+- `travelplan/src/app/layout.tsx`
+- `travelplan/src/app/page.tsx`
+- `travelplan/src/app/(routes)/trips/page.tsx`
+- `travelplan/src/app/(routes)/trips/[id]/page.tsx`
+- `travelplan/src/components/features/trips/TripsDashboard.tsx`
+- `travelplan/src/components/features/trips/TripCreateDialog.tsx`
+- `travelplan/src/components/features/trips/TripCreateForm.tsx`
+- `travelplan/src/components/features/trips/TripEditDialog.tsx`
+- `travelplan/src/components/features/trips/TripDeleteDialog.tsx`
+- `travelplan/src/components/features/trips/TripTimeline.tsx`
+- `travelplan/src/app/(routes)/auth/login/page.tsx`
+- `travelplan/src/app/(routes)/auth/register/page.tsx`
+- `travelplan/src/app/(routes)/auth/forgot-password/page.tsx`
+- `travelplan/src/app/(routes)/auth/reset-password/page.tsx`
+- `travelplan/src/app/api/users/me/language/route.ts`
+- `travelplan/test/userLanguageSchema.test.ts`
+- `travelplan/test/i18nDictionaries.test.ts`
+- `travelplan/test/i18nHelpers.test.ts`
+- `travelplan/test/i18nProvider.test.tsx`
+- `travelplan/test/headerMenuLanguageSwitcher.test.tsx`
+- `travelplan/test/loginRoute.test.ts`
+- `travelplan/test/userLanguageRoute.test.ts`
+- `travelplan/test/languageCookie.test.ts`
+- `travelplan/test/languageCookiePersistence.test.tsx`
+- `travelplan/test/tripsDashboard.test.tsx`
+
+## Change Log
+
+- 2026-02-13: Completed UI i18n support with language persistence, translations, and tests.
+- `travelplan/src/components/HeaderMenu.tsx`
+- `travelplan/src/components/HomeHero.tsx`
+- `travelplan/src/components/AppHeader.tsx`
+- `travelplan/src/lib/navigation/authMenu.ts`
+- `travelplan/src/app/page.tsx`
+- `travelplan/src/app/(routes)/trips/page.tsx`
+- `travelplan/src/app/(routes)/trips/[id]/page.tsx`
+- `travelplan/src/components/features/trips/TripsDashboard.tsx`
+- `travelplan/src/components/features/trips/TripCreateDialog.tsx`
+- `travelplan/src/components/features/trips/TripCreateForm.tsx`
+- `travelplan/src/components/features/trips/TripEditDialog.tsx`
+- `travelplan/src/components/features/trips/TripDeleteDialog.tsx`
+- `travelplan/src/components/features/trips/TripTimeline.tsx`
+- `travelplan/src/app/(routes)/auth/login/page.tsx`
+- `travelplan/src/app/(routes)/auth/register/page.tsx`
+- `travelplan/src/app/(routes)/auth/forgot-password/page.tsx`
+- `travelplan/src/app/(routes)/auth/reset-password/page.tsx`
+- `travelplan/test/tripsDashboard.test.tsx`
+- `travelplan/test/headerMenuLanguageSwitcher.test.tsx`

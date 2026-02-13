@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import {
   Box,
   CircularProgress,
@@ -12,6 +12,7 @@ import {
 } from "@mui/material";
 import Button from "@mui/material/Button";
 import TripCreateForm, { type TripCreateResponse } from "@/components/features/trips/TripCreateForm";
+import { useI18n } from "@/i18n/provider";
 
 type TripCreateDialogProps = {
   onCreated?: (trip: TripCreateResponse) => void;
@@ -20,15 +21,11 @@ type TripCreateDialogProps = {
 };
 
 export default function TripCreateDialog({ onCreated, open, onClose }: TripCreateDialogProps) {
+  const { t } = useI18n();
   const formId = useId();
   const [submitting, setSubmitting] = useState(false);
   const [formKey, setFormKey] = useState(0);
   const closeTimerRef = useRef<number | null>(null);
-
-  const helperText = useMemo(
-    () => "Give your trip a name and a date range to generate a full set of planning days.",
-    [],
-  );
 
   useEffect(() => {
     return () => {
@@ -68,13 +65,13 @@ export default function TripCreateDialog({ onCreated, open, onClose }: TripCreat
       <Dialog open={open} onClose={handleClose} fullWidth maxWidth="sm">
         <DialogTitle>
           <Typography variant="h6" fontWeight={600} component="div">
-            Create a new trip
+            {t("trips.create.title")}
           </Typography>
         </DialogTitle>
         <DialogContent dividers>
           <Box display="flex" flexDirection="column" gap={2.5}>
             <Typography variant="body2" color="text.secondary">
-              {helperText}
+              {t("trips.create.helper")}
             </Typography>
             <TripCreateForm
               key={formKey}
@@ -88,10 +85,10 @@ export default function TripCreateDialog({ onCreated, open, onClose }: TripCreat
         </DialogContent>
         <DialogActions>
           <Button onClick={handleClose} disabled={submitting}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button type="submit" form={formId} variant="contained" disabled={submitting}>
-            {submitting ? <CircularProgress size={22} /> : "Create trip"}
+            {submitting ? <CircularProgress size={22} /> : t("trips.create.submit")}
           </Button>
         </DialogActions>
       </Dialog>

@@ -1,6 +1,6 @@
 import bcrypt from "bcrypt";
 
-const SALT_ROUNDS = 12;
+const SALT_ROUNDS = process.env.NODE_ENV === "test" ? 4 : 12;
 
 export const hashPassword = async (password: string) => bcrypt.hash(password, SALT_ROUNDS);
 

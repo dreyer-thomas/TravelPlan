@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import {
   Alert,
@@ -14,6 +15,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
+import { useI18n } from "@/i18n/provider";
 
 type RegisterFormValues = {
   email: string;
@@ -27,6 +29,8 @@ type ApiEnvelope<T> = {
 };
 
 export default function RegisterPage() {
+  const router = useRouter();
+  const { t } = useI18n();
   const {
     register,
     handleSubmit,
@@ -54,7 +58,7 @@ export default function RegisterPage() {
           setCsrfToken(body.data.csrfToken);
         }
       } catch {
-        setServerError("Unable to initialize registration. Please refresh.");
+        setServerError(t("auth.register.initError"));
       }
     };
 
@@ -66,7 +70,7 @@ export default function RegisterPage() {
     setSuccess(false);
 
     if (!csrfToken) {
-      setServerError("Security token missing. Please refresh and try again.");
+      setServerError(t("errors.csrfMissing"));
       return;
     }
 
@@ -94,32 +98,50 @@ export default function RegisterPage() {
         return;
       }
 
-      setServerError(body.error?.message ?? "Registration failed. Please try again.");
+      const resolveApiError = (code?: string) => {
+        switch (code) {
+          case "email_exists":
+            return t("auth.register.emailExists");
+          case "rate_limited":
+            return t("errors.rateLimited");
+          case "csrf_invalid":
+            return t("errors.csrfInvalid");
+          case "server_error":
+            return t("errors.server");
+          case "invalid_json":
+            return t("errors.invalidJson");
+          default:
+            return t("auth.register.error");
+        }
+      };
+
+      setServerError(resolveApiError(body.error?.code));
       return;
     }
 
     setSuccess(true);
     reset({ email: "", password: "", consent: false });
+    router.push("/auth/login");
   };
 
   const emailRules = useMemo(
     () => ({
-      required: "Email is required",
+      required: t("auth.emailRequired"),
       pattern: {
         value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
-        message: "Enter a valid email",
+        message: t("auth.emailInvalid"),
       },
     }),
-    [],
+    [t],
   );
 
   const passwordRules = useMemo(
     () => ({
-      required: "Password is required",
-      minLength: { value: 8, message: "Password must be at least 8 characters" },
-      maxLength: { value: 72, message: "Password must be at most 72 characters" },
+      required: t("auth.passwordRequired"),
+      minLength: { value: 8, message: t("auth.passwordMin") },
+      maxLength: { value: 72, message: t("auth.passwordMax") },
     }),
-    [],
+    [t],
   );
 
   return (
@@ -135,22 +157,22 @@ export default function RegisterPage() {
         <Box display="flex" flexDirection="column" gap={3}>
           <Box>
             <Typography variant="overline" color="text.secondary" letterSpacing="0.25em">
-              TravelPlan
+              {t("app.brand")}
             </Typography>
             <Typography variant="h4" fontWeight={600} gutterBottom>
-              Create your account
+              {t("auth.register.title")}
             </Typography>
             <Typography variant="body1" color="text.secondary">
-              Register with your email and password to start planning trips.
+              {t("auth.register.subtitle")}
             </Typography>
           </Box>
 
           {serverError && <Alert severity="error">{serverError}</Alert>}
-          {success && <Alert severity="success">Account created successfully.</Alert>}
+          {success && <Alert severity="success">{t("auth.register.success")}</Alert>}
 
           <Box component="form" onSubmit={handleSubmit(onSubmit)} display="flex" flexDirection="column" gap={2}>
             <TextField
-              label="Email"
+              label={t("auth.emailLabel")}
               type="email"
               error={Boolean(errors.email)}
               helperText={errors.email?.message}
@@ -158,7 +180,7 @@ export default function RegisterPage() {
               fullWidth
             />
             <TextField
-              label="Password"
+              label={t("auth.passwordLabel")}
               type="password"
               error={Boolean(errors.password)}
               helperText={errors.password?.message}
@@ -166,8 +188,8 @@ export default function RegisterPage() {
               fullWidth
             />
             <FormControlLabel
-              control={<Checkbox {...register("consent", { required: "Consent is required" })} />}
-              label="I consent to data storage for trip planning"
+              control={<Checkbox {...register("consent", { required: t("auth.consentRequired") })} />}
+              label={t("auth.consentLabel")}
             />
             {errors.consent && (
               <Typography color="error" variant="body2">
@@ -175,7 +197,7 @@ export default function RegisterPage() {
               </Typography>
             )}
             <Button type="submit" variant="contained" size="large" disabled={isSubmitting}>
-              {isSubmitting ? <CircularProgress size={22} /> : "Create account"}
+              {isSubmitting ? <CircularProgress size={22} /> : t("auth.register.submit")}
             </Button>
           </Box>
         </Box>

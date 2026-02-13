@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useRouter } from "next/navigation";
 import { Alert, Box, Button, CircularProgress, Container, Paper, TextField, Typography } from "@mui/material";
+import { useI18n } from "@/i18n/provider";
 
 type LoginFormValues = {
   email: string;
@@ -17,6 +18,7 @@ type ApiEnvelope<T> = {
 
 export default function LoginPage() {
   const router = useRouter();
+  const { t } = useI18n();
   const {
     register,
     handleSubmit,
@@ -55,7 +57,7 @@ export default function LoginPage() {
     setSuccess(false);
 
     if (!csrfToken) {
-      setServerError("Security token missing. Please refresh and try again.");
+      setServerError(t("errors.csrfMissing"));
       return;
     }
 
@@ -70,7 +72,7 @@ export default function LoginPage() {
         body: JSON.stringify(values),
       });
     } catch {
-      setServerError("Unable to reach the server. Please try again.");
+      setServerError(t("errors.network"));
       return;
     }
 
@@ -78,7 +80,7 @@ export default function LoginPage() {
     try {
       body = (await response.json()) as ApiEnvelope<{ userId: string }>;
     } catch {
-      setServerError("Sign in failed. Please try again.");
+      setServerError(t("auth.login.error"));
       return;
     }
 
@@ -95,7 +97,24 @@ export default function LoginPage() {
         return;
       }
 
-      setServerError(body.error?.message ?? "Sign in failed. Please try again.");
+      const resolveApiError = (code?: string) => {
+        switch (code) {
+          case "invalid_credentials":
+            return t("auth.login.invalidCredentials");
+          case "rate_limited":
+            return t("errors.rateLimited");
+          case "csrf_invalid":
+            return t("errors.csrfInvalid");
+          case "server_error":
+            return t("errors.server");
+          case "invalid_json":
+            return t("errors.invalidJson");
+          default:
+            return t("auth.login.error");
+        }
+      };
+
+      setServerError(resolveApiError(body.error?.code));
       return;
     }
 
@@ -106,22 +125,22 @@ export default function LoginPage() {
 
   const emailRules = useMemo(
     () => ({
-      required: "Email is required",
+      required: t("auth.emailRequired"),
       pattern: {
         value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
-        message: "Enter a valid email",
+        message: t("auth.emailInvalid"),
       },
     }),
-    [],
+    [t],
   );
 
   const passwordRules = useMemo(
     () => ({
-      required: "Password is required",
-      minLength: { value: 8, message: "Password must be at least 8 characters" },
-      maxLength: { value: 72, message: "Password must be at most 72 characters" },
+      required: t("auth.passwordRequired"),
+      minLength: { value: 8, message: t("auth.passwordMin") },
+      maxLength: { value: 72, message: t("auth.passwordMax") },
     }),
-    [],
+    [t],
   );
 
   return (
@@ -137,22 +156,22 @@ export default function LoginPage() {
         <Box display="flex" flexDirection="column" gap={3}>
           <Box>
             <Typography variant="overline" color="text.secondary" letterSpacing="0.25em">
-              TravelPlan
+              {t("app.brand")}
             </Typography>
             <Typography variant="h4" fontWeight={600} gutterBottom>
-              Welcome back
+              {t("auth.login.title")}
             </Typography>
             <Typography variant="body1" color="text.secondary">
-              Sign in with your email and password to continue planning.
+              {t("auth.login.subtitle")}
             </Typography>
           </Box>
 
           {serverError && <Alert severity="error">{serverError}</Alert>}
-          {success && <Alert severity="success">Signed in successfully.</Alert>}
+          {success && <Alert severity="success">{t("auth.login.success")}</Alert>}
 
           <Box component="form" onSubmit={handleSubmit(onSubmit)} display="flex" flexDirection="column" gap={2}>
             <TextField
-              label="Email"
+              label={t("auth.emailLabel")}
               type="email"
               error={Boolean(errors.email)}
               helperText={errors.email?.message}
@@ -160,7 +179,7 @@ export default function LoginPage() {
               fullWidth
             />
             <TextField
-              label="Password"
+              label={t("auth.passwordLabel")}
               type="password"
               error={Boolean(errors.password)}
               helperText={errors.password?.message}
@@ -168,7 +187,7 @@ export default function LoginPage() {
               fullWidth
             />
             <Button type="submit" variant="contained" size="large" disabled={isSubmitting}>
-              {isSubmitting ? <CircularProgress size={22} /> : "Sign in"}
+              {isSubmitting ? <CircularProgress size={22} /> : t("auth.login.submit")}
             </Button>
           </Box>
         </Box>

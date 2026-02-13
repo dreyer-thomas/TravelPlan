@@ -2,6 +2,7 @@ import { AppBar, Box, Container, Toolbar, Typography } from "@mui/material";
 import { cookies } from "next/headers";
 import HeaderMenu from "@/components/HeaderMenu";
 import { verifySessionJwt } from "@/lib/auth/jwt";
+import { getServerT } from "@/i18n/server";
 
 const resolveAuthState = async () => {
   const cookieStore = await cookies();
@@ -18,6 +19,7 @@ const resolveAuthState = async () => {
 
 export default async function AppHeader() {
   const isAuthenticated = await resolveAuthState();
+  const t = await getServerT();
 
   return (
     <AppBar
@@ -34,7 +36,7 @@ export default async function AppHeader() {
         <Toolbar disableGutters sx={{ minHeight: 72, display: "flex", justifyContent: "space-between" }}>
           <Box display="flex" alignItems="center" gap={2}>
             <Typography variant="h6" fontWeight={700} sx={{ letterSpacing: "0.12em", textTransform: "uppercase" }}>
-              TravelPlan
+              {t("app.brand")}
             </Typography>
           </Box>
           <HeaderMenu isAuthenticated={isAuthenticated} />

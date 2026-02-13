@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle } from "@mui/material";
 import Typography from "@mui/material/Typography";
+import { useI18n } from "@/i18n/provider";
+import { formatMessage } from "@/i18n";
 
 type ApiEnvelope<T> = {
   data: T | null;
@@ -18,6 +20,7 @@ type TripDeleteDialogProps = {
 };
 
 export default function TripDeleteDialog({ open, tripName, tripId, onClose, onDeleted }: TripDeleteDialogProps) {
+  const { t } = useI18n();
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -33,7 +36,7 @@ export default function TripDeleteDialog({ open, tripName, tripId, onClose, onDe
 
         if (!response.ok || body.error || !body.data?.csrfToken) {
           if (active) {
-            setServerError(body.error?.message ?? "Unable to initialize deletion. Please refresh.");
+            setServerError(body.error?.message ?? t("trips.delete.initError"));
           }
           return;
         }
@@ -43,7 +46,7 @@ export default function TripDeleteDialog({ open, tripName, tripId, onClose, onDe
         }
       } catch {
         if (active) {
-          setServerError("Unable to initialize deletion. Please refresh.");
+          setServerError(t("trips.delete.initError"));
         }
       }
     };
@@ -59,7 +62,7 @@ export default function TripDeleteDialog({ open, tripName, tripId, onClose, onDe
     setServerError(null);
 
     if (!csrfToken) {
-      setServerError("Security token missing. Please refresh and try again.");
+      setServerError(t("errors.csrfMissing"));
       return;
     }
 
@@ -77,13 +80,28 @@ export default function TripDeleteDialog({ open, tripName, tripId, onClose, onDe
 
       const body = (await response.json()) as ApiEnvelope<{ deleted: boolean }>;
       if (!response.ok || body.error || !body.data?.deleted) {
-        setServerError(body.error?.message ?? "Trip deletion failed. Please try again.");
+        const resolveApiError = (code?: string) => {
+          switch (code) {
+            case "unauthorized":
+              return t("errors.unauthorized");
+            case "csrf_invalid":
+              return t("errors.csrfInvalid");
+            case "server_error":
+              return t("errors.server");
+            case "invalid_json":
+              return t("errors.invalidJson");
+            default:
+              return t("trips.delete.error");
+          }
+        };
+
+        setServerError(resolveApiError(body.error?.code));
         return;
       }
 
       onDeleted();
     } catch {
-      setServerError("Trip deletion failed. Please try again.");
+      setServerError(t("trips.delete.error"));
     } finally {
       setIsDeleting(false);
     }
@@ -91,21 +109,21 @@ export default function TripDeleteDialog({ open, tripName, tripId, onClose, onDe
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs">
-      <DialogTitle>Delete trip?</DialogTitle>
+      <DialogTitle>{t("trips.delete.title")}</DialogTitle>
       <DialogContent dividers>
         <Box display="flex" flexDirection="column" gap={2}>
           {serverError && <Alert severity="error">{serverError}</Alert>}
           <Typography variant="body2" color="text.secondary">
-            This will remove “{tripName}” and all of its days. This action cannot be undone.
+            {formatMessage(t("trips.delete.body"), { name: tripName })}
           </Typography>
         </Box>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={isDeleting}>
-          Cancel
+          {t("common.cancel")}
         </Button>
         <Button color="error" variant="contained" onClick={handleDelete} disabled={isDeleting}>
-          {isDeleting ? <CircularProgress size={22} /> : "Delete trip"}
+          {isDeleting ? <CircularProgress size={22} /> : t("trips.delete.submit")}
         </Button>
       </DialogActions>
     </Dialog>

@@ -35,6 +35,13 @@ export type EnumUserRoleFilter<$PrismaModel = never> = {
   not?: Prisma.NestedEnumUserRoleFilter<$PrismaModel> | $Enums.UserRole
 }
 
+export type EnumPreferredLanguageFilter<$PrismaModel = never> = {
+  equals?: $Enums.PreferredLanguage | Prisma.EnumPreferredLanguageFieldRefInput<$PrismaModel>
+  in?: $Enums.PreferredLanguage[]
+  notIn?: $Enums.PreferredLanguage[]
+  not?: Prisma.NestedEnumPreferredLanguageFilter<$PrismaModel> | $Enums.PreferredLanguage
+}
+
 export type DateTimeFilter<$PrismaModel = never> = {
   equals?: Date | string | Prisma.DateTimeFieldRefInput<$PrismaModel>
   in?: Date[] | string[]
@@ -71,6 +78,16 @@ export type EnumUserRoleWithAggregatesFilter<$PrismaModel = never> = {
   _count?: Prisma.NestedIntFilter<$PrismaModel>
   _min?: Prisma.NestedEnumUserRoleFilter<$PrismaModel>
   _max?: Prisma.NestedEnumUserRoleFilter<$PrismaModel>
+}
+
+export type EnumPreferredLanguageWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.PreferredLanguage | Prisma.EnumPreferredLanguageFieldRefInput<$PrismaModel>
+  in?: $Enums.PreferredLanguage[]
+  notIn?: $Enums.PreferredLanguage[]
+  not?: Prisma.NestedEnumPreferredLanguageWithAggregatesFilter<$PrismaModel> | $Enums.PreferredLanguage
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumPreferredLanguageFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumPreferredLanguageFilter<$PrismaModel>
 }
 
 export type DateTimeWithAggregatesFilter<$PrismaModel = never> = {
@@ -178,6 +195,13 @@ export type NestedEnumUserRoleFilter<$PrismaModel = never> = {
   not?: Prisma.NestedEnumUserRoleFilter<$PrismaModel> | $Enums.UserRole
 }
 
+export type NestedEnumPreferredLanguageFilter<$PrismaModel = never> = {
+  equals?: $Enums.PreferredLanguage | Prisma.EnumPreferredLanguageFieldRefInput<$PrismaModel>
+  in?: $Enums.PreferredLanguage[]
+  notIn?: $Enums.PreferredLanguage[]
+  not?: Prisma.NestedEnumPreferredLanguageFilter<$PrismaModel> | $Enums.PreferredLanguage
+}
+
 export type NestedDateTimeFilter<$PrismaModel = never> = {
   equals?: Date | string | Prisma.DateTimeFieldRefInput<$PrismaModel>
   in?: Date[] | string[]
@@ -225,6 +249,16 @@ export type NestedEnumUserRoleWithAggregatesFilter<$PrismaModel = never> = {
   _count?: Prisma.NestedIntFilter<$PrismaModel>
   _min?: Prisma.NestedEnumUserRoleFilter<$PrismaModel>
   _max?: Prisma.NestedEnumUserRoleFilter<$PrismaModel>
+}
+
+export type NestedEnumPreferredLanguageWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.PreferredLanguage | Prisma.EnumPreferredLanguageFieldRefInput<$PrismaModel>
+  in?: $Enums.PreferredLanguage[]
+  notIn?: $Enums.PreferredLanguage[]
+  not?: Prisma.NestedEnumPreferredLanguageWithAggregatesFilter<$PrismaModel> | $Enums.PreferredLanguage
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumPreferredLanguageFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumPreferredLanguageFilter<$PrismaModel>
 }
 
 export type NestedDateTimeWithAggregatesFilter<$PrismaModel = never> = {

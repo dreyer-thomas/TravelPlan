@@ -14,6 +14,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
+import { useI18n } from "@/i18n/provider";
 
 type ApiEnvelope<T> = {
   data: T | null;
@@ -58,6 +59,7 @@ const toIsoUtc = (value: string) => new Date(`${value}T00:00:00.000Z`).toISOStri
 const toDateInput = (value: string) => value.slice(0, 10);
 
 export default function TripEditDialog({ open, trip, onClose, onUpdated }: TripEditDialogProps) {
+  const { t } = useI18n();
   const {
     register,
     handleSubmit,
@@ -95,7 +97,7 @@ export default function TripEditDialog({ open, trip, onClose, onUpdated }: TripE
 
         if (!response.ok || body.error || !body.data?.csrfToken) {
           if (active) {
-            setServerError(body.error?.message ?? "Unable to initialize edit form. Please refresh.");
+            setServerError(body.error?.message ?? t("trips.edit.initError"));
           }
           return;
         }
@@ -105,7 +107,7 @@ export default function TripEditDialog({ open, trip, onClose, onUpdated }: TripE
         }
       } catch {
         if (active) {
-          setServerError("Unable to initialize edit form. Please refresh.");
+          setServerError(t("trips.edit.initError"));
         }
       }
     };
@@ -121,7 +123,7 @@ export default function TripEditDialog({ open, trip, onClose, onUpdated }: TripE
     setServerError(null);
 
     if (!csrfToken) {
-      setServerError("Security token missing. Please refresh and try again.");
+      setServerError(t("errors.csrfMissing"));
       return;
     }
 
@@ -156,7 +158,22 @@ export default function TripEditDialog({ open, trip, onClose, onUpdated }: TripE
         return;
       }
 
-      setServerError(body.error?.message ?? "Trip update failed. Please try again.");
+      const resolveApiError = (code?: string) => {
+        switch (code) {
+          case "unauthorized":
+            return t("errors.unauthorized");
+          case "csrf_invalid":
+            return t("errors.csrfInvalid");
+          case "server_error":
+            return t("errors.server");
+          case "invalid_json":
+            return t("errors.invalidJson");
+          default:
+            return t("trips.edit.error");
+        }
+      };
+
+      setServerError(resolveApiError(body.error?.code));
       return;
     }
 
@@ -166,23 +183,23 @@ export default function TripEditDialog({ open, trip, onClose, onUpdated }: TripE
 
   const nameRules = useMemo(
     () => ({
-      required: "Trip name is required",
+      required: t("trips.form.nameRequired"),
     }),
-    [],
+    [t],
   );
 
   const dateRules = useMemo(
     () => ({
-      required: "Date is required",
+      required: t("trips.form.dateRequired"),
     }),
-    [],
+    [t],
   );
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
       <DialogTitle>
         <Typography variant="h6" fontWeight={600} component="div">
-          Edit trip
+          {t("trips.edit.title")}
         </Typography>
       </DialogTitle>
       <DialogContent dividers>
@@ -197,14 +214,14 @@ export default function TripEditDialog({ open, trip, onClose, onUpdated }: TripE
             gap={2}
           >
             <TextField
-              label="Trip name"
+              label={t("trips.form.name")}
               error={Boolean(errors.name)}
               helperText={errors.name?.message}
               {...register("name", nameRules)}
               fullWidth
             />
             <TextField
-              label="Start date"
+              label={t("trips.form.startDate")}
               type="date"
               error={Boolean(errors.startDate)}
               helperText={errors.startDate?.message}
@@ -213,7 +230,7 @@ export default function TripEditDialog({ open, trip, onClose, onUpdated }: TripE
               fullWidth
             />
             <TextField
-              label="End date"
+              label={t("trips.form.endDate")}
               type="date"
               error={Boolean(errors.endDate)}
               helperText={errors.endDate?.message}
@@ -226,10 +243,10 @@ export default function TripEditDialog({ open, trip, onClose, onUpdated }: TripE
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={isSubmitting}>
-          Cancel
+          {t("common.cancel")}
         </Button>
         <Button type="submit" form="trip-edit-form" variant="contained" disabled={isSubmitting}>
-          {isSubmitting ? <CircularProgress size={22} /> : "Save changes"}
+          {isSubmitting ? <CircularProgress size={22} /> : t("trips.edit.submit")}
         </Button>
       </DialogActions>
     </Dialog>

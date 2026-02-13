@@ -81,6 +81,7 @@ describe("POST /api/auth/login", () => {
         email: "login-success@example.com",
         passwordHash,
         role: "OWNER",
+        preferredLanguage: "de",
       },
     });
 
@@ -92,5 +93,6 @@ describe("POST /api/auth/login", () => {
     const setCookie = response.headers.get("set-cookie");
     expect(setCookie).toContain("session=");
     expect(setCookie).toContain("HttpOnly");
+    expect(setCookie).toContain("lang=de");
   });
 });

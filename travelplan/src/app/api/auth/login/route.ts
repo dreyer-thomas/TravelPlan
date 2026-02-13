@@ -8,6 +8,7 @@ import { createSessionJwt } from "@/lib/auth/jwt";
 import { setSessionCookie } from "@/lib/auth/session";
 import { CSRF_COOKIE_NAME, validateCsrf } from "@/lib/security/csrf";
 import { checkRateLimit } from "@/lib/security/rateLimit";
+import { DEFAULT_LANGUAGE, LANGUAGE_COOKIE_NAME } from "@/i18n";
 
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const RATE_LIMIT_MAX = 10;
@@ -48,11 +49,11 @@ export const POST = async (request: NextRequest) => {
 
   const { email, password } = parsed.data;
 
-  let user: { id: string; passwordHash: string; role: string } | null = null;
+  let user: { id: string; passwordHash: string; role: string; preferredLanguage: string } | null = null;
   try {
     user = await prisma.user.findUnique({
       where: { email },
-      select: { id: true, passwordHash: true, role: true },
+      select: { id: true, passwordHash: true, role: true, preferredLanguage: true },
     });
   } catch {
     return fail(apiError("server_error", "Unable to validate credentials"), 500);
@@ -72,6 +73,15 @@ export const POST = async (request: NextRequest) => {
 
   const response = ok({ userId: user.id });
   setSessionCookie(response, token);
+  response.cookies.set({
+    name: LANGUAGE_COOKIE_NAME,
+    value: user.preferredLanguage ?? DEFAULT_LANGUAGE,
+    httpOnly: false,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 365,
+  });
 
   return response;
 };

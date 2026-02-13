@@ -4,6 +4,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TripsDashboard from "@/components/features/trips/TripsDashboard";
+import { I18nProvider } from "@/i18n/provider";
 
 const mockTripsResponse = {
   data: { trips: [] },
@@ -63,7 +64,11 @@ describe("TripsDashboard", () => {
   });
 
   it("shows an Add trip button instead of the inline create form", async () => {
-    render(<TripsDashboard />);
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripsDashboard />
+      </I18nProvider>
+    );
 
     await waitFor(() => {
       expect(screen.getAllByRole("button", { name: /add trip/i }).length).toBeGreaterThan(0);
@@ -74,7 +79,11 @@ describe("TripsDashboard", () => {
 
   it("opens the create trip dialog when the Add trip button is clicked", async () => {
     const user = userEvent.setup();
-    render(<TripsDashboard />);
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripsDashboard />
+      </I18nProvider>
+    );
 
     const [addButton] = await screen.findAllByRole("button", { name: /add trip/i });
     await user.click(addButton);
@@ -89,7 +98,11 @@ describe("TripsDashboard", () => {
 
   it("closes the dialog and updates the list after a successful create", async () => {
     const user = userEvent.setup();
-    render(<TripsDashboard />);
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripsDashboard />
+      </I18nProvider>
+    );
 
     const [addButton] = await screen.findAllByRole("button", { name: /add trip/i });
     await user.click(addButton);
@@ -103,9 +116,12 @@ describe("TripsDashboard", () => {
 
     await user.click(dialogScope.getByRole("button", { name: /create trip/i }));
 
-    await waitFor(() => {
-      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    });
+    await waitFor(
+      () => {
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      },
+      { timeout: 2000 }
+    );
 
     expect(screen.getByText("Autumn in Oslo")).toBeInTheDocument();
   });

@@ -1,6 +1,7 @@
 import { Box, Button, Container, Typography } from "@mui/material";
 import Link from "next/link";
 import TripTimeline from "@/components/features/trips/TripTimeline";
+import { getServerT } from "@/i18n/server";
 
 type TripDetailPageProps = {
   params: Promise<{
@@ -10,6 +11,7 @@ type TripDetailPageProps = {
 
 export default async function TripDetailPage({ params }: TripDetailPageProps) {
   const { id } = await params;
+  const t = await getServerT();
   return (
     <Container maxWidth="md" sx={{ py: { xs: 6, md: 10 } }}>
       <Box display="flex" flexDirection="column" gap={4}>
@@ -24,14 +26,14 @@ export default async function TripDetailPage({ params }: TripDetailPageProps) {
         >
           <Link href="/trips" style={{ alignSelf: "flex-start", textDecoration: "none" }}>
             <Button variant="text" sx={{ alignSelf: "flex-start" }}>
-              ← Back to trips
+              {t("trips.detail.back")}
             </Button>
           </Link>
           <Typography variant="h5" fontWeight={700}>
-            Trip timeline
+            {t("trips.detail.title")}
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Review each day and keep your itinerary organized.
+            {t("trips.detail.subtitle")}
           </Typography>
         </Box>
 

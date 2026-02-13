@@ -16,6 +16,8 @@ import {
 import Link from "next/link";
 import TripCreateDialog from "@/components/features/trips/TripCreateDialog";
 import { type TripCreateResponse } from "@/components/features/trips/TripCreateForm";
+import { useI18n } from "@/i18n/provider";
+import { formatMessage } from "@/i18n";
 
 type ApiEnvelope<T> = {
   data: T | null;
@@ -30,14 +32,8 @@ type TripSummary = {
   dayCount: number;
 };
 
-const formatDate = (value: string) =>
-  new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }).format(
-    new Date(value),
-  );
-
-const buildDateRange = (trip: TripSummary) => `${formatDate(trip.startDate)} - ${formatDate(trip.endDate)}`;
-
 export default function TripsDashboard() {
+  const { language, t } = useI18n();
   const [trips, setTrips] = useState<TripSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -52,7 +48,7 @@ export default function TripsDashboard() {
       const body = (await response.json()) as ApiEnvelope<{ trips: TripSummary[] }>;
 
       if (!response.ok || body.error) {
-        setError(body.error?.message ?? "Unable to load trips.");
+        setError(body.error?.message ?? t("trips.dashboard.loadError"));
         setTrips([]);
         return;
       }
@@ -62,7 +58,7 @@ export default function TripsDashboard() {
       );
       setTrips(sorted);
     } catch {
-      setError("Unable to load trips.");
+      setError(t("trips.dashboard.loadError"));
       setTrips([]);
     } finally {
       setLoading(false);
@@ -74,6 +70,20 @@ export default function TripsDashboard() {
   }, [loadTrips]);
 
   const listEmpty = useMemo(() => !loading && trips.length === 0 && !error, [loading, trips.length, error]);
+  const formatDate = useMemo(
+    () => (value: string) =>
+      new Intl.DateTimeFormat(language === "de" ? "de-DE" : "en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        timeZone: "UTC",
+      }).format(new Date(value)),
+    [language],
+  );
+  const buildDateRange = useCallback(
+    (trip: TripSummary) => `${formatDate(trip.startDate)} - ${formatDate(trip.endDate)}`,
+    [formatDate],
+  );
   const handleTripCreated = useCallback((response: TripCreateResponse) => {
     const summary: TripSummary = {
       id: response.trip.id,
@@ -98,10 +108,10 @@ export default function TripsDashboard() {
     <Box display="flex" flexDirection="column" gap={4}>
       <Box display="flex" alignItems="center" justifyContent="space-between" gap={2} flexWrap="wrap">
         <Typography variant="h6" fontWeight={600}>
-          Trips in progress
+          {t("trips.dashboard.title")}
         </Typography>
         <Button variant="contained" onClick={handleOpenCreate}>
-          Add trip
+          {t("trips.dashboard.addTrip")}
         </Button>
       </Box>
 
@@ -122,10 +132,10 @@ export default function TripsDashboard() {
           <Paper elevation={1} sx={{ p: 3, borderRadius: 3 }}>
             <Box display="flex" flexDirection="column" gap={1.5} alignItems="flex-start">
               <Typography variant="body2" color="text.secondary">
-                No trips yet. Select Add trip to start building your plan.
+                {t("trips.dashboard.empty")}
               </Typography>
               <Button variant="outlined" onClick={handleOpenCreate}>
-                Add trip
+                {t("trips.dashboard.addTrip")}
               </Button>
             </Box>
           </Paper>
@@ -147,7 +157,9 @@ export default function TripsDashboard() {
                   >
                     <ListItemText
                       primary={trip.name}
-                      secondary={`${buildDateRange(trip)} - ${trip.dayCount} days`}
+                      secondary={`${buildDateRange(trip)} - ${formatMessage(t("trips.dashboard.dayCount"), {
+                        count: trip.dayCount,
+                      })}`}
                     />
                   </ListItemButton>
                 </ListItem>

@@ -34,3 +34,8 @@ Expected: Component-based web UI with supporting services/API layer (to be confi
 - UI Components: `docs/ui-component-inventory-root.md`
 - API Contracts: `docs/api-contracts-root.md`
 - Data Models: `docs/data-models-root.md`
+
+## Home Page UX Decisions (Do Not Revert)
+- The "How it works" section is always visible for signed-out users; there is no CTA toggle.
+- The hero uses `public/hero-mountains.jpg` behind the title + subtitle only, with a bottom dark gradient for legibility.
+- Title and subtitle text live inside the image block; the section content appears below.
