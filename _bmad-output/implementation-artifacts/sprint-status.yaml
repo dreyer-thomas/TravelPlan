@@ -64,6 +64,7 @@ development_status:
   2-10-restore-import-trip-data-from-json: backlog
   2-11-trip-hero-image-upload: done
   2-12-day-view-detail-layout-with-overview-toggle: done
+  2-13-day-view-plan-item-add-edit-delete-icon-actions: done
   epic-2-retrospective: optional
 
   epic-3: backlog

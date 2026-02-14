@@ -1,17 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Box,
   Button,
   Chip,
   Divider,
+  IconButton,
   List,
   ListItem,
   ListItemText,
   Paper,
   Skeleton,
+  SvgIcon,
   Typography,
 } from "@mui/material";
 import Link from "next/link";
@@ -21,7 +23,6 @@ import TripDayPlanDialog from "@/components/features/trips/TripDayPlanDialog";
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
 
-// eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 type ApiEnvelope<T> = {
   data: T | null;
   error: { code: string; message: string; details?: unknown } | null;
@@ -62,6 +63,8 @@ type DayPlanItem = {
   location?: { lat: number; lng: number } | null;
   createdAt: string;
 };
+
+type PlanDialogMode = "add" | "edit";
 
 type TripDetail = {
   trip: TripSummary;
@@ -108,7 +111,14 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [stayOpen, setStayOpen] = useState(false);
-  const [planOpen, setPlanOpen] = useState(false);
+  const [planDialogMode, setPlanDialogMode] = useState<PlanDialogMode | null>(null);
+  const [selectedPlanItem, setSelectedPlanItem] = useState<DayPlanItem | null>(null);
+  const [csrfToken, setCsrfToken] = useState<string | null>(null);
+  const planItemsRef = useRef<DayPlanItem[]>([]);
+
+  useEffect(() => {
+    planItemsRef.current = planItems;
+  }, [planItems]);
 
   const formatDate = useMemo(
     () => (value: string) =>
@@ -141,6 +151,8 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
           return t("errors.server");
         case "invalid_json":
           return t("errors.invalidJson");
+        case "network_error":
+          return t("errors.network");
         default:
           return t("trips.dayView.loadError");
       }
@@ -208,6 +220,77 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
       setLoading(false);
     }
   }, [dayId, resolveApiError, t, tripId]);
+
+  const ensureCsrfToken = useCallback(async () => {
+    if (csrfToken) return csrfToken;
+    const response = await fetch("/api/auth/csrf", { method: "GET", credentials: "include", cache: "no-store" });
+    const body = (await response.json()) as ApiEnvelope<{ csrfToken: string }>;
+    if (!response.ok || body.error || !body.data?.csrfToken) {
+      throw new Error("csrf");
+    }
+    setCsrfToken(body.data.csrfToken);
+    return body.data.csrfToken;
+  }, [csrfToken]);
+
+  const handleOpenAddPlan = () => {
+    setSelectedPlanItem(null);
+    setPlanDialogMode("add");
+  };
+
+  const handleOpenEditPlan = (item: DayPlanItem) => {
+    setSelectedPlanItem(item);
+    setPlanDialogMode("edit");
+  };
+
+  const handleDeletePlan = useCallback(
+    async (itemId: string) => {
+      if (!day) return;
+
+      const confirmed = window.confirm(t("trips.plan.deleteConfirm"));
+      if (!confirmed) return;
+
+      const snapshot = planItemsRef.current;
+      const removedIndex = snapshot.findIndex((item) => item.id === itemId);
+      const removedItem = removedIndex >= 0 ? snapshot[removedIndex] : null;
+      setPlanItems((current) => current.filter((item) => item.id !== itemId));
+      setError(null);
+
+      try {
+        const token = await ensureCsrfToken();
+        const response = await fetch(`/api/trips/${tripId}/day-plan-items`, {
+          method: "DELETE",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            "x-csrf-token": token,
+          },
+          body: JSON.stringify({ tripDayId: day.id, itemId }),
+        });
+
+        const body = (await response.json()) as ApiEnvelope<{ deleted: boolean }>;
+        if (!response.ok || body.error) {
+          if (removedItem) {
+            setPlanItems((current) => {
+              if (current.some((item) => item.id === removedItem.id)) return current;
+              const insertAt = Math.min(Math.max(removedIndex, 0), current.length);
+              return [...current.slice(0, insertAt), removedItem, ...current.slice(insertAt)];
+            });
+          }
+          setError(resolveApiError(body.error?.code));
+        }
+      } catch {
+        if (removedItem) {
+          setPlanItems((current) => {
+            if (current.some((item) => item.id === removedItem.id)) return current;
+            const insertAt = Math.min(Math.max(removedIndex, 0), current.length);
+            return [...current.slice(0, insertAt), removedItem, ...current.slice(insertAt)];
+          });
+        }
+        setError(resolveApiError("network_error"));
+      }
+    },
+    [day, ensureCsrfToken, resolveApiError, t, tripId],
+  );
 
   useEffect(() => {
     loadDay();
@@ -353,8 +436,8 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                   <Button size="small" variant="outlined" onClick={() => setStayOpen(true)}>
                     {day.accommodation ? t("trips.stay.editAction") : t("trips.stay.addAction")}
                   </Button>
-                  <Button size="small" variant="outlined" onClick={() => setPlanOpen(true)}>
-                    {planItems.length > 0 ? t("trips.plan.editAction") : t("trips.plan.addAction")}
+                  <Button size="small" variant="outlined" onClick={handleOpenAddPlan}>
+                    {t("trips.plan.addPrimaryAction")}
                   </Button>
                 </Box>
               </Box>
@@ -432,6 +515,28 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                                     )
                                   }
                                 />
+                                <Box display="flex" alignItems="center" gap={0.5}>
+                                  <IconButton
+                                    size="small"
+                                    aria-label={t("trips.plan.editItemAria")}
+                                    title={t("trips.plan.editItemAria")}
+                                    onClick={() => handleOpenEditPlan(item)}
+                                  >
+                                    <SvgIcon fontSize="inherit">
+                                      <path d="M3 17.25V21h3.75l11-11-3.75-3.75-11 11zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66z" />
+                                    </SvgIcon>
+                                  </IconButton>
+                                  <IconButton
+                                    size="small"
+                                    aria-label={t("trips.plan.deleteItemAria")}
+                                    title={t("trips.plan.deleteItemAria")}
+                                    onClick={() => void handleDeletePlan(item.id)}
+                                  >
+                                    <SvgIcon fontSize="inherit">
+                                      <path d="M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-3.5l-1-1z" />
+                                    </SvgIcon>
+                                  </IconButton>
+                                </Box>
                               </ListItem>
                             );
                           })}
@@ -521,12 +626,18 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
             }}
           />
           <TripDayPlanDialog
-            open={planOpen}
+            open={planDialogMode !== null}
+            mode={planDialogMode ?? "add"}
             tripId={tripId}
             day={day}
-            onClose={() => setPlanOpen(false)}
+            item={selectedPlanItem}
+            onClose={() => {
+              setPlanDialogMode(null);
+              setSelectedPlanItem(null);
+            }}
             onSaved={() => {
-              setPlanOpen(false);
+              setPlanDialogMode(null);
+              setSelectedPlanItem(null);
               loadDay();
             }}
           />

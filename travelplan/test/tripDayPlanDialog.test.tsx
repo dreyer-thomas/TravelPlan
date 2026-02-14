@@ -32,6 +32,7 @@ vi.mock("@mui/material", () => {
       divider,
       dividers,
       disablePadding,
+      gutterBottom,
       ...rest
     } = props;
     void alignItems;
@@ -43,6 +44,7 @@ vi.mock("@mui/material", () => {
     void divider;
     void dividers;
     void disablePadding;
+    void gutterBottom;
     return rest;
   };
   const Simple = ({ children, ...rest }: { children?: ReactNode }) => (
@@ -60,34 +62,6 @@ vi.mock("@mui/material", () => {
     DialogTitle: Simple,
     DialogContent: Simple,
     DialogActions: Simple,
-    Divider: () => <hr />,
-    Link: ({ children, ...rest }: { children?: ReactNode }) => (
-      <a {...omitLayoutProps(rest as Record<string, unknown>)} href={typeof rest["href"] === "string" ? rest["href"] : "#"}>
-        {children}
-      </a>
-    ),
-    List: ({ children, ...rest }: { children?: ReactNode }) => (
-      <ul {...omitLayoutProps(rest as Record<string, unknown>)}>{children}</ul>
-    ),
-    ListItem: ({
-      children,
-      secondaryAction,
-      ...rest
-    }: {
-      children?: ReactNode;
-      secondaryAction?: ReactNode;
-    }) => (
-      <li {...omitLayoutProps(rest as Record<string, unknown>)}>
-        {children}
-        {secondaryAction}
-      </li>
-    ),
-    ListItemText: ({ primary, secondary }: { primary?: ReactNode; secondary?: ReactNode }) => (
-      <span>
-        {primary}
-        {secondary}
-      </span>
-    ),
     TextField: ({
       label,
       value,
@@ -156,15 +130,8 @@ describe("TripDayPlanDialog", () => {
     tiptapMocks.editorInstance.value = null;
   });
 
-  it("adds, edits, and deletes a day plan item", async () => {
+  it("renders add mode as form-only and saves via POST", async () => {
     const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
-    const items: {
-      id: string;
-      tripDayId: string;
-      contentJson: string;
-      linkUrl: string | null;
-      createdAt: string;
-    }[] = [];
 
     const fetchMock = vi.fn(async (input: RequestInfo, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.url;
@@ -178,52 +145,22 @@ describe("TripDayPlanDialog", () => {
         };
       }
 
-      if (url.includes("/day-plan-items") && method === "GET") {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { items }, error: null }),
-        };
-      }
-
       if (url.includes("/day-plan-items") && method === "POST") {
-        const body = init?.body ? JSON.parse(init.body as string) : {};
-        const created = {
-          id: "item-1",
-          tripDayId: body.tripDayId,
-          contentJson: body.contentJson,
-          linkUrl: body.linkUrl ?? null,
-          createdAt: new Date().toISOString(),
-        };
-        items.splice(0, items.length, created);
         return {
           ok: true,
           status: 200,
-          json: async () => ({ data: { dayPlanItem: created }, error: null }),
-        };
-      }
-
-      if (url.includes("/day-plan-items") && method === "PATCH") {
-        const body = init?.body ? JSON.parse(init.body as string) : {};
-        const updated = {
-          ...items[0],
-          contentJson: body.contentJson,
-          linkUrl: body.linkUrl ?? null,
-        };
-        items.splice(0, items.length, updated);
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { dayPlanItem: updated }, error: null }),
-        };
-      }
-
-      if (url.includes("/day-plan-items") && method === "DELETE") {
-        items.splice(0, items.length);
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { deleted: true }, error: null }),
+          json: async () => ({
+            data: {
+              dayPlanItem: {
+                id: "item-1",
+                tripDayId: "day-1",
+                contentJson: tiptapMocks.sampleDoc,
+                linkUrl: "https://example.com/plan",
+                createdAt: new Date().toISOString(),
+              },
+            },
+            error: null,
+          }),
         };
       }
 
@@ -235,21 +172,26 @@ describe("TripDayPlanDialog", () => {
     }) as unknown as typeof fetch;
 
     vi.stubGlobal("fetch", fetchMock);
+    const onSaved = vi.fn();
 
     render(
       <I18nProvider initialLanguage="en">
         <TripDayPlanDialog
           open
+          mode="add"
           tripId="trip-1"
           day={{ id: "day-1", dayIndex: 1 }}
+          item={null}
           onClose={() => undefined}
-          onSaved={() => undefined}
+          onSaved={onSaved}
         />
       </I18nProvider>,
     );
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    expect(await screen.findByText("No plan items yet.")).toBeInTheDocument();
+    expect(screen.getByText("Add plan item")).toBeInTheDocument();
+    expect(screen.queryByText("Plan items")).not.toBeInTheDocument();
+    expect(screen.queryByText("No plan items yet.")).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Link"), { target: { value: "https://example.com/plan" } });
     fireEvent.click(screen.getByRole("button", { name: "Save item" }));
@@ -260,12 +202,79 @@ describe("TripDayPlanDialog", () => {
         expect.objectContaining({ method: "POST" }),
       ),
     );
-    expect(await screen.findByText("Plan item")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit item" }));
-    const linkInput = screen.getByLabelText("Link");
-    fireEvent.change(linkInput, { target: { value: "" } });
-    fireEvent.change(linkInput, { target: { value: "https://example.com/updated" } });
+    expect(onSaved).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders edit mode with prefilled values and saves via PATCH", async () => {
+    const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
+
+    const fetchMock = vi.fn(async (input: RequestInfo, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.url;
+      const method = init?.method ?? "GET";
+
+      if (url.includes("/api/auth/csrf")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
+        };
+      }
+
+      if (url.includes("/day-plan-items") && method === "PATCH") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: {
+              dayPlanItem: {
+                id: "item-1",
+                tripDayId: "day-1",
+                contentJson: tiptapMocks.sampleDoc,
+                linkUrl: "https://example.com/updated",
+                createdAt: new Date().toISOString(),
+              },
+            },
+            error: null,
+          }),
+        };
+      }
+
+      return {
+        ok: false,
+        status: 500,
+        json: async () => ({ data: null, error: { code: "server_error", message: "boom" } }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+    const onSaved = vi.fn();
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayPlanDialog
+          open
+          mode="edit"
+          tripId="trip-1"
+          day={{ id: "day-1", dayIndex: 1 }}
+          item={{
+            id: "item-1",
+            tripDayId: "day-1",
+            contentJson: tiptapMocks.sampleDoc,
+            linkUrl: "https://example.com/original",
+            createdAt: "2026-12-01T09:00:00.000Z",
+          }}
+          onClose={() => undefined}
+          onSaved={onSaved}
+        />
+      </I18nProvider>,
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(screen.getByText("Edit plan item")).toBeInTheDocument();
+    expect(screen.getByLabelText("Link")).toHaveValue("https://example.com/original");
+
+    fireEvent.change(screen.getByLabelText("Link"), { target: { value: "https://example.com/updated" } });
     fireEvent.click(screen.getByRole("button", { name: "Update item" }));
 
     await waitFor(() =>
@@ -275,14 +284,6 @@ describe("TripDayPlanDialog", () => {
       ),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Delete item" }));
-
-    await waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining("/day-plan-items"),
-        expect.objectContaining({ method: "DELETE" }),
-      ),
-    );
-    expect(await screen.findByText("No plan items yet.")).toBeInTheDocument();
+    expect(onSaved).toHaveBeenCalledTimes(1);
   });
 });
