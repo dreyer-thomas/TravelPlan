@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
+import { getAccommodationCostTotalForTrip } from "@/lib/repositories/accommodationRepo";
 
 export type CreateTripParams = {
   userId: string;
@@ -13,6 +14,16 @@ export type TripSummary = {
   startDate: Date;
   endDate: Date;
   dayCount: number;
+  heroImageUrl: string | null;
+};
+
+export type TripHeroSummary = {
+  id: string;
+  name: string;
+  startDate: Date;
+  endDate: Date;
+  dayCount: number;
+  heroImageUrl: string | null;
 };
 
 export type TripDaySummary = {
@@ -21,7 +32,14 @@ export type TripDaySummary = {
   dayIndex: number;
   missingAccommodation: boolean;
   missingPlan: boolean;
-  accommodation: { id: string; name: string; notes: string | null } | null;
+  accommodation: {
+    id: string;
+    name: string;
+    notes: string | null;
+    status: "planned" | "booked";
+    costCents: number | null;
+    link: string | null;
+  } | null;
 };
 
 export type TripWithDays = {
@@ -30,6 +48,8 @@ export type TripWithDays = {
   startDate: Date;
   endDate: Date;
   dayCount: number;
+  accommodationCostTotalCents: number | null;
+  heroImageUrl: string | null;
   days: TripDaySummary[];
 };
 
@@ -91,6 +111,7 @@ export const listTripsForUser = async (userId: string): Promise<TripSummary[]> =
     startDate: trip.startDate,
     endDate: trip.endDate,
     dayCount: trip._count.days,
+    heroImageUrl: trip.heroImageUrl,
   }));
 };
 
@@ -164,7 +185,7 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
       days: {
         orderBy: [{ dayIndex: "asc" }, { date: "asc" }],
         include: {
-          accommodation: { select: { id: true, name: true, notes: true } },
+          accommodation: { select: { id: true, name: true, notes: true, status: true, costCents: true, link: true } },
           _count: { select: { dayPlanItems: true } },
         },
       },
@@ -176,15 +197,20 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
     return null;
   }
 
+  const accommodationCostTotalCents = await getAccommodationCostTotalForTrip(userId, tripId);
+
   return {
     id: trip.id,
     name: trip.name,
     startDate: trip.startDate,
     endDate: trip.endDate,
     dayCount: trip._count.days,
+    accommodationCostTotalCents,
+    heroImageUrl: trip.heroImageUrl,
     days: trip.days.map((day) => {
       const accommodationName = day.accommodation?.name?.trim() ?? "";
       const hasAccommodation = accommodationName.length > 0;
+      const status = day.accommodation?.status === "BOOKED" ? "booked" : "planned";
 
       return {
         id: day.id,
@@ -193,7 +219,14 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
         missingAccommodation: !hasAccommodation,
         missingPlan: day._count.dayPlanItems === 0,
         accommodation: hasAccommodation
-          ? { id: day.accommodation!.id, name: accommodationName, notes: day.accommodation!.notes }
+          ? {
+              id: day.accommodation!.id,
+              name: accommodationName,
+              notes: day.accommodation!.notes,
+              status,
+              costCents: day.accommodation!.costCents,
+              link: day.accommodation!.link,
+            }
           : null,
       };
     }),
@@ -207,3 +240,43 @@ export const deleteTripForUser = async (userId: string, tripId: string) => {
 
   return result.count > 0;
 };
+
+export const getTripByIdForUser = async (userId: string, tripId: string) =>
+  prisma.trip.findFirst({
+    where: { id: tripId, userId },
+    select: { id: true },
+  });
+
+export const updateTripHeroImageForUser = async ({
+  userId,
+  tripId,
+  heroImageUrl,
+}: {
+  userId: string;
+  tripId: string;
+  heroImageUrl: string | null;
+}): Promise<TripHeroSummary | null> =>
+  prisma.$transaction(async (tx) => {
+    const trip = await tx.trip.findFirst({
+      where: { id: tripId, userId },
+      include: { _count: { select: { days: true } } },
+    });
+
+    if (!trip) {
+      return null;
+    }
+
+    const updated = await tx.trip.update({
+      where: { id: trip.id },
+      data: { heroImageUrl },
+    });
+
+    return {
+      id: updated.id,
+      name: updated.name,
+      startDate: updated.startDate,
+      endDate: updated.endDate,
+      dayCount: trip._count.days,
+      heroImageUrl: updated.heroImageUrl,
+    };
+  });

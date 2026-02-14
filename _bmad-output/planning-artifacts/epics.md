@@ -442,6 +442,30 @@ So that I can recover plans or migrate between environments.
 **When** I import a backup
 **Then** I am prompted to confirm overwrite or create a new trip
 
+### Story 2.12: Day View Detail Layout With Overview Toggle
+
+As a trip planner,
+I want a dedicated day view for detailed planning,
+so that I can keep the overview compact while focusing on one day at a time.
+
+**FRs covered:** FR9, FR21
+
+**Acceptance Criteria:**
+
+**Given** I am viewing the trip overview
+**When** I select a day or choose the day view action
+**Then** I see a day view for that specific date
+**And** the overview remains the primary navigation surface
+
+**Given** I am in day view
+**When** I review the layout
+**Then** a left-side timeline lists the day in chronological order (previous night accommodation, day activities, current night accommodation)
+**And** a right-side panel shows day budget total with itemized entries
+
+**Given** I am in the trip overview
+**When** I look for per-day actions
+**Then** I see only a day selection entry point (no per-day action buttons)
+
 ## Epic 3: Route & Map-Based Planning
 
 Users can visualize trips and days on maps and seed a trip from Google start + destination.
@@ -525,6 +549,25 @@ So that route maps and travel-time calculations are reliable.
 **Given** routing is not configured
 **When** a user opens a map view
 **Then** the UI shows a fallback state explaining routing is unavailable
+
+### Story 3.5: Day View Map Panel With Ordered Pins
+
+As a trip planner,
+I want a day-view map that displays all places in chronological order,
+so that I can understand the day route at a glance.
+
+**FRs covered:** FR26
+
+**Acceptance Criteria:**
+
+**Given** a day has a previous-night accommodation, activities, and a current-night accommodation
+**When** I open the day view map panel
+**Then** I see pins for each place in chronological order
+**And** the pins are connected in that order
+
+**Given** a day is missing a location for any place
+**When** the map renders
+**Then** the missing place is excluded and flagged as missing location
 
 ## Epic 4: Sharing & Light Contribution
 

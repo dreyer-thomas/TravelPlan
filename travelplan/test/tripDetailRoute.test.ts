@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
+import fs from "node:fs/promises";
+import path from "node:path";
 import { DELETE, GET, PATCH } from "@/app/api/trips/[id]/route";
 import { prisma } from "@/lib/db/prisma";
 import { createSessionJwt } from "@/lib/auth/jwt";
@@ -58,28 +60,76 @@ describe("GET /api/trips/[id]", () => {
       startDate: "2026-05-01T00:00:00.000Z",
       endDate: "2026-05-03T00:00:00.000Z",
     });
+    await prisma.trip.update({
+      where: { id: trip.id },
+      data: { heroImageUrl: `/uploads/trips/${trip.id}/hero.jpg` },
+    });
 
     const days = await prisma.tripDay.findMany({
       where: { tripId: trip.id },
       orderBy: { dayIndex: "asc" },
     });
 
-    await prisma.accommodation.create({ data: { tripDayId: days[0].id, name: "Harbor Hotel", notes: "Ocean view" } });
-    await prisma.dayPlanItem.create({ data: { tripDayId: days[1].id } });
-    await prisma.accommodation.create({ data: { tripDayId: days[2].id, name: "   " } });
-    await prisma.dayPlanItem.create({ data: { tripDayId: days[2].id } });
+    await prisma.accommodation.create({
+      data: {
+        tripDayId: days[0].id,
+        name: "Harbor Hotel",
+        notes: "Ocean view",
+        status: "BOOKED",
+        costCents: 17500,
+        link: "https://example.com/harbor",
+      },
+    });
+    await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: days[1].id,
+        contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Plan" }] }] }),
+        linkUrl: "https://example.com/plan",
+      },
+    });
+    await prisma.accommodation.create({
+      data: {
+        tripDayId: days[2].id,
+        name: "   ",
+        status: "PLANNED",
+        costCents: null,
+        link: null,
+      },
+    });
+    await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: days[2].id,
+        contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Notes" }] }] }),
+        linkUrl: null,
+      },
+    });
 
     const request = buildRequest(trip.id, { session: token });
     const response = await GET(request, { params: { id: trip.id } });
     const payload = (await response.json()) as ApiEnvelope<{
-      trip: { id: string; name: string; startDate: string; endDate: string; dayCount: number };
+      trip: {
+        id: string;
+        name: string;
+        startDate: string;
+        endDate: string;
+        dayCount: number;
+        accommodationCostTotalCents: number | null;
+        heroImageUrl: string | null;
+      };
       days: {
         id: string;
         date: string;
         dayIndex: number;
         missingAccommodation: boolean;
         missingPlan: boolean;
-        accommodation: { id: string; name: string; notes: string | null } | null;
+        accommodation: {
+          id: string;
+          name: string;
+          notes: string | null;
+          status: string;
+          costCents: number | null;
+          link: string | null;
+        } | null;
       }[];
     }>;
 
@@ -87,6 +137,8 @@ describe("GET /api/trips/[id]", () => {
     expect(payload.error).toBeNull();
     expect(payload.data?.trip.id).toBe(trip.id);
     expect(payload.data?.trip.dayCount).toBe(dayCount);
+    expect(payload.data?.trip.accommodationCostTotalCents).toBe(17500);
+    expect(payload.data?.trip.heroImageUrl).toBe(`/uploads/trips/${trip.id}/hero.jpg`);
     expect(payload.data?.days.map((day) => day.dayIndex)).toEqual([1, 2, 3]);
     expect(payload.data?.days.map((day) => [day.missingAccommodation, day.missingPlan])).toEqual([
       [false, true],
@@ -98,6 +150,9 @@ describe("GET /api/trips/[id]", () => {
       null,
       null,
     ]);
+    expect(payload.data?.days[0].accommodation?.status).toBe("booked");
+    expect(payload.data?.days[0].accommodation?.costCents).toBe(17500);
+    expect(payload.data?.days[0].accommodation?.link).toBe("https://example.com/harbor");
   });
 
   it("rejects unauthenticated requests", async () => {
@@ -200,13 +255,21 @@ describe("PATCH /api/trips/[id]", () => {
 
     const response = await PATCH(request, { params: { id: trip.id } });
     const payload = (await response.json()) as ApiEnvelope<{
-      trip: { id: string; name: string; startDate: string; endDate: string; dayCount: number };
+      trip: {
+        id: string;
+        name: string;
+        startDate: string;
+        endDate: string;
+        dayCount: number;
+        accommodationCostTotalCents: number | null;
+      };
       days: { id: string; date: string; dayIndex: number }[];
     }>;
 
     expect(response.status).toBe(200);
     expect(payload.error).toBeNull();
     expect(payload.data?.trip.name).toBe("Updated Trip");
+    expect(payload.data?.trip.accommodationCostTotalCents).toBeNull();
     expect(payload.data?.days.map((day) => day.dayIndex)).toEqual([1, 2, 3]);
     expect(payload.data?.days.map((day) => day.date)).toEqual([
       "2026-07-02T00:00:00.000Z",
@@ -276,6 +339,41 @@ describe("DELETE /api/trips/[id]", () => {
     expect(response.status).toBe(200);
     expect(payload.data?.deleted).toBe(true);
     expect(await prisma.trip.count({ where: { id: trip.id } })).toBe(0);
+  });
+
+  it("removes hero image uploads when deleting a trip", async () => {
+    const user = await prisma.user.create({
+      data: {
+        email: "trip-delete-cleanup@example.com",
+        passwordHash: "hashed",
+        role: "OWNER",
+      },
+    });
+    const token = await createSessionJwt({ sub: user.id, role: user.role });
+
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Delete Trip Uploads",
+      startDate: "2026-08-10T00:00:00.000Z",
+      endDate: "2026-08-11T00:00:00.000Z",
+    });
+
+    const uploadDir = path.join(process.cwd(), "public", "uploads", "trips", trip.id);
+    await fs.mkdir(uploadDir, { recursive: true });
+    await fs.writeFile(path.join(uploadDir, "hero.png"), Buffer.from("hero"));
+
+    const request = buildRequest(trip.id, {
+      session: token,
+      csrf: "csrf-token",
+      method: "DELETE",
+    });
+
+    const response = await DELETE(request, { params: { id: trip.id } });
+    const payload = (await response.json()) as ApiEnvelope<{ deleted: boolean }>;
+
+    expect(response.status).toBe(200);
+    expect(payload.data?.deleted).toBe(true);
+    await expect(fs.stat(uploadDir)).rejects.toThrow();
   });
 
   it("rejects unauthenticated delete requests", async () => {

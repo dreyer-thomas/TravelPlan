@@ -27,6 +27,8 @@ export type AggregateDayPlanItem = {
 export type DayPlanItemMinAggregateOutputType = {
   id: string | null
   tripDayId: string | null
+  contentJson: string | null
+  linkUrl: string | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -34,6 +36,8 @@ export type DayPlanItemMinAggregateOutputType = {
 export type DayPlanItemMaxAggregateOutputType = {
   id: string | null
   tripDayId: string | null
+  contentJson: string | null
+  linkUrl: string | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -41,6 +45,8 @@ export type DayPlanItemMaxAggregateOutputType = {
 export type DayPlanItemCountAggregateOutputType = {
   id: number
   tripDayId: number
+  contentJson: number
+  linkUrl: number
   createdAt: number
   updatedAt: number
   _all: number
@@ -50,6 +56,8 @@ export type DayPlanItemCountAggregateOutputType = {
 export type DayPlanItemMinAggregateInputType = {
   id?: true
   tripDayId?: true
+  contentJson?: true
+  linkUrl?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -57,6 +65,8 @@ export type DayPlanItemMinAggregateInputType = {
 export type DayPlanItemMaxAggregateInputType = {
   id?: true
   tripDayId?: true
+  contentJson?: true
+  linkUrl?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -64,6 +74,8 @@ export type DayPlanItemMaxAggregateInputType = {
 export type DayPlanItemCountAggregateInputType = {
   id?: true
   tripDayId?: true
+  contentJson?: true
+  linkUrl?: true
   createdAt?: true
   updatedAt?: true
   _all?: true
@@ -144,6 +156,8 @@ export type DayPlanItemGroupByArgs<ExtArgs extends runtime.Types.Extensions.Inte
 export type DayPlanItemGroupByOutputType = {
   id: string
   tripDayId: string
+  contentJson: string
+  linkUrl: string | null
   createdAt: Date
   updatedAt: Date
   _count: DayPlanItemCountAggregateOutputType | null
@@ -172,6 +186,8 @@ export type DayPlanItemWhereInput = {
   NOT?: Prisma.DayPlanItemWhereInput | Prisma.DayPlanItemWhereInput[]
   id?: Prisma.StringFilter<"DayPlanItem"> | string
   tripDayId?: Prisma.StringFilter<"DayPlanItem"> | string
+  contentJson?: Prisma.StringFilter<"DayPlanItem"> | string
+  linkUrl?: Prisma.StringNullableFilter<"DayPlanItem"> | string | null
   createdAt?: Prisma.DateTimeFilter<"DayPlanItem"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"DayPlanItem"> | Date | string
   tripDay?: Prisma.XOR<Prisma.TripDayScalarRelationFilter, Prisma.TripDayWhereInput>
@@ -180,6 +196,8 @@ export type DayPlanItemWhereInput = {
 export type DayPlanItemOrderByWithRelationInput = {
   id?: Prisma.SortOrder
   tripDayId?: Prisma.SortOrder
+  contentJson?: Prisma.SortOrder
+  linkUrl?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   tripDay?: Prisma.TripDayOrderByWithRelationInput
@@ -191,6 +209,8 @@ export type DayPlanItemWhereUniqueInput = Prisma.AtLeast<{
   OR?: Prisma.DayPlanItemWhereInput[]
   NOT?: Prisma.DayPlanItemWhereInput | Prisma.DayPlanItemWhereInput[]
   tripDayId?: Prisma.StringFilter<"DayPlanItem"> | string
+  contentJson?: Prisma.StringFilter<"DayPlanItem"> | string
+  linkUrl?: Prisma.StringNullableFilter<"DayPlanItem"> | string | null
   createdAt?: Prisma.DateTimeFilter<"DayPlanItem"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"DayPlanItem"> | Date | string
   tripDay?: Prisma.XOR<Prisma.TripDayScalarRelationFilter, Prisma.TripDayWhereInput>
@@ -199,6 +219,8 @@ export type DayPlanItemWhereUniqueInput = Prisma.AtLeast<{
 export type DayPlanItemOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
   tripDayId?: Prisma.SortOrder
+  contentJson?: Prisma.SortOrder
+  linkUrl?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   _count?: Prisma.DayPlanItemCountOrderByAggregateInput
@@ -212,12 +234,16 @@ export type DayPlanItemScalarWhereWithAggregatesInput = {
   NOT?: Prisma.DayPlanItemScalarWhereWithAggregatesInput | Prisma.DayPlanItemScalarWhereWithAggregatesInput[]
   id?: Prisma.StringWithAggregatesFilter<"DayPlanItem"> | string
   tripDayId?: Prisma.StringWithAggregatesFilter<"DayPlanItem"> | string
+  contentJson?: Prisma.StringWithAggregatesFilter<"DayPlanItem"> | string
+  linkUrl?: Prisma.StringNullableWithAggregatesFilter<"DayPlanItem"> | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"DayPlanItem"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"DayPlanItem"> | Date | string
 }
 
 export type DayPlanItemCreateInput = {
   id?: string
+  contentJson: string
+  linkUrl?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   tripDay: Prisma.TripDayCreateNestedOneWithoutDayPlanItemsInput
@@ -226,12 +252,16 @@ export type DayPlanItemCreateInput = {
 export type DayPlanItemUncheckedCreateInput = {
   id?: string
   tripDayId: string
+  contentJson: string
+  linkUrl?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
 
 export type DayPlanItemUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  contentJson?: Prisma.StringFieldUpdateOperationsInput | string
+  linkUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   tripDay?: Prisma.TripDayUpdateOneRequiredWithoutDayPlanItemsNestedInput
@@ -240,6 +270,8 @@ export type DayPlanItemUpdateInput = {
 export type DayPlanItemUncheckedUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   tripDayId?: Prisma.StringFieldUpdateOperationsInput | string
+  contentJson?: Prisma.StringFieldUpdateOperationsInput | string
+  linkUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -247,12 +279,16 @@ export type DayPlanItemUncheckedUpdateInput = {
 export type DayPlanItemCreateManyInput = {
   id?: string
   tripDayId: string
+  contentJson: string
+  linkUrl?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
 
 export type DayPlanItemUpdateManyMutationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  contentJson?: Prisma.StringFieldUpdateOperationsInput | string
+  linkUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -260,6 +296,8 @@ export type DayPlanItemUpdateManyMutationInput = {
 export type DayPlanItemUncheckedUpdateManyInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   tripDayId?: Prisma.StringFieldUpdateOperationsInput | string
+  contentJson?: Prisma.StringFieldUpdateOperationsInput | string
+  linkUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -277,6 +315,8 @@ export type DayPlanItemOrderByRelationAggregateInput = {
 export type DayPlanItemCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
   tripDayId?: Prisma.SortOrder
+  contentJson?: Prisma.SortOrder
+  linkUrl?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -284,6 +324,8 @@ export type DayPlanItemCountOrderByAggregateInput = {
 export type DayPlanItemMaxOrderByAggregateInput = {
   id?: Prisma.SortOrder
   tripDayId?: Prisma.SortOrder
+  contentJson?: Prisma.SortOrder
+  linkUrl?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -291,6 +333,8 @@ export type DayPlanItemMaxOrderByAggregateInput = {
 export type DayPlanItemMinOrderByAggregateInput = {
   id?: Prisma.SortOrder
   tripDayId?: Prisma.SortOrder
+  contentJson?: Prisma.SortOrder
+  linkUrl?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -339,12 +383,16 @@ export type DayPlanItemUncheckedUpdateManyWithoutTripDayNestedInput = {
 
 export type DayPlanItemCreateWithoutTripDayInput = {
   id?: string
+  contentJson: string
+  linkUrl?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
 
 export type DayPlanItemUncheckedCreateWithoutTripDayInput = {
   id?: string
+  contentJson: string
+  linkUrl?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -380,30 +428,40 @@ export type DayPlanItemScalarWhereInput = {
   NOT?: Prisma.DayPlanItemScalarWhereInput | Prisma.DayPlanItemScalarWhereInput[]
   id?: Prisma.StringFilter<"DayPlanItem"> | string
   tripDayId?: Prisma.StringFilter<"DayPlanItem"> | string
+  contentJson?: Prisma.StringFilter<"DayPlanItem"> | string
+  linkUrl?: Prisma.StringNullableFilter<"DayPlanItem"> | string | null
   createdAt?: Prisma.DateTimeFilter<"DayPlanItem"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"DayPlanItem"> | Date | string
 }
 
 export type DayPlanItemCreateManyTripDayInput = {
   id?: string
+  contentJson: string
+  linkUrl?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
 
 export type DayPlanItemUpdateWithoutTripDayInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  contentJson?: Prisma.StringFieldUpdateOperationsInput | string
+  linkUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
 export type DayPlanItemUncheckedUpdateWithoutTripDayInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  contentJson?: Prisma.StringFieldUpdateOperationsInput | string
+  linkUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
 export type DayPlanItemUncheckedUpdateManyWithoutTripDayInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  contentJson?: Prisma.StringFieldUpdateOperationsInput | string
+  linkUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -413,6 +471,8 @@ export type DayPlanItemUncheckedUpdateManyWithoutTripDayInput = {
 export type DayPlanItemSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
   tripDayId?: boolean
+  contentJson?: boolean
+  linkUrl?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   tripDay?: boolean | Prisma.TripDayDefaultArgs<ExtArgs>
@@ -421,6 +481,8 @@ export type DayPlanItemSelect<ExtArgs extends runtime.Types.Extensions.InternalA
 export type DayPlanItemSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
   tripDayId?: boolean
+  contentJson?: boolean
+  linkUrl?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   tripDay?: boolean | Prisma.TripDayDefaultArgs<ExtArgs>
@@ -429,6 +491,8 @@ export type DayPlanItemSelectCreateManyAndReturn<ExtArgs extends runtime.Types.E
 export type DayPlanItemSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
   tripDayId?: boolean
+  contentJson?: boolean
+  linkUrl?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   tripDay?: boolean | Prisma.TripDayDefaultArgs<ExtArgs>
@@ -437,11 +501,13 @@ export type DayPlanItemSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.E
 export type DayPlanItemSelectScalar = {
   id?: boolean
   tripDayId?: boolean
+  contentJson?: boolean
+  linkUrl?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }
 
-export type DayPlanItemOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "tripDayId" | "createdAt" | "updatedAt", ExtArgs["result"]["dayPlanItem"]>
+export type DayPlanItemOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "tripDayId" | "contentJson" | "linkUrl" | "createdAt" | "updatedAt", ExtArgs["result"]["dayPlanItem"]>
 export type DayPlanItemInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   tripDay?: boolean | Prisma.TripDayDefaultArgs<ExtArgs>
 }
@@ -460,6 +526,8 @@ export type $DayPlanItemPayload<ExtArgs extends runtime.Types.Extensions.Interna
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
     tripDayId: string
+    contentJson: string
+    linkUrl: string | null
     createdAt: Date
     updatedAt: Date
   }, ExtArgs["result"]["dayPlanItem"]>
@@ -888,6 +956,8 @@ export interface Prisma__DayPlanItemClient<T, Null = never, ExtArgs extends runt
 export interface DayPlanItemFieldRefs {
   readonly id: Prisma.FieldRef<"DayPlanItem", 'String'>
   readonly tripDayId: Prisma.FieldRef<"DayPlanItem", 'String'>
+  readonly contentJson: Prisma.FieldRef<"DayPlanItem", 'String'>
+  readonly linkUrl: Prisma.FieldRef<"DayPlanItem", 'String'>
   readonly createdAt: Prisma.FieldRef<"DayPlanItem", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"DayPlanItem", 'DateTime'>
 }

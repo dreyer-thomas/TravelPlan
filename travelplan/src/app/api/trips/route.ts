@@ -82,6 +82,7 @@ export const GET = async (request: NextRequest) => {
         startDate: trip.startDate.toISOString(),
         endDate: trip.endDate.toISOString(),
         dayCount: trip.dayCount,
+        heroImageUrl: trip.heroImageUrl,
       })),
     });
   } catch {

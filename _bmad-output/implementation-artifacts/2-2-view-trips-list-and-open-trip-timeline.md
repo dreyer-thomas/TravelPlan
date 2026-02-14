@@ -26,6 +26,13 @@ so that I can access the full day-by-day timeline.
 - Trip timeline must render the full set of trip days in order.
 - All trip data must remain private to the owning user.
 
+## Change Request Note (2026-02-14)
+
+- New product direction adds a dedicated day view for detailed planning.
+- The trip overview remains compact and shows a 2-3 week scan with status/gaps.
+- Overview should only allow selecting a day (no per-day action buttons).
+- Follow-up stories: Epic 2 / Story 2.12 and Epic 3 / Story 3.5.
+
 ## Tasks / Subtasks
 
 - [x] Add API route to fetch a single trip with its days (user-scoped)

@@ -30,6 +30,7 @@ type TripSummary = {
   startDate: string;
   endDate: string;
   dayCount: number;
+  heroImageUrl: string | null;
 };
 
 export default function TripsDashboard() {
@@ -91,6 +92,7 @@ export default function TripsDashboard() {
       startDate: response.trip.startDate,
       endDate: response.trip.endDate,
       dayCount: response.dayCount,
+      heroImageUrl: response.trip.heroImageUrl ?? null,
     };
     setTrips((current) => {
       const merged = [summary, ...current.filter((trip) => trip.id !== summary.id)];
@@ -153,8 +155,27 @@ export default function TripsDashboard() {
                       borderRadius: 2,
                       my: 0.5,
                       "&:hover": { backgroundColor: "rgba(241, 90, 36, 0.08)" },
+                      display: "flex",
+                      gap: 2,
                     }}
                   >
+                    <Box
+                      sx={{
+                        width: 96,
+                        height: 64,
+                        borderRadius: 2,
+                        overflow: "hidden",
+                        flexShrink: 0,
+                        backgroundColor: "rgba(0, 0, 0, 0.04)",
+                      }}
+                    >
+                      <Box
+                        component="img"
+                        src={trip.heroImageUrl ?? "/images/world-map-placeholder.svg"}
+                        alt={trip.name}
+                        sx={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                      />
+                    </Box>
                     <ListItemText
                       primary={trip.name}
                       secondary={`${buildDateRange(trip)} - ${formatMessage(t("trips.dashboard.dayCount"), {

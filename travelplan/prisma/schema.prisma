@@ -18,6 +18,11 @@ enum PreferredLanguage {
   de
 }
 
+enum AccommodationStatus {
+  PLANNED
+  BOOKED
+}
+
 model User {
   id           String   @id @default(cuid()) @map("id")
   email        String   @unique @map("email")
@@ -54,6 +59,7 @@ model Trip {
   name      String   @map("name")
   startDate DateTime @map("start_date")
   endDate   DateTime @map("end_date")
+  heroImageUrl String? @map("hero_image_url")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -84,6 +90,9 @@ model Accommodation {
   id        String   @id @default(cuid()) @map("id")
   tripDayId String   @unique(map: "idx_accommodations_trip_day_id") @map("trip_day_id")
   name      String   @map("property_name")
+  status    AccommodationStatus @default(PLANNED) @map("status")
+  costCents Int?     @map("cost_cents")
+  link      String?  @map("link_url")
   notes     String?  @map("notes")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -96,6 +105,8 @@ model Accommodation {
 model DayPlanItem {
   id        String   @id @default(cuid()) @map("id")
   tripDayId String   @map("trip_day_id")
+  contentJson String @map("content_json")
+  linkUrl   String?  @map("link_url")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 

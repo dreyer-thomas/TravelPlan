@@ -1,6 +1,6 @@
 # Story 2.11: Trip Hero Image Upload
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -34,15 +34,15 @@ so that the trips overview and trip header feel more visual and recognizable.
 
 ## Tasks / Subtasks
 
-- [ ] Add a placeholder asset (world map) in `public/images/`.
-- [ ] Extend Trip model to store `heroImageUrl` (or `heroImagePath`) and migrate DB.
-- [ ] Add API endpoint to upload/replace a hero image for a trip.
-- [ ] Update trip create flow to optionally upload a hero image after creation.
-- [ ] Update trip edit flow to upload/replace the hero image.
-- [ ] Return `heroImageUrl` in `GET /api/trips` and `GET /api/trips/[id]`.
-- [ ] Update trips overview to render hero images (with placeholder fallback).
-- [ ] Update trip detail header to render hero image (with placeholder fallback).
-- [ ] Add tests for upload validation and API responses.
+- [x] Add a placeholder asset (world map) in `public/images/`.
+- [x] Extend Trip model to store `heroImageUrl` (or `heroImagePath`) and migrate DB.
+- [x] Add API endpoint to upload/replace a hero image for a trip.
+- [x] Update trip create flow to optionally upload a hero image after creation.
+- [x] Update trip edit flow to upload/replace the hero image.
+- [x] Return `heroImageUrl` in `GET /api/trips` and `GET /api/trips/[id]`.
+- [x] Update trips overview to render hero images (with placeholder fallback).
+- [x] Update trip detail header to render hero image (with placeholder fallback).
+- [x] Add tests for upload validation and API responses.
 
 ## Dev Notes
 
@@ -128,7 +128,47 @@ N/A
 ### Completion Notes List
 
 - Added new trip hero image upload story with DB, API, UI, and testing scope.
+- Added world map placeholder asset and a smoke test asserting the placeholder file exists.
+- Added `heroImageUrl` to the Trip model with a migration and updated Prisma client/test coverage.
+- Added hero image upload API route with validation, storage, and response tests.
+- Added optional hero image upload in trip create flow with UI + test coverage.
+- Added hero image replacement support in trip edit dialog with tests.
+- Added hero image URL in trip list/detail API responses with tests.
+- Added hero image thumbnails with placeholder fallback in trips overview plus UI test.
+- Added trip detail hero header image with placeholder fallback and test update.
+- Added upload validation and API response tests for hero image upload endpoint.
+- Code review fixes: verify trip ownership before hero image file I/O, clean up uploads on trip delete, added coverage for cleanup and unauthorized upload safeguards.
+- Tests: `npm test -- tripHeroImageRoute.test.ts tripDetailRoute.test.ts`.
 
 ### File List
 
 - `/Users/tommy/Development/TravelPlan/_bmad-output/implementation-artifacts/2-11-trip-hero-image-upload.md`
+- `/Users/tommy/Development/TravelPlan/travelplan/public/images/world-map-placeholder.svg`
+- `/Users/tommy/Development/TravelPlan/travelplan/test/heroImagePlaceholder.test.ts`
+- `/Users/tommy/Development/TravelPlan/travelplan/prisma/migrations/20260214173724_add_trip_hero_image/migration.sql`
+- `/Users/tommy/Development/TravelPlan/travelplan/prisma/schema.prisma`
+- `/Users/tommy/Development/TravelPlan/travelplan/src/generated/prisma/commonInputTypes.ts`
+- `/Users/tommy/Development/TravelPlan/travelplan/src/generated/prisma/enums.ts`
+- `/Users/tommy/Development/TravelPlan/travelplan/src/generated/prisma/internal/class.ts`
+- `/Users/tommy/Development/TravelPlan/travelplan/src/generated/prisma/internal/prismaNamespace.ts`
+- `/Users/tommy/Development/TravelPlan/travelplan/src/generated/prisma/internal/prismaNamespaceBrowser.ts`
+- `/Users/tommy/Development/TravelPlan/travelplan/src/generated/prisma/models/Trip.ts`
+- `/Users/tommy/Development/TravelPlan/travelplan/test/tripRepo.test.ts`
+- `/Users/tommy/Development/TravelPlan/travelplan/src/app/api/trips/[id]/hero-image/route.ts`
+- `/Users/tommy/Development/TravelPlan/travelplan/src/lib/repositories/tripRepo.ts`
+- `/Users/tommy/Development/TravelPlan/travelplan/test/tripHeroImageRoute.test.ts`
+- `/Users/tommy/Development/TravelPlan/travelplan/src/components/features/trips/TripCreateForm.tsx`
+- `/Users/tommy/Development/TravelPlan/travelplan/src/i18n/en.ts`
+- `/Users/tommy/Development/TravelPlan/travelplan/src/i18n/de.ts`
+- `/Users/tommy/Development/TravelPlan/travelplan/test/tripCreateForm.test.tsx`
+- `/Users/tommy/Development/TravelPlan/travelplan/src/components/features/trips/TripEditDialog.tsx`
+- `/Users/tommy/Development/TravelPlan/travelplan/test/tripEditDialogHeroImage.test.tsx`
+- `/Users/tommy/Development/TravelPlan/travelplan/src/app/api/trips/route.ts`
+- `/Users/tommy/Development/TravelPlan/travelplan/src/app/api/trips/[id]/route.ts`
+- `/Users/tommy/Development/TravelPlan/travelplan/src/lib/repositories/tripRepo.ts`
+- `/Users/tommy/Development/TravelPlan/travelplan/test/tripDetailRoute.test.ts`
+- `/Users/tommy/Development/TravelPlan/travelplan/test/tripListRoute.test.ts`
+- `/Users/tommy/Development/TravelPlan/travelplan/src/components/features/trips/TripsDashboard.tsx`
+- `/Users/tommy/Development/TravelPlan/travelplan/test/tripsDashboard.test.tsx`
+- `/Users/tommy/Development/TravelPlan/travelplan/src/components/features/trips/TripTimeline.tsx`
+- `/Users/tommy/Development/TravelPlan/travelplan/test/tripTimelinePlan.test.tsx`

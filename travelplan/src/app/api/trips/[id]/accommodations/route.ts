@@ -70,12 +70,16 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
   }
 
   const notes = parsed.data.notes?.trim();
+  const link = parsed.data.link?.trim() ?? null;
 
   const accommodation = await createAccommodationForTripDay({
     userId,
     tripId,
     tripDayId: parsed.data.tripDayId,
     name: parsed.data.name,
+    status: parsed.data.status,
+    costCents: parsed.data.costCents ?? null,
+    link,
     notes: notes ? notes : null,
   });
 
@@ -112,12 +116,16 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
   }
 
   const notes = parsed.data.notes?.trim();
+  const link = parsed.data.link?.trim() ?? null;
 
   const accommodationResult = await updateAccommodationForTripDay({
     userId,
     tripId,
     tripDayId: parsed.data.tripDayId,
     name: parsed.data.name,
+    status: parsed.data.status,
+    costCents: parsed.data.costCents ?? null,
+    link,
     notes: notes ? notes : null,
   });
 

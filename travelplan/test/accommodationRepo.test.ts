@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db/prisma";
 import {
   createAccommodationForTripDay,
   deleteAccommodationForTripDay,
+  getAccommodationCostTotalForTrip,
   updateAccommodationForTripDay,
 } from "@/lib/repositories/accommodationRepo";
 
@@ -53,6 +54,9 @@ describe("accommodationRepo", () => {
       tripId: trip.id,
       tripDayId: day.id,
       name: "Harbor Inn",
+      status: "booked",
+      costCents: 24500,
+      link: "https://example.com/harbor-inn",
       notes: "Near the docks",
     });
 
@@ -60,6 +64,9 @@ describe("accommodationRepo", () => {
     expect(accommodation?.tripDayId).toBe(day.id);
     expect(accommodation?.name).toBe("Harbor Inn");
     expect(accommodation?.notes).toBe("Near the docks");
+    expect(accommodation?.status).toBe("booked");
+    expect(accommodation?.costCents).toBe(24500);
+    expect(accommodation?.link).toBe("https://example.com/harbor-inn");
   });
 
   it("rejects accommodation creation for non-owned trip day", async () => {
@@ -72,6 +79,9 @@ describe("accommodationRepo", () => {
       tripId: trip.id,
       tripDayId: day.id,
       name: "Hidden Spot",
+      status: "planned",
+      costCents: null,
+      link: null,
       notes: null,
     });
 
@@ -87,6 +97,9 @@ describe("accommodationRepo", () => {
       tripId: trip.id,
       tripDayId: day.id,
       name: "Initial Stay",
+      status: "planned",
+      costCents: null,
+      link: null,
       notes: null,
     });
 
@@ -95,6 +108,9 @@ describe("accommodationRepo", () => {
       tripId: trip.id,
       tripDayId: day.id,
       name: "Updated Stay",
+      status: "booked",
+      costCents: 12000,
+      link: "https://example.com/updated",
       notes: "Late check-in",
     });
 
@@ -102,6 +118,9 @@ describe("accommodationRepo", () => {
     if (updated.status === "updated") {
       expect(updated.accommodation.name).toBe("Updated Stay");
       expect(updated.accommodation.notes).toBe("Late check-in");
+      expect(updated.accommodation.status).toBe("booked");
+      expect(updated.accommodation.costCents).toBe(12000);
+      expect(updated.accommodation.link).toBe("https://example.com/updated");
     }
   });
 
@@ -114,6 +133,9 @@ describe("accommodationRepo", () => {
       tripId: trip.id,
       tripDayId: day.id,
       name: "Missing Stay",
+      status: "planned",
+      costCents: null,
+      link: null,
       notes: null,
     });
 
@@ -130,6 +152,9 @@ describe("accommodationRepo", () => {
       tripId: trip.id,
       tripDayId: day.id,
       name: "Unauthorized Stay",
+      status: "planned",
+      costCents: null,
+      link: null,
       notes: null,
     });
 
@@ -145,6 +170,9 @@ describe("accommodationRepo", () => {
       tripId: trip.id,
       tripDayId: day.id,
       name: "Delete Stay",
+      status: "planned",
+      costCents: null,
+      link: null,
       notes: null,
     });
 
@@ -168,6 +196,9 @@ describe("accommodationRepo", () => {
       tripId: trip.id,
       tripDayId: day.id,
       name: "Owner Stay",
+      status: "planned",
+      costCents: null,
+      link: null,
       notes: null,
     });
 
@@ -179,5 +210,44 @@ describe("accommodationRepo", () => {
 
     expect(deleted).toBe(false);
     expect(await prisma.accommodation.count()).toBe(1);
+  });
+
+  it("computes total accommodation cost for a trip", async () => {
+    const user = await createUser("stay-total@example.com");
+    const { trip, day } = await createTripWithDay(user.id);
+
+    const secondDay = await prisma.tripDay.create({
+      data: {
+        tripId: trip.id,
+        date: new Date("2026-10-02T00:00:00.000Z"),
+        dayIndex: 2,
+      },
+    });
+
+    await createAccommodationForTripDay({
+      userId: user.id,
+      tripId: trip.id,
+      tripDayId: day.id,
+      name: "Budget Stay",
+      status: "planned",
+      costCents: 4500,
+      link: null,
+      notes: null,
+    });
+
+    await createAccommodationForTripDay({
+      userId: user.id,
+      tripId: trip.id,
+      tripDayId: secondDay.id,
+      name: "Luxury Stay",
+      status: "booked",
+      costCents: 15500,
+      link: null,
+      notes: null,
+    });
+
+    const total = await getAccommodationCostTotalForTrip(user.id, trip.id);
+
+    expect(total).toBe(20000);
   });
 });

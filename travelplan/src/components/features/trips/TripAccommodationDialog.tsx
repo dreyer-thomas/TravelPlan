@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import {
   Alert,
   Box,
@@ -11,6 +11,11 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  FormControl,
+  FormHelperText,
+  InputLabel,
+  MenuItem,
+  Select,
   TextField,
   Typography,
 } from "@mui/material";
@@ -25,12 +30,22 @@ type ApiEnvelope<T> = {
 type TripDay = {
   id: string;
   dayIndex: number;
-  accommodation: { id: string; name: string; notes: string | null } | null;
+  accommodation: {
+    id: string;
+    name: string;
+    notes: string | null;
+    status: "planned" | "booked";
+    costCents: number | null;
+    link: string | null;
+  } | null;
 };
 
 type AccommodationFormValues = {
   name: string;
   notes: string;
+  status: "planned" | "booked";
+  costCents: string;
+  link: string;
 };
 
 type TripAccommodationDialogProps = {
@@ -49,6 +64,7 @@ export default function TripAccommodationDialog({ open, tripId, day, onClose, on
 
   const {
     register,
+    control,
     handleSubmit,
     formState: { errors, isSubmitting },
     setError,
@@ -57,6 +73,12 @@ export default function TripAccommodationDialog({ open, tripId, day, onClose, on
     defaultValues: {
       name: day?.accommodation?.name ?? "",
       notes: day?.accommodation?.notes ?? "",
+      status: day?.accommodation?.status ?? "planned",
+      costCents:
+        day?.accommodation?.costCents !== null && day?.accommodation?.costCents !== undefined
+          ? (day.accommodation.costCents / 100).toFixed(2)
+          : "",
+      link: day?.accommodation?.link ?? "",
     },
   });
 
@@ -68,6 +90,12 @@ export default function TripAccommodationDialog({ open, tripId, day, onClose, on
     reset({
       name: day?.accommodation?.name ?? "",
       notes: day?.accommodation?.notes ?? "",
+      status: day?.accommodation?.status ?? "planned",
+      costCents:
+        day?.accommodation?.costCents !== null && day?.accommodation?.costCents !== undefined
+          ? (day.accommodation.costCents / 100).toFixed(2)
+          : "",
+      link: day?.accommodation?.link ?? "",
     });
   }, [day, open, reset]);
 
@@ -113,9 +141,16 @@ export default function TripAccommodationDialog({ open, tripId, day, onClose, on
       return;
     }
 
+    const costValue = values.costCents.trim();
+    const costCents = costValue ? Math.round(Number(costValue) * 100) : null;
+    const linkValue = values.link.trim();
+
     const payload = {
       tripDayId: day.id,
       name: values.name,
+      status: values.status,
+      costCents,
+      link: linkValue.length > 0 ? linkValue : null,
       notes: values.notes.trim() ? values.notes : null,
     };
 
@@ -224,6 +259,45 @@ export default function TripAccommodationDialog({ open, tripId, day, onClose, on
     [t],
   );
 
+  const maxCostCents = 100000000;
+  const costRules = useMemo(
+    () => ({
+      validate: (value: string) => {
+        const trimmed = value.trim();
+        if (!trimmed) return true;
+        if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) {
+          return t("trips.stay.costInvalid");
+        }
+        const parsed = Number(trimmed);
+        if (!Number.isFinite(parsed) || parsed < 0) {
+          return t("trips.stay.costInvalid");
+        }
+        const cents = Math.round(parsed * 100);
+        if (cents > maxCostCents) {
+          return t("trips.stay.costTooHigh");
+        }
+        return true;
+      },
+    }),
+    [t],
+  );
+
+  const linkRules = useMemo(
+    () => ({
+      validate: (value: string) => {
+        const trimmed = value.trim();
+        if (!trimmed) return true;
+        try {
+          new URL(trimmed);
+          return true;
+        } catch {
+          return t("trips.stay.linkInvalid");
+        }
+      },
+    }),
+    [t],
+  );
+
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
       <DialogTitle>
@@ -248,6 +322,45 @@ export default function TripAccommodationDialog({ open, tripId, day, onClose, on
               helperText={errors.name?.message}
               {...register("name", nameRules)}
               fullWidth
+            />
+            <FormControl fullWidth error={Boolean(errors.status)}>
+              <InputLabel id="trip-accommodation-status-label">{t("trips.stay.statusLabel")}</InputLabel>
+              <Controller
+                control={control}
+                name="status"
+                render={({ field }) => (
+                  <Select
+                    labelId="trip-accommodation-status-label"
+                    label={t("trips.stay.statusLabel")}
+                    {...field}
+                  >
+                    <MenuItem value="planned">{t("trips.stay.statusPlanned")}</MenuItem>
+                    <MenuItem value="booked">{t("trips.stay.statusBooked")}</MenuItem>
+                  </Select>
+                )}
+              />
+              {errors.status?.message && <FormHelperText>{errors.status.message}</FormHelperText>}
+            </FormControl>
+            <TextField
+              label={t("trips.stay.costLabel")}
+              error={Boolean(errors.costCents)}
+              helperText={errors.costCents?.message ?? t("trips.stay.costHelper")}
+              {...register("costCents", costRules)}
+              fullWidth
+              type="number"
+              inputMode="decimal"
+              inputProps={{ min: 0, step: 0.01 }}
+              placeholder="0.00"
+            />
+            <TextField
+              label={t("trips.stay.linkLabel")}
+              error={Boolean(errors.link)}
+              helperText={errors.link?.message ?? t("trips.stay.linkHelper")}
+              {...register("link", linkRules)}
+              fullWidth
+              type="url"
+              inputMode="url"
+              placeholder="https://"
             />
             <TextField
               label={t("trips.stay.notesLabel")}

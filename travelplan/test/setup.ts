@@ -1,6 +1,7 @@
 import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { afterAll, vi } from "vitest";
 
 const workerId = process.env.VITEST_WORKER_ID ?? process.env.VITEST_POOL_ID ?? "0";
 const testDbPath = path.resolve(process.cwd(), "prisma", `test-${workerId}.db`);
@@ -9,6 +10,31 @@ const migrateLockPath = path.resolve(process.cwd(), "prisma", `test-migrate-${wo
 const wait = (ms: number) => {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 };
+
+const sampleDoc = JSON.stringify({
+  type: "doc",
+  content: [{ type: "paragraph", content: [{ type: "text", text: "Plan" }] }],
+});
+
+vi.mock("@tiptap/react", () => ({
+  EditorContent: () => null,
+  useEditor: (options: { onUpdate?: (args: { editor: { getJSON: () => unknown } }) => void }) => {
+    const editor = {
+      commands: { setContent: vi.fn() },
+      getJSON: () => JSON.parse(sampleDoc),
+    };
+
+    if (options?.onUpdate && !(globalThis as { __tiptapUpdated?: boolean }).__tiptapUpdated) {
+      (globalThis as { __tiptapUpdated?: boolean }).__tiptapUpdated = true;
+      options.onUpdate({ editor });
+    }
+
+    return editor;
+  },
+}));
+
+vi.mock("@tiptap/starter-kit", () => ({ default: {} }));
+vi.mock("@tiptap/extension-link", () => ({ default: { configure: () => ({}) } }));
 
 const acquireMigrationLock = () => {
   const start = Date.now();
@@ -61,3 +87,8 @@ if (!globalForTests.prismaMigrated[workerId]) {
     }
   }
 }
+
+afterAll(async () => {
+  const { prisma } = await import("@/lib/db/prisma");
+  await prisma.$disconnect();
+});

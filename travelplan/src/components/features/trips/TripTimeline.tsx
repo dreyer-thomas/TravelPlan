@@ -18,7 +18,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import TripDeleteDialog from "@/components/features/trips/TripDeleteDialog";
 import TripEditDialog, { type TripDetail as EditableTripDetail } from "@/components/features/trips/TripEditDialog";
-import TripAccommodationDialog from "@/components/features/trips/TripAccommodationDialog";
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
 
@@ -34,6 +33,8 @@ type TripSummary = {
   startDate: string;
   endDate: string;
   dayCount: number;
+  accommodationCostTotalCents: number | null;
+  heroImageUrl: string | null;
 };
 
 type TripDay = {
@@ -42,7 +43,14 @@ type TripDay = {
   dayIndex: number;
   missingAccommodation: boolean;
   missingPlan: boolean;
-  accommodation: { id: string; name: string; notes: string | null } | null;
+  accommodation: {
+    id: string;
+    name: string;
+    notes: string | null;
+    status: "planned" | "booked";
+    costCents: number | null;
+    link: string | null;
+  } | null;
 };
 
 type TripDetail = {
@@ -62,8 +70,6 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
   const [notFound, setNotFound] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [stayOpen, setStayOpen] = useState(false);
-  const [stayDay, setStayDay] = useState<TripDay | null>(null);
   const router = useRouter();
 
   const formatDate = useMemo(
@@ -79,6 +85,14 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
   const buildDateRange = useCallback(
     (trip: TripSummary) => `${formatDate(trip.startDate)} - ${formatDate(trip.endDate)}`,
     [formatDate],
+  );
+  const formatCost = useMemo(
+    () => (value: number) =>
+      new Intl.NumberFormat(language === "de" ? "de-DE" : "en-US", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(value / 100),
+    [language],
   );
 
   const loadTrip = useCallback(async () => {
@@ -185,100 +199,166 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
     router.push("/trips");
   };
 
-  const handleStayOpen = (day: TripDay) => {
-    setStayDay(day);
-    setStayOpen(true);
-  };
-
-  const handleStayClose = () => {
-    setStayOpen(false);
-    setStayDay(null);
-  };
-
-  const handleStaySaved = () => {
-    setStayOpen(false);
-    setStayDay(null);
-    loadTrip();
-  };
-
   return (
     <Box display="flex" flexDirection="column" gap={2}>
       {error && <Alert severity="error">{error}</Alert>}
 
       {detail && (
-        <Paper
-          elevation={1}
-          sx={{
-            p: 3,
-            borderRadius: 3,
-            background: "#ffffff",
-          }}
-        >
-          <Box display="flex" flexDirection="column" gap={2}>
-            <Box display="flex" flexDirection="column" gap={1.5}>
-              <Box display="flex" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={2}>
-                <Typography variant="h4" fontWeight={700}>
-                  {detail.trip.name}
-                </Typography>
-                <Box display="flex" alignItems="center" gap={1}>
-                  <Button variant="outlined" onClick={() => setEditOpen(true)}>
-                    {t("trips.edit.open")}
-                  </Button>
-                  <Button variant="outlined" color="error" onClick={() => setDeleteOpen(true)}>
-                    {t("trips.delete.open")}
-                  </Button>
+        <>
+          <Paper
+            elevation={1}
+            sx={{
+              p: 3,
+              borderRadius: 3,
+              background: "#ffffff",
+              boxShadow: "0 22px 40px rgba(17, 18, 20, 0.1)",
+              border: "1px solid rgba(17, 18, 20, 0.08)",
+            }}
+          >
+            <Box display="flex" flexDirection="column" gap={2}>
+              <Box
+                sx={{
+                  width: "100%",
+                  height: { xs: 220, sm: 260 },
+                  borderRadius: 3,
+                  overflow: "hidden",
+                  position: "relative",
+                  backgroundColor: "rgba(0, 0, 0, 0.04)",
+                }}
+              >
+                <Box
+                  component="img"
+                  src={detail.trip.heroImageUrl ?? "/images/world-map-placeholder.svg"}
+                  alt={detail.trip.name}
+                  sx={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                />
+                <Box
+                  sx={{
+                    position: "absolute",
+                    inset: 0,
+                    background:
+                      "linear-gradient(180deg, rgba(0,0,0,0.45) 0%, rgba(0,0,0,0.05) 60%, rgba(0,0,0,0.6) 100%)",
+                  }}
+                />
+                <Box sx={{ position: "absolute", left: 24, right: 24, bottom: 20 }}>
+                  <Typography variant="h4" fontWeight={700} sx={{ color: "#fff" }}>
+                    {detail.trip.name}
+                  </Typography>
                 </Box>
               </Box>
-              <Typography variant="body1" color="text.secondary">
-                {buildDateRange(detail.trip)} ·{" "}
-                {formatMessage(t("trips.dashboard.dayCount"), { count: detail.trip.dayCount })}
-              </Typography>
+              <Box display="flex" flexDirection="column" gap={1}>
+                <Box display="flex" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={2}>
+                  <Typography variant="body2" color="text.secondary">
+                    {buildDateRange(detail.trip)}
+                  </Typography>
+                  <Box display="flex" alignItems="center" gap={1}>
+                    <Button variant="outlined" onClick={() => setEditOpen(true)}>
+                      {t("trips.edit.open")}
+                    </Button>
+                    <Button variant="outlined" color="error" onClick={() => setDeleteOpen(true)}>
+                      {t("trips.delete.open")}
+                    </Button>
+                  </Box>
+                </Box>
+                <Typography variant="body2" color="text.secondary">
+                  {formatMessage(t("trips.dashboard.dayCount"), { count: detail.trip.dayCount })}
+                </Typography>
+              </Box>
             </Box>
+          </Paper>
 
-            <Divider />
+          <Paper
+            elevation={1}
+            sx={{
+              p: 3,
+              borderRadius: 3,
+              background: "#ffffff",
+            }}
+          >
+            <Box display="flex" flexDirection="column" gap={2}>
+              <Divider />
 
-            {listEmpty && (
-              <Typography variant="body2" color="text.secondary">
-                {t("trips.timeline.empty")}
-              </Typography>
-            )}
+              {listEmpty && (
+                <Typography variant="body2" color="text.secondary">
+                  {t("trips.timeline.empty")}
+                </Typography>
+              )}
 
-            {!listEmpty && (
-              <List disablePadding>
-                {detail.days.map((day) => (
-                  <ListItem
-                    key={day.id}
-                    divider
-                    disablePadding
-                    secondaryAction={
-                      <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
-                        {(day.missingAccommodation || day.missingPlan) && (
-                          <>
-                            {day.missingAccommodation && (
-                              <Chip label={t("trips.timeline.missingStay")} size="small" color="warning" variant="outlined" />
+              {!listEmpty && (
+                <List disablePadding>
+                  {detail.days.map((day) => (
+                    <ListItem
+                      key={day.id}
+                      divider
+                      disablePadding
+                      secondaryAction={
+                        <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                          <Button
+                            component={Link}
+                            href={`/trips/${tripId}/days/${day.id}`}
+                            size="small"
+                            variant="text"
+                          >
+                            {t("trips.timeline.openDay")}
+                          </Button>
+                          {(day.missingAccommodation || day.missingPlan) && (
+                            <>
+                              {day.missingAccommodation && (
+                                <Chip label={t("trips.timeline.missingStay")} size="small" color="warning" variant="outlined" />
+                              )}
+                              {day.missingPlan && (
+                                <Chip label={t("trips.timeline.missingPlan")} size="small" color="warning" variant="outlined" />
+                              )}
+                            </>
+                          )}
+                        </Box>
+                      }
+                    >
+                      <ListItemText
+                        primary={formatMessage(t("trips.timeline.dayLabel"), { index: day.dayIndex })}
+                        secondary={
+                          <Box display="flex" flexDirection="column" gap={0.5}>
+                            <Typography variant="body2" color="text.secondary" component="span">
+                              {formatDate(day.date)}
+                            </Typography>
+                            {!day.missingAccommodation && day.accommodation && (
+                              <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                                <Chip
+                                  label={
+                                    day.accommodation.status === "booked"
+                                      ? t("trips.stay.statusBooked")
+                                      : t("trips.stay.statusPlanned")
+                                  }
+                                  size="small"
+                                  color={day.accommodation.status === "booked" ? "success" : "default"}
+                                  variant="outlined"
+                                  clickable={Boolean(day.accommodation.link)}
+                                  component={day.accommodation.link ? "a" : "div"}
+                                  href={day.accommodation.link ?? undefined}
+                                  target={day.accommodation.link ? "_blank" : undefined}
+                                  rel={day.accommodation.link ? "noreferrer noopener" : undefined}
+                                />
+                                {day.accommodation.costCents !== null && (
+                                  <Typography variant="caption" color="text.secondary" component="span">
+                                    {formatMessage(t("trips.stay.costSummary"), {
+                                      amount: formatCost(day.accommodation.costCents),
+                                    })}
+                                  </Typography>
+                                )}
+                              </Box>
                             )}
-                            {day.missingPlan && (
-                              <Chip label={t("trips.timeline.missingPlan")} size="small" color="warning" variant="outlined" />
-                            )}
-                          </>
-                        )}
-                        <Button size="small" variant="text" onClick={() => handleStayOpen(day)}>
-                          {day.accommodation ? t("trips.stay.editAction") : t("trips.stay.addAction")}
-                        </Button>
-                      </Box>
-                    }
-                  >
-                    <ListItemText
-                      primary={formatMessage(t("trips.timeline.dayLabel"), { index: day.dayIndex })}
-                      secondary={formatDate(day.date)}
-                      sx={{ py: 0.5 }}
-                    />
-                  </ListItem>
-                ))}
-              </List>
-            )}
-          </Box>
-        </Paper>
+                          </Box>
+                        }
+                        secondaryTypographyProps={{ component: "div" }}
+                        sx={{ py: 0.5 }}
+                      />
+                    </ListItem>
+                  ))}
+                </List>
+              )}
+            </Box>
+          </Paper>
+        </>
       )}
 
       {detail && (
@@ -290,13 +370,6 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
             tripName={detail.trip.name}
             onClose={handleDeleteClose}
             onDeleted={handleDeleted}
-          />
-          <TripAccommodationDialog
-            open={stayOpen}
-            tripId={detail.trip.id}
-            day={stayDay}
-            onClose={handleStayClose}
-            onSaved={handleStaySaved}
           />
         </>
       )}

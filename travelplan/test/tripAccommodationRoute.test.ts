@@ -76,13 +76,24 @@ describe("/api/trips/[id]/accommodations", () => {
       body: JSON.stringify({
         tripDayId: day.id,
         name: "Sunset Hotel",
+        status: "booked",
+        costCents: 9800,
+        link: "https://example.com/sunset",
         notes: "Late arrival",
       }),
     });
 
     const response = await POST(request, { params: { id: trip.id } });
     const payload = (await response.json()) as ApiEnvelope<{
-      accommodation: { id: string; name: string; notes: string | null; tripDayId: string };
+      accommodation: {
+        id: string;
+        name: string;
+        notes: string | null;
+        tripDayId: string;
+        status: string;
+        costCents: number | null;
+        link: string | null;
+      };
     }>;
 
     expect(response.status).toBe(200);
@@ -90,6 +101,9 @@ describe("/api/trips/[id]/accommodations", () => {
     expect(payload.data?.accommodation.tripDayId).toBe(day.id);
     expect(payload.data?.accommodation.name).toBe("Sunset Hotel");
     expect(payload.data?.accommodation.notes).toBe("Late arrival");
+    expect(payload.data?.accommodation.status).toBe("booked");
+    expect(payload.data?.accommodation.costCents).toBe(9800);
+    expect(payload.data?.accommodation.link).toBe("https://example.com/sunset");
   });
 
   it("rejects accommodation creation without valid CSRF", async () => {
@@ -125,6 +139,9 @@ describe("/api/trips/[id]/accommodations", () => {
       body: JSON.stringify({
         tripDayId: day.id,
         name: "CSRF Stay",
+        status: "planned",
+        costCents: null,
+        link: null,
         notes: null,
       }),
     });
@@ -168,6 +185,9 @@ describe("/api/trips/[id]/accommodations", () => {
       data: {
         tripDayId: day.id,
         name: "Initial Stay",
+        status: "PLANNED",
+        costCents: null,
+        link: null,
         notes: null,
       },
     });
@@ -179,19 +199,33 @@ describe("/api/trips/[id]/accommodations", () => {
       body: JSON.stringify({
         tripDayId: day.id,
         name: "Updated Stay",
+        status: "booked",
+        costCents: 15000,
+        link: "https://example.com/updated",
         notes: "Window seat",
       }),
     });
 
     const response = await PATCH(request, { params: { id: trip.id } });
     const payload = (await response.json()) as ApiEnvelope<{
-      accommodation: { id: string; name: string; notes: string | null; tripDayId: string };
+      accommodation: {
+        id: string;
+        name: string;
+        notes: string | null;
+        tripDayId: string;
+        status: string;
+        costCents: number | null;
+        link: string | null;
+      };
     }>;
 
     expect(response.status).toBe(200);
     expect(payload.error).toBeNull();
     expect(payload.data?.accommodation.name).toBe("Updated Stay");
     expect(payload.data?.accommodation.notes).toBe("Window seat");
+    expect(payload.data?.accommodation.status).toBe("booked");
+    expect(payload.data?.accommodation.costCents).toBe(15000);
+    expect(payload.data?.accommodation.link).toBe("https://example.com/updated");
   });
 
   it("returns 404 when updating without an existing accommodation", async () => {
@@ -228,6 +262,9 @@ describe("/api/trips/[id]/accommodations", () => {
       body: JSON.stringify({
         tripDayId: day.id,
         name: "Missing Stay",
+        status: "planned",
+        costCents: null,
+        link: null,
         notes: null,
       }),
     });
@@ -271,6 +308,9 @@ describe("/api/trips/[id]/accommodations", () => {
       data: {
         tripDayId: day.id,
         name: "Delete Stay",
+        status: "PLANNED",
+        costCents: null,
+        link: null,
         notes: null,
       },
     });
@@ -332,6 +372,9 @@ describe("/api/trips/[id]/accommodations", () => {
       body: JSON.stringify({
         tripDayId: day.id,
         name: "Hidden Stay",
+        status: "planned",
+        costCents: null,
+        link: null,
         notes: null,
       }),
     });
@@ -342,5 +385,54 @@ describe("/api/trips/[id]/accommodations", () => {
     expect(response.status).toBe(404);
     expect(payload.data).toBeNull();
     expect(payload.error?.code).toBe("not_found");
+  });
+
+  it("validates status, cost, and link fields", async () => {
+    const user = await prisma.user.create({
+      data: {
+        email: "route-stay-validate@example.com",
+        passwordHash: "hashed",
+        role: "OWNER",
+      },
+    });
+    const token = await createSessionJwt({ sub: user.id, role: user.role });
+
+    const trip = await prisma.trip.create({
+      data: {
+        userId: user.id,
+        name: "Validation Trip",
+        startDate: new Date("2026-11-06T00:00:00.000Z"),
+        endDate: new Date("2026-11-06T00:00:00.000Z"),
+      },
+    });
+
+    const day = await prisma.tripDay.create({
+      data: {
+        tripId: trip.id,
+        date: new Date("2026-11-06T00:00:00.000Z"),
+        dayIndex: 1,
+      },
+    });
+
+    const request = buildRequest(trip.id, {
+      session: token,
+      csrf: "csrf-token",
+      method: "POST",
+      body: JSON.stringify({
+        tripDayId: day.id,
+        name: "Validation Stay",
+        status: "invalid-status",
+        costCents: -5,
+        link: "not-a-url",
+        notes: null,
+      }),
+    });
+
+    const response = await POST(request, { params: { id: trip.id } });
+    const payload = (await response.json()) as ApiEnvelope<null>;
+
+    expect(response.status).toBe(400);
+    expect(payload.data).toBeNull();
+    expect(payload.error?.code).toBe("validation_error");
   });
 });

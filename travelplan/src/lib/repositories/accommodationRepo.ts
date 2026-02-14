@@ -5,7 +5,12 @@ export type AccommodationDetail = {
   tripDayId: string;
   name: string;
   notes: string | null;
+  status: AccommodationStatus;
+  costCents: number | null;
+  link: string | null;
 };
+
+export type AccommodationStatus = "planned" | "booked";
 
 export type AccommodationUpdateResult =
   | { status: "not_found" }
@@ -17,6 +22,9 @@ type AccommodationMutationParams = {
   tripId: string;
   tripDayId: string;
   name: string;
+  status: AccommodationStatus;
+  costCents?: number | null;
+  link?: string | null;
   notes?: string | null;
 };
 
@@ -35,11 +43,25 @@ const findTripDayForUser = async (userId: string, tripId: string, tripDayId: str
     },
   });
 
-const toDetail = (accommodation: { id: string; tripDayId: string; name: string; notes: string | null }) => ({
+const toStatus = (status: string): AccommodationStatus => (status === "BOOKED" ? "booked" : "planned");
+const toDbStatus = (status: AccommodationStatus) => (status === "booked" ? "BOOKED" : "PLANNED");
+
+const toDetail = (accommodation: {
+  id: string;
+  tripDayId: string;
+  name: string;
+  notes: string | null;
+  status: string;
+  costCents: number | null;
+  link: string | null;
+}) => ({
   id: accommodation.id,
   tripDayId: accommodation.tripDayId,
   name: accommodation.name,
   notes: accommodation.notes,
+  status: toStatus(accommodation.status),
+  costCents: accommodation.costCents,
+  link: accommodation.link,
 });
 
 export const createAccommodationForTripDay = async (
@@ -51,16 +73,23 @@ export const createAccommodationForTripDay = async (
     return null;
   }
 
+  const { status, costCents, link } = params;
   const accommodation = await prisma.accommodation.upsert({
     where: { tripDayId },
     update: {
       name,
       notes: notes ?? null,
+      status: toDbStatus(status),
+      costCents: costCents ?? null,
+      link: link ?? null,
     },
     create: {
       tripDayId,
       name,
       notes: notes ?? null,
+      status: toDbStatus(status),
+      costCents: costCents ?? null,
+      link: link ?? null,
     },
   });
 
@@ -81,11 +110,15 @@ export const updateAccommodationForTripDay = async (
     return { status: "missing" };
   }
 
+  const { status, costCents, link } = params;
   const updated = await prisma.accommodation.update({
     where: { id: existing.id },
     data: {
       name,
       notes: notes ?? null,
+      status: toDbStatus(status),
+      costCents: costCents ?? null,
+      link: link ?? null,
     },
   });
 
@@ -106,4 +139,27 @@ export const deleteAccommodationForTripDay = async (params: AccommodationDeleteP
 
   await prisma.accommodation.delete({ where: { id: existing.id } });
   return true;
+};
+
+export const getAccommodationCostTotalForTrip = async (
+  userId: string,
+  tripId: string,
+): Promise<number | null> => {
+  const result = await prisma.accommodation.aggregate({
+    where: {
+      costCents: { not: null },
+      tripDay: {
+        tripId,
+        trip: { userId },
+      },
+    },
+    _sum: { costCents: true },
+    _count: { costCents: true },
+  });
+
+  if (result._count.costCents === 0) {
+    return null;
+  }
+
+  return result._sum.costCents ?? 0;
 };

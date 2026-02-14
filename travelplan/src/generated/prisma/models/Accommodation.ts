@@ -20,14 +20,27 @@ export type AccommodationModel = runtime.Types.Result.DefaultSelection<Prisma.$A
 
 export type AggregateAccommodation = {
   _count: AccommodationCountAggregateOutputType | null
+  _avg: AccommodationAvgAggregateOutputType | null
+  _sum: AccommodationSumAggregateOutputType | null
   _min: AccommodationMinAggregateOutputType | null
   _max: AccommodationMaxAggregateOutputType | null
+}
+
+export type AccommodationAvgAggregateOutputType = {
+  costCents: number | null
+}
+
+export type AccommodationSumAggregateOutputType = {
+  costCents: number | null
 }
 
 export type AccommodationMinAggregateOutputType = {
   id: string | null
   tripDayId: string | null
   name: string | null
+  status: $Enums.AccommodationStatus | null
+  costCents: number | null
+  link: string | null
   notes: string | null
   createdAt: Date | null
   updatedAt: Date | null
@@ -37,6 +50,9 @@ export type AccommodationMaxAggregateOutputType = {
   id: string | null
   tripDayId: string | null
   name: string | null
+  status: $Enums.AccommodationStatus | null
+  costCents: number | null
+  link: string | null
   notes: string | null
   createdAt: Date | null
   updatedAt: Date | null
@@ -46,6 +62,9 @@ export type AccommodationCountAggregateOutputType = {
   id: number
   tripDayId: number
   name: number
+  status: number
+  costCents: number
+  link: number
   notes: number
   createdAt: number
   updatedAt: number
@@ -53,10 +72,21 @@ export type AccommodationCountAggregateOutputType = {
 }
 
 
+export type AccommodationAvgAggregateInputType = {
+  costCents?: true
+}
+
+export type AccommodationSumAggregateInputType = {
+  costCents?: true
+}
+
 export type AccommodationMinAggregateInputType = {
   id?: true
   tripDayId?: true
   name?: true
+  status?: true
+  costCents?: true
+  link?: true
   notes?: true
   createdAt?: true
   updatedAt?: true
@@ -66,6 +96,9 @@ export type AccommodationMaxAggregateInputType = {
   id?: true
   tripDayId?: true
   name?: true
+  status?: true
+  costCents?: true
+  link?: true
   notes?: true
   createdAt?: true
   updatedAt?: true
@@ -75,6 +108,9 @@ export type AccommodationCountAggregateInputType = {
   id?: true
   tripDayId?: true
   name?: true
+  status?: true
+  costCents?: true
+  link?: true
   notes?: true
   createdAt?: true
   updatedAt?: true
@@ -119,6 +155,18 @@ export type AccommodationAggregateArgs<ExtArgs extends runtime.Types.Extensions.
   /**
    * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
    * 
+   * Select which fields to average
+  **/
+  _avg?: AccommodationAvgAggregateInputType
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+   * 
+   * Select which fields to sum
+  **/
+  _sum?: AccommodationSumAggregateInputType
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+   * 
    * Select which fields to find the minimum value
   **/
   _min?: AccommodationMinAggregateInputType
@@ -149,6 +197,8 @@ export type AccommodationGroupByArgs<ExtArgs extends runtime.Types.Extensions.In
   take?: number
   skip?: number
   _count?: AccommodationCountAggregateInputType | true
+  _avg?: AccommodationAvgAggregateInputType
+  _sum?: AccommodationSumAggregateInputType
   _min?: AccommodationMinAggregateInputType
   _max?: AccommodationMaxAggregateInputType
 }
@@ -157,10 +207,15 @@ export type AccommodationGroupByOutputType = {
   id: string
   tripDayId: string
   name: string
+  status: $Enums.AccommodationStatus
+  costCents: number | null
+  link: string | null
   notes: string | null
   createdAt: Date
   updatedAt: Date
   _count: AccommodationCountAggregateOutputType | null
+  _avg: AccommodationAvgAggregateOutputType | null
+  _sum: AccommodationSumAggregateOutputType | null
   _min: AccommodationMinAggregateOutputType | null
   _max: AccommodationMaxAggregateOutputType | null
 }
@@ -187,6 +242,9 @@ export type AccommodationWhereInput = {
   id?: Prisma.StringFilter<"Accommodation"> | string
   tripDayId?: Prisma.StringFilter<"Accommodation"> | string
   name?: Prisma.StringFilter<"Accommodation"> | string
+  status?: Prisma.EnumAccommodationStatusFilter<"Accommodation"> | $Enums.AccommodationStatus
+  costCents?: Prisma.IntNullableFilter<"Accommodation"> | number | null
+  link?: Prisma.StringNullableFilter<"Accommodation"> | string | null
   notes?: Prisma.StringNullableFilter<"Accommodation"> | string | null
   createdAt?: Prisma.DateTimeFilter<"Accommodation"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Accommodation"> | Date | string
@@ -197,6 +255,9 @@ export type AccommodationOrderByWithRelationInput = {
   id?: Prisma.SortOrder
   tripDayId?: Prisma.SortOrder
   name?: Prisma.SortOrder
+  status?: Prisma.SortOrder
+  costCents?: Prisma.SortOrderInput | Prisma.SortOrder
+  link?: Prisma.SortOrderInput | Prisma.SortOrder
   notes?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
@@ -210,6 +271,9 @@ export type AccommodationWhereUniqueInput = Prisma.AtLeast<{
   OR?: Prisma.AccommodationWhereInput[]
   NOT?: Prisma.AccommodationWhereInput | Prisma.AccommodationWhereInput[]
   name?: Prisma.StringFilter<"Accommodation"> | string
+  status?: Prisma.EnumAccommodationStatusFilter<"Accommodation"> | $Enums.AccommodationStatus
+  costCents?: Prisma.IntNullableFilter<"Accommodation"> | number | null
+  link?: Prisma.StringNullableFilter<"Accommodation"> | string | null
   notes?: Prisma.StringNullableFilter<"Accommodation"> | string | null
   createdAt?: Prisma.DateTimeFilter<"Accommodation"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Accommodation"> | Date | string
@@ -220,12 +284,17 @@ export type AccommodationOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
   tripDayId?: Prisma.SortOrder
   name?: Prisma.SortOrder
+  status?: Prisma.SortOrder
+  costCents?: Prisma.SortOrderInput | Prisma.SortOrder
+  link?: Prisma.SortOrderInput | Prisma.SortOrder
   notes?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   _count?: Prisma.AccommodationCountOrderByAggregateInput
+  _avg?: Prisma.AccommodationAvgOrderByAggregateInput
   _max?: Prisma.AccommodationMaxOrderByAggregateInput
   _min?: Prisma.AccommodationMinOrderByAggregateInput
+  _sum?: Prisma.AccommodationSumOrderByAggregateInput
 }
 
 export type AccommodationScalarWhereWithAggregatesInput = {
@@ -235,6 +304,9 @@ export type AccommodationScalarWhereWithAggregatesInput = {
   id?: Prisma.StringWithAggregatesFilter<"Accommodation"> | string
   tripDayId?: Prisma.StringWithAggregatesFilter<"Accommodation"> | string
   name?: Prisma.StringWithAggregatesFilter<"Accommodation"> | string
+  status?: Prisma.EnumAccommodationStatusWithAggregatesFilter<"Accommodation"> | $Enums.AccommodationStatus
+  costCents?: Prisma.IntNullableWithAggregatesFilter<"Accommodation"> | number | null
+  link?: Prisma.StringNullableWithAggregatesFilter<"Accommodation"> | string | null
   notes?: Prisma.StringNullableWithAggregatesFilter<"Accommodation"> | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"Accommodation"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"Accommodation"> | Date | string
@@ -243,6 +315,9 @@ export type AccommodationScalarWhereWithAggregatesInput = {
 export type AccommodationCreateInput = {
   id?: string
   name: string
+  status?: $Enums.AccommodationStatus
+  costCents?: number | null
+  link?: string | null
   notes?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
@@ -253,6 +328,9 @@ export type AccommodationUncheckedCreateInput = {
   id?: string
   tripDayId: string
   name: string
+  status?: $Enums.AccommodationStatus
+  costCents?: number | null
+  link?: string | null
   notes?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
@@ -261,6 +339,9 @@ export type AccommodationUncheckedCreateInput = {
 export type AccommodationUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
+  status?: Prisma.EnumAccommodationStatusFieldUpdateOperationsInput | $Enums.AccommodationStatus
+  costCents?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  link?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -271,6 +352,9 @@ export type AccommodationUncheckedUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   tripDayId?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
+  status?: Prisma.EnumAccommodationStatusFieldUpdateOperationsInput | $Enums.AccommodationStatus
+  costCents?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  link?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -280,6 +364,9 @@ export type AccommodationCreateManyInput = {
   id?: string
   tripDayId: string
   name: string
+  status?: $Enums.AccommodationStatus
+  costCents?: number | null
+  link?: string | null
   notes?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
@@ -288,6 +375,9 @@ export type AccommodationCreateManyInput = {
 export type AccommodationUpdateManyMutationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
+  status?: Prisma.EnumAccommodationStatusFieldUpdateOperationsInput | $Enums.AccommodationStatus
+  costCents?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  link?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -297,6 +387,9 @@ export type AccommodationUncheckedUpdateManyInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   tripDayId?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
+  status?: Prisma.EnumAccommodationStatusFieldUpdateOperationsInput | $Enums.AccommodationStatus
+  costCents?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  link?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -311,15 +404,25 @@ export type AccommodationCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
   tripDayId?: Prisma.SortOrder
   name?: Prisma.SortOrder
+  status?: Prisma.SortOrder
+  costCents?: Prisma.SortOrder
+  link?: Prisma.SortOrder
   notes?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+}
+
+export type AccommodationAvgOrderByAggregateInput = {
+  costCents?: Prisma.SortOrder
 }
 
 export type AccommodationMaxOrderByAggregateInput = {
   id?: Prisma.SortOrder
   tripDayId?: Prisma.SortOrder
   name?: Prisma.SortOrder
+  status?: Prisma.SortOrder
+  costCents?: Prisma.SortOrder
+  link?: Prisma.SortOrder
   notes?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
@@ -329,9 +432,16 @@ export type AccommodationMinOrderByAggregateInput = {
   id?: Prisma.SortOrder
   tripDayId?: Prisma.SortOrder
   name?: Prisma.SortOrder
+  status?: Prisma.SortOrder
+  costCents?: Prisma.SortOrder
+  link?: Prisma.SortOrder
   notes?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+}
+
+export type AccommodationSumOrderByAggregateInput = {
+  costCents?: Prisma.SortOrder
 }
 
 export type AccommodationCreateNestedOneWithoutTripDayInput = {
@@ -366,13 +476,24 @@ export type AccommodationUncheckedUpdateOneWithoutTripDayNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.AccommodationUpdateToOneWithWhereWithoutTripDayInput, Prisma.AccommodationUpdateWithoutTripDayInput>, Prisma.AccommodationUncheckedUpdateWithoutTripDayInput>
 }
 
-export type NullableStringFieldUpdateOperationsInput = {
-  set?: string | null
+export type EnumAccommodationStatusFieldUpdateOperationsInput = {
+  set?: $Enums.AccommodationStatus
+}
+
+export type NullableIntFieldUpdateOperationsInput = {
+  set?: number | null
+  increment?: number
+  decrement?: number
+  multiply?: number
+  divide?: number
 }
 
 export type AccommodationCreateWithoutTripDayInput = {
   id?: string
   name: string
+  status?: $Enums.AccommodationStatus
+  costCents?: number | null
+  link?: string | null
   notes?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
@@ -381,6 +502,9 @@ export type AccommodationCreateWithoutTripDayInput = {
 export type AccommodationUncheckedCreateWithoutTripDayInput = {
   id?: string
   name: string
+  status?: $Enums.AccommodationStatus
+  costCents?: number | null
+  link?: string | null
   notes?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
@@ -405,6 +529,9 @@ export type AccommodationUpdateToOneWithWhereWithoutTripDayInput = {
 export type AccommodationUpdateWithoutTripDayInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
+  status?: Prisma.EnumAccommodationStatusFieldUpdateOperationsInput | $Enums.AccommodationStatus
+  costCents?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  link?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -413,6 +540,9 @@ export type AccommodationUpdateWithoutTripDayInput = {
 export type AccommodationUncheckedUpdateWithoutTripDayInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
+  status?: Prisma.EnumAccommodationStatusFieldUpdateOperationsInput | $Enums.AccommodationStatus
+  costCents?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  link?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -424,6 +554,9 @@ export type AccommodationSelect<ExtArgs extends runtime.Types.Extensions.Interna
   id?: boolean
   tripDayId?: boolean
   name?: boolean
+  status?: boolean
+  costCents?: boolean
+  link?: boolean
   notes?: boolean
   createdAt?: boolean
   updatedAt?: boolean
@@ -434,6 +567,9 @@ export type AccommodationSelectCreateManyAndReturn<ExtArgs extends runtime.Types
   id?: boolean
   tripDayId?: boolean
   name?: boolean
+  status?: boolean
+  costCents?: boolean
+  link?: boolean
   notes?: boolean
   createdAt?: boolean
   updatedAt?: boolean
@@ -444,6 +580,9 @@ export type AccommodationSelectUpdateManyAndReturn<ExtArgs extends runtime.Types
   id?: boolean
   tripDayId?: boolean
   name?: boolean
+  status?: boolean
+  costCents?: boolean
+  link?: boolean
   notes?: boolean
   createdAt?: boolean
   updatedAt?: boolean
@@ -454,12 +593,15 @@ export type AccommodationSelectScalar = {
   id?: boolean
   tripDayId?: boolean
   name?: boolean
+  status?: boolean
+  costCents?: boolean
+  link?: boolean
   notes?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }
 
-export type AccommodationOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "tripDayId" | "name" | "notes" | "createdAt" | "updatedAt", ExtArgs["result"]["accommodation"]>
+export type AccommodationOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "tripDayId" | "name" | "status" | "costCents" | "link" | "notes" | "createdAt" | "updatedAt", ExtArgs["result"]["accommodation"]>
 export type AccommodationInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   tripDay?: boolean | Prisma.TripDayDefaultArgs<ExtArgs>
 }
@@ -479,6 +621,9 @@ export type $AccommodationPayload<ExtArgs extends runtime.Types.Extensions.Inter
     id: string
     tripDayId: string
     name: string
+    status: $Enums.AccommodationStatus
+    costCents: number | null
+    link: string | null
     notes: string | null
     createdAt: Date
     updatedAt: Date
@@ -909,6 +1054,9 @@ export interface AccommodationFieldRefs {
   readonly id: Prisma.FieldRef<"Accommodation", 'String'>
   readonly tripDayId: Prisma.FieldRef<"Accommodation", 'String'>
   readonly name: Prisma.FieldRef<"Accommodation", 'String'>
+  readonly status: Prisma.FieldRef<"Accommodation", 'AccommodationStatus'>
+  readonly costCents: Prisma.FieldRef<"Accommodation", 'Int'>
+  readonly link: Prisma.FieldRef<"Accommodation", 'String'>
   readonly notes: Prisma.FieldRef<"Accommodation", 'String'>
   readonly createdAt: Prisma.FieldRef<"Accommodation", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"Accommodation", 'DateTime'>

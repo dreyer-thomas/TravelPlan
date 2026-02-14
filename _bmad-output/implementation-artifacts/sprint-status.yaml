@@ -57,12 +57,13 @@ development_status:
   2-3-edit-or-delete-trip-details: done
   2-4-see-planning-gaps-in-day-view: done
   2-5-add-or-update-nightly-accommodation: done
-  2-6-track-accommodation-status-cost-and-link: backlog
-  2-7-create-and-edit-day-plan-items-with-links: backlog
+  2-6-track-accommodation-status-cost-and-link: done
+  2-7-create-and-edit-day-plan-items-with-links: done
   2-8-budget-totals-by-trip-and-by-day: backlog
   2-9-export-trip-data-as-json: backlog
   2-10-restore-import-trip-data-from-json: backlog
-  2-11-trip-hero-image-upload: ready-for-dev
+  2-11-trip-hero-image-upload: done
+  2-12-day-view-detail-layout-with-overview-toggle: done
   epic-2-retrospective: optional
 
   epic-3: backlog
@@ -70,6 +71,7 @@ development_status:
   3-2-day-route-map-with-ordered-stops: backlog
   3-3-seed-trip-from-start-and-destination: backlog
   3-4-routing-service-setup-and-fallback-strategy: backlog
+  3-5-day-view-map-panel-with-ordered-pins: done
   epic-3-retrospective: optional
 
   epic-4: backlog

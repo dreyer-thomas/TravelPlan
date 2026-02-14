@@ -23,6 +23,7 @@ const mockCreateResponse = {
       name: "Autumn in Oslo",
       startDate: "2026-02-10T00:00:00.000Z",
       endDate: "2026-02-12T00:00:00.000Z",
+      heroImageUrl: "/uploads/trips/trip-123/hero.webp",
     },
     dayCount: 3,
   },
@@ -124,5 +125,38 @@ describe("TripsDashboard", () => {
     );
 
     expect(screen.getByText("Autumn in Oslo")).toBeInTheDocument();
+  });
+
+  it("renders a placeholder image when heroImageUrl is missing", async () => {
+    const user = userEvent.setup();
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripsDashboard />
+      </I18nProvider>
+    );
+
+    const [addButton] = await screen.findAllByRole("button", { name: /add trip/i });
+    await user.click(addButton);
+
+    const dialog = screen.getByRole("dialog");
+    const dialogScope = within(dialog);
+
+    await user.type(dialogScope.getByLabelText(/trip name/i), "Autumn in Oslo");
+    await user.type(dialogScope.getByLabelText(/start date/i), "2026-02-10");
+    await user.type(dialogScope.getByLabelText(/end date/i), "2026-02-12");
+
+    mockCreateResponse.data.trip.heroImageUrl = null;
+
+    await user.click(dialogScope.getByRole("button", { name: /create trip/i }));
+
+    await waitFor(
+      () => {
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      },
+      { timeout: 2000 }
+    );
+
+    const placeholder = screen.getByRole("img", { name: /autumn in oslo/i });
+    expect(placeholder).toHaveAttribute("src", "/images/world-map-placeholder.svg");
   });
 });

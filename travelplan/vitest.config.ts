@@ -9,10 +9,13 @@ export default defineConfig({
     environment: "node",
     setupFiles: ["./test/setup.ts"],
     globals: true,
+    testTimeout: 15000,
+    pool: "forks",
+    fileParallelism: false,
     poolOptions: {
-      threads: {
-        minThreads: 1,
-        maxThreads: 1,
+      forks: {
+        minForks: 1,
+        maxForks: 1,
       },
     },
   },

@@ -23,3 +23,11 @@ export const PreferredLanguage = {
 } as const
 
 export type PreferredLanguage = (typeof PreferredLanguage)[keyof typeof PreferredLanguage]
+
+
+export const AccommodationStatus = {
+  PLANNED: 'PLANNED',
+  BOOKED: 'BOOKED'
+} as const
+
+export type AccommodationStatus = (typeof AccommodationStatus)[keyof typeof AccommodationStatus]

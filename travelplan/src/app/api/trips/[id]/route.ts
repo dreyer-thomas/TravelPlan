@@ -1,10 +1,14 @@
 import type { NextRequest } from "next/server";
+import path from "node:path";
+import fs from "node:fs/promises";
 import { apiError } from "@/lib/errors/apiError";
 import { fail, ok } from "@/lib/http/response";
 import { CSRF_COOKIE_NAME, validateCsrf } from "@/lib/security/csrf";
 import { deleteTripForUser, getTripWithDaysForUser, updateTripWithDays } from "@/lib/repositories/tripRepo";
 import { updateTripSchema } from "@/lib/validation/tripSchemas";
 import { verifySessionJwt } from "@/lib/auth/jwt";
+
+export const runtime = "nodejs";
 
 const getSessionUserId = async (request: NextRequest) => {
   const token = request.cookies.get("session")?.value;
@@ -24,6 +28,11 @@ type RouteContext = {
   params: Promise<{
     id?: string;
   }>;
+};
+
+const removeTripUploads = async (tripId: string) => {
+  const uploadDir = path.join(process.cwd(), "public", "uploads", "trips", tripId);
+  await fs.rm(uploadDir, { recursive: true, force: true });
 };
 
 export const GET = async (request: NextRequest, context: RouteContext) => {
@@ -50,6 +59,8 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
         startDate: trip.startDate.toISOString(),
         endDate: trip.endDate.toISOString(),
         dayCount: trip.dayCount,
+        accommodationCostTotalCents: trip.accommodationCostTotalCents,
+        heroImageUrl: trip.heroImageUrl,
       },
       days: trip.days.map((day) => ({
         id: day.id,
@@ -62,6 +73,9 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
               id: day.accommodation.id,
               name: day.accommodation.name,
               notes: day.accommodation.notes,
+              status: day.accommodation.status,
+              costCents: day.accommodation.costCents,
+              link: day.accommodation.link,
             }
           : null,
       })),
@@ -126,6 +140,8 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
         startDate: detail.startDate.toISOString(),
         endDate: detail.endDate.toISOString(),
         dayCount: detail.dayCount,
+        accommodationCostTotalCents: detail.accommodationCostTotalCents,
+        heroImageUrl: detail.heroImageUrl,
       },
       days: detail.days.map((day) => ({
         id: day.id,
@@ -138,6 +154,9 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
               id: day.accommodation.id,
               name: day.accommodation.name,
               notes: day.accommodation.notes,
+              status: day.accommodation.status,
+              costCents: day.accommodation.costCents,
+              link: day.accommodation.link,
             }
           : null,
       })),
@@ -168,6 +187,12 @@ export const DELETE = async (request: NextRequest, context: RouteContext) => {
     const deleted = await deleteTripForUser(userId, tripId);
     if (!deleted) {
       return fail(apiError("not_found", "Trip not found"), 404);
+    }
+
+    try {
+      await removeTripUploads(tripId);
+    } catch {
+      // Best-effort cleanup only.
     }
 
     return ok({ deleted: true });

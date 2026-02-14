@@ -163,13 +163,21 @@ describe("tripRepo", () => {
       data: { tripDayId: days[0].id, name: "Lake Cabin", notes: "Bring snacks" },
     });
     await prisma.dayPlanItem.create({
-      data: { tripDayId: days[1].id },
+      data: {
+        tripDayId: days[1].id,
+        contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Day 2" }] }] }),
+        linkUrl: null,
+      },
     });
     await prisma.accommodation.create({
       data: { tripDayId: days[2].id, name: "Forest Lodge" },
     });
     await prisma.dayPlanItem.create({
-      data: { tripDayId: days[2].id },
+      data: {
+        tripDayId: days[2].id,
+        contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Day 3" }] }] }),
+        linkUrl: "https://example.com/plan",
+      },
     });
     await prisma.accommodation.create({
       data: { tripDayId: days[3].id, name: "   " },
@@ -216,5 +224,31 @@ describe("tripRepo", () => {
 
     expect(tripCount).toBe(0);
     expect(dayCount).toBe(0);
+  });
+
+  it("persists hero image urls on trips", async () => {
+    const user = await prisma.user.create({
+      data: {
+        email: "trip-hero@example.com",
+        passwordHash: "hashed",
+        role: "OWNER",
+      },
+    });
+
+    const heroImageUrl = "/uploads/trips/hero-trip/hero.jpg";
+
+    const trip = await prisma.trip.create({
+      data: {
+        userId: user.id,
+        name: "Hero Trip",
+        startDate: new Date("2026-07-01T00:00:00.000Z"),
+        endDate: new Date("2026-07-02T00:00:00.000Z"),
+        heroImageUrl,
+      },
+    });
+
+    const stored = await prisma.trip.findUnique({ where: { id: trip.id } });
+
+    expect(stored?.heroImageUrl).toBe(heroImageUrl);
   });
 });

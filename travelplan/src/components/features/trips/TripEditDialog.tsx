@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FocusEvent } from "react";
 import { useForm } from "react-hook-form";
 import {
   Alert,
@@ -27,6 +27,8 @@ type TripSummary = {
   startDate: string;
   endDate: string;
   dayCount: number;
+  accommodationCostTotalCents: number | null;
+  heroImageUrl?: string | null;
 };
 
 type TripDay = {
@@ -35,7 +37,14 @@ type TripDay = {
   dayIndex: number;
   missingAccommodation: boolean;
   missingPlan: boolean;
-  accommodation?: { id: string; name: string; notes: string | null } | null;
+  accommodation?: {
+    id: string;
+    name: string;
+    notes: string | null;
+    status: "planned" | "booked";
+    costCents: number | null;
+    link: string | null;
+  } | null;
 };
 
 export type TripDetail = {
@@ -47,6 +56,7 @@ type TripEditFormValues = {
   name: string;
   startDate: string;
   endDate: string;
+  heroImage?: FileList;
 };
 
 type TripEditDialogProps = {
@@ -58,6 +68,35 @@ type TripEditDialogProps = {
 
 const toIsoUtc = (value: string) => new Date(`${value}T00:00:00.000Z`).toISOString();
 const toDateInput = (value: string) => value.slice(0, 10);
+const normalizeDateInput = (value: string) => {
+  const trimmed = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return trimmed;
+  }
+  const match = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(trimmed);
+  if (match) {
+    const [, dd, mm, yyyy] = match;
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  return trimmed;
+};
+
+const isValidDateInput = (value: string) => {
+  const normalized = normalizeDateInput(value);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    return false;
+  }
+  const [year, month, day] = normalized.split("-").map((part) => Number(part));
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    Number.isFinite(year) &&
+    Number.isFinite(month) &&
+    Number.isFinite(day) &&
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
+};
 
 export default function TripEditDialog({ open, trip, onClose, onUpdated }: TripEditDialogProps) {
   const { t } = useI18n();
@@ -66,6 +105,7 @@ export default function TripEditDialog({ open, trip, onClose, onUpdated }: TripE
     handleSubmit,
     formState: { errors, isSubmitting },
     setError,
+    setValue,
     reset,
   } = useForm<TripEditFormValues>({
     defaultValues: {
@@ -130,8 +170,8 @@ export default function TripEditDialog({ open, trip, onClose, onUpdated }: TripE
 
     const payload = {
       name: values.name,
-      startDate: toIsoUtc(values.startDate),
-      endDate: toIsoUtc(values.endDate),
+      startDate: toIsoUtc(normalizeDateInput(values.startDate)),
+      endDate: toIsoUtc(normalizeDateInput(values.endDate)),
     };
 
     const response = await fetch(`/api/trips/${trip.id}`, {
@@ -178,8 +218,46 @@ export default function TripEditDialog({ open, trip, onClose, onUpdated }: TripE
       return;
     }
 
-    onUpdated(body.data);
-    onClose();
+    let heroImageUrl = body.data.trip.heroImageUrl ?? null;
+    const file = values.heroImage?.item(0);
+    let uploadFailed = false;
+
+    if (file) {
+      const formData = new FormData();
+      formData.set("file", file);
+      const uploadResponse = await fetch(`/api/trips/${trip.id}/hero-image`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "x-csrf-token": csrfToken,
+        },
+        body: formData,
+      });
+      let uploadBody: ApiEnvelope<{ trip: { id: string; heroImageUrl: string | null } }> | null = null;
+      try {
+        uploadBody = (await uploadResponse.json()) as ApiEnvelope<{ trip: { id: string; heroImageUrl: string | null } }>;
+      } catch {
+        uploadBody = null;
+      }
+
+      if (!uploadResponse.ok || !uploadBody || uploadBody.error) {
+        uploadFailed = true;
+        setServerError(t("trips.edit.uploadError"));
+      } else {
+        heroImageUrl = uploadBody.data?.trip.heroImageUrl ?? null;
+      }
+    }
+
+    onUpdated({
+      ...body.data,
+      trip: {
+        ...body.data.trip,
+        heroImageUrl,
+      },
+    });
+    if (!uploadFailed) {
+      onClose();
+    }
   };
 
   const nameRules = useMemo(
@@ -192,9 +270,17 @@ export default function TripEditDialog({ open, trip, onClose, onUpdated }: TripE
   const dateRules = useMemo(
     () => ({
       required: t("trips.form.dateRequired"),
+      validate: (value: string) => (isValidDateInput(value) ? true : t("trips.form.dateInvalid")),
     }),
     [t],
   );
+
+  const handleDateBlur = (field: "startDate" | "endDate") => (event: FocusEvent<HTMLInputElement>) => {
+    const normalized = normalizeDateInput(event.target.value);
+    if (normalized !== event.target.value) {
+      setValue(field, normalized, { shouldValidate: true, shouldDirty: true });
+    }
+  };
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
@@ -221,24 +307,35 @@ export default function TripEditDialog({ open, trip, onClose, onUpdated }: TripE
               {...register("name", nameRules)}
               fullWidth
             />
-            <TextField
-              label={t("trips.form.startDate")}
-              type="date"
-              error={Boolean(errors.startDate)}
-              helperText={errors.startDate?.message}
-              InputLabelProps={{ shrink: true }}
-              {...register("startDate", dateRules)}
-              fullWidth
-            />
-            <TextField
-              label={t("trips.form.endDate")}
-              type="date"
-              error={Boolean(errors.endDate)}
-              helperText={errors.endDate?.message}
-              InputLabelProps={{ shrink: true }}
-              {...register("endDate", dateRules)}
-              fullWidth
-            />
+              <TextField
+                label={t("trips.form.startDate")}
+                type="date"
+                error={Boolean(errors.startDate)}
+                helperText={errors.startDate?.message}
+                InputLabelProps={{ shrink: true }}
+                {...register("startDate", dateRules)}
+                onBlur={handleDateBlur("startDate")}
+                fullWidth
+              />
+              <TextField
+                label={t("trips.form.endDate")}
+                type="date"
+                error={Boolean(errors.endDate)}
+                helperText={errors.endDate?.message}
+                InputLabelProps={{ shrink: true }}
+                {...register("endDate", dateRules)}
+                onBlur={handleDateBlur("endDate")}
+                fullWidth
+              />
+              <TextField
+                label={t("trips.form.heroImage")}
+                type="file"
+                InputLabelProps={{ shrink: true }}
+                inputProps={{ accept: "image/jpeg,image/png,image/webp" }}
+                helperText={t("trips.form.heroImageHelper")}
+                {...register("heroImage")}
+                fullWidth
+              />
           </Box>
         </Box>
       </DialogContent>
