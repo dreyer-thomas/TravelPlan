@@ -58,7 +58,7 @@ const acquireMigrationLock = () => {
 
 process.env.DATABASE_URL = process.env.DATABASE_URL ?? `file:${testDbPath}`;
 process.env.JWT_SECRET = process.env.JWT_SECRET ?? "test-secret";
-process.env.NODE_ENV = "test";
+(process.env as Record<string, string | undefined>).NODE_ENV = "test";
 
 const globalForTests = globalThis as unknown as { prismaMigrated?: Record<string, boolean> };
 
