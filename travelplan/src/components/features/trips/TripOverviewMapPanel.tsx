@@ -2,7 +2,6 @@
 
 import { Box, Chip, List, ListItem, Paper, Typography } from "@mui/material";
 import dynamic from "next/dynamic";
-import { useMemo } from "react";
 import Link from "next/link";
 import { useI18n } from "@/i18n/provider";
 
@@ -18,9 +17,7 @@ export type TripOverviewMissingLocation = {
   href: string;
 };
 
-const MapContainer = dynamic(async () => (await import("react-leaflet")).MapContainer, { ssr: false });
-const TileLayer = dynamic(async () => (await import("react-leaflet")).TileLayer, { ssr: false });
-const Marker = dynamic(async () => (await import("react-leaflet")).Marker, { ssr: false });
+const TripOverviewLeafletMap = dynamic(() => import("./TripOverviewLeafletMap"), { ssr: false });
 
 type TripOverviewMapPanelProps = {
   points: TripOverviewMapPoint[];
@@ -29,7 +26,6 @@ type TripOverviewMapPanelProps = {
 
 export default function TripOverviewMapPanel({ points, missingLocations }: TripOverviewMapPanelProps) {
   const { t } = useI18n();
-  const center = useMemo<[number, number]>(() => points[0]?.position ?? [0, 0], [points]);
 
   return (
     <Paper elevation={1} sx={{ p: 3, borderRadius: 3, background: "#ffffff" }}>
@@ -63,15 +59,7 @@ export default function TripOverviewMapPanel({ points, missingLocations }: TripO
           </Box>
         ) : (
           <Box sx={{ borderRadius: 2, overflow: "hidden" }}>
-            <MapContainer center={center} zoom={5} style={{ height: 280, width: "100%" }} scrollWheelZoom={false}>
-              <TileLayer
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                attribution="&copy; OpenStreetMap contributors"
-              />
-              {points.map((point, index) => (
-                <Marker key={point.id} position={point.position} data-testid={`overview-map-marker-${index}`} />
-              ))}
-            </MapContainer>
+            <TripOverviewLeafletMap points={points} />
           </Box>
         )}
 

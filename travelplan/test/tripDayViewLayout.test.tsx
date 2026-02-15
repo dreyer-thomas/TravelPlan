@@ -68,6 +68,333 @@ vi.mock("leaflet", () => ({
 }));
 
 describe("TripDayView layout", () => {
+  it("shows previous and next navigation links for a middle day based on chronological order", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const fetchMock = vi.fn(async () => {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-03T00:00:00.000Z",
+              dayCount: 3,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-next",
+                date: "2026-12-03T00:00:00.000Z",
+                dayIndex: 3,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: true,
+                accommodation: null,
+                dayPlanItems: [],
+              },
+              {
+                id: "day-middle",
+                date: "2026-12-02T00:00:00.000Z",
+                dayIndex: 2,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: true,
+                accommodation: null,
+                dayPlanItems: [],
+              },
+              {
+                id: "day-prev",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: true,
+                accommodation: null,
+                dayPlanItems: [],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-middle" />
+      </I18nProvider>,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Day 2", level: 5 })).toBeInTheDocument();
+
+    const previousLink = screen.getByRole("link", { name: "Go to previous day" });
+    const nextLink = screen.getByRole("link", { name: "Go to next day" });
+
+    expect(previousLink).toHaveAttribute("href", "/trips/trip-1/days/day-prev");
+    expect(nextLink).toHaveAttribute("href", "/trips/trip-1/days/day-next");
+    vi.unstubAllGlobals();
+  });
+
+  it("renders localized previous and next controls in German", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const fetchMock = vi.fn(async () => {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-03T00:00:00.000Z",
+              dayCount: 3,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-next",
+                date: "2026-12-03T00:00:00.000Z",
+                dayIndex: 3,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: true,
+                accommodation: null,
+                dayPlanItems: [],
+              },
+              {
+                id: "day-middle",
+                date: "2026-12-02T00:00:00.000Z",
+                dayIndex: 2,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: true,
+                accommodation: null,
+                dayPlanItems: [],
+              },
+              {
+                id: "day-prev",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: true,
+                accommodation: null,
+                dayPlanItems: [],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="de">
+        <TripDayView tripId="trip-1" dayId="day-middle" />
+      </I18nProvider>,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Tag 2", level: 5 })).toBeInTheDocument();
+
+    const previousLink = screen.getByRole("link", { name: "Zum vorherigen Tag wechseln" });
+    const nextLink = screen.getByRole("link", { name: "Zum nächsten Tag wechseln" });
+
+    expect(previousLink).toHaveTextContent("Zurück");
+    expect(nextLink).toHaveTextContent("Weiter");
+    expect(previousLink).toHaveAttribute("href", "/trips/trip-1/days/day-prev");
+    expect(nextLink).toHaveAttribute("href", "/trips/trip-1/days/day-next");
+    vi.unstubAllGlobals();
+  });
+
+  it("disables previous on first day and next on last day", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const fetchMock = vi.fn(async () => {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-03T00:00:00.000Z",
+              dayCount: 3,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-prev",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: true,
+                accommodation: null,
+                dayPlanItems: [],
+              },
+              {
+                id: "day-middle",
+                date: "2026-12-02T00:00:00.000Z",
+                dayIndex: 2,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: true,
+                accommodation: null,
+                dayPlanItems: [],
+              },
+              {
+                id: "day-next",
+                date: "2026-12-03T00:00:00.000Z",
+                dayIndex: 3,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: true,
+                accommodation: null,
+                dayPlanItems: [],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { rerender } = render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-prev" />
+      </I18nProvider>,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Go to previous day" })).toBeDisabled();
+    expect(screen.getByRole("link", { name: "Go to next day" })).toHaveAttribute("href", "/trips/trip-1/days/day-middle");
+
+    rerender(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-next" />
+      </I18nProvider>,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Day 3", level: 5 })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Go to previous day" })).toHaveAttribute("href", "/trips/trip-1/days/day-middle");
+    expect(screen.getByRole("button", { name: "Go to next day" })).toBeDisabled();
+    vi.unstubAllGlobals();
+  });
+
+  it("renders destination day details when day route target changes", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const fetchMock = vi.fn(async () => {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-03T00:00:00.000Z",
+              dayCount: 3,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-prev",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: null,
+                dayPlanItems: [],
+              },
+              {
+                id: "day-middle",
+                date: "2026-12-02T00:00:00.000Z",
+                dayIndex: 2,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: null,
+                dayPlanItems: [
+                  {
+                    id: "plan-mid",
+                    contentJson: JSON.stringify({
+                      type: "doc",
+                      content: [{ type: "paragraph", content: [{ type: "text", text: "Middle day activity" }] }],
+                    }),
+                    linkUrl: null,
+                    location: null,
+                  },
+                ],
+              },
+              {
+                id: "day-next",
+                date: "2026-12-03T00:00:00.000Z",
+                dayIndex: 3,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: null,
+                dayPlanItems: [
+                  {
+                    id: "plan-next",
+                    contentJson: JSON.stringify({
+                      type: "doc",
+                      content: [{ type: "paragraph", content: [{ type: "text", text: "Next day activity" }] }],
+                    }),
+                    linkUrl: null,
+                    location: null,
+                  },
+                ],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { rerender } = render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-middle" />
+      </I18nProvider>,
+    );
+
+    expect((await screen.findAllByText("Middle day activity")).length).toBeGreaterThan(0);
+
+    rerender(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-next" />
+      </I18nProvider>,
+    );
+
+    expect((await screen.findAllByText("Next day activity")).length).toBeGreaterThan(0);
+    expect(screen.queryAllByText("Middle day activity")).toHaveLength(0);
+    vi.unstubAllGlobals();
+  });
+
   it("renders the day view page layout for a selected day", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";

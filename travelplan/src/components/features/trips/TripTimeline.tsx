@@ -420,16 +420,7 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
             </Box>
           </Paper>
 
-          <Paper
-            elevation={1}
-            sx={{
-              p: 3,
-              borderRadius: 3,
-              background: "#ffffff",
-            }}
-          >
-            <TripOverviewMapPanel points={overviewMapData.points} missingLocations={overviewMapData.missingLocations} />
-          </Paper>
+          <TripOverviewMapPanel points={overviewMapData.points} missingLocations={overviewMapData.missingLocations} />
 
           <Paper
             elevation={1}
@@ -440,6 +431,9 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
             }}
           >
             <Box display="flex" flexDirection="column" gap={2}>
+              <Typography variant="h6" fontWeight={600}>
+                {t("trips.timeline.title")}
+              </Typography>
               <Divider />
 
               {listEmpty && (

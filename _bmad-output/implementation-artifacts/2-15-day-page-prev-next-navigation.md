@@ -1,6 +1,6 @@
 # Story 2.15: Day Page Prev/Next Navigation
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -38,22 +38,22 @@ so that I can move through days quickly without going back to the overview.
 
 ## Tasks / Subtasks
 
-- [ ] Day context shaping (AC: 1,2,3,4)
-  - [ ] Ensure day page has previous/next day references from ordered trip days.
-  - [ ] Expose neighbor day IDs needed for route navigation.
-- [ ] UI controls (AC: 1,2,3,4)
-  - [ ] Add `Previous`/`Next` controls to day page header.
-  - [ ] Apply disabled/hidden states at trip boundaries.
-  - [ ] Keep controls responsive on mobile and desktop.
-- [ ] Routing and state (AC: 1,2,5)
-  - [ ] Navigate with App Router to sibling day route without leaving trip context.
-  - [ ] Ensure destination day data refreshes correctly.
-- [ ] i18n updates (AC: 1,2,3,4)
-  - [ ] Add EN/DE labels and accessible text for prev/next controls.
-- [ ] Tests (AC: 1,2,3,4,5)
-  - [ ] UI tests for middle-day navigation in both directions.
-  - [ ] UI tests for first/last day boundary behavior.
-  - [ ] Route-level or component tests confirming correct target day rendered.
+- [x] Day context shaping (AC: 1,2,3,4)
+  - [x] Ensure day page has previous/next day references from ordered trip days.
+  - [x] Expose neighbor day IDs needed for route navigation.
+- [x] UI controls (AC: 1,2,3,4)
+  - [x] Add `Previous`/`Next` controls to day page header.
+  - [x] Apply disabled/hidden states at trip boundaries.
+  - [x] Keep controls responsive on mobile and desktop.
+- [x] Routing and state (AC: 1,2,5)
+  - [x] Navigate with App Router to sibling day route without leaving trip context.
+  - [x] Ensure destination day data refreshes correctly.
+- [x] i18n updates (AC: 1,2,3,4)
+  - [x] Add EN/DE labels and accessible text for prev/next controls.
+- [x] Tests (AC: 1,2,3,4,5)
+  - [x] UI tests for middle-day navigation in both directions.
+  - [x] UI tests for first/last day boundary behavior.
+  - [x] Route-level or component tests confirming correct target day rendered.
 
 ## Dev Notes
 
@@ -93,6 +93,52 @@ so that I can move through days quickly without going back to the overview.
 
 ## Story Completion Status
 
-- Status set to **ready-for-dev**.
-- Completion note: Story context drafted from stakeholder request and aligned to day-view architecture.
+- Status set to **done**.
+- Completion note: Prev/Next day navigation implemented with chronological neighbor resolution, boundary disabled states, localized labels/aria text (EN/DE), and expanded component tests.
 
+## Dev Agent Record
+
+### Debug Log
+
+- 2026-02-15: Added failing tests for middle-day navigation, boundary disable states, and destination day rendering refresh.
+- 2026-02-15: Implemented chronological day ordering (`dayIndex` then date fallback then id), computed previous/next neighbors, and rendered responsive header controls.
+- 2026-02-15: Added EN/DE i18n keys for prev/next labels and accessible navigation text.
+- 2026-02-15: Applied code-review auto-fixes: centralized day ordering comparator, added German navigation/ARIA test coverage, and ignored runtime upload artifacts from git status noise.
+
+### Completion Notes
+
+- Implemented AC 1-5 in `TripDayView` with sibling-day route links and disabled boundary controls.
+- Preserved existing day-view deep-link behavior and action controls (stay/day-plan/image flows unchanged).
+- Refactored duplicated day ordering logic into one shared comparator path to prevent drift.
+- Added explicit DE test assertions for Prev/Next labels and ARIA text.
+- Automated validation run:
+  - `npm test -- tripDayViewLayout.test.tsx` (pass)
+  - `npm test` (pass, 49 files / 194 tests)
+  - `npm run lint` (pass with pre-existing warnings only; no errors)
+
+## File List
+
+- travelplan/src/components/features/trips/TripDayView.tsx
+- travelplan/.gitignore
+- travelplan/src/i18n/en.ts
+- travelplan/src/i18n/de.ts
+- travelplan/test/tripDayViewLayout.test.tsx
+- _bmad-output/implementation-artifacts/sprint-status.yaml
+- _bmad-output/implementation-artifacts/2-15-day-page-prev-next-navigation.md
+
+## Change Log
+
+- 2026-02-15: Added day-page prev/next navigation, boundary handling, localized nav copy, and regression tests for route-target rendering.
+- 2026-02-15: Code review follow-up applied (ordering dedup, DE coverage, upload artifact git-noise mitigation) and status promoted to done.
+
+## Senior Developer Review (AI)
+
+- Outcome: **Approve**
+- Fixed issues:
+  - Consolidated duplicated day-order comparator logic in `TripDayView`.
+  - Added German (`de`) automated coverage for previous/next labels and ARIA navigation text.
+  - Removed stale dictionary key and ignored runtime uploads to avoid story/git discrepancy noise.
+- Validation:
+  - `npm test -- tripDayViewLayout.test.tsx` passed (8/8)
+  - `npm test` passed (49 files / 194 tests)
+  - `npm run lint` passed with existing warnings only

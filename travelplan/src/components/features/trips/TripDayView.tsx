@@ -92,6 +92,16 @@ type TripDayViewProps = {
   dayId: string;
 };
 
+const compareTripDaysChronologically = (left: TripDay, right: TripDay) => {
+  if (left.dayIndex !== right.dayIndex) return left.dayIndex - right.dayIndex;
+  const leftTime = Date.parse(left.date);
+  const rightTime = Date.parse(right.date);
+  if (!Number.isNaN(leftTime) && !Number.isNaN(rightTime) && leftTime !== rightTime) {
+    return leftTime - rightTime;
+  }
+  return left.id.localeCompare(right.id);
+};
+
 const parsePlanText = (value: string) => {
   try {
     const doc = JSON.parse(value);
@@ -355,12 +365,24 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     }
   }, [day, loading, planItems, searchParams]);
 
+  const orderedDays = useMemo(() => {
+    if (!detail) return [];
+    return [...detail.days].sort(compareTripDaysChronologically);
+  }, [detail]);
+
   const previousDay = useMemo(() => {
-    if (!detail || !day) return null;
-    const currentIndex = detail.days.findIndex((candidate) => candidate.id === day.id);
+    if (!day) return null;
+    const currentIndex = orderedDays.findIndex((candidate) => candidate.id === day.id);
     if (currentIndex <= 0) return null;
-    return detail.days[currentIndex - 1] ?? null;
-  }, [detail, day]);
+    return orderedDays[currentIndex - 1] ?? null;
+  }, [day, orderedDays]);
+
+  const nextDay = useMemo(() => {
+    if (!day) return null;
+    const currentIndex = orderedDays.findIndex((candidate) => candidate.id === day.id);
+    if (currentIndex < 0 || currentIndex >= orderedDays.length - 1) return null;
+    return orderedDays[currentIndex + 1] ?? null;
+  }, [day, orderedDays]);
 
   const previousStay = previousDay?.accommodation ?? null;
   const currentStay = day?.accommodation ?? null;
@@ -604,6 +626,38 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
               <Button component={Link} href={`/trips/${tripId}`} variant="text" sx={{ alignSelf: "flex-start" }}>
                 {t("trips.dayView.back")}
               </Button>
+              <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                {previousDay ? (
+                  <Button
+                    component={Link}
+                    href={`/trips/${tripId}/days/${previousDay.id}`}
+                    variant="outlined"
+                    size="small"
+                    aria-label={t("trips.dayView.previousAria")}
+                  >
+                    {t("trips.dayView.previousAction")}
+                  </Button>
+                ) : (
+                  <Button variant="outlined" size="small" disabled aria-label={t("trips.dayView.previousAria")}>
+                    {t("trips.dayView.previousAction")}
+                  </Button>
+                )}
+                {nextDay ? (
+                  <Button
+                    component={Link}
+                    href={`/trips/${tripId}/days/${nextDay.id}`}
+                    variant="outlined"
+                    size="small"
+                    aria-label={t("trips.dayView.nextAria")}
+                  >
+                    {t("trips.dayView.nextAction")}
+                  </Button>
+                ) : (
+                  <Button variant="outlined" size="small" disabled aria-label={t("trips.dayView.nextAria")}>
+                    {t("trips.dayView.nextAction")}
+                  </Button>
+                )}
+              </Box>
               <Box display="flex" alignItems="flex-start" justifyContent="space-between" gap={1}>
                 <Box display="flex" flexDirection="column" gap={0.5}>
                   <Typography variant="h5" fontWeight={700}>

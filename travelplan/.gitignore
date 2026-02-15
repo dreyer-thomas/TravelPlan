@@ -28,6 +28,7 @@ prisma/test-migrate-*.lock
 # misc
 .DS_Store
 *.pem
+public/uploads/
 
 # debug
 npm-debug.log*
