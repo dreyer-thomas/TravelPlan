@@ -40,12 +40,20 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("next/dynamic", () => ({
   default: () =>
-    ({ points }: { points: { position: [number, number] }[] }) => (
+    ({
+      points,
+      polylinePositions,
+    }: {
+      points: { position: [number, number] }[];
+      polylinePositions?: [number, number][];
+    }) => (
       <div data-testid="day-map-container">
         {points.map((point, index) => (
           <div key={index} data-testid="day-map-marker" data-position={point.position.join(",")} />
         ))}
-        {points.length >= 2 ? <div data-testid="day-map-polyline" /> : null}
+        {(polylinePositions ?? points.map((point) => point.position)).length >= 2 ? (
+          <div data-testid="day-map-polyline" data-positions={JSON.stringify(polylinePositions ?? points.map((point) => point.position))} />
+        ) : null}
       </div>
     ),
 }));
@@ -832,6 +840,227 @@ describe("TripDayView layout", () => {
     await waitFor(() => expect(screen.queryByRole("img", { name: "Day image" })).not.toBeInTheDocument());
     expect(screen.getByText("No day image selected yet.")).toBeInTheDocument();
 
+    vi.unstubAllGlobals();
+  });
+
+  it("renders routed polyline from day route API for two-point days", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url.includes("/api/trips/trip-1/days/day-1/route")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: {
+              points: [
+                { id: "prev", kind: "previousStay", lat: 48.3538, lng: 11.7861 },
+                { id: "curr", kind: "currentStay", lat: 48.145, lng: 11.582 },
+              ],
+              route: {
+                polyline: [
+                  [48.3538, 11.7861],
+                  [48.24, 11.67],
+                  [48.145, 11.582],
+                ],
+                distanceMeters: 12000,
+                durationSeconds: 1600,
+              },
+            },
+            error: null,
+          }),
+        };
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-02T00:00:00.000Z",
+              dayCount: 2,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-0",
+                date: "2026-11-30T00:00:00.000Z",
+                dayIndex: 0,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: true,
+                accommodation: {
+                  id: "stay-prev",
+                  name: "Airport Hotel",
+                  notes: null,
+                  status: "booked",
+                  costCents: 0,
+                  link: null,
+                  location: { lat: 48.3538, lng: 11.7861 },
+                },
+                dayPlanItems: [],
+              },
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: true,
+                accommodation: {
+                  id: "stay-current",
+                  name: "City Hotel",
+                  notes: null,
+                  status: "planned",
+                  costCents: 0,
+                  link: null,
+                  location: { lat: 48.145, lng: 11.582 },
+                },
+                dayPlanItems: [],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-1" />
+      </I18nProvider>,
+    );
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/api/trips/trip-1/days/day-1/route"),
+        expect.objectContaining({ method: "GET" }),
+      ),
+    );
+    expect(screen.getByTestId("day-map-polyline")).toHaveAttribute(
+      "data-positions",
+      JSON.stringify([
+        [48.3538, 11.7861],
+        [48.24, 11.67],
+        [48.145, 11.582],
+      ]),
+    );
+    vi.unstubAllGlobals();
+  });
+
+  it("shows routing error state while preserving map markers", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/trips/trip-1/days/day-1/route")) {
+        return {
+          ok: false,
+          status: 502,
+          json: async () => ({
+            data: null,
+            error: {
+              code: "routing_unavailable",
+              message: "Routing service unavailable",
+              details: {
+                fallbackPolyline: [
+                  [48.3538, 11.7861],
+                  [48.145, 11.582],
+                ],
+              },
+            },
+          }),
+        };
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-02T00:00:00.000Z",
+              dayCount: 2,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-0",
+                date: "2026-11-30T00:00:00.000Z",
+                dayIndex: 0,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: true,
+                accommodation: {
+                  id: "stay-prev",
+                  name: "Airport Hotel",
+                  notes: null,
+                  status: "booked",
+                  costCents: 0,
+                  link: null,
+                  location: { lat: 48.3538, lng: 11.7861 },
+                },
+                dayPlanItems: [],
+              },
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: true,
+                accommodation: {
+                  id: "stay-current",
+                  name: "City Hotel",
+                  notes: null,
+                  status: "planned",
+                  costCents: 0,
+                  link: null,
+                  location: { lat: 48.145, lng: 11.582 },
+                },
+                dayPlanItems: [],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-1" />
+      </I18nProvider>,
+    );
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+    expect(await screen.findByText("Routing unavailable")).toBeInTheDocument();
+    expect(screen.getAllByTestId("day-map-marker")).toHaveLength(2);
+    expect(screen.getByTestId("day-map-polyline")).toHaveAttribute(
+      "data-positions",
+      JSON.stringify([
+        [48.3538, 11.7861],
+        [48.145, 11.582],
+      ]),
+    );
     vi.unstubAllGlobals();
   });
 });

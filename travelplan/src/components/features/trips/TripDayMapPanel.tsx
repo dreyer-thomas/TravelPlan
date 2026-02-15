@@ -62,10 +62,18 @@ const TripDayLeafletMap = dynamic(() => import("./TripDayLeafletMap"), { ssr: fa
 type TripDayMapPanelProps = {
   points: TripDayMapPoint[];
   missingLocations: TripDayMapItem[];
+  polylinePositions?: [number, number][];
+  routingUnavailable?: boolean;
   loading?: boolean;
 };
 
-export default function TripDayMapPanel({ points, missingLocations, loading = false }: TripDayMapPanelProps) {
+export default function TripDayMapPanel({
+  points,
+  missingLocations,
+  polylinePositions,
+  routingUnavailable = false,
+  loading = false,
+}: TripDayMapPanelProps) {
   const { t } = useI18n();
 
   return (
@@ -102,7 +110,18 @@ export default function TripDayMapPanel({ points, missingLocations, loading = fa
           </Box>
         ) : (
           <Box sx={{ borderRadius: 2, overflow: "hidden" }}>
-            <TripDayLeafletMap points={points} />
+            <TripDayLeafletMap points={points} polylinePositions={polylinePositions} />
+          </Box>
+        )}
+
+        {routingUnavailable && (
+          <Box display="flex" flexDirection="column" gap={0.5} data-testid="day-map-routing-unavailable">
+            <Typography variant="body2" color="warning.main" fontWeight={600}>
+              {t("trips.dayView.routingUnavailableTitle")}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              {t("trips.dayView.routingUnavailableBody")}
+            </Typography>
           </Box>
         )}
 

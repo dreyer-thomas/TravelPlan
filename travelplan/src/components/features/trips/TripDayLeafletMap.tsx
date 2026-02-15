@@ -41,11 +41,13 @@ const EnsureMapSized = () => {
 
 type TripDayLeafletMapProps = {
   points: TripDayMapPoint[];
+  polylinePositions?: [number, number][];
 };
 
-export default function TripDayLeafletMap({ points }: TripDayLeafletMapProps) {
+export default function TripDayLeafletMap({ points, polylinePositions }: TripDayLeafletMapProps) {
   const center = useMemo<[number, number]>(() => points[0]?.position ?? [0, 0], [points]);
-  const polylinePositions = useMemo(() => points.map((point) => point.position), [points]);
+  const fallbackPolylinePositions = useMemo(() => points.map((point) => point.position), [points]);
+  const routePolyline = polylinePositions ?? fallbackPolylinePositions;
   const markerIcon = useMemo(
     () =>
       L.divIcon({
@@ -66,7 +68,7 @@ export default function TripDayLeafletMap({ points }: TripDayLeafletMapProps) {
       {points.map((point, index) => (
         <Marker key={point.id} position={point.position} icon={markerIcon} data-testid={`day-map-marker-${index}`} />
       ))}
-      {polylinePositions.length >= 2 && <Polyline positions={polylinePositions} data-testid="day-map-polyline" />}
+      {routePolyline.length >= 2 && <Polyline positions={routePolyline} data-testid="day-map-polyline" />}
       <EnsureMapSized />
       <FitToBounds points={points} />
     </MapContainer>

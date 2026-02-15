@@ -67,11 +67,12 @@ development_status:
   2-13-day-view-plan-item-add-edit-delete-icon-actions: done
   2-14-add-image-to-day: done
   2-15-day-page-prev-next-navigation: done
+  2-16-accommodation-and-plan-item-image-galleries: in-progress
   epic-2-retrospective: optional
 
   epic-3: backlog
   3-1-trip-overview-map-with-all-places: done
-  3-2-day-route-map-with-ordered-stops: backlog
+  3-2-day-route-map-with-ordered-stops: done
   3-3-seed-trip-from-start-and-destination: backlog
   3-4-routing-service-setup-and-fallback-strategy: backlog
   3-5-day-view-map-panel-with-ordered-pins: done

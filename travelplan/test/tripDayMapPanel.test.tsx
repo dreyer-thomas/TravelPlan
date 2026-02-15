@@ -8,13 +8,16 @@ import type { ReactNode } from "react";
 
 vi.mock("next/dynamic", () => ({
   default: () =>
-    ({ points }: { points: { position: [number, number] }[] }) => (
+    ({ points, polylinePositions }: { points: { position: [number, number] }[]; polylinePositions?: [number, number][] }) => (
       <div data-testid="day-map-container">
         {points.map((point, index) => (
           <div key={index} data-testid={`day-map-marker-${index}`} data-position={point.position.join(",")} />
         ))}
-        {points.length >= 2 ? (
-          <div data-testid="day-map-polyline" data-positions={JSON.stringify(points.map((point) => point.position))} />
+        {(polylinePositions ?? points.map((point) => point.position)).length >= 2 ? (
+          <div
+            data-testid="day-map-polyline"
+            data-positions={JSON.stringify(polylinePositions ?? points.map((point) => point.position))}
+          />
         ) : null}
       </div>
     ),
@@ -135,5 +138,49 @@ describe("TripDayMapPanel", () => {
     expect(screen.getByText("Previous Stay")).toBeInTheDocument();
     expect(screen.getByText("Museum")).toBeInTheDocument();
     expect(screen.getByText("Current Stay")).toBeInTheDocument();
+  });
+
+  it("renders routed polyline and shows routing-unavailable state", () => {
+    const { points, missingLocations } = buildDayMapPanelData({
+      previousStay: {
+        id: "stay-prev",
+        label: "Previous Stay",
+        kind: "previousStay",
+        location: { lat: 40.7, lng: -73.9 },
+      },
+      currentStay: {
+        id: "stay-next",
+        label: "Current Stay",
+        kind: "currentStay",
+        location: { lat: 40.73, lng: -73.96 },
+      },
+    });
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayMapPanel
+          points={points}
+          missingLocations={missingLocations}
+          polylinePositions={[
+            [40.7, -73.9],
+            [40.71, -73.94],
+            [40.73, -73.96],
+          ]}
+          routingUnavailable
+          loading={false}
+        />
+      </I18nProvider>,
+    );
+
+    expect(screen.getByTestId("day-map-polyline")).toHaveAttribute(
+      "data-positions",
+      JSON.stringify([
+        [40.7, -73.9],
+        [40.71, -73.94],
+        [40.73, -73.96],
+      ]),
+    );
+    expect(screen.getByText("Routing unavailable")).toBeInTheDocument();
+    expect(screen.getByText("Showing direct line order. Check your connection and try again.")).toBeInTheDocument();
   });
 });

@@ -159,6 +159,8 @@ const de: Dictionary = {
   "trips.dayView.mapEmptyBody": "Füge Standorte zu Unterkünften oder Planpunkten hinzu, um die Route zu sehen.",
   "trips.dayView.mapMissingTitle": "Fehlende Standorte",
   "trips.dayView.mapMissingTag": "Fehlt",
+  "trips.dayView.routingUnavailableTitle": "Routenberechnung nicht verfügbar",
+  "trips.dayView.routingUnavailableBody": "Die direkte Reihenfolge wird angezeigt. Prüfe die Verbindung und versuche es erneut.",
   "trips.dayImage.title": "Tagesbild",
   "trips.dayImage.previewAlt": "Tagesbild",
   "trips.dayImage.empty": "Noch kein Tagesbild ausgewählt.",

@@ -159,6 +159,8 @@ const en: Dictionary = {
   "trips.dayView.mapEmptyBody": "Add locations to stays or plan items to see the route.",
   "trips.dayView.mapMissingTitle": "Missing locations",
   "trips.dayView.mapMissingTag": "Missing",
+  "trips.dayView.routingUnavailableTitle": "Routing unavailable",
+  "trips.dayView.routingUnavailableBody": "Showing direct line order. Check your connection and try again.",
   "trips.dayImage.title": "Day image",
   "trips.dayImage.previewAlt": "Day image",
   "trips.dayImage.empty": "No day image selected yet.",

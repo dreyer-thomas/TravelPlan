@@ -752,6 +752,108 @@ export const getTripDayByIdForUser = async ({
     select: { id: true, tripId: true },
   });
 
+export type DayRoutePoint = {
+  id: string;
+  kind: "previousStay" | "planItem" | "currentStay";
+  lat: number;
+  lng: number;
+};
+
+export const getDayRoutePointsForUser = async ({
+  userId,
+  tripId,
+  dayId,
+}: {
+  userId: string;
+  tripId: string;
+  dayId: string;
+}): Promise<DayRoutePoint[] | null> => {
+  const day = await prisma.tripDay.findFirst({
+    where: {
+      id: dayId,
+      tripId,
+      trip: { userId },
+    },
+    select: {
+      id: true,
+      dayIndex: true,
+      accommodation: {
+        select: {
+          id: true,
+          locationLat: true,
+          locationLng: true,
+        },
+      },
+      dayPlanItems: {
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        select: {
+          id: true,
+          locationLat: true,
+          locationLng: true,
+        },
+      },
+    },
+  });
+
+  if (!day) {
+    return null;
+  }
+
+  const previousDay = await prisma.tripDay.findFirst({
+    where: {
+      tripId,
+      dayIndex: { lt: day.dayIndex },
+    },
+    orderBy: [{ dayIndex: "desc" }, { date: "desc" }],
+    select: {
+      accommodation: {
+        select: {
+          id: true,
+          locationLat: true,
+          locationLng: true,
+        },
+      },
+    },
+  });
+
+  const points: DayRoutePoint[] = [];
+
+  if (
+    previousDay?.accommodation?.locationLat !== null &&
+    previousDay.accommodation.locationLng !== null
+  ) {
+    points.push({
+      id: `prev-${previousDay.accommodation.id}`,
+      kind: "previousStay",
+      lat: previousDay.accommodation.locationLat,
+      lng: previousDay.accommodation.locationLng,
+    });
+  }
+
+  for (const item of day.dayPlanItems) {
+    if (item.locationLat === null || item.locationLng === null) {
+      continue;
+    }
+    points.push({
+      id: item.id,
+      kind: "planItem",
+      lat: item.locationLat,
+      lng: item.locationLng,
+    });
+  }
+
+  if (day.accommodation?.locationLat !== null && day.accommodation?.locationLng !== null) {
+    points.push({
+      id: `curr-${day.accommodation.id}`,
+      kind: "currentStay",
+      lat: day.accommodation.locationLat,
+      lng: day.accommodation.locationLng,
+    });
+  }
+
+  return points;
+};
+
 export const updateTripHeroImageForUser = async ({
   userId,
   tripId,

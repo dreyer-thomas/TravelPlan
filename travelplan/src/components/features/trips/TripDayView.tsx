@@ -124,8 +124,30 @@ const parsePlanText = (value: string) => {
 
 const getMapLocation = (value: { lat: number; lng: number } | null | undefined) => {
   if (!value) return null;
-  if (typeof value.lat !== "number" || typeof value.lng !== "number") return null;
+  if (
+    typeof value.lat !== "number" ||
+    typeof value.lng !== "number" ||
+    !Number.isFinite(value.lat) ||
+    !Number.isFinite(value.lng)
+  ) {
+    return null;
+  }
   return value;
+};
+
+const parsePolyline = (value: unknown): [number, number][] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((point): point is [number, number] => {
+      if (!Array.isArray(point) || point.length !== 2) return false;
+      return (
+        typeof point[0] === "number" &&
+        typeof point[1] === "number" &&
+        Number.isFinite(point[0]) &&
+        Number.isFinite(point[1])
+      );
+    })
+    .map((point) => [point[0], point[1]]);
 };
 
 export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
@@ -145,6 +167,8 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const [dayImageFile, setDayImageFile] = useState<File | null>(null);
   const [dayNoteDraft, setDayNoteDraft] = useState("");
   const [dayImageSaving, setDayImageSaving] = useState(false);
+  const [routePolyline, setRoutePolyline] = useState<[number, number][]>([]);
+  const [routingUnavailable, setRoutingUnavailable] = useState(false);
   const planItemsRef = useRef<DayPlanItem[]>([]);
   const handledDeepLinkRef = useRef<string | null>(null);
 
@@ -577,6 +601,56 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     [currentStay, planItems, previousStay, t],
   );
 
+  useEffect(() => {
+    const fallbackPolyline = mapData.points.map((point) => point.position);
+    setRoutePolyline(fallbackPolyline);
+    setRoutingUnavailable(false);
+
+    if (!day || mapData.points.length < 2) {
+      return;
+    }
+
+    let active = true;
+    const loadRoute = async () => {
+      try {
+        const response = await fetch(`/api/trips/${tripId}/days/${day.id}/route`, {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store",
+        });
+        const payload = (await response.json()) as ApiEnvelope<{
+          route?: {
+            polyline?: unknown;
+          };
+        }>;
+
+        if (!active) return;
+
+        if (!response.ok || payload.error) {
+          const fallbackFromError = parsePolyline(
+            (payload.error?.details as { fallbackPolyline?: unknown } | undefined)?.fallbackPolyline,
+          );
+          setRoutePolyline(fallbackFromError.length >= 2 ? fallbackFromError : fallbackPolyline);
+          setRoutingUnavailable(true);
+          return;
+        }
+
+        const routedPolyline = parsePolyline(payload.data?.route?.polyline);
+        setRoutePolyline(routedPolyline.length >= 2 ? routedPolyline : fallbackPolyline);
+      } catch {
+        if (!active) return;
+        setRoutePolyline(fallbackPolyline);
+        setRoutingUnavailable(true);
+      }
+    };
+
+    void loadRoute();
+
+    return () => {
+      active = false;
+    };
+  }, [day, mapData.points, tripId]);
+
   if (loading) {
     return (
       <Paper elevation={1} sx={{ p: 3, borderRadius: 3 }}>
@@ -878,7 +952,13 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                 )}
               </Paper>
 
-              <TripDayMapPanel loading={loading} points={mapData.points} missingLocations={mapData.missingLocations} />
+              <TripDayMapPanel
+                loading={loading}
+                points={mapData.points}
+                missingLocations={mapData.missingLocations}
+                polylinePositions={routePolyline.length >= 2 ? routePolyline : mapData.points.map((point) => point.position)}
+                routingUnavailable={routingUnavailable}
+              />
             </Box>
           </Box>
 
