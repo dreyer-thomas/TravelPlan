@@ -120,7 +120,7 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
     setLocationQuery("");
     setFieldErrors({});
     if (editor) {
-      editor.commands.setContent(emptyDoc, false);
+      editor.commands.setContent(emptyDoc, { emitUpdate: false });
     }
   }, [editor]);
 
@@ -128,7 +128,7 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
     (value: string) => {
       setContentJson(value);
       if (editor) {
-        editor.commands.setContent(parseDoc(value), false);
+        editor.commands.setContent(parseDoc(value), { emitUpdate: false });
       }
     },
     [editor],
