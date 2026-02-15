@@ -3,11 +3,13 @@ import { locationInputSchema } from "@/lib/validation/locationSchemas";
 
 const hasNonEmptyText = (node: unknown): boolean => {
   if (!node || typeof node !== "object") return false;
-  if ("text" in node && typeof (node as { text?: unknown }).text === "string") {
-    return (node as { text?: string }).text.trim().length > 0;
+  const nodeWithText = node as { text?: unknown };
+  if (typeof nodeWithText.text === "string") {
+    return nodeWithText.text.trim().length > 0;
   }
-  if ("content" in node && Array.isArray((node as { content?: unknown[] }).content)) {
-    return (node as { content?: unknown[] }).content!.some((child) => hasNonEmptyText(child));
+  const nodeWithContent = node as { content?: unknown[] };
+  if (Array.isArray(nodeWithContent.content)) {
+    return nodeWithContent.content.some((child) => hasNonEmptyText(child));
   }
   return false;
 };
