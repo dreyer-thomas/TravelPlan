@@ -34,7 +34,7 @@ type DayPlanItem = {
   tripDayId: string;
   contentJson: string;
   linkUrl: string | null;
-  location: { lat: number; lng: number; label: string | null } | null;
+  location: { lat: number; lng: number; label?: string | null } | null;
   createdAt: string;
 };
 
@@ -79,7 +79,7 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
   const [loadingInit, setLoadingInit] = useState(false);
   const [contentJson, setContentJson] = useState<string>(toDocString(emptyDoc));
   const [linkUrl, setLinkUrl] = useState<string>("");
-  const [resolvedLocation, setResolvedLocation] = useState<{ lat: number; lng: number; label: string | null } | null>(
+  const [resolvedLocation, setResolvedLocation] = useState<{ lat: number; lng: number; label?: string | null } | null>(
     null,
   );
   const [locationQuery, setLocationQuery] = useState<string>("");
@@ -277,7 +277,7 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
       tripDayId: string;
       contentJson: string;
       linkUrl: string | null;
-      location: { lat: number; lng: number; label: string | null } | null;
+      location: { lat: number; lng: number; label?: string | null } | null;
       itemId?: string;
     };
 

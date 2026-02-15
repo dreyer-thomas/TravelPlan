@@ -36,7 +36,7 @@ type TripDay = {
     status: "planned" | "booked";
     costCents: number | null;
     link: string | null;
-    location: { lat: number; lng: number; label: string | null } | null;
+    location?: { lat: number; lng: number; label?: string | null } | null;
   } | null;
 };
 

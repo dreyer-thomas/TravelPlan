@@ -2,8 +2,14 @@
 
 import { MapContainer, Marker, TileLayer, useMap } from "react-leaflet";
 import { useEffect, useMemo } from "react";
+import type { ReactElement } from "react";
+// @ts-ignore Leaflet types are not resolved in this build environment.
 import L from "leaflet";
 import type { TripOverviewMapPoint } from "@/components/features/trips/TripOverviewMapPanel";
+
+const MapContainerCompat = MapContainer as unknown as (props: Record<string, unknown>) => ReactElement;
+const MarkerCompat = Marker as unknown as (props: Record<string, unknown>) => ReactElement;
+const TileLayerCompat = TileLayer as unknown as (props: Record<string, unknown>) => ReactElement;
 
 const FitToBounds = ({ points }: { points: TripOverviewMapPoint[] }) => {
   const map = useMap();
@@ -57,16 +63,16 @@ export default function TripOverviewLeafletMap({ points }: TripOverviewLeafletMa
   );
 
   return (
-    <MapContainer center={center} zoom={5} style={{ height: 280, width: "100%" }} scrollWheelZoom={false}>
-      <TileLayer
+    <MapContainerCompat center={center} zoom={5} style={{ height: 280, width: "100%" }} scrollWheelZoom={false}>
+      <TileLayerCompat
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         attribution="&copy; OpenStreetMap contributors"
       />
       {points.map((point, index) => (
-        <Marker key={point.id} position={point.position} icon={markerIcon} data-testid={`overview-map-marker-${index}`} />
+        <MarkerCompat key={point.id} position={point.position} icon={markerIcon} data-testid={`overview-map-marker-${index}`} />
       ))}
       <EnsureMapSized />
       <FitToBounds points={points} />
-    </MapContainer>
+    </MapContainerCompat>
   );
 }
