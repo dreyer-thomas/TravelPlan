@@ -1,10 +1,33 @@
-import { createTheme } from "@mui/material/styles";
+import { createTheme, type Shadows } from "@mui/material/styles";
 
 const shadowColor = "0 20px 50px rgba(17, 18, 20, 0.12)";
-const shadows: string[] = ["none"];
-for (let i = 1; i < 25; i += 1) {
-  shadows.push(shadowColor);
-}
+const shadows: Shadows = [
+  "none",
+  shadowColor,
+  shadowColor,
+  shadowColor,
+  shadowColor,
+  shadowColor,
+  shadowColor,
+  shadowColor,
+  shadowColor,
+  shadowColor,
+  shadowColor,
+  shadowColor,
+  shadowColor,
+  shadowColor,
+  shadowColor,
+  shadowColor,
+  shadowColor,
+  shadowColor,
+  shadowColor,
+  shadowColor,
+  shadowColor,
+  shadowColor,
+  shadowColor,
+  shadowColor,
+  shadowColor,
+];
 
 const theme = createTheme({
   palette: {
