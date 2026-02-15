@@ -280,7 +280,7 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
   };
 
   const handleUpdated = (updated: EditableTripDetail) => {
-    setDetail(updated);
+    setDetail(updated as TripDetail);
     setEditOpen(false);
   };
 
