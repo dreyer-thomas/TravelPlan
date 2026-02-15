@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { locationInputSchema } from "@/lib/validation/locationSchemas";
 
 const hasNonEmptyText = (node: unknown): boolean => {
   if (!node || typeof node !== "object") return false;
@@ -30,6 +31,7 @@ export const dayPlanItemMutationSchema = z.object({
   tripDayId: z.string().trim().min(1, "Trip day is required"),
   contentJson: contentJsonSchema,
   linkUrl: linkSchema.optional().nullable(),
+  location: locationInputSchema.optional(),
 });
 
 export type DayPlanItemMutationInput = z.infer<typeof dayPlanItemMutationSchema>;

@@ -6,6 +6,10 @@ import {
   Box,
   Button,
   Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Divider,
   IconButton,
   List,
@@ -14,9 +18,11 @@ import {
   Paper,
   Skeleton,
   SvgIcon,
+  TextField,
   Typography,
 } from "@mui/material";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import TripAccommodationDialog from "@/components/features/trips/TripAccommodationDialog";
 import TripDayMapPanel, { buildDayMapPanelData } from "@/components/features/trips/TripDayMapPanel";
 import TripDayPlanDialog from "@/components/features/trips/TripDayPlanDialog";
@@ -34,6 +40,7 @@ type TripSummary = {
   startDate: string;
   endDate: string;
   dayCount: number;
+  plannedCostTotal: number;
   accommodationCostTotalCents: number | null;
   heroImageUrl: string | null;
 };
@@ -42,6 +49,9 @@ type TripDay = {
   id: string;
   date: string;
   dayIndex: number;
+  imageUrl?: string | null;
+  note?: string | null;
+  plannedCostSubtotal: number;
   missingAccommodation: boolean;
   missingPlan: boolean;
   accommodation: {
@@ -51,8 +61,14 @@ type TripDay = {
     status: "planned" | "booked";
     costCents: number | null;
     link: string | null;
-    location?: { lat: number; lng: number } | null;
+    location?: { lat: number; lng: number; label?: string | null } | null;
   } | null;
+  dayPlanItems: {
+    id: string;
+    contentJson: string;
+    linkUrl: string | null;
+    location: { lat: number; lng: number; label?: string | null } | null;
+  }[];
 };
 
 type DayPlanItem = {
@@ -60,7 +76,7 @@ type DayPlanItem = {
   tripDayId: string;
   contentJson: string;
   linkUrl: string | null;
-  location?: { lat: number; lng: number } | null;
+  location: { lat: number; lng: number; label?: string | null } | null;
   createdAt: string;
 };
 
@@ -104,6 +120,7 @@ const getMapLocation = (value: { lat: number; lng: number } | null | undefined) 
 
 export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const { language, t } = useI18n();
+  const searchParams = useSearchParams();
   const [detail, setDetail] = useState<TripDetail | null>(null);
   const [day, setDay] = useState<TripDay | null>(null);
   const [planItems, setPlanItems] = useState<DayPlanItem[]>([]);
@@ -114,7 +131,12 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const [planDialogMode, setPlanDialogMode] = useState<PlanDialogMode | null>(null);
   const [selectedPlanItem, setSelectedPlanItem] = useState<DayPlanItem | null>(null);
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
+  const [dayMetaOpen, setDayMetaOpen] = useState(false);
+  const [dayImageFile, setDayImageFile] = useState<File | null>(null);
+  const [dayNoteDraft, setDayNoteDraft] = useState("");
+  const [dayImageSaving, setDayImageSaving] = useState(false);
   const planItemsRef = useRef<DayPlanItem[]>([]);
+  const handledDeepLinkRef = useRef<string | null>(null);
 
   useEffect(() => {
     planItemsRef.current = planItems;
@@ -166,7 +188,11 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     setNotFound(false);
 
     try {
-      const detailResponse = await fetch(`/api/trips/${tripId}`, { method: "GET", credentials: "include" });
+      const detailResponse = await fetch(`/api/trips/${tripId}`, {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      });
       const detailBody = (await detailResponse.json()) as ApiEnvelope<TripDetail>;
 
       if (detailResponse.status === 404 || detailBody.error?.code === "not_found") {
@@ -194,23 +220,18 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
         return;
       }
 
-      const planResponse = await fetch(`/api/trips/${tripId}/day-plan-items?tripDayId=${resolvedDay.id}`, {
-        method: "GET",
-        credentials: "include",
-      });
-      const planBody = (await planResponse.json()) as ApiEnvelope<{ items: DayPlanItem[] }>;
-
-      if (!planResponse.ok || planBody.error || !planBody.data) {
-        setError(resolveApiError(planBody.error?.code));
-        setDetail(detailBody.data);
-        setDay(resolvedDay);
-        setPlanItems([]);
-        return;
-      }
-
       setDetail(detailBody.data);
       setDay(resolvedDay);
-      setPlanItems(planBody.data.items);
+      setPlanItems(
+        (resolvedDay.dayPlanItems ?? []).map((item) => ({
+          id: item.id,
+          tripDayId: resolvedDay.id,
+          contentJson: item.contentJson,
+          linkUrl: item.linkUrl,
+          location: item.location,
+          createdAt: "",
+        })),
+      );
     } catch {
       setError(t("trips.dayView.loadError"));
       setDetail(null);
@@ -296,6 +317,44 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     loadDay();
   }, [loadDay]);
 
+  useEffect(() => {
+    setDayImageFile(null);
+    setDayNoteDraft(day?.note ?? "");
+  }, [day?.id, day?.note]);
+
+  useEffect(() => {
+    if (loading || !day) return;
+
+    const openTarget = searchParams.get("open");
+    const itemId = searchParams.get("itemId");
+    if (!openTarget) return;
+
+    const key = `${day.id}:${openTarget}:${itemId ?? ""}`;
+    if (handledDeepLinkRef.current === key) return;
+
+    if (openTarget === "stay") {
+      setStayOpen(true);
+      handledDeepLinkRef.current = key;
+      return;
+    }
+
+    if (openTarget === "plan") {
+      if (itemId) {
+        const item = planItems.find((entry) => entry.id === itemId) ?? null;
+        if (item) {
+          setSelectedPlanItem(item);
+          setPlanDialogMode("edit");
+          handledDeepLinkRef.current = key;
+          return;
+        }
+      }
+
+      setSelectedPlanItem(null);
+      setPlanDialogMode("add");
+      handledDeepLinkRef.current = key;
+    }
+  }, [day, loading, planItems, searchParams]);
+
   const previousDay = useMemo(() => {
     if (!detail || !day) return null;
     const currentIndex = detail.days.findIndex((candidate) => candidate.id === day.id);
@@ -306,6 +365,126 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const previousStay = previousDay?.accommodation ?? null;
   const currentStay = day?.accommodation ?? null;
   const dayHasTimelineContent = Boolean(previousStay || currentStay || planItems.length > 0);
+  const hasDayImage = Boolean(day?.imageUrl && day.imageUrl.trim().length > 0);
+
+  const updateLocalDayMeta = useCallback(
+    (payload: { imageUrl: string | null; note: string | null }) => {
+      if (!day) return;
+
+      setDay((current) => (current ? { ...current, imageUrl: payload.imageUrl, note: payload.note } : current));
+      setDetail((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          days: current.days.map((entry) =>
+            entry.id === day.id ? { ...entry, imageUrl: payload.imageUrl, note: payload.note } : entry,
+          ),
+        };
+      });
+    },
+    [day],
+  );
+
+  const handleSaveDayImage = useCallback(async () => {
+    if (!day) return;
+    const normalizedNote = dayNoteDraft.trim();
+
+    setDayImageSaving(true);
+    setError(null);
+
+    try {
+      const token = await ensureCsrfToken();
+      if (dayImageFile) {
+        const formData = new FormData();
+        formData.set("file", dayImageFile);
+        formData.set("note", normalizedNote.length > 0 ? normalizedNote : "");
+
+        const uploadResponse = await fetch(`/api/trips/${tripId}/days/${day.id}/image`, {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "x-csrf-token": token,
+          },
+          body: formData,
+        });
+
+        const uploadBody = (await uploadResponse.json()) as ApiEnvelope<{
+          day: { id: string; imageUrl: string | null; note: string | null };
+        }>;
+        if (!uploadResponse.ok || uploadBody.error || !uploadBody.data?.day) {
+          setError(t("trips.dayImage.uploadError"));
+          return;
+        }
+        updateLocalDayMeta({ imageUrl: uploadBody.data.day.imageUrl, note: uploadBody.data.day.note });
+        setDayImageFile(null);
+        setDayNoteDraft(uploadBody.data.day.note ?? "");
+        setDayMetaOpen(false);
+        return;
+      }
+
+      const response = await fetch(`/api/trips/${tripId}/days/${day.id}/image`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "x-csrf-token": token,
+        },
+        body: JSON.stringify({
+          imageUrl: day.imageUrl ?? null,
+          note: normalizedNote.length > 0 ? normalizedNote : null,
+        }),
+      });
+
+      const body = (await response.json()) as ApiEnvelope<{ day: { id: string; imageUrl: string | null; note: string | null } }>;
+      if (!response.ok || body.error || !body.data?.day) {
+        setError(t("trips.dayImage.saveError"));
+        return;
+      }
+
+      updateLocalDayMeta({ imageUrl: body.data.day.imageUrl, note: body.data.day.note });
+      setDayImageFile(null);
+      setDayNoteDraft(body.data.day.note ?? "");
+      setDayMetaOpen(false);
+    } catch {
+      setError(t("trips.dayImage.saveError"));
+    } finally {
+      setDayImageSaving(false);
+    }
+  }, [day, dayImageFile, dayNoteDraft, ensureCsrfToken, t, tripId, updateLocalDayMeta]);
+
+  const handleRemoveDayImage = useCallback(async () => {
+    if (!day) return;
+
+    setDayImageSaving(true);
+    setError(null);
+
+    try {
+      const token = await ensureCsrfToken();
+      const response = await fetch(`/api/trips/${tripId}/days/${day.id}/image`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "x-csrf-token": token,
+        },
+        body: JSON.stringify({ imageUrl: null, note: dayNoteDraft.trim().length > 0 ? dayNoteDraft.trim() : null }),
+      });
+
+      const body = (await response.json()) as ApiEnvelope<{ day: { id: string; imageUrl: string | null; note: string | null } }>;
+      if (!response.ok || body.error || !body.data?.day) {
+        setError(t("trips.dayImage.saveError"));
+        return;
+      }
+
+      updateLocalDayMeta({ imageUrl: null, note: body.data.day.note });
+      setDayImageFile(null);
+      setDayNoteDraft(body.data.day.note ?? "");
+    } catch {
+      setError(t("trips.dayImage.saveError"));
+    } finally {
+      setDayImageSaving(false);
+    }
+  }, [day, dayNoteDraft, ensureCsrfToken, t, tripId, updateLocalDayMeta]);
 
   const budgetEntries = useMemo(() => {
     const entries: { id: string; label: string; amountCents: number | null }[] = [];
@@ -338,10 +517,14 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     return entries;
   }, [currentStay, planItems, previousStay, t]);
 
-  const dayTotalCents = useMemo(
-    () => budgetEntries.reduce((sum, entry) => sum + (entry.amountCents ?? 0), 0),
+  const knownBudgetEntries = useMemo(
+    () =>
+      budgetEntries.filter(
+        (entry): entry is { id: string; label: string; amountCents: number } => entry.amountCents !== null,
+      ),
     [budgetEntries],
   );
+  const dayTotalCents = knownBudgetEntries.reduce((sum, entry) => sum + entry.amountCents, 0);
 
   const mapData = useMemo(
     () =>
@@ -403,6 +586,13 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     );
   }
 
+  const dayTitle =
+    day && day.note && day.note.trim().length > 0
+      ? formatMessage(t("trips.dayView.titleWithNote"), { index: day.dayIndex, note: day.note.trim() })
+      : day
+        ? formatMessage(t("trips.dayView.title"), { index: day.dayIndex })
+        : "";
+
   return (
     <Box display="flex" flexDirection="column" gap={2} data-testid="trip-day-view-page">
       {error && <Alert severity="error">{error}</Alert>}
@@ -414,14 +604,41 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
               <Button component={Link} href={`/trips/${tripId}`} variant="text" sx={{ alignSelf: "flex-start" }}>
                 {t("trips.dayView.back")}
               </Button>
-              <Box display="flex" flexDirection="column" gap={0.5}>
-                <Typography variant="h5" fontWeight={700}>
-                  {formatMessage(t("trips.dayView.title"), { index: day.dayIndex })}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  {formatDate(day.date)}
-                </Typography>
+              <Box display="flex" alignItems="flex-start" justifyContent="space-between" gap={1}>
+                <Box display="flex" flexDirection="column" gap={0.5}>
+                  <Typography variant="h5" fontWeight={700}>
+                    {dayTitle}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {formatDate(day.date)}
+                  </Typography>
+                </Box>
+                <IconButton
+                  size="small"
+                  aria-label={t("trips.dayImage.editAction")}
+                  title={t("trips.dayImage.editAction")}
+                  onClick={() => setDayMetaOpen(true)}
+                >
+                  <SvgIcon fontSize="inherit">
+                    <path d="M3 17.25V21h3.75l11-11-3.75-3.75-11 11zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66z" />
+                  </SvgIcon>
+                </IconButton>
               </Box>
+              {hasDayImage && (
+                <Box
+                  component="img"
+                  src={day.imageUrl ?? undefined}
+                  alt={t("trips.dayImage.previewAlt")}
+                  sx={{
+                    width: "100%",
+                    maxHeight: 220,
+                    objectFit: "cover",
+                    borderRadius: 1.5,
+                    border: "1px solid",
+                    borderColor: "divider",
+                  }}
+                />
+              )}
               <Divider />
             </Box>
           </Paper>
@@ -587,23 +804,19 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                 </Box>
                 <Divider sx={{ my: 1.5 }} />
 
-                {budgetEntries.length === 0 && (
+                {knownBudgetEntries.length === 0 && (
                   <Typography variant="body2" color="text.secondary">
                     {t("trips.dayView.budgetEmpty")}
                   </Typography>
                 )}
 
-                {budgetEntries.length > 0 && (
+                {knownBudgetEntries.length > 0 && (
                   <List dense sx={{ p: 0 }}>
-                    {budgetEntries.map((entry) => (
+                    {knownBudgetEntries.map((entry) => (
                       <ListItem key={entry.id} sx={{ px: 0 }}>
                         <ListItemText
                           primary={entry.label}
-                          secondary={
-                            entry.amountCents !== null
-                              ? formatMessage(t("trips.stay.costSummary"), { amount: formatCost(entry.amountCents) })
-                              : t("trips.dayView.budgetNoAmount")
-                          }
+                          secondary={formatMessage(t("trips.stay.costSummary"), { amount: formatCost(entry.amountCents) })}
                         />
                       </ListItem>
                     ))}
@@ -641,6 +854,64 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
               loadDay();
             }}
           />
+          <Dialog open={dayMetaOpen} onClose={() => setDayMetaOpen(false)} fullWidth maxWidth="sm">
+            <DialogTitle>{t("trips.dayImage.dialogTitle")}</DialogTitle>
+            <DialogContent>
+              <Box mt={0.5} display="flex" flexDirection="column" gap={1.5}>
+                <Typography variant="body2" fontWeight={600}>
+                  {t("trips.dayImage.fileLabel")}
+                </Typography>
+                <TextField
+                  size="small"
+                  type="file"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0] ?? null;
+                    setDayImageFile(file);
+                  }}
+                  fullWidth
+                  inputProps={{
+                    accept: "image/jpeg,image/png,image/webp",
+                    "aria-label": t("trips.dayImage.fileLabel"),
+                  }}
+                />
+                <Typography variant="caption" color="text.secondary">
+                  {t("trips.dayImage.fileHelper")}
+                </Typography>
+                {dayImageFile && (
+                  <Typography variant="body2" color="text.secondary">
+                    {dayImageFile.name}
+                  </Typography>
+                )}
+                <TextField
+                  size="small"
+                  value={dayNoteDraft}
+                  onChange={(event) => setDayNoteDraft(event.target.value)}
+                  label={t("trips.dayImage.noteLabel")}
+                  helperText={t("trips.dayImage.noteHelper")}
+                  fullWidth
+                  multiline
+                  minRows={2}
+                  inputProps={{ maxLength: 280 }}
+                />
+                {!hasDayImage && (
+                  <Typography variant="body2" color="text.secondary">
+                    {t("trips.dayImage.empty")}
+                  </Typography>
+                )}
+              </Box>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setDayMetaOpen(false)} color="inherit">
+                {t("common.cancel")}
+              </Button>
+              <Button onClick={() => void handleRemoveDayImage()} color="inherit" disabled={dayImageSaving || !hasDayImage}>
+                {t("trips.dayImage.removeAction")}
+              </Button>
+              <Button onClick={() => void handleSaveDayImage()} variant="contained" disabled={dayImageSaving}>
+                {t("trips.dayImage.saveAction")}
+              </Button>
+            </DialogActions>
+          </Dialog>
         </>
       )}
     </Box>

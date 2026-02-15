@@ -77,6 +77,7 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
         tripDayId: item.tripDayId,
         contentJson: item.contentJson,
         linkUrl: item.linkUrl,
+        location: item.location,
         createdAt: item.createdAt.toISOString(),
       })),
     });
@@ -111,6 +112,15 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
   }
 
   const linkUrl = parsed.data.linkUrl?.trim() ?? null;
+  const location = parsed.data.location ?? null;
+  const normalizedLocation =
+    location && typeof location.lat === "number" && typeof location.lng === "number"
+      ? {
+          lat: location.lat,
+          lng: location.lng,
+          label: location.label?.trim() || null,
+        }
+      : null;
 
   const item = await createDayPlanItemForTripDay({
     userId,
@@ -118,6 +128,7 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
     tripDayId: parsed.data.tripDayId,
     contentJson: parsed.data.contentJson,
     linkUrl: linkUrl && linkUrl.length > 0 ? linkUrl : null,
+    location: normalizedLocation,
   });
 
   if (!item) {
@@ -130,6 +141,7 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
       tripDayId: item.tripDayId,
       contentJson: item.contentJson,
       linkUrl: item.linkUrl,
+      location: item.location,
       createdAt: item.createdAt.toISOString(),
     },
   });
@@ -161,6 +173,15 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
   }
 
   const linkUrl = parsed.data.linkUrl?.trim() ?? null;
+  const location = parsed.data.location ?? null;
+  const normalizedLocation =
+    location && typeof location.lat === "number" && typeof location.lng === "number"
+      ? {
+          lat: location.lat,
+          lng: location.lng,
+          label: location.label?.trim() || null,
+        }
+      : null;
 
   const updated = await updateDayPlanItemForTripDay({
     userId,
@@ -169,6 +190,7 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
     itemId: parsed.data.itemId,
     contentJson: parsed.data.contentJson,
     linkUrl: linkUrl && linkUrl.length > 0 ? linkUrl : null,
+    location: normalizedLocation,
   });
 
   if (updated.status === "not_found") {
@@ -185,6 +207,7 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
       tripDayId: updated.item.tripDayId,
       contentJson: updated.item.contentJson,
       linkUrl: updated.item.linkUrl,
+      location: updated.item.location,
       createdAt: updated.item.createdAt.toISOString(),
     },
   });

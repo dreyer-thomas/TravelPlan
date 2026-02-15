@@ -9,6 +9,9 @@ import type { ReactNode } from "react";
 const planDialogMockState = vi.hoisted(() => ({
   lastProps: null as null | { open: boolean; mode: "add" | "edit"; item: { id: string; linkUrl: string | null } | null },
 }));
+const navigationMockState = vi.hoisted(() => ({
+  search: "",
+}));
 
 vi.mock("@/components/features/trips/TripAccommodationDialog", () => ({
   default: () => <div data-testid="stay-dialog" />,
@@ -31,51 +34,44 @@ vi.mock("@/components/features/trips/TripDayPlanDialog", () => ({
   },
 }));
 
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(navigationMockState.search),
+}));
+
+vi.mock("next/dynamic", () => ({
+  default: () =>
+    ({ points }: { points: { position: [number, number] }[] }) => (
+      <div data-testid="day-map-container">
+        {points.map((point, index) => (
+          <div key={index} data-testid="day-map-marker" data-position={point.position.join(",")} />
+        ))}
+        {points.length >= 2 ? <div data-testid="day-map-polyline" /> : null}
+      </div>
+    ),
+}));
+
 vi.mock("react-leaflet", () => ({
   MapContainer: ({ children }: { children: ReactNode }) => <div data-testid="day-map-container">{children}</div>,
   TileLayer: () => <div data-testid="day-map-tile" />,
   Marker: ({ children }: { children?: ReactNode }) => <div data-testid="day-map-marker">{children}</div>,
   Polyline: () => <div data-testid="day-map-polyline" />,
-  useMap: () => ({ fitBounds: vi.fn() }),
+  useMap: () => ({ fitBounds: vi.fn(), invalidateSize: vi.fn(), getContainer: vi.fn(() => document.createElement("div")) }),
 }));
 
 vi.mock("leaflet", () => ({
   default: {
     latLngBounds: (points: [number, number][]) => ({ points }),
+    divIcon: (options: unknown) => options,
   },
   latLngBounds: (points: [number, number][]) => ({ points }),
+  divIcon: (options: unknown) => options,
 }));
 
 describe("TripDayView layout", () => {
   it("renders the day view page layout for a selected day", async () => {
     planDialogMockState.lastProps = null;
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.includes("/day-plan-items?")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            data: {
-              items: [
-                {
-                  id: "plan-1",
-                  tripDayId: "day-1",
-                  contentJson: JSON.stringify({
-                    type: "doc",
-                    content: [{ type: "paragraph", content: [{ type: "text", text: "Museum visit" }] }],
-                  }),
-                  linkUrl: "https://example.com/museum",
-                  location: { lat: 48.1372, lng: 11.5756 },
-                  createdAt: "2026-12-01T09:00:00.000Z",
-                },
-              ],
-            },
-            error: null,
-          }),
-        };
-      }
-
+    navigationMockState.search = "";
+    const fetchMock = vi.fn(async () => {
       return {
         ok: true,
         status: 200,
@@ -95,6 +91,7 @@ describe("TripDayView layout", () => {
                 id: "day-0",
                 date: "2026-11-30T00:00:00.000Z",
                 dayIndex: 0,
+                plannedCostSubtotal: 12000,
                 missingAccommodation: false,
                 missingPlan: true,
                 accommodation: {
@@ -106,11 +103,13 @@ describe("TripDayView layout", () => {
                   link: null,
                   location: { lat: 48.3538, lng: 11.7861 },
                 },
+                dayPlanItems: [],
               },
               {
                 id: "day-1",
                 date: "2026-12-01T00:00:00.000Z",
                 dayIndex: 1,
+                plannedCostSubtotal: 16000,
                 missingAccommodation: false,
                 missingPlan: false,
                 accommodation: {
@@ -122,6 +121,17 @@ describe("TripDayView layout", () => {
                   link: null,
                   location: { lat: 48.145, lng: 11.582 },
                 },
+                dayPlanItems: [
+                  {
+                    id: "plan-1",
+                    contentJson: JSON.stringify({
+                      type: "doc",
+                      content: [{ type: "paragraph", content: [{ type: "text", text: "Museum visit" }] }],
+                    }),
+                    linkUrl: "https://example.com/museum",
+                    location: { lat: 48.1372, lng: 11.5756 },
+                  },
+                ],
               },
             ],
           },
@@ -138,7 +148,7 @@ describe("TripDayView layout", () => {
       </I18nProvider>
     );
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
 
     expect(await screen.findByTestId("trip-day-view-page")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
@@ -152,7 +162,7 @@ describe("TripDayView layout", () => {
     expect(screen.getByText("Current night accommodation")).toBeInTheDocument();
     expect(screen.getAllByText("City Hotel").length).toBeGreaterThan(0);
     expect(screen.getByText("Day total")).toBeInTheDocument();
-    expect(screen.getByText("Cost: 280.00")).toBeInTheDocument();
+    expect(screen.getAllByText("Cost: 160.00").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Edit stay" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add plan item" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit plan item" })).toBeInTheDocument();
@@ -174,6 +184,7 @@ describe("TripDayView layout", () => {
 
   it("deletes a day plan item from row icon action and updates the visible list", async () => {
     planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
     const items = [
       {
         id: "plan-1",
@@ -197,14 +208,6 @@ describe("TripDayView layout", () => {
           ok: true,
           status: 200,
           json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
-        };
-      }
-
-      if (url.includes("/day-plan-items?")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { items }, error: null }),
         };
       }
 
@@ -236,17 +239,26 @@ describe("TripDayView layout", () => {
                 id: "day-0",
                 date: "2026-11-30T00:00:00.000Z",
                 dayIndex: 0,
+                plannedCostSubtotal: 0,
                 missingAccommodation: false,
                 missingPlan: true,
                 accommodation: null,
+                dayPlanItems: [],
               },
               {
                 id: "day-1",
                 date: "2026-12-01T00:00:00.000Z",
                 dayIndex: 1,
+                plannedCostSubtotal: 0,
                 missingAccommodation: false,
                 missingPlan: false,
                 accommodation: null,
+                dayPlanItems: items.map((item) => ({
+                  id: item.id,
+                  contentJson: item.contentJson,
+                  linkUrl: item.linkUrl,
+                  location: item.location,
+                })),
               },
             ],
           },
@@ -276,6 +288,223 @@ describe("TripDayView layout", () => {
 
     await waitFor(() => expect(screen.queryAllByText("Museum visit")).toHaveLength(0));
     expect(await screen.findByText("No day details yet. Add a stay or day plan item to begin.")).toBeInTheDocument();
+    expect(screen.getByText("Cost: 0.00")).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
+  it("opens the plan edit dialog from query params", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "open=plan&itemId=plan-1";
+    const fetchMock = vi.fn(async () => {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-02T00:00:00.000Z",
+              dayCount: 2,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-0",
+                date: "2026-11-30T00:00:00.000Z",
+                dayIndex: 0,
+                plannedCostSubtotal: 12000,
+                missingAccommodation: false,
+                missingPlan: true,
+                accommodation: null,
+                dayPlanItems: [],
+              },
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 16000,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: null,
+                dayPlanItems: [
+                  {
+                    id: "plan-1",
+                    contentJson: JSON.stringify({
+                      type: "doc",
+                      content: [{ type: "paragraph", content: [{ type: "text", text: "Museum visit" }] }],
+                    }),
+                    linkUrl: "https://example.com/museum",
+                    location: null,
+                  },
+                ],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-1" />
+      </I18nProvider>,
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(planDialogMockState.lastProps?.open).toBe(true));
+
+    expect(planDialogMockState.lastProps?.mode).toBe("edit");
+    expect(planDialogMockState.lastProps?.item?.id).toBe("plan-1");
+    vi.unstubAllGlobals();
+  });
+
+  it("renders persisted day image and supports replace/remove actions", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+
+    const state = {
+      imageUrl: "https://example.com/day-initial.webp" as string | null,
+      note: "Flight from FRA to SIN" as string | null,
+    };
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+
+      if (url.includes("/api/auth/csrf")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
+        };
+      }
+
+      if (url.includes("/days/day-1/image") && method === "POST") {
+        const formData = init?.body as FormData;
+        const noteValue = formData?.get("note");
+        state.note = typeof noteValue === "string" && noteValue.trim().length > 0 ? noteValue : null;
+        state.imageUrl = "/uploads/trips/trip-1/days/day-1/day.webp";
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: {
+              day: { id: "day-1", imageUrl: state.imageUrl, note: state.note, updatedAt: "2026-12-01T00:00:00.000Z" },
+            },
+            error: null,
+          }),
+        };
+      }
+
+      if (url.includes("/days/day-1/image") && method === "PATCH") {
+        const parsed = JSON.parse(String(init?.body ?? "{}")) as { imageUrl: string | null; note: string | null };
+        state.imageUrl = parsed.imageUrl;
+        state.note = parsed.note;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: {
+              day: { id: "day-1", imageUrl: state.imageUrl, note: state.note, updatedAt: "2026-12-01T00:00:00.000Z" },
+            },
+            error: null,
+          }),
+        };
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-02T00:00:00.000Z",
+              dayCount: 2,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-0",
+                date: "2026-11-30T00:00:00.000Z",
+                dayIndex: 0,
+                imageUrl: null,
+                note: null,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: true,
+                accommodation: null,
+                dayPlanItems: [],
+              },
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                imageUrl: state.imageUrl,
+                note: state.note,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: true,
+                accommodation: null,
+                dayPlanItems: [],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-1" />
+      </I18nProvider>,
+    );
+
+    const initialImage = await screen.findByRole("img", { name: "Day image" });
+    expect(initialImage).toHaveAttribute("src", "https://example.com/day-initial.webp");
+    expect(screen.getByRole("heading", { name: "Day 1: Flight from FRA to SIN", level: 5 })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit day details" }));
+
+    const fileInput = await screen.findByLabelText("Day image");
+    const file = new File([new Uint8Array([1, 2, 3])], "day.webp", { type: "image/webp" });
+    fireEvent.change(fileInput, { target: { files: [file] } });
+    fireEvent.change(screen.getByLabelText("Day note"), { target: { value: "Flight from MUC to SIN" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save day details" }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/days/day-1/image"),
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole("img", { name: "Day image" })).toHaveAttribute(
+        "src",
+        "/uploads/trips/trip-1/days/day-1/day.webp",
+      ),
+    );
+    expect(screen.getByRole("heading", { name: "Day 1: Flight from MUC to SIN", level: 5 })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit day details" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove image" }));
+
+    await waitFor(() => expect(screen.queryByRole("img", { name: "Day image" })).not.toBeInTheDocument());
+    expect(screen.getByText("No day image selected yet.")).toBeInTheDocument();
+
     vi.unstubAllGlobals();
   });
 });

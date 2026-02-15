@@ -6,6 +6,20 @@ import TripDayMapPanel, { buildDayMapPanelData } from "@/components/features/tri
 import { I18nProvider } from "@/i18n/provider";
 import type { ReactNode } from "react";
 
+vi.mock("next/dynamic", () => ({
+  default: () =>
+    ({ points }: { points: { position: [number, number] }[] }) => (
+      <div data-testid="day-map-container">
+        {points.map((point, index) => (
+          <div key={index} data-testid={`day-map-marker-${index}`} data-position={point.position.join(",")} />
+        ))}
+        {points.length >= 2 ? (
+          <div data-testid="day-map-polyline" data-positions={JSON.stringify(points.map((point) => point.position))} />
+        ) : null}
+      </div>
+    ),
+}));
+
 vi.mock("react-leaflet", () => ({
   MapContainer: ({ children }: { children: ReactNode }) => <div data-testid="day-map-container">{children}</div>,
   TileLayer: () => <div data-testid="day-map-tile" />,
@@ -17,14 +31,16 @@ vi.mock("react-leaflet", () => ({
   Polyline: ({ positions, ...rest }: { positions: [number, number][] }) => (
     <div data-testid={rest["data-testid"] ?? "day-map-polyline"} data-positions={JSON.stringify(positions)} />
   ),
-  useMap: () => ({ fitBounds: vi.fn() }),
+  useMap: () => ({ fitBounds: vi.fn(), invalidateSize: vi.fn(), getContainer: vi.fn(() => document.createElement("div")) }),
 }));
 
 vi.mock("leaflet", () => ({
   default: {
     latLngBounds: (points: [number, number][]) => ({ points }),
+    divIcon: (options: unknown) => options,
   },
   latLngBounds: (points: [number, number][]) => ({ points }),
+  divIcon: (options: unknown) => options,
 }));
 
 describe("TripDayMapPanel", () => {

@@ -12,6 +12,11 @@ describe("dayPlanItemSchemas", () => {
       tripDayId: "day-id",
       contentJson: sampleDoc,
       linkUrl: "https://example.com/plan",
+      location: {
+        lat: 48.1372,
+        lng: 11.5756,
+        label: "Marienplatz",
+      },
     });
 
     expect(result.success).toBe(true);
@@ -53,6 +58,33 @@ describe("dayPlanItemSchemas", () => {
       tripDayId: "day-id",
       contentJson: sampleDoc,
       linkUrl: "not-a-url",
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects partial location coordinates", () => {
+    const result = dayPlanItemMutationSchema.safeParse({
+      tripDayId: "day-id",
+      contentJson: sampleDoc,
+      linkUrl: null,
+      location: {
+        lat: 48.1372,
+      },
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects out-of-range location coordinates", () => {
+    const result = dayPlanItemMutationSchema.safeParse({
+      tripDayId: "day-id",
+      contentJson: sampleDoc,
+      linkUrl: null,
+      location: {
+        lat: 123,
+        lng: 11.5756,
+      },
     });
 
     expect(result.success).toBe(false);

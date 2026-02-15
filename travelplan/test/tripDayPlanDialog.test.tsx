@@ -145,6 +145,17 @@ describe("TripDayPlanDialog", () => {
         };
       }
 
+      if (url.includes("/api/geocode")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: { result: { lat: 48.145, lng: 11.582, label: "Museum" } },
+            error: null,
+          }),
+        };
+      }
+
       if (url.includes("/day-plan-items") && method === "POST") {
         return {
           ok: true,
@@ -156,6 +167,7 @@ describe("TripDayPlanDialog", () => {
                 tripDayId: "day-1",
                 contentJson: tiptapMocks.sampleDoc,
                 linkUrl: "https://example.com/plan",
+                location: null,
                 createdAt: new Date().toISOString(),
               },
             },
@@ -192,8 +204,17 @@ describe("TripDayPlanDialog", () => {
     expect(screen.getByText("Add plan item")).toBeInTheDocument();
     expect(screen.queryByText("Plan items")).not.toBeInTheDocument();
     expect(screen.queryByText("No plan items yet.")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Search place")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Find" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Latitude")).toBeNull();
+    expect(screen.queryByLabelText("Longitude")).toBeNull();
+    expect(screen.queryByLabelText("Location label (optional)")).toBeNull();
+    expect(screen.getByText("No coordinates selected")).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Link"), { target: { value: "https://example.com/plan" } });
+    fireEvent.change(screen.getByLabelText("Search place"), { target: { value: "Museum" } });
+    fireEvent.click(screen.getByRole("button", { name: "Find" }));
+    await waitFor(() => expect(screen.getByText("Latitude: 48.145000 · Longitude: 11.582000")).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Save item" }));
 
     await waitFor(() =>
@@ -202,6 +223,10 @@ describe("TripDayPlanDialog", () => {
         expect.objectContaining({ method: "POST" }),
       ),
     );
+    const postCall = fetchMock.mock.calls.find((call) => String(call[0]).includes("/day-plan-items") && call[1]?.method === "POST");
+    expect(postCall).toBeDefined();
+    const requestBody = JSON.parse(String(postCall?.[1]?.body ?? "{}"));
+    expect(requestBody.location).toEqual({ lat: 48.145, lng: 11.582, label: "Museum" });
 
     expect(onSaved).toHaveBeenCalledTimes(1);
   });
@@ -232,6 +257,7 @@ describe("TripDayPlanDialog", () => {
                 tripDayId: "day-1",
                 contentJson: tiptapMocks.sampleDoc,
                 linkUrl: "https://example.com/updated",
+                location: { lat: 48.1372, lng: 11.5756, label: "Old Town" },
                 createdAt: new Date().toISOString(),
               },
             },
@@ -262,6 +288,7 @@ describe("TripDayPlanDialog", () => {
             tripDayId: "day-1",
             contentJson: tiptapMocks.sampleDoc,
             linkUrl: "https://example.com/original",
+            location: { lat: 48.1372, lng: 11.5756, label: "Old Town" },
             createdAt: "2026-12-01T09:00:00.000Z",
           }}
           onClose={() => undefined}
@@ -273,6 +300,7 @@ describe("TripDayPlanDialog", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(screen.getByText("Edit plan item")).toBeInTheDocument();
     expect(screen.getByLabelText("Link")).toHaveValue("https://example.com/original");
+    expect(screen.getByText("Latitude: 48.137200 · Longitude: 11.575600")).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Link"), { target: { value: "https://example.com/updated" } });
     fireEvent.click(screen.getByRole("button", { name: "Update item" }));

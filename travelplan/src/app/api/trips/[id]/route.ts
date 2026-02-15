@@ -59,6 +59,7 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
         startDate: trip.startDate.toISOString(),
         endDate: trip.endDate.toISOString(),
         dayCount: trip.dayCount,
+        plannedCostTotal: trip.plannedCostTotal,
         accommodationCostTotalCents: trip.accommodationCostTotalCents,
         heroImageUrl: trip.heroImageUrl,
       },
@@ -66,6 +67,9 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
         id: day.id,
         date: day.date.toISOString(),
         dayIndex: day.dayIndex,
+        imageUrl: day.imageUrl,
+        note: day.note,
+        plannedCostSubtotal: day.plannedCostSubtotal,
         missingAccommodation: day.missingAccommodation,
         missingPlan: day.missingPlan,
         accommodation: day.accommodation
@@ -76,8 +80,15 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
               status: day.accommodation.status,
               costCents: day.accommodation.costCents,
               link: day.accommodation.link,
+              location: day.accommodation.location,
             }
           : null,
+        dayPlanItems: day.dayPlanItems.map((item) => ({
+          id: item.id,
+          contentJson: item.contentJson,
+          linkUrl: item.linkUrl,
+          location: item.location,
+        })),
       })),
     });
   } catch {
@@ -140,6 +151,7 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
         startDate: detail.startDate.toISOString(),
         endDate: detail.endDate.toISOString(),
         dayCount: detail.dayCount,
+        plannedCostTotal: detail.plannedCostTotal,
         accommodationCostTotalCents: detail.accommodationCostTotalCents,
         heroImageUrl: detail.heroImageUrl,
       },
@@ -147,6 +159,9 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
         id: day.id,
         date: day.date.toISOString(),
         dayIndex: day.dayIndex,
+        imageUrl: day.imageUrl,
+        note: day.note,
+        plannedCostSubtotal: day.plannedCostSubtotal,
         missingAccommodation: day.missingAccommodation,
         missingPlan: day.missingPlan,
         accommodation: day.accommodation
@@ -157,8 +172,15 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
               status: day.accommodation.status,
               costCents: day.accommodation.costCents,
               link: day.accommodation.link,
+              location: day.accommodation.location,
             }
           : null,
+        dayPlanItems: day.dayPlanItems.map((item) => ({
+          id: item.id,
+          contentJson: item.contentJson,
+          linkUrl: item.linkUrl,
+          location: item.location,
+        })),
       })),
     });
   } catch {

@@ -80,6 +80,7 @@ describe("/api/trips/[id]/accommodations", () => {
         costCents: 9800,
         link: "https://example.com/sunset",
         notes: "Late arrival",
+        location: { lat: 48.1372, lng: 11.5756, label: "Old Town" },
       }),
     });
 
@@ -93,6 +94,7 @@ describe("/api/trips/[id]/accommodations", () => {
         status: string;
         costCents: number | null;
         link: string | null;
+        location: { lat: number; lng: number; label: string | null } | null;
       };
     }>;
 
@@ -104,6 +106,7 @@ describe("/api/trips/[id]/accommodations", () => {
     expect(payload.data?.accommodation.status).toBe("booked");
     expect(payload.data?.accommodation.costCents).toBe(9800);
     expect(payload.data?.accommodation.link).toBe("https://example.com/sunset");
+    expect(payload.data?.accommodation.location).toEqual({ lat: 48.1372, lng: 11.5756, label: "Old Town" });
   });
 
   it("rejects accommodation creation without valid CSRF", async () => {
@@ -203,6 +206,7 @@ describe("/api/trips/[id]/accommodations", () => {
         costCents: 15000,
         link: "https://example.com/updated",
         notes: "Window seat",
+        location: { lat: 48.145, lng: 11.582, label: "Center" },
       }),
     });
 
@@ -216,6 +220,7 @@ describe("/api/trips/[id]/accommodations", () => {
         status: string;
         costCents: number | null;
         link: string | null;
+        location: { lat: number; lng: number; label: string | null } | null;
       };
     }>;
 
@@ -226,6 +231,7 @@ describe("/api/trips/[id]/accommodations", () => {
     expect(payload.data?.accommodation.status).toBe("booked");
     expect(payload.data?.accommodation.costCents).toBe(15000);
     expect(payload.data?.accommodation.link).toBe("https://example.com/updated");
+    expect(payload.data?.accommodation.location).toEqual({ lat: 48.145, lng: 11.582, label: "Center" });
   });
 
   it("returns 404 when updating without an existing accommodation", async () => {

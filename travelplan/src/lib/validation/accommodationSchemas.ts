@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { locationInputSchema } from "@/lib/validation/locationSchemas";
 
 const notesSchema = z.string().trim().max(1000, "Notes must be at most 1000 characters");
 const statusSchema = z.enum(["planned", "booked"], "Status must be planned or booked");
@@ -16,6 +17,7 @@ export const accommodationMutationSchema = z.object({
   costCents: costSchema.optional().nullable(),
   link: linkSchema.optional().nullable(),
   notes: notesSchema.optional().nullable(),
+  location: locationInputSchema.optional(),
 });
 
 export type AccommodationMutationInput = z.infer<typeof accommodationMutationSchema>;

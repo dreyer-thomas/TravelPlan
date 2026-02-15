@@ -58,6 +58,7 @@ describe("accommodationRepo", () => {
       costCents: 24500,
       link: "https://example.com/harbor-inn",
       notes: "Near the docks",
+      location: { lat: 48.1351, lng: 11.582, label: "City Center" },
     });
 
     expect(accommodation).not.toBeNull();
@@ -67,6 +68,7 @@ describe("accommodationRepo", () => {
     expect(accommodation?.status).toBe("booked");
     expect(accommodation?.costCents).toBe(24500);
     expect(accommodation?.link).toBe("https://example.com/harbor-inn");
+    expect(accommodation?.location).toEqual({ lat: 48.1351, lng: 11.582, label: "City Center" });
   });
 
   it("rejects accommodation creation for non-owned trip day", async () => {
@@ -112,6 +114,7 @@ describe("accommodationRepo", () => {
       costCents: 12000,
       link: "https://example.com/updated",
       notes: "Late check-in",
+      location: { lat: 48.1372, lng: 11.5756, label: "Altstadt" },
     });
 
     expect(updated.status).toBe("updated");
@@ -121,6 +124,7 @@ describe("accommodationRepo", () => {
       expect(updated.accommodation.status).toBe("booked");
       expect(updated.accommodation.costCents).toBe(12000);
       expect(updated.accommodation.link).toBe("https://example.com/updated");
+      expect(updated.accommodation.location).toEqual({ lat: 48.1372, lng: 11.5756, label: "Altstadt" });
     }
   });
 

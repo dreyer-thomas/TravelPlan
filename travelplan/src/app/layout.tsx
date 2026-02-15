@@ -1,21 +1,9 @@
 import type { Metadata } from "next";
-import { Fraunces, Source_Sans_3 } from "next/font/google";
 import ThemeRegistry from "@/app/theme-registry";
 import { getServerLanguage } from "@/i18n/server";
 import { I18nProvider } from "@/i18n/provider";
+import "leaflet/dist/leaflet.css";
 import "./globals.css";
-
-const fraunces = Fraunces({
-  subsets: ["latin"],
-  weight: ["600", "700"],
-  variable: "--font-display",
-});
-
-const sourceSans = Source_Sans_3({
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
-  variable: "--font-body",
-});
 
 export const metadata: Metadata = {
   title: "Create Next App",
@@ -31,7 +19,7 @@ export default async function RootLayout({
 
   return (
     <html lang={initialLanguage}>
-      <body className={`${sourceSans.variable} ${fraunces.variable}`}>
+      <body>
         <I18nProvider initialLanguage={initialLanguage}>
           <ThemeRegistry>{children}</ThemeRegistry>
         </I18nProvider>

@@ -23,7 +23,8 @@ export const middleware = async (request: NextRequest) => {
   const token = request.cookies.get("session")?.value;
 
   if (isHomePath(pathname)) {
-    if (await isSessionValid(token)) {
+    // Keep home-path redirect cheap; ownership checks happen on /trips.
+    if (token) {
       return NextResponse.redirect(new URL("/trips", request.url));
     }
     return NextResponse.next();

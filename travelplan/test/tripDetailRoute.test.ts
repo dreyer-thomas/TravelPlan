@@ -78,6 +78,9 @@ describe("GET /api/trips/[id]", () => {
         status: "BOOKED",
         costCents: 17500,
         link: "https://example.com/harbor",
+        locationLat: 48.1372,
+        locationLng: 11.5756,
+        locationLabel: "Harbor",
       },
     });
     await prisma.dayPlanItem.create({
@@ -85,6 +88,9 @@ describe("GET /api/trips/[id]", () => {
         tripDayId: days[1].id,
         contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Plan" }] }] }),
         linkUrl: "https://example.com/plan",
+        locationLat: 48.145,
+        locationLng: 11.582,
+        locationLabel: "Museum",
       },
     });
     await prisma.accommodation.create({
@@ -113,6 +119,7 @@ describe("GET /api/trips/[id]", () => {
         startDate: string;
         endDate: string;
         dayCount: number;
+        plannedCostTotal: number;
         accommodationCostTotalCents: number | null;
         heroImageUrl: string | null;
       };
@@ -120,6 +127,7 @@ describe("GET /api/trips/[id]", () => {
         id: string;
         date: string;
         dayIndex: number;
+        plannedCostSubtotal: number;
         missingAccommodation: boolean;
         missingPlan: boolean;
         accommodation: {
@@ -127,19 +135,28 @@ describe("GET /api/trips/[id]", () => {
           name: string;
           notes: string | null;
           status: string;
-          costCents: number | null;
-          link: string | null;
-        } | null;
+        costCents: number | null;
+        link: string | null;
+        location: { lat: number; lng: number; label: string | null } | null;
+      } | null;
+      dayPlanItems: {
+        id: string;
+        contentJson: string;
+        linkUrl: string | null;
+        location: { lat: number; lng: number; label: string | null } | null;
       }[];
+    }[];
     }>;
 
     expect(response.status).toBe(200);
     expect(payload.error).toBeNull();
     expect(payload.data?.trip.id).toBe(trip.id);
     expect(payload.data?.trip.dayCount).toBe(dayCount);
+    expect(payload.data?.trip.plannedCostTotal).toBe(17500);
     expect(payload.data?.trip.accommodationCostTotalCents).toBe(17500);
     expect(payload.data?.trip.heroImageUrl).toBe(`/uploads/trips/${trip.id}/hero.jpg`);
     expect(payload.data?.days.map((day) => day.dayIndex)).toEqual([1, 2, 3]);
+    expect(payload.data?.days.map((day) => day.plannedCostSubtotal)).toEqual([17500, 0, 0]);
     expect(payload.data?.days.map((day) => [day.missingAccommodation, day.missingPlan])).toEqual([
       [false, true],
       [true, false],
@@ -153,6 +170,8 @@ describe("GET /api/trips/[id]", () => {
     expect(payload.data?.days[0].accommodation?.status).toBe("booked");
     expect(payload.data?.days[0].accommodation?.costCents).toBe(17500);
     expect(payload.data?.days[0].accommodation?.link).toBe("https://example.com/harbor");
+    expect(payload.data?.days[0].accommodation?.location).toEqual({ lat: 48.1372, lng: 11.5756, label: "Harbor" });
+    expect(payload.data?.days[1].dayPlanItems[0].location).toEqual({ lat: 48.145, lng: 11.582, label: "Museum" });
   });
 
   it("rejects unauthenticated requests", async () => {
@@ -261,6 +280,7 @@ describe("PATCH /api/trips/[id]", () => {
         startDate: string;
         endDate: string;
         dayCount: number;
+        plannedCostTotal: number;
         accommodationCostTotalCents: number | null;
       };
       days: { id: string; date: string; dayIndex: number }[];
@@ -269,7 +289,8 @@ describe("PATCH /api/trips/[id]", () => {
     expect(response.status).toBe(200);
     expect(payload.error).toBeNull();
     expect(payload.data?.trip.name).toBe("Updated Trip");
-    expect(payload.data?.trip.accommodationCostTotalCents).toBeNull();
+    expect(payload.data?.trip.plannedCostTotal).toBe(0);
+    expect(payload.data?.trip.accommodationCostTotalCents).toBe(0);
     expect(payload.data?.days.map((day) => day.dayIndex)).toEqual([1, 2, 3]);
     expect(payload.data?.days.map((day) => day.date)).toEqual([
       "2026-07-02T00:00:00.000Z",

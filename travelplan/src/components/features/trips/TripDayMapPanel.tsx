@@ -1,9 +1,7 @@
 "use client";
 
 import { Box, Chip, List, ListItem, Paper, Skeleton, Typography } from "@mui/material";
-import { MapContainer, Marker, Polyline, TileLayer, useMap } from "react-leaflet";
-import { useEffect, useMemo } from "react";
-import L from "leaflet";
+import dynamic from "next/dynamic";
 import { useI18n } from "@/i18n/provider";
 
 export type TripDayMapItemKind = "previousStay" | "planItem" | "currentStay";
@@ -59,17 +57,7 @@ export const buildDayMapPanelData = (params: {
   return { points, missingLocations };
 };
 
-const FitToBounds = ({ points }: { points: TripDayMapPoint[] }) => {
-  const map = useMap();
-
-  useEffect(() => {
-    if (points.length === 0) return;
-    const bounds = L.latLngBounds(points.map((point) => point.position));
-    map.fitBounds(bounds, { padding: [24, 24] });
-  }, [map, points]);
-
-  return null;
-};
+const TripDayLeafletMap = dynamic(() => import("./TripDayLeafletMap"), { ssr: false });
 
 type TripDayMapPanelProps = {
   points: TripDayMapPoint[];
@@ -79,8 +67,6 @@ type TripDayMapPanelProps = {
 
 export default function TripDayMapPanel({ points, missingLocations, loading = false }: TripDayMapPanelProps) {
   const { t } = useI18n();
-  const center = useMemo<[number, number]>(() => points[0]?.position ?? [0, 0], [points]);
-  const polylinePositions = useMemo(() => points.map((point) => point.position), [points]);
 
   return (
     <Paper elevation={0} sx={{ p: 2, borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
@@ -116,23 +102,7 @@ export default function TripDayMapPanel({ points, missingLocations, loading = fa
           </Box>
         ) : (
           <Box sx={{ borderRadius: 2, overflow: "hidden" }}>
-            <MapContainer center={center} zoom={12} style={{ height: 220, width: "100%" }} scrollWheelZoom={false}>
-              <TileLayer
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                attribution="&copy; OpenStreetMap contributors"
-              />
-              {points.map((point, index) => (
-                <Marker
-                  key={point.id}
-                  position={point.position}
-                  data-testid={`day-map-marker-${index}`}
-                />
-              ))}
-              {polylinePositions.length >= 2 && (
-                <Polyline positions={polylinePositions} data-testid="day-map-polyline" />
-              )}
-              <FitToBounds points={points} />
-            </MapContainer>
+            <TripDayLeafletMap points={points} />
           </Box>
         )}
 

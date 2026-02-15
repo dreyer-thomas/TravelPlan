@@ -75,6 +75,8 @@ model TripDay {
   tripId    String   @map("trip_id")
   date      DateTime @map("date")
   dayIndex  Int      @map("day_index")
+  imageUrl  String?  @map("image_url")
+  note      String?  @map("note")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -93,6 +95,9 @@ model Accommodation {
   status    AccommodationStatus @default(PLANNED) @map("status")
   costCents Int?     @map("cost_cents")
   link      String?  @map("link_url")
+  locationLat Float? @map("location_lat")
+  locationLng Float? @map("location_lng")
+  locationLabel String? @map("location_label")
   notes     String?  @map("notes")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -107,6 +112,9 @@ model DayPlanItem {
   tripDayId String   @map("trip_day_id")
   contentJson String @map("content_json")
   linkUrl   String?  @map("link_url")
+  locationLat Float? @map("location_lat")
+  locationLng Float? @map("location_lng")
+  locationLabel String? @map("location_label")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 

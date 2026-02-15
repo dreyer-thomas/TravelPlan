@@ -34,6 +34,7 @@ type DayPlanItem = {
   tripDayId: string;
   contentJson: string;
   linkUrl: string | null;
+  location: { lat: number; lng: number; label: string | null } | null;
   createdAt: string;
 };
 
@@ -72,6 +73,11 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
   const [loadingInit, setLoadingInit] = useState(false);
   const [contentJson, setContentJson] = useState<string>(toDocString(emptyDoc));
   const [linkUrl, setLinkUrl] = useState<string>("");
+  const [resolvedLocation, setResolvedLocation] = useState<{ lat: number; lng: number; label: string | null } | null>(
+    null,
+  );
+  const [locationQuery, setLocationQuery] = useState<string>("");
+  const [lookupLoading, setLookupLoading] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<{ contentJson?: string; linkUrl?: string }>({});
 
   const editor = useEditor({
@@ -99,6 +105,8 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
   const resetEditor = useCallback(() => {
     setContentJson(toDocString(emptyDoc));
     setLinkUrl("");
+    setResolvedLocation(null);
+    setLocationQuery("");
     setFieldErrors({});
     if (editor) {
       editor.commands.setContent(emptyDoc, false);
@@ -124,6 +132,8 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
 
     if (mode === "edit" && item) {
       setLinkUrl(item.linkUrl ?? "");
+      setResolvedLocation(item.location ?? null);
+      setLocationQuery(item.location?.label ?? "");
       setEditorContent(item.contentJson);
     } else {
       resetEditor();
@@ -213,11 +223,19 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
     setSaving(true);
 
     const trimmedLink = linkUrl.trim();
+
     const payload = {
       tripDayId: day.id,
       contentJson,
       linkUrl: trimmedLink.length > 0 ? trimmedLink : null,
-    } as { tripDayId: string; contentJson: string; linkUrl: string | null; itemId?: string };
+      location: resolvedLocation,
+    } as {
+      tripDayId: string;
+      contentJson: string;
+      linkUrl: string | null;
+      location: { lat: number; lng: number; label: string | null } | null;
+      itemId?: string;
+    };
 
     if (mode === "edit" && editingItemId) {
       payload.itemId = editingItemId;
@@ -260,6 +278,47 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
       setServerError(t("trips.plan.saveError"));
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleLookupLocation = async () => {
+    const query = locationQuery.trim();
+    if (!query) {
+      setServerError(t("trips.location.searchRequired"));
+      return;
+    }
+
+    setServerError(null);
+    setLookupLoading(true);
+    try {
+      const response = await fetch(`/api/geocode?q=${encodeURIComponent(query)}`, {
+        method: "GET",
+        credentials: "include",
+      });
+      const body = (await response.json()) as ApiEnvelope<{
+        result: { lat: number; lng: number; label: string } | null;
+      }>;
+
+      if (!response.ok || body.error) {
+        setServerError(body.error?.message ?? t("trips.location.lookupError"));
+        return;
+      }
+
+      if (!body.data?.result) {
+        setServerError(t("trips.location.noResult"));
+        return;
+      }
+
+      setResolvedLocation({
+        lat: body.data.result.lat,
+        lng: body.data.result.lng,
+        label: body.data.result.label,
+      });
+      setLocationQuery(body.data.result.label);
+    } catch {
+      setServerError(t("trips.location.lookupError"));
+    } finally {
+      setLookupLoading(false);
     }
   };
 
@@ -311,6 +370,36 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
             inputMode="url"
             placeholder="https://"
           />
+          <Box display="flex" gap={1} alignItems="flex-start">
+            <TextField
+              label={t("trips.location.searchLabel")}
+              value={locationQuery}
+              onChange={(event) => setLocationQuery(event.target.value)}
+              helperText={t("trips.location.searchHelper")}
+              fullWidth
+            />
+            <Button
+              variant="outlined"
+              onClick={() => void handleLookupLocation()}
+              disabled={isBusy || lookupLoading}
+              sx={{ mt: 1 }}
+            >
+              {lookupLoading ? <CircularProgress size={18} /> : t("trips.location.searchAction")}
+            </Button>
+            <Button
+              variant="text"
+              onClick={() => setResolvedLocation(null)}
+              disabled={isBusy || lookupLoading || !resolvedLocation}
+              sx={{ mt: 1 }}
+            >
+              {t("trips.location.clearAction")}
+            </Button>
+          </Box>
+          <Typography variant="body2" color="text.secondary">
+            {resolvedLocation
+              ? `${t("trips.location.latLabel")}: ${resolvedLocation.lat.toFixed(6)} · ${t("trips.location.lngLabel")}: ${resolvedLocation.lng.toFixed(6)}`
+              : t("trips.location.noCoordinates")}
+          </Typography>
         </Box>
       </DialogContent>
       <DialogActions sx={{ justifyContent: "space-between" }}>

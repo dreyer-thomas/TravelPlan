@@ -7,17 +7,21 @@ import {
   Button,
   Chip,
   Divider,
+  IconButton,
   List,
   ListItem,
   ListItemText,
   Paper,
   Skeleton,
+  SvgIcon,
   Typography,
 } from "@mui/material";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import TripDeleteDialog from "@/components/features/trips/TripDeleteDialog";
 import TripEditDialog, { type TripDetail as EditableTripDetail } from "@/components/features/trips/TripEditDialog";
+import TripImportDialog from "@/components/features/trips/TripImportDialog";
+import TripOverviewMapPanel from "@/components/features/trips/TripOverviewMapPanel";
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
 
@@ -33,6 +37,7 @@ type TripSummary = {
   startDate: string;
   endDate: string;
   dayCount: number;
+  plannedCostTotal: number;
   accommodationCostTotalCents: number | null;
   heroImageUrl: string | null;
 };
@@ -41,6 +46,8 @@ type TripDay = {
   id: string;
   date: string;
   dayIndex: number;
+  imageUrl?: string | null;
+  note?: string | null;
   missingAccommodation: boolean;
   missingPlan: boolean;
   accommodation: {
@@ -50,7 +57,14 @@ type TripDay = {
     status: "planned" | "booked";
     costCents: number | null;
     link: string | null;
+    location: { lat: number; lng: number; label: string | null } | null;
   } | null;
+  dayPlanItems: {
+    id: string;
+    contentJson: string;
+    linkUrl: string | null;
+    location: { lat: number; lng: number; label: string | null } | null;
+  }[];
 };
 
 type TripDetail = {
@@ -67,9 +81,11 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
   const [detail, setDetail] = useState<TripDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const router = useRouter();
 
   const formatDate = useMemo(
@@ -98,10 +114,11 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
   const loadTrip = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setSuccess(null);
     setNotFound(false);
 
     try {
-      const response = await fetch(`/api/trips/${tripId}`, { method: "GET" });
+      const response = await fetch(`/api/trips/${tripId}`, { method: "GET", credentials: "include", cache: "no-store" });
       const body = (await response.json()) as ApiEnvelope<TripDetail>;
 
       if (response.status === 404 || body.error?.code === "not_found") {
@@ -145,6 +162,79 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
   }, [loadTrip]);
 
   const listEmpty = useMemo(() => !loading && !!detail && detail.days.length === 0, [loading, detail]);
+
+  const parsePlanText = useCallback((value: string) => {
+    try {
+      const doc = JSON.parse(value);
+      const parts: string[] = [];
+
+      const walk = (node: { text?: string; content?: unknown[] }) => {
+        if (!node) return;
+        if (typeof node.text === "string") parts.push(node.text);
+        if (Array.isArray(node.content)) {
+          node.content.forEach((child) => walk(child as { text?: string; content?: unknown[] }));
+        }
+      };
+
+      walk(doc as { text?: string; content?: unknown[] });
+      return parts.join(" ").trim();
+    } catch {
+      return "";
+    }
+  }, []);
+
+  const overviewMapData = useMemo(() => {
+    const points: { id: string; label: string; position: [number, number] }[] = [];
+    const missingLocations: { id: string; label: string; href: string }[] = [];
+
+    if (!detail) {
+      return { points, missingLocations };
+    }
+
+    detail.days.forEach((day) => {
+      if (day.accommodation) {
+        const label =
+          day.accommodation.location?.label?.trim() ||
+          day.accommodation.name.trim() ||
+          formatMessage(t("trips.timeline.dayLabel"), { index: day.dayIndex });
+        if (day.accommodation.location) {
+          points.push({
+            id: `day-${day.id}-accommodation`,
+            label,
+            position: [day.accommodation.location.lat, day.accommodation.location.lng],
+          });
+        } else {
+          missingLocations.push({
+            id: `day-${day.id}-accommodation`,
+            label,
+            href: `/trips/${tripId}/days/${day.id}?open=stay`,
+          });
+        }
+      }
+
+      day.dayPlanItems.forEach((item, itemIndex) => {
+        const label =
+          item.location?.label?.trim() ||
+          parsePlanText(item.contentJson) ||
+          formatMessage(t("trips.plan.previewFallback"), { index: itemIndex + 1 });
+        if (item.location) {
+          points.push({
+            id: item.id,
+            label,
+            position: [item.location.lat, item.location.lng],
+          });
+        } else {
+          missingLocations.push({
+            id: item.id,
+            label,
+            href: `/trips/${tripId}/days/${day.id}?open=plan&itemId=${item.id}`,
+          });
+        }
+      });
+    });
+
+    return { points, missingLocations };
+  }, [detail, parsePlanText, t, tripId]);
 
   if (loading) {
     return (
@@ -199,9 +289,75 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
     router.push("/trips");
   };
 
+  const handleImported = async () => {
+    await loadTrip();
+    setSuccess(t("trips.import.success"));
+    setImportOpen(false);
+  };
+
+  const extractAttachmentFilename = (headerValue: string | null) => {
+    if (!headerValue) return null;
+    const utf8Match = /filename\*=UTF-8''([^;]+)/i.exec(headerValue);
+    if (utf8Match?.[1]) {
+      try {
+        return decodeURIComponent(utf8Match[1]);
+      } catch {
+        return utf8Match[1];
+      }
+    }
+
+    const simpleMatch = /filename="?([^";]+)"?/i.exec(headerValue);
+    return simpleMatch?.[1] ?? null;
+  };
+
+  const triggerDownload = (blob: Blob, filename: string) => {
+    const objectUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = filename;
+    anchor.style.display = "none";
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+  };
+
+  const handleExport = async () => {
+    setError(null);
+    try {
+      const response = await fetch(`/api/trips/${tripId}/export`, { method: "GET" });
+      if (!response.ok) {
+        setError(t("trips.export.error"));
+        return;
+      }
+
+      const filename = extractAttachmentFilename(response.headers.get("content-disposition")) ?? `trip-${tripId}.json`;
+      const blob = await response.blob();
+      triggerDownload(blob, filename);
+    } catch {
+      setError(t("trips.export.error"));
+    }
+  };
+
+  const renderAccommodationStatus = (status: "planned" | "booked") => {
+    if (status === "booked") {
+      return (
+        <Box display="inline-flex" alignItems="center" gap={0.5}>
+          <SvgIcon sx={{ fontSize: 16 }} viewBox="0 0 24 24">
+            <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z" />
+          </SvgIcon>
+          <Box component="span">{t("trips.stay.statusBooked").toLowerCase()}</Box>
+        </Box>
+      );
+    }
+
+    return t("trips.stay.statusPlanned");
+  };
+
   return (
     <Box display="flex" flexDirection="column" gap={2}>
       {error && <Alert severity="error">{error}</Alert>}
+      {success && <Alert severity="success">{success}</Alert>}
 
       {detail && (
         <>
@@ -251,20 +407,28 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                   <Typography variant="body2" color="text.secondary">
                     {buildDateRange(detail.trip)}
                   </Typography>
-                  <Box display="flex" alignItems="center" gap={1}>
-                    <Button variant="outlined" onClick={() => setEditOpen(true)}>
-                      {t("trips.edit.open")}
-                    </Button>
-                    <Button variant="outlined" color="error" onClick={() => setDeleteOpen(true)}>
-                      {t("trips.delete.open")}
-                    </Button>
-                  </Box>
                 </Box>
-                <Typography variant="body2" color="text.secondary">
-                  {formatMessage(t("trips.dashboard.dayCount"), { count: detail.trip.dayCount })}
-                </Typography>
+                <Box display="flex" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={2}>
+                  <Typography variant="body2" color="text.secondary">
+                    {formatMessage(t("trips.dashboard.dayCount"), { count: detail.trip.dayCount })}
+                  </Typography>
+                  <Typography variant="body2" fontWeight={700}>
+                    {formatMessage(t("trips.stay.costSummary"), { amount: formatCost(detail.trip.plannedCostTotal) })}
+                  </Typography>
+                </Box>
               </Box>
             </Box>
+          </Paper>
+
+          <Paper
+            elevation={1}
+            sx={{
+              p: 3,
+              borderRadius: 3,
+              background: "#ffffff",
+            }}
+          >
+            <TripOverviewMapPanel points={overviewMapData.points} missingLocations={overviewMapData.missingLocations} />
           </Paper>
 
           <Paper
@@ -293,14 +457,17 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                       disablePadding
                       secondaryAction={
                         <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
-                          <Button
+                          <IconButton
                             component={Link}
                             href={`/trips/${tripId}/days/${day.id}`}
                             size="small"
-                            variant="text"
+                            aria-label={t("trips.timeline.openDay")}
+                            title={t("trips.timeline.openDay")}
                           >
-                            {t("trips.timeline.openDay")}
-                          </Button>
+                            <SvgIcon sx={{ fontSize: 18 }} viewBox="0 0 24 24">
+                              <path d="m3 17.25V21h3.75l11-11-3.75-3.75zm17.71-10.04a1 1 0 0 0 0-1.41l-2.5-2.5a1 1 0 0 0-1.41 0l-1.96 1.96 3.75 3.75z" />
+                            </SvgIcon>
+                          </IconButton>
                           {(day.missingAccommodation || day.missingPlan) && (
                             <>
                               {day.missingAccommodation && (
@@ -315,38 +482,50 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                       }
                     >
                       <ListItemText
-                        primary={formatMessage(t("trips.timeline.dayLabel"), { index: day.dayIndex })}
+                        primary={
+                          day.note && day.note.trim().length > 0
+                            ? `${formatMessage(t("trips.timeline.dayLabel"), { index: day.dayIndex })}: ${day.note.trim()}`
+                            : formatMessage(t("trips.timeline.dayLabel"), { index: day.dayIndex })
+                        }
                         secondary={
                           <Box display="flex" flexDirection="column" gap={0.5}>
-                            <Typography variant="body2" color="text.secondary" component="span">
-                              {formatDate(day.date)}
-                            </Typography>
-                            {!day.missingAccommodation && day.accommodation && (
-                              <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
-                                <Chip
-                                  label={
-                                    day.accommodation.status === "booked"
-                                      ? t("trips.stay.statusBooked")
-                                      : t("trips.stay.statusPlanned")
-                                  }
-                                  size="small"
-                                  color={day.accommodation.status === "booked" ? "success" : "default"}
-                                  variant="outlined"
-                                  clickable={Boolean(day.accommodation.link)}
-                                  component={day.accommodation.link ? "a" : "div"}
-                                  href={day.accommodation.link ?? undefined}
-                                  target={day.accommodation.link ? "_blank" : undefined}
-                                  rel={day.accommodation.link ? "noreferrer noopener" : undefined}
+                            <Box display="flex" alignItems="center" gap={1.5} flexWrap="wrap">
+                              {day.imageUrl && day.imageUrl.trim().length > 0 && (
+                                <Box
+                                  component="img"
+                                  src={day.imageUrl}
+                                  alt={t("trips.dayImage.previewAlt")}
+                                  sx={{
+                                    width: 92,
+                                    height: 56,
+                                    objectFit: "cover",
+                                    borderRadius: 1,
+                                    border: "1px solid",
+                                    borderColor: "divider",
+                                  }}
                                 />
-                                {day.accommodation.costCents !== null && (
-                                  <Typography variant="caption" color="text.secondary" component="span">
-                                    {formatMessage(t("trips.stay.costSummary"), {
-                                      amount: formatCost(day.accommodation.costCents),
-                                    })}
-                                  </Typography>
+                              )}
+                              <Box display="flex" flexDirection="column" gap={0.5}>
+                                <Typography variant="body2" color="text.secondary" component="span">
+                                  {formatDate(day.date)}
+                                </Typography>
+                                {!day.missingAccommodation && day.accommodation && (
+                                  <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                                    <Chip
+                                      label={renderAccommodationStatus(day.accommodation.status)}
+                                      size="small"
+                                      color={day.accommodation.status === "booked" ? "success" : "default"}
+                                      variant="outlined"
+                                      clickable={Boolean(day.accommodation.link)}
+                                      component={day.accommodation.link ? "a" : "div"}
+                                      href={day.accommodation.link ?? undefined}
+                                      target={day.accommodation.link ? "_blank" : undefined}
+                                      rel={day.accommodation.link ? "noreferrer noopener" : undefined}
+                                    />
+                                  </Box>
                                 )}
                               </Box>
-                            )}
+                            </Box>
                           </Box>
                         }
                         secondaryTypographyProps={{ component: "div" }}
@@ -356,6 +535,30 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                   ))}
                 </List>
               )}
+            </Box>
+          </Paper>
+
+          <Paper
+            elevation={1}
+            sx={{
+              p: 3,
+              borderRadius: 3,
+              background: "#ffffff",
+            }}
+          >
+            <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+              <Button variant="outlined" onClick={handleExport}>
+                {t("trips.export.action")}
+              </Button>
+              <Button variant="outlined" onClick={() => setImportOpen(true)}>
+                {t("trips.import.action")}
+              </Button>
+              <Button variant="outlined" onClick={() => setEditOpen(true)}>
+                {t("trips.edit.open")}
+              </Button>
+              <Button variant="outlined" color="error" onClick={() => setDeleteOpen(true)}>
+                {t("trips.delete.open")}
+              </Button>
             </Box>
           </Paper>
         </>
@@ -371,6 +574,7 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
             onClose={handleDeleteClose}
             onDeleted={handleDeleted}
           />
+          <TripImportDialog open={importOpen} tripId={detail.trip.id} onClose={() => setImportOpen(false)} onImported={handleImported} />
         </>
       )}
     </Box>

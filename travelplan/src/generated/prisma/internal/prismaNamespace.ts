@@ -934,6 +934,8 @@ export const TripDayScalarFieldEnum = {
   tripId: 'tripId',
   date: 'date',
   dayIndex: 'dayIndex',
+  imageUrl: 'imageUrl',
+  note: 'note',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
@@ -948,6 +950,9 @@ export const AccommodationScalarFieldEnum = {
   status: 'status',
   costCents: 'costCents',
   link: 'link',
+  locationLat: 'locationLat',
+  locationLng: 'locationLng',
+  locationLabel: 'locationLabel',
   notes: 'notes',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
@@ -961,6 +966,9 @@ export const DayPlanItemScalarFieldEnum = {
   tripDayId: 'tripDayId',
   contentJson: 'contentJson',
   linkUrl: 'linkUrl',
+  locationLat: 'locationLat',
+  locationLng: 'locationLng',
+  locationLabel: 'locationLabel',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const

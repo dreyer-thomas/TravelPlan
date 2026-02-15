@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import {
   Alert,
@@ -37,6 +37,7 @@ type TripDay = {
     status: "planned" | "booked";
     costCents: number | null;
     link: string | null;
+    location: { lat: number; lng: number; label: string | null } | null;
   } | null;
 };
 
@@ -61,6 +62,12 @@ export default function TripAccommodationDialog({ open, tripId, day, onClose, on
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isGeocoding, setIsGeocoding] = useState(false);
+  const [locationQuery, setLocationQuery] = useState("");
+  const [resolvedLocation, setResolvedLocation] = useState<{ lat: number; lng: number; label: string | null } | null>(
+    null,
+  );
+  const [initError, setInitError] = useState<string | null>(null);
 
   const {
     register,
@@ -85,8 +92,10 @@ export default function TripAccommodationDialog({ open, tripId, day, onClose, on
   useEffect(() => {
     if (!open) return;
     setServerError(null);
+    setInitError(null);
     setCsrfToken(null);
     setIsDeleting(false);
+    setIsGeocoding(false);
     reset({
       name: day?.accommodation?.name ?? "",
       notes: day?.accommodation?.notes ?? "",
@@ -97,6 +106,16 @@ export default function TripAccommodationDialog({ open, tripId, day, onClose, on
           : "",
       link: day?.accommodation?.link ?? "",
     });
+    setResolvedLocation(
+      day?.accommodation?.location
+        ? {
+            lat: day.accommodation.location.lat,
+            lng: day.accommodation.location.lng,
+            label: day.accommodation.location.label ?? null,
+          }
+        : null,
+    );
+    setLocationQuery(day?.accommodation?.location?.label ?? day?.accommodation?.name ?? "");
   }, [day, open, reset]);
 
   useEffect(() => {
@@ -110,7 +129,7 @@ export default function TripAccommodationDialog({ open, tripId, day, onClose, on
 
         if (!response.ok || body.error || !body.data?.csrfToken) {
           if (active) {
-            setServerError(body.error?.message ?? t("trips.stay.initError"));
+            setInitError(body.error?.message ?? t("trips.stay.initError"));
           }
           return;
         }
@@ -120,7 +139,7 @@ export default function TripAccommodationDialog({ open, tripId, day, onClose, on
         }
       } catch {
         if (active) {
-          setServerError(t("trips.stay.initError"));
+          setInitError(t("trips.stay.initError"));
         }
       }
     };
@@ -132,11 +151,27 @@ export default function TripAccommodationDialog({ open, tripId, day, onClose, on
     };
   }, [open, t]);
 
+  const ensureCsrfToken = useCallback(async () => {
+    if (csrfToken) return csrfToken;
+
+    const response = await fetch("/api/auth/csrf", { method: "GET", credentials: "include", cache: "no-store" });
+    const body = (await response.json()) as ApiEnvelope<{ csrfToken: string }>;
+    if (!response.ok || body.error || !body.data?.csrfToken) {
+      throw new Error("csrf");
+    }
+
+    setCsrfToken(body.data.csrfToken);
+    return body.data.csrfToken;
+  }, [csrfToken]);
+
   const onSubmit = async (values: AccommodationFormValues) => {
     if (!day) return;
     setServerError(null);
 
-    if (!csrfToken) {
+    let token: string;
+    try {
+      token = await ensureCsrfToken();
+    } catch {
       setServerError(t("errors.csrfMissing"));
       return;
     }
@@ -152,62 +187,72 @@ export default function TripAccommodationDialog({ open, tripId, day, onClose, on
       costCents,
       link: linkValue.length > 0 ? linkValue : null,
       notes: values.notes.trim() ? values.notes : null,
+      location: resolvedLocation,
     };
 
-    const response = await fetch(`/api/trips/${tripId}/accommodations`, {
-      method: day.accommodation ? "PATCH" : "POST",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-        "x-csrf-token": csrfToken,
-      },
-      body: JSON.stringify(payload),
-    });
+    try {
+      const response = await fetch(`/api/trips/${tripId}/accommodations`, {
+        method: day.accommodation ? "PATCH" : "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "x-csrf-token": token,
+        },
+        body: JSON.stringify(payload),
+      });
 
-    const body = (await response.json()) as ApiEnvelope<{ accommodation: { id: string } }>;
+      const body = (await response.json()) as ApiEnvelope<{ accommodation: { id: string } }>;
 
-    if (!response.ok || body.error) {
-      if (body.error?.code === "validation_error" && body.error.details) {
-        const details = body.error.details as { fieldErrors?: Record<string, string[]> };
-        Object.entries(details.fieldErrors ?? {}).forEach(([field, messages]) => {
-          if (messages?.[0]) {
-            setError(field as keyof AccommodationFormValues, { message: messages[0] });
+      if (!response.ok || body.error) {
+        if (body.error?.code === "validation_error" && body.error.details) {
+          const details = body.error.details as { fieldErrors?: Record<string, string[]> };
+          Object.entries(details.fieldErrors ?? {}).forEach(([field, messages]) => {
+            if (messages?.[0]) {
+              setError(field as keyof AccommodationFormValues, { message: messages[0] });
+            }
+          });
+          return;
+        }
+
+        const resolveApiError = (code?: string) => {
+          switch (code) {
+            case "unauthorized":
+              return t("errors.unauthorized");
+            case "csrf_invalid":
+              return t("errors.csrfInvalid");
+            case "server_error":
+              return t("errors.server");
+            case "invalid_json":
+              return t("errors.invalidJson");
+            default:
+              return t("trips.stay.error");
           }
-        });
+        };
+
+        setServerError(resolveApiError(body.error?.code));
         return;
       }
 
-      const resolveApiError = (code?: string) => {
-        switch (code) {
-          case "unauthorized":
-            return t("errors.unauthorized");
-          case "csrf_invalid":
-            return t("errors.csrfInvalid");
-          case "server_error":
-            return t("errors.server");
-          case "invalid_json":
-            return t("errors.invalidJson");
-          default:
-            return t("trips.stay.error");
-        }
-      };
-
-      setServerError(resolveApiError(body.error?.code));
-      return;
+      onSaved();
+    } catch {
+      setServerError(t("trips.stay.error"));
     }
-
-    onSaved();
   };
 
   const handleDelete = async () => {
     if (!day || !day.accommodation) return;
-    if (!csrfToken) {
-      setServerError(t("errors.csrfMissing"));
-      return;
-    }
 
     setServerError(null);
     setIsDeleting(true);
+
+    let token: string;
+    try {
+      token = await ensureCsrfToken();
+    } catch {
+      setServerError(t("errors.csrfMissing"));
+      setIsDeleting(false);
+      return;
+    }
 
     try {
       const response = await fetch(`/api/trips/${tripId}/accommodations`, {
@@ -215,7 +260,7 @@ export default function TripAccommodationDialog({ open, tripId, day, onClose, on
         credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          "x-csrf-token": csrfToken,
+          "x-csrf-token": token,
         },
         body: JSON.stringify({ tripDayId: day.id }),
       });
@@ -244,9 +289,50 @@ export default function TripAccommodationDialog({ open, tripId, day, onClose, on
 
       onSaved();
     } catch {
-      setServerError(t("trips.stay.deleteError"));
+      setServerError(t("errors.csrfMissing"));
     } finally {
       setIsDeleting(false);
+    }
+  };
+
+  const handleLookupLocation = async () => {
+    const query = locationQuery.trim();
+    if (!query) {
+      setServerError(t("trips.location.searchRequired"));
+      return;
+    }
+
+    setServerError(null);
+    setIsGeocoding(true);
+    try {
+      const response = await fetch(`/api/geocode?q=${encodeURIComponent(query)}`, {
+        method: "GET",
+        credentials: "include",
+      });
+      const body = (await response.json()) as ApiEnvelope<{
+        result: { lat: number; lng: number; label: string } | null;
+      }>;
+
+      if (!response.ok || body.error) {
+        setServerError(body.error?.message ?? t("trips.location.lookupError"));
+        return;
+      }
+
+      if (!body.data?.result) {
+        setServerError(t("trips.location.noResult"));
+        return;
+      }
+
+      setResolvedLocation({
+        lat: body.data.result.lat,
+        lng: body.data.result.lng,
+        label: body.data.result.label,
+      });
+      setLocationQuery(body.data.result.label);
+    } catch {
+      setServerError(t("trips.location.lookupError"));
+    } finally {
+      setIsGeocoding(false);
     }
   };
 
@@ -307,7 +393,7 @@ export default function TripAccommodationDialog({ open, tripId, day, onClose, on
       </DialogTitle>
       <DialogContent dividers>
         <Box display="flex" flexDirection="column" gap={2.5}>
-          {serverError && <Alert severity="error">{serverError}</Alert>}
+          {(serverError || initError) && <Alert severity="error">{serverError ?? initError}</Alert>}
           <Box
             component="form"
             id="trip-accommodation-form"
@@ -362,6 +448,36 @@ export default function TripAccommodationDialog({ open, tripId, day, onClose, on
               inputMode="url"
               placeholder="https://"
             />
+            <Box display="flex" gap={1} alignItems="flex-start">
+              <TextField
+                label={t("trips.location.searchLabel")}
+                value={locationQuery}
+                onChange={(event) => setLocationQuery(event.target.value)}
+                helperText={t("trips.location.searchHelper")}
+                fullWidth
+              />
+              <Button
+                variant="outlined"
+                onClick={() => void handleLookupLocation()}
+                disabled={isSubmitting || isDeleting || isGeocoding}
+                sx={{ mt: 1 }}
+              >
+                {isGeocoding ? <CircularProgress size={18} /> : t("trips.location.searchAction")}
+              </Button>
+              <Button
+                variant="text"
+                onClick={() => setResolvedLocation(null)}
+                disabled={isSubmitting || isDeleting || isGeocoding || !resolvedLocation}
+                sx={{ mt: 1 }}
+              >
+                {t("trips.location.clearAction")}
+              </Button>
+            </Box>
+            <Typography variant="body2" color="text.secondary">
+              {resolvedLocation
+                ? `${t("trips.location.latLabel")}: ${resolvedLocation.lat.toFixed(6)} · ${t("trips.location.lngLabel")}: ${resolvedLocation.lng.toFixed(6)}`
+                : t("trips.location.noCoordinates")}
+            </Typography>
             <TextField
               label={t("trips.stay.notesLabel")}
               error={Boolean(errors.notes)}

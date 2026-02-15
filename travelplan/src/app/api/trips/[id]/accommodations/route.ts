@@ -71,6 +71,15 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
 
   const notes = parsed.data.notes?.trim();
   const link = parsed.data.link?.trim() ?? null;
+  const location = parsed.data.location ?? null;
+  const normalizedLocation =
+    location && typeof location.lat === "number" && typeof location.lng === "number"
+      ? {
+          lat: location.lat,
+          lng: location.lng,
+          label: location.label?.trim() || null,
+        }
+      : null;
 
   const accommodation = await createAccommodationForTripDay({
     userId,
@@ -81,6 +90,7 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
     costCents: parsed.data.costCents ?? null,
     link,
     notes: notes ? notes : null,
+    location: normalizedLocation,
   });
 
   if (!accommodation) {
@@ -117,6 +127,15 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
 
   const notes = parsed.data.notes?.trim();
   const link = parsed.data.link?.trim() ?? null;
+  const location = parsed.data.location ?? null;
+  const normalizedLocation =
+    location && typeof location.lat === "number" && typeof location.lng === "number"
+      ? {
+          lat: location.lat,
+          lng: location.lng,
+          label: location.label?.trim() || null,
+        }
+      : null;
 
   const accommodationResult = await updateAccommodationForTripDay({
     userId,
@@ -127,6 +146,7 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
     costCents: parsed.data.costCents ?? null,
     link,
     notes: notes ? notes : null,
+    location: normalizedLocation,
   });
 
   if (accommodationResult.status === "not_found") {

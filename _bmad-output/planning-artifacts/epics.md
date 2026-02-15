@@ -401,7 +401,7 @@ So that I can track my budget as I plan.
 **When** I view that day
 **Then** I see the planned cost subtotal for that day
 
-### Story 2.9: Export Trip Data as JSON
+### Story 2.9: Export Trip Backup as JSON
 
 As a trip planner,
 I want to export my trip data as JSON,

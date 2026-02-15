@@ -58,12 +58,14 @@ describe("dayPlanItemRepo", () => {
       tripDayId: day.id,
       contentJson: sampleDoc("Morning walk"),
       linkUrl: "https://example.com/plan",
+      location: { lat: 48.1372, lng: 11.5756, label: "Museum" },
     });
 
     expect(item).not.toBeNull();
     expect(item?.tripDayId).toBe(day.id);
     expect(item?.contentJson).toContain("Morning walk");
     expect(item?.linkUrl).toBe("https://example.com/plan");
+    expect(item?.location).toEqual({ lat: 48.1372, lng: 11.5756, label: "Museum" });
   });
 
   it("lists day plan items ordered by createdAt", async () => {
@@ -131,12 +133,14 @@ describe("dayPlanItemRepo", () => {
       itemId: created.id,
       contentJson: sampleDoc("Updated"),
       linkUrl: "https://example.com/updated",
+      location: { lat: 48.145, lng: 11.582, label: "Gallery" },
     });
 
     expect(updated.status).toBe("updated");
     if (updated.status === "updated") {
       expect(updated.item.contentJson).toContain("Updated");
       expect(updated.item.linkUrl).toBe("https://example.com/updated");
+      expect(updated.item.location).toEqual({ lat: 48.145, lng: 11.582, label: "Gallery" });
     }
   });
 
