@@ -12,7 +12,6 @@ import {
   DialogContent,
   DialogTitle,
   FormControl,
-  FormHelperText,
   InputLabel,
   MenuItem,
   Select,
@@ -49,6 +48,12 @@ type AccommodationFormValues = {
   link: string;
 };
 
+type GalleryImage = {
+  id: string;
+  imageUrl: string;
+  sortOrder: number;
+};
+
 type TripAccommodationDialogProps = {
   open: boolean;
   tripId: string;
@@ -68,6 +73,10 @@ export default function TripAccommodationDialog({ open, tripId, day, onClose, on
     null,
   );
   const [initError, setInitError] = useState<string | null>(null);
+  const [galleryImages, setGalleryImages] = useState<GalleryImage[]>([]);
+  const [galleryFiles, setGalleryFiles] = useState<File[]>([]);
+  const [galleryBusy, setGalleryBusy] = useState(false);
+  const [fullscreenImage, setFullscreenImage] = useState<{ imageUrl: string; alt: string } | null>(null);
 
   const {
     register,
@@ -150,6 +159,38 @@ export default function TripAccommodationDialog({ open, tripId, day, onClose, on
       active = false;
     };
   }, [open, t]);
+
+  useEffect(() => {
+    if (!open || !day?.accommodation) {
+      setGalleryImages([]);
+      return;
+    }
+    const accommodationId = day.accommodation.id;
+    let active = true;
+
+    const loadGallery = async () => {
+      try {
+        const response = await fetch(
+          `/api/trips/${tripId}/accommodations/images?tripDayId=${day.id}&accommodationId=${accommodationId}`,
+          { method: "GET", credentials: "include", cache: "no-store" },
+        );
+        const body = (await response.json()) as ApiEnvelope<{ images: GalleryImage[] }>;
+        if (!active) return;
+        if (!response.ok || body.error) {
+          setGalleryImages([]);
+          return;
+        }
+        setGalleryImages(body.data?.images ?? []);
+      } catch {
+        if (active) setGalleryImages([]);
+      }
+    };
+
+    void loadGallery();
+    return () => {
+      active = false;
+    };
+  }, [day?.accommodation, day?.id, open, tripId]);
 
   const ensureCsrfToken = useCallback(async () => {
     if (csrfToken) return csrfToken;
@@ -336,6 +377,87 @@ export default function TripAccommodationDialog({ open, tripId, day, onClose, on
     }
   };
 
+  const uploadGalleryImages = async () => {
+    if (!day?.accommodation || galleryFiles.length === 0) return;
+    let token: string;
+    try {
+      token = await ensureCsrfToken();
+    } catch {
+      setServerError(t("errors.csrfMissing"));
+      return;
+    }
+
+    setGalleryBusy(true);
+    setServerError(null);
+    try {
+      const uploaded: GalleryImage[] = [];
+      for (const file of galleryFiles) {
+        const formData = new FormData();
+        formData.set("tripDayId", day.id);
+        formData.set("accommodationId", day.accommodation.id);
+        formData.set("file", file);
+
+        const response = await fetch(`/api/trips/${tripId}/accommodations/images`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "x-csrf-token": token },
+          body: formData,
+        });
+        const body = (await response.json()) as ApiEnvelope<{ image: GalleryImage }>;
+        if (!response.ok || body.error || !body.data?.image) {
+          setServerError(t("trips.stay.error"));
+          return;
+        }
+        uploaded.push(body.data.image);
+      }
+      setGalleryImages((current) => [...current, ...uploaded]);
+      setGalleryFiles([]);
+    } catch {
+      setServerError(t("trips.stay.error"));
+    } finally {
+      setGalleryBusy(false);
+    }
+  };
+
+  const deleteGalleryImage = async (imageId: string) => {
+    if (!day?.accommodation) return;
+    let token: string;
+    try {
+      token = await ensureCsrfToken();
+    } catch {
+      setServerError(t("errors.csrfMissing"));
+      return;
+    }
+
+    setGalleryBusy(true);
+    setServerError(null);
+    try {
+      const response = await fetch(`/api/trips/${tripId}/accommodations/images`, {
+        method: "DELETE",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "x-csrf-token": token,
+        },
+        body: JSON.stringify({
+          tripDayId: day.id,
+          accommodationId: day.accommodation.id,
+          imageId,
+        }),
+      });
+      const body = (await response.json()) as ApiEnvelope<{ deleted: boolean }>;
+      if (!response.ok || body.error) {
+        setServerError(t("trips.stay.deleteError"));
+        return;
+      }
+      setGalleryImages((current) => current.filter((image) => image.id !== imageId));
+    } catch {
+      setServerError(t("trips.stay.deleteError"));
+    } finally {
+      setGalleryBusy(false);
+    }
+  };
+
   const title = day?.accommodation ? t("trips.stay.editTitle") : t("trips.stay.addTitle");
 
   const nameRules = useMemo(
@@ -405,7 +527,6 @@ export default function TripAccommodationDialog({ open, tripId, day, onClose, on
             <TextField
               label={t("trips.stay.nameLabel")}
               error={Boolean(errors.name)}
-              helperText={errors.name?.message}
               {...register("name", nameRules)}
               fullWidth
             />
@@ -425,12 +546,11 @@ export default function TripAccommodationDialog({ open, tripId, day, onClose, on
                   </Select>
                 )}
               />
-              {errors.status?.message && <FormHelperText>{errors.status.message}</FormHelperText>}
             </FormControl>
             <TextField
               label={t("trips.stay.costLabel")}
               error={Boolean(errors.costCents)}
-              helperText={errors.costCents?.message ?? t("trips.stay.costHelper")}
+              helperText={errors.costCents?.message}
               {...register("costCents", costRules)}
               fullWidth
               type="number"
@@ -441,7 +561,7 @@ export default function TripAccommodationDialog({ open, tripId, day, onClose, on
             <TextField
               label={t("trips.stay.linkLabel")}
               error={Boolean(errors.link)}
-              helperText={errors.link?.message ?? t("trips.stay.linkHelper")}
+              helperText={errors.link?.message}
               {...register("link", linkRules)}
               fullWidth
               type="url"
@@ -453,7 +573,6 @@ export default function TripAccommodationDialog({ open, tripId, day, onClose, on
                 label={t("trips.location.searchLabel")}
                 value={locationQuery}
                 onChange={(event) => setLocationQuery(event.target.value)}
-                helperText={t("trips.location.searchHelper")}
                 fullWidth
               />
               <Button
@@ -481,12 +600,71 @@ export default function TripAccommodationDialog({ open, tripId, day, onClose, on
             <TextField
               label={t("trips.stay.notesLabel")}
               error={Boolean(errors.notes)}
-              helperText={errors.notes?.message}
               {...register("notes")}
               fullWidth
               multiline
               minRows={3}
             />
+            {day?.accommodation && (
+              <Box display="flex" flexDirection="column" gap={1}>
+                <Typography variant="body2" fontWeight={600}>
+                  {t("trips.gallery.title")}
+                </Typography>
+                <Box display="flex" gap={1} alignItems="center">
+                  <TextField
+                    size="small"
+                    type="file"
+                    onChange={(event) => {
+                      const input = event.currentTarget as HTMLInputElement;
+                      setGalleryFiles(input.files ? Array.from(input.files) : []);
+                    }}
+                    inputProps={{ accept: "image/jpeg,image/png,image/webp", multiple: true }}
+                    fullWidth
+                  />
+                  <Button
+                    variant="outlined"
+                    onClick={() => void uploadGalleryImages()}
+                    disabled={galleryFiles.length === 0 || galleryBusy}
+                  >
+                    {t("trips.gallery.uploadAction")}
+                  </Button>
+                </Box>
+                {galleryFiles.length > 0 && (
+                  <Typography variant="caption" color="text.secondary">
+                    {galleryFiles.length} file(s) selected
+                  </Typography>
+                )}
+                {galleryImages.length === 0 ? (
+                  <Typography variant="caption" color="text.secondary">
+                    {t("trips.gallery.empty")}
+                  </Typography>
+                ) : (
+                  <Box display="flex" flexDirection="column" gap={0.75}>
+                    {galleryImages
+                      .slice()
+                      .sort((left, right) => left.sortOrder - right.sortOrder)
+                      .map((image, index) => (
+                        <Box key={image.id} display="flex" alignItems="center" gap={1}>
+                          <Box
+                            component="img"
+                            src={image.imageUrl}
+                            alt={t("trips.gallery.thumbnailAlt")}
+                            sx={{ width: 42, height: 42, objectFit: "cover", borderRadius: 1, cursor: "pointer" }}
+                            loading="lazy"
+                            onClick={() => setFullscreenImage({ imageUrl: image.imageUrl, alt: t("trips.gallery.thumbnailAlt") })}
+                          />
+                          <Typography variant="caption" sx={{ minWidth: 20 }}>
+                            {index + 1}
+                          </Typography>
+                          <Button size="small" color="error" onClick={() => void deleteGalleryImage(image.id)} disabled={galleryBusy}>
+                            {t("trips.gallery.removeAction")}
+                          </Button>
+                        </Box>
+                      ))}
+                  </Box>
+                )}
+              </Box>
+            )}
           </Box>
         </Box>
       </DialogContent>
@@ -507,6 +685,46 @@ export default function TripAccommodationDialog({ open, tripId, day, onClose, on
           </Button>
         </Box>
       </DialogActions>
+      <Dialog
+        open={Boolean(fullscreenImage)}
+        onClose={() => setFullscreenImage(null)}
+        maxWidth={false}
+        sx={{
+          "& .MuiDialog-paper": {
+            backgroundColor: "transparent",
+            boxShadow: "none",
+            m: 0,
+          },
+        }}
+        onKeyDown={() => setFullscreenImage(null)}
+      >
+        {fullscreenImage ? (
+          <DialogContent
+            onClick={() => setFullscreenImage(null)}
+            sx={{
+              p: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              minWidth: "100vw",
+              minHeight: "100vh",
+              backgroundColor: "rgba(0, 0, 0, 0.85)",
+              cursor: "zoom-out",
+            }}
+          >
+            <Box
+              component="img"
+              src={fullscreenImage.imageUrl}
+              alt={fullscreenImage.alt}
+              sx={{
+                maxWidth: "96vw",
+                maxHeight: "96vh",
+                objectFit: "contain",
+              }}
+            />
+          </DialogContent>
+        ) : null}
+      </Dialog>
     </Dialog>
   );
 }

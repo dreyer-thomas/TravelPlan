@@ -37,6 +37,44 @@ type DayPlanItemDeleteParams = {
   itemId: string;
 };
 
+export type DayPlanItemImageDetail = {
+  id: string;
+  dayPlanItemId: string;
+  imageUrl: string;
+  sortOrder: number;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type DayPlanItemImageScopeParams = {
+  userId: string;
+  tripId: string;
+  tripDayId: string;
+  dayPlanItemId: string;
+};
+
+type DayPlanItemImageCreateParams = DayPlanItemImageScopeParams & {
+  imageUrl: string;
+};
+
+type DayPlanItemImageDeleteParams = DayPlanItemImageScopeParams & {
+  imageId: string;
+};
+
+type DayPlanItemImageReorderParams = DayPlanItemImageScopeParams & {
+  order: { imageId: string; sortOrder: number }[];
+};
+
+export type DayPlanItemImageDeleteResult =
+  | { status: "not_found" }
+  | { status: "missing" }
+  | { status: "deleted" };
+
+export type DayPlanItemImageReorderResult =
+  | { status: "not_found" }
+  | { status: "missing" }
+  | { status: "reordered" };
+
 const findTripDayForUser = async (userId: string, tripId: string, tripDayId: string) =>
   prisma.tripDay.findFirst({
     where: {
@@ -44,6 +82,20 @@ const findTripDayForUser = async (userId: string, tripId: string, tripDayId: str
       tripId,
       trip: { userId },
     },
+  });
+
+const findScopedDayPlanItem = async ({ userId, tripId, tripDayId, dayPlanItemId }: DayPlanItemImageScopeParams) =>
+  prisma.dayPlanItem.findFirst({
+    where: {
+      id: dayPlanItemId,
+      tripDayId,
+      tripDay: {
+        id: tripDayId,
+        tripId,
+        trip: { userId },
+      },
+    },
+    select: { id: true },
   });
 
 const toDetail = (item: {
@@ -69,6 +121,22 @@ const toDetail = (item: {
         }
       : null,
   createdAt: item.createdAt,
+});
+
+const toImageDetail = (item: {
+  id: string;
+  dayPlanItemId: string;
+  imageUrl: string;
+  sortOrder: number;
+  createdAt: Date;
+  updatedAt: Date;
+}): DayPlanItemImageDetail => ({
+  id: item.id,
+  dayPlanItemId: item.dayPlanItemId,
+  imageUrl: item.imageUrl,
+  sortOrder: item.sortOrder,
+  createdAt: item.createdAt,
+  updatedAt: item.updatedAt,
 });
 
 export const listDayPlanItemsForTripDay = async (params: {
@@ -169,4 +237,110 @@ export const deleteDayPlanItemForTripDay = async (
 
   await prisma.dayPlanItem.delete({ where: { id: existing.id } });
   return { status: "deleted" };
+};
+
+export const listDayPlanItemImages = async (
+  params: DayPlanItemImageScopeParams,
+): Promise<DayPlanItemImageDetail[] | null> => {
+  const item = await findScopedDayPlanItem(params);
+  if (!item) {
+    return null;
+  }
+
+  const images = await prisma.dayPlanItemImage.findMany({
+    where: { dayPlanItemId: item.id },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+  });
+  return images.map(toImageDetail);
+};
+
+export const createDayPlanItemImage = async (
+  params: DayPlanItemImageCreateParams,
+): Promise<DayPlanItemImageDetail | null> => {
+  const item = await findScopedDayPlanItem(params);
+  if (!item) {
+    return null;
+  }
+
+  const last = await prisma.dayPlanItemImage.findFirst({
+    where: { dayPlanItemId: item.id },
+    orderBy: [{ sortOrder: "desc" }],
+    select: { sortOrder: true },
+  });
+  const nextSortOrder = (last?.sortOrder ?? 0) + 1;
+
+  const created = await prisma.dayPlanItemImage.create({
+    data: {
+      dayPlanItemId: item.id,
+      imageUrl: params.imageUrl,
+      sortOrder: nextSortOrder,
+    },
+  });
+
+  return toImageDetail(created);
+};
+
+export const deleteDayPlanItemImage = async (
+  params: DayPlanItemImageDeleteParams,
+): Promise<DayPlanItemImageDeleteResult> => {
+  const item = await findScopedDayPlanItem(params);
+  if (!item) {
+    return { status: "not_found" };
+  }
+
+  const existing = await prisma.dayPlanItemImage.findFirst({
+    where: {
+      id: params.imageId,
+      dayPlanItemId: item.id,
+    },
+    select: { id: true },
+  });
+  if (!existing) {
+    return { status: "missing" };
+  }
+
+  await prisma.dayPlanItemImage.delete({ where: { id: existing.id } });
+  return { status: "deleted" };
+};
+
+export const reorderDayPlanItemImages = async (
+  params: DayPlanItemImageReorderParams,
+): Promise<DayPlanItemImageReorderResult> => {
+  const item = await findScopedDayPlanItem(params);
+  if (!item) {
+    return { status: "not_found" };
+  }
+
+  const existing = await prisma.dayPlanItemImage.findMany({
+    where: { dayPlanItemId: item.id },
+    select: { id: true },
+  });
+  const existingIds = new Set(existing.map((entry) => entry.id));
+  const orderIds = new Set(params.order.map((entry) => entry.imageId));
+
+  if (
+    existing.length !== params.order.length ||
+    orderIds.size !== params.order.length ||
+    [...orderIds].some((id) => !existingIds.has(id))
+  ) {
+    return { status: "missing" };
+  }
+
+  await prisma.$transaction(async (tx) => {
+    for (const entry of params.order) {
+      await tx.dayPlanItemImage.update({
+        where: { id: entry.imageId },
+        data: { sortOrder: entry.sortOrder + 1000 },
+      });
+    }
+
+    for (const entry of params.order) {
+      await tx.dayPlanItemImage.update({
+        where: { id: entry.imageId },
+        data: { sortOrder: entry.sortOrder },
+      });
+    }
+  });
+
+  return { status: "reordered" };
 };

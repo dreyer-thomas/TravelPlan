@@ -517,6 +517,222 @@ describe("TripDayView layout", () => {
     vi.unstubAllGlobals();
   });
 
+  it("renders image mini-strips with +N indicator for gallery images", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/accommodations/images")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: {
+              images: [{ id: "acc-img-1", imageUrl: "/uploads/a1.webp", sortOrder: 1 }],
+            },
+            error: null,
+          }),
+        };
+      }
+      if (url.includes("/day-plan-items/images")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: {
+              images: [
+                { id: "plan-img-1", imageUrl: "/uploads/p1.webp", sortOrder: 1 },
+                { id: "plan-img-2", imageUrl: "/uploads/p2.webp", sortOrder: 2 },
+                { id: "plan-img-3", imageUrl: "/uploads/p3.webp", sortOrder: 3 },
+                { id: "plan-img-4", imageUrl: "/uploads/p4.webp", sortOrder: 4 },
+              ],
+            },
+            error: null,
+          }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-01T00:00:00.000Z",
+              dayCount: 1,
+              accommodationCostTotalCents: 10000,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 10000,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: {
+                  id: "stay-1",
+                  name: "Hotel",
+                  notes: null,
+                  status: "booked",
+                  costCents: 10000,
+                  link: null,
+                  location: null,
+                },
+                dayPlanItems: [
+                  {
+                    id: "item-1",
+                    contentJson: JSON.stringify({
+                      type: "doc",
+                      content: [{ type: "paragraph", content: [{ type: "text", text: "Museum" }] }],
+                    }),
+                    linkUrl: null,
+                    location: null,
+                  },
+                ],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-1" />
+      </I18nProvider>,
+    );
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+    await waitFor(() => {
+      expect(screen.queryByText("+1")).not.toBeInTheDocument();
+    });
+    expect(screen.getAllByAltText(/Gallery thumbnail|Hotel|Day timeline/i).length).toBeGreaterThanOrEqual(4);
+
+    vi.unstubAllGlobals();
+  });
+
+  it("renders previous-night accommodation gallery images", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/accommodations/images") && url.includes("accommodationId=stay-prev")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: {
+              images: [{ id: "prev-img-1", imageUrl: "/uploads/prev.webp", sortOrder: 1 }],
+            },
+            error: null,
+          }),
+        };
+      }
+      if (url.includes("/accommodations/images") && url.includes("accommodationId=stay-current")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: {
+              images: [],
+            },
+            error: null,
+          }),
+        };
+      }
+      if (url.includes("/day-plan-items/images")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: {
+              images: [],
+            },
+            error: null,
+          }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-02T00:00:00.000Z",
+              dayCount: 2,
+              accommodationCostTotalCents: 20000,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 10000,
+                missingAccommodation: false,
+                missingPlan: true,
+                accommodation: {
+                  id: "stay-prev",
+                  name: "Previous Hotel",
+                  notes: null,
+                  status: "booked",
+                  costCents: 10000,
+                  link: null,
+                  location: null,
+                },
+                dayPlanItems: [],
+              },
+              {
+                id: "day-2",
+                date: "2026-12-02T00:00:00.000Z",
+                dayIndex: 2,
+                plannedCostSubtotal: 10000,
+                missingAccommodation: false,
+                missingPlan: true,
+                accommodation: {
+                  id: "stay-current",
+                  name: "Current Hotel",
+                  notes: null,
+                  status: "booked",
+                  costCents: 10000,
+                  link: null,
+                  location: null,
+                },
+                dayPlanItems: [],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-2" />
+      </I18nProvider>,
+    );
+
+    await screen.findByRole("heading", { name: "Day 2", level: 5 });
+    await waitFor(() => {
+      expect(screen.getByAltText(/Previous Hotel 1/i)).toBeInTheDocument();
+    });
+
+    vi.unstubAllGlobals();
+  });
+
   it("deletes a day plan item from row icon action and updates the visible list", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";

@@ -36,6 +36,44 @@ type AccommodationDeleteParams = {
   tripDayId: string;
 };
 
+export type AccommodationImageDetail = {
+  id: string;
+  accommodationId: string;
+  imageUrl: string;
+  sortOrder: number;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type AccommodationImageScopeParams = {
+  userId: string;
+  tripId: string;
+  tripDayId: string;
+  accommodationId: string;
+};
+
+type AccommodationImageCreateParams = AccommodationImageScopeParams & {
+  imageUrl: string;
+};
+
+type AccommodationImageDeleteParams = AccommodationImageScopeParams & {
+  imageId: string;
+};
+
+type AccommodationImageReorderParams = AccommodationImageScopeParams & {
+  order: { imageId: string; sortOrder: number }[];
+};
+
+export type AccommodationImageDeleteResult =
+  | { status: "not_found" }
+  | { status: "missing" }
+  | { status: "deleted" };
+
+export type AccommodationImageReorderResult =
+  | { status: "not_found" }
+  | { status: "missing" }
+  | { status: "reordered" };
+
 const findTripDayForUser = async (userId: string, tripId: string, tripDayId: string) =>
   prisma.tripDay.findFirst({
     where: {
@@ -44,6 +82,36 @@ const findTripDayForUser = async (userId: string, tripId: string, tripDayId: str
       trip: { userId },
     },
   });
+
+const findScopedAccommodation = async ({ userId, tripId, tripDayId, accommodationId }: AccommodationImageScopeParams) =>
+  prisma.accommodation.findFirst({
+    where: {
+      id: accommodationId,
+      tripDayId,
+      tripDay: {
+        id: tripDayId,
+        tripId,
+        trip: { userId },
+      },
+    },
+    select: { id: true },
+  });
+
+const toImageDetail = (image: {
+  id: string;
+  accommodationId: string;
+  imageUrl: string;
+  sortOrder: number;
+  createdAt: Date;
+  updatedAt: Date;
+}): AccommodationImageDetail => ({
+  id: image.id,
+  accommodationId: image.accommodationId,
+  imageUrl: image.imageUrl,
+  sortOrder: image.sortOrder,
+  createdAt: image.createdAt,
+  updatedAt: image.updatedAt,
+});
 
 const toStatus = (status: string): AccommodationStatus => (status === "BOOKED" ? "booked" : "planned");
 const toDbStatus = (status: AccommodationStatus) => (status === "booked" ? "BOOKED" : "PLANNED");
@@ -186,4 +254,112 @@ export const getAccommodationCostTotalForTrip = async (
   }
 
   return result._sum.costCents ?? 0;
+};
+
+export const listAccommodationImages = async (
+  params: AccommodationImageScopeParams,
+): Promise<AccommodationImageDetail[] | null> => {
+  const accommodation = await findScopedAccommodation(params);
+  if (!accommodation) {
+    return null;
+  }
+
+  const images = await prisma.accommodationImage.findMany({
+    where: { accommodationId: accommodation.id },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+  });
+
+  return images.map(toImageDetail);
+};
+
+export const createAccommodationImage = async (
+  params: AccommodationImageCreateParams,
+): Promise<AccommodationImageDetail | null> => {
+  const accommodation = await findScopedAccommodation(params);
+  if (!accommodation) {
+    return null;
+  }
+
+  const last = await prisma.accommodationImage.findFirst({
+    where: { accommodationId: accommodation.id },
+    orderBy: [{ sortOrder: "desc" }],
+    select: { sortOrder: true },
+  });
+  const nextSortOrder = (last?.sortOrder ?? 0) + 1;
+
+  const created = await prisma.accommodationImage.create({
+    data: {
+      accommodationId: accommodation.id,
+      imageUrl: params.imageUrl,
+      sortOrder: nextSortOrder,
+    },
+  });
+
+  return toImageDetail(created);
+};
+
+export const deleteAccommodationImage = async (
+  params: AccommodationImageDeleteParams,
+): Promise<AccommodationImageDeleteResult> => {
+  const accommodation = await findScopedAccommodation(params);
+  if (!accommodation) {
+    return { status: "not_found" };
+  }
+
+  const existing = await prisma.accommodationImage.findFirst({
+    where: {
+      id: params.imageId,
+      accommodationId: accommodation.id,
+    },
+    select: { id: true },
+  });
+
+  if (!existing) {
+    return { status: "missing" };
+  }
+
+  await prisma.accommodationImage.delete({ where: { id: existing.id } });
+  return { status: "deleted" };
+};
+
+export const reorderAccommodationImages = async (
+  params: AccommodationImageReorderParams,
+): Promise<AccommodationImageReorderResult> => {
+  const accommodation = await findScopedAccommodation(params);
+  if (!accommodation) {
+    return { status: "not_found" };
+  }
+
+  const existing = await prisma.accommodationImage.findMany({
+    where: { accommodationId: accommodation.id },
+    select: { id: true },
+  });
+  const existingIds = new Set(existing.map((item) => item.id));
+  const orderIds = new Set(params.order.map((item) => item.imageId));
+
+  if (
+    existing.length !== params.order.length ||
+    orderIds.size !== params.order.length ||
+    [...orderIds].some((id) => !existingIds.has(id))
+  ) {
+    return { status: "missing" };
+  }
+
+  await prisma.$transaction(async (tx) => {
+    for (const item of params.order) {
+      await tx.accommodationImage.update({
+        where: { id: item.imageId },
+        data: { sortOrder: item.sortOrder + 1000 },
+      });
+    }
+
+    for (const item of params.order) {
+      await tx.accommodationImage.update({
+        where: { id: item.imageId },
+        data: { sortOrder: item.sortOrder },
+      });
+    }
+  });
+
+  return { status: "reordered" };
 };

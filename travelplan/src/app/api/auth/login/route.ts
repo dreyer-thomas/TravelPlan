@@ -17,7 +17,7 @@ const DUMMY_PASSWORD_HASH = "$2b$12$yKCcHe7jK2n4NHvOoOULDO543C1um0.nfo6rMRdS2SW5
 const getClientIp = (request: NextRequest) => {
   const forwarded = request.headers.get("x-forwarded-for");
   if (forwarded) return forwarded.split(",")[0].trim();
-  return request.headers.get("x-real-ip") ?? request.ip ?? "unknown";
+  return request.headers.get("x-real-ip") ?? "unknown";
 };
 
 export const POST = async (request: NextRequest) => {

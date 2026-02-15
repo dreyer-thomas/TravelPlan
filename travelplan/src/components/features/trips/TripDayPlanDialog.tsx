@@ -38,6 +38,12 @@ type DayPlanItem = {
   createdAt: string;
 };
 
+type GalleryImage = {
+  id: string;
+  imageUrl: string;
+  sortOrder: number;
+};
+
 type PlanDialogMode = "add" | "edit";
 
 type TripDayPlanDialogProps = {
@@ -79,6 +85,11 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
   const [locationQuery, setLocationQuery] = useState<string>("");
   const [lookupLoading, setLookupLoading] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<{ contentJson?: string; linkUrl?: string }>({});
+  const [galleryImages, setGalleryImages] = useState<GalleryImage[]>([]);
+  const [galleryFile, setGalleryFile] = useState<File | null>(null);
+  const [galleryBusy, setGalleryBusy] = useState(false);
+  const [fullscreenImage, setFullscreenImage] = useState<{ imageUrl: string; alt: string } | null>(null);
+  const editingItemId = mode === "edit" ? (item?.id ?? null) : null;
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -174,6 +185,41 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
     };
   }, [day, open, t]);
 
+  useEffect(() => {
+    if (!open || !day || !editingItemId) {
+      setGalleryImages([]);
+      return;
+    }
+    let active = true;
+
+    const loadGallery = async () => {
+      try {
+        const response = await fetch(
+          `/api/trips/${tripId}/day-plan-items/images?tripDayId=${day.id}&dayPlanItemId=${editingItemId}`,
+          {
+            method: "GET",
+            credentials: "include",
+            cache: "no-store",
+          },
+        );
+        const body = (await response.json()) as ApiEnvelope<{ images: GalleryImage[] }>;
+        if (!active) return;
+        if (!response.ok || body.error) {
+          setGalleryImages([]);
+          return;
+        }
+        setGalleryImages(body.data?.images ?? []);
+      } catch {
+        if (active) setGalleryImages([]);
+      }
+    };
+
+    void loadGallery();
+    return () => {
+      active = false;
+    };
+  }, [day, editingItemId, open, tripId]);
+
   const title = useMemo(() => {
     if (mode === "edit") return t("trips.plan.editDialogTitle");
     return t("trips.plan.addDialogTitle");
@@ -183,8 +229,6 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
     if (!day) return null;
     return formatMessage(t("trips.plan.title"), { index: day.dayIndex });
   }, [day, t]);
-
-  const editingItemId = mode === "edit" ? (item?.id ?? null) : null;
 
   const saveLabel = mode === "edit" ? t("trips.plan.saveUpdate") : t("trips.plan.saveNew");
   const isBusy = saving || loadingInit;
@@ -322,6 +366,100 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
     }
   };
 
+  const uploadGalleryImage = async () => {
+    if (!day || !editingItemId || !galleryFile || !csrfToken) return;
+
+    setGalleryBusy(true);
+    setServerError(null);
+    try {
+      const formData = new FormData();
+      formData.set("tripDayId", day.id);
+      formData.set("dayPlanItemId", editingItemId);
+      formData.set("file", galleryFile);
+      const response = await fetch(`/api/trips/${tripId}/day-plan-items/images`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "x-csrf-token": csrfToken },
+        body: formData,
+      });
+      const body = (await response.json()) as ApiEnvelope<{ image: GalleryImage }>;
+      if (!response.ok || body.error || !body.data?.image) {
+        setServerError(t("trips.plan.saveError"));
+        return;
+      }
+      setGalleryImages((current) => [...current, body.data!.image]);
+      setGalleryFile(null);
+    } catch {
+      setServerError(t("trips.plan.saveError"));
+    } finally {
+      setGalleryBusy(false);
+    }
+  };
+
+  const deleteGalleryImage = async (imageId: string) => {
+    if (!day || !editingItemId || !csrfToken) return;
+
+    setGalleryBusy(true);
+    setServerError(null);
+    try {
+      const response = await fetch(`/api/trips/${tripId}/day-plan-items/images`, {
+        method: "DELETE",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "x-csrf-token": csrfToken,
+        },
+        body: JSON.stringify({
+          tripDayId: day.id,
+          dayPlanItemId: editingItemId,
+          imageId,
+        }),
+      });
+      const body = (await response.json()) as ApiEnvelope<{ deleted: boolean }>;
+      if (!response.ok || body.error) {
+        setServerError(t("trips.plan.saveError"));
+        return;
+      }
+      setGalleryImages((current) => current.filter((image) => image.id !== imageId));
+    } catch {
+      setServerError(t("trips.plan.saveError"));
+    } finally {
+      setGalleryBusy(false);
+    }
+  };
+
+  const reorderGalleryImages = async (nextImages: GalleryImage[]) => {
+    if (!day || !editingItemId || !csrfToken) return;
+
+    setGalleryBusy(true);
+    setServerError(null);
+    try {
+      const response = await fetch(`/api/trips/${tripId}/day-plan-items/images`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "x-csrf-token": csrfToken,
+        },
+        body: JSON.stringify({
+          tripDayId: day.id,
+          dayPlanItemId: editingItemId,
+          order: nextImages.map((image, index) => ({ imageId: image.id, sortOrder: index + 1 })),
+        }),
+      });
+      const body = (await response.json()) as ApiEnvelope<{ reordered: boolean }>;
+      if (!response.ok || body.error) {
+        setServerError(t("trips.plan.saveError"));
+        return;
+      }
+      setGalleryImages(nextImages.map((image, index) => ({ ...image, sortOrder: index + 1 })));
+    } catch {
+      setServerError(t("trips.plan.saveError"));
+    } finally {
+      setGalleryBusy(false);
+    }
+  };
+
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
       <DialogTitle>
@@ -354,9 +492,11 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
             >
               {editor ? <EditorContent editor={editor} /> : <Typography>{t("trips.plan.editorLoading")}</Typography>}
             </Box>
-            <Typography variant="caption" color={fieldErrors.contentJson ? "error" : "text.secondary"}>
-              {fieldErrors.contentJson ?? t("trips.plan.contentHelper")}
-            </Typography>
+            {fieldErrors.contentJson && (
+              <Typography variant="caption" color="error">
+                {fieldErrors.contentJson}
+              </Typography>
+            )}
           </Box>
 
           <TextField
@@ -364,7 +504,7 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
             value={linkUrl}
             onChange={(event) => setLinkUrl(event.target.value)}
             error={Boolean(fieldErrors.linkUrl)}
-            helperText={fieldErrors.linkUrl ?? t("trips.plan.linkHelper")}
+            helperText={fieldErrors.linkUrl}
             fullWidth
             type="url"
             inputMode="url"
@@ -375,7 +515,6 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
               label={t("trips.location.searchLabel")}
               value={locationQuery}
               onChange={(event) => setLocationQuery(event.target.value)}
-              helperText={t("trips.location.searchHelper")}
               fullWidth
             />
             <Button
@@ -400,6 +539,78 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
               ? `${t("trips.location.latLabel")}: ${resolvedLocation.lat.toFixed(6)} · ${t("trips.location.lngLabel")}: ${resolvedLocation.lng.toFixed(6)}`
               : t("trips.location.noCoordinates")}
           </Typography>
+          {editingItemId && (
+            <Box display="flex" flexDirection="column" gap={1}>
+              <Typography variant="body2" fontWeight={600}>
+                {t("trips.gallery.title")}
+              </Typography>
+              <Box display="flex" gap={1} alignItems="center">
+                <TextField
+                  size="small"
+                  type="file"
+                  onChange={(event) => {
+                    const input = event.currentTarget as HTMLInputElement;
+                    setGalleryFile(input.files?.[0] ?? null);
+                  }}
+                  inputProps={{ accept: "image/jpeg,image/png,image/webp" }}
+                  fullWidth
+                />
+                <Button variant="outlined" onClick={() => void uploadGalleryImage()} disabled={!galleryFile || galleryBusy}>
+                  {t("trips.gallery.uploadAction")}
+                </Button>
+              </Box>
+              {galleryImages.length === 0 ? (
+                <Typography variant="caption" color="text.secondary">
+                  {t("trips.gallery.empty")}
+                </Typography>
+              ) : (
+                <Box display="flex" flexDirection="column" gap={0.75}>
+                  {galleryImages
+                    .slice()
+                    .sort((left, right) => left.sortOrder - right.sortOrder)
+                    .map((image, index, all) => (
+                      <Box key={image.id} display="flex" alignItems="center" gap={1}>
+                        <Box
+                          component="img"
+                          src={image.imageUrl}
+                          alt={t("trips.gallery.thumbnailAlt")}
+                          sx={{ width: 42, height: 42, objectFit: "cover", borderRadius: 1, cursor: "pointer" }}
+                          loading="lazy"
+                          onClick={() => setFullscreenImage({ imageUrl: image.imageUrl, alt: t("trips.gallery.thumbnailAlt") })}
+                        />
+                        <Button
+                          size="small"
+                          onClick={() => {
+                            if (index === 0) return;
+                            const next = [...all];
+                            [next[index - 1], next[index]] = [next[index], next[index - 1]];
+                            void reorderGalleryImages(next);
+                          }}
+                          disabled={index === 0 || galleryBusy}
+                        >
+                          {t("trips.gallery.moveUp")}
+                        </Button>
+                        <Button
+                          size="small"
+                          onClick={() => {
+                            if (index === all.length - 1) return;
+                            const next = [...all];
+                            [next[index], next[index + 1]] = [next[index + 1], next[index]];
+                            void reorderGalleryImages(next);
+                          }}
+                          disabled={index === all.length - 1 || galleryBusy}
+                        >
+                          {t("trips.gallery.moveDown")}
+                        </Button>
+                        <Button size="small" color="error" onClick={() => void deleteGalleryImage(image.id)} disabled={galleryBusy}>
+                          {t("trips.gallery.removeAction")}
+                        </Button>
+                      </Box>
+                    ))}
+                </Box>
+              )}
+            </Box>
+          )}
         </Box>
       </DialogContent>
       <DialogActions sx={{ justifyContent: "space-between" }}>
@@ -410,6 +621,46 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
           {saving ? <CircularProgress size={22} /> : saveLabel}
         </Button>
       </DialogActions>
+      <Dialog
+        open={Boolean(fullscreenImage)}
+        onClose={() => setFullscreenImage(null)}
+        maxWidth={false}
+        sx={{
+          "& .MuiDialog-paper": {
+            backgroundColor: "transparent",
+            boxShadow: "none",
+            m: 0,
+          },
+        }}
+        onKeyDown={() => setFullscreenImage(null)}
+      >
+        {fullscreenImage ? (
+          <DialogContent
+            onClick={() => setFullscreenImage(null)}
+            sx={{
+              p: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              minWidth: "100vw",
+              minHeight: "100vh",
+              backgroundColor: "rgba(0, 0, 0, 0.85)",
+              cursor: "zoom-out",
+            }}
+          >
+            <Box
+              component="img"
+              src={fullscreenImage.imageUrl}
+              alt={fullscreenImage.alt}
+              sx={{
+                maxWidth: "96vw",
+                maxHeight: "96vh",
+                objectFit: "contain",
+              }}
+            />
+          </DialogContent>
+        ) : null}
+      </Dialog>
     </Dialog>
   );
 }

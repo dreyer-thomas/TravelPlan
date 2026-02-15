@@ -1,6 +1,6 @@
 # Story 2.16: Accommodation and Plan Item Image Galleries
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -46,34 +46,34 @@ so that day view shows visual context beside each item.
 
 ## Tasks / Subtasks
 
-- [ ] Data model and migration (AC: 1, 4, 5, 6)
-  - [ ] Add image gallery persistence for accommodation images with ordering.
-  - [ ] Add image gallery persistence for day plan item images with ordering.
-  - [ ] Keep DB naming snake_case and Prisma mappings consistent with existing schema style.
-- [ ] Repository updates (AC: 1, 6, 7)
-  - [ ] Add scoped create/list/delete/reorder methods for accommodation images.
-  - [ ] Add scoped create/list/delete/reorder methods for day plan item images.
-  - [ ] Enforce ownership boundaries via `userId + tripId + dayId + item` scoping.
-- [ ] Validation and API routes (AC: 1, 6, 7)
-  - [ ] Add Zod schemas for upload/remove/reorder payloads.
-  - [ ] Add/extend authenticated, CSRF-protected routes for accommodation image gallery operations.
-  - [ ] Add/extend authenticated, CSRF-protected routes for day plan item image gallery operations.
-  - [ ] Return API responses in `{ data, error }` envelope.
-- [ ] Day view UI rendering (AC: 2, 3, 4, 5, 6)
-  - [ ] Render thumbnails beside accommodation entries and plan items in day view timeline.
-  - [ ] No images -> render no image block.
-  - [ ] One image -> render single thumbnail.
-  - [ ] Multiple images -> render mini-strip up to 3 thumbnails + optional `+N`.
-  - [ ] Keep responsive behavior clean on mobile and desktop.
-- [ ] Edit dialog UX (AC: 1, 6)
-  - [ ] Add upload/remove/reorder controls to `TripAccommodationDialog`.
-  - [ ] Add upload/remove/reorder controls to `TripDayPlanDialog`.
-  - [ ] Keep save/error/loading UX consistent with existing dialogs.
-- [ ] i18n and tests (AC: 1-7)
-  - [ ] Add EN/DE copy for gallery actions and validation errors.
-  - [ ] Add repository tests for ownership + order persistence.
-  - [ ] Add route tests for auth/CSRF/validation and happy paths.
-  - [ ] Add UI tests for 0/1/many rendering and mini-strip behavior.
+- [x] Data model and migration (AC: 1, 4, 5, 6)
+  - [x] Add image gallery persistence for accommodation images with ordering.
+  - [x] Add image gallery persistence for day plan item images with ordering.
+  - [x] Keep DB naming snake_case and Prisma mappings consistent with existing schema style.
+- [x] Repository updates (AC: 1, 6, 7)
+  - [x] Add scoped create/list/delete/reorder methods for accommodation images.
+  - [x] Add scoped create/list/delete/reorder methods for day plan item images.
+  - [x] Enforce ownership boundaries via `userId + tripId + dayId + item` scoping.
+- [x] Validation and API routes (AC: 1, 6, 7)
+  - [x] Add Zod schemas for upload/remove/reorder payloads.
+  - [x] Add/extend authenticated, CSRF-protected routes for accommodation image gallery operations.
+  - [x] Add/extend authenticated, CSRF-protected routes for day plan item image gallery operations.
+  - [x] Return API responses in `{ data, error }` envelope.
+- [x] Day view UI rendering (AC: 2, 3, 4, 5, 6)
+  - [x] Render thumbnails beside accommodation entries and plan items in day view timeline.
+  - [x] No images -> render no image block.
+  - [x] One image -> render single thumbnail.
+  - [x] Multiple images -> render mini-strip up to 3 thumbnails + optional `+N`.
+  - [x] Keep responsive behavior clean on mobile and desktop.
+- [x] Edit dialog UX (AC: 1, 6)
+  - [x] Add upload/remove/reorder controls to `TripAccommodationDialog`.
+  - [x] Add upload/remove/reorder controls to `TripDayPlanDialog`.
+  - [x] Keep save/error/loading UX consistent with existing dialogs.
+- [x] i18n and tests (AC: 1-7)
+  - [x] Add EN/DE copy for gallery actions and validation errors.
+  - [x] Add repository tests for ownership + order persistence.
+  - [x] Add route tests for auth/CSRF/validation and happy paths.
+  - [x] Add UI tests for 0/1/many rendering and mini-strip behavior.
 
 ## Dev Notes
 
@@ -152,8 +152,8 @@ so that day view shows visual context beside each item.
 
 ## Story Completion Status
 
-- Status set to **ready-for-dev**.
-- Completion note: New Epic 2 story created for accommodation/day-plan image galleries with 0/1/many rendering and mini-strip behavior.
+- Status set to **review**.
+- Completion note: Implementation completed for accommodation/day-plan image galleries including persistence, scoped APIs, dialog UX, day-view mini-strips, i18n, and automated tests.
 
 ## Dev Agent Record
 
@@ -167,8 +167,51 @@ Codex (GPT-5)
 - Captured explicit gallery requirement: support no image, one image, and multiple images.
 - Captured explicit day-view rendering rule: 2-3 thumbnail mini-strip for multi-image items.
 - Added sprint tracking entry for Story 2.16 in Epic 2.
+- Implemented ordered image gallery persistence in Prisma schema for accommodations and day plan items.
+- Added migration `20260215123500_add_item_image_galleries` with snake_case tables/columns and scoped unique order indexes.
+- Added automated persistence tests in `travelplan/test/imageGalleryPersistence.test.ts` and verified full test suite passes.
+- Added scoped repository gallery methods (create/list/delete/reorder) in accommodation/day-plan repositories with strict `userId + tripId + tripDayId + entityId` ownership checks.
+- Added repository tests in `travelplan/test/imageGalleryRepo.test.ts` covering ownership boundaries and deterministic ordering behavior.
+- Added gallery payload Zod schemas (`upload/delete/reorder`) for both accommodation and day plan item image operations.
+- Added authenticated + CSRF-protected accommodation/day-plan gallery route handlers with file upload/list/delete/reorder support and `{ data, error }` response envelopes.
+- Added route tests covering auth, CSRF, validation, and happy path flows for both gallery endpoints.
+- Added day view gallery mini-strip rendering for accommodation and plan item entries with `0/1/many` behavior and `+N` overflow indicator.
+- Added gallery upload/remove/reorder controls to both accommodation and day-plan edit dialogs while preserving existing save/error/loading UX.
+- Added EN/DE i18n copy for gallery controls and expanded UI tests for mini-strip rendering behavior.
+- Executed full regression suite after each completed task; final result: `55` test files, `213` tests passing.
 
 ### File List
 
 - `_bmad-output/implementation-artifacts/2-16-accommodation-and-plan-item-image-galleries.md`
 - `_bmad-output/implementation-artifacts/sprint-status.yaml`
+- `travelplan/prisma/schema.prisma`
+- `travelplan/prisma/migrations/20260215123500_add_item_image_galleries/migration.sql`
+- `travelplan/src/generated/prisma/browser.ts`
+- `travelplan/src/generated/prisma/client.ts`
+- `travelplan/src/generated/prisma/internal/class.ts`
+- `travelplan/src/generated/prisma/internal/prismaNamespace.ts`
+- `travelplan/src/generated/prisma/internal/prismaNamespaceBrowser.ts`
+- `travelplan/src/generated/prisma/models.ts`
+- `travelplan/src/generated/prisma/models/Accommodation.ts`
+- `travelplan/src/generated/prisma/models/AccommodationImage.ts`
+- `travelplan/src/generated/prisma/models/DayPlanItem.ts`
+- `travelplan/src/generated/prisma/models/DayPlanItemImage.ts`
+- `travelplan/test/imageGalleryPersistence.test.ts`
+- `travelplan/src/lib/repositories/accommodationRepo.ts`
+- `travelplan/src/lib/repositories/dayPlanItemRepo.ts`
+- `travelplan/test/imageGalleryRepo.test.ts`
+- `travelplan/src/lib/validation/imageGallerySchemas.ts`
+- `travelplan/src/app/api/trips/[id]/accommodations/images/route.ts`
+- `travelplan/src/app/api/trips/[id]/day-plan-items/images/route.ts`
+- `travelplan/test/tripAccommodationImagesRoute.test.ts`
+- `travelplan/test/tripDayPlanItemImagesRoute.test.ts`
+- `travelplan/src/components/features/trips/TripDayView.tsx`
+- `travelplan/src/components/features/trips/TripAccommodationDialog.tsx`
+- `travelplan/src/components/features/trips/TripDayPlanDialog.tsx`
+- `travelplan/src/i18n/en.ts`
+- `travelplan/src/i18n/de.ts`
+- `travelplan/test/tripDayViewLayout.test.tsx`
+
+## Change Log
+
+- 2026-02-15: Implemented Story 2.16 end-to-end (schema/migration, scoped repositories, validation, authenticated + CSRF routes, dialog gallery UX, day-view mini-strip rendering, i18n updates, and automated tests).

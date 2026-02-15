@@ -103,6 +103,7 @@ model Accommodation {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   tripDay TripDay @relation(fields: [tripDayId], references: [id], onDelete: Cascade)
+  images  AccommodationImage[]
 
   @@map("accommodations")
 }
@@ -119,7 +120,38 @@ model DayPlanItem {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   tripDay TripDay @relation(fields: [tripDayId], references: [id], onDelete: Cascade)
+  images  DayPlanItemImage[]
 
   @@index([tripDayId], map: "idx_day_plan_items_trip_day_id")
   @@map("day_plan_items")
+}
+
+model AccommodationImage {
+  id              String   @id @default(cuid()) @map("id")
+  accommodationId String   @map("accommodation_id")
+  imageUrl        String   @map("image_url")
+  sortOrder       Int      @map("sort_order")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  accommodation Accommodation @relation(fields: [accommodationId], references: [id], onDelete: Cascade)
+
+  @@index([accommodationId], map: "idx_accommodation_images_accommodation_id")
+  @@unique([accommodationId, sortOrder], map: "idx_accommodation_images_order")
+  @@map("accommodation_images")
+}
+
+model DayPlanItemImage {
+  id            String   @id @default(cuid()) @map("id")
+  dayPlanItemId String   @map("day_plan_item_id")
+  imageUrl      String   @map("image_url")
+  sortOrder     Int      @map("sort_order")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  dayPlanItem DayPlanItem @relation(fields: [dayPlanItemId], references: [id], onDelete: Cascade)
+
+  @@index([dayPlanItemId], map: "idx_day_plan_item_images_item_id")
+  @@unique([dayPlanItemId, sortOrder], map: "idx_day_plan_item_images_order")
+  @@map("day_plan_item_images")
 }

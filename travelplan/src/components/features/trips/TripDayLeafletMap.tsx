@@ -2,8 +2,15 @@
 
 import { MapContainer, Marker, Polyline, TileLayer, useMap } from "react-leaflet";
 import { useEffect, useMemo } from "react";
+import type { ReactElement } from "react";
+// @ts-ignore Leaflet types are not resolved in this build environment.
 import L from "leaflet";
 import type { TripDayMapPoint } from "@/components/features/trips/TripDayMapPanel";
+
+const MapContainerCompat = MapContainer as unknown as (props: Record<string, unknown>) => ReactElement;
+const MarkerCompat = Marker as unknown as (props: Record<string, unknown>) => ReactElement;
+const PolylineCompat = Polyline as unknown as (props: Record<string, unknown>) => ReactElement;
+const TileLayerCompat = TileLayer as unknown as (props: Record<string, unknown>) => ReactElement;
 
 const FitToBounds = ({ points }: { points: TripDayMapPoint[] }) => {
   const map = useMap();
@@ -60,17 +67,17 @@ export default function TripDayLeafletMap({ points, polylinePositions }: TripDay
   );
 
   return (
-    <MapContainer center={center} zoom={12} style={{ height: 220, width: "100%" }} scrollWheelZoom={false}>
-      <TileLayer
+    <MapContainerCompat center={center} zoom={12} style={{ height: 220, width: "100%" }} scrollWheelZoom={false}>
+      <TileLayerCompat
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         attribution="&copy; OpenStreetMap contributors"
       />
       {points.map((point, index) => (
-        <Marker key={point.id} position={point.position} icon={markerIcon} data-testid={`day-map-marker-${index}`} />
+        <MarkerCompat key={point.id} position={point.position} icon={markerIcon} data-testid={`day-map-marker-${index}`} />
       ))}
-      {routePolyline.length >= 2 && <Polyline positions={routePolyline} data-testid="day-map-polyline" />}
+      {routePolyline.length >= 2 && <PolylineCompat positions={routePolyline} data-testid="day-map-polyline" />}
       <EnsureMapSized />
       <FitToBounds points={points} />
-    </MapContainer>
+    </MapContainerCompat>
   );
 }

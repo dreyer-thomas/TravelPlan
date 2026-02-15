@@ -294,6 +294,42 @@ describe("PATCH /api/trips/[id]/days/[dayId]/image", () => {
     expect(payload.data?.day.imageUrl).toBe(`/uploads/trips/${trip.id}/days/${day.id}/day.webp`);
   });
 
+  it("accepts jpg uploads reported as image/jpg", async () => {
+    const user = await prisma.user.create({
+      data: {
+        email: "day-image-upload-jpg@example.com",
+        passwordHash: "hashed",
+        role: "OWNER",
+      },
+    });
+    const token = await createSessionJwt({ sub: user.id, role: user.role });
+
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Day Upload JPG Trip",
+      startDate: "2026-08-01T00:00:00.000Z",
+      endDate: "2026-08-01T00:00:00.000Z",
+    });
+    const day = await prisma.tripDay.findFirstOrThrow({ where: { tripId: trip.id } });
+
+    const request = await buildUploadRequest({
+      tripId: trip.id,
+      dayId: day.id,
+      session: token,
+      csrf: "csrf-token",
+      file: new File([Buffer.from("fake-image")], "day.jpg", { type: "image/jpg" }),
+    });
+
+    const response = await POST(request, {
+      params: Promise.resolve({ id: trip.id, dayId: day.id }),
+    });
+    const payload = (await response.json()) as ApiEnvelope<{ day: { id: string; imageUrl: string | null } }>;
+
+    expect(response.status).toBe(200);
+    expect(payload.error).toBeNull();
+    expect(payload.data?.day.imageUrl).toBe(`/uploads/trips/${trip.id}/days/${day.id}/day.jpg`);
+  });
+
   it("uploads day image file with note in one request", async () => {
     const user = await prisma.user.create({
       data: {

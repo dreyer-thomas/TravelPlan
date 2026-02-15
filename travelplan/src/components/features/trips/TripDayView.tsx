@@ -80,6 +80,12 @@ type DayPlanItem = {
   createdAt: string;
 };
 
+type GalleryImage = {
+  id: string;
+  imageUrl: string;
+  sortOrder: number;
+};
+
 type PlanDialogMode = "add" | "edit";
 
 type TripDetail = {
@@ -150,6 +156,52 @@ const parsePolyline = (value: unknown): [number, number][] => {
     .map((point) => [point[0], point[1]]);
 };
 
+const MiniImageStrip = ({
+  images,
+  altPrefix,
+  onImageClick,
+}: {
+  images: GalleryImage[];
+  altPrefix: string;
+  onImageClick: (imageUrl: string, alt: string) => void;
+}) => {
+  if (images.length === 0) {
+    return null;
+  }
+
+  const visible = images.slice(0, 5);
+  const remaining = images.length - visible.length;
+
+  return (
+    <Box display="flex" alignItems="center" gap={0.75} mt={0.75}>
+      {visible.map((image, index) => (
+        <Box
+          key={image.id}
+          component="img"
+          src={image.imageUrl}
+          alt={`${altPrefix} ${index + 1}`}
+          sx={{
+            width: 96,
+            height: 96,
+            objectFit: "cover",
+            borderRadius: 1,
+            border: "1px solid",
+            borderColor: "divider",
+            cursor: "pointer",
+          }}
+          loading="lazy"
+          onClick={() => onImageClick(image.imageUrl, `${altPrefix} ${index + 1}`)}
+        />
+      ))}
+      {remaining > 0 ? (
+        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+          +{remaining}
+        </Typography>
+      ) : null}
+    </Box>
+  );
+};
+
 export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const { language, t } = useI18n();
   const searchParams = useSearchParams();
@@ -167,8 +219,12 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const [dayImageFile, setDayImageFile] = useState<File | null>(null);
   const [dayNoteDraft, setDayNoteDraft] = useState("");
   const [dayImageSaving, setDayImageSaving] = useState(false);
+  const [accommodationImages, setAccommodationImages] = useState<GalleryImage[]>([]);
+  const [previousAccommodationImages, setPreviousAccommodationImages] = useState<GalleryImage[]>([]);
+  const [planItemImagesById, setPlanItemImagesById] = useState<Record<string, GalleryImage[]>>({});
   const [routePolyline, setRoutePolyline] = useState<[number, number][]>([]);
   const [routingUnavailable, setRoutingUnavailable] = useState(false);
+  const [fullscreenImage, setFullscreenImage] = useState<{ imageUrl: string; alt: string } | null>(null);
   const planItemsRef = useRef<DayPlanItem[]>([]);
   const handledDeepLinkRef = useRef<string | null>(null);
 
@@ -408,6 +464,85 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     return orderedDays[currentIndex + 1] ?? null;
   }, [day, orderedDays]);
 
+  useEffect(() => {
+    const loadImages = async () => {
+      if (!day) {
+        setAccommodationImages([]);
+        setPreviousAccommodationImages([]);
+        setPlanItemImagesById({});
+        return;
+      }
+
+      try {
+        if (previousDay?.accommodation) {
+          const previousAccommodationResponse = await fetch(
+            `/api/trips/${tripId}/accommodations/images?tripDayId=${previousDay.id}&accommodationId=${previousDay.accommodation.id}`,
+            {
+              method: "GET",
+              credentials: "include",
+              cache: "no-store",
+            },
+          );
+          const previousAccommodationBody = (await previousAccommodationResponse.json()) as ApiEnvelope<{
+            images: GalleryImage[];
+          }>;
+          const previousImages =
+            previousAccommodationResponse.ok &&
+            !previousAccommodationBody.error &&
+            Array.isArray(previousAccommodationBody.data?.images)
+              ? previousAccommodationBody.data.images
+              : [];
+          setPreviousAccommodationImages(previousImages);
+        } else {
+          setPreviousAccommodationImages([]);
+        }
+
+        if (day.accommodation) {
+          const accommodationResponse = await fetch(
+            `/api/trips/${tripId}/accommodations/images?tripDayId=${day.id}&accommodationId=${day.accommodation.id}`,
+            {
+              method: "GET",
+              credentials: "include",
+              cache: "no-store",
+            },
+          );
+          const accommodationBody = (await accommodationResponse.json()) as ApiEnvelope<{ images: GalleryImage[] }>;
+          const currentImages =
+            accommodationResponse.ok && !accommodationBody.error && Array.isArray(accommodationBody.data?.images)
+              ? accommodationBody.data.images
+              : [];
+          setAccommodationImages(currentImages);
+        } else {
+          setAccommodationImages([]);
+        }
+
+        const nextPlanItemImages: Record<string, GalleryImage[]> = {};
+        await Promise.all(
+          planItems.map(async (item) => {
+            const response = await fetch(
+              `/api/trips/${tripId}/day-plan-items/images?tripDayId=${day.id}&dayPlanItemId=${item.id}`,
+              {
+                method: "GET",
+                credentials: "include",
+                cache: "no-store",
+              },
+            );
+            const body = (await response.json()) as ApiEnvelope<{ images: GalleryImage[] }>;
+            nextPlanItemImages[item.id] =
+              response.ok && !body.error && Array.isArray(body.data?.images) ? body.data.images : [];
+          }),
+        );
+        setPlanItemImagesById(nextPlanItemImages);
+      } catch {
+        setAccommodationImages([]);
+        setPreviousAccommodationImages([]);
+        setPlanItemImagesById({});
+      }
+    };
+
+    void loadImages();
+  }, [day, planItems, previousDay, tripId]);
+
   const previousStay = previousDay?.accommodation ?? null;
   const currentStay = day?.accommodation ?? null;
   const dayHasTimelineContent = Boolean(previousStay || currentStay || planItems.length > 0);
@@ -458,7 +593,11 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
           day: { id: string; imageUrl: string | null; note: string | null };
         }>;
         if (!uploadResponse.ok || uploadBody.error || !uploadBody.data?.day) {
-          setError(t("trips.dayImage.uploadError"));
+          setError(
+            uploadBody.error?.message
+              ? `${t("trips.dayImage.uploadError")} (${uploadBody.error.message})`
+              : t("trips.dayImage.uploadError"),
+          );
           return;
         }
         updateLocalDayMeta({ imageUrl: uploadBody.data.day.imageUrl, note: uploadBody.data.day.note });
@@ -483,7 +622,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
 
       const body = (await response.json()) as ApiEnvelope<{ day: { id: string; imageUrl: string | null; note: string | null } }>;
       if (!response.ok || body.error || !body.data?.day) {
-        setError(t("trips.dayImage.saveError"));
+        setError(body.error?.message ? `${t("trips.dayImage.saveError")} (${body.error.message})` : t("trips.dayImage.saveError"));
         return;
       }
 
@@ -518,7 +657,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
 
       const body = (await response.json()) as ApiEnvelope<{ day: { id: string; imageUrl: string | null; note: string | null } }>;
       if (!response.ok || body.error || !body.data?.day) {
-        setError(t("trips.dayImage.saveError"));
+        setError(body.error?.message ? `${t("trips.dayImage.saveError")} (${body.error.message})` : t("trips.dayImage.saveError"));
         return;
       }
 
@@ -696,61 +835,63 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
       {detail && day && (
         <>
           <Paper elevation={1} sx={{ p: 3, borderRadius: 3 }}>
-            <Box display="flex" flexDirection="column" gap={2}>
-              <Button component={Link} href={`/trips/${tripId}`} variant="text" sx={{ alignSelf: "flex-start" }}>
-                {t("trips.dayView.back")}
-              </Button>
-              <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
-                {previousDay ? (
-                  <Button
-                    component={Link}
-                    href={`/trips/${tripId}/days/${previousDay.id}`}
-                    variant="outlined"
-                    size="small"
-                    aria-label={t("trips.dayView.previousAria")}
-                  >
-                    {t("trips.dayView.previousAction")}
-                  </Button>
-                ) : (
-                  <Button variant="outlined" size="small" disabled aria-label={t("trips.dayView.previousAria")}>
-                    {t("trips.dayView.previousAction")}
-                  </Button>
-                )}
-                {nextDay ? (
-                  <Button
-                    component={Link}
-                    href={`/trips/${tripId}/days/${nextDay.id}`}
-                    variant="outlined"
-                    size="small"
-                    aria-label={t("trips.dayView.nextAria")}
-                  >
-                    {t("trips.dayView.nextAction")}
-                  </Button>
-                ) : (
-                  <Button variant="outlined" size="small" disabled aria-label={t("trips.dayView.nextAria")}>
-                    {t("trips.dayView.nextAction")}
-                  </Button>
-                )}
-              </Box>
-              <Box display="flex" alignItems="flex-start" justifyContent="space-between" gap={1}>
+            <Box display="flex" flexDirection={{ xs: "column", sm: "row" }} alignItems="stretch" gap={2}>
+              <Box display="flex" flexDirection="column" gap={2} flex={1}>
+                <Button component={Link} href={`/trips/${tripId}`} variant="text" sx={{ alignSelf: "flex-start" }}>
+                  {t("trips.dayView.back")}
+                </Button>
+                <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                  {previousDay ? (
+                    <Button
+                      component={Link}
+                      href={`/trips/${tripId}/days/${previousDay.id}`}
+                      variant="outlined"
+                      size="small"
+                      aria-label={t("trips.dayView.previousAria")}
+                    >
+                      {t("trips.dayView.previousAction")}
+                    </Button>
+                  ) : (
+                    <Button variant="outlined" size="small" disabled aria-label={t("trips.dayView.previousAria")}>
+                      {t("trips.dayView.previousAction")}
+                    </Button>
+                  )}
+                  {nextDay ? (
+                    <Button
+                      component={Link}
+                      href={`/trips/${tripId}/days/${nextDay.id}`}
+                      variant="outlined"
+                      size="small"
+                      aria-label={t("trips.dayView.nextAria")}
+                    >
+                      {t("trips.dayView.nextAction")}
+                    </Button>
+                  ) : (
+                    <Button variant="outlined" size="small" disabled aria-label={t("trips.dayView.nextAria")}>
+                      {t("trips.dayView.nextAction")}
+                    </Button>
+                  )}
+                </Box>
                 <Box display="flex" flexDirection="column" gap={0.5}>
-                  <Typography variant="h5" fontWeight={700}>
-                    {dayTitle}
-                  </Typography>
+                  <Box display="flex" alignItems="center" gap={0.5} flexWrap="wrap">
+                    <Typography variant="h5" fontWeight={700}>
+                      {dayTitle}
+                    </Typography>
+                    <IconButton
+                      size="small"
+                      aria-label={t("trips.dayImage.editAction")}
+                      title={t("trips.dayImage.editAction")}
+                      onClick={() => setDayMetaOpen(true)}
+                    >
+                      <SvgIcon fontSize="inherit">
+                        <path d="M3 17.25V21h3.75l11-11-3.75-3.75-11 11zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66z" />
+                      </SvgIcon>
+                    </IconButton>
+                  </Box>
                   <Typography variant="body2" color="text.secondary">
                     {formatDate(day.date)}
                   </Typography>
                 </Box>
-                <IconButton
-                  size="small"
-                  aria-label={t("trips.dayImage.editAction")}
-                  title={t("trips.dayImage.editAction")}
-                  onClick={() => setDayMetaOpen(true)}
-                >
-                  <SvgIcon fontSize="inherit">
-                    <path d="M3 17.25V21h3.75l11-11-3.75-3.75-11 11zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66z" />
-                  </SvgIcon>
-                </IconButton>
               </Box>
               {hasDayImage && (
                 <Box
@@ -758,16 +899,17 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                   src={day.imageUrl ?? undefined}
                   alt={t("trips.dayImage.previewAlt")}
                   sx={{
-                    width: "100%",
-                    maxHeight: 220,
+                    width: { xs: "100%", sm: 320 },
+                    height: { xs: "auto", sm: 220 },
                     objectFit: "cover",
                     borderRadius: 1.5,
                     border: "1px solid",
                     borderColor: "divider",
+                    flexShrink: 0,
+                    alignSelf: { xs: "stretch", sm: "flex-start" },
                   }}
                 />
               )}
-              <Divider />
             </Box>
           </Paper>
 
@@ -801,19 +943,26 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                       primary={t("trips.dayView.previousNightTitle")}
                       secondary={
                         previousStay ? (
-                          <Box display="flex" alignItems="center" gap={1} flexWrap="wrap" component="span">
-                            <Typography variant="body2" component="span">
-                              {previousStay.name}
-                            </Typography>
-                            <Chip
-                              label={
-                                previousStay.status === "booked"
-                                  ? t("trips.stay.statusBooked")
-                                  : t("trips.stay.statusPlanned")
-                              }
-                              size="small"
-                              color={previousStay.status === "booked" ? "success" : "default"}
-                              variant="outlined"
+                          <Box display="flex" flexDirection="column" component="span">
+                            <Box display="flex" alignItems="center" gap={1} flexWrap="wrap" component="span">
+                              <Typography variant="body2" component="span">
+                                {previousStay.name}
+                              </Typography>
+                              <Chip
+                                label={
+                                  previousStay.status === "booked"
+                                    ? t("trips.stay.statusBooked")
+                                    : t("trips.stay.statusPlanned")
+                                }
+                                size="small"
+                                color={previousStay.status === "booked" ? "success" : "default"}
+                                variant="outlined"
+                              />
+                            </Box>
+                            <MiniImageStrip
+                              images={previousAccommodationImages}
+                              altPrefix={previousStay.name}
+                              onImageClick={(imageUrl, alt) => setFullscreenImage({ imageUrl, alt })}
                             />
                           </Box>
                         ) : (
@@ -843,22 +992,32 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                                 <ListItemText
                                   primary={preview}
                                   secondary={
-                                    item.linkUrl ? (
-                                      <Button
-                                        component="a"
-                                        href={item.linkUrl}
-                                        target="_blank"
-                                        rel="noreferrer noopener"
-                                        variant="text"
-                                        size="small"
-                                        sx={{ p: 0, minWidth: "auto" }}
-                                      >
-                                        {t("trips.plan.linkOpen")}
-                                      </Button>
-                                    ) : (
-                                      t("trips.plan.noLink")
-                                    )
+                                    <Box component="span" display="flex" flexDirection="column">
+                                      {item.linkUrl ? (
+                                        <Button
+                                          component="a"
+                                          href={item.linkUrl}
+                                          target="_blank"
+                                          rel="noreferrer noopener"
+                                          variant="text"
+                                          size="small"
+                                          sx={{ p: 0, minWidth: "auto", alignSelf: "flex-start" }}
+                                        >
+                                          {t("trips.plan.linkOpen")}
+                                        </Button>
+                                      ) : (
+                                        <Typography variant="body2" color="text.secondary" component="span">
+                                          {t("trips.plan.noLink")}
+                                        </Typography>
+                                      )}
+                                      <MiniImageStrip
+                                        images={planItemImagesById[item.id] ?? []}
+                                        altPrefix={t("trips.dayView.timelineTitle")}
+                                        onImageClick={(imageUrl, alt) => setFullscreenImage({ imageUrl, alt })}
+                                      />
+                                    </Box>
                                   }
+                                  secondaryTypographyProps={{ component: "span" }}
                                 />
                                 <Box display="flex" alignItems="center" gap={0.5}>
                                   <IconButton
@@ -895,15 +1054,24 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                       primary={t("trips.dayView.currentNightTitle")}
                       secondary={
                         currentStay ? (
-                          <Box display="flex" alignItems="center" gap={1} flexWrap="wrap" component="span">
-                            <Typography variant="body2" component="span">
-                              {currentStay.name}
-                            </Typography>
-                            <Chip
-                              label={currentStay.status === "booked" ? t("trips.stay.statusBooked") : t("trips.stay.statusPlanned")}
-                              size="small"
-                              color={currentStay.status === "booked" ? "success" : "default"}
-                              variant="outlined"
+                          <Box display="flex" flexDirection="column" component="span">
+                            <Box display="flex" alignItems="center" gap={1} flexWrap="wrap" component="span">
+                              <Typography variant="body2" component="span">
+                                {currentStay.name}
+                              </Typography>
+                              <Chip
+                                label={
+                                  currentStay.status === "booked" ? t("trips.stay.statusBooked") : t("trips.stay.statusPlanned")
+                                }
+                                size="small"
+                                color={currentStay.status === "booked" ? "success" : "default"}
+                                variant="outlined"
+                              />
+                            </Box>
+                            <MiniImageStrip
+                              images={accommodationImages}
+                              altPrefix={currentStay.name}
+                              onImageClick={(imageUrl, alt) => setFullscreenImage({ imageUrl, alt })}
                             />
                           </Box>
                         ) : (
@@ -999,12 +1167,13 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                   size="small"
                   type="file"
                   onChange={(event) => {
-                    const file = event.target.files?.[0] ?? null;
+                    const input = event.currentTarget as HTMLInputElement;
+                    const file = input.files?.[0] ?? null;
                     setDayImageFile(file);
                   }}
                   fullWidth
                   inputProps={{
-                    accept: "image/jpeg,image/png,image/webp",
+                    accept: "image/jpeg,image/jpg,image/pjpeg,image/png,image/webp",
                     "aria-label": t("trips.dayImage.fileLabel"),
                   }}
                 />
@@ -1045,6 +1214,46 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                 {t("trips.dayImage.saveAction")}
               </Button>
             </DialogActions>
+          </Dialog>
+          <Dialog
+            open={Boolean(fullscreenImage)}
+            onClose={() => setFullscreenImage(null)}
+            maxWidth={false}
+            sx={{
+              "& .MuiDialog-paper": {
+                backgroundColor: "transparent",
+                boxShadow: "none",
+                m: 0,
+              },
+            }}
+            onKeyDown={() => setFullscreenImage(null)}
+          >
+            {fullscreenImage ? (
+              <DialogContent
+                onClick={() => setFullscreenImage(null)}
+                sx={{
+                  p: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  minWidth: "100vw",
+                  minHeight: "100vh",
+                  backgroundColor: "rgba(0, 0, 0, 0.85)",
+                  cursor: "zoom-out",
+                }}
+              >
+                <Box
+                  component="img"
+                  src={fullscreenImage.imageUrl}
+                  alt={fullscreenImage.alt}
+                  sx={{
+                    maxWidth: "96vw",
+                    maxHeight: "96vh",
+                    objectFit: "contain",
+                  }}
+                />
+              </DialogContent>
+            ) : null}
           </Dialog>
         </>
       )}

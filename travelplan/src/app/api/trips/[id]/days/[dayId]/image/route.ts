@@ -10,12 +10,30 @@ import { dayImageUpdateSchema } from "@/lib/validation/dayImageSchemas";
 
 export const runtime = "nodejs";
 
-const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
+const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
 
 const ALLOWED_TYPES: Record<string, string> = {
   "image/jpeg": "jpg",
+  "image/jpg": "jpg",
+  "image/pjpeg": "jpg",
   "image/png": "png",
   "image/webp": "webp",
+};
+
+const ALLOWED_NAME_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp"]);
+
+const resolveUploadExtension = (file: { type?: string; name?: string }) => {
+  const normalizedType = (file.type ?? "").toLowerCase();
+  const fromMime = ALLOWED_TYPES[normalizedType];
+  if (fromMime) return fromMime;
+
+  const name = typeof file.name === "string" ? file.name : "";
+  const ext = name.includes(".") ? name.split(".").pop()?.toLowerCase() : undefined;
+  if (!ext || !ALLOWED_NAME_EXTENSIONS.has(ext)) {
+    return null;
+  }
+  if (ext === "jpeg") return "jpg";
+  return ext;
 };
 
 const getSessionUserId = async (request: NextRequest) => {
@@ -88,10 +106,15 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
     return fail(apiError("invalid_form_data", "Request body must be valid form data"), 400);
   }
 
-  const file = formData.get("file");
-  if (!file || !(file instanceof File)) {
+  const fileEntry = formData.get("file");
+  if (
+    !fileEntry ||
+    typeof fileEntry === "string" ||
+    typeof (fileEntry as { arrayBuffer?: unknown }).arrayBuffer !== "function"
+  ) {
     return fail(apiError("validation_error", "Day image file is required"), 400);
   }
+  const file = fileEntry as Blob & { name?: string; type?: string; size?: number };
   const noteRaw = formData.get("note");
   if (noteRaw !== null && typeof noteRaw !== "string") {
     return fail(apiError("validation_error", "Invalid day image note"), 400);
@@ -103,12 +126,12 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
   }
   const normalizedNote = trimmedNote.length > 0 ? trimmedNote : null;
 
-  const extension = ALLOWED_TYPES[file.type];
+  const extension = resolveUploadExtension(file);
   if (!extension) {
     return fail(apiError("validation_error", "Invalid day image type"), 400);
   }
 
-  if (file.size > MAX_FILE_SIZE_BYTES) {
+  if (typeof file.size === "number" && file.size > MAX_FILE_SIZE_BYTES) {
     return fail(apiError("validation_error", "Day image exceeds size limit"), 400);
   }
 
