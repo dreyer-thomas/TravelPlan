@@ -817,16 +817,14 @@ export const getDayRoutePointsForUser = async ({
   });
 
   const points: DayRoutePoint[] = [];
+  const previousAccommodation = previousDay?.accommodation;
 
-  if (
-    previousDay?.accommodation?.locationLat !== null &&
-    previousDay.accommodation.locationLng !== null
-  ) {
+  if (previousAccommodation?.locationLat != null && previousAccommodation.locationLng != null) {
     points.push({
-      id: `prev-${previousDay.accommodation.id}`,
+      id: `prev-${previousAccommodation.id}`,
       kind: "previousStay",
-      lat: previousDay.accommodation.locationLat,
-      lng: previousDay.accommodation.locationLng,
+      lat: previousAccommodation.locationLat,
+      lng: previousAccommodation.locationLng,
     });
   }
 
@@ -842,12 +840,13 @@ export const getDayRoutePointsForUser = async ({
     });
   }
 
-  if (day.accommodation?.locationLat !== null && day.accommodation?.locationLng !== null) {
+  const currentAccommodation = day.accommodation;
+  if (currentAccommodation?.locationLat != null && currentAccommodation.locationLng != null) {
     points.push({
-      id: `curr-${day.accommodation.id}`,
+      id: `curr-${currentAccommodation.id}`,
       kind: "currentStay",
-      lat: day.accommodation.locationLat,
-      lng: day.accommodation.locationLng,
+      lat: currentAccommodation.locationLat,
+      lng: currentAccommodation.locationLng,
     });
   }
 
