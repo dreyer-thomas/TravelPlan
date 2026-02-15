@@ -4,7 +4,7 @@ import { locationInputSchema } from "@/lib/validation/locationSchemas";
 const notesSchema = z.string().trim().max(1000, "Notes must be at most 1000 characters");
 const statusSchema = z.enum(["planned", "booked"], "Status must be planned or booked");
 const costSchema = z
-  .number({ invalid_type_error: "Cost must be a number" })
+  .number({ message: "Cost must be a number" })
   .int("Cost must be an integer")
   .min(0, "Cost must be at least 0")
   .max(100000000, "Cost must be at most 100000000");
