@@ -6,9 +6,7 @@ export const registerSchema = z.object({
     .string()
     .min(8, "Password must be at least 8 characters")
     .max(72, "Password must be at most 72 characters"),
-  consent: z.literal(true, {
-    errorMap: () => ({ message: "Consent is required" }),
-  }),
+  consent: z.literal(true, { message: "Consent is required" }),
 });
 
 export type RegisterInput = z.infer<typeof registerSchema>;
