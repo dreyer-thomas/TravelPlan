@@ -88,6 +88,9 @@ export const getDayRouteFromOsrm = async ({
     }
 
     const route = payload.routes?.[0];
+    if (!route) {
+      throw new DayRouteError("routing_invalid_response", "Invalid routing geometry");
+    }
     const coordinates = route?.geometry?.coordinates;
     if (!Array.isArray(coordinates) || coordinates.length < 2) {
       throw new DayRouteError("routing_invalid_response", "Invalid routing geometry");
