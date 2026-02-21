@@ -169,7 +169,7 @@ const MiniImageStrip = ({
     return null;
   }
 
-  const visible = images.slice(0, 5);
+  const visible = images.slice(0, 3);
   const remaining = images.length - visible.length;
 
   return (
@@ -929,160 +929,170 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                 </Box>
               </Box>
               <Divider sx={{ my: 1.5 }} />
-
               {!dayHasTimelineContent && (
-                <Typography variant="body2" color="text.secondary">
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1.25 }}>
                   {t("trips.dayView.timelineEmpty")}
                 </Typography>
               )}
 
-              {dayHasTimelineContent && (
-                <List disablePadding>
-                  <ListItem divider disablePadding sx={{ py: 1 }}>
-                    <ListItemText
-                      primary={t("trips.dayView.previousNightTitle")}
-                      secondary={
-                        previousStay ? (
-                          <Box display="flex" flexDirection="column" component="span">
-                            <Box display="flex" alignItems="center" gap={1} flexWrap="wrap" component="span">
-                              <Typography variant="body2" component="span">
-                                {previousStay.name}
-                              </Typography>
-                              <Chip
-                                label={
-                                  previousStay.status === "booked"
-                                    ? t("trips.stay.statusBooked")
-                                    : t("trips.stay.statusPlanned")
-                                }
-                                size="small"
-                                color={previousStay.status === "booked" ? "success" : "default"}
-                                variant="outlined"
-                              />
-                            </Box>
-                            <MiniImageStrip
-                              images={previousAccommodationImages}
-                              altPrefix={previousStay.name}
-                              onImageClick={(imageUrl, alt) => setFullscreenImage({ imageUrl, alt })}
-                            />
-                          </Box>
-                        ) : (
-                          t("trips.dayView.previousNightEmpty")
-                        )
-                      }
-                      secondaryTypographyProps={{ component: "span" }}
-                    />
-                  </ListItem>
-
-                  <ListItem divider disablePadding sx={{ py: 1 }}>
-                    <Box display="flex" flexDirection="column" width="100%" gap={1}>
-                      <Typography variant="body1">{t("trips.dayView.activitiesTitle")}</Typography>
-                      {planItems.length === 0 && (
-                        <Typography variant="body2" color="text.secondary">
-                          {t("trips.dayView.activitiesEmpty")}
-                        </Typography>
-                      )}
-                      {planItems.length > 0 && (
-                        <List disablePadding dense>
-                          {planItems.map((item, index) => {
-                            const preview =
-                              parsePlanText(item.contentJson) ||
-                              formatMessage(t("trips.dayView.budgetItemPlan"), { index: index + 1 });
-                            return (
-                              <ListItem key={item.id} disablePadding sx={{ py: 0.5 }}>
-                                <ListItemText
-                                  primary={preview}
-                                  secondary={
-                                    <Box component="span" display="flex" flexDirection="column">
-                                      {item.linkUrl ? (
-                                        <Button
-                                          component="a"
-                                          href={item.linkUrl}
-                                          target="_blank"
-                                          rel="noreferrer noopener"
-                                          variant="text"
-                                          size="small"
-                                          sx={{ p: 0, minWidth: "auto", alignSelf: "flex-start" }}
-                                        >
-                                          {t("trips.plan.linkOpen")}
-                                        </Button>
-                                      ) : (
-                                        <Typography variant="body2" color="text.secondary" component="span">
-                                          {t("trips.plan.noLink")}
-                                        </Typography>
-                                      )}
-                                      <MiniImageStrip
-                                        images={planItemImagesById[item.id] ?? []}
-                                        altPrefix={t("trips.dayView.timelineTitle")}
-                                        onImageClick={(imageUrl, alt) => setFullscreenImage({ imageUrl, alt })}
-                                      />
-                                    </Box>
-                                  }
-                                  secondaryTypographyProps={{ component: "span" }}
-                                />
-                                <Box display="flex" alignItems="center" gap={0.5}>
-                                  <IconButton
-                                    size="small"
-                                    aria-label={t("trips.plan.editItemAria")}
-                                    title={t("trips.plan.editItemAria")}
-                                    onClick={() => handleOpenEditPlan(item)}
-                                  >
-                                    <SvgIcon fontSize="inherit">
-                                      <path d="M3 17.25V21h3.75l11-11-3.75-3.75-11 11zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66z" />
-                                    </SvgIcon>
-                                  </IconButton>
-                                  <IconButton
-                                    size="small"
-                                    aria-label={t("trips.plan.deleteItemAria")}
-                                    title={t("trips.plan.deleteItemAria")}
-                                    onClick={() => void handleDeletePlan(item.id)}
-                                  >
-                                    <SvgIcon fontSize="inherit">
-                                      <path d="M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-3.5l-1-1z" />
-                                    </SvgIcon>
-                                  </IconButton>
-                                </Box>
-                              </ListItem>
-                            );
-                          })}
-                        </List>
-                      )}
+              <Box display="flex" flexDirection="column" gap={1.25}>
+                <Paper
+                  elevation={0}
+                  sx={{
+                    p: 1.5,
+                    borderRadius: 1.5,
+                    border: "1px solid",
+                    borderColor: "grey.400",
+                    bgcolor: "grey.200",
+                  }}
+                >
+                  <Typography variant="body1" fontWeight={600} gutterBottom>
+                    {t("trips.dayView.previousNightTitle")}
+                  </Typography>
+                  {previousStay ? (
+                    <Box display="flex" flexDirection="column" gap={0.75}>
+                      <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                        <Typography variant="body2">{previousStay.name}</Typography>
+                        <Chip
+                          label={previousStay.status === "booked" ? t("trips.stay.statusBooked") : t("trips.stay.statusPlanned")}
+                          size="small"
+                          color={previousStay.status === "booked" ? "success" : "default"}
+                          variant="outlined"
+                        />
+                      </Box>
+                      <MiniImageStrip
+                        images={previousAccommodationImages}
+                        altPrefix={previousStay.name}
+                        onImageClick={(imageUrl, alt) => setFullscreenImage({ imageUrl, alt })}
+                      />
                     </Box>
-                  </ListItem>
+                  ) : (
+                    <Typography variant="body2" color="text.secondary">
+                      {t("trips.dayView.previousNightEmpty")}
+                    </Typography>
+                  )}
+                </Paper>
 
-                  <ListItem disablePadding sx={{ py: 1 }}>
-                    <ListItemText
-                      primary={t("trips.dayView.currentNightTitle")}
-                      secondary={
-                        currentStay ? (
-                          <Box display="flex" flexDirection="column" component="span">
-                            <Box display="flex" alignItems="center" gap={1} flexWrap="wrap" component="span">
-                              <Typography variant="body2" component="span">
-                                {currentStay.name}
-                              </Typography>
-                              <Chip
-                                label={
-                                  currentStay.status === "booked" ? t("trips.stay.statusBooked") : t("trips.stay.statusPlanned")
-                                }
+                {planItems.length === 0 ? (
+                  <Paper
+                    elevation={0}
+                    sx={{
+                      p: 1.5,
+                      borderRadius: 1.5,
+                      border: "1px solid",
+                      borderColor: "divider",
+                    }}
+                  >
+                    <Typography variant="body2" color="text.secondary">
+                      {t("trips.dayView.activitiesEmpty")}
+                    </Typography>
+                  </Paper>
+                ) : (
+                  planItems.map((item, index) => {
+                    const preview =
+                      parsePlanText(item.contentJson) || formatMessage(t("trips.dayView.budgetItemPlan"), { index: index + 1 });
+                    return (
+                      <Paper
+                        key={item.id}
+                        elevation={0}
+                        sx={{
+                          p: 1.5,
+                          borderRadius: 1.5,
+                          border: "1px solid",
+                          borderColor: "divider",
+                        }}
+                      >
+                        <Box display="flex" alignItems="flex-start" justifyContent="space-between" gap={1}>
+                          <Box display="flex" flexDirection="column" gap={0.75}>
+                            <Typography variant="body2">{preview}</Typography>
+                            {item.linkUrl ? (
+                              <Button
+                                component="a"
+                                href={item.linkUrl}
+                                target="_blank"
+                                rel="noreferrer noopener"
+                                variant="text"
                                 size="small"
-                                color={currentStay.status === "booked" ? "success" : "default"}
-                                variant="outlined"
-                              />
-                            </Box>
+                                sx={{ p: 0, minWidth: "auto", alignSelf: "flex-start" }}
+                              >
+                                {t("trips.plan.linkOpen")}
+                              </Button>
+                            ) : (
+                              <Typography variant="body2" color="text.secondary">
+                                {t("trips.plan.noLink")}
+                              </Typography>
+                            )}
                             <MiniImageStrip
-                              images={accommodationImages}
-                              altPrefix={currentStay.name}
+                              images={planItemImagesById[item.id] ?? []}
+                              altPrefix={t("trips.dayView.timelineTitle")}
                               onImageClick={(imageUrl, alt) => setFullscreenImage({ imageUrl, alt })}
                             />
                           </Box>
-                        ) : (
-                          t("trips.dayView.currentNightEmpty")
-                        )
-                      }
-                      secondaryTypographyProps={{ component: "span" }}
-                    />
-                  </ListItem>
-                </List>
-              )}
+                          <Box display="flex" alignItems="center" gap={0.5}>
+                            <IconButton
+                              size="small"
+                              aria-label={t("trips.plan.editItemAria")}
+                              title={t("trips.plan.editItemAria")}
+                              onClick={() => handleOpenEditPlan(item)}
+                            >
+                              <SvgIcon fontSize="inherit">
+                                <path d="M3 17.25V21h3.75l11-11-3.75-3.75-11 11zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66z" />
+                              </SvgIcon>
+                            </IconButton>
+                            <IconButton
+                              size="small"
+                              aria-label={t("trips.plan.deleteItemAria")}
+                              title={t("trips.plan.deleteItemAria")}
+                              onClick={() => void handleDeletePlan(item.id)}
+                            >
+                              <SvgIcon fontSize="inherit">
+                                <path d="M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-3.5l-1-1z" />
+                              </SvgIcon>
+                            </IconButton>
+                          </Box>
+                        </Box>
+                      </Paper>
+                    );
+                  })
+                )}
+
+                <Paper
+                  elevation={0}
+                  sx={{
+                    p: 1.5,
+                    borderRadius: 1.5,
+                    border: "1px solid",
+                    borderColor: "grey.400",
+                    bgcolor: "grey.200",
+                  }}
+                >
+                  <Typography variant="body1" fontWeight={600} gutterBottom>
+                    {t("trips.dayView.currentNightTitle")}
+                  </Typography>
+                  {currentStay ? (
+                    <Box display="flex" flexDirection="column" gap={0.75}>
+                      <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                        <Typography variant="body2">{currentStay.name}</Typography>
+                        <Chip
+                          label={currentStay.status === "booked" ? t("trips.stay.statusBooked") : t("trips.stay.statusPlanned")}
+                          size="small"
+                          color={currentStay.status === "booked" ? "success" : "default"}
+                          variant="outlined"
+                        />
+                      </Box>
+                      <MiniImageStrip
+                        images={accommodationImages}
+                        altPrefix={currentStay.name}
+                        onImageClick={(imageUrl, alt) => setFullscreenImage({ imageUrl, alt })}
+                      />
+                    </Box>
+                  ) : (
+                    <Typography variant="body2" color="text.secondary">
+                      {t("trips.dayView.currentNightEmpty")}
+                    </Typography>
+                  )}
+                </Paper>
+              </Box>
             </Paper>
 
             <Box sx={{ flex: 1, display: "flex", flexDirection: "column", gap: 2 }}>

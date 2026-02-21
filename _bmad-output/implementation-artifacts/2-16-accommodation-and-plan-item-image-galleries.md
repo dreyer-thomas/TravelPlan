@@ -1,6 +1,6 @@
 # Story 2.16: Accommodation and Plan Item Image Galleries
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -152,7 +152,7 @@ so that day view shows visual context beside each item.
 
 ## Story Completion Status
 
-- Status set to **review**.
+- Status set to **done**.
 - Completion note: Implementation completed for accommodation/day-plan image galleries including persistence, scoped APIs, dialog UX, day-view mini-strips, i18n, and automated tests.
 
 ## Dev Agent Record
@@ -179,6 +179,10 @@ Codex (GPT-5)
 - Added gallery upload/remove/reorder controls to both accommodation and day-plan edit dialogs while preserving existing save/error/loading UX.
 - Added EN/DE i18n copy for gallery controls and expanded UI tests for mini-strip rendering behavior.
 - Executed full regression suite after each completed task; final result: `55` test files, `213` tests passing.
+- Senior review fix: aligned day-view mini-strip with AC by capping gallery thumbnails to 3 and showing `+N` overflow.
+- Senior review fix: added accommodation gallery reorder controls with API-backed persistence in `TripAccommodationDialog`.
+- Senior review fix: expanded gallery route tests to verify authenticated non-owner access is blocked.
+- Senior review fix: corrected mini-strip `+N` UI test expectation to assert overflow indicator presence.
 
 ### File List
 
@@ -186,16 +190,6 @@ Codex (GPT-5)
 - `_bmad-output/implementation-artifacts/sprint-status.yaml`
 - `travelplan/prisma/schema.prisma`
 - `travelplan/prisma/migrations/20260215123500_add_item_image_galleries/migration.sql`
-- `travelplan/src/generated/prisma/browser.ts`
-- `travelplan/src/generated/prisma/client.ts`
-- `travelplan/src/generated/prisma/internal/class.ts`
-- `travelplan/src/generated/prisma/internal/prismaNamespace.ts`
-- `travelplan/src/generated/prisma/internal/prismaNamespaceBrowser.ts`
-- `travelplan/src/generated/prisma/models.ts`
-- `travelplan/src/generated/prisma/models/Accommodation.ts`
-- `travelplan/src/generated/prisma/models/AccommodationImage.ts`
-- `travelplan/src/generated/prisma/models/DayPlanItem.ts`
-- `travelplan/src/generated/prisma/models/DayPlanItemImage.ts`
 - `travelplan/test/imageGalleryPersistence.test.ts`
 - `travelplan/src/lib/repositories/accommodationRepo.ts`
 - `travelplan/src/lib/repositories/dayPlanItemRepo.ts`
@@ -215,3 +209,15 @@ Codex (GPT-5)
 ## Change Log
 
 - 2026-02-15: Implemented Story 2.16 end-to-end (schema/migration, scoped repositories, validation, authenticated + CSRF routes, dialog gallery UX, day-view mini-strip rendering, i18n updates, and automated tests).
+- 2026-02-21: Senior review fixes applied (AC-aligned mini-strip cap/overflow, accommodation gallery reorder UX + API persistence, unauthorized ownership route tests, corrected `+N` UI assertion).
+
+## Senior Developer Review (AI)
+
+- Reviewer: Tommy
+- Date: 2026-02-21
+- Outcome: Changes Requested items resolved
+- Summary:
+  - Fixed AC 4/5 mismatch by rendering max 3 thumbnails with `+N` overflow in day view.
+  - Fixed task completion mismatch by implementing reorder controls for accommodation gallery dialog.
+  - Added explicit non-owner authorization coverage for gallery route GET/POST/PATCH/DELETE flows.
+  - Updated mini-strip UI test to assert the expected overflow indicator behavior.

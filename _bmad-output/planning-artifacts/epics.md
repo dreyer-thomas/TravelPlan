@@ -466,6 +466,58 @@ so that I can keep the overview compact while focusing on one day at a time.
 **When** I look for per-day actions
 **Then** I see only a day selection entry point (no per-day action buttons)
 
+### Story 2.18: Rich Text Editor Formatting and Rendered Day Items
+
+As a trip planner,
+I want formatting options in the day-entry editor and formatted rendering in day item cards,
+So that my daily plan entries are richer and easier to read.
+
+**FRs covered:** FR18, FR19, FR20
+
+**Acceptance Criteria:**
+
+**Given** I open add/edit for a day plan item
+**When** the editor is shown
+**Then** I can access formatting controls including italic and image insertion
+
+**Given** I apply formatting in the editor
+**When** I save the day plan item
+**Then** formatting is persisted without breaking existing day plan content
+
+**Given** a day plan item contains formatted content
+**When** it is rendered in day timeline cards
+**Then** the card shows formatted output (for example italic text and embedded images), not plain-text-only extraction
+
+**Given** older day plan items exist
+**When** day cards render
+**Then** legacy entries still display correctly with no regression
+
+### Story 2.19: Day Plan Item Costs in Day and Trip Totals
+
+As a trip planner,
+I want each day plan item to have an optional cost,
+So that day and trip totals reflect all planned spending.
+
+**FRs covered:** FR21
+
+**Acceptance Criteria:**
+
+**Given** I add or edit a day plan item
+**When** I enter a cost
+**Then** the item saves with that cost
+
+**Given** day plan items have costs
+**When** I view day details
+**Then** those costs are included in the day total and visible in day budget entries
+
+**Given** a trip has day plan item costs across days
+**When** I view the trip planned total
+**Then** the total includes accommodation costs plus day plan item costs
+
+**Given** a day plan item has no cost
+**When** totals are calculated
+**Then** the item contributes zero and no error is shown
+
 ## Epic 3: Route & Map-Based Planning
 
 Users can visualize trips and days on maps and seed a trip from Google start + destination.

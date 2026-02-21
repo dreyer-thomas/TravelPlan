@@ -10,7 +10,6 @@ import {
   IconButton,
   List,
   ListItem,
-  ListItemText,
   Paper,
   Skeleton,
   SvgIcon,
@@ -25,7 +24,6 @@ import TripOverviewMapPanel from "@/components/features/trips/TripOverviewMapPan
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
 
-// eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 type ApiEnvelope<T> = {
   data: T | null;
   error: { code: string; message: string; details?: unknown } | null;
@@ -443,88 +441,101 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
               )}
 
               {!listEmpty && (
-                <List disablePadding>
+                <List disablePadding sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
                   {detail.days.map((day) => (
-                    <ListItem
-                      key={day.id}
-                      divider
-                      disablePadding
-                      secondaryAction={
-                        <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
-                          <IconButton
-                            component={Link}
-                            href={`/trips/${tripId}/days/${day.id}`}
-                            size="small"
-                            aria-label={t("trips.timeline.openDay")}
-                            title={t("trips.timeline.openDay")}
-                          >
-                            <SvgIcon sx={{ fontSize: 18 }} viewBox="0 0 24 24">
-                              <path d="m3 17.25V21h3.75l11-11-3.75-3.75zm17.71-10.04a1 1 0 0 0 0-1.41l-2.5-2.5a1 1 0 0 0-1.41 0l-1.96 1.96 3.75 3.75z" />
-                            </SvgIcon>
-                          </IconButton>
-                          {(day.missingAccommodation || day.missingPlan) && (
-                            <>
-                              {day.missingAccommodation && (
-                                <Chip label={t("trips.timeline.missingStay")} size="small" color="warning" variant="outlined" />
+                    <ListItem key={day.id} disablePadding>
+                      <Paper
+                        data-testid="timeline-day-card"
+                        elevation={0}
+                        sx={{
+                          width: "100%",
+                          backgroundColor: "#FFFFFF",
+                          border: "1px solid",
+                          borderColor: "divider",
+                          borderRadius: 2,
+                          p: { xs: 1.5, sm: 2 },
+                        }}
+                      >
+                        <Box display="flex" flexDirection="column" gap={1.5}>
+                          <Box display="flex" alignItems="flex-start" justifyContent="space-between" gap={1.5} flexWrap="wrap">
+                            <Box display="flex" flexDirection="column" gap={0.5}>
+                              <Typography variant="subtitle1" fontWeight={600}>
+                                {day.note && day.note.trim().length > 0
+                                  ? `${formatMessage(t("trips.timeline.dayLabel"), { index: day.dayIndex })}: ${day.note.trim()}`
+                                  : formatMessage(t("trips.timeline.dayLabel"), { index: day.dayIndex })}
+                              </Typography>
+                              <Typography variant="body2" color="text.secondary">
+                                {formatDate(day.date)}
+                              </Typography>
+                            </Box>
+                            <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                              <IconButton
+                                component={Link}
+                                href={`/trips/${tripId}/days/${day.id}`}
+                                size="small"
+                                aria-label={t("trips.timeline.openDay")}
+                                title={t("trips.timeline.openDay")}
+                              >
+                                <SvgIcon sx={{ fontSize: 18 }} viewBox="0 0 24 24">
+                                  <path d="m3 17.25V21h3.75l11-11-3.75-3.75zm17.71-10.04a1 1 0 0 0 0-1.41l-2.5-2.5a1 1 0 0 0-1.41 0l-1.96 1.96 3.75 3.75z" />
+                                </SvgIcon>
+                              </IconButton>
+                              {(day.missingAccommodation || day.missingPlan) && (
+                                <>
+                                  {day.missingAccommodation && (
+                                    <Chip label={t("trips.timeline.missingStay")} size="small" color="warning" variant="outlined" />
+                                  )}
+                                  {day.missingPlan && (
+                                    <Chip label={t("trips.timeline.missingPlan")} size="small" color="warning" variant="outlined" />
+                                  )}
+                                </>
                               )}
-                              {day.missingPlan && (
-                                <Chip label={t("trips.timeline.missingPlan")} size="small" color="warning" variant="outlined" />
-                              )}
-                            </>
-                          )}
-                        </Box>
-                      }
-                    >
-                      <ListItemText
-                        primary={
-                          day.note && day.note.trim().length > 0
-                            ? `${formatMessage(t("trips.timeline.dayLabel"), { index: day.dayIndex })}: ${day.note.trim()}`
-                            : formatMessage(t("trips.timeline.dayLabel"), { index: day.dayIndex })
-                        }
-                        secondary={
-                          <Box display="flex" flexDirection="column" gap={0.5}>
-                            <Box display="flex" alignItems="center" gap={1.5} flexWrap="wrap">
-                              {day.imageUrl && day.imageUrl.trim().length > 0 && (
-                                <Box
-                                  component="img"
-                                  src={day.imageUrl}
-                                  alt={t("trips.dayImage.previewAlt")}
-                                  sx={{
-                                    width: 92,
-                                    height: 56,
-                                    objectFit: "cover",
-                                    borderRadius: 1,
-                                    border: "1px solid",
-                                    borderColor: "divider",
-                                  }}
-                                />
-                              )}
-                              <Box display="flex" flexDirection="column" gap={0.5}>
-                                <Typography variant="body2" color="text.secondary" component="span">
-                                  {formatDate(day.date)}
-                                </Typography>
-                                {!day.missingAccommodation && day.accommodation && (
-                                  <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
-                                    <Chip
-                                      label={renderAccommodationStatus(day.accommodation.status)}
-                                      size="small"
-                                      color={day.accommodation.status === "booked" ? "success" : "default"}
-                                      variant="outlined"
-                                      clickable={Boolean(day.accommodation.link)}
-                                      component={day.accommodation.link ? "a" : "div"}
-                                      href={day.accommodation.link ?? undefined}
-                                      target={day.accommodation.link ? "_blank" : undefined}
-                                      rel={day.accommodation.link ? "noreferrer noopener" : undefined}
-                                    />
-                                  </Box>
-                                )}
-                              </Box>
                             </Box>
                           </Box>
-                        }
-                        secondaryTypographyProps={{ component: "div" }}
-                        sx={{ py: 0.5 }}
-                      />
+
+                          {day.imageUrl && day.imageUrl.trim().length > 0 && (
+                            <Box
+                              component="img"
+                              src={day.imageUrl}
+                              alt={t("trips.dayImage.previewAlt")}
+                              sx={{
+                                width: 92,
+                                height: 56,
+                                objectFit: "cover",
+                                borderRadius: 1,
+                                border: "1px solid",
+                                borderColor: "divider",
+                              }}
+                            />
+                          )}
+
+                          {day.accommodation && (
+                            <Box
+                              data-testid="timeline-accommodation-surface"
+                              sx={{
+                                backgroundColor: "#F2F2F2",
+                                borderRadius: 1.5,
+                                px: 1,
+                                py: 0.75,
+                                width: "fit-content",
+                                maxWidth: "100%",
+                              }}
+                            >
+                              <Chip
+                                label={renderAccommodationStatus(day.accommodation.status)}
+                                size="small"
+                                color={day.accommodation.status === "booked" ? "success" : "default"}
+                                variant="outlined"
+                                clickable={Boolean(day.accommodation.link)}
+                                component={day.accommodation.link ? "a" : "div"}
+                                href={day.accommodation.link ?? undefined}
+                                target={day.accommodation.link ? "_blank" : undefined}
+                                rel={day.accommodation.link ? "noreferrer noopener" : undefined}
+                              />
+                            </Box>
+                          )}
+                        </Box>
+                      </Paper>
                     </ListItem>
                   ))}
                 </List>

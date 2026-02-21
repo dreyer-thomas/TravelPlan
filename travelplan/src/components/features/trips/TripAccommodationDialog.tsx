@@ -458,6 +458,45 @@ export default function TripAccommodationDialog({ open, tripId, day, onClose, on
     }
   };
 
+  const reorderGalleryImages = async (nextImages: GalleryImage[]) => {
+    if (!day?.accommodation) return;
+    let token: string;
+    try {
+      token = await ensureCsrfToken();
+    } catch {
+      setServerError(t("errors.csrfMissing"));
+      return;
+    }
+
+    setGalleryBusy(true);
+    setServerError(null);
+    try {
+      const response = await fetch(`/api/trips/${tripId}/accommodations/images`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "x-csrf-token": token,
+        },
+        body: JSON.stringify({
+          tripDayId: day.id,
+          accommodationId: day.accommodation.id,
+          order: nextImages.map((image, index) => ({ imageId: image.id, sortOrder: index + 1 })),
+        }),
+      });
+      const body = (await response.json()) as ApiEnvelope<{ reordered: boolean }>;
+      if (!response.ok || body.error) {
+        setServerError(t("trips.stay.error"));
+        return;
+      }
+      setGalleryImages(nextImages.map((image, index) => ({ ...image, sortOrder: index + 1 })));
+    } catch {
+      setServerError(t("trips.stay.error"));
+    } finally {
+      setGalleryBusy(false);
+    }
+  };
+
   const title = day?.accommodation ? t("trips.stay.editTitle") : t("trips.stay.addTitle");
 
   const nameRules = useMemo(
@@ -643,7 +682,7 @@ export default function TripAccommodationDialog({ open, tripId, day, onClose, on
                     {galleryImages
                       .slice()
                       .sort((left, right) => left.sortOrder - right.sortOrder)
-                      .map((image, index) => (
+                      .map((image, index, all) => (
                         <Box key={image.id} display="flex" alignItems="center" gap={1}>
                           <Box
                             component="img"
@@ -656,6 +695,30 @@ export default function TripAccommodationDialog({ open, tripId, day, onClose, on
                           <Typography variant="caption" sx={{ minWidth: 20 }}>
                             {index + 1}
                           </Typography>
+                          <Button
+                            size="small"
+                            onClick={() => {
+                              if (index === 0) return;
+                              const next = [...all];
+                              [next[index - 1], next[index]] = [next[index], next[index - 1]];
+                              void reorderGalleryImages(next);
+                            }}
+                            disabled={index === 0 || galleryBusy}
+                          >
+                            {t("trips.gallery.moveUp")}
+                          </Button>
+                          <Button
+                            size="small"
+                            onClick={() => {
+                              if (index === all.length - 1) return;
+                              const next = [...all];
+                              [next[index], next[index + 1]] = [next[index + 1], next[index]];
+                              void reorderGalleryImages(next);
+                            }}
+                            disabled={index === all.length - 1 || galleryBusy}
+                          >
+                            {t("trips.gallery.moveDown")}
+                          </Button>
                           <Button size="small" color="error" onClick={() => void deleteGalleryImage(image.id)} disabled={galleryBusy}>
                             {t("trips.gallery.removeAction")}
                           </Button>

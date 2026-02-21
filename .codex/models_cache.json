@@ -1,7 +1,7 @@
 {
-  "fetched_at": "2026-02-15T13:38:01.498409Z",
+  "fetched_at": "2026-02-21T21:30:01.613012Z",
   "etag": "W/\"845db390bd0aba8aa57b43b306ac7d3e\"",
-  "client_version": "0.99.0",
+  "client_version": "0.100.0",
   "models": [
     {
       "slug": "gpt-5.3-codex",
@@ -55,7 +55,8 @@
       "input_modalities": [
         "text",
         "image"
-      ]
+      ],
+      "prefer_websockets": false
     },
     {
       "slug": "gpt-5.2-codex",
@@ -112,7 +113,8 @@
       "input_modalities": [
         "text",
         "image"
-      ]
+      ],
+      "prefer_websockets": false
     },
     {
       "slug": "gpt-5.1-codex-max",
@@ -161,7 +163,8 @@
       "input_modalities": [
         "text",
         "image"
-      ]
+      ],
+      "prefer_websockets": false
     },
     {
       "slug": "gpt-5.1-codex",
@@ -206,7 +209,8 @@
       "input_modalities": [
         "text",
         "image"
-      ]
+      ],
+      "prefer_websockets": false
     },
     {
       "slug": "gpt-5.2",
@@ -255,7 +259,8 @@
       "input_modalities": [
         "text",
         "image"
-      ]
+      ],
+      "prefer_websockets": false
     },
     {
       "slug": "gpt-5.1",
@@ -300,7 +305,8 @@
       "input_modalities": [
         "text",
         "image"
-      ]
+      ],
+      "prefer_websockets": false
     },
     {
       "slug": "gpt-5-codex",
@@ -345,7 +351,8 @@
       "input_modalities": [
         "text",
         "image"
-      ]
+      ],
+      "prefer_websockets": false
     },
     {
       "slug": "gpt-5",
@@ -394,7 +401,8 @@
       "input_modalities": [
         "text",
         "image"
-      ]
+      ],
+      "prefer_websockets": false
     },
     {
       "slug": "gpt-5.1-codex-mini",
@@ -435,7 +443,8 @@
       "input_modalities": [
         "text",
         "image"
-      ]
+      ],
+      "prefer_websockets": false
     },
     {
       "slug": "gpt-5-codex-mini",
@@ -476,7 +485,8 @@
       "input_modalities": [
         "text",
         "image"
-      ]
+      ],
+      "prefer_websockets": false
     }
   ]
 }

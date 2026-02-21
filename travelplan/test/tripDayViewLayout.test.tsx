@@ -491,7 +491,6 @@ describe("TripDayView layout", () => {
     expect(screen.getByRole("link", { name: "← Back to trip" })).toBeInTheDocument();
     expect(screen.getByText("Previous night accommodation")).toBeInTheDocument();
     expect(screen.getAllByText("Airport Hotel").length).toBeGreaterThan(0);
-    expect(screen.getByText("Day activities")).toBeInTheDocument();
     expect(screen.getAllByText("Museum visit").length).toBeGreaterThan(0);
     expect(screen.getByRole("link", { name: "Open link" })).toHaveAttribute("href", "https://example.com/museum");
     expect(screen.getByText("Current night accommodation")).toBeInTheDocument();
@@ -611,7 +610,7 @@ describe("TripDayView layout", () => {
 
     await screen.findByRole("heading", { name: "Day 1", level: 5 });
     await waitFor(() => {
-      expect(screen.queryByText("+1")).not.toBeInTheDocument();
+      expect(screen.getByText("+1")).toBeInTheDocument();
     });
     expect(screen.getAllByAltText(/Gallery thumbnail|Hotel|Day timeline/i).length).toBeGreaterThanOrEqual(4);
 

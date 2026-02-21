@@ -199,4 +199,174 @@ describe("TripTimeline plan action", () => {
 
     vi.unstubAllGlobals();
   });
+
+  it("renders each day as a card and keeps accommodation surface tied to accommodation data", async () => {
+    const tripDetailResponse = {
+      data: {
+        trip: {
+          id: "trip-1",
+          name: "Trip",
+          startDate: "2026-12-01T00:00:00.000Z",
+          endDate: "2026-12-02T00:00:00.000Z",
+          dayCount: 2,
+          plannedCostTotal: 0,
+          accommodationCostTotalCents: null,
+          heroImageUrl: null,
+        },
+        days: [
+          {
+            id: "day-1",
+            date: "2026-12-01T00:00:00.000Z",
+            dayIndex: 1,
+            imageUrl: null,
+            note: null,
+            missingAccommodation: false,
+            missingPlan: false,
+            accommodation: {
+              id: "stay-1",
+              name: "Hotel One",
+              notes: null,
+              status: "booked",
+              costCents: 10000,
+              link: "https://example.com/stay-1",
+              location: null,
+            },
+            dayPlanItems: [],
+          },
+          {
+            id: "day-2",
+            date: "2026-12-02T00:00:00.000Z",
+            dayIndex: 2,
+            imageUrl: null,
+            note: null,
+            missingAccommodation: true,
+            missingPlan: false,
+            accommodation: {
+              id: "stay-2",
+              name: "Hotel Two",
+              notes: null,
+              status: "planned",
+              costCents: null,
+              link: null,
+              location: null,
+            },
+            dayPlanItems: [],
+          },
+        ],
+      },
+      error: null,
+    };
+
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => tripDetailResponse,
+    })) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripTimeline tripId="trip-1" />
+      </I18nProvider>,
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+    const dayCards = screen.getAllByTestId("timeline-day-card");
+    expect(dayCards).toHaveLength(2);
+    expect(dayCards[0]).toHaveStyle({ backgroundColor: "#ffffff" });
+    expect(dayCards[1]).toHaveStyle({ backgroundColor: "#ffffff" });
+
+    const accommodationSurfaces = screen.getAllByTestId("timeline-accommodation-surface");
+    expect(accommodationSurfaces).toHaveLength(2);
+    expect(accommodationSurfaces[0]).toHaveStyle({ backgroundColor: "#f2f2f2" });
+    expect(accommodationSurfaces[1]).toHaveStyle({ backgroundColor: "#f2f2f2" });
+
+    expect(screen.getByText("Missing stay")).toBeInTheDocument();
+
+    expect(screen.queryByText(/accommodation/i)).toBeNull();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps timeline cards readable when viewport changes between mobile and desktop widths", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-02T00:00:00.000Z",
+            dayCount: 2,
+            plannedCostTotal: 0,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
+          },
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              imageUrl: null,
+              note: "Arrival",
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: null,
+              dayPlanItems: [],
+            },
+            {
+              id: "day-2",
+              date: "2026-12-02T00:00:00.000Z",
+              dayIndex: 2,
+              imageUrl: null,
+              note: "City walk",
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: null,
+              dayPlanItems: [],
+            },
+          ],
+        },
+        error: null,
+      }),
+    })) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+    const setViewport = (width: number) => {
+      window.innerWidth = width;
+      window.dispatchEvent(new Event("resize"));
+    };
+
+    setViewport(375);
+    const { rerender } = render(
+      <I18nProvider initialLanguage="en">
+        <TripTimeline tripId="trip-1" />
+      </I18nProvider>,
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(screen.getAllByTestId("timeline-day-card")).toHaveLength(2);
+    expect(screen.getByText("Day 1: Arrival")).toBeInTheDocument();
+    expect(screen.getByText("Day 2: City walk")).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: "Open day view" })).toHaveLength(2);
+
+    setViewport(1280);
+    rerender(
+      <I18nProvider initialLanguage="en">
+        <TripTimeline tripId="trip-1" />
+      </I18nProvider>,
+    );
+
+    expect(screen.getAllByTestId("timeline-day-card")).toHaveLength(2);
+    expect(screen.getByText("Day 1: Arrival")).toBeInTheDocument();
+    expect(screen.getByText("Day 2: City walk")).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: "Open day view" })).toHaveLength(2);
+    expect(screen.getByText("Missing plan")).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
 });

@@ -30,6 +30,10 @@ describe("/api/trips/[id]/day-plan-items/images", () => {
       data: { email: "day-plan-item-images-owner@example.com", passwordHash: "hashed", role: "OWNER" },
     });
     const token = await createSessionJwt({ sub: owner.id, role: owner.role });
+    const other = await prisma.user.create({
+      data: { email: "day-plan-item-images-other@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const otherToken = await createSessionJwt({ sub: other.id, role: other.role });
 
     const trip = await prisma.trip.create({
       data: {
@@ -100,6 +104,31 @@ describe("/api/trips/[id]/day-plan-items/images", () => {
     expect(getResponse.status).toBe(200);
     expect(getPayload.data?.images).toHaveLength(1);
 
+    const unauthorizedGetRequest = new NextRequest(
+      `http://localhost/api/trips/${trip.id}/day-plan-items/images?tripDayId=${day.id}&dayPlanItemId=${dayPlanItem.id}`,
+      {
+        method: "GET",
+        headers: { cookie: `session=${otherToken}` },
+      },
+    );
+    const unauthorizedGetResponse = await GET(unauthorizedGetRequest, { params: Promise.resolve({ id: trip.id }) });
+    expect(unauthorizedGetResponse.status).toBe(404);
+
+    const unauthorizedUploadForm = new FormData();
+    unauthorizedUploadForm.set("tripDayId", day.id);
+    unauthorizedUploadForm.set("dayPlanItemId", dayPlanItem.id);
+    unauthorizedUploadForm.set("file", new File([Buffer.from("fake")], "item-unauthorized.webp", { type: "image/webp" }));
+    const unauthorizedUploadRequest = new NextRequest(`http://localhost/api/trips/${trip.id}/day-plan-items/images`, {
+      method: "POST",
+      headers: {
+        cookie: `session=${otherToken}; csrf_token=csrf-token`,
+        "x-csrf-token": "csrf-token",
+      },
+      body: unauthorizedUploadForm,
+    });
+    const unauthorizedUploadResponse = await POST(unauthorizedUploadRequest, { params: Promise.resolve({ id: trip.id }) });
+    expect(unauthorizedUploadResponse.status).toBe(404);
+
     const reorderRequest = new NextRequest(`http://localhost/api/trips/${trip.id}/day-plan-items/images`, {
       method: "PATCH",
       headers: {
@@ -116,6 +145,22 @@ describe("/api/trips/[id]/day-plan-items/images", () => {
     const reorderResponse = await PATCH(reorderRequest, { params: Promise.resolve({ id: trip.id }) });
     expect(reorderResponse.status).toBe(200);
 
+    const unauthorizedReorderRequest = new NextRequest(`http://localhost/api/trips/${trip.id}/day-plan-items/images`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        cookie: `session=${otherToken}; csrf_token=csrf-token`,
+        "x-csrf-token": "csrf-token",
+      },
+      body: JSON.stringify({
+        tripDayId: day.id,
+        dayPlanItemId: dayPlanItem.id,
+        order: [{ imageId: getPayload.data!.images[0].id, sortOrder: 1 }],
+      }),
+    });
+    const unauthorizedReorderResponse = await PATCH(unauthorizedReorderRequest, { params: Promise.resolve({ id: trip.id }) });
+    expect(unauthorizedReorderResponse.status).toBe(404);
+
     const deleteRequest = new NextRequest(`http://localhost/api/trips/${trip.id}/day-plan-items/images`, {
       method: "DELETE",
       headers: {
@@ -131,5 +176,21 @@ describe("/api/trips/[id]/day-plan-items/images", () => {
     });
     const deleteResponse = await DELETE(deleteRequest, { params: Promise.resolve({ id: trip.id }) });
     expect(deleteResponse.status).toBe(200);
+
+    const unauthorizedDeleteRequest = new NextRequest(`http://localhost/api/trips/${trip.id}/day-plan-items/images`, {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+        cookie: `session=${otherToken}; csrf_token=csrf-token`,
+        "x-csrf-token": "csrf-token",
+      },
+      body: JSON.stringify({
+        tripDayId: day.id,
+        dayPlanItemId: dayPlanItem.id,
+        imageId: getPayload.data!.images[0].id,
+      }),
+    });
+    const unauthorizedDeleteResponse = await DELETE(unauthorizedDeleteRequest, { params: Promise.resolve({ id: trip.id }) });
+    expect(unauthorizedDeleteResponse.status).toBe(404);
   });
 });
