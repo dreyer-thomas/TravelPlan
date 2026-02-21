@@ -77,12 +77,16 @@ const dayPlanItemImportSchema = z
       return;
     }
 
-    if (hasFromTime && hasToTime && parseTimeToMinutes(value.toTime) <= parseTimeToMinutes(value.fromTime)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["toTime"],
-        message: "toTime must be later than fromTime",
-      });
+    if (value.fromTime !== null && value.toTime !== null) {
+      const fromTime = value.fromTime;
+      const toTime = value.toTime;
+      if (parseTimeToMinutes(toTime) <= parseTimeToMinutes(fromTime)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["toTime"],
+          message: "toTime must be later than fromTime",
+        });
+      }
     }
   });
 

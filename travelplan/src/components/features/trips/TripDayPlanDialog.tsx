@@ -21,6 +21,14 @@ import { Node } from "@tiptap/core";
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
 
+declare module "@tiptap/core" {
+  interface Commands<ReturnType> {
+    image: {
+      setImage: (attrs: { src: string; alt?: string; title?: string }) => ReturnType;
+    };
+  }
+}
+
 type ApiEnvelope<T> = {
   data: T | null;
   error: { code: string; message: string; details?: unknown } | null;
@@ -88,7 +96,7 @@ const PlanImage = Node.create({
     return {
       setImage:
         (attrs: { src: string; alt?: string; title?: string }) =>
-        ({ commands }: { commands: { insertContent: (value: unknown) => boolean } }) =>
+        ({ commands }) =>
           commands.insertContent({
             type: this.name,
             attrs,
