@@ -279,6 +279,23 @@ describe("dayPlanItemSchemas", () => {
     }
   });
 
+  it("accepts HH:mm:ss.SSS values and normalizes to HH:mm", () => {
+    const result = dayPlanItemMutationSchema.safeParse({
+      tripDayId: "day-id",
+      title: "Plan",
+      fromTime: "12:30:00.000",
+      toTime: "13:30:59.999",
+      contentJson: sampleDoc,
+      linkUrl: null,
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.fromTime).toBe("12:30");
+      expect(result.data.toTime).toBe("13:30");
+    }
+  });
+
   it("rejects time ranges where toTime is not later than fromTime", () => {
     const equalTimes = dayPlanItemMutationSchema.safeParse({
       tripDayId: "day-id",
