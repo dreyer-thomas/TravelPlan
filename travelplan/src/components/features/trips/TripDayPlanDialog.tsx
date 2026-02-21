@@ -730,7 +730,10 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
             <TextField
               label={t("trips.plan.fromTimeLabel")}
               value={fromTimeInput}
-              onChange={(event) => setFromTimeInput(event.target.value)}
+              onChange={(event) => {
+                setFromTimeInput(event.target.value);
+                setFieldErrors((previous) => ({ ...previous, fromTime: undefined, toTime: undefined }));
+              }}
               error={Boolean(fieldErrors.fromTime)}
               helperText={fieldErrors.fromTime ?? t("trips.plan.fromTimeHelper")}
               fullWidth
@@ -740,7 +743,10 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
             <TextField
               label={t("trips.plan.toTimeLabel")}
               value={toTimeInput}
-              onChange={(event) => setToTimeInput(event.target.value)}
+              onChange={(event) => {
+                setToTimeInput(event.target.value);
+                setFieldErrors((previous) => ({ ...previous, fromTime: undefined, toTime: undefined }));
+              }}
               error={Boolean(fieldErrors.toTime)}
               helperText={fieldErrors.toTime ?? t("trips.plan.toTimeHelper")}
               fullWidth

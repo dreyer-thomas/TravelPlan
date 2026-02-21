@@ -540,5 +540,10 @@ describe("TripDayPlanDialog", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/day-plan-items"), expect.any(Object)));
     expect(screen.getByText("From time is required")).toBeInTheDocument();
     expect(screen.getByText("To time must be after from time")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("From"), { target: { value: "12:00" } });
+    fireEvent.change(screen.getByLabelText("To"), { target: { value: "13:30" } });
+    expect(screen.queryByText("From time is required")).not.toBeInTheDocument();
+    expect(screen.queryByText("To time must be after from time")).not.toBeInTheDocument();
   });
 });
