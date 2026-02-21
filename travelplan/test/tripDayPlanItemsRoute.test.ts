@@ -71,6 +71,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
     await prisma.dayPlanItem.create({
       data: {
         tripDayId: day.id,
+        title: "First title",
         contentJson: sampleDoc("First"),
         costCents: null,
         linkUrl: null,
@@ -84,6 +85,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
     await prisma.dayPlanItem.create({
       data: {
         tripDayId: day.id,
+        title: "Second title",
         contentJson: sampleDoc("Second"),
         costCents: 3200,
         linkUrl: "https://example.com/plan",
@@ -106,6 +108,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
     const payload = (await response.json()) as ApiEnvelope<{
       items: {
         id: string;
+        title: string | null;
         contentJson: string;
         costCents: number | null;
         linkUrl: string | null;
@@ -115,6 +118,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
 
     expect(response.status).toBe(200);
     expect(payload.error).toBeNull();
+    expect(payload.data?.items.map((item) => item.title)).toEqual(["First title", "Second title"]);
     expect(payload.data?.items.map((item) => item.contentJson)).toEqual([sampleDoc("First"), sampleDoc("Second")]);
     expect(payload.data?.items.map((item) => item.costCents)).toEqual([null, 3200]);
     expect(payload.data?.items[1].linkUrl).toBe("https://example.com/plan");
@@ -192,6 +196,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
       method: "POST",
       body: JSON.stringify({
         tripDayId: day.id,
+        title: "Plan",
         contentJson: sampleDoc("Plan"),
         costCents: 1500,
         linkUrl: "https://example.com/plan",
@@ -204,6 +209,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
       dayPlanItem: {
         id: string;
         tripDayId: string;
+        title: string | null;
         contentJson: string;
         costCents: number | null;
         linkUrl: string | null;
@@ -214,6 +220,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
     expect(response.status).toBe(200);
     expect(payload.error).toBeNull();
     expect(payload.data?.dayPlanItem.tripDayId).toBe(day.id);
+    expect(payload.data?.dayPlanItem.title).toBe("Plan");
     expect(payload.data?.dayPlanItem.costCents).toBe(1500);
     expect(payload.data?.dayPlanItem.linkUrl).toBe("https://example.com/plan");
     expect(payload.data?.dayPlanItem.location).toEqual({ lat: 48.145, lng: 11.582, label: "Gallery" });
@@ -262,6 +269,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
       method: "POST",
       body: JSON.stringify({
         tripDayId: day.id,
+        title: "Italic activity",
         contentJson: richDoc,
         linkUrl: null,
       }),
@@ -310,7 +318,51 @@ describe("/api/trips/[id]/day-plan-items", () => {
       method: "POST",
       body: JSON.stringify({
         tripDayId: day.id,
+        title: "Plan",
         contentJson: " ",
+        linkUrl: null,
+      }),
+    });
+
+    const response = await POST(request, { params: { id: trip.id } });
+    const payload = (await response.json()) as ApiEnvelope<null>;
+
+    expect(response.status).toBe(400);
+    expect(payload.data).toBeNull();
+    expect(payload.error?.code).toBe("validation_error");
+  });
+
+  it("rejects empty title on create", async () => {
+    const user = await prisma.user.create({
+      data: { email: "plan-route-empty-title@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const token = await createSessionJwt({ sub: user.id, role: user.role });
+
+    const trip = await prisma.trip.create({
+      data: {
+        userId: user.id,
+        name: "Empty Title Trip",
+        startDate: new Date("2026-12-04T00:00:00.000Z"),
+        endDate: new Date("2026-12-04T00:00:00.000Z"),
+      },
+    });
+
+    const day = await prisma.tripDay.create({
+      data: {
+        tripId: trip.id,
+        date: new Date("2026-12-04T00:00:00.000Z"),
+        dayIndex: 1,
+      },
+    });
+
+    const request = buildRequest(`http://localhost/api/trips/${trip.id}/day-plan-items`, {
+      session: token,
+      csrf: "csrf-token",
+      method: "POST",
+      body: JSON.stringify({
+        tripDayId: day.id,
+        title: " ",
+        contentJson: sampleDoc("Plan"),
         linkUrl: null,
       }),
     });
@@ -357,6 +409,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
       method: "POST",
       body: JSON.stringify({
         tripDayId: day.id,
+        title: "Plan",
         contentJson: unsafeDoc,
         linkUrl: null,
       }),
@@ -399,6 +452,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
       method: "POST",
       body: JSON.stringify({
         tripDayId: day.id,
+        title: "Plan",
         contentJson: sampleDoc("Plan"),
         linkUrl: "javascript:alert(1)",
       }),
@@ -441,6 +495,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
       method: "POST",
       body: JSON.stringify({
         tripDayId: day.id,
+        title: "Has partial location",
         contentJson: sampleDoc("Has partial location"),
         linkUrl: null,
         location: { lat: 48.145 },
@@ -481,6 +536,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
     const item = await prisma.dayPlanItem.create({
       data: {
         tripDayId: day.id,
+        title: "Original title",
         contentJson: sampleDoc("Original"),
         linkUrl: null,
       },
@@ -493,6 +549,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
       body: JSON.stringify({
         tripDayId: day.id,
         itemId: item.id,
+        title: "Updated",
         contentJson: sampleDoc("Updated"),
         costCents: 2800,
         linkUrl: "https://example.com/updated",
@@ -504,6 +561,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
     const payload = (await response.json()) as ApiEnvelope<{
       dayPlanItem: {
         id: string;
+        title: string | null;
         contentJson: string;
         costCents: number | null;
         location: { lat: number; lng: number; label: string | null } | null;
@@ -512,6 +570,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
 
     expect(response.status).toBe(200);
     expect(payload.error).toBeNull();
+    expect(payload.data?.dayPlanItem.title).toBe("Updated");
     expect(payload.data?.dayPlanItem.contentJson).toContain("Updated");
     expect(payload.data?.dayPlanItem.costCents).toBe(2800);
     expect(payload.data?.dayPlanItem.location).toEqual({ lat: 48.13, lng: 11.56, label: "Center" });
@@ -543,6 +602,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
     const item = await prisma.dayPlanItem.create({
       data: {
         tripDayId: day.id,
+        title: "Delete title",
         contentJson: sampleDoc("Delete"),
         linkUrl: null,
       },

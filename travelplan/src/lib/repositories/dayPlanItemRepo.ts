@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db/prisma";
 export type DayPlanItemDetail = {
   id: string;
   tripDayId: string;
+  title: string | null;
   contentJson: string;
   costCents: number | null;
   linkUrl: string | null;
@@ -24,6 +25,7 @@ type DayPlanItemMutationParams = {
   userId: string;
   tripId: string;
   tripDayId: string;
+  title: string;
   contentJson: string;
   costCents?: number | null;
   linkUrl?: string | null;
@@ -103,6 +105,7 @@ const findScopedDayPlanItem = async ({ userId, tripId, tripDayId, dayPlanItemId 
 const toDetail = (item: {
   id: string;
   tripDayId: string;
+  title: string | null;
   contentJson: string;
   costCents: number | null;
   linkUrl: string | null;
@@ -113,6 +116,7 @@ const toDetail = (item: {
 }) => ({
   id: item.id,
   tripDayId: item.tripDayId,
+  title: item.title,
   contentJson: item.contentJson,
   costCents: item.costCents,
   linkUrl: item.linkUrl,
@@ -174,6 +178,7 @@ export const createDayPlanItemForTripDay = async (
   const item = await prisma.dayPlanItem.create({
     data: {
       tripDayId,
+      title: params.title.trim(),
       contentJson,
       costCents: costCents ?? null,
       linkUrl: linkUrl ?? null,
@@ -189,7 +194,7 @@ export const createDayPlanItemForTripDay = async (
 export const updateDayPlanItemForTripDay = async (
   params: DayPlanItemUpdateParams,
 ): Promise<DayPlanItemUpdateResult> => {
-  const { userId, tripId, tripDayId, itemId, contentJson, costCents, linkUrl, location } = params;
+  const { userId, tripId, tripDayId, itemId, contentJson, costCents, linkUrl, location, title } = params;
   const tripDay = await findTripDayForUser(userId, tripId, tripDayId);
   if (!tripDay) {
     return { status: "not_found" };
@@ -209,6 +214,7 @@ export const updateDayPlanItemForTripDay = async (
   const updated = await prisma.dayPlanItem.update({
     where: { id: existing.id },
     data: {
+      title: title.trim(),
       contentJson,
       costCents: costCents ?? null,
       linkUrl: linkUrl ?? null,

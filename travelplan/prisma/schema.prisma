@@ -111,6 +111,7 @@ model Accommodation {
 model DayPlanItem {
   id        String   @id @default(cuid()) @map("id")
   tripDayId String   @map("trip_day_id")
+  title     String?  @map("title")
   contentJson String @map("content_json")
   costCents Int?     @map("cost_cents")
   linkUrl   String?  @map("link_url")

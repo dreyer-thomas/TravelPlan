@@ -213,6 +213,7 @@ describe("TripDayPlanDialog", () => {
               dayPlanItem: {
                 id: "item-1",
                 tripDayId: "day-1",
+                title: "Museum",
                 contentJson: tiptapMocks.sampleDoc,
                 costCents: 2600,
                 linkUrl: "https://example.com/plan",
@@ -264,6 +265,7 @@ describe("TripDayPlanDialog", () => {
     expect(screen.getByText("No coordinates selected")).toBeInTheDocument();
 
     fireEvent.change(screen.getByRole("textbox", { name: "Link" }), { target: { value: "https://example.com/plan" } });
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Museum" } });
     fireEvent.change(screen.getByLabelText("Cost"), { target: { value: "26,00" } });
     vi.spyOn(window, "prompt").mockReturnValue("https://images.example.com/plan.webp");
     fireEvent.click(screen.getByRole("button", { name: "Image" }));
@@ -281,6 +283,7 @@ describe("TripDayPlanDialog", () => {
     const postCall = fetchMock.mock.calls.find((call) => String(call[0]).includes("/day-plan-items") && call[1]?.method === "POST");
     expect(postCall).toBeDefined();
     const requestBody = JSON.parse(String(postCall?.[1]?.body ?? "{}"));
+    expect(requestBody.title).toBe("Museum");
     expect(requestBody.costCents).toBe(2600);
     expect(requestBody.location).toEqual({ lat: 48.145, lng: 11.582, label: "Museum" });
     const parsedDoc = JSON.parse(requestBody.contentJson) as { content?: Array<{ type?: string; attrs?: { src?: string } }> };
@@ -315,6 +318,7 @@ describe("TripDayPlanDialog", () => {
               dayPlanItem: {
                 id: "item-1",
                 tripDayId: "day-1",
+                title: "Old Town walk",
                 contentJson: tiptapMocks.sampleDoc,
                 costCents: 3400,
                 linkUrl: "https://example.com/updated",
@@ -347,6 +351,7 @@ describe("TripDayPlanDialog", () => {
           item={{
             id: "item-1",
             tripDayId: "day-1",
+            title: "Old Town walk",
             contentJson: tiptapMocks.sampleDoc,
             costCents: 2100,
             linkUrl: "https://example.com/original",
@@ -361,11 +366,13 @@ describe("TripDayPlanDialog", () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(screen.getByText("Edit plan item")).toBeInTheDocument();
+    expect(screen.getByLabelText("Title")).toHaveValue("Old Town walk");
     expect(screen.getByLabelText("Cost")).toHaveValue("21.00");
     expect(screen.getByRole("textbox", { name: "Link" })).toHaveValue("https://example.com/original");
     expect(screen.getByText("Latitude: 48.137200 · Longitude: 11.575600")).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Cost"), { target: { value: "34,00" } });
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Updated walk" } });
     fireEvent.change(screen.getByRole("textbox", { name: "Link" }), { target: { value: "https://example.com/updated" } });
     fireEvent.click(screen.getByRole("button", { name: "Update item" }));
 
@@ -379,8 +386,77 @@ describe("TripDayPlanDialog", () => {
       (call) => String(call[0]).includes("/day-plan-items") && call[1]?.method === "PATCH",
     );
     const patchBody = JSON.parse(String(patchCall?.[1]?.body ?? "{}"));
+    expect(patchBody.title).toBe("Updated walk");
     expect(patchBody.costCents).toBe(3400);
 
     expect(onSaved).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows title validation error and blocks completion when server rejects empty title", async () => {
+    const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
+
+    const fetchMock = vi.fn(async (input: RequestInfo, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.url;
+      const method = init?.method ?? "GET";
+
+      if (url.includes("/api/auth/csrf")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
+        };
+      }
+
+      if (url.includes("/day-plan-items") && method === "POST") {
+        return {
+          ok: false,
+          status: 400,
+          json: async () => ({
+            data: null,
+            error: {
+              code: "validation_error",
+              message: "Validation failed",
+              details: { fieldErrors: { title: ["Title is required"] } },
+            },
+          }),
+        };
+      }
+
+      return {
+        ok: false,
+        status: 500,
+        json: async () => ({ data: null, error: { code: "server_error", message: "boom" } }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+    const onSaved = vi.fn();
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayPlanDialog
+          open
+          mode="add"
+          tripId="trip-1"
+          day={{ id: "day-1", dayIndex: 1 }}
+          item={null}
+          onClose={() => undefined}
+          onSaved={onSaved}
+        />
+      </I18nProvider>,
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: " " } });
+    fireEvent.click(screen.getByRole("button", { name: "Save item" }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/day-plan-items"),
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    expect(screen.getByText("Title is required")).toBeInTheDocument();
+    expect(onSaved).not.toHaveBeenCalled();
   });
 });

@@ -215,6 +215,8 @@ const en: Dictionary = {
   "trips.plan.toolbarLinkPrompt": "Enter a link URL",
   "trips.plan.toolbarImagePrompt": "Enter an image URL",
   "trips.plan.inlineImageAlt": "Plan image",
+  "trips.plan.titleLabel": "Title",
+  "trips.plan.titleHelper": "Required short title (max 120 characters)",
   "trips.plan.costLabel": "Cost",
   "trips.plan.costHelper": "Optional amount (e.g. 10.00 or 10,00)",
   "trips.plan.costInvalid": "Enter a valid non-negative amount with up to 2 decimals",

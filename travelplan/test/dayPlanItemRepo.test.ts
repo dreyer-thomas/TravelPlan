@@ -56,6 +56,7 @@ describe("dayPlanItemRepo", () => {
       userId: user.id,
       tripId: trip.id,
       tripDayId: day.id,
+      title: "Morning walk",
       contentJson: sampleDoc("Morning walk"),
       costCents: 1250,
       linkUrl: "https://example.com/plan",
@@ -64,6 +65,7 @@ describe("dayPlanItemRepo", () => {
 
     expect(item).not.toBeNull();
     expect(item?.tripDayId).toBe(day.id);
+    expect(item?.title).toBe("Morning walk");
     expect(item?.contentJson).toContain("Morning walk");
     expect(item?.costCents).toBe(1250);
     expect(item?.linkUrl).toBe("https://example.com/plan");
@@ -77,6 +79,7 @@ describe("dayPlanItemRepo", () => {
     await prisma.dayPlanItem.create({
       data: {
         tripDayId: day.id,
+        title: "Second",
         contentJson: sampleDoc("Second"),
         costCents: null,
         linkUrl: null,
@@ -87,6 +90,7 @@ describe("dayPlanItemRepo", () => {
     await prisma.dayPlanItem.create({
       data: {
         tripDayId: day.id,
+        title: "First",
         contentJson: sampleDoc("First"),
         costCents: 900,
         linkUrl: null,
@@ -136,6 +140,7 @@ describe("dayPlanItemRepo", () => {
       tripId: trip.id,
       tripDayId: day.id,
       itemId: created.id,
+      title: "Updated title",
       contentJson: sampleDoc("Updated"),
       costCents: 4500,
       linkUrl: "https://example.com/updated",
@@ -145,6 +150,7 @@ describe("dayPlanItemRepo", () => {
     expect(updated.status).toBe("updated");
     if (updated.status === "updated") {
       expect(updated.item.contentJson).toContain("Updated");
+      expect(updated.item.title).toBe("Updated title");
       expect(updated.item.costCents).toBe(4500);
       expect(updated.item.linkUrl).toBe("https://example.com/updated");
       expect(updated.item.location).toEqual({ lat: 48.145, lng: 11.582, label: "Gallery" });
@@ -160,6 +166,7 @@ describe("dayPlanItemRepo", () => {
       tripId: trip.id,
       tripDayId: day.id,
       itemId: "missing-item",
+      title: "Updated title",
       contentJson: sampleDoc("Updated"),
       linkUrl: null,
     });
@@ -185,6 +192,7 @@ describe("dayPlanItemRepo", () => {
       tripId: trip.id,
       tripDayId: day.id,
       itemId: created.id,
+      title: "Updated title",
       contentJson: sampleDoc("Updated"),
       linkUrl: null,
     });

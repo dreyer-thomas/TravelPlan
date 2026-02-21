@@ -215,6 +215,8 @@ const de: Dictionary = {
   "trips.plan.toolbarLinkPrompt": "Link-URL eingeben",
   "trips.plan.toolbarImagePrompt": "Bild-URL eingeben",
   "trips.plan.inlineImageAlt": "Planbild",
+  "trips.plan.titleLabel": "Titel",
+  "trips.plan.titleHelper": "Pflichttitel (maximal 120 Zeichen)",
   "trips.plan.costLabel": "Kosten",
   "trips.plan.costHelper": "Optionaler Betrag (z. B. 10,00 oder 10.00)",
   "trips.plan.costInvalid": "Bitte einen gueltigen nicht-negativen Betrag mit maximal 2 Dezimalstellen eingeben",

@@ -75,6 +75,7 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
       items: items.map((item) => ({
         id: item.id,
         tripDayId: item.tripDayId,
+        title: item.title,
         contentJson: item.contentJson,
         costCents: item.costCents,
         linkUrl: item.linkUrl,
@@ -127,6 +128,7 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
     userId,
     tripId,
     tripDayId: parsed.data.tripDayId,
+    title: parsed.data.title,
     contentJson: parsed.data.contentJson,
     costCents: parsed.data.costCents ?? null,
     linkUrl: linkUrl && linkUrl.length > 0 ? linkUrl : null,
@@ -141,6 +143,7 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
     dayPlanItem: {
       id: item.id,
       tripDayId: item.tripDayId,
+      title: item.title,
       contentJson: item.contentJson,
       costCents: item.costCents,
       linkUrl: item.linkUrl,
@@ -191,6 +194,7 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
     tripId,
     tripDayId: parsed.data.tripDayId,
     itemId: parsed.data.itemId,
+    title: parsed.data.title,
     contentJson: parsed.data.contentJson,
     costCents: parsed.data.costCents ?? null,
     linkUrl: linkUrl && linkUrl.length > 0 ? linkUrl : null,
@@ -209,6 +213,7 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
     dayPlanItem: {
       id: updated.item.id,
       tripDayId: updated.item.tripDayId,
+      title: updated.item.title,
       contentJson: updated.item.contentJson,
       costCents: updated.item.costCents,
       linkUrl: updated.item.linkUrl,

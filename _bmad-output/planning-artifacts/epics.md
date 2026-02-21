@@ -518,6 +518,66 @@ So that day and trip totals reflect all planned spending.
 **When** totals are calculated
 **Then** the item contributes zero and no error is shown
 
+### Story 2.20: Day Entry Title in Day View and Cost List
+
+As a trip planner,
+I want every day plan entry to have a title,
+So that the entry is easier to scan in day view and cost bookings use a clear label.
+
+**FRs covered:** FR21
+
+**Acceptance Criteria:**
+
+**Given** I create or edit a day plan item
+**When** I save the item
+**Then** a non-empty title is required
+
+**Given** a day plan item has a title
+**When** I open day view
+**Then** the title is shown in bold in the day plan item card
+
+**Given** a day plan item has a cost
+**When** I open the day budget list
+**Then** the cost entry label uses the day plan item title
+
+**Given** I update an existing day plan item title
+**When** I save and view the day budget list
+**Then** the cost label reflects the updated title
+
+**Given** there are existing day plan items without titles
+**When** I open add/edit and save
+**Then** validation requires a title before save
+
+### Story 2.21: Day Plan Item From/To Time and Card Tag
+
+As a trip planner,
+I want every day plan item to include a from time and a to time,
+So that I can understand the planned time window for each activity.
+
+**FRs covered:** FR21
+
+**Acceptance Criteria:**
+
+**Given** I create or edit a day plan item
+**When** I save without a from time or to time
+**Then** save is blocked with validation errors
+
+**Given** I create or edit a day plan item
+**When** I save with both times and to is after from
+**Then** the time range is stored with the day plan item
+
+**Given** I create or edit a day plan item
+**When** to is equal to or earlier than from
+**Then** save is blocked with a validation error
+
+**Given** a day plan item has from and to times
+**When** I view the day entry card
+**Then** the time range is shown as a tag in the format HH:mm - HH:mm
+
+**Given** there are existing day plan items without times
+**When** I open day view
+**Then** existing items still render without regression
+
 ## Epic 3: Route & Map-Based Planning
 
 Users can visualize trips and days on maps and seed a trip from Google start + destination.

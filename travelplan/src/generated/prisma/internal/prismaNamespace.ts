@@ -1114,6 +1114,7 @@ export type AccommodationScalarFieldEnum = (typeof AccommodationScalarFieldEnum)
 export const DayPlanItemScalarFieldEnum = {
   id: 'id',
   tripDayId: 'tripDayId',
+  title: 'title',
   contentJson: 'contentJson',
   costCents: 'costCents',
   linkUrl: 'linkUrl',

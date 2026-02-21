@@ -14,7 +14,6 @@ import {
   IconButton,
   List,
   ListItem,
-  ListItemText,
   Paper,
   Skeleton,
   SvgIcon,
@@ -65,6 +64,7 @@ type TripDay = {
   } | null;
   dayPlanItems: {
     id: string;
+    title: string | null;
     contentJson: string;
     costCents: number | null;
     linkUrl: string | null;
@@ -75,6 +75,7 @@ type TripDay = {
 type DayPlanItem = {
   id: string;
   tripDayId: string;
+  title: string | null;
   contentJson: string;
   costCents: number | null;
   linkUrl: string | null;
@@ -431,6 +432,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
         (resolvedDay.dayPlanItems ?? []).map((item) => ({
           id: item.id,
           tripDayId: resolvedDay.id,
+          title: item.title,
           contentJson: item.contentJson,
           costCents: typeof item.costCents === "number" ? item.costCents : null,
           linkUrl: item.linkUrl,
@@ -806,9 +808,10 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
 
     planItems.forEach((item, index) => {
       const preview = parsePlanText(item.contentJson) || formatMessage(t("trips.dayView.budgetItemPlan"), { index: index + 1 });
+      const title = item.title?.trim() || preview;
       entries.push({
         id: item.id,
-        label: preview,
+        label: title,
         amountCents: item.costCents,
       });
     });
@@ -846,7 +849,10 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
           : null,
         planItems: planItems.map((item, index) => ({
           id: item.id,
-          label: parsePlanText(item.contentJson) || formatMessage(t("trips.dayView.budgetItemPlan"), { index: index + 1 }),
+          label:
+            item.title?.trim() ||
+            parsePlanText(item.contentJson) ||
+            formatMessage(t("trips.dayView.budgetItemPlan"), { index: index + 1 }),
           kind: "planItem" as const,
           location: getMapLocation(item.location),
         })),
@@ -1113,6 +1119,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                   planItems.map((item, index) => {
                     const preview =
                       parsePlanText(item.contentJson) || formatMessage(t("trips.dayView.budgetItemPlan"), { index: index + 1 });
+                    const title = item.title?.trim() || preview;
                     return (
                       <Paper
                         key={item.id}
@@ -1126,6 +1133,9 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                       >
                         <Box display="flex" alignItems="flex-start" justifyContent="space-between" gap={1}>
                           <Box display="flex" flexDirection="column" gap={0.75}>
+                            <Typography variant="body2" fontWeight={700}>
+                              {title}
+                            </Typography>
                             <PlanItemRichContent contentJson={item.contentJson} fallbackText={preview} />
                             {item.linkUrl && isSafeLink(item.linkUrl) ? (
                               <Button
@@ -1241,11 +1251,23 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                 {knownBudgetEntries.length > 0 && (
                   <List dense sx={{ p: 0 }}>
                     {knownBudgetEntries.map((entry) => (
-                      <ListItem key={entry.id} sx={{ px: 0 }}>
-                        <ListItemText
-                          primary={entry.label}
-                          secondary={formatMessage(t("trips.stay.costSummary"), { amount: formatCost(entry.amountCents) })}
-                        />
+                      <ListItem key={entry.id} sx={{ px: 0, py: 0.5 }}>
+                        <Box
+                          sx={{
+                            display: "grid",
+                            gridTemplateColumns: "minmax(0, 1fr) auto",
+                            alignItems: "center",
+                            columnGap: 1.5,
+                            width: "100%",
+                          }}
+                        >
+                          <Typography variant="body2" sx={{ overflowWrap: "anywhere" }}>
+                            {entry.label}
+                          </Typography>
+                          <Typography variant="body2" textAlign="right">
+                            {formatMessage(t("trips.stay.costSummary"), { amount: formatCost(entry.amountCents) })}
+                          </Typography>
+                        </Box>
                       </ListItem>
                     ))}
                   </List>

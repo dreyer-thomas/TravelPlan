@@ -7,9 +7,10 @@ const sampleDoc = JSON.stringify({
 });
 
 describe("dayPlanItemSchemas", () => {
-  it("accepts a valid contentJson and optional linkUrl", () => {
+  it("accepts a valid title/contentJson and optional linkUrl", () => {
     const result = dayPlanItemMutationSchema.safeParse({
       tripDayId: "day-id",
+      title: "Museum visit",
       contentJson: sampleDoc,
       costCents: 1200,
       linkUrl: "https://example.com/plan",
@@ -23,9 +24,43 @@ describe("dayPlanItemSchemas", () => {
     expect(result.success).toBe(true);
   });
 
+  it("rejects empty title", () => {
+    const result = dayPlanItemMutationSchema.safeParse({
+      tripDayId: "day-id",
+      title: " ",
+      contentJson: sampleDoc,
+      linkUrl: null,
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts title with 120 characters and rejects 121 characters", () => {
+    const maxTitle = "a".repeat(120);
+    const overLimitTitle = "a".repeat(121);
+
+    const atLimit = dayPlanItemMutationSchema.safeParse({
+      tripDayId: "day-id",
+      title: maxTitle,
+      contentJson: sampleDoc,
+      linkUrl: null,
+    });
+
+    const overLimit = dayPlanItemMutationSchema.safeParse({
+      tripDayId: "day-id",
+      title: overLimitTitle,
+      contentJson: sampleDoc,
+      linkUrl: null,
+    });
+
+    expect(atLimit.success).toBe(true);
+    expect(overLimit.success).toBe(false);
+  });
+
   it("rejects empty contentJson", () => {
     const result = dayPlanItemMutationSchema.safeParse({
       tripDayId: "day-id",
+      title: "Plan",
       contentJson: " ",
       linkUrl: null,
     });
@@ -36,6 +71,7 @@ describe("dayPlanItemSchemas", () => {
   it("rejects invalid JSON contentJson", () => {
     const result = dayPlanItemMutationSchema.safeParse({
       tripDayId: "day-id",
+      title: "Plan",
       contentJson: "{not-json}",
       linkUrl: null,
     });
@@ -47,6 +83,7 @@ describe("dayPlanItemSchemas", () => {
     const emptyDoc = JSON.stringify({ type: "doc", content: [{ type: "paragraph" }] });
     const result = dayPlanItemMutationSchema.safeParse({
       tripDayId: "day-id",
+      title: "Plan",
       contentJson: emptyDoc,
       linkUrl: null,
     });
@@ -62,6 +99,7 @@ describe("dayPlanItemSchemas", () => {
 
     const result = dayPlanItemMutationSchema.safeParse({
       tripDayId: "day-id",
+      title: "Image only",
       contentJson: imageOnlyDoc,
       linkUrl: null,
     });
@@ -77,6 +115,7 @@ describe("dayPlanItemSchemas", () => {
 
     const result = dayPlanItemMutationSchema.safeParse({
       tripDayId: "day-id",
+      title: "Unsafe image",
       contentJson: unsafeImageDoc,
       linkUrl: null,
     });
@@ -87,6 +126,7 @@ describe("dayPlanItemSchemas", () => {
   it("rejects invalid linkUrl", () => {
     const result = dayPlanItemMutationSchema.safeParse({
       tripDayId: "day-id",
+      title: "Plan",
       contentJson: sampleDoc,
       linkUrl: "not-a-url",
     });
@@ -97,6 +137,7 @@ describe("dayPlanItemSchemas", () => {
   it("rejects non-http linkUrl schemes", () => {
     const result = dayPlanItemMutationSchema.safeParse({
       tripDayId: "day-id",
+      title: "Plan",
       contentJson: sampleDoc,
       linkUrl: "javascript:alert(1)",
     });
@@ -107,6 +148,7 @@ describe("dayPlanItemSchemas", () => {
   it("rejects partial location coordinates", () => {
     const result = dayPlanItemMutationSchema.safeParse({
       tripDayId: "day-id",
+      title: "Plan",
       contentJson: sampleDoc,
       linkUrl: null,
       location: {
@@ -120,6 +162,7 @@ describe("dayPlanItemSchemas", () => {
   it("rejects out-of-range location coordinates", () => {
     const result = dayPlanItemMutationSchema.safeParse({
       tripDayId: "day-id",
+      title: "Plan",
       contentJson: sampleDoc,
       linkUrl: null,
       location: {
@@ -134,6 +177,7 @@ describe("dayPlanItemSchemas", () => {
   it("accepts null costCents", () => {
     const result = dayPlanItemMutationSchema.safeParse({
       tripDayId: "day-id",
+      title: "Plan",
       contentJson: sampleDoc,
       costCents: null,
       linkUrl: null,
@@ -145,6 +189,7 @@ describe("dayPlanItemSchemas", () => {
   it("rejects negative costCents", () => {
     const result = dayPlanItemMutationSchema.safeParse({
       tripDayId: "day-id",
+      title: "Plan",
       contentJson: sampleDoc,
       costCents: -1,
       linkUrl: null,

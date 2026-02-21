@@ -620,9 +620,10 @@ describe("TripDayView layout", () => {
                 dayPlanItems: [
                   {
                     id: "plan-1",
+                    title: "Museum title",
                     contentJson: JSON.stringify({
                       type: "doc",
-                      content: [{ type: "paragraph", content: [{ type: "text", text: "Museum visit" }] }],
+                      content: [{ type: "paragraph", content: [{ type: "text", text: "Body details" }] }],
                     }),
                     linkUrl: "https://example.com/museum",
                     location: { lat: 48.1372, lng: 11.5756 },
@@ -652,7 +653,9 @@ describe("TripDayView layout", () => {
     expect(screen.getByRole("link", { name: "← Back to trip" })).toBeInTheDocument();
     expect(screen.getByText("Previous night accommodation")).toBeInTheDocument();
     expect(screen.getAllByText("Airport Hotel").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Museum visit").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Museum title").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("Body details").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Activity 1")).toBeNull();
     expect(screen.getByRole("link", { name: "Open link" })).toHaveAttribute("href", "https://example.com/museum");
     expect(screen.getByText("Current night accommodation")).toBeInTheDocument();
     expect(screen.getAllByText("City Hotel").length).toBeGreaterThan(0);

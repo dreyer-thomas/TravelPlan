@@ -71,6 +71,8 @@ development_status:
   2-17-day-timeline-cards-and-gray-accommodation-background: done
   2-18-rich-text-editor-formatting-and-rendered-day-items: done
   2-19-day-plan-item-costs-roll-up-to-day-and-trip-totals: done
+  2-20-day-entry-title-in-day-view-and-cost-list: done
+  2-21-day-plan-item-from-to-time-and-card-tag: ready-for-dev
   epic-2-retrospective: optional
 
   epic-3: backlog

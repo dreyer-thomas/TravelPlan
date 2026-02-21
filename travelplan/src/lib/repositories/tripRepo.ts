@@ -46,6 +46,7 @@ export type TripDaySummary = {
   } | null;
   dayPlanItems: {
     id: string;
+    title: string | null;
     contentJson: string;
     costCents: number | null;
     linkUrl: string | null;
@@ -96,6 +97,7 @@ export type TripExportPayload = {
     } | null;
     dayPlanItems: {
       id: string;
+      title: string | null;
       contentJson: string;
       costCents: number | null;
       linkUrl: string | null;
@@ -280,6 +282,7 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
             orderBy: { createdAt: "asc" },
             select: {
               id: true,
+              title: true,
               contentJson: true,
               costCents: true,
               linkUrl: true,
@@ -366,6 +369,7 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
           : null,
         dayPlanItems: day.dayPlanItems.map((item) => ({
           id: item.id,
+          title: item.title,
           contentJson: item.contentJson,
           costCents: item.costCents,
           linkUrl: item.linkUrl,
@@ -480,6 +484,7 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
             orderBy: [{ createdAt: "asc" }, { id: "asc" }],
             select: {
               id: true,
+              title: true,
               contentJson: true,
               costCents: true,
               linkUrl: true,
@@ -539,6 +544,7 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
         : null,
       dayPlanItems: day.dayPlanItems.map((item) => ({
         id: item.id,
+        title: item.title,
         contentJson: item.contentJson,
         costCents: item.costCents,
         linkUrl: item.linkUrl,
@@ -605,6 +611,7 @@ const createImportedDays = async ({
       await tx.dayPlanItem.create({
         data: {
           tripDayId: createdDay.id,
+          title: item.title ?? null,
           contentJson: item.contentJson,
           costCents: item.costCents ?? null,
           linkUrl: item.linkUrl,
