@@ -55,6 +55,7 @@ const IMPORT_PAYLOAD: TripImportPayloadInput = {
         {
           id: "export-plan-2",
           contentJson: "{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"Museum\"}]}]}",
+          costCents: 1800,
           linkUrl: "https://example.com/museum",
           location: { lat: 48.141, lng: 11.581, label: "Museum" },
           createdAt: "2026-02-14T12:00:00.000Z",
@@ -212,6 +213,7 @@ describe("tripRepo", () => {
       data: {
         tripDayId: day1.id,
         contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Museum" }] }] }),
+        costCents: 1500,
         linkUrl: "https://example.com/plan-1",
         locationLat: 48.141,
         locationLng: 11.581,
@@ -222,6 +224,7 @@ describe("tripRepo", () => {
       data: {
         tripDayId: day2.id,
         contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Walk" }] }] }),
+        costCents: null,
         linkUrl: null,
       },
     });
@@ -253,6 +256,7 @@ describe("tripRepo", () => {
     );
     expect(exported?.days[0].dayPlanItems[0]).toEqual(
       expect.objectContaining({
+        costCents: 1500,
         linkUrl: "https://example.com/plan-1",
         location: { lat: 48.141, lng: 11.581, label: "Museum" },
       })
@@ -427,12 +431,29 @@ describe("tripRepo", () => {
     await prisma.accommodation.create({
       data: { tripDayId: days[1].id, name: "Night 2", costCents: null },
     });
+    await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: days[0].id,
+        contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Museum" }] }] }),
+        costCents: 1300,
+        linkUrl: null,
+      },
+    });
+    await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: days[1].id,
+        contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Walk" }] }] }),
+        costCents: null,
+        linkUrl: null,
+      },
+    });
 
     const detail = await getTripWithDaysForUser(user.id, trip.id);
 
     expect(detail).not.toBeNull();
-    expect(detail?.plannedCostTotal).toBe(25000);
-    expect(detail?.days.map((day) => day.plannedCostSubtotal)).toEqual([25000, 0, 0]);
+    expect(detail?.plannedCostTotal).toBe(26300);
+    expect(detail?.accommodationCostTotalCents).toBe(25000);
+    expect(detail?.days.map((day) => day.plannedCostSubtotal)).toEqual([26300, 0, 0]);
   });
 
   it("deletes trip and associated days for user", async () => {
@@ -705,6 +726,7 @@ describe("tripRepo", () => {
       label: "Dockside",
     });
     expect(detail?.days[1].dayPlanItems).toHaveLength(1);
+    expect(detail?.days[1].dayPlanItems[0].costCents).toBe(1800);
   });
 
   it("overwrites target trip data atomically in overwrite mode", async () => {

@@ -11,6 +11,7 @@ describe("dayPlanItemSchemas", () => {
     const result = dayPlanItemMutationSchema.safeParse({
       tripDayId: "day-id",
       contentJson: sampleDoc,
+      costCents: 1200,
       linkUrl: "https://example.com/plan",
       location: {
         lat: 48.1372,
@@ -125,6 +126,28 @@ describe("dayPlanItemSchemas", () => {
         lat: 123,
         lng: 11.5756,
       },
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts null costCents", () => {
+    const result = dayPlanItemMutationSchema.safeParse({
+      tripDayId: "day-id",
+      contentJson: sampleDoc,
+      costCents: null,
+      linkUrl: null,
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects negative costCents", () => {
+    const result = dayPlanItemMutationSchema.safeParse({
+      tripDayId: "day-id",
+      contentJson: sampleDoc,
+      costCents: -1,
+      linkUrl: null,
     });
 
     expect(result.success).toBe(false);

@@ -87,6 +87,7 @@ describe("GET /api/trips/[id]", () => {
       data: {
         tripDayId: days[1].id,
         contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Plan" }] }] }),
+        costCents: 1400,
         linkUrl: "https://example.com/plan",
         locationLat: 48.145,
         locationLng: 11.582,
@@ -106,6 +107,7 @@ describe("GET /api/trips/[id]", () => {
       data: {
         tripDayId: days[2].id,
         contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Notes" }] }] }),
+        costCents: null,
         linkUrl: null,
       },
     });
@@ -142,6 +144,7 @@ describe("GET /api/trips/[id]", () => {
       dayPlanItems: {
         id: string;
         contentJson: string;
+        costCents: number | null;
         linkUrl: string | null;
         location: { lat: number; lng: number; label: string | null } | null;
       }[];
@@ -152,11 +155,11 @@ describe("GET /api/trips/[id]", () => {
     expect(payload.error).toBeNull();
     expect(payload.data?.trip.id).toBe(trip.id);
     expect(payload.data?.trip.dayCount).toBe(dayCount);
-    expect(payload.data?.trip.plannedCostTotal).toBe(17500);
+    expect(payload.data?.trip.plannedCostTotal).toBe(18900);
     expect(payload.data?.trip.accommodationCostTotalCents).toBe(17500);
     expect(payload.data?.trip.heroImageUrl).toBe(`/uploads/trips/${trip.id}/hero.jpg`);
     expect(payload.data?.days.map((day) => day.dayIndex)).toEqual([1, 2, 3]);
-    expect(payload.data?.days.map((day) => day.plannedCostSubtotal)).toEqual([17500, 0, 0]);
+    expect(payload.data?.days.map((day) => day.plannedCostSubtotal)).toEqual([17500, 1400, 0]);
     expect(payload.data?.days.map((day) => [day.missingAccommodation, day.missingPlan])).toEqual([
       [false, true],
       [true, false],
@@ -171,6 +174,7 @@ describe("GET /api/trips/[id]", () => {
     expect(payload.data?.days[0].accommodation?.costCents).toBe(17500);
     expect(payload.data?.days[0].accommodation?.link).toBe("https://example.com/harbor");
     expect(payload.data?.days[0].accommodation?.location).toEqual({ lat: 48.1372, lng: 11.5756, label: "Harbor" });
+    expect(payload.data?.days[1].dayPlanItems[0].costCents).toBe(1400);
     expect(payload.data?.days[1].dayPlanItems[0].location).toEqual({ lat: 48.145, lng: 11.582, label: "Museum" });
   });
 

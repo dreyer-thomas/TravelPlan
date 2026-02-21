@@ -54,6 +54,7 @@ const linkSchema = z
 export const dayPlanItemMutationSchema = z.object({
   tripDayId: z.string().trim().min(1, "Trip day is required"),
   contentJson: contentJsonSchema,
+  costCents: z.number().int().nonnegative("Cost must be zero or greater").optional().nullable(),
   linkUrl: linkSchema.optional().nullable(),
   location: locationInputSchema.optional(),
 });

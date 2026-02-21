@@ -35,6 +35,7 @@ type DayPlanItem = {
   id: string;
   tripDayId: string;
   contentJson: string;
+  costCents: number | null;
   linkUrl: string | null;
   location: { lat: number; lng: number; label?: string | null } | null;
   createdAt: string;
@@ -103,6 +104,38 @@ const parseDoc = (value: string) => {
   }
 };
 
+const formatCentsAsAmount = (value: number) => (value / 100).toFixed(2);
+
+const parseAmountToCents = (rawValue: string): number | null => {
+  const value = rawValue.trim();
+  if (!value) return null;
+
+  const compact = value.replace(/\s+/g, "");
+  const lastComma = compact.lastIndexOf(",");
+  const lastDot = compact.lastIndexOf(".");
+  let normalized = compact;
+
+  if (lastComma !== -1 && lastDot !== -1) {
+    const decimalSeparator = lastComma > lastDot ? "," : ".";
+    const thousandsSeparator = decimalSeparator === "," ? "." : ",";
+    normalized = compact.split(thousandsSeparator).join("");
+    if (decimalSeparator === ",") normalized = normalized.replace(",", ".");
+  } else if (lastComma !== -1) {
+    normalized = compact.replace(",", ".");
+  }
+
+  if (!/^\d+(\.\d{1,2})?$/.test(normalized)) {
+    return null;
+  }
+
+  const amount = Number.parseFloat(normalized);
+  if (!Number.isFinite(amount) || amount < 0) {
+    return null;
+  }
+
+  return Math.round(amount * 100);
+};
+
 export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClose, onSaved }: TripDayPlanDialogProps) {
   const { t } = useI18n();
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
@@ -110,13 +143,14 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
   const [saving, setSaving] = useState(false);
   const [loadingInit, setLoadingInit] = useState(false);
   const [contentJson, setContentJson] = useState<string>(toDocString(emptyDoc));
+  const [costCentsInput, setCostCentsInput] = useState<string>("");
   const [linkUrl, setLinkUrl] = useState<string>("");
   const [resolvedLocation, setResolvedLocation] = useState<{ lat: number; lng: number; label?: string | null } | null>(
     null,
   );
   const [locationQuery, setLocationQuery] = useState<string>("");
   const [lookupLoading, setLookupLoading] = useState(false);
-  const [fieldErrors, setFieldErrors] = useState<{ contentJson?: string; linkUrl?: string }>({});
+  const [fieldErrors, setFieldErrors] = useState<{ contentJson?: string; costCents?: string; linkUrl?: string }>({});
   const [galleryImages, setGalleryImages] = useState<GalleryImage[]>([]);
   const [galleryFile, setGalleryFile] = useState<File | null>(null);
   const [galleryBusy, setGalleryBusy] = useState(false);
@@ -148,6 +182,7 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
 
   const resetEditor = useCallback(() => {
     setContentJson(toDocString(emptyDoc));
+    setCostCentsInput("");
     setLinkUrl("");
     setResolvedLocation(null);
     setLocationQuery("");
@@ -175,6 +210,7 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
     setLoadingInit(true);
 
     if (mode === "edit" && item) {
+      setCostCentsInput(item.costCents !== null ? formatCentsAsAmount(item.costCents) : "");
       setLinkUrl(item.linkUrl ?? "");
       setResolvedLocation(item.location ?? null);
       setLocationQuery(item.location?.label ?? "");
@@ -299,16 +335,26 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
     setFieldErrors({});
     setSaving(true);
 
+    const trimmedCost = costCentsInput.trim();
     const trimmedLink = linkUrl.trim();
+    const parsedCostCents = parseAmountToCents(trimmedCost);
+
+    if (trimmedCost.length > 0 && parsedCostCents === null) {
+      setSaving(false);
+      setFieldErrors({ costCents: t("trips.plan.costInvalid") });
+      return;
+    }
 
     const payload = {
       tripDayId: day.id,
       contentJson,
+      costCents: trimmedCost.length > 0 ? parsedCostCents : null,
       linkUrl: trimmedLink.length > 0 ? trimmedLink : null,
       location: resolvedLocation,
     } as {
       tripDayId: string;
       contentJson: string;
+      costCents: number | null;
       linkUrl: string | null;
       location: { lat: number; lng: number; label?: string | null } | null;
       itemId?: string;
@@ -334,10 +380,11 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
       if (!response.ok || body.error) {
         if (body.error?.code === "validation_error" && body.error.details) {
           const details = body.error.details as { fieldErrors?: Record<string, string[]> };
-          const nextErrors: { contentJson?: string; linkUrl?: string } = {};
+          const nextErrors: { contentJson?: string; costCents?: string; linkUrl?: string } = {};
           Object.entries(details.fieldErrors ?? {}).forEach(([field, messages]) => {
             if (messages?.[0]) {
               if (field === "contentJson") nextErrors.contentJson = messages[0];
+              if (field === "costCents") nextErrors.costCents = messages[0];
               if (field === "linkUrl") nextErrors.linkUrl = messages[0];
             }
           });
@@ -626,11 +673,22 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
           </Box>
 
           <TextField
+            label={t("trips.plan.costLabel")}
+            value={costCentsInput}
+            onChange={(event) => setCostCentsInput(event.target.value)}
+            error={Boolean(fieldErrors.costCents)}
+            helperText={fieldErrors.costCents ?? t("trips.plan.costHelper")}
+            fullWidth
+            type="text"
+            inputMode="decimal"
+            placeholder="0.00"
+          />
+          <TextField
             label={t("trips.plan.linkLabel")}
             value={linkUrl}
             onChange={(event) => setLinkUrl(event.target.value)}
             error={Boolean(fieldErrors.linkUrl)}
-            helperText={fieldErrors.linkUrl}
+            helperText={fieldErrors.linkUrl ?? t("trips.plan.linkHelper")}
             fullWidth
             type="url"
             inputMode="url"

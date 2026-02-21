@@ -47,6 +47,7 @@ const accommodationImportSchema = z.object({
 const dayPlanItemImportSchema = z.object({
   id: z.string().trim().min(1),
   contentJson: z.string().trim().min(1, "contentJson is required"),
+  costCents: z.union([z.number().int().nonnegative(), z.null()]).optional().default(null),
   linkUrl: urlOrNull,
   location: z.union([locationSchema, z.null()]),
   createdAt: isoUtcDate,

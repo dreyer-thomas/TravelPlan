@@ -1115,6 +1115,7 @@ export const DayPlanItemScalarFieldEnum = {
   id: 'id',
   tripDayId: 'tripDayId',
   contentJson: 'contentJson',
+  costCents: 'costCents',
   linkUrl: 'linkUrl',
   locationLat: 'locationLat',
   locationLng: 'locationLng',

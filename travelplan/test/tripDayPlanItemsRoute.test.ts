@@ -72,6 +72,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
       data: {
         tripDayId: day.id,
         contentJson: sampleDoc("First"),
+        costCents: null,
         linkUrl: null,
         locationLat: null,
         locationLng: null,
@@ -84,6 +85,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
       data: {
         tripDayId: day.id,
         contentJson: sampleDoc("Second"),
+        costCents: 3200,
         linkUrl: "https://example.com/plan",
         locationLat: 48.1372,
         locationLng: 11.5756,
@@ -105,6 +107,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
       items: {
         id: string;
         contentJson: string;
+        costCents: number | null;
         linkUrl: string | null;
         location: { lat: number; lng: number; label: string | null } | null;
       }[];
@@ -113,6 +116,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
     expect(response.status).toBe(200);
     expect(payload.error).toBeNull();
     expect(payload.data?.items.map((item) => item.contentJson)).toEqual([sampleDoc("First"), sampleDoc("Second")]);
+    expect(payload.data?.items.map((item) => item.costCents)).toEqual([null, 3200]);
     expect(payload.data?.items[1].linkUrl).toBe("https://example.com/plan");
     expect(payload.data?.items[1].location).toEqual({ lat: 48.1372, lng: 11.5756, label: "Marienplatz" });
   });
@@ -189,6 +193,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
       body: JSON.stringify({
         tripDayId: day.id,
         contentJson: sampleDoc("Plan"),
+        costCents: 1500,
         linkUrl: "https://example.com/plan",
         location: { lat: 48.145, lng: 11.582, label: "Gallery" },
       }),
@@ -200,6 +205,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
         id: string;
         tripDayId: string;
         contentJson: string;
+        costCents: number | null;
         linkUrl: string | null;
         location: { lat: number; lng: number; label: string | null } | null;
       };
@@ -208,6 +214,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
     expect(response.status).toBe(200);
     expect(payload.error).toBeNull();
     expect(payload.data?.dayPlanItem.tripDayId).toBe(day.id);
+    expect(payload.data?.dayPlanItem.costCents).toBe(1500);
     expect(payload.data?.dayPlanItem.linkUrl).toBe("https://example.com/plan");
     expect(payload.data?.dayPlanItem.location).toEqual({ lat: 48.145, lng: 11.582, label: "Gallery" });
   });
@@ -487,6 +494,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
         tripDayId: day.id,
         itemId: item.id,
         contentJson: sampleDoc("Updated"),
+        costCents: 2800,
         linkUrl: "https://example.com/updated",
         location: { lat: 48.13, lng: 11.56, label: "Center" },
       }),
@@ -494,12 +502,18 @@ describe("/api/trips/[id]/day-plan-items", () => {
 
     const response = await PATCH(request, { params: { id: trip.id } });
     const payload = (await response.json()) as ApiEnvelope<{
-      dayPlanItem: { id: string; contentJson: string; location: { lat: number; lng: number; label: string | null } | null };
+      dayPlanItem: {
+        id: string;
+        contentJson: string;
+        costCents: number | null;
+        location: { lat: number; lng: number; label: string | null } | null;
+      };
     }>;
 
     expect(response.status).toBe(200);
     expect(payload.error).toBeNull();
     expect(payload.data?.dayPlanItem.contentJson).toContain("Updated");
+    expect(payload.data?.dayPlanItem.costCents).toBe(2800);
     expect(payload.data?.dayPlanItem.location).toEqual({ lat: 48.13, lng: 11.56, label: "Center" });
   });
 

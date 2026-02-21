@@ -47,6 +47,7 @@ export type TripDaySummary = {
   dayPlanItems: {
     id: string;
     contentJson: string;
+    costCents: number | null;
     linkUrl: string | null;
     location: { lat: number; lng: number; label: string | null } | null;
   }[];
@@ -96,6 +97,7 @@ export type TripExportPayload = {
     dayPlanItems: {
       id: string;
       contentJson: string;
+      costCents: number | null;
       linkUrl: string | null;
       location: { lat: number; lng: number; label: string | null } | null;
       createdAt: string;
@@ -279,6 +281,7 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
             select: {
               id: true,
               contentJson: true,
+              costCents: true,
               linkUrl: true,
               locationLat: true,
               locationLng: true,
@@ -311,7 +314,13 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
     return day.accommodation?.costCents ?? 0;
   };
 
-  const plannedCostTotal = trip.days.reduce((sum, day) => sum + getVisibleAccommodationCost(day), 0);
+  const getVisibleDayPlanCost = (day: (typeof trip.days)[number]) =>
+    day.dayPlanItems.reduce((sum, item) => sum + (item.costCents ?? 0), 0);
+
+  const getVisibleDayTotal = (day: (typeof trip.days)[number]) => getVisibleAccommodationCost(day) + getVisibleDayPlanCost(day);
+
+  const accommodationCostTotalCents = trip.days.reduce((sum, day) => sum + getVisibleAccommodationCost(day), 0);
+  const plannedCostTotal = trip.days.reduce((sum, day) => sum + getVisibleDayTotal(day), 0);
 
   return {
     id: trip.id,
@@ -320,7 +329,7 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
     endDate: trip.endDate,
     dayCount: trip._count.days,
     plannedCostTotal,
-    accommodationCostTotalCents: plannedCostTotal,
+    accommodationCostTotalCents,
     heroImageUrl: trip.heroImageUrl,
     days: trip.days.map((day) => {
       const accommodationName = day.accommodation?.name?.trim() ?? "";
@@ -334,7 +343,7 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
         dayIndex: day.dayIndex,
         imageUrl: dayMeta?.image_url ?? day.imageUrl ?? null,
         note: dayMeta?.note ?? day.note ?? null,
-        plannedCostSubtotal: getVisibleAccommodationCost(day),
+        plannedCostSubtotal: getVisibleDayTotal(day),
         missingAccommodation: !hasAccommodation,
         missingPlan: day._count.dayPlanItems === 0,
         accommodation: hasAccommodation
@@ -358,6 +367,7 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
         dayPlanItems: day.dayPlanItems.map((item) => ({
           id: item.id,
           contentJson: item.contentJson,
+          costCents: item.costCents,
           linkUrl: item.linkUrl,
           location:
             item.locationLat !== null && item.locationLng !== null
@@ -471,6 +481,7 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
             select: {
               id: true,
               contentJson: true,
+              costCents: true,
               linkUrl: true,
               locationLat: true,
               locationLng: true,
@@ -529,6 +540,7 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
       dayPlanItems: day.dayPlanItems.map((item) => ({
         id: item.id,
         contentJson: item.contentJson,
+        costCents: item.costCents,
         linkUrl: item.linkUrl,
         location:
           item.locationLat !== null && item.locationLng !== null
@@ -594,6 +606,7 @@ const createImportedDays = async ({
         data: {
           tripDayId: createdDay.id,
           contentJson: item.contentJson,
+          costCents: item.costCents ?? null,
           linkUrl: item.linkUrl,
           locationLat: item.location?.lat ?? null,
           locationLng: item.location?.lng ?? null,

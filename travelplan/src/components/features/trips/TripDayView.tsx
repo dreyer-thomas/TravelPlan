@@ -66,6 +66,7 @@ type TripDay = {
   dayPlanItems: {
     id: string;
     contentJson: string;
+    costCents: number | null;
     linkUrl: string | null;
     location: { lat: number; lng: number; label?: string | null } | null;
   }[];
@@ -75,6 +76,7 @@ type DayPlanItem = {
   id: string;
   tripDayId: string;
   contentJson: string;
+  costCents: number | null;
   linkUrl: string | null;
   location: { lat: number; lng: number; label?: string | null } | null;
   createdAt: string;
@@ -430,6 +432,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
           id: item.id,
           tripDayId: resolvedDay.id,
           contentJson: item.contentJson,
+          costCents: typeof item.costCents === "number" ? item.costCents : null,
           linkUrl: item.linkUrl,
           location: item.location,
           createdAt: "",
@@ -806,7 +809,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
       entries.push({
         id: item.id,
         label: preview,
-        amountCents: null,
+        amountCents: item.costCents,
       });
     });
 

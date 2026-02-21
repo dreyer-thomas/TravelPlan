@@ -1,6 +1,6 @@
 # Story 2.19: Day Plan Item Costs Roll Up to Day and Trip Totals
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -40,24 +40,24 @@ so that day and trip budget totals include both accommodation costs and day-entr
 
 ## Tasks / Subtasks
 
-- [ ] Data model and migration (AC: 1, 4, 5)
-  - [ ] Add nullable cost column for day plan items in Prisma schema + migration
-  - [ ] Regenerate Prisma client
-- [ ] Validation and API contract updates (AC: 1, 4, 5)
-  - [ ] Extend day-plan mutation schema to accept optional non-negative cost
-  - [ ] Include `costCents` in create/update/list API payloads
-- [ ] Repository aggregation updates (AC: 2, 3, 4)
-  - [ ] Persist/retrieve day plan item costs in repository methods
-  - [ ] Update day subtotal and trip total calculations to include day plan item costs
-  - [ ] Keep existing owner scoping and hidden/missing visibility logic
-- [ ] UI changes (AC: 1, 2, 3)
-  - [ ] Add cost input to `TripDayPlanDialog` add/edit flow
-  - [ ] Show day item costs in day summary itemization
-  - [ ] Ensure trip-level planned total reflects combined costs
-- [ ] Tests and regression coverage (AC: 1-5)
-  - [ ] Repository tests for mixed null/number day-item costs
-  - [ ] API tests for `costCents` roundtrip and totals
-  - [ ] UI tests for day subtotal and trip total including day-item costs
+- [x] Data model and migration (AC: 1, 4, 5)
+  - [x] Add nullable cost column for day plan items in Prisma schema + migration
+  - [x] Regenerate Prisma client
+- [x] Validation and API contract updates (AC: 1, 4, 5)
+  - [x] Extend day-plan mutation schema to accept optional non-negative cost
+  - [x] Include `costCents` in create/update/list API payloads
+- [x] Repository aggregation updates (AC: 2, 3, 4)
+  - [x] Persist/retrieve day plan item costs in repository methods
+  - [x] Update day subtotal and trip total calculations to include day plan item costs
+  - [x] Keep existing owner scoping and hidden/missing visibility logic
+- [x] UI changes (AC: 1, 2, 3)
+  - [x] Add cost input to `TripDayPlanDialog` add/edit flow
+  - [x] Show day item costs in day summary itemization
+  - [x] Ensure trip-level planned total reflects combined costs
+- [x] Tests and regression coverage (AC: 1-5)
+  - [x] Repository tests for mixed null/number day-item costs
+  - [x] API tests for `costCents` roundtrip and totals
+  - [x] UI tests for day subtotal and trip total including day-item costs
 
 ## Dev Notes
 
@@ -134,8 +134,8 @@ so that day and trip budget totals include both accommodation costs and day-entr
 
 ## Story Completion Status
 
-- Status set to **ready-for-dev**.
-- Completion note: Context story created for day-plan-item costs and aggregated budget roll-up at day and trip levels.
+- Status set to **done**.
+- Completion note: Day-plan-item costs are implemented end-to-end and code review findings were addressed.
 
 ## Dev Agent Record
 
@@ -145,16 +145,60 @@ Codex (GPT-5)
 
 ### Debug Log References
 
-- Story authoring only (no implementation commands executed).
+- Added `DayPlanItem.costCents` nullable column and migration `20260221120000_add_day_plan_item_cost_cents`.
+- Regenerated Prisma client and updated repository/API/UI layers for day-item costs.
+- Ran targeted tests for changed modules and full test suite (`227 passed`).
+- Ran lint; warnings remain across unrelated files (hooks deps, unused directives/vars), no lint errors.
+- Review follow-up: restored `accommodationCostTotalCents` to accommodation-only aggregation and removed extraneous no-op migration.
 
 ### Completion Notes List
 
-- Defined additive cost model for day plan items.
-- Specified roll-up behavior for day and trip totals.
-- Added compatibility and regression constraints.
+- Implemented additive `costCents` support for day plan items across Prisma schema, validation, repository methods, API routes, and UI dialog payloads.
+- Updated day and trip roll-ups to include day plan item costs while preserving accommodation visibility rules and ownership scoping.
+- Added backward-compatible UI normalization for older payloads missing `costCents` values.
+- Extended import/export contract support to include day-plan-item `costCents` (optional for legacy payloads).
+- Added/updated tests for schema validation, repository persistence, API roundtrip, trip totals, and dialog/UI behavior.
 
 ### File List
 
 - `_bmad-output/implementation-artifacts/2-19-day-plan-item-costs-roll-up-to-day-and-trip-totals.md`
 - `_bmad-output/implementation-artifacts/sprint-status.yaml`
+- `travelplan/prisma/schema.prisma`
+- `travelplan/prisma/migrations/20260221120000_add_day_plan_item_cost_cents/migration.sql`
+- `travelplan/src/lib/validation/dayPlanItemSchemas.ts`
+- `travelplan/src/lib/repositories/dayPlanItemRepo.ts`
+- `travelplan/src/lib/repositories/tripRepo.ts`
+- `travelplan/src/lib/validation/tripImportSchemas.ts`
+- `travelplan/src/app/api/trips/[id]/day-plan-items/route.ts`
+- `travelplan/src/app/api/trips/[id]/route.ts`
+- `travelplan/src/components/features/trips/TripDayPlanDialog.tsx`
+- `travelplan/src/components/features/trips/TripDayView.tsx`
+- `travelplan/src/components/features/trips/TripDayLeafletMap.tsx`
+- `travelplan/src/components/features/trips/TripOverviewLeafletMap.tsx`
+- `travelplan/src/generated/prisma/internal/class.ts`
+- `travelplan/src/generated/prisma/internal/prismaNamespace.ts`
+- `travelplan/src/generated/prisma/internal/prismaNamespaceBrowser.ts`
+- `travelplan/src/generated/prisma/models/DayPlanItem.ts`
+- `travelplan/src/i18n/en.ts`
+- `travelplan/src/i18n/de.ts`
+- `travelplan/test/dayPlanItemSchemas.test.ts`
+- `travelplan/test/dayPlanItemRepo.test.ts`
+- `travelplan/test/tripDayPlanItemsRoute.test.ts`
+- `travelplan/test/tripRepo.test.ts`
+- `travelplan/test/tripDetailRoute.test.ts`
+- `travelplan/test/tripDayPlanDialog.test.tsx`
 
+## Senior Developer Review (AI)
+
+- 2026-02-21: Reviewed story implementation against ACs and changed files. Requested and applied fixes for:
+  - contract regression where `accommodationCostTotalCents` incorrectly included day-plan-item costs.
+  - undocumented changed files in Dev Agent Record File List.
+  - extraneous no-op migration in Prisma migration chain.
+- Post-fix validation:
+  - `npm test` => `227 passed`.
+  - `npm run lint` => warnings only, `0` errors.
+
+## Change Log
+
+- 2026-02-21: Implemented day plan item `costCents` end-to-end and updated day/trip budget roll-up logic with regression coverage.
+- 2026-02-21: Code review fixes applied for totals contract correctness, migration hygiene, and story documentation sync.

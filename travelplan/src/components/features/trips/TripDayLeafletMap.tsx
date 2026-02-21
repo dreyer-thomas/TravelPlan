@@ -3,7 +3,7 @@
 import { MapContainer, Marker, Polyline, TileLayer, useMap } from "react-leaflet";
 import { useEffect, useMemo } from "react";
 import type { ReactElement } from "react";
-// @ts-ignore Leaflet types are not resolved in this build environment.
+// @ts-expect-error Leaflet types are not resolved in this build environment.
 import L from "leaflet";
 import type { TripDayMapPoint } from "@/components/features/trips/TripDayMapPanel";
 

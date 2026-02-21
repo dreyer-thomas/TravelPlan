@@ -214,6 +214,7 @@ describe("TripDayPlanDialog", () => {
                 id: "item-1",
                 tripDayId: "day-1",
                 contentJson: tiptapMocks.sampleDoc,
+                costCents: 2600,
                 linkUrl: "https://example.com/plan",
                 location: null,
                 createdAt: new Date().toISOString(),
@@ -263,6 +264,7 @@ describe("TripDayPlanDialog", () => {
     expect(screen.getByText("No coordinates selected")).toBeInTheDocument();
 
     fireEvent.change(screen.getByRole("textbox", { name: "Link" }), { target: { value: "https://example.com/plan" } });
+    fireEvent.change(screen.getByLabelText("Cost"), { target: { value: "26,00" } });
     vi.spyOn(window, "prompt").mockReturnValue("https://images.example.com/plan.webp");
     fireEvent.click(screen.getByRole("button", { name: "Image" }));
     fireEvent.change(screen.getByLabelText("Search place"), { target: { value: "Museum" } });
@@ -279,6 +281,7 @@ describe("TripDayPlanDialog", () => {
     const postCall = fetchMock.mock.calls.find((call) => String(call[0]).includes("/day-plan-items") && call[1]?.method === "POST");
     expect(postCall).toBeDefined();
     const requestBody = JSON.parse(String(postCall?.[1]?.body ?? "{}"));
+    expect(requestBody.costCents).toBe(2600);
     expect(requestBody.location).toEqual({ lat: 48.145, lng: 11.582, label: "Museum" });
     const parsedDoc = JSON.parse(requestBody.contentJson) as { content?: Array<{ type?: string; attrs?: { src?: string } }> };
     expect(parsedDoc.content?.some((node) => node.type === "image" && node.attrs?.src === "https://images.example.com/plan.webp")).toBe(
@@ -313,6 +316,7 @@ describe("TripDayPlanDialog", () => {
                 id: "item-1",
                 tripDayId: "day-1",
                 contentJson: tiptapMocks.sampleDoc,
+                costCents: 3400,
                 linkUrl: "https://example.com/updated",
                 location: { lat: 48.1372, lng: 11.5756, label: "Old Town" },
                 createdAt: new Date().toISOString(),
@@ -344,6 +348,7 @@ describe("TripDayPlanDialog", () => {
             id: "item-1",
             tripDayId: "day-1",
             contentJson: tiptapMocks.sampleDoc,
+            costCents: 2100,
             linkUrl: "https://example.com/original",
             location: { lat: 48.1372, lng: 11.5756, label: "Old Town" },
             createdAt: "2026-12-01T09:00:00.000Z",
@@ -356,9 +361,11 @@ describe("TripDayPlanDialog", () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(screen.getByText("Edit plan item")).toBeInTheDocument();
+    expect(screen.getByLabelText("Cost")).toHaveValue("21.00");
     expect(screen.getByRole("textbox", { name: "Link" })).toHaveValue("https://example.com/original");
     expect(screen.getByText("Latitude: 48.137200 · Longitude: 11.575600")).toBeInTheDocument();
 
+    fireEvent.change(screen.getByLabelText("Cost"), { target: { value: "34,00" } });
     fireEvent.change(screen.getByRole("textbox", { name: "Link" }), { target: { value: "https://example.com/updated" } });
     fireEvent.click(screen.getByRole("button", { name: "Update item" }));
 
@@ -368,6 +375,11 @@ describe("TripDayPlanDialog", () => {
         expect.objectContaining({ method: "PATCH" }),
       ),
     );
+    const patchCall = fetchMock.mock.calls.find(
+      (call) => String(call[0]).includes("/day-plan-items") && call[1]?.method === "PATCH",
+    );
+    const patchBody = JSON.parse(String(patchCall?.[1]?.body ?? "{}"));
+    expect(patchBody.costCents).toBe(3400);
 
     expect(onSaved).toHaveBeenCalledTimes(1);
   });

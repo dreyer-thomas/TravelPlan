@@ -112,6 +112,7 @@ model DayPlanItem {
   id        String   @id @default(cuid()) @map("id")
   tripDayId String   @map("trip_day_id")
   contentJson String @map("content_json")
+  costCents Int?     @map("cost_cents")
   linkUrl   String?  @map("link_url")
   locationLat Float? @map("location_lat")
   locationLng Float? @map("location_lng")

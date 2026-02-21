@@ -4,6 +4,7 @@ export type DayPlanItemDetail = {
   id: string;
   tripDayId: string;
   contentJson: string;
+  costCents: number | null;
   linkUrl: string | null;
   location: { lat: number; lng: number; label: string | null } | null;
   createdAt: Date;
@@ -24,6 +25,7 @@ type DayPlanItemMutationParams = {
   tripId: string;
   tripDayId: string;
   contentJson: string;
+  costCents?: number | null;
   linkUrl?: string | null;
   location?: { lat: number; lng: number; label?: string | null } | null;
 };
@@ -102,6 +104,7 @@ const toDetail = (item: {
   id: string;
   tripDayId: string;
   contentJson: string;
+  costCents: number | null;
   linkUrl: string | null;
   locationLat: number | null;
   locationLng: number | null;
@@ -111,6 +114,7 @@ const toDetail = (item: {
   id: item.id,
   tripDayId: item.tripDayId,
   contentJson: item.contentJson,
+  costCents: item.costCents,
   linkUrl: item.linkUrl,
   location:
     item.locationLat !== null && item.locationLng !== null
@@ -161,7 +165,7 @@ export const listDayPlanItemsForTripDay = async (params: {
 export const createDayPlanItemForTripDay = async (
   params: DayPlanItemMutationParams,
 ): Promise<DayPlanItemDetail | null> => {
-  const { userId, tripId, tripDayId, contentJson, linkUrl, location } = params;
+  const { userId, tripId, tripDayId, contentJson, costCents, linkUrl, location } = params;
   const tripDay = await findTripDayForUser(userId, tripId, tripDayId);
   if (!tripDay) {
     return null;
@@ -171,6 +175,7 @@ export const createDayPlanItemForTripDay = async (
     data: {
       tripDayId,
       contentJson,
+      costCents: costCents ?? null,
       linkUrl: linkUrl ?? null,
       locationLat: location?.lat ?? null,
       locationLng: location?.lng ?? null,
@@ -184,7 +189,7 @@ export const createDayPlanItemForTripDay = async (
 export const updateDayPlanItemForTripDay = async (
   params: DayPlanItemUpdateParams,
 ): Promise<DayPlanItemUpdateResult> => {
-  const { userId, tripId, tripDayId, itemId, contentJson, linkUrl, location } = params;
+  const { userId, tripId, tripDayId, itemId, contentJson, costCents, linkUrl, location } = params;
   const tripDay = await findTripDayForUser(userId, tripId, tripDayId);
   if (!tripDay) {
     return { status: "not_found" };
@@ -205,6 +210,7 @@ export const updateDayPlanItemForTripDay = async (
     where: { id: existing.id },
     data: {
       contentJson,
+      costCents: costCents ?? null,
       linkUrl: linkUrl ?? null,
       locationLat: location?.lat ?? null,
       locationLng: location?.lng ?? null,

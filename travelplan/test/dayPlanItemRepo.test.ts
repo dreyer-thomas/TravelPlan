@@ -57,6 +57,7 @@ describe("dayPlanItemRepo", () => {
       tripId: trip.id,
       tripDayId: day.id,
       contentJson: sampleDoc("Morning walk"),
+      costCents: 1250,
       linkUrl: "https://example.com/plan",
       location: { lat: 48.1372, lng: 11.5756, label: "Museum" },
     });
@@ -64,6 +65,7 @@ describe("dayPlanItemRepo", () => {
     expect(item).not.toBeNull();
     expect(item?.tripDayId).toBe(day.id);
     expect(item?.contentJson).toContain("Morning walk");
+    expect(item?.costCents).toBe(1250);
     expect(item?.linkUrl).toBe("https://example.com/plan");
     expect(item?.location).toEqual({ lat: 48.1372, lng: 11.5756, label: "Museum" });
   });
@@ -76,6 +78,7 @@ describe("dayPlanItemRepo", () => {
       data: {
         tripDayId: day.id,
         contentJson: sampleDoc("Second"),
+        costCents: null,
         linkUrl: null,
         createdAt: new Date("2026-11-05T10:00:00.000Z"),
       },
@@ -85,6 +88,7 @@ describe("dayPlanItemRepo", () => {
       data: {
         tripDayId: day.id,
         contentJson: sampleDoc("First"),
+        costCents: 900,
         linkUrl: null,
         createdAt: new Date("2026-11-05T08:00:00.000Z"),
       },
@@ -98,6 +102,7 @@ describe("dayPlanItemRepo", () => {
 
     expect(items).not.toBeNull();
     expect(items?.map((entry) => entry.contentJson)).toEqual([sampleDoc("First"), sampleDoc("Second")]);
+    expect(items?.map((entry) => entry.costCents)).toEqual([900, null]);
   });
 
   it("rejects listing items for a non-owned trip day", async () => {
@@ -132,6 +137,7 @@ describe("dayPlanItemRepo", () => {
       tripDayId: day.id,
       itemId: created.id,
       contentJson: sampleDoc("Updated"),
+      costCents: 4500,
       linkUrl: "https://example.com/updated",
       location: { lat: 48.145, lng: 11.582, label: "Gallery" },
     });
@@ -139,6 +145,7 @@ describe("dayPlanItemRepo", () => {
     expect(updated.status).toBe("updated");
     if (updated.status === "updated") {
       expect(updated.item.contentJson).toContain("Updated");
+      expect(updated.item.costCents).toBe(4500);
       expect(updated.item.linkUrl).toBe("https://example.com/updated");
       expect(updated.item.location).toEqual({ lat: 48.145, lng: 11.582, label: "Gallery" });
     }
