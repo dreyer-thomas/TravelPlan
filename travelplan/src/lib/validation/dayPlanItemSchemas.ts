@@ -54,7 +54,8 @@ const linkSchema = z
 const timeFieldSchema = z
   .string()
   .trim()
-  .regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Time must be in HH:mm format");
+  .regex(/^([01]\d|2[0-3]):([0-5]\d)(:[0-5]\d)?$/, "Time must be in HH:mm format")
+  .transform((value) => value.slice(0, 5));
 
 const toMinutes = (value: string) => {
   const [hours, minutes] = value.split(":").map((part) => Number.parseInt(part, 10));

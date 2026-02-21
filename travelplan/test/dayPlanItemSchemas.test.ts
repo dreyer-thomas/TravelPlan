@@ -262,6 +262,23 @@ describe("dayPlanItemSchemas", () => {
     expect(invalidTo.success).toBe(false);
   });
 
+  it("accepts HH:mm:ss values and normalizes to HH:mm", () => {
+    const result = dayPlanItemMutationSchema.safeParse({
+      tripDayId: "day-id",
+      title: "Plan",
+      fromTime: "09:30:00",
+      toTime: "11:00:59",
+      contentJson: sampleDoc,
+      linkUrl: null,
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.fromTime).toBe("09:30");
+      expect(result.data.toTime).toBe("11:00");
+    }
+  });
+
   it("rejects time ranges where toTime is not later than fromTime", () => {
     const equalTimes = dayPlanItemMutationSchema.safeParse({
       tripDayId: "day-id",
