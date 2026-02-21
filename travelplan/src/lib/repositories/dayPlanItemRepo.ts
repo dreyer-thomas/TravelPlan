@@ -254,6 +254,28 @@ export const listDayPlanItemImages = async (
   return images.map(toImageDetail);
 };
 
+export const listDayPlanItemImagesForTripDay = async (params: {
+  userId: string;
+  tripId: string;
+  tripDayId: string;
+}): Promise<DayPlanItemImageDetail[] | null> => {
+  const tripDay = await findTripDayForUser(params.userId, params.tripId, params.tripDayId);
+  if (!tripDay) {
+    return null;
+  }
+
+  const images = await prisma.dayPlanItemImage.findMany({
+    where: {
+      dayPlanItem: {
+        tripDayId: params.tripDayId,
+      },
+    },
+    orderBy: [{ dayPlanItemId: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
+  });
+
+  return images.map(toImageDetail);
+};
+
 export const createDayPlanItemImage = async (
   params: DayPlanItemImageCreateParams,
 ): Promise<DayPlanItemImageDetail | null> => {

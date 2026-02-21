@@ -403,6 +403,167 @@ describe("TripDayView layout", () => {
     vi.unstubAllGlobals();
   });
 
+  it("renders formatted day plan content including italic text and inline images", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/day-plan-items/images")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { images: [] }, error: null }),
+        };
+      }
+      if (url.includes("/accommodations/images")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { images: [] }, error: null }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-01T00:00:00.000Z",
+              dayCount: 1,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: null,
+                dayPlanItems: [
+                  {
+                    id: "plan-1",
+                    contentJson: JSON.stringify({
+                      type: "doc",
+                      content: [
+                        {
+                          type: "paragraph",
+                          content: [{ type: "text", text: "Italic activity", marks: [{ type: "italic" }] }],
+                        },
+                        {
+                          type: "image",
+                          attrs: { src: "https://images.example.com/day-1.webp", alt: "Plan image" },
+                        },
+                      ],
+                    }),
+                    linkUrl: null,
+                    location: null,
+                  },
+                ],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-1" />
+      </I18nProvider>,
+    );
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+    expect(screen.getAllByText("Italic activity").some((element) => element.tagName === "EM")).toBe(true);
+    expect(screen.getByAltText("Plan image")).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("does not render unsafe item links as clickable anchors", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/day-plan-items/images")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { images: [] }, error: null }),
+        };
+      }
+      if (url.includes("/accommodations/images")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { images: [] }, error: null }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-01T00:00:00.000Z",
+              dayCount: 1,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: null,
+                dayPlanItems: [
+                  {
+                    id: "plan-1",
+                    contentJson: JSON.stringify({
+                      type: "doc",
+                      content: [{ type: "paragraph", content: [{ type: "text", text: "Unsafe link item" }] }],
+                    }),
+                    linkUrl: "javascript:alert(1)",
+                    location: null,
+                  },
+                ],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-1" />
+      </I18nProvider>,
+    );
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+    expect(screen.queryByRole("link", { name: "Open link" })).not.toBeInTheDocument();
+    expect(screen.getByText("No link")).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
   it("renders the day view page layout for a selected day", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
@@ -540,10 +701,10 @@ describe("TripDayView layout", () => {
           json: async () => ({
             data: {
               images: [
-                { id: "plan-img-1", imageUrl: "/uploads/p1.webp", sortOrder: 1 },
-                { id: "plan-img-2", imageUrl: "/uploads/p2.webp", sortOrder: 2 },
-                { id: "plan-img-3", imageUrl: "/uploads/p3.webp", sortOrder: 3 },
-                { id: "plan-img-4", imageUrl: "/uploads/p4.webp", sortOrder: 4 },
+                { id: "plan-img-1", dayPlanItemId: "item-1", imageUrl: "/uploads/p1.webp", sortOrder: 1 },
+                { id: "plan-img-2", dayPlanItemId: "item-1", imageUrl: "/uploads/p2.webp", sortOrder: 2 },
+                { id: "plan-img-3", dayPlanItemId: "item-1", imageUrl: "/uploads/p3.webp", sortOrder: 3 },
+                { id: "plan-img-4", dayPlanItemId: "item-1", imageUrl: "/uploads/p4.webp", sortOrder: 4 },
               ],
             },
             error: null,

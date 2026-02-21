@@ -10,12 +10,14 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  SvgIcon,
   TextField,
   Typography,
 } from "@mui/material";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
+import { Node } from "@tiptap/core";
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
 
@@ -61,6 +63,36 @@ const emptyDoc = {
   content: [{ type: "paragraph" }],
 };
 
+const PlanImage = Node.create({
+  name: "image",
+  group: "block",
+  draggable: true,
+  addAttributes() {
+    return {
+      src: { default: null },
+      alt: { default: null },
+      title: { default: null },
+    };
+  },
+  parseHTML() {
+    return [{ tag: "img[src]" }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ["img", HTMLAttributes];
+  },
+  addCommands() {
+    return {
+      setImage:
+        (attrs: { src: string; alt?: string; title?: string }) =>
+        ({ commands }: { commands: { insertContent: (value: unknown) => boolean } }) =>
+          commands.insertContent({
+            type: this.name,
+            attrs,
+          }),
+    };
+  },
+});
+
 const toDocString = (value: object) => JSON.stringify(value);
 
 const parseDoc = (value: string) => {
@@ -95,6 +127,7 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
     immediatelyRender: false,
     extensions: [
       StarterKit,
+      PlanImage,
       Link.configure({
         openOnClick: false,
         autolink: true,
@@ -325,6 +358,32 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
     }
   };
 
+  const handleInsertLink = () => {
+    if (!editor) return;
+    const href = window.prompt(t("trips.plan.toolbarLinkPrompt"), linkUrl.trim());
+    if (!href) return;
+    const trimmed = href.trim();
+    if (!trimmed) return;
+    (editor as unknown as { chain: () => { focus: () => { setLink: (value: { href: string }) => { run: () => boolean } } } })
+      .chain()
+      .focus()
+      .setLink({ href: trimmed })
+      .run();
+  };
+
+  const handleInsertImage = () => {
+    if (!editor) return;
+    const src = window.prompt(t("trips.plan.toolbarImagePrompt"), "https://");
+    if (!src) return;
+    const trimmed = src.trim();
+    if (!trimmed) return;
+    (editor as unknown as { chain: () => { focus: () => { setImage: (value: { src: string; alt: string }) => { run: () => boolean } } } })
+      .chain()
+      .focus()
+      .setImage({ src: trimmed, alt: t("trips.plan.inlineImageAlt") })
+      .run();
+  };
+
   const handleLookupLocation = async () => {
     const query = locationQuery.trim();
     if (!query) {
@@ -490,6 +549,73 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
                 minHeight: 180,
               }}
             >
+              <Box display="flex" gap={0.75} flexWrap="wrap" mb={1.25}>
+                <Button
+                  variant={editor?.isActive("bold") ? "contained" : "outlined"}
+                  size="small"
+                  onClick={() => editor?.chain().focus().toggleBold().run()}
+                  disabled={isBusy || !editor}
+                  aria-label={t("trips.plan.toolbarBold")}
+                  title={t("trips.plan.toolbarBold")}
+                  sx={{ minWidth: 36, px: 0.5 }}
+                >
+                  <Typography component="span" sx={{ fontWeight: 800, fontSize: "0.95rem", lineHeight: 1 }}>
+                    B
+                  </Typography>
+                </Button>
+                <Button
+                  variant={editor?.isActive("italic") ? "contained" : "outlined"}
+                  size="small"
+                  onClick={() => editor?.chain().focus().toggleItalic().run()}
+                  disabled={isBusy || !editor}
+                  aria-label={t("trips.plan.toolbarItalic")}
+                  title={t("trips.plan.toolbarItalic")}
+                  sx={{ minWidth: 36, px: 0.5 }}
+                >
+                  <Typography component="span" sx={{ fontStyle: "italic", fontSize: "0.95rem", lineHeight: 1 }}>
+                    I
+                  </Typography>
+                </Button>
+                <Button
+                  variant={editor?.isActive("bulletList") ? "contained" : "outlined"}
+                  size="small"
+                  onClick={() => editor?.chain().focus().toggleBulletList().run()}
+                  disabled={isBusy || !editor}
+                  aria-label={t("trips.plan.toolbarBulletList")}
+                  title={t("trips.plan.toolbarBulletList")}
+                  sx={{ minWidth: 36, px: 0.5 }}
+                >
+                  <SvgIcon fontSize="small">
+                    <path d="M4 7a1 1 0 1 0 0.001 0zM7 6h13v2H7zM4 12a1 1 0 1 0 0.001 0zM7 11h13v2H7zM4 17a1 1 0 1 0 0.001 0zM7 16h13v2H7z" />
+                  </SvgIcon>
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={handleInsertLink}
+                  disabled={isBusy || !editor}
+                  aria-label={t("trips.plan.toolbarLink")}
+                  title={t("trips.plan.toolbarLink")}
+                  sx={{ minWidth: 36, px: 0.5 }}
+                >
+                  <SvgIcon fontSize="small">
+                    <path d="M10.59 13.41a1.996 1.996 0 0 1 0-2.82l2.18-2.18a2 2 0 1 1 2.83 2.83l-1.06 1.06 1.41 1.41 1.06-1.06a4 4 0 0 0-5.66-5.66L9.17 9.17a4 4 0 0 0 0 5.66l.12.12 1.41-1.41-.11-.13zm2.82-2.82-2.82 2.82-1.41-1.41L12 9.17l1.41 1.42zm-6.18 1.11L6.17 12.76a4 4 0 1 0 5.66 5.66l2.18-2.18a4 4 0 0 0 0-5.66l-.12-.12-1.41 1.41.12.12a2 2 0 0 1 0 2.83l-2.18 2.18a2 2 0 1 1-2.83-2.83l1.06-1.06-1.4-1.4z" />
+                  </SvgIcon>
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={handleInsertImage}
+                  disabled={isBusy || !editor}
+                  aria-label={t("trips.plan.toolbarImage")}
+                  title={t("trips.plan.toolbarImage")}
+                  sx={{ minWidth: 36, px: 0.5 }}
+                >
+                  <SvgIcon fontSize="small">
+                    <path d="M21 19V5a2 2 0 0 0-2-2H5C3.9 3 3 3.9 3 5v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2zM8.5 11.5 11 15l3.5-4.5L19 17H5l3.5-5.5zM8 8a1.5 1.5 0 1 0 0.001 0z" />
+                  </SvgIcon>
+                </Button>
+              </Box>
               {editor ? <EditorContent editor={editor} /> : <Typography>{t("trips.plan.editorLoading")}</Typography>}
             </Box>
             {fieldErrors.contentJson && (

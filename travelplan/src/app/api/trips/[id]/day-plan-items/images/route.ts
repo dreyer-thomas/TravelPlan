@@ -8,6 +8,7 @@ import {
   createDayPlanItemImage,
   deleteDayPlanItemImage,
   listDayPlanItemImages,
+  listDayPlanItemImagesForTripDay,
   reorderDayPlanItemImages,
 } from "@/lib/repositories/dayPlanItemRepo";
 import { CSRF_COOKIE_NAME, validateCsrf } from "@/lib/security/csrf";
@@ -86,18 +87,24 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
 
   const tripDayId = request.nextUrl.searchParams.get("tripDayId") ?? "";
   const dayPlanItemId = request.nextUrl.searchParams.get("dayPlanItemId") ?? "";
-  if (!tripDayId.trim() || !dayPlanItemId.trim()) {
-    return fail(apiError("validation_error", "Trip day and day plan item are required"), 400);
+  if (!tripDayId.trim()) {
+    return fail(apiError("validation_error", "Trip day is required"), 400);
   }
 
-  const images = await listDayPlanItemImages({
-    userId,
-    tripId,
-    tripDayId,
-    dayPlanItemId,
-  });
+  const images = dayPlanItemId.trim()
+    ? await listDayPlanItemImages({
+        userId,
+        tripId,
+        tripDayId,
+        dayPlanItemId,
+      })
+    : await listDayPlanItemImagesForTripDay({
+        userId,
+        tripId,
+        tripDayId,
+      });
   if (!images) {
-    return fail(apiError("not_found", "Day plan item not found"), 404);
+    return fail(apiError("not_found", dayPlanItemId.trim() ? "Day plan item not found" : "Trip day not found"), 404);
   }
 
   return ok({

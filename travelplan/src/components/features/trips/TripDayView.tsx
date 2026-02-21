@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Alert,
   Box,
@@ -82,6 +82,7 @@ type DayPlanItem = {
 
 type GalleryImage = {
   id: string;
+  dayPlanItemId?: string;
   imageUrl: string;
   sortOrder: number;
 };
@@ -126,6 +127,118 @@ const parsePlanText = (value: string) => {
   } catch {
     return "";
   }
+};
+
+type RichDocNode = {
+  type?: string;
+  text?: string;
+  marks?: Array<{ type?: string; attrs?: { href?: string } }>;
+  attrs?: { src?: string; alt?: string };
+  content?: RichDocNode[];
+};
+
+const isSafeLink = (value: string) => {
+  const normalized = value.trim().toLowerCase();
+  return normalized.startsWith("http://") || normalized.startsWith("https://");
+};
+
+const parseRichDoc = (value: string): RichDocNode | null => {
+  try {
+    const parsed = JSON.parse(value) as RichDocNode;
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+};
+
+const applyMarks = (text: string, marks: RichDocNode["marks"]): ReactNode => {
+  return (marks ?? []).reduce<ReactNode>((acc, mark, index) => {
+    if (mark?.type === "italic") return <em key={`mark-italic-${index}`}>{acc}</em>;
+    if (mark?.type === "bold") return <strong key={`mark-bold-${index}`}>{acc}</strong>;
+    if (mark?.type === "strike") return <s key={`mark-strike-${index}`}>{acc}</s>;
+    if (mark?.type === "code") return <code key={`mark-code-${index}`}>{acc}</code>;
+    if (mark?.type === "link" && mark.attrs?.href && isSafeLink(mark.attrs.href)) {
+      return (
+        <a key={`mark-link-${index}`} href={mark.attrs.href} target="_blank" rel="noreferrer noopener">
+          {acc}
+        </a>
+      );
+    }
+    return acc;
+  }, text);
+};
+
+const renderRichNode = (node: RichDocNode, key: string, imageAltFallback: string): ReactNode => {
+  const children = Array.isArray(node.content)
+    ? node.content.map((child, index) => renderRichNode(child, `${key}-${index}`, imageAltFallback)).filter(Boolean)
+    : [];
+
+  if (node.type === "doc") return <Box key={key}>{children}</Box>;
+  if (node.type === "paragraph") {
+    return (
+      <Typography key={key} variant="body2" component="p" sx={{ m: 0, whiteSpace: "pre-wrap" }}>
+        {children}
+      </Typography>
+    );
+  }
+  if (node.type === "bulletList") {
+    return (
+      <Box key={key} component="ul" sx={{ m: 0, pl: 2.5 }}>
+        {children}
+      </Box>
+    );
+  }
+  if (node.type === "orderedList") {
+    return (
+      <Box key={key} component="ol" sx={{ m: 0, pl: 2.5 }}>
+        {children}
+      </Box>
+    );
+  }
+  if (node.type === "listItem") return <Box key={key} component="li">{children}</Box>;
+  if (node.type === "hardBreak") return <br key={key} />;
+  if (node.type === "image" && typeof node.attrs?.src === "string" && isSafeLink(node.attrs.src)) {
+    return (
+      <Box
+        key={key}
+        component="img"
+        src={node.attrs.src}
+        alt={typeof node.attrs.alt === "string" && node.attrs.alt.trim() ? node.attrs.alt : imageAltFallback}
+        data-testid="day-plan-inline-image"
+        sx={{
+          display: "block",
+          maxWidth: "100%",
+          width: "100%",
+          height: "auto",
+          maxHeight: 240,
+          objectFit: "contain",
+          borderRadius: 1,
+          border: "1px solid",
+          borderColor: "divider",
+          my: 0.75,
+        }}
+      />
+    );
+  }
+  if (node.type === "text" && typeof node.text === "string") return <span key={key}>{applyMarks(node.text, node.marks)}</span>;
+  if (children.length > 0) return <Box key={key}>{children}</Box>;
+  return null;
+};
+
+const PlanItemRichContent = ({ contentJson, fallbackText }: { contentJson: string; fallbackText: string }) => {
+  const { t } = useI18n();
+  const doc = parseRichDoc(contentJson);
+  if (!doc) {
+    return <Typography variant="body2">{fallbackText}</Typography>;
+  }
+
+  const rendered = renderRichNode(doc, "root", t("trips.plan.inlineImageAlt"));
+  if (!rendered) {
+    return <Typography variant="body2">{fallbackText}</Typography>;
+  }
+
+  return <Box display="flex" flexDirection="column" gap={0.75}>{rendered}</Box>;
 };
 
 const getMapLocation = (value: { lat: number; lng: number } | null | undefined) => {
@@ -517,21 +630,27 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
         }
 
         const nextPlanItemImages: Record<string, GalleryImage[]> = {};
-        await Promise.all(
-          planItems.map(async (item) => {
-            const response = await fetch(
-              `/api/trips/${tripId}/day-plan-items/images?tripDayId=${day.id}&dayPlanItemId=${item.id}`,
-              {
-                method: "GET",
-                credentials: "include",
-                cache: "no-store",
-              },
-            );
-            const body = (await response.json()) as ApiEnvelope<{ images: GalleryImage[] }>;
-            nextPlanItemImages[item.id] =
-              response.ok && !body.error && Array.isArray(body.data?.images) ? body.data.images : [];
-          }),
-        );
+        const planItemImagesResponse = await fetch(`/api/trips/${tripId}/day-plan-items/images?tripDayId=${day.id}`, {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store",
+        });
+        const planItemImagesBody = (await planItemImagesResponse.json()) as ApiEnvelope<{ images: GalleryImage[] }>;
+        if (planItemImagesResponse.ok && !planItemImagesBody.error && Array.isArray(planItemImagesBody.data?.images)) {
+          for (const image of planItemImagesBody.data.images) {
+            const itemId = image.dayPlanItemId;
+            if (!itemId) continue;
+            if (!nextPlanItemImages[itemId]) {
+              nextPlanItemImages[itemId] = [];
+            }
+            nextPlanItemImages[itemId].push(image);
+          }
+        }
+        for (const item of planItems) {
+          if (!nextPlanItemImages[item.id]) {
+            nextPlanItemImages[item.id] = [];
+          }
+        }
         setPlanItemImagesById(nextPlanItemImages);
       } catch {
         setAccommodationImages([]);
@@ -1004,8 +1123,8 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                       >
                         <Box display="flex" alignItems="flex-start" justifyContent="space-between" gap={1}>
                           <Box display="flex" flexDirection="column" gap={0.75}>
-                            <Typography variant="body2">{preview}</Typography>
-                            {item.linkUrl ? (
+                            <PlanItemRichContent contentJson={item.contentJson} fallbackText={preview} />
+                            {item.linkUrl && isSafeLink(item.linkUrl) ? (
                               <Button
                                 component="a"
                                 href={item.linkUrl}

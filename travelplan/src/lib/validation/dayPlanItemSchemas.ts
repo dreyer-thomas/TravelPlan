@@ -1,15 +1,32 @@
 import { z } from "zod";
 import { locationInputSchema } from "@/lib/validation/locationSchemas";
 
-const hasNonEmptyText = (node: unknown): boolean => {
+const isSafeExternalUrl = (value: string): boolean => {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+};
+
+const hasRenderableContent = (node: unknown): boolean => {
   if (!node || typeof node !== "object") return false;
   const nodeWithText = node as { text?: unknown };
   if (typeof nodeWithText.text === "string") {
     return nodeWithText.text.trim().length > 0;
   }
+  const nodeWithTypeAndAttrs = node as { type?: unknown; attrs?: { src?: unknown } };
+  if (
+    nodeWithTypeAndAttrs.type === "image" &&
+    typeof nodeWithTypeAndAttrs.attrs?.src === "string" &&
+    isSafeExternalUrl(nodeWithTypeAndAttrs.attrs.src.trim())
+  ) {
+    return true;
+  }
   const nodeWithContent = node as { content?: unknown[] };
   if (Array.isArray(nodeWithContent.content)) {
-    return nodeWithContent.content.some((child) => hasNonEmptyText(child));
+    return nodeWithContent.content.some((child) => hasRenderableContent(child));
   }
   return false;
 };
@@ -21,13 +38,18 @@ const contentJsonSchema = z
   .refine((value) => {
     try {
       const parsed = JSON.parse(value);
-      return hasNonEmptyText(parsed);
+      return hasRenderableContent(parsed);
     } catch {
       return false;
     }
   }, "Content must be valid and non-empty JSON");
 
-const linkSchema = z.string().trim().url("Link must be a valid URL").max(2000, "Link must be at most 2000 characters");
+const linkSchema = z
+  .string()
+  .trim()
+  .url("Link must be a valid URL")
+  .refine((value) => isSafeExternalUrl(value), "Link must use http or https")
+  .max(2000, "Link must be at most 2000 characters");
 
 export const dayPlanItemMutationSchema = z.object({
   tripDayId: z.string().trim().min(1, "Trip day is required"),

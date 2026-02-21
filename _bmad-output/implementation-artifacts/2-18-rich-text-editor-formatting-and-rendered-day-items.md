@@ -1,6 +1,6 @@
 # Story 2.18: Rich Text Editor Formatting and Rendered Day Items
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -38,21 +38,21 @@ so that I can structure richer notes and see the same formatting rendered in day
 
 ## Tasks / Subtasks
 
-- [ ] Extend day plan editor formatting controls (AC: 1)
-  - [ ] Add italic action if not exposed in current toolbar
-  - [ ] Add image insertion flow using existing image URL/gallery approach where possible
-  - [ ] Keep keyboard/editor behavior stable for current shortcuts and link insertion
-- [ ] Persist and validate formatted day-plan content (AC: 2, 4)
-  - [ ] Ensure API validation accepts document structures with formatting marks and image nodes used by the editor
-  - [ ] Confirm create/update endpoints store and return formatted content without data loss
-- [ ] Render formatted content in day cards (AC: 3, 5)
-  - [ ] Replace `parsePlanText(...)` summary-only rendering with rich-text renderer for card body
-  - [ ] Constrain inline images/media for responsive card layout
-  - [ ] Keep link behavior and item actions (edit/delete) intact
-- [ ] Add regression and feature coverage tests (AC: 1-5)
-  - [ ] Component test for toolbar controls visibility and save behavior
-  - [ ] Day view test to assert formatted text (italic) and images render in timeline items
-  - [ ] Regression test for legacy plain items still rendering
+- [x] Extend day plan editor formatting controls (AC: 1)
+  - [x] Add italic action if not exposed in current toolbar
+  - [x] Add image insertion flow using existing image URL/gallery approach where possible
+  - [x] Keep keyboard/editor behavior stable for current shortcuts and link insertion
+- [x] Persist and validate formatted day-plan content (AC: 2, 4)
+  - [x] Ensure API validation accepts document structures with formatting marks and image nodes used by the editor
+  - [x] Confirm create/update endpoints store and return formatted content without data loss
+- [x] Render formatted content in day cards (AC: 3, 5)
+  - [x] Replace `parsePlanText(...)` summary-only rendering with rich-text renderer for card body
+  - [x] Constrain inline images/media for responsive card layout
+  - [x] Keep link behavior and item actions (edit/delete) intact
+- [x] Add regression and feature coverage tests (AC: 1-5)
+  - [x] Component test for toolbar controls visibility and save behavior
+  - [x] Day view test to assert formatted text (italic) and images render in timeline items
+  - [x] Regression test for legacy plain items still rendering
 
 ## Dev Notes
 
@@ -140,16 +140,44 @@ Codex (GPT-5)
 
 ### Debug Log References
 
-- Story authoring only (no implementation commands executed).
+- Implemented TipTap toolbar actions (bold/italic/bullets/link/image) and image node extension support in `TripDayPlanDialog`.
+- Replaced summary-only day card content with safe schema-driven rich renderer in `TripDayView` and constrained inline image layout.
+- Extended day plan content validation to accept image-node-only docs while keeping empty docs invalid.
+- Added regression and feature tests for toolbar actions, rich card rendering, schema acceptance, and API persistence.
+- Review fixes: enforced `http(s)` URL safety in `dayPlanItemSchemas` for `linkUrl` and image-node `src`, and guarded rendered external links in `TripDayView`.
+- Review fixes: replaced per-item day-plan gallery requests with a batched day-level fetch in the day-plan image API + `TripDayView`.
+- Review fixes: localized rich-render image alt fallback using `trips.plan.inlineImageAlt`.
+- Validation: `npm test` passed (55 files, 225 tests). `npm run lint` reports pre-existing repo errors unrelated to this story.
 
 ### Completion Notes List
 
-- Defined scope for editor formatting controls and rendering behavior in timeline cards.
-- Added explicit AC coverage for persistence, rendering, compatibility, and responsive layout.
-- Added implementation guardrails for safe rendering and compatibility with existing flows.
+- Added editor toolbar controls in the day plan dialog for bold, italic, bullets, link insertion, and image insertion.
+- Added TipTap image node support so inserted image URLs persist in `contentJson`.
+- Implemented schema-driven rich content rendering in timeline cards (marks, lists, links, and inline images) without unsafe HTML injection.
+- Kept `parsePlanText(...)` for budget/map labels while rendering full rich content in card bodies.
+- Added image-node-aware validation and API route test coverage to confirm formatted content round-trips without data loss.
+- Added regression tests confirming legacy plain-text entries still render correctly.
+- Fixed code review findings: blocked non-`http(s)` external URLs at validation/render boundaries and removed day-plan image N+1 requests via batched retrieval.
+- Added regression tests for unsafe URL rejection and day-level plan-image batch API behavior.
 
 ### File List
 
 - `_bmad-output/implementation-artifacts/2-18-rich-text-editor-formatting-and-rendered-day-items.md`
 - `_bmad-output/implementation-artifacts/sprint-status.yaml`
+- `travelplan/src/components/features/trips/TripDayPlanDialog.tsx`
+- `travelplan/src/components/features/trips/TripDayView.tsx`
+- `travelplan/src/app/api/trips/[id]/day-plan-items/images/route.ts`
+- `travelplan/src/lib/validation/dayPlanItemSchemas.ts`
+- `travelplan/src/lib/repositories/dayPlanItemRepo.ts`
+- `travelplan/src/i18n/en.ts`
+- `travelplan/src/i18n/de.ts`
+- `travelplan/test/tripDayPlanDialog.test.tsx`
+- `travelplan/test/tripDayViewLayout.test.tsx`
+- `travelplan/test/dayPlanItemSchemas.test.ts`
+- `travelplan/test/tripDayPlanItemsRoute.test.ts`
+- `travelplan/test/tripDayPlanItemImagesRoute.test.ts`
 
+## Change Log
+
+- 2026-02-21: Implemented rich text editor toolbar/image insertion, rich day card rendering, validation updates, and regression coverage for Story 2.18.
+- 2026-02-21: Applied code-review fixes for URL safety, batched day-plan image loading, and localized rich-render image fallback text; updated coverage and revalidated with full test suite.

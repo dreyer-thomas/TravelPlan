@@ -104,6 +104,21 @@ describe("/api/trips/[id]/day-plan-items/images", () => {
     expect(getResponse.status).toBe(200);
     expect(getPayload.data?.images).toHaveLength(1);
 
+    const batchGetRequest = new NextRequest(
+      `http://localhost/api/trips/${trip.id}/day-plan-items/images?tripDayId=${day.id}`,
+      {
+        method: "GET",
+        headers: { cookie: `session=${token}` },
+      },
+    );
+    const batchGetResponse = await GET(batchGetRequest, { params: Promise.resolve({ id: trip.id }) });
+    const batchGetPayload = (await batchGetResponse.json()) as ApiEnvelope<{
+      images: { id: string; dayPlanItemId: string; imageUrl: string; sortOrder: number }[];
+    }>;
+    expect(batchGetResponse.status).toBe(200);
+    expect(batchGetPayload.data?.images).toHaveLength(1);
+    expect(batchGetPayload.data?.images[0].dayPlanItemId).toBe(dayPlanItem.id);
+
     const unauthorizedGetRequest = new NextRequest(
       `http://localhost/api/trips/${trip.id}/day-plan-items/images?tripDayId=${day.id}&dayPlanItemId=${dayPlanItem.id}`,
       {

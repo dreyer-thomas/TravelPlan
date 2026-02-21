@@ -212,6 +212,68 @@ describe("/api/trips/[id]/day-plan-items", () => {
     expect(payload.data?.dayPlanItem.location).toEqual({ lat: 48.145, lng: 11.582, label: "Gallery" });
   });
 
+  it("creates and returns rich formatted content without data loss", async () => {
+    const user = await prisma.user.create({
+      data: { email: "plan-route-rich@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const token = await createSessionJwt({ sub: user.id, role: user.role });
+
+    const trip = await prisma.trip.create({
+      data: {
+        userId: user.id,
+        name: "Rich Trip",
+        startDate: new Date("2026-12-03T00:00:00.000Z"),
+        endDate: new Date("2026-12-03T00:00:00.000Z"),
+      },
+    });
+
+    const day = await prisma.tripDay.create({
+      data: {
+        tripId: trip.id,
+        date: new Date("2026-12-03T00:00:00.000Z"),
+        dayIndex: 1,
+      },
+    });
+
+    const richDoc = JSON.stringify({
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [{ type: "text", text: "Italic activity", marks: [{ type: "italic" }] }],
+        },
+        {
+          type: "image",
+          attrs: { src: "https://images.example.com/day-1.webp", alt: "Plan image" },
+        },
+      ],
+    });
+
+    const request = buildRequest(`http://localhost/api/trips/${trip.id}/day-plan-items`, {
+      session: token,
+      csrf: "csrf-token",
+      method: "POST",
+      body: JSON.stringify({
+        tripDayId: day.id,
+        contentJson: richDoc,
+        linkUrl: null,
+      }),
+    });
+
+    const response = await POST(request, { params: { id: trip.id } });
+    const payload = (await response.json()) as ApiEnvelope<{
+      dayPlanItem: {
+        id: string;
+        tripDayId: string;
+        contentJson: string;
+      };
+    }>;
+
+    expect(response.status).toBe(200);
+    expect(payload.error).toBeNull();
+    expect(payload.data?.dayPlanItem.contentJson).toBe(richDoc);
+  });
+
   it("rejects invalid contentJson on create", async () => {
     const user = await prisma.user.create({
       data: { email: "plan-route-invalid@example.com", passwordHash: "hashed", role: "OWNER" },
@@ -243,6 +305,95 @@ describe("/api/trips/[id]/day-plan-items", () => {
         tripDayId: day.id,
         contentJson: " ",
         linkUrl: null,
+      }),
+    });
+
+    const response = await POST(request, { params: { id: trip.id } });
+    const payload = (await response.json()) as ApiEnvelope<null>;
+
+    expect(response.status).toBe(400);
+    expect(payload.data).toBeNull();
+    expect(payload.error?.code).toBe("validation_error");
+  });
+
+  it("rejects unsafe image node URLs on create", async () => {
+    const user = await prisma.user.create({
+      data: { email: "plan-route-image-url-invalid@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const token = await createSessionJwt({ sub: user.id, role: user.role });
+
+    const trip = await prisma.trip.create({
+      data: {
+        userId: user.id,
+        name: "Invalid Image URL Trip",
+        startDate: new Date("2026-12-04T00:00:00.000Z"),
+        endDate: new Date("2026-12-04T00:00:00.000Z"),
+      },
+    });
+
+    const day = await prisma.tripDay.create({
+      data: {
+        tripId: trip.id,
+        date: new Date("2026-12-04T00:00:00.000Z"),
+        dayIndex: 1,
+      },
+    });
+
+    const unsafeDoc = JSON.stringify({
+      type: "doc",
+      content: [{ type: "image", attrs: { src: "javascript:alert(1)", alt: "Bad image" } }],
+    });
+
+    const request = buildRequest(`http://localhost/api/trips/${trip.id}/day-plan-items`, {
+      session: token,
+      csrf: "csrf-token",
+      method: "POST",
+      body: JSON.stringify({
+        tripDayId: day.id,
+        contentJson: unsafeDoc,
+        linkUrl: null,
+      }),
+    });
+
+    const response = await POST(request, { params: { id: trip.id } });
+    const payload = (await response.json()) as ApiEnvelope<null>;
+
+    expect(response.status).toBe(400);
+    expect(payload.data).toBeNull();
+    expect(payload.error?.code).toBe("validation_error");
+  });
+
+  it("rejects non-http linkUrl on create", async () => {
+    const user = await prisma.user.create({
+      data: { email: "plan-route-link-url-invalid@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const token = await createSessionJwt({ sub: user.id, role: user.role });
+
+    const trip = await prisma.trip.create({
+      data: {
+        userId: user.id,
+        name: "Invalid Link URL Trip",
+        startDate: new Date("2026-12-04T00:00:00.000Z"),
+        endDate: new Date("2026-12-04T00:00:00.000Z"),
+      },
+    });
+
+    const day = await prisma.tripDay.create({
+      data: {
+        tripId: trip.id,
+        date: new Date("2026-12-04T00:00:00.000Z"),
+        dayIndex: 1,
+      },
+    });
+
+    const request = buildRequest(`http://localhost/api/trips/${trip.id}/day-plan-items`, {
+      session: token,
+      csrf: "csrf-token",
+      method: "POST",
+      body: JSON.stringify({
+        tripDayId: day.id,
+        contentJson: sampleDoc("Plan"),
+        linkUrl: "javascript:alert(1)",
       }),
     });
 

@@ -53,11 +53,51 @@ describe("dayPlanItemSchemas", () => {
     expect(result.success).toBe(false);
   });
 
+  it("accepts TipTap documents with image nodes even when text is absent", () => {
+    const imageOnlyDoc = JSON.stringify({
+      type: "doc",
+      content: [{ type: "image", attrs: { src: "https://images.example.com/plan.webp", alt: "Plan image" } }],
+    });
+
+    const result = dayPlanItemMutationSchema.safeParse({
+      tripDayId: "day-id",
+      contentJson: imageOnlyDoc,
+      linkUrl: null,
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects TipTap documents with unsafe image URLs", () => {
+    const unsafeImageDoc = JSON.stringify({
+      type: "doc",
+      content: [{ type: "image", attrs: { src: "javascript:alert(1)", alt: "Bad image" } }],
+    });
+
+    const result = dayPlanItemMutationSchema.safeParse({
+      tripDayId: "day-id",
+      contentJson: unsafeImageDoc,
+      linkUrl: null,
+    });
+
+    expect(result.success).toBe(false);
+  });
+
   it("rejects invalid linkUrl", () => {
     const result = dayPlanItemMutationSchema.safeParse({
       tripDayId: "day-id",
       contentJson: sampleDoc,
       linkUrl: "not-a-url",
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects non-http linkUrl schemes", () => {
+    const result = dayPlanItemMutationSchema.safeParse({
+      tripDayId: "day-id",
+      contentJson: sampleDoc,
+      linkUrl: "javascript:alert(1)",
     });
 
     expect(result.success).toBe(false);

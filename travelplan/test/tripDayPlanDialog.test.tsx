@@ -8,10 +8,19 @@ import type { ChangeEvent, ReactNode } from "react";
 const tiptapMocks = vi.hoisted(() => ({
   updatedFlag: { value: false },
   doc: { value: null as null | unknown },
+  activeMarks: { value: new Set<string>() },
   editorInstance: {
     value: null as null | {
-      commands: { setContent: (doc: unknown) => void };
+      commands: { setContent: (doc: unknown) => void; setImage: (attrs: { src: string }) => void };
       getJSON: () => unknown;
+      isActive: (name: string) => boolean;
+      chain: () => {
+        focus: () => unknown;
+        toggleBold: () => unknown;
+        toggleItalic: () => unknown;
+        toggleBulletList: () => unknown;
+        run: () => boolean;
+      };
     },
   },
   sampleDoc: JSON.stringify({
@@ -62,6 +71,7 @@ vi.mock("@mui/material", () => {
     DialogTitle: Simple,
     DialogContent: Simple,
     DialogActions: Simple,
+    SvgIcon: Simple,
     TextField: ({
       label,
       value,
@@ -95,16 +105,53 @@ vi.mock("@mui/material", () => {
 vi.mock("@tiptap/react", () => ({
   EditorContent: () => <div data-testid="tiptap-editor" />,
   useEditor: (options: { onUpdate?: (args: { editor: { getJSON: () => unknown } }) => void }) => {
+    const appendImageNode = (src: string) => {
+      const current = tiptapMocks.doc.value as
+        | { type?: string; content?: Array<{ type?: string; attrs?: { src?: string } }> }
+        | null;
+      const content = Array.isArray(current?.content) ? [...current.content] : [];
+      content.push({ type: "image", attrs: { src } });
+      tiptapMocks.doc.value = { type: "doc", content };
+    };
+
     if (!tiptapMocks.editorInstance.value) {
       tiptapMocks.doc.value = JSON.parse(tiptapMocks.sampleDoc);
+      const chainState = {} as {
+        focus: () => typeof chainState;
+        toggleBold: () => typeof chainState;
+        toggleItalic: () => typeof chainState;
+        toggleBulletList: () => typeof chainState;
+        setLink: (_value: { href: string }) => typeof chainState;
+        setImage: (value: { src: string }) => typeof chainState;
+        run: () => boolean;
+      };
+      chainState.focus = () => chainState;
+      chainState.toggleBold = () => chainState;
+      chainState.toggleItalic = () => chainState;
+      chainState.toggleBulletList = () => chainState;
+      chainState.setLink = () => chainState;
+      chainState.setImage = ({ src }: { src: string }) => {
+        appendImageNode(src);
+        return chainState;
+      };
+      chainState.run = () => {
+        options?.onUpdate?.({ editor: tiptapMocks.editorInstance.value! });
+        return true;
+      };
       tiptapMocks.editorInstance.value = {
         commands: {
           setContent: (doc: unknown) => {
             tiptapMocks.doc.value = doc;
             options?.onUpdate?.({ editor: tiptapMocks.editorInstance.value! });
           },
+          setImage: ({ src }: { src: string }) => {
+            appendImageNode(src);
+            options?.onUpdate?.({ editor: tiptapMocks.editorInstance.value! });
+          },
         },
         getJSON: () => tiptapMocks.doc.value,
+        isActive: (name: string) => tiptapMocks.activeMarks.value.has(name),
+        chain: () => chainState,
       };
     }
     const editor = tiptapMocks.editorInstance.value;
@@ -128,6 +175,7 @@ describe("TripDayPlanDialog", () => {
     tiptapMocks.updatedFlag.value = false;
     tiptapMocks.doc.value = null;
     tiptapMocks.editorInstance.value = null;
+    tiptapMocks.activeMarks.value.clear();
   });
 
   it("renders add mode as form-only and saves via POST", async () => {
@@ -202,6 +250,9 @@ describe("TripDayPlanDialog", () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(screen.getByText("Add plan item")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Bold" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Italic" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Image" })).toBeInTheDocument();
     expect(screen.queryByText("Plan items")).not.toBeInTheDocument();
     expect(screen.queryByText("No plan items yet.")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Search place")).toBeInTheDocument();
@@ -211,7 +262,9 @@ describe("TripDayPlanDialog", () => {
     expect(screen.queryByLabelText("Location label (optional)")).toBeNull();
     expect(screen.getByText("No coordinates selected")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("Link"), { target: { value: "https://example.com/plan" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Link" }), { target: { value: "https://example.com/plan" } });
+    vi.spyOn(window, "prompt").mockReturnValue("https://images.example.com/plan.webp");
+    fireEvent.click(screen.getByRole("button", { name: "Image" }));
     fireEvent.change(screen.getByLabelText("Search place"), { target: { value: "Museum" } });
     fireEvent.click(screen.getByRole("button", { name: "Find" }));
     await waitFor(() => expect(screen.getByText("Latitude: 48.145000 · Longitude: 11.582000")).toBeInTheDocument());
@@ -227,6 +280,10 @@ describe("TripDayPlanDialog", () => {
     expect(postCall).toBeDefined();
     const requestBody = JSON.parse(String(postCall?.[1]?.body ?? "{}"));
     expect(requestBody.location).toEqual({ lat: 48.145, lng: 11.582, label: "Museum" });
+    const parsedDoc = JSON.parse(requestBody.contentJson) as { content?: Array<{ type?: string; attrs?: { src?: string } }> };
+    expect(parsedDoc.content?.some((node) => node.type === "image" && node.attrs?.src === "https://images.example.com/plan.webp")).toBe(
+      true,
+    );
 
     expect(onSaved).toHaveBeenCalledTimes(1);
   });
@@ -299,10 +356,10 @@ describe("TripDayPlanDialog", () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(screen.getByText("Edit plan item")).toBeInTheDocument();
-    expect(screen.getByLabelText("Link")).toHaveValue("https://example.com/original");
+    expect(screen.getByRole("textbox", { name: "Link" })).toHaveValue("https://example.com/original");
     expect(screen.getByText("Latitude: 48.137200 · Longitude: 11.575600")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("Link"), { target: { value: "https://example.com/updated" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Link" }), { target: { value: "https://example.com/updated" } });
     fireEvent.click(screen.getByRole("button", { name: "Update item" }));
 
     await waitFor(() =>
