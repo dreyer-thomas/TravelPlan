@@ -35,6 +35,8 @@ type DayPlanItem = {
   id: string;
   tripDayId: string;
   title: string | null;
+  fromTime: string | null;
+  toTime: string | null;
   contentJson: string;
   costCents: number | null;
   linkUrl: string | null;
@@ -146,13 +148,22 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
   const [contentJson, setContentJson] = useState<string>(toDocString(emptyDoc));
   const [titleInput, setTitleInput] = useState<string>("");
   const [costCentsInput, setCostCentsInput] = useState<string>("");
+  const [fromTimeInput, setFromTimeInput] = useState<string>("");
+  const [toTimeInput, setToTimeInput] = useState<string>("");
   const [linkUrl, setLinkUrl] = useState<string>("");
   const [resolvedLocation, setResolvedLocation] = useState<{ lat: number; lng: number; label?: string | null } | null>(
     null,
   );
   const [locationQuery, setLocationQuery] = useState<string>("");
   const [lookupLoading, setLookupLoading] = useState(false);
-  const [fieldErrors, setFieldErrors] = useState<{ title?: string; contentJson?: string; costCents?: string; linkUrl?: string }>(
+  const [fieldErrors, setFieldErrors] = useState<{
+    title?: string;
+    fromTime?: string;
+    toTime?: string;
+    contentJson?: string;
+    costCents?: string;
+    linkUrl?: string;
+  }>(
     {},
   );
   const [galleryImages, setGalleryImages] = useState<GalleryImage[]>([]);
@@ -187,6 +198,8 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
   const resetEditor = useCallback(() => {
     setContentJson(toDocString(emptyDoc));
     setTitleInput("");
+    setFromTimeInput("");
+    setToTimeInput("");
     setCostCentsInput("");
     setLinkUrl("");
     setResolvedLocation(null);
@@ -216,6 +229,8 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
 
     if (mode === "edit" && item) {
       setTitleInput(item.title ?? "");
+      setFromTimeInput(item.fromTime ?? "");
+      setToTimeInput(item.toTime ?? "");
       setCostCentsInput(item.costCents !== null ? formatCentsAsAmount(item.costCents) : "");
       setLinkUrl(item.linkUrl ?? "");
       setResolvedLocation(item.location ?? null);
@@ -354,6 +369,8 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
     const payload = {
       tripDayId: day.id,
       title: titleInput.trim(),
+      fromTime: fromTimeInput.trim(),
+      toTime: toTimeInput.trim(),
       contentJson,
       costCents: trimmedCost.length > 0 ? parsedCostCents : null,
       linkUrl: trimmedLink.length > 0 ? trimmedLink : null,
@@ -361,6 +378,8 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
     } as {
       tripDayId: string;
       title: string;
+      fromTime: string;
+      toTime: string;
       contentJson: string;
       costCents: number | null;
       linkUrl: string | null;
@@ -388,10 +407,19 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
       if (!response.ok || body.error) {
         if (body.error?.code === "validation_error" && body.error.details) {
           const details = body.error.details as { fieldErrors?: Record<string, string[]> };
-          const nextErrors: { title?: string; contentJson?: string; costCents?: string; linkUrl?: string } = {};
+          const nextErrors: {
+            title?: string;
+            fromTime?: string;
+            toTime?: string;
+            contentJson?: string;
+            costCents?: string;
+            linkUrl?: string;
+          } = {};
           Object.entries(details.fieldErrors ?? {}).forEach(([field, messages]) => {
             if (messages?.[0]) {
               if (field === "title") nextErrors.title = messages[0];
+              if (field === "fromTime") nextErrors.fromTime = messages[0];
+              if (field === "toTime") nextErrors.toTime = messages[0];
               if (field === "contentJson") nextErrors.contentJson = messages[0];
               if (field === "costCents") nextErrors.costCents = messages[0];
               if (field === "linkUrl") nextErrors.linkUrl = messages[0];
@@ -690,6 +718,28 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
             fullWidth
             inputProps={{ maxLength: 120 }}
           />
+          <Box display="flex" gap={1}>
+            <TextField
+              label={t("trips.plan.fromTimeLabel")}
+              value={fromTimeInput}
+              onChange={(event) => setFromTimeInput(event.target.value)}
+              error={Boolean(fieldErrors.fromTime)}
+              helperText={fieldErrors.fromTime ?? t("trips.plan.fromTimeHelper")}
+              fullWidth
+              type="time"
+              InputLabelProps={{ shrink: true }}
+            />
+            <TextField
+              label={t("trips.plan.toTimeLabel")}
+              value={toTimeInput}
+              onChange={(event) => setToTimeInput(event.target.value)}
+              error={Boolean(fieldErrors.toTime)}
+              helperText={fieldErrors.toTime ?? t("trips.plan.toTimeHelper")}
+              fullWidth
+              type="time"
+              InputLabelProps={{ shrink: true }}
+            />
+          </Box>
 
           <TextField
             label={t("trips.plan.costLabel")}

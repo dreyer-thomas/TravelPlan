@@ -1,0 +1,1 @@
+-- Placeholder for previously rolled-back local migration.

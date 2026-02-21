@@ -76,6 +76,133 @@ vi.mock("leaflet", () => ({
 }));
 
 describe("TripDayView layout", () => {
+  it("renders a day plan time-range chip as HH:mm - HH:mm", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const fetchMock = vi.fn(async () => {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-01T00:00:00.000Z",
+              dayCount: 1,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: null,
+                dayPlanItems: [
+                  {
+                    id: "item-1",
+                    title: "Morning walk",
+                    fromTime: "09:00",
+                    toTime: "10:15",
+                    contentJson: JSON.stringify({
+                      type: "doc",
+                      content: [{ type: "paragraph", content: [{ type: "text", text: "Plan details" }] }],
+                    }),
+                    costCents: null,
+                    linkUrl: null,
+                    location: null,
+                  },
+                ],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-1" />
+      </I18nProvider>,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
+    expect(screen.getByText("09:00 - 10:15")).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
+  it("renders legacy day plan items without times without showing a chip", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const fetchMock = vi.fn(async () => {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-01T00:00:00.000Z",
+              dayCount: 1,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: null,
+                dayPlanItems: [
+                  {
+                    id: "item-legacy",
+                    title: "Legacy walk",
+                    fromTime: null,
+                    toTime: null,
+                    contentJson: JSON.stringify({
+                      type: "doc",
+                      content: [{ type: "paragraph", content: [{ type: "text", text: "Legacy details" }] }],
+                    }),
+                    costCents: null,
+                    linkUrl: null,
+                    location: null,
+                  },
+                ],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-1" />
+      </I18nProvider>,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
+    expect(screen.getAllByText("Legacy walk").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/\d{2}:\d{2}\s-\s\d{2}:\d{2}/)).not.toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
   it("shows previous and next navigation links for a middle day based on chronological order", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";

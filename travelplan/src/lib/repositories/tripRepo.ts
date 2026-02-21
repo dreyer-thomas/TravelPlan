@@ -47,6 +47,8 @@ export type TripDaySummary = {
   dayPlanItems: {
     id: string;
     title: string | null;
+    fromTime: string | null;
+    toTime: string | null;
     contentJson: string;
     costCents: number | null;
     linkUrl: string | null;
@@ -98,6 +100,8 @@ export type TripExportPayload = {
     dayPlanItems: {
       id: string;
       title: string | null;
+      fromTime: string | null;
+      toTime: string | null;
       contentJson: string;
       costCents: number | null;
       linkUrl: string | null;
@@ -150,6 +154,24 @@ const buildTripDays = (start: Date, end: Date) => {
   }
 
   return days;
+};
+
+const compareDayPlanItemsByStartTime = (
+  left: { fromTime: string | null; createdAt: Date; id: string },
+  right: { fromTime: string | null; createdAt: Date; id: string },
+) => {
+  const leftHasStart = Boolean(left.fromTime);
+  const rightHasStart = Boolean(right.fromTime);
+  if (leftHasStart && rightHasStart) {
+    if (left.fromTime !== right.fromTime) return left.fromTime!.localeCompare(right.fromTime!);
+  } else if (leftHasStart !== rightHasStart) {
+    return leftHasStart ? -1 : 1;
+  }
+
+  const leftTime = left.createdAt.getTime();
+  const rightTime = right.createdAt.getTime();
+  if (leftTime !== rightTime) return leftTime - rightTime;
+  return left.id.localeCompare(right.id);
 };
 
 export const createTripWithDays = async ({ userId, name, startDate, endDate }: CreateTripParams) => {
@@ -283,6 +305,9 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
             select: {
               id: true,
               title: true,
+              fromTime: true,
+              toTime: true,
+              createdAt: true,
               contentJson: true,
               costCents: true,
               linkUrl: true,
@@ -367,9 +392,11 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
                   : null,
             }
           : null,
-        dayPlanItems: day.dayPlanItems.map((item) => ({
+        dayPlanItems: [...day.dayPlanItems].sort(compareDayPlanItemsByStartTime).map((item) => ({
           id: item.id,
           title: item.title,
+          fromTime: item.fromTime,
+          toTime: item.toTime,
           contentJson: item.contentJson,
           costCents: item.costCents,
           linkUrl: item.linkUrl,
@@ -485,6 +512,8 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
             select: {
               id: true,
               title: true,
+              fromTime: true,
+              toTime: true,
               contentJson: true,
               costCents: true,
               linkUrl: true,
@@ -545,6 +574,8 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
       dayPlanItems: day.dayPlanItems.map((item) => ({
         id: item.id,
         title: item.title,
+        fromTime: item.fromTime,
+        toTime: item.toTime,
         contentJson: item.contentJson,
         costCents: item.costCents,
         linkUrl: item.linkUrl,
@@ -612,6 +643,8 @@ const createImportedDays = async ({
         data: {
           tripDayId: createdDay.id,
           title: item.title ?? null,
+          fromTime: item.fromTime ?? null,
+          toTime: item.toTime ?? null,
           contentJson: item.contentJson,
           costCents: item.costCents ?? null,
           linkUrl: item.linkUrl,

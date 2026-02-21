@@ -11,6 +11,8 @@ describe("dayPlanItemSchemas", () => {
     const result = dayPlanItemMutationSchema.safeParse({
       tripDayId: "day-id",
       title: "Museum visit",
+      fromTime: "09:30",
+      toTime: "11:00",
       contentJson: sampleDoc,
       costCents: 1200,
       linkUrl: "https://example.com/plan",
@@ -28,6 +30,8 @@ describe("dayPlanItemSchemas", () => {
     const result = dayPlanItemMutationSchema.safeParse({
       tripDayId: "day-id",
       title: " ",
+      fromTime: "09:30",
+      toTime: "11:00",
       contentJson: sampleDoc,
       linkUrl: null,
     });
@@ -42,6 +46,8 @@ describe("dayPlanItemSchemas", () => {
     const atLimit = dayPlanItemMutationSchema.safeParse({
       tripDayId: "day-id",
       title: maxTitle,
+      fromTime: "09:30",
+      toTime: "11:00",
       contentJson: sampleDoc,
       linkUrl: null,
     });
@@ -49,6 +55,8 @@ describe("dayPlanItemSchemas", () => {
     const overLimit = dayPlanItemMutationSchema.safeParse({
       tripDayId: "day-id",
       title: overLimitTitle,
+      fromTime: "09:30",
+      toTime: "11:00",
       contentJson: sampleDoc,
       linkUrl: null,
     });
@@ -61,6 +69,8 @@ describe("dayPlanItemSchemas", () => {
     const result = dayPlanItemMutationSchema.safeParse({
       tripDayId: "day-id",
       title: "Plan",
+      fromTime: "09:30",
+      toTime: "11:00",
       contentJson: " ",
       linkUrl: null,
     });
@@ -72,6 +82,8 @@ describe("dayPlanItemSchemas", () => {
     const result = dayPlanItemMutationSchema.safeParse({
       tripDayId: "day-id",
       title: "Plan",
+      fromTime: "09:30",
+      toTime: "11:00",
       contentJson: "{not-json}",
       linkUrl: null,
     });
@@ -84,6 +96,8 @@ describe("dayPlanItemSchemas", () => {
     const result = dayPlanItemMutationSchema.safeParse({
       tripDayId: "day-id",
       title: "Plan",
+      fromTime: "09:30",
+      toTime: "11:00",
       contentJson: emptyDoc,
       linkUrl: null,
     });
@@ -100,6 +114,8 @@ describe("dayPlanItemSchemas", () => {
     const result = dayPlanItemMutationSchema.safeParse({
       tripDayId: "day-id",
       title: "Image only",
+      fromTime: "09:30",
+      toTime: "11:00",
       contentJson: imageOnlyDoc,
       linkUrl: null,
     });
@@ -116,6 +132,8 @@ describe("dayPlanItemSchemas", () => {
     const result = dayPlanItemMutationSchema.safeParse({
       tripDayId: "day-id",
       title: "Unsafe image",
+      fromTime: "09:30",
+      toTime: "11:00",
       contentJson: unsafeImageDoc,
       linkUrl: null,
     });
@@ -127,6 +145,8 @@ describe("dayPlanItemSchemas", () => {
     const result = dayPlanItemMutationSchema.safeParse({
       tripDayId: "day-id",
       title: "Plan",
+      fromTime: "09:30",
+      toTime: "11:00",
       contentJson: sampleDoc,
       linkUrl: "not-a-url",
     });
@@ -138,6 +158,8 @@ describe("dayPlanItemSchemas", () => {
     const result = dayPlanItemMutationSchema.safeParse({
       tripDayId: "day-id",
       title: "Plan",
+      fromTime: "09:30",
+      toTime: "11:00",
       contentJson: sampleDoc,
       linkUrl: "javascript:alert(1)",
     });
@@ -149,6 +171,8 @@ describe("dayPlanItemSchemas", () => {
     const result = dayPlanItemMutationSchema.safeParse({
       tripDayId: "day-id",
       title: "Plan",
+      fromTime: "09:30",
+      toTime: "11:00",
       contentJson: sampleDoc,
       linkUrl: null,
       location: {
@@ -163,6 +187,8 @@ describe("dayPlanItemSchemas", () => {
     const result = dayPlanItemMutationSchema.safeParse({
       tripDayId: "day-id",
       title: "Plan",
+      fromTime: "09:30",
+      toTime: "11:00",
       contentJson: sampleDoc,
       linkUrl: null,
       location: {
@@ -178,6 +204,8 @@ describe("dayPlanItemSchemas", () => {
     const result = dayPlanItemMutationSchema.safeParse({
       tripDayId: "day-id",
       title: "Plan",
+      fromTime: "09:30",
+      toTime: "11:00",
       contentJson: sampleDoc,
       costCents: null,
       linkUrl: null,
@@ -190,11 +218,70 @@ describe("dayPlanItemSchemas", () => {
     const result = dayPlanItemMutationSchema.safeParse({
       tripDayId: "day-id",
       title: "Plan",
+      fromTime: "09:30",
+      toTime: "11:00",
       contentJson: sampleDoc,
       costCents: -1,
       linkUrl: null,
     });
 
     expect(result.success).toBe(false);
+  });
+
+  it("rejects missing fromTime and toTime", () => {
+    const result = dayPlanItemMutationSchema.safeParse({
+      tripDayId: "day-id",
+      title: "Plan",
+      contentJson: sampleDoc,
+      linkUrl: null,
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects invalid time formats", () => {
+    const invalidFrom = dayPlanItemMutationSchema.safeParse({
+      tripDayId: "day-id",
+      title: "Plan",
+      fromTime: "9:7",
+      toTime: "11:00",
+      contentJson: sampleDoc,
+      linkUrl: null,
+    });
+
+    const invalidTo = dayPlanItemMutationSchema.safeParse({
+      tripDayId: "day-id",
+      title: "Plan",
+      fromTime: "09:30",
+      toTime: "24:00",
+      contentJson: sampleDoc,
+      linkUrl: null,
+    });
+
+    expect(invalidFrom.success).toBe(false);
+    expect(invalidTo.success).toBe(false);
+  });
+
+  it("rejects time ranges where toTime is not later than fromTime", () => {
+    const equalTimes = dayPlanItemMutationSchema.safeParse({
+      tripDayId: "day-id",
+      title: "Plan",
+      fromTime: "09:30",
+      toTime: "09:30",
+      contentJson: sampleDoc,
+      linkUrl: null,
+    });
+
+    const earlierEnd = dayPlanItemMutationSchema.safeParse({
+      tripDayId: "day-id",
+      title: "Plan",
+      fromTime: "10:00",
+      toTime: "09:59",
+      contentJson: sampleDoc,
+      linkUrl: null,
+    });
+
+    expect(equalTimes.success).toBe(false);
+    expect(earlierEnd.success).toBe(false);
   });
 });

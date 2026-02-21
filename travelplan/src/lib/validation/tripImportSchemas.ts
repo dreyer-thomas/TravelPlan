@@ -1,6 +1,13 @@
 import { z } from "zod";
 
 const ISO_UTC_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
+const HHMM_TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
+const MINUTES_PER_HOUR = 60;
+
+const parseTimeToMinutes = (value: string) => {
+  const [hours, minutes] = value.split(":").map((part) => Number.parseInt(part, 10));
+  return hours * MINUTES_PER_HOUR + minutes;
+};
 
 const isoUtcDate = z
   .string()
@@ -44,16 +51,40 @@ const accommodationImportSchema = z.object({
   updatedAt: isoUtcDate,
 });
 
-const dayPlanItemImportSchema = z.object({
-  id: z.string().trim().min(1),
-  title: z.union([z.string().trim().min(1).max(120), z.null()]).optional().default(null),
-  contentJson: z.string().trim().min(1, "contentJson is required"),
-  costCents: z.union([z.number().int().nonnegative(), z.null()]).optional().default(null),
-  linkUrl: urlOrNull,
-  location: z.union([locationSchema, z.null()]),
-  createdAt: isoUtcDate,
-  updatedAt: isoUtcDate,
-});
+const dayPlanItemImportSchema = z
+  .object({
+    id: z.string().trim().min(1),
+    title: z.union([z.string().trim().min(1).max(120), z.null()]).optional().default(null),
+    fromTime: z.union([z.string().trim().regex(HHMM_TIME_REGEX), z.null()]).optional().default(null),
+    toTime: z.union([z.string().trim().regex(HHMM_TIME_REGEX), z.null()]).optional().default(null),
+    contentJson: z.string().trim().min(1, "contentJson is required"),
+    costCents: z.union([z.number().int().nonnegative(), z.null()]).optional().default(null),
+    linkUrl: urlOrNull,
+    location: z.union([locationSchema, z.null()]),
+    createdAt: isoUtcDate,
+    updatedAt: isoUtcDate,
+  })
+  .superRefine((value, ctx) => {
+    const hasFromTime = typeof value.fromTime === "string";
+    const hasToTime = typeof value.toTime === "string";
+
+    if (hasFromTime !== hasToTime) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["fromTime"],
+        message: "fromTime and toTime must both be set or both be null",
+      });
+      return;
+    }
+
+    if (hasFromTime && hasToTime && parseTimeToMinutes(value.toTime) <= parseTimeToMinutes(value.fromTime)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["toTime"],
+        message: "toTime must be later than fromTime",
+      });
+    }
+  });
 
 const tripDayImportSchema = z.object({
   id: z.string().trim().min(1),

@@ -71,7 +71,9 @@ describe("/api/trips/[id]/day-plan-items", () => {
     await prisma.dayPlanItem.create({
       data: {
         tripDayId: day.id,
-        title: "First title",
+        title: "Late title",
+        fromTime: "10:30",
+        toTime: "11:30",
         contentJson: sampleDoc("First"),
         costCents: null,
         linkUrl: null,
@@ -85,7 +87,9 @@ describe("/api/trips/[id]/day-plan-items", () => {
     await prisma.dayPlanItem.create({
       data: {
         tripDayId: day.id,
-        title: "Second title",
+        title: "Early title",
+        fromTime: "09:00",
+        toTime: "10:00",
         contentJson: sampleDoc("Second"),
         costCents: 3200,
         linkUrl: "https://example.com/plan",
@@ -109,6 +113,8 @@ describe("/api/trips/[id]/day-plan-items", () => {
       items: {
         id: string;
         title: string | null;
+        fromTime: string | null;
+        toTime: string | null;
         contentJson: string;
         costCents: number | null;
         linkUrl: string | null;
@@ -118,11 +124,12 @@ describe("/api/trips/[id]/day-plan-items", () => {
 
     expect(response.status).toBe(200);
     expect(payload.error).toBeNull();
-    expect(payload.data?.items.map((item) => item.title)).toEqual(["First title", "Second title"]);
-    expect(payload.data?.items.map((item) => item.contentJson)).toEqual([sampleDoc("First"), sampleDoc("Second")]);
-    expect(payload.data?.items.map((item) => item.costCents)).toEqual([null, 3200]);
-    expect(payload.data?.items[1].linkUrl).toBe("https://example.com/plan");
-    expect(payload.data?.items[1].location).toEqual({ lat: 48.1372, lng: 11.5756, label: "Marienplatz" });
+    expect(payload.data?.items.map((item) => item.title)).toEqual(["Early title", "Late title"]);
+    expect(payload.data?.items.map((item) => `${item.fromTime}-${item.toTime}`)).toEqual(["09:00-10:00", "10:30-11:30"]);
+    expect(payload.data?.items.map((item) => item.contentJson)).toEqual([sampleDoc("Second"), sampleDoc("First")]);
+    expect(payload.data?.items.map((item) => item.costCents)).toEqual([3200, null]);
+    expect(payload.data?.items[0].linkUrl).toBe("https://example.com/plan");
+    expect(payload.data?.items[0].location).toEqual({ lat: 48.1372, lng: 11.5756, label: "Marienplatz" });
   });
 
   it("returns 404 when listing items for a non-owned trip day", async () => {
@@ -197,6 +204,8 @@ describe("/api/trips/[id]/day-plan-items", () => {
       body: JSON.stringify({
         tripDayId: day.id,
         title: "Plan",
+        fromTime: "09:15",
+        toTime: "10:45",
         contentJson: sampleDoc("Plan"),
         costCents: 1500,
         linkUrl: "https://example.com/plan",
@@ -210,6 +219,8 @@ describe("/api/trips/[id]/day-plan-items", () => {
         id: string;
         tripDayId: string;
         title: string | null;
+        fromTime: string | null;
+        toTime: string | null;
         contentJson: string;
         costCents: number | null;
         linkUrl: string | null;
@@ -221,6 +232,8 @@ describe("/api/trips/[id]/day-plan-items", () => {
     expect(payload.error).toBeNull();
     expect(payload.data?.dayPlanItem.tripDayId).toBe(day.id);
     expect(payload.data?.dayPlanItem.title).toBe("Plan");
+    expect(payload.data?.dayPlanItem.fromTime).toBe("09:15");
+    expect(payload.data?.dayPlanItem.toTime).toBe("10:45");
     expect(payload.data?.dayPlanItem.costCents).toBe(1500);
     expect(payload.data?.dayPlanItem.linkUrl).toBe("https://example.com/plan");
     expect(payload.data?.dayPlanItem.location).toEqual({ lat: 48.145, lng: 11.582, label: "Gallery" });
@@ -270,6 +283,8 @@ describe("/api/trips/[id]/day-plan-items", () => {
       body: JSON.stringify({
         tripDayId: day.id,
         title: "Italic activity",
+        fromTime: "14:00",
+        toTime: "15:00",
         contentJson: richDoc,
         linkUrl: null,
       }),
@@ -319,6 +334,8 @@ describe("/api/trips/[id]/day-plan-items", () => {
       body: JSON.stringify({
         tripDayId: day.id,
         title: "Plan",
+        fromTime: "09:00",
+        toTime: "10:00",
         contentJson: " ",
         linkUrl: null,
       }),
@@ -362,6 +379,8 @@ describe("/api/trips/[id]/day-plan-items", () => {
       body: JSON.stringify({
         tripDayId: day.id,
         title: " ",
+        fromTime: "09:00",
+        toTime: "10:00",
         contentJson: sampleDoc("Plan"),
         linkUrl: null,
       }),
@@ -410,6 +429,8 @@ describe("/api/trips/[id]/day-plan-items", () => {
       body: JSON.stringify({
         tripDayId: day.id,
         title: "Plan",
+        fromTime: "09:00",
+        toTime: "10:00",
         contentJson: unsafeDoc,
         linkUrl: null,
       }),
@@ -453,6 +474,8 @@ describe("/api/trips/[id]/day-plan-items", () => {
       body: JSON.stringify({
         tripDayId: day.id,
         title: "Plan",
+        fromTime: "09:00",
+        toTime: "10:00",
         contentJson: sampleDoc("Plan"),
         linkUrl: "javascript:alert(1)",
       }),
@@ -496,6 +519,8 @@ describe("/api/trips/[id]/day-plan-items", () => {
       body: JSON.stringify({
         tripDayId: day.id,
         title: "Has partial location",
+        fromTime: "09:00",
+        toTime: "10:00",
         contentJson: sampleDoc("Has partial location"),
         linkUrl: null,
         location: { lat: 48.145 },
@@ -537,6 +562,8 @@ describe("/api/trips/[id]/day-plan-items", () => {
       data: {
         tripDayId: day.id,
         title: "Original title",
+        fromTime: "08:00",
+        toTime: "09:00",
         contentJson: sampleDoc("Original"),
         linkUrl: null,
       },
@@ -550,6 +577,8 @@ describe("/api/trips/[id]/day-plan-items", () => {
         tripDayId: day.id,
         itemId: item.id,
         title: "Updated",
+        fromTime: "11:00",
+        toTime: "12:15",
         contentJson: sampleDoc("Updated"),
         costCents: 2800,
         linkUrl: "https://example.com/updated",
@@ -562,6 +591,8 @@ describe("/api/trips/[id]/day-plan-items", () => {
       dayPlanItem: {
         id: string;
         title: string | null;
+        fromTime: string | null;
+        toTime: string | null;
         contentJson: string;
         costCents: number | null;
         location: { lat: number; lng: number; label: string | null } | null;
@@ -571,6 +602,8 @@ describe("/api/trips/[id]/day-plan-items", () => {
     expect(response.status).toBe(200);
     expect(payload.error).toBeNull();
     expect(payload.data?.dayPlanItem.title).toBe("Updated");
+    expect(payload.data?.dayPlanItem.fromTime).toBe("11:00");
+    expect(payload.data?.dayPlanItem.toTime).toBe("12:15");
     expect(payload.data?.dayPlanItem.contentJson).toContain("Updated");
     expect(payload.data?.dayPlanItem.costCents).toBe(2800);
     expect(payload.data?.dayPlanItem.location).toEqual({ lat: 48.13, lng: 11.56, label: "Center" });
@@ -603,6 +636,8 @@ describe("/api/trips/[id]/day-plan-items", () => {
       data: {
         tripDayId: day.id,
         title: "Delete title",
+        fromTime: "09:00",
+        toTime: "10:00",
         contentJson: sampleDoc("Delete"),
         linkUrl: null,
       },
@@ -621,5 +656,201 @@ describe("/api/trips/[id]/day-plan-items", () => {
     expect(response.status).toBe(200);
     expect(payload.error).toBeNull();
     expect(payload.data?.deleted).toBe(true);
+  });
+
+  it("rejects missing times on create", async () => {
+    const user = await prisma.user.create({
+      data: { email: "plan-route-time-missing@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const token = await createSessionJwt({ sub: user.id, role: user.role });
+
+    const trip = await prisma.trip.create({
+      data: {
+        userId: user.id,
+        name: "Missing Time Trip",
+        startDate: new Date("2026-12-06T00:00:00.000Z"),
+        endDate: new Date("2026-12-06T00:00:00.000Z"),
+      },
+    });
+
+    const day = await prisma.tripDay.create({
+      data: {
+        tripId: trip.id,
+        date: new Date("2026-12-06T00:00:00.000Z"),
+        dayIndex: 1,
+      },
+    });
+
+    const request = buildRequest(`http://localhost/api/trips/${trip.id}/day-plan-items`, {
+      session: token,
+      csrf: "csrf-token",
+      method: "POST",
+      body: JSON.stringify({
+        tripDayId: day.id,
+        title: "Plan",
+        contentJson: sampleDoc("Plan"),
+        linkUrl: null,
+      }),
+    });
+
+    const response = await POST(request, { params: { id: trip.id } });
+    const payload = (await response.json()) as ApiEnvelope<null>;
+
+    expect(response.status).toBe(400);
+    expect(payload.error?.code).toBe("validation_error");
+  });
+
+  it("rejects toTime that is not later than fromTime", async () => {
+    const user = await prisma.user.create({
+      data: { email: "plan-route-time-order@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const token = await createSessionJwt({ sub: user.id, role: user.role });
+
+    const trip = await prisma.trip.create({
+      data: {
+        userId: user.id,
+        name: "Invalid Time Order Trip",
+        startDate: new Date("2026-12-06T00:00:00.000Z"),
+        endDate: new Date("2026-12-06T00:00:00.000Z"),
+      },
+    });
+
+    const day = await prisma.tripDay.create({
+      data: {
+        tripId: trip.id,
+        date: new Date("2026-12-06T00:00:00.000Z"),
+        dayIndex: 1,
+      },
+    });
+
+    const request = buildRequest(`http://localhost/api/trips/${trip.id}/day-plan-items`, {
+      session: token,
+      csrf: "csrf-token",
+      method: "POST",
+      body: JSON.stringify({
+        tripDayId: day.id,
+        title: "Plan",
+        fromTime: "10:00",
+        toTime: "09:00",
+        contentJson: sampleDoc("Plan"),
+        linkUrl: null,
+      }),
+    });
+
+    const response = await POST(request, { params: { id: trip.id } });
+    const payload = (await response.json()) as ApiEnvelope<null>;
+
+    expect(response.status).toBe(400);
+    expect(payload.error?.code).toBe("validation_error");
+  });
+
+  it("rejects missing times on update", async () => {
+    const user = await prisma.user.create({
+      data: { email: "plan-route-time-missing-update@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const token = await createSessionJwt({ sub: user.id, role: user.role });
+
+    const trip = await prisma.trip.create({
+      data: {
+        userId: user.id,
+        name: "Missing Time Update Trip",
+        startDate: new Date("2026-12-06T00:00:00.000Z"),
+        endDate: new Date("2026-12-06T00:00:00.000Z"),
+      },
+    });
+
+    const day = await prisma.tripDay.create({
+      data: {
+        tripId: trip.id,
+        date: new Date("2026-12-06T00:00:00.000Z"),
+        dayIndex: 1,
+      },
+    });
+
+    const item = await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: day.id,
+        title: "Plan",
+        fromTime: "09:00",
+        toTime: "10:00",
+        contentJson: sampleDoc("Plan"),
+        linkUrl: null,
+      },
+    });
+
+    const request = buildRequest(`http://localhost/api/trips/${trip.id}/day-plan-items`, {
+      session: token,
+      csrf: "csrf-token",
+      method: "PATCH",
+      body: JSON.stringify({
+        tripDayId: day.id,
+        itemId: item.id,
+        title: "Plan",
+        contentJson: sampleDoc("Plan"),
+        linkUrl: null,
+      }),
+    });
+
+    const response = await PATCH(request, { params: { id: trip.id } });
+    const payload = (await response.json()) as ApiEnvelope<null>;
+
+    expect(response.status).toBe(400);
+    expect(payload.error?.code).toBe("validation_error");
+  });
+
+  it("rejects update when toTime is not later than fromTime", async () => {
+    const user = await prisma.user.create({
+      data: { email: "plan-route-time-order-update@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const token = await createSessionJwt({ sub: user.id, role: user.role });
+
+    const trip = await prisma.trip.create({
+      data: {
+        userId: user.id,
+        name: "Invalid Time Order Update Trip",
+        startDate: new Date("2026-12-06T00:00:00.000Z"),
+        endDate: new Date("2026-12-06T00:00:00.000Z"),
+      },
+    });
+
+    const day = await prisma.tripDay.create({
+      data: {
+        tripId: trip.id,
+        date: new Date("2026-12-06T00:00:00.000Z"),
+        dayIndex: 1,
+      },
+    });
+
+    const item = await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: day.id,
+        title: "Plan",
+        fromTime: "09:00",
+        toTime: "10:00",
+        contentJson: sampleDoc("Plan"),
+        linkUrl: null,
+      },
+    });
+
+    const request = buildRequest(`http://localhost/api/trips/${trip.id}/day-plan-items`, {
+      session: token,
+      csrf: "csrf-token",
+      method: "PATCH",
+      body: JSON.stringify({
+        tripDayId: day.id,
+        itemId: item.id,
+        title: "Plan",
+        fromTime: "12:00",
+        toTime: "11:00",
+        contentJson: sampleDoc("Plan"),
+        linkUrl: null,
+      }),
+    });
+
+    const response = await PATCH(request, { params: { id: trip.id } });
+    const payload = (await response.json()) as ApiEnvelope<null>;
+
+    expect(response.status).toBe(400);
+    expect(payload.error?.code).toBe("validation_error");
   });
 });

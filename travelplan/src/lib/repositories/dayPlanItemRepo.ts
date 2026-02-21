@@ -4,6 +4,8 @@ export type DayPlanItemDetail = {
   id: string;
   tripDayId: string;
   title: string | null;
+  fromTime: string | null;
+  toTime: string | null;
   contentJson: string;
   costCents: number | null;
   linkUrl: string | null;
@@ -26,6 +28,8 @@ type DayPlanItemMutationParams = {
   tripId: string;
   tripDayId: string;
   title: string;
+  fromTime: string;
+  toTime: string;
   contentJson: string;
   costCents?: number | null;
   linkUrl?: string | null;
@@ -106,6 +110,8 @@ const toDetail = (item: {
   id: string;
   tripDayId: string;
   title: string | null;
+  fromTime: string | null;
+  toTime: string | null;
   contentJson: string;
   costCents: number | null;
   linkUrl: string | null;
@@ -117,6 +123,8 @@ const toDetail = (item: {
   id: item.id,
   tripDayId: item.tripDayId,
   title: item.title,
+  fromTime: item.fromTime,
+  toTime: item.toTime,
   contentJson: item.contentJson,
   costCents: item.costCents,
   linkUrl: item.linkUrl,
@@ -147,6 +155,24 @@ const toImageDetail = (item: {
   updatedAt: item.updatedAt,
 });
 
+const compareDayPlanItemsByStartTime = (
+  left: { fromTime: string | null; createdAt: Date; id: string },
+  right: { fromTime: string | null; createdAt: Date; id: string },
+) => {
+  const leftHasStart = Boolean(left.fromTime);
+  const rightHasStart = Boolean(right.fromTime);
+  if (leftHasStart && rightHasStart) {
+    if (left.fromTime !== right.fromTime) return left.fromTime!.localeCompare(right.fromTime!);
+  } else if (leftHasStart !== rightHasStart) {
+    return leftHasStart ? -1 : 1;
+  }
+
+  const leftTime = left.createdAt.getTime();
+  const rightTime = right.createdAt.getTime();
+  if (leftTime !== rightTime) return leftTime - rightTime;
+  return left.id.localeCompare(right.id);
+};
+
 export const listDayPlanItemsForTripDay = async (params: {
   userId: string;
   tripId: string;
@@ -163,13 +189,13 @@ export const listDayPlanItemsForTripDay = async (params: {
     orderBy: { createdAt: "asc" },
   });
 
-  return items.map(toDetail);
+  return items.map(toDetail).sort(compareDayPlanItemsByStartTime);
 };
 
 export const createDayPlanItemForTripDay = async (
   params: DayPlanItemMutationParams,
 ): Promise<DayPlanItemDetail | null> => {
-  const { userId, tripId, tripDayId, contentJson, costCents, linkUrl, location } = params;
+  const { userId, tripId, tripDayId, contentJson, costCents, linkUrl, location, fromTime, toTime } = params;
   const tripDay = await findTripDayForUser(userId, tripId, tripDayId);
   if (!tripDay) {
     return null;
@@ -179,6 +205,8 @@ export const createDayPlanItemForTripDay = async (
     data: {
       tripDayId,
       title: params.title.trim(),
+      fromTime,
+      toTime,
       contentJson,
       costCents: costCents ?? null,
       linkUrl: linkUrl ?? null,
@@ -194,7 +222,7 @@ export const createDayPlanItemForTripDay = async (
 export const updateDayPlanItemForTripDay = async (
   params: DayPlanItemUpdateParams,
 ): Promise<DayPlanItemUpdateResult> => {
-  const { userId, tripId, tripDayId, itemId, contentJson, costCents, linkUrl, location, title } = params;
+  const { userId, tripId, tripDayId, itemId, contentJson, costCents, linkUrl, location, title, fromTime, toTime } = params;
   const tripDay = await findTripDayForUser(userId, tripId, tripDayId);
   if (!tripDay) {
     return { status: "not_found" };
@@ -215,6 +243,8 @@ export const updateDayPlanItemForTripDay = async (
     where: { id: existing.id },
     data: {
       title: title.trim(),
+      fromTime,
+      toTime,
       contentJson,
       costCents: costCents ?? null,
       linkUrl: linkUrl ?? null,

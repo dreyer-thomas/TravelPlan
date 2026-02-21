@@ -51,18 +51,38 @@ const linkSchema = z
   .refine((value) => isSafeExternalUrl(value), "Link must use http or https")
   .max(2000, "Link must be at most 2000 characters");
 
+const timeFieldSchema = z
+  .string()
+  .trim()
+  .regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Time must be in HH:mm format");
+
+const toMinutes = (value: string) => {
+  const [hours, minutes] = value.split(":").map((part) => Number.parseInt(part, 10));
+  return hours * 60 + minutes;
+};
+
 export const dayPlanItemMutationSchema = z.object({
   tripDayId: z.string().trim().min(1, "Trip day is required"),
   title: z.string().trim().min(1, "Title is required").max(120, "Title must be at most 120 characters"),
+  fromTime: timeFieldSchema,
+  toTime: timeFieldSchema,
   contentJson: contentJsonSchema,
   costCents: z.number().int().nonnegative("Cost must be zero or greater").optional().nullable(),
   linkUrl: linkSchema.optional().nullable(),
   location: locationInputSchema.optional(),
+}).superRefine((value, context) => {
+  if (toMinutes(value.toTime) <= toMinutes(value.fromTime)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["toTime"],
+      message: "To time must be later than from time",
+    });
+  }
 });
 
 export type DayPlanItemMutationInput = z.infer<typeof dayPlanItemMutationSchema>;
 
-export const dayPlanItemUpdateSchema = dayPlanItemMutationSchema.extend({
+export const dayPlanItemUpdateSchema = dayPlanItemMutationSchema.safeExtend({
   itemId: z.string().trim().min(1, "Day plan item is required"),
 });
 

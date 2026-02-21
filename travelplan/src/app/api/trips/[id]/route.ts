@@ -86,6 +86,8 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
         dayPlanItems: day.dayPlanItems.map((item) => ({
           id: item.id,
           title: item.title,
+          fromTime: item.fromTime,
+          toTime: item.toTime,
           contentJson: item.contentJson,
           costCents: item.costCents,
           linkUrl: item.linkUrl,
@@ -180,6 +182,8 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
         dayPlanItems: day.dayPlanItems.map((item) => ({
           id: item.id,
           title: item.title,
+          fromTime: item.fromTime,
+          toTime: item.toTime,
           contentJson: item.contentJson,
           costCents: item.costCents,
           linkUrl: item.linkUrl,

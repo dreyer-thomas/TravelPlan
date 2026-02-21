@@ -147,6 +147,47 @@ describe("tripImportSchemas", () => {
     expect(result.success).toBe(false);
   });
 
+  it("rejects day plan item ranges where toTime is not later than fromTime", () => {
+    const result = tripImportPayloadSchema.safeParse({
+      ...validPayload,
+      days: [
+        {
+          ...validPayload.days[0],
+          dayPlanItems: [
+            {
+              ...validPayload.days[0].dayPlanItems[0],
+              fromTime: "11:00",
+              toTime: "10:00",
+            },
+          ],
+        },
+        validPayload.days[1],
+      ],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects day plan items with only one time field set", () => {
+    const result = tripImportPayloadSchema.safeParse({
+      ...validPayload,
+      days: [
+        {
+          ...validPayload.days[0],
+          dayPlanItems: [
+            {
+              ...validPayload.days[0].dayPlanItems[0],
+              fromTime: "10:00",
+            },
+          ],
+        },
+        validPayload.days[1],
+      ],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
   it("requires targetTripId for overwrite conflict strategy", () => {
     const result = tripImportRequestSchema.safeParse({
       payload: validPayload,

@@ -1,6 +1,6 @@
 # Story 2.21: Day Plan Item From/To Time and Card Tag
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -42,26 +42,26 @@ so that each entry clearly shows its scheduled time window.
 
 ## Tasks / Subtasks
 
-- [ ] Data model and migration (AC: 2, 6)
-  - [ ] Add day plan item `fromTime` and `toTime` columns in Prisma schema + migration
-  - [ ] Decide storage shape (recommended: time-only string `HH:mm` or normalized minute-of-day integer)
-  - [ ] Define migration strategy for existing rows (nullable transition + app enforcement)
-- [ ] Validation and API updates (AC: 1, 2, 3, 5)
-  - [ ] Extend day-plan Zod schema to require both times
-  - [ ] Add cross-field validation (`toTime > fromTime`)
-  - [ ] Include both time fields in API create/update/list payloads
-- [ ] Repository updates (AC: 2, 5, 6)
-  - [ ] Persist/read both times in `dayPlanItemRepo`
-  - [ ] Ensure trip detail routes include the new fields
-- [ ] UI updates (AC: 1, 3, 4, 5)
-  - [ ] Add `from` and `to` time inputs to `TripDayPlanDialog`
-  - [ ] Show inline validation messages for missing/invalid ranges
-  - [ ] Add time-range tag on day plan item card in `TripDayView`
-- [ ] Tests (AC: 1-6)
-  - [ ] Validation tests for required fields and ordering rules
-  - [ ] API tests for time range roundtrip
-  - [ ] UI tests for dialog validation and tag rendering format
-  - [ ] Regression tests for legacy items without times
+- [x] Data model and migration (AC: 2, 6)
+  - [x] Add day plan item `fromTime` and `toTime` columns in Prisma schema + migration
+  - [x] Decide storage shape (recommended: time-only string `HH:mm` or normalized minute-of-day integer)
+  - [x] Define migration strategy for existing rows (nullable transition + app enforcement)
+- [x] Validation and API updates (AC: 1, 2, 3, 5)
+  - [x] Extend day-plan Zod schema to require both times
+  - [x] Add cross-field validation (`toTime > fromTime`)
+  - [x] Include both time fields in API create/update/list payloads
+- [x] Repository updates (AC: 2, 5, 6)
+  - [x] Persist/read both times in `dayPlanItemRepo`
+  - [x] Ensure trip detail routes include the new fields
+- [x] UI updates (AC: 1, 3, 4, 5)
+  - [x] Add `from` and `to` time inputs to `TripDayPlanDialog`
+  - [x] Show inline validation messages for missing/invalid ranges
+  - [x] Add time-range tag on day plan item card in `TripDayView`
+- [x] Tests (AC: 1-6)
+  - [x] Validation tests for required fields and ordering rules
+  - [x] API tests for time range roundtrip
+  - [x] UI tests for dialog validation and tag rendering format
+  - [x] Regression tests for legacy items without times
 
 ## Dev Notes
 
@@ -152,18 +152,70 @@ so that each entry clearly shows its scheduled time window.
 
 Codex (GPT-5)
 
+### Implementation Plan
+
+- Store `fromTime`/`toTime` as canonical `HH:mm` strings in nullable DB columns for migration-safe rollout.
+- Enforce required times and ordering (`toTime > fromTime`) in Zod and surface field-level API validation to UI.
+- Roundtrip the new fields through repo and trip/day API responses; render day-card time range chip without changing existing content blocks.
+- Back with schema, route, repo, and UI tests plus full regression suite.
+
 ### Debug Log References
 
-- Added story context and sprint tracking entry for 2.21.
+- Updated Prisma schema and added migration `20260222001000_add_day_plan_item_time_range`.
+- Extended `dayPlanItemMutationSchema`/`dayPlanItemUpdateSchema` with strict `HH:mm` fields and ordering validation.
+- Updated day-plan repo and trip repo/route payloads to persist and expose `fromTime`/`toTime`.
+- Updated `TripDayPlanDialog` with from/to inputs and field-level error rendering; updated `TripDayView` with `HH:mm - HH:mm` chip.
+- Generated Prisma client and executed full test + lint validation.
 
 ### Completion Notes List
 
-- Defined required from/to time fields and validation rules.
-- Added explicit card tag rendering requirements with canonical format.
-- Added migration and legacy compatibility guardrails.
+- Implemented nullable `from_time`/`to_time` columns to preserve legacy row readability while enforcing required times on create/update.
+- Enforced strict 24-hour `HH:mm` format and `toTime > fromTime` rule in validation and API flows.
+- Persisted/read new time fields in day-plan and trip detail repository layers and route responses.
+- Added from/to time inputs in plan dialog and rendered day-plan card time range chip in `HH:mm - HH:mm` format.
+- Added/updated tests for validation rules, API roundtrip, dialog behavior, chip rendering, and legacy-safe behavior.
+- Full regression run passed: `npm test` (238 tests).
+- Review fixes applied: import validation now enforces paired/ordered times, PATCH validation edge-case tests added, and legacy day-view no-time regression test added.
+
+### Senior Developer Review (AI)
+
+- Findings addressed automatically:
+  - Enforced import invariant parity for day-plan times (`fromTime`/`toTime` pair required together and `toTime > fromTime`).
+  - Added PATCH negative tests for missing times and invalid ordering.
+  - Added day view legacy rendering regression coverage for items without times.
+  - Synced story file list with actual git changes (including local placeholder migration artifact).
+- Post-fix validation:
+  - `npm test` passed (238 tests).
 
 ### File List
 
-- `_bmad-output/planning-artifacts/epics.md`
+- `travelplan/prisma/schema.prisma`
+- `travelplan/prisma/migrations/20260222001000_add_day_plan_item_time_range/migration.sql`
+- `travelplan/prisma/migrations/20260221220234_npm_run_dev/migration.sql`
+- `travelplan/src/generated/prisma/internal/class.ts`
+- `travelplan/src/generated/prisma/internal/prismaNamespace.ts`
+- `travelplan/src/generated/prisma/internal/prismaNamespaceBrowser.ts`
+- `travelplan/src/generated/prisma/models/DayPlanItem.ts`
+- `travelplan/src/lib/validation/dayPlanItemSchemas.ts`
+- `travelplan/src/lib/validation/tripImportSchemas.ts`
+- `travelplan/src/lib/repositories/dayPlanItemRepo.ts`
+- `travelplan/src/lib/repositories/tripRepo.ts`
+- `travelplan/src/app/api/trips/[id]/day-plan-items/route.ts`
+- `travelplan/src/app/api/trips/[id]/route.ts`
+- `travelplan/src/components/features/trips/TripDayPlanDialog.tsx`
+- `travelplan/src/components/features/trips/TripDayView.tsx`
+- `travelplan/src/i18n/en.ts`
+- `travelplan/src/i18n/de.ts`
+- `travelplan/test/dayPlanItemSchemas.test.ts`
+- `travelplan/test/dayPlanItemRepo.test.ts`
+- `travelplan/test/tripDayPlanItemsRoute.test.ts`
+- `travelplan/test/tripDayPlanDialog.test.tsx`
+- `travelplan/test/tripDayViewLayout.test.tsx`
+- `travelplan/test/tripImportSchemas.test.ts`
 - `_bmad-output/implementation-artifacts/sprint-status.yaml`
 - `_bmad-output/implementation-artifacts/2-21-day-plan-item-from-to-time-and-card-tag.md`
+
+## Change Log
+
+- 2026-02-21: Implemented Story 2.21 end-to-end (data model, validation, API/repo, UI, i18n, and tests); story moved to `review`.
+- 2026-02-21: Senior code review fixes applied (import invariants, PATCH validation coverage, legacy day-view regression test); story moved to `done`.

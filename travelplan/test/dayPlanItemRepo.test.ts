@@ -57,6 +57,8 @@ describe("dayPlanItemRepo", () => {
       tripId: trip.id,
       tripDayId: day.id,
       title: "Morning walk",
+      fromTime: "08:30",
+      toTime: "09:30",
       contentJson: sampleDoc("Morning walk"),
       costCents: 1250,
       linkUrl: "https://example.com/plan",
@@ -66,35 +68,41 @@ describe("dayPlanItemRepo", () => {
     expect(item).not.toBeNull();
     expect(item?.tripDayId).toBe(day.id);
     expect(item?.title).toBe("Morning walk");
+    expect(item?.fromTime).toBe("08:30");
+    expect(item?.toTime).toBe("09:30");
     expect(item?.contentJson).toContain("Morning walk");
     expect(item?.costCents).toBe(1250);
     expect(item?.linkUrl).toBe("https://example.com/plan");
     expect(item?.location).toEqual({ lat: 48.1372, lng: 11.5756, label: "Museum" });
   });
 
-  it("lists day plan items ordered by createdAt", async () => {
+  it("lists day plan items ordered by fromTime start", async () => {
     const user = await createUser("plan-order@example.com");
     const { trip, day } = await createTripWithDay(user.id);
 
     await prisma.dayPlanItem.create({
       data: {
         tripDayId: day.id,
-        title: "Second",
-        contentJson: sampleDoc("Second"),
+        title: "Late",
+        fromTime: "10:00",
+        toTime: "11:00",
+        contentJson: sampleDoc("Late"),
         costCents: null,
         linkUrl: null,
-        createdAt: new Date("2026-11-05T10:00:00.000Z"),
+        createdAt: new Date("2026-11-05T08:00:00.000Z"),
       },
     });
 
     await prisma.dayPlanItem.create({
       data: {
         tripDayId: day.id,
-        title: "First",
-        contentJson: sampleDoc("First"),
+        title: "Early",
+        fromTime: "08:00",
+        toTime: "09:00",
+        contentJson: sampleDoc("Early"),
         costCents: 900,
         linkUrl: null,
-        createdAt: new Date("2026-11-05T08:00:00.000Z"),
+        createdAt: new Date("2026-11-05T10:00:00.000Z"),
       },
     });
 
@@ -105,7 +113,8 @@ describe("dayPlanItemRepo", () => {
     });
 
     expect(items).not.toBeNull();
-    expect(items?.map((entry) => entry.contentJson)).toEqual([sampleDoc("First"), sampleDoc("Second")]);
+    expect(items?.map((entry) => entry.title)).toEqual(["Early", "Late"]);
+    expect(items?.map((entry) => entry.contentJson)).toEqual([sampleDoc("Early"), sampleDoc("Late")]);
     expect(items?.map((entry) => entry.costCents)).toEqual([900, null]);
   });
 
@@ -130,6 +139,8 @@ describe("dayPlanItemRepo", () => {
     const created = await prisma.dayPlanItem.create({
       data: {
         tripDayId: day.id,
+        fromTime: "08:00",
+        toTime: "09:00",
         contentJson: sampleDoc("Original"),
         linkUrl: null,
       },
@@ -141,6 +152,8 @@ describe("dayPlanItemRepo", () => {
       tripDayId: day.id,
       itemId: created.id,
       title: "Updated title",
+      fromTime: "11:00",
+      toTime: "12:00",
       contentJson: sampleDoc("Updated"),
       costCents: 4500,
       linkUrl: "https://example.com/updated",
@@ -151,6 +164,8 @@ describe("dayPlanItemRepo", () => {
     if (updated.status === "updated") {
       expect(updated.item.contentJson).toContain("Updated");
       expect(updated.item.title).toBe("Updated title");
+      expect(updated.item.fromTime).toBe("11:00");
+      expect(updated.item.toTime).toBe("12:00");
       expect(updated.item.costCents).toBe(4500);
       expect(updated.item.linkUrl).toBe("https://example.com/updated");
       expect(updated.item.location).toEqual({ lat: 48.145, lng: 11.582, label: "Gallery" });
@@ -167,6 +182,8 @@ describe("dayPlanItemRepo", () => {
       tripDayId: day.id,
       itemId: "missing-item",
       title: "Updated title",
+      fromTime: "11:00",
+      toTime: "12:00",
       contentJson: sampleDoc("Updated"),
       linkUrl: null,
     });
@@ -182,6 +199,8 @@ describe("dayPlanItemRepo", () => {
     const created = await prisma.dayPlanItem.create({
       data: {
         tripDayId: day.id,
+        fromTime: "08:00",
+        toTime: "09:00",
         contentJson: sampleDoc("Original"),
         linkUrl: null,
       },
@@ -193,6 +212,8 @@ describe("dayPlanItemRepo", () => {
       tripDayId: day.id,
       itemId: created.id,
       title: "Updated title",
+      fromTime: "11:00",
+      toTime: "12:00",
       contentJson: sampleDoc("Updated"),
       linkUrl: null,
     });
@@ -207,6 +228,8 @@ describe("dayPlanItemRepo", () => {
     const created = await prisma.dayPlanItem.create({
       data: {
         tripDayId: day.id,
+        fromTime: "08:00",
+        toTime: "09:00",
         contentJson: sampleDoc("To delete"),
         linkUrl: null,
       },
@@ -245,6 +268,8 @@ describe("dayPlanItemRepo", () => {
     const created = await prisma.dayPlanItem.create({
       data: {
         tripDayId: day.id,
+        fromTime: "08:00",
+        toTime: "09:00",
         contentJson: sampleDoc("To delete"),
         linkUrl: null,
       },

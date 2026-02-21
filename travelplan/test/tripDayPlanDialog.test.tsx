@@ -214,6 +214,8 @@ describe("TripDayPlanDialog", () => {
                 id: "item-1",
                 tripDayId: "day-1",
                 title: "Museum",
+                fromTime: "09:00",
+                toTime: "10:00",
                 contentJson: tiptapMocks.sampleDoc,
                 costCents: 2600,
                 linkUrl: "https://example.com/plan",
@@ -266,6 +268,8 @@ describe("TripDayPlanDialog", () => {
 
     fireEvent.change(screen.getByRole("textbox", { name: "Link" }), { target: { value: "https://example.com/plan" } });
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Museum" } });
+    fireEvent.change(screen.getByLabelText("From"), { target: { value: "09:00" } });
+    fireEvent.change(screen.getByLabelText("To"), { target: { value: "10:00" } });
     fireEvent.change(screen.getByLabelText("Cost"), { target: { value: "26,00" } });
     vi.spyOn(window, "prompt").mockReturnValue("https://images.example.com/plan.webp");
     fireEvent.click(screen.getByRole("button", { name: "Image" }));
@@ -284,6 +288,8 @@ describe("TripDayPlanDialog", () => {
     expect(postCall).toBeDefined();
     const requestBody = JSON.parse(String(postCall?.[1]?.body ?? "{}"));
     expect(requestBody.title).toBe("Museum");
+    expect(requestBody.fromTime).toBe("09:00");
+    expect(requestBody.toTime).toBe("10:00");
     expect(requestBody.costCents).toBe(2600);
     expect(requestBody.location).toEqual({ lat: 48.145, lng: 11.582, label: "Museum" });
     const parsedDoc = JSON.parse(requestBody.contentJson) as { content?: Array<{ type?: string; attrs?: { src?: string } }> };
@@ -319,6 +325,8 @@ describe("TripDayPlanDialog", () => {
                 id: "item-1",
                 tripDayId: "day-1",
                 title: "Old Town walk",
+                fromTime: "11:00",
+                toTime: "12:00",
                 contentJson: tiptapMocks.sampleDoc,
                 costCents: 3400,
                 linkUrl: "https://example.com/updated",
@@ -352,6 +360,8 @@ describe("TripDayPlanDialog", () => {
             id: "item-1",
             tripDayId: "day-1",
             title: "Old Town walk",
+            fromTime: "10:00",
+            toTime: "11:00",
             contentJson: tiptapMocks.sampleDoc,
             costCents: 2100,
             linkUrl: "https://example.com/original",
@@ -367,12 +377,16 @@ describe("TripDayPlanDialog", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(screen.getByText("Edit plan item")).toBeInTheDocument();
     expect(screen.getByLabelText("Title")).toHaveValue("Old Town walk");
+    expect(screen.getByLabelText("From")).toHaveValue("10:00");
+    expect(screen.getByLabelText("To")).toHaveValue("11:00");
     expect(screen.getByLabelText("Cost")).toHaveValue("21.00");
     expect(screen.getByRole("textbox", { name: "Link" })).toHaveValue("https://example.com/original");
     expect(screen.getByText("Latitude: 48.137200 · Longitude: 11.575600")).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Cost"), { target: { value: "34,00" } });
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Updated walk" } });
+    fireEvent.change(screen.getByLabelText("From"), { target: { value: "11:00" } });
+    fireEvent.change(screen.getByLabelText("To"), { target: { value: "12:00" } });
     fireEvent.change(screen.getByRole("textbox", { name: "Link" }), { target: { value: "https://example.com/updated" } });
     fireEvent.click(screen.getByRole("button", { name: "Update item" }));
 
@@ -387,6 +401,8 @@ describe("TripDayPlanDialog", () => {
     );
     const patchBody = JSON.parse(String(patchCall?.[1]?.body ?? "{}"));
     expect(patchBody.title).toBe("Updated walk");
+    expect(patchBody.fromTime).toBe("11:00");
+    expect(patchBody.toTime).toBe("12:00");
     expect(patchBody.costCents).toBe(3400);
 
     expect(onSaved).toHaveBeenCalledTimes(1);
@@ -448,6 +464,8 @@ describe("TripDayPlanDialog", () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: " " } });
+    fireEvent.change(screen.getByLabelText("From"), { target: { value: "09:00" } });
+    fireEvent.change(screen.getByLabelText("To"), { target: { value: "10:00" } });
     fireEvent.click(screen.getByRole("button", { name: "Save item" }));
 
     await waitFor(() =>
@@ -458,5 +476,69 @@ describe("TripDayPlanDialog", () => {
     );
     expect(screen.getByText("Title is required")).toBeInTheDocument();
     expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  it("shows time validation errors from API", async () => {
+    const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
+
+    const fetchMock = vi.fn(async (input: RequestInfo, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.url;
+      const method = init?.method ?? "GET";
+
+      if (url.includes("/api/auth/csrf")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
+        };
+      }
+
+      if (url.includes("/day-plan-items") && method === "POST") {
+        return {
+          ok: false,
+          status: 400,
+          json: async () => ({
+            data: null,
+            error: {
+              code: "validation_error",
+              message: "Validation failed",
+              details: { fieldErrors: { fromTime: ["From time is required"], toTime: ["To time must be after from time"] } },
+            },
+          }),
+        };
+      }
+
+      return {
+        ok: false,
+        status: 500,
+        json: async () => ({ data: null, error: { code: "server_error", message: "boom" } }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayPlanDialog
+          open
+          mode="add"
+          tripId="trip-1"
+          day={{ id: "day-1", dayIndex: 1 }}
+          item={null}
+          onClose={() => undefined}
+          onSaved={() => undefined}
+        />
+      </I18nProvider>,
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Plan" } });
+    fireEvent.change(screen.getByLabelText("From"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("To"), { target: { value: "09:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save item" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/day-plan-items"), expect.any(Object)));
+    expect(screen.getByText("From time is required")).toBeInTheDocument();
+    expect(screen.getByText("To time must be after from time")).toBeInTheDocument();
   });
 });

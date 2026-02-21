@@ -65,6 +65,8 @@ type TripDay = {
   dayPlanItems: {
     id: string;
     title: string | null;
+    fromTime: string | null;
+    toTime: string | null;
     contentJson: string;
     costCents: number | null;
     linkUrl: string | null;
@@ -76,6 +78,8 @@ type DayPlanItem = {
   id: string;
   tripDayId: string;
   title: string | null;
+  fromTime: string | null;
+  toTime: string | null;
   contentJson: string;
   costCents: number | null;
   linkUrl: string | null;
@@ -433,6 +437,8 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
           id: item.id,
           tripDayId: resolvedDay.id,
           title: item.title,
+          fromTime: item.fromTime ?? null,
+          toTime: item.toTime ?? null,
           contentJson: item.contentJson,
           costCents: typeof item.costCents === "number" ? item.costCents : null,
           linkUrl: item.linkUrl,
@@ -1133,9 +1139,18 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                       >
                         <Box display="flex" alignItems="flex-start" justifyContent="space-between" gap={1}>
                           <Box display="flex" flexDirection="column" gap={0.75}>
-                            <Typography variant="body2" fontWeight={700}>
-                              {title}
-                            </Typography>
+                            <Box display="flex" alignItems="center" gap={0.75} flexWrap="wrap">
+                              {item.fromTime && item.toTime ? (
+                                <Chip
+                                  label={`${item.fromTime} - ${item.toTime}`}
+                                  size="small"
+                                  variant="outlined"
+                                />
+                              ) : null}
+                              <Typography variant="body2" fontWeight={700}>
+                                {title}
+                              </Typography>
+                            </Box>
                             <PlanItemRichContent contentJson={item.contentJson} fallbackText={preview} />
                             {item.linkUrl && isSafeLink(item.linkUrl) ? (
                               <Button
