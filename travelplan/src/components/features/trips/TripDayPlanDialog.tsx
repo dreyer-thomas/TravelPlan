@@ -627,10 +627,16 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
         <Box display="flex" flexDirection="column" gap={2.5}>
           {serverError && <Alert severity="error">{serverError}</Alert>}
 
+          <TextField
+            label={t("trips.plan.titleLabel")}
+            value={titleInput}
+            onChange={(event) => setTitleInput(event.target.value)}
+            error={Boolean(fieldErrors.title)}
+            helperText={fieldErrors.title ?? undefined}
+            fullWidth
+            inputProps={{ maxLength: 120 }}
+          />
           <Box display="flex" flexDirection="column" gap={1.5}>
-            <Typography variant="body2" color="text.secondary">
-              {t("trips.plan.contentLabel")}
-            </Typography>
             <Box
               sx={{
                 border: "1px solid",
@@ -716,16 +722,6 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
               </Typography>
             )}
           </Box>
-
-          <TextField
-            label={t("trips.plan.titleLabel")}
-            value={titleInput}
-            onChange={(event) => setTitleInput(event.target.value)}
-            error={Boolean(fieldErrors.title)}
-            helperText={fieldErrors.title ?? t("trips.plan.titleHelper")}
-            fullWidth
-            inputProps={{ maxLength: 120 }}
-          />
           <Box display="flex" gap={1}>
             <TextField
               label={t("trips.plan.fromTimeLabel")}
@@ -735,7 +731,7 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
                 setFieldErrors((previous) => ({ ...previous, fromTime: undefined, toTime: undefined }));
               }}
               error={Boolean(fieldErrors.fromTime)}
-              helperText={fieldErrors.fromTime ?? t("trips.plan.fromTimeHelper")}
+              helperText={fieldErrors.fromTime ?? undefined}
               fullWidth
               type="time"
               InputLabelProps={{ shrink: true }}
@@ -748,7 +744,7 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
                 setFieldErrors((previous) => ({ ...previous, fromTime: undefined, toTime: undefined }));
               }}
               error={Boolean(fieldErrors.toTime)}
-              helperText={fieldErrors.toTime ?? t("trips.plan.toTimeHelper")}
+              helperText={fieldErrors.toTime ?? undefined}
               fullWidth
               type="time"
               InputLabelProps={{ shrink: true }}
@@ -760,7 +756,7 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
             value={costCentsInput}
             onChange={(event) => setCostCentsInput(event.target.value)}
             error={Boolean(fieldErrors.costCents)}
-            helperText={fieldErrors.costCents ?? t("trips.plan.costHelper")}
+            helperText={fieldErrors.costCents ?? undefined}
             fullWidth
             type="text"
             inputMode="decimal"
@@ -771,7 +767,7 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
             value={linkUrl}
             onChange={(event) => setLinkUrl(event.target.value)}
             error={Boolean(fieldErrors.linkUrl)}
-            helperText={fieldErrors.linkUrl ?? t("trips.plan.linkHelper")}
+            helperText={fieldErrors.linkUrl ?? undefined}
             fullWidth
             type="url"
             inputMode="url"
@@ -801,11 +797,6 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
               {t("trips.location.clearAction")}
             </Button>
           </Box>
-          <Typography variant="body2" color="text.secondary">
-            {resolvedLocation
-              ? `${t("trips.location.latLabel")}: ${resolvedLocation.lat.toFixed(6)} · ${t("trips.location.lngLabel")}: ${resolvedLocation.lng.toFixed(6)}`
-              : t("trips.location.noCoordinates")}
-          </Typography>
           {editingItemId && (
             <Box display="flex" flexDirection="column" gap={1}>
               <Typography variant="body2" fontWeight={600}>

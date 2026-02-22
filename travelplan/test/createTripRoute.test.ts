@@ -59,19 +59,30 @@ describe("POST /api/trips", () => {
         name: "Spring Break",
         startDate: "2026-03-01T00:00:00.000Z",
         endDate: "2026-03-03T00:00:00.000Z",
+        startLocation: { lat: 48.14, lng: 11.58, label: "Munich" },
+        destinationLocation: { lat: 47.37, lng: 8.54, label: "Zurich" },
       },
       { session: token }
     );
 
     const response = await POST(request);
     const payload = (await response.json()) as ApiEnvelope<{
-      trip: { id: string; name: string; startDate: string; endDate: string };
+      trip: {
+        id: string;
+        name: string;
+        startDate: string;
+        endDate: string;
+        startLocation?: { lat: number; lng: number; label: string | null } | null;
+        destinationLocation?: { lat: number; lng: number; label: string | null } | null;
+      };
       dayCount: number;
     }>;
 
     expect(response.status).toBe(200);
     expect(payload.error).toBeNull();
     expect(payload.data?.trip.name).toBe("Spring Break");
+    expect(payload.data?.trip.startLocation).toEqual({ lat: 48.14, lng: 11.58, label: "Munich" });
+    expect(payload.data?.trip.destinationLocation).toEqual({ lat: 47.37, lng: 8.54, label: "Zurich" });
     expect(payload.data?.dayCount).toBe(3);
   });
 
@@ -117,6 +128,34 @@ describe("POST /api/trips", () => {
         name: "Bad Range",
         startDate: "2026-03-05T00:00:00.000Z",
         endDate: "2026-03-03T00:00:00.000Z",
+      },
+      { session: token }
+    );
+
+    const response = await POST(request);
+    const payload = (await response.json()) as ApiEnvelope<null>;
+
+    expect(response.status).toBe(400);
+    expect(payload.data).toBeNull();
+    expect(payload.error?.code).toBe("validation_error");
+  });
+
+  it("rejects partial location payloads", async () => {
+    const user = await prisma.user.create({
+      data: {
+        email: "trip-invalid-location@example.com",
+        passwordHash: "hashed",
+        role: "OWNER",
+      },
+    });
+    const token = await createSessionJwt({ sub: user.id, role: user.role });
+
+    const request = buildRequest(
+      {
+        name: "Trip",
+        startDate: "2026-03-01T00:00:00.000Z",
+        endDate: "2026-03-01T00:00:00.000Z",
+        startLocation: { lat: 48.14, lng: 11.58, label: "Munich" },
       },
       { session: token }
     );

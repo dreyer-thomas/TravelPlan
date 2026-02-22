@@ -109,6 +109,8 @@ const tripImportSchema = z
     startDate: isoUtcDate,
     endDate: isoUtcDate,
     heroImageUrl: z.union([z.string().trim(), z.null()]),
+    startLocation: z.union([locationSchema, z.null()]).optional(),
+    destinationLocation: z.union([locationSchema, z.null()]).optional(),
     createdAt: isoUtcDate,
     updatedAt: isoUtcDate,
   })

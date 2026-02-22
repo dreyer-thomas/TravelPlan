@@ -20,8 +20,24 @@ export type TripModel = runtime.Types.Result.DefaultSelection<Prisma.$TripPayloa
 
 export type AggregateTrip = {
   _count: TripCountAggregateOutputType | null
+  _avg: TripAvgAggregateOutputType | null
+  _sum: TripSumAggregateOutputType | null
   _min: TripMinAggregateOutputType | null
   _max: TripMaxAggregateOutputType | null
+}
+
+export type TripAvgAggregateOutputType = {
+  startLocationLat: number | null
+  startLocationLng: number | null
+  destinationLocationLat: number | null
+  destinationLocationLng: number | null
+}
+
+export type TripSumAggregateOutputType = {
+  startLocationLat: number | null
+  startLocationLng: number | null
+  destinationLocationLat: number | null
+  destinationLocationLng: number | null
 }
 
 export type TripMinAggregateOutputType = {
@@ -31,6 +47,12 @@ export type TripMinAggregateOutputType = {
   startDate: Date | null
   endDate: Date | null
   heroImageUrl: string | null
+  startLocationLat: number | null
+  startLocationLng: number | null
+  startLocationLabel: string | null
+  destinationLocationLat: number | null
+  destinationLocationLng: number | null
+  destinationLocationLabel: string | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -42,6 +64,12 @@ export type TripMaxAggregateOutputType = {
   startDate: Date | null
   endDate: Date | null
   heroImageUrl: string | null
+  startLocationLat: number | null
+  startLocationLng: number | null
+  startLocationLabel: string | null
+  destinationLocationLat: number | null
+  destinationLocationLng: number | null
+  destinationLocationLabel: string | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -53,11 +81,31 @@ export type TripCountAggregateOutputType = {
   startDate: number
   endDate: number
   heroImageUrl: number
+  startLocationLat: number
+  startLocationLng: number
+  startLocationLabel: number
+  destinationLocationLat: number
+  destinationLocationLng: number
+  destinationLocationLabel: number
   createdAt: number
   updatedAt: number
   _all: number
 }
 
+
+export type TripAvgAggregateInputType = {
+  startLocationLat?: true
+  startLocationLng?: true
+  destinationLocationLat?: true
+  destinationLocationLng?: true
+}
+
+export type TripSumAggregateInputType = {
+  startLocationLat?: true
+  startLocationLng?: true
+  destinationLocationLat?: true
+  destinationLocationLng?: true
+}
 
 export type TripMinAggregateInputType = {
   id?: true
@@ -66,6 +114,12 @@ export type TripMinAggregateInputType = {
   startDate?: true
   endDate?: true
   heroImageUrl?: true
+  startLocationLat?: true
+  startLocationLng?: true
+  startLocationLabel?: true
+  destinationLocationLat?: true
+  destinationLocationLng?: true
+  destinationLocationLabel?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -77,6 +131,12 @@ export type TripMaxAggregateInputType = {
   startDate?: true
   endDate?: true
   heroImageUrl?: true
+  startLocationLat?: true
+  startLocationLng?: true
+  startLocationLabel?: true
+  destinationLocationLat?: true
+  destinationLocationLng?: true
+  destinationLocationLabel?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -88,6 +148,12 @@ export type TripCountAggregateInputType = {
   startDate?: true
   endDate?: true
   heroImageUrl?: true
+  startLocationLat?: true
+  startLocationLng?: true
+  startLocationLabel?: true
+  destinationLocationLat?: true
+  destinationLocationLng?: true
+  destinationLocationLabel?: true
   createdAt?: true
   updatedAt?: true
   _all?: true
@@ -131,6 +197,18 @@ export type TripAggregateArgs<ExtArgs extends runtime.Types.Extensions.InternalA
   /**
    * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
    * 
+   * Select which fields to average
+  **/
+  _avg?: TripAvgAggregateInputType
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+   * 
+   * Select which fields to sum
+  **/
+  _sum?: TripSumAggregateInputType
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+   * 
    * Select which fields to find the minimum value
   **/
   _min?: TripMinAggregateInputType
@@ -161,6 +239,8 @@ export type TripGroupByArgs<ExtArgs extends runtime.Types.Extensions.InternalArg
   take?: number
   skip?: number
   _count?: TripCountAggregateInputType | true
+  _avg?: TripAvgAggregateInputType
+  _sum?: TripSumAggregateInputType
   _min?: TripMinAggregateInputType
   _max?: TripMaxAggregateInputType
 }
@@ -172,9 +252,17 @@ export type TripGroupByOutputType = {
   startDate: Date
   endDate: Date
   heroImageUrl: string | null
+  startLocationLat: number | null
+  startLocationLng: number | null
+  startLocationLabel: string | null
+  destinationLocationLat: number | null
+  destinationLocationLng: number | null
+  destinationLocationLabel: string | null
   createdAt: Date
   updatedAt: Date
   _count: TripCountAggregateOutputType | null
+  _avg: TripAvgAggregateOutputType | null
+  _sum: TripSumAggregateOutputType | null
   _min: TripMinAggregateOutputType | null
   _max: TripMaxAggregateOutputType | null
 }
@@ -204,6 +292,12 @@ export type TripWhereInput = {
   startDate?: Prisma.DateTimeFilter<"Trip"> | Date | string
   endDate?: Prisma.DateTimeFilter<"Trip"> | Date | string
   heroImageUrl?: Prisma.StringNullableFilter<"Trip"> | string | null
+  startLocationLat?: Prisma.FloatNullableFilter<"Trip"> | number | null
+  startLocationLng?: Prisma.FloatNullableFilter<"Trip"> | number | null
+  startLocationLabel?: Prisma.StringNullableFilter<"Trip"> | string | null
+  destinationLocationLat?: Prisma.FloatNullableFilter<"Trip"> | number | null
+  destinationLocationLng?: Prisma.FloatNullableFilter<"Trip"> | number | null
+  destinationLocationLabel?: Prisma.StringNullableFilter<"Trip"> | string | null
   createdAt?: Prisma.DateTimeFilter<"Trip"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Trip"> | Date | string
   user?: Prisma.XOR<Prisma.UserScalarRelationFilter, Prisma.UserWhereInput>
@@ -217,6 +311,12 @@ export type TripOrderByWithRelationInput = {
   startDate?: Prisma.SortOrder
   endDate?: Prisma.SortOrder
   heroImageUrl?: Prisma.SortOrderInput | Prisma.SortOrder
+  startLocationLat?: Prisma.SortOrderInput | Prisma.SortOrder
+  startLocationLng?: Prisma.SortOrderInput | Prisma.SortOrder
+  startLocationLabel?: Prisma.SortOrderInput | Prisma.SortOrder
+  destinationLocationLat?: Prisma.SortOrderInput | Prisma.SortOrder
+  destinationLocationLng?: Prisma.SortOrderInput | Prisma.SortOrder
+  destinationLocationLabel?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   user?: Prisma.UserOrderByWithRelationInput
@@ -233,6 +333,12 @@ export type TripWhereUniqueInput = Prisma.AtLeast<{
   startDate?: Prisma.DateTimeFilter<"Trip"> | Date | string
   endDate?: Prisma.DateTimeFilter<"Trip"> | Date | string
   heroImageUrl?: Prisma.StringNullableFilter<"Trip"> | string | null
+  startLocationLat?: Prisma.FloatNullableFilter<"Trip"> | number | null
+  startLocationLng?: Prisma.FloatNullableFilter<"Trip"> | number | null
+  startLocationLabel?: Prisma.StringNullableFilter<"Trip"> | string | null
+  destinationLocationLat?: Prisma.FloatNullableFilter<"Trip"> | number | null
+  destinationLocationLng?: Prisma.FloatNullableFilter<"Trip"> | number | null
+  destinationLocationLabel?: Prisma.StringNullableFilter<"Trip"> | string | null
   createdAt?: Prisma.DateTimeFilter<"Trip"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Trip"> | Date | string
   user?: Prisma.XOR<Prisma.UserScalarRelationFilter, Prisma.UserWhereInput>
@@ -246,11 +352,19 @@ export type TripOrderByWithAggregationInput = {
   startDate?: Prisma.SortOrder
   endDate?: Prisma.SortOrder
   heroImageUrl?: Prisma.SortOrderInput | Prisma.SortOrder
+  startLocationLat?: Prisma.SortOrderInput | Prisma.SortOrder
+  startLocationLng?: Prisma.SortOrderInput | Prisma.SortOrder
+  startLocationLabel?: Prisma.SortOrderInput | Prisma.SortOrder
+  destinationLocationLat?: Prisma.SortOrderInput | Prisma.SortOrder
+  destinationLocationLng?: Prisma.SortOrderInput | Prisma.SortOrder
+  destinationLocationLabel?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   _count?: Prisma.TripCountOrderByAggregateInput
+  _avg?: Prisma.TripAvgOrderByAggregateInput
   _max?: Prisma.TripMaxOrderByAggregateInput
   _min?: Prisma.TripMinOrderByAggregateInput
+  _sum?: Prisma.TripSumOrderByAggregateInput
 }
 
 export type TripScalarWhereWithAggregatesInput = {
@@ -263,6 +377,12 @@ export type TripScalarWhereWithAggregatesInput = {
   startDate?: Prisma.DateTimeWithAggregatesFilter<"Trip"> | Date | string
   endDate?: Prisma.DateTimeWithAggregatesFilter<"Trip"> | Date | string
   heroImageUrl?: Prisma.StringNullableWithAggregatesFilter<"Trip"> | string | null
+  startLocationLat?: Prisma.FloatNullableWithAggregatesFilter<"Trip"> | number | null
+  startLocationLng?: Prisma.FloatNullableWithAggregatesFilter<"Trip"> | number | null
+  startLocationLabel?: Prisma.StringNullableWithAggregatesFilter<"Trip"> | string | null
+  destinationLocationLat?: Prisma.FloatNullableWithAggregatesFilter<"Trip"> | number | null
+  destinationLocationLng?: Prisma.FloatNullableWithAggregatesFilter<"Trip"> | number | null
+  destinationLocationLabel?: Prisma.StringNullableWithAggregatesFilter<"Trip"> | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"Trip"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"Trip"> | Date | string
 }
@@ -273,6 +393,12 @@ export type TripCreateInput = {
   startDate: Date | string
   endDate: Date | string
   heroImageUrl?: string | null
+  startLocationLat?: number | null
+  startLocationLng?: number | null
+  startLocationLabel?: string | null
+  destinationLocationLat?: number | null
+  destinationLocationLng?: number | null
+  destinationLocationLabel?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   user: Prisma.UserCreateNestedOneWithoutTripsInput
@@ -286,6 +412,12 @@ export type TripUncheckedCreateInput = {
   startDate: Date | string
   endDate: Date | string
   heroImageUrl?: string | null
+  startLocationLat?: number | null
+  startLocationLng?: number | null
+  startLocationLabel?: string | null
+  destinationLocationLat?: number | null
+  destinationLocationLng?: number | null
+  destinationLocationLabel?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   days?: Prisma.TripDayUncheckedCreateNestedManyWithoutTripInput
@@ -297,6 +429,12 @@ export type TripUpdateInput = {
   startDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   endDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   heroImageUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  startLocationLat?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  startLocationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  startLocationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  destinationLocationLat?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  destinationLocationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  destinationLocationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   user?: Prisma.UserUpdateOneRequiredWithoutTripsNestedInput
@@ -310,6 +448,12 @@ export type TripUncheckedUpdateInput = {
   startDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   endDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   heroImageUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  startLocationLat?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  startLocationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  startLocationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  destinationLocationLat?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  destinationLocationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  destinationLocationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   days?: Prisma.TripDayUncheckedUpdateManyWithoutTripNestedInput
@@ -322,6 +466,12 @@ export type TripCreateManyInput = {
   startDate: Date | string
   endDate: Date | string
   heroImageUrl?: string | null
+  startLocationLat?: number | null
+  startLocationLng?: number | null
+  startLocationLabel?: string | null
+  destinationLocationLat?: number | null
+  destinationLocationLng?: number | null
+  destinationLocationLabel?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -332,6 +482,12 @@ export type TripUpdateManyMutationInput = {
   startDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   endDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   heroImageUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  startLocationLat?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  startLocationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  startLocationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  destinationLocationLat?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  destinationLocationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  destinationLocationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -343,6 +499,12 @@ export type TripUncheckedUpdateManyInput = {
   startDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   endDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   heroImageUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  startLocationLat?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  startLocationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  startLocationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  destinationLocationLat?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  destinationLocationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  destinationLocationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -364,8 +526,21 @@ export type TripCountOrderByAggregateInput = {
   startDate?: Prisma.SortOrder
   endDate?: Prisma.SortOrder
   heroImageUrl?: Prisma.SortOrder
+  startLocationLat?: Prisma.SortOrder
+  startLocationLng?: Prisma.SortOrder
+  startLocationLabel?: Prisma.SortOrder
+  destinationLocationLat?: Prisma.SortOrder
+  destinationLocationLng?: Prisma.SortOrder
+  destinationLocationLabel?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+}
+
+export type TripAvgOrderByAggregateInput = {
+  startLocationLat?: Prisma.SortOrder
+  startLocationLng?: Prisma.SortOrder
+  destinationLocationLat?: Prisma.SortOrder
+  destinationLocationLng?: Prisma.SortOrder
 }
 
 export type TripMaxOrderByAggregateInput = {
@@ -375,6 +550,12 @@ export type TripMaxOrderByAggregateInput = {
   startDate?: Prisma.SortOrder
   endDate?: Prisma.SortOrder
   heroImageUrl?: Prisma.SortOrder
+  startLocationLat?: Prisma.SortOrder
+  startLocationLng?: Prisma.SortOrder
+  startLocationLabel?: Prisma.SortOrder
+  destinationLocationLat?: Prisma.SortOrder
+  destinationLocationLng?: Prisma.SortOrder
+  destinationLocationLabel?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -386,8 +567,21 @@ export type TripMinOrderByAggregateInput = {
   startDate?: Prisma.SortOrder
   endDate?: Prisma.SortOrder
   heroImageUrl?: Prisma.SortOrder
+  startLocationLat?: Prisma.SortOrder
+  startLocationLng?: Prisma.SortOrder
+  startLocationLabel?: Prisma.SortOrder
+  destinationLocationLat?: Prisma.SortOrder
+  destinationLocationLng?: Prisma.SortOrder
+  destinationLocationLabel?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+}
+
+export type TripSumOrderByAggregateInput = {
+  startLocationLat?: Prisma.SortOrder
+  startLocationLng?: Prisma.SortOrder
+  destinationLocationLat?: Prisma.SortOrder
+  destinationLocationLng?: Prisma.SortOrder
 }
 
 export type TripScalarRelationFilter = {
@@ -441,6 +635,14 @@ export type NullableStringFieldUpdateOperationsInput = {
   set?: string | null
 }
 
+export type NullableFloatFieldUpdateOperationsInput = {
+  set?: number | null
+  increment?: number
+  decrement?: number
+  multiply?: number
+  divide?: number
+}
+
 export type TripCreateNestedOneWithoutDaysInput = {
   create?: Prisma.XOR<Prisma.TripCreateWithoutDaysInput, Prisma.TripUncheckedCreateWithoutDaysInput>
   connectOrCreate?: Prisma.TripCreateOrConnectWithoutDaysInput
@@ -461,6 +663,12 @@ export type TripCreateWithoutUserInput = {
   startDate: Date | string
   endDate: Date | string
   heroImageUrl?: string | null
+  startLocationLat?: number | null
+  startLocationLng?: number | null
+  startLocationLabel?: string | null
+  destinationLocationLat?: number | null
+  destinationLocationLng?: number | null
+  destinationLocationLabel?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   days?: Prisma.TripDayCreateNestedManyWithoutTripInput
@@ -472,6 +680,12 @@ export type TripUncheckedCreateWithoutUserInput = {
   startDate: Date | string
   endDate: Date | string
   heroImageUrl?: string | null
+  startLocationLat?: number | null
+  startLocationLng?: number | null
+  startLocationLabel?: string | null
+  destinationLocationLat?: number | null
+  destinationLocationLng?: number | null
+  destinationLocationLabel?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   days?: Prisma.TripDayUncheckedCreateNestedManyWithoutTripInput
@@ -512,6 +726,12 @@ export type TripScalarWhereInput = {
   startDate?: Prisma.DateTimeFilter<"Trip"> | Date | string
   endDate?: Prisma.DateTimeFilter<"Trip"> | Date | string
   heroImageUrl?: Prisma.StringNullableFilter<"Trip"> | string | null
+  startLocationLat?: Prisma.FloatNullableFilter<"Trip"> | number | null
+  startLocationLng?: Prisma.FloatNullableFilter<"Trip"> | number | null
+  startLocationLabel?: Prisma.StringNullableFilter<"Trip"> | string | null
+  destinationLocationLat?: Prisma.FloatNullableFilter<"Trip"> | number | null
+  destinationLocationLng?: Prisma.FloatNullableFilter<"Trip"> | number | null
+  destinationLocationLabel?: Prisma.StringNullableFilter<"Trip"> | string | null
   createdAt?: Prisma.DateTimeFilter<"Trip"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Trip"> | Date | string
 }
@@ -522,6 +742,12 @@ export type TripCreateWithoutDaysInput = {
   startDate: Date | string
   endDate: Date | string
   heroImageUrl?: string | null
+  startLocationLat?: number | null
+  startLocationLng?: number | null
+  startLocationLabel?: string | null
+  destinationLocationLat?: number | null
+  destinationLocationLng?: number | null
+  destinationLocationLabel?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   user: Prisma.UserCreateNestedOneWithoutTripsInput
@@ -534,6 +760,12 @@ export type TripUncheckedCreateWithoutDaysInput = {
   startDate: Date | string
   endDate: Date | string
   heroImageUrl?: string | null
+  startLocationLat?: number | null
+  startLocationLng?: number | null
+  startLocationLabel?: string | null
+  destinationLocationLat?: number | null
+  destinationLocationLng?: number | null
+  destinationLocationLabel?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -560,6 +792,12 @@ export type TripUpdateWithoutDaysInput = {
   startDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   endDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   heroImageUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  startLocationLat?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  startLocationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  startLocationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  destinationLocationLat?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  destinationLocationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  destinationLocationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   user?: Prisma.UserUpdateOneRequiredWithoutTripsNestedInput
@@ -572,6 +810,12 @@ export type TripUncheckedUpdateWithoutDaysInput = {
   startDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   endDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   heroImageUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  startLocationLat?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  startLocationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  startLocationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  destinationLocationLat?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  destinationLocationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  destinationLocationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -582,6 +826,12 @@ export type TripCreateManyUserInput = {
   startDate: Date | string
   endDate: Date | string
   heroImageUrl?: string | null
+  startLocationLat?: number | null
+  startLocationLng?: number | null
+  startLocationLabel?: string | null
+  destinationLocationLat?: number | null
+  destinationLocationLng?: number | null
+  destinationLocationLabel?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -592,6 +842,12 @@ export type TripUpdateWithoutUserInput = {
   startDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   endDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   heroImageUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  startLocationLat?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  startLocationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  startLocationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  destinationLocationLat?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  destinationLocationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  destinationLocationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   days?: Prisma.TripDayUpdateManyWithoutTripNestedInput
@@ -603,6 +859,12 @@ export type TripUncheckedUpdateWithoutUserInput = {
   startDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   endDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   heroImageUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  startLocationLat?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  startLocationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  startLocationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  destinationLocationLat?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  destinationLocationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  destinationLocationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   days?: Prisma.TripDayUncheckedUpdateManyWithoutTripNestedInput
@@ -614,6 +876,12 @@ export type TripUncheckedUpdateManyWithoutUserInput = {
   startDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   endDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   heroImageUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  startLocationLat?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  startLocationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  startLocationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  destinationLocationLat?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  destinationLocationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  destinationLocationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -656,6 +924,12 @@ export type TripSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = r
   startDate?: boolean
   endDate?: boolean
   heroImageUrl?: boolean
+  startLocationLat?: boolean
+  startLocationLng?: boolean
+  startLocationLabel?: boolean
+  destinationLocationLat?: boolean
+  destinationLocationLng?: boolean
+  destinationLocationLabel?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
@@ -670,6 +944,12 @@ export type TripSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   startDate?: boolean
   endDate?: boolean
   heroImageUrl?: boolean
+  startLocationLat?: boolean
+  startLocationLng?: boolean
+  startLocationLabel?: boolean
+  destinationLocationLat?: boolean
+  destinationLocationLng?: boolean
+  destinationLocationLabel?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
@@ -682,6 +962,12 @@ export type TripSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   startDate?: boolean
   endDate?: boolean
   heroImageUrl?: boolean
+  startLocationLat?: boolean
+  startLocationLng?: boolean
+  startLocationLabel?: boolean
+  destinationLocationLat?: boolean
+  destinationLocationLng?: boolean
+  destinationLocationLabel?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
@@ -694,11 +980,17 @@ export type TripSelectScalar = {
   startDate?: boolean
   endDate?: boolean
   heroImageUrl?: boolean
+  startLocationLat?: boolean
+  startLocationLng?: boolean
+  startLocationLabel?: boolean
+  destinationLocationLat?: boolean
+  destinationLocationLng?: boolean
+  destinationLocationLabel?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }
 
-export type TripOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "userId" | "name" | "startDate" | "endDate" | "heroImageUrl" | "createdAt" | "updatedAt", ExtArgs["result"]["trip"]>
+export type TripOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "userId" | "name" | "startDate" | "endDate" | "heroImageUrl" | "startLocationLat" | "startLocationLng" | "startLocationLabel" | "destinationLocationLat" | "destinationLocationLng" | "destinationLocationLabel" | "createdAt" | "updatedAt", ExtArgs["result"]["trip"]>
 export type TripInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
   days?: boolean | Prisma.Trip$daysArgs<ExtArgs>
@@ -724,6 +1016,12 @@ export type $TripPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
     startDate: Date
     endDate: Date
     heroImageUrl: string | null
+    startLocationLat: number | null
+    startLocationLng: number | null
+    startLocationLabel: string | null
+    destinationLocationLat: number | null
+    destinationLocationLng: number | null
+    destinationLocationLabel: string | null
     createdAt: Date
     updatedAt: Date
   }, ExtArgs["result"]["trip"]>
@@ -1157,6 +1455,12 @@ export interface TripFieldRefs {
   readonly startDate: Prisma.FieldRef<"Trip", 'DateTime'>
   readonly endDate: Prisma.FieldRef<"Trip", 'DateTime'>
   readonly heroImageUrl: Prisma.FieldRef<"Trip", 'String'>
+  readonly startLocationLat: Prisma.FieldRef<"Trip", 'Float'>
+  readonly startLocationLng: Prisma.FieldRef<"Trip", 'Float'>
+  readonly startLocationLabel: Prisma.FieldRef<"Trip", 'String'>
+  readonly destinationLocationLat: Prisma.FieldRef<"Trip", 'Float'>
+  readonly destinationLocationLng: Prisma.FieldRef<"Trip", 'Float'>
+  readonly destinationLocationLabel: Prisma.FieldRef<"Trip", 'String'>
   readonly createdAt: Prisma.FieldRef<"Trip", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"Trip", 'DateTime'>
 }

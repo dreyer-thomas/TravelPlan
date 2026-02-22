@@ -522,10 +522,10 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                               <Box
                                 data-testid="timeline-accommodation-surface"
                                 sx={{
-                                  backgroundColor: "#4a525f",
+                                  backgroundColor: "transparent",
                                   borderRadius: 1.25,
-                                  px: 0.75,
-                                  py: 0.5,
+                                  px: 0,
+                                  py: 0,
                                   width: "fit-content",
                                 }}
                               >
@@ -541,7 +541,6 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                                   sx={{
                                     bgcolor: day.accommodation.status === "booked" ? "#245c39" : "#5a6473",
                                     color: "#f8fafc",
-                                    border: "1px solid rgba(248, 250, 252, 0.28)",
                                     "& .MuiSvgIcon-root": { color: "#f8fafc" },
                                   }}
                                 />

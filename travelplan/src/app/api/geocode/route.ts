@@ -70,11 +70,14 @@ export const GET = async (request: NextRequest) => {
       return ok({ result: null });
     }
 
+    const rawLabel = first.display_name?.trim() || q;
+    const label = rawLabel.slice(0, 200);
+
     return ok({
       result: {
         lat,
         lng,
-        label: first.display_name?.trim() || q,
+        label,
       },
     });
   } catch {

@@ -60,6 +60,12 @@ model Trip {
   startDate DateTime @map("start_date")
   endDate   DateTime @map("end_date")
   heroImageUrl String? @map("hero_image_url")
+  startLocationLat Float? @map("start_location_lat")
+  startLocationLng Float? @map("start_location_lng")
+  startLocationLabel String? @map("start_location_label")
+  destinationLocationLat Float? @map("destination_location_lat")
+  destinationLocationLng Float? @map("destination_location_lng")
+  destinationLocationLabel String? @map("destination_location_label")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 

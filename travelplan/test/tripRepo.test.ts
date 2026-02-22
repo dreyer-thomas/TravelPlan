@@ -508,6 +508,37 @@ describe("tripRepo", () => {
     expect(stored?.heroImageUrl).toBe(heroImageUrl);
   });
 
+  it("persists start and destination locations on trips", async () => {
+    const user = await prisma.user.create({
+      data: {
+        email: "trip-locations@example.com",
+        passwordHash: "hashed",
+        role: "OWNER",
+      },
+    });
+
+    const startLocation = { lat: 48.14, lng: 11.58, label: "Munich" };
+    const destinationLocation = { lat: 47.37, lng: 8.54, label: "Zurich" };
+
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Location Trip",
+      startDate: "2026-08-01T00:00:00.000Z",
+      endDate: "2026-08-02T00:00:00.000Z",
+      startLocation,
+      destinationLocation,
+    });
+
+    const stored = await prisma.trip.findUnique({ where: { id: trip.id } });
+
+    expect(stored?.startLocationLat).toBeCloseTo(startLocation.lat);
+    expect(stored?.startLocationLng).toBeCloseTo(startLocation.lng);
+    expect(stored?.startLocationLabel).toBe(startLocation.label);
+    expect(stored?.destinationLocationLat).toBeCloseTo(destinationLocation.lat);
+    expect(stored?.destinationLocationLng).toBeCloseTo(destinationLocation.lng);
+    expect(stored?.destinationLocationLabel).toBe(destinationLocation.label);
+  });
+
   it("persists image urls on trip days", async () => {
     const user = await prisma.user.create({
       data: {

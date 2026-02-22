@@ -6,7 +6,15 @@ export type CreateTripParams = {
   name: string;
   startDate: string;
   endDate: string;
+  startLocation?: TripLocationInput;
+  destinationLocation?: TripLocationInput;
 };
+
+export type TripLocationInput = {
+  lat: number;
+  lng: number;
+  label?: string | null;
+} | null;
 
 export type TripSummary = {
   id: string;
@@ -75,6 +83,8 @@ export type TripExportPayload = {
     startDate: string;
     endDate: string;
     heroImageUrl: string | null;
+    startLocation: { lat: number; lng: number; label: string | null } | null;
+    destinationLocation: { lat: number; lng: number; label: string | null } | null;
     createdAt: string;
     updatedAt: string;
   };
@@ -174,9 +184,27 @@ const compareDayPlanItemsByStartTime = (
   return left.id.localeCompare(right.id);
 };
 
-export const createTripWithDays = async ({ userId, name, startDate, endDate }: CreateTripParams) => {
+const buildLocationData = (location?: TripLocationInput) =>
+  location === undefined
+    ? undefined
+    : {
+        lat: location?.lat ?? null,
+        lng: location?.lng ?? null,
+        label: location?.label ?? null,
+      };
+
+export const createTripWithDays = async ({
+  userId,
+  name,
+  startDate,
+  endDate,
+  startLocation,
+  destinationLocation,
+}: CreateTripParams) => {
   const normalizedStart = normalizeToUtcDate(new Date(startDate));
   const normalizedEnd = normalizeToUtcDate(new Date(endDate));
+  const startData = buildLocationData(startLocation);
+  const destinationData = buildLocationData(destinationLocation);
 
   return prisma.$transaction(async (tx) => {
     const trip = await tx.trip.create({
@@ -185,6 +213,12 @@ export const createTripWithDays = async ({ userId, name, startDate, endDate }: C
         name,
         startDate: normalizedStart,
         endDate: normalizedEnd,
+        startLocationLat: startData?.lat ?? null,
+        startLocationLng: startData?.lng ?? null,
+        startLocationLabel: startData?.label ?? null,
+        destinationLocationLat: destinationData?.lat ?? null,
+        destinationLocationLng: destinationData?.lng ?? null,
+        destinationLocationLabel: destinationData?.label ?? null,
       },
     });
 
@@ -223,11 +257,23 @@ export type UpdateTripParams = {
   name: string;
   startDate: string;
   endDate: string;
+  startLocation?: TripLocationInput;
+  destinationLocation?: TripLocationInput;
 };
 
-export const updateTripWithDays = async ({ userId, tripId, name, startDate, endDate }: UpdateTripParams) => {
+export const updateTripWithDays = async ({
+  userId,
+  tripId,
+  name,
+  startDate,
+  endDate,
+  startLocation,
+  destinationLocation,
+}: UpdateTripParams) => {
   const normalizedStart = normalizeToUtcDate(new Date(startDate));
   const normalizedEnd = normalizeToUtcDate(new Date(endDate));
+  const startData = buildLocationData(startLocation);
+  const destinationData = buildLocationData(destinationLocation);
 
   return prisma.$transaction(async (tx) => {
     const trip = await tx.trip.findFirst({
@@ -271,7 +317,37 @@ export const updateTripWithDays = async ({ userId, tripId, name, startDate, endD
 
     const updatedTrip = await tx.trip.update({
       where: { id: trip.id },
-      data: { name, startDate: normalizedStart, endDate: normalizedEnd },
+      data: {
+        name,
+        startDate: normalizedStart,
+        endDate: normalizedEnd,
+        ...(startData
+          ? {
+              startLocationLat: startData.lat,
+              startLocationLng: startData.lng,
+              startLocationLabel: startData.label,
+            }
+          : startLocation !== undefined
+          ? {
+              startLocationLat: null,
+              startLocationLng: null,
+              startLocationLabel: null,
+            }
+          : {}),
+        ...(destinationData
+          ? {
+              destinationLocationLat: destinationData.lat,
+              destinationLocationLng: destinationData.lng,
+              destinationLocationLabel: destinationData.label,
+            }
+          : destinationLocation !== undefined
+          ? {
+              destinationLocationLat: null,
+              destinationLocationLng: null,
+              destinationLocationLabel: null,
+            }
+          : {}),
+      },
     });
 
     const dayCount = await tx.tripDay.count({ where: { tripId: trip.id } });
@@ -540,6 +616,22 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
       startDate: trip.startDate.toISOString(),
       endDate: trip.endDate.toISOString(),
       heroImageUrl: trip.heroImageUrl,
+      startLocation:
+        trip.startLocationLat !== null && trip.startLocationLng !== null
+          ? {
+              lat: trip.startLocationLat,
+              lng: trip.startLocationLng,
+              label: trip.startLocationLabel,
+            }
+          : null,
+      destinationLocation:
+        trip.destinationLocationLat !== null && trip.destinationLocationLng !== null
+          ? {
+              lat: trip.destinationLocationLat,
+              lng: trip.destinationLocationLng,
+              label: trip.destinationLocationLabel,
+            }
+          : null,
       createdAt: trip.createdAt.toISOString(),
       updatedAt: trip.updatedAt.toISOString(),
     },
@@ -716,6 +808,20 @@ export const importTripFromExportForUser = async ({
           startDate: new Date(payload.trip.startDate),
           endDate: new Date(payload.trip.endDate),
           heroImageUrl: payload.trip.heroImageUrl,
+          ...(payload.trip.startLocation === undefined
+            ? {}
+            : {
+                startLocationLat: payload.trip.startLocation?.lat ?? null,
+                startLocationLng: payload.trip.startLocation?.lng ?? null,
+                startLocationLabel: payload.trip.startLocation?.label ?? null,
+              }),
+          ...(payload.trip.destinationLocation === undefined
+            ? {}
+            : {
+                destinationLocationLat: payload.trip.destinationLocation?.lat ?? null,
+                destinationLocationLng: payload.trip.destinationLocation?.lng ?? null,
+                destinationLocationLabel: payload.trip.destinationLocation?.label ?? null,
+              }),
         },
       });
 
@@ -749,6 +855,12 @@ export const importTripFromExportForUser = async ({
         startDate: new Date(payload.trip.startDate),
         endDate: new Date(payload.trip.endDate),
         heroImageUrl: payload.trip.heroImageUrl,
+        startLocationLat: payload.trip.startLocation?.lat ?? null,
+        startLocationLng: payload.trip.startLocation?.lng ?? null,
+        startLocationLabel: payload.trip.startLocation?.label ?? null,
+        destinationLocationLat: payload.trip.destinationLocation?.lat ?? null,
+        destinationLocationLng: payload.trip.destinationLocation?.lng ?? null,
+        destinationLocationLabel: payload.trip.destinationLocation?.label ?? null,
       },
     });
 

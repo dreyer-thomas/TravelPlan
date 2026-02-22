@@ -39,18 +39,20 @@ export const POST = async (request: NextRequest) => {
     return fail(apiError("invalid_json", "Request body must be valid JSON"), 400);
   }
 
-  const parsed = createTripSchema.safeParse(rawPayload);
+    const parsed = createTripSchema.safeParse(rawPayload);
   if (!parsed.success) {
     return fail(apiError("validation_error", "Invalid trip details", parsed.error.flatten()), 400);
   }
 
   try {
-    const { name, startDate, endDate } = parsed.data;
+    const { name, startDate, endDate, startLocation, destinationLocation } = parsed.data;
     const { trip, dayCount } = await createTripWithDays({
       userId,
       name,
       startDate,
       endDate,
+      startLocation,
+      destinationLocation,
     });
 
     return ok({
@@ -59,6 +61,22 @@ export const POST = async (request: NextRequest) => {
         name: trip.name,
         startDate: trip.startDate.toISOString(),
         endDate: trip.endDate.toISOString(),
+        startLocation:
+          trip.startLocationLat !== null && trip.startLocationLng !== null
+            ? {
+                lat: trip.startLocationLat,
+                lng: trip.startLocationLng,
+                label: trip.startLocationLabel,
+              }
+            : null,
+        destinationLocation:
+          trip.destinationLocationLat !== null && trip.destinationLocationLng !== null
+            ? {
+                lat: trip.destinationLocationLat,
+                lng: trip.destinationLocationLng,
+                label: trip.destinationLocationLabel,
+              }
+            : null,
       },
       dayCount,
     });

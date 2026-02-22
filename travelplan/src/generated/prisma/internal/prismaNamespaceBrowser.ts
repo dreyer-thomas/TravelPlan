@@ -107,6 +107,12 @@ export const TripScalarFieldEnum = {
   startDate: 'startDate',
   endDate: 'endDate',
   heroImageUrl: 'heroImageUrl',
+  startLocationLat: 'startLocationLat',
+  startLocationLng: 'startLocationLng',
+  startLocationLabel: 'startLocationLabel',
+  destinationLocationLat: 'destinationLocationLat',
+  destinationLocationLng: 'destinationLocationLng',
+  destinationLocationLabel: 'destinationLocationLabel',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const

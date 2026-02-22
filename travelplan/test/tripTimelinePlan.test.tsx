@@ -275,13 +275,13 @@ describe("TripTimeline plan action", () => {
 
     const dayCards = screen.getAllByTestId("timeline-day-card");
     expect(dayCards).toHaveLength(2);
-    expect(dayCards[0]).toHaveStyle({ backgroundColor: "#ffffff" });
-    expect(dayCards[1]).toHaveStyle({ backgroundColor: "#ffffff" });
+    expect(dayCards[0]).toHaveStyle({ backgroundColor: "#e8ecf2" });
+    expect(dayCards[1]).toHaveStyle({ backgroundColor: "#e8ecf2" });
 
     const accommodationSurfaces = screen.getAllByTestId("timeline-accommodation-surface");
     expect(accommodationSurfaces).toHaveLength(2);
-    expect(accommodationSurfaces[0]).toHaveStyle({ backgroundColor: "#f2f2f2" });
-    expect(accommodationSurfaces[1]).toHaveStyle({ backgroundColor: "#f2f2f2" });
+    expect(accommodationSurfaces[0]).toHaveStyle({ backgroundColor: "#4a525f" });
+    expect(accommodationSurfaces[1]).toHaveStyle({ backgroundColor: "#4a525f" });
 
     expect(screen.getByText("Missing stay")).toBeInTheDocument();
 

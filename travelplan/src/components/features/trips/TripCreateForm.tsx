@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type FocusEvent } from "react";
 import { useForm } from "react-hook-form";
-import { Alert, Box, Button, CircularProgress, TextField } from "@mui/material";
+import { Alert, Box, Button, CircularProgress, TextField, Typography } from "@mui/material";
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
 
@@ -19,7 +19,15 @@ type TripCreateFormValues = {
 };
 
 export type TripCreateResponse = {
-  trip: { id: string; name: string; startDate: string; endDate: string; heroImageUrl?: string | null };
+  trip: {
+    id: string;
+    name: string;
+    startDate: string;
+    endDate: string;
+    heroImageUrl?: string | null;
+    startLocation?: { lat: number; lng: number; label: string | null } | null;
+    destinationLocation?: { lat: number; lng: number; label: string | null } | null;
+  };
   dayCount: number;
 };
 
@@ -91,6 +99,14 @@ export default function TripCreateForm({
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [startLocationQuery, setStartLocationQuery] = useState("");
+  const [destinationLocationQuery, setDestinationLocationQuery] = useState("");
+  const [startLocation, setStartLocation] = useState<{ lat: number; lng: number; label: string } | null>(null);
+  const [destinationLocation, setDestinationLocation] = useState<{ lat: number; lng: number; label: string } | null>(null);
+  const [startLookupLoading, setStartLookupLoading] = useState(false);
+  const [destinationLookupLoading, setDestinationLookupLoading] = useState(false);
+  const [startLocationError, setStartLocationError] = useState<string | null>(null);
+  const [destinationLocationError, setDestinationLocationError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchCsrf = async () => {
@@ -124,16 +140,39 @@ export default function TripCreateForm({
   const onSubmit = async (values: TripCreateFormValues) => {
     setServerError(null);
     setSuccess(null);
+    setStartLocationError(null);
+    setDestinationLocationError(null);
 
     if (!csrfToken) {
       setServerError(t("errors.csrfMissing"));
       return;
     }
 
+    const hasStartInput = startLocationQuery.trim().length > 0 || startLocation !== null;
+    const hasDestinationInput = destinationLocationQuery.trim().length > 0 || destinationLocation !== null;
+
+    if (hasStartInput || hasDestinationInput) {
+      if (!startLocation || !destinationLocation) {
+        if (!startLocation) {
+          setStartLocationError(t("trips.form.locationResolveError"));
+        }
+        if (!destinationLocation) {
+          setDestinationLocationError(t("trips.form.locationResolveError"));
+        }
+        return;
+      }
+    }
+
     const payload = {
       name: values.name,
       startDate: toIsoUtc(normalizeDateInput(values.startDate)),
       endDate: toIsoUtc(normalizeDateInput(values.endDate)),
+      ...(startLocation && destinationLocation
+        ? {
+            startLocation,
+            destinationLocation,
+          }
+        : {}),
     };
 
     const response = await fetch("/api/trips", {
@@ -155,6 +194,14 @@ export default function TripCreateForm({
         };
         Object.entries(details.fieldErrors ?? {}).forEach(([field, messages]) => {
           if (messages?.[0]) {
+            if (field === "startLocation") {
+              setStartLocationError(messages[0]);
+              return;
+            }
+            if (field === "destinationLocation") {
+              setDestinationLocationError(messages[0]);
+              return;
+            }
             setError(field as keyof TripCreateFormValues, { message: messages[0] });
           }
         });
@@ -218,6 +265,10 @@ export default function TripCreateForm({
         }),
       );
       reset({ name: "", startDate: "", endDate: "" });
+      setStartLocationQuery("");
+      setDestinationLocationQuery("");
+      setStartLocation(null);
+      setDestinationLocation(null);
       onCreated?.({
         ...body.data,
         trip: {
@@ -250,6 +301,83 @@ export default function TripCreateForm({
     const normalized = normalizeDateInput(event.target.value);
     if (normalized !== event.target.value) {
       setValue(field, normalized, { shouldValidate: true, shouldDirty: true });
+    }
+  };
+
+  const handleLookupLocation = async (kind: "start" | "destination") => {
+    const query = (kind === "start" ? startLocationQuery : destinationLocationQuery).trim();
+    if (!query) {
+      if (kind === "start") {
+        setStartLocationError(t("trips.location.searchRequired"));
+      } else {
+        setDestinationLocationError(t("trips.location.searchRequired"));
+      }
+      return;
+    }
+
+    if (kind === "start") {
+      setStartLookupLoading(true);
+      setStartLocationError(null);
+    } else {
+      setDestinationLookupLoading(true);
+      setDestinationLocationError(null);
+    }
+
+    try {
+      const response = await fetch(`/api/geocode?q=${encodeURIComponent(query)}`, {
+        method: "GET",
+        credentials: "include",
+      });
+      const body = (await response.json()) as ApiEnvelope<{
+        result: { lat: number; lng: number; label: string } | null;
+      }>;
+
+      if (!response.ok || body.error) {
+        const message = body.error?.message ?? t("trips.location.lookupError");
+        if (kind === "start") {
+          setStartLocationError(message);
+        } else {
+          setDestinationLocationError(message);
+        }
+        return;
+      }
+
+      if (!body.data?.result) {
+        if (kind === "start") {
+          setStartLocationError(t("trips.location.noResult"));
+        } else {
+          setDestinationLocationError(t("trips.location.noResult"));
+        }
+        return;
+      }
+
+      if (kind === "start") {
+        setStartLocation({
+          lat: body.data.result.lat,
+          lng: body.data.result.lng,
+          label: body.data.result.label,
+        });
+        setStartLocationQuery(body.data.result.label);
+      } else {
+        setDestinationLocation({
+          lat: body.data.result.lat,
+          lng: body.data.result.lng,
+          label: body.data.result.label,
+        });
+        setDestinationLocationQuery(body.data.result.label);
+      }
+    } catch {
+      if (kind === "start") {
+        setStartLocationError(t("trips.location.lookupError"));
+      } else {
+        setDestinationLocationError(t("trips.location.lookupError"));
+      }
+    } finally {
+      if (kind === "start") {
+        setStartLookupLoading(false);
+      } else {
+        setDestinationLookupLoading(false);
+      }
     }
   };
 
@@ -294,6 +422,88 @@ export default function TripCreateForm({
           onBlur={handleDateBlur("endDate")}
           fullWidth
         />
+        <Box display="flex" flexDirection="column" gap={1}>
+          <Box display="flex" gap={1} alignItems="flex-start">
+            <TextField
+              label={t("trips.form.startLocation")}
+              value={startLocationQuery}
+              onChange={(event) => {
+                setStartLocationQuery(event.target.value);
+                setStartLocation(null);
+                setStartLocationError(null);
+              }}
+              error={Boolean(startLocationError)}
+              helperText={startLocationError ?? t("trips.form.locationHelper")}
+              fullWidth
+            />
+            <Button
+              variant="outlined"
+              onClick={() => void handleLookupLocation("start")}
+              disabled={isSubmitting || startLookupLoading}
+              sx={{ mt: 1 }}
+            >
+              {startLookupLoading ? <CircularProgress size={18} /> : t("trips.location.searchAction")}
+            </Button>
+            <Button
+              variant="text"
+              onClick={() => {
+                setStartLocation(null);
+                setStartLocationQuery("");
+                setStartLocationError(null);
+              }}
+              disabled={isSubmitting || startLookupLoading || (!startLocation && !startLocationQuery)}
+              sx={{ mt: 1 }}
+            >
+              {t("trips.location.clearAction")}
+            </Button>
+          </Box>
+          <Typography variant="body2" color="text.secondary">
+            {startLocation
+              ? `${t("trips.location.latLabel")}: ${startLocation.lat.toFixed(6)} · ${t("trips.location.lngLabel")}: ${startLocation.lng.toFixed(6)}`
+              : t("trips.location.noCoordinates")}
+          </Typography>
+        </Box>
+        <Box display="flex" flexDirection="column" gap={1}>
+          <Box display="flex" gap={1} alignItems="flex-start">
+            <TextField
+              label={t("trips.form.destinationLocation")}
+              value={destinationLocationQuery}
+              onChange={(event) => {
+                setDestinationLocationQuery(event.target.value);
+                setDestinationLocation(null);
+                setDestinationLocationError(null);
+              }}
+              error={Boolean(destinationLocationError)}
+              helperText={destinationLocationError ?? t("trips.form.locationHelper")}
+              fullWidth
+            />
+            <Button
+              variant="outlined"
+              onClick={() => void handleLookupLocation("destination")}
+              disabled={isSubmitting || destinationLookupLoading}
+              sx={{ mt: 1 }}
+            >
+              {destinationLookupLoading ? <CircularProgress size={18} /> : t("trips.location.searchAction")}
+            </Button>
+            <Button
+              variant="text"
+              onClick={() => {
+                setDestinationLocation(null);
+                setDestinationLocationQuery("");
+                setDestinationLocationError(null);
+              }}
+              disabled={isSubmitting || destinationLookupLoading || (!destinationLocation && !destinationLocationQuery)}
+              sx={{ mt: 1 }}
+            >
+              {t("trips.location.clearAction")}
+            </Button>
+          </Box>
+          <Typography variant="body2" color="text.secondary">
+            {destinationLocation
+              ? `${t("trips.location.latLabel")}: ${destinationLocation.lat.toFixed(6)} · ${t("trips.location.lngLabel")}: ${destinationLocation.lng.toFixed(6)}`
+              : t("trips.location.noCoordinates")}
+          </Typography>
+        </Box>
         <TextField
           label={t("trips.form.heroImage")}
           type="file"

@@ -101,4 +101,78 @@ describe("TripCreateForm", () => {
     const formData = init?.body as FormData;
     expect(formData.get("file")).toBeInstanceOf(File);
   });
+
+  it("blocks submit when a location cannot be resolved", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(async (input, init) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+
+      if (url.includes("/api/auth/csrf")) {
+        return {
+          ok: true,
+          json: async () => mockCsrfResponse,
+        } as Response;
+      }
+
+      if (url.includes("/api/geocode") && url.includes("Start")) {
+        return {
+          ok: true,
+          json: async () => ({ data: { result: { lat: 48.14, lng: 11.58, label: "Start City" } }, error: null }),
+        } as Response;
+      }
+
+      if (url.includes("/api/geocode") && url.includes("Dest")) {
+        return {
+          ok: true,
+          json: async () => ({ data: { result: null }, error: null }),
+        } as Response;
+      }
+
+      if (url.includes("/api/trips") && method === "POST") {
+        return {
+          ok: true,
+          json: async () => mockCreateResponse,
+        } as Response;
+      }
+
+      return {
+        ok: false,
+        json: async () => ({ data: null, error: { code: "unknown", message: "Unexpected request" } }),
+      } as Response;
+    });
+
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripCreateForm />
+      </I18nProvider>
+    );
+
+    await user.type(screen.getByLabelText(/trip name/i), "Geo Trip");
+    await user.type(screen.getByLabelText(/start date/i), "2026-02-10");
+    await user.type(screen.getByLabelText(/end date/i), "2026-02-12");
+
+    await user.type(screen.getByLabelText(/start location/i), "Start City");
+    await user.type(screen.getByLabelText(/destination/i), "Dest City");
+
+    const findButtons = screen.getAllByRole("button", { name: /find/i });
+    await user.click(findButtons[0]);
+    await user.click(findButtons[1]);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalled();
+    });
+
+    await user.click(screen.getByRole("button", { name: /create trip/i }));
+
+    expect(await screen.findByText(/resolve this location/i)).toBeInTheDocument();
+
+    const createCall = fetchMock.mock.calls.find(([input, init]) => {
+      const url = typeof input === "string" ? input : input.toString();
+      return url.includes("/api/trips") && init?.method === "POST";
+    });
+    expect(createCall).toBeUndefined();
+  });
 });

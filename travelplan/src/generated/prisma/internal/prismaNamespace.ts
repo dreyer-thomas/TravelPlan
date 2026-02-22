@@ -1072,6 +1072,12 @@ export const TripScalarFieldEnum = {
   startDate: 'startDate',
   endDate: 'endDate',
   heroImageUrl: 'heroImageUrl',
+  startLocationLat: 'startLocationLat',
+  startLocationLng: 'startLocationLng',
+  startLocationLabel: 'startLocationLabel',
+  destinationLocationLat: 'destinationLocationLat',
+  destinationLocationLng: 'destinationLocationLng',
+  destinationLocationLabel: 'destinationLocationLabel',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
@@ -1212,6 +1218,13 @@ export type BooleanFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel,
 
 
 /**
+ * Reference to a field of type 'Float'
+ */
+export type FloatFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Float'>
+    
+
+
+/**
  * Reference to a field of type 'Int'
  */
 export type IntFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Int'>
@@ -1222,13 +1235,6 @@ export type IntFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'In
  * Reference to a field of type 'AccommodationStatus'
  */
 export type EnumAccommodationStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'AccommodationStatus'>
-    
-
-
-/**
- * Reference to a field of type 'Float'
- */
-export type FloatFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Float'>
     
 
 /**
