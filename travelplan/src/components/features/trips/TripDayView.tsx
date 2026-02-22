@@ -963,7 +963,17 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
         : "";
 
   return (
-    <Box display="flex" flexDirection="column" gap={2} data-testid="trip-day-view-page">
+    <Box
+      display="flex"
+      flexDirection="column"
+      gap={2}
+      data-testid="trip-day-view-page"
+      sx={{
+        backgroundColor: "#2f343d",
+        borderRadius: 3,
+        p: { xs: 1.5, md: 2 },
+      }}
+    >
       {error && <Alert severity="error">{error}</Alert>}
 
       {detail && day && (
@@ -1144,7 +1154,11 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                                 <Chip
                                   label={`${item.fromTime} - ${item.toTime}`}
                                   size="small"
-                                  variant="outlined"
+                                  sx={{
+                                    bgcolor: "#1b3d73",
+                                    color: "#ffffff",
+                                    borderColor: "#1b3d73",
+                                  }}
                                 />
                               ) : null}
                               <Typography variant="body2" fontWeight={700}>

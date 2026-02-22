@@ -353,7 +353,16 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
   };
 
   return (
-    <Box display="flex" flexDirection="column" gap={2}>
+    <Box
+      display="flex"
+      flexDirection="column"
+      gap={2}
+      sx={{
+        backgroundColor: "#2f343d",
+        borderRadius: 3,
+        p: { xs: 1.5, md: 2 },
+      }}
+    >
       {error && <Alert severity="error">{error}</Alert>}
       {success && <Alert severity="success">{success}</Alert>}
 
@@ -456,84 +465,75 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                           p: { xs: 1.5, sm: 2 },
                         }}
                       >
-                        <Box display="flex" flexDirection="column" gap={1.5}>
-                          <Box display="flex" alignItems="flex-start" justifyContent="space-between" gap={1.5} flexWrap="wrap">
-                            <Box display="flex" flexDirection="column" gap={0.5}>
-                              <Typography variant="subtitle1" fontWeight={600}>
-                                {day.note && day.note.trim().length > 0
-                                  ? `${formatMessage(t("trips.timeline.dayLabel"), { index: day.dayIndex })}: ${day.note.trim()}`
-                                  : formatMessage(t("trips.timeline.dayLabel"), { index: day.dayIndex })}
-                              </Typography>
-                              <Typography variant="body2" color="text.secondary">
-                                {formatDate(day.date)}
-                              </Typography>
+                        <Box display="flex" gap={1.5} alignItems="flex-start">
+                          <Box
+                            component="img"
+                            src={day.imageUrl && day.imageUrl.trim().length > 0 ? day.imageUrl : "/images/world-map-placeholder.svg"}
+                            alt={t("trips.dayImage.previewAlt")}
+                            sx={{
+                              width: { xs: 108, sm: 132 },
+                              height: { xs: 72, sm: 84 },
+                              objectFit: "cover",
+                              borderRadius: 1,
+                              border: "1px solid",
+                              borderColor: "divider",
+                              flexShrink: 0,
+                            }}
+                          />
+
+                          <Box display="flex" flexDirection="column" gap={1} flex={1} minWidth={0}>
+                            <Box display="flex" alignItems="flex-start" justifyContent="space-between" gap={1.5} flexWrap="wrap">
+                              <Box display="flex" flexDirection="column" gap={0.5}>
+                                <Typography variant="subtitle1" fontWeight={600}>
+                                  {day.note && day.note.trim().length > 0
+                                    ? `${formatMessage(t("trips.timeline.dayLabel"), { index: day.dayIndex })}: ${day.note.trim()}`
+                                    : formatMessage(t("trips.timeline.dayLabel"), { index: day.dayIndex })}
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary">
+                                  {formatDate(day.date)}
+                                </Typography>
+                              </Box>
+                              <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                                <IconButton
+                                  component={Link}
+                                  href={`/trips/${tripId}/days/${day.id}`}
+                                  size="small"
+                                  aria-label={t("trips.timeline.openDay")}
+                                  title={t("trips.timeline.openDay")}
+                                >
+                                  <SvgIcon sx={{ fontSize: 18 }} viewBox="0 0 24 24">
+                                    <path d="m3 17.25V21h3.75l11-11-3.75-3.75zm17.71-10.04a1 1 0 0 0 0-1.41l-2.5-2.5a1 1 0 0 0-1.41 0l-1.96 1.96 3.75 3.75z" />
+                                  </SvgIcon>
+                                </IconButton>
+                                {(day.missingAccommodation || day.missingPlan) && (
+                                  <>
+                                    {day.missingAccommodation && (
+                                      <Chip label={t("trips.timeline.missingStay")} size="small" color="warning" variant="outlined" />
+                                    )}
+                                    {day.missingPlan && (
+                                      <Chip label={t("trips.timeline.missingPlan")} size="small" color="warning" variant="outlined" />
+                                    )}
+                                  </>
+                                )}
+                              </Box>
                             </Box>
-                            <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
-                              <IconButton
-                                component={Link}
-                                href={`/trips/${tripId}/days/${day.id}`}
-                                size="small"
-                                aria-label={t("trips.timeline.openDay")}
-                                title={t("trips.timeline.openDay")}
-                              >
-                                <SvgIcon sx={{ fontSize: 18 }} viewBox="0 0 24 24">
-                                  <path d="m3 17.25V21h3.75l11-11-3.75-3.75zm17.71-10.04a1 1 0 0 0 0-1.41l-2.5-2.5a1 1 0 0 0-1.41 0l-1.96 1.96 3.75 3.75z" />
-                                </SvgIcon>
-                              </IconButton>
-                              {(day.missingAccommodation || day.missingPlan) && (
-                                <>
-                                  {day.missingAccommodation && (
-                                    <Chip label={t("trips.timeline.missingStay")} size="small" color="warning" variant="outlined" />
-                                  )}
-                                  {day.missingPlan && (
-                                    <Chip label={t("trips.timeline.missingPlan")} size="small" color="warning" variant="outlined" />
-                                  )}
-                                </>
-                              )}
-                            </Box>
+
+                            {day.accommodation && (
+                              <Box data-testid="timeline-accommodation-surface">
+                                <Chip
+                                  label={renderAccommodationStatus(day.accommodation.status)}
+                                  size="small"
+                                  color={day.accommodation.status === "booked" ? "success" : "default"}
+                                  variant="outlined"
+                                  clickable={Boolean(day.accommodation.link)}
+                                  component={day.accommodation.link ? "a" : "div"}
+                                  href={day.accommodation.link ?? undefined}
+                                  target={day.accommodation.link ? "_blank" : undefined}
+                                  rel={day.accommodation.link ? "noreferrer noopener" : undefined}
+                                />
+                              </Box>
+                            )}
                           </Box>
-
-                          {day.imageUrl && day.imageUrl.trim().length > 0 && (
-                            <Box
-                              component="img"
-                              src={day.imageUrl}
-                              alt={t("trips.dayImage.previewAlt")}
-                              sx={{
-                                width: 92,
-                                height: 56,
-                                objectFit: "cover",
-                                borderRadius: 1,
-                                border: "1px solid",
-                                borderColor: "divider",
-                              }}
-                            />
-                          )}
-
-                          {day.accommodation && (
-                            <Box
-                              data-testid="timeline-accommodation-surface"
-                              sx={{
-                                backgroundColor: "#F2F2F2",
-                                borderRadius: 1.5,
-                                px: 1,
-                                py: 0.75,
-                                width: "fit-content",
-                                maxWidth: "100%",
-                              }}
-                            >
-                              <Chip
-                                label={renderAccommodationStatus(day.accommodation.status)}
-                                size="small"
-                                color={day.accommodation.status === "booked" ? "success" : "default"}
-                                variant="outlined"
-                                clickable={Boolean(day.accommodation.link)}
-                                component={day.accommodation.link ? "a" : "div"}
-                                href={day.accommodation.link ?? undefined}
-                                target={day.accommodation.link ? "_blank" : undefined}
-                                rel={day.accommodation.link ? "noreferrer noopener" : undefined}
-                              />
-                            </Box>
-                          )}
                         </Box>
                       </Paper>
                     </ListItem>
