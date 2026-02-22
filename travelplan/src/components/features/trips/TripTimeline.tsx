@@ -458,9 +458,9 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                         elevation={0}
                         sx={{
                           width: "100%",
-                          backgroundColor: "#FFFFFF",
+                          backgroundColor: "#e8ecf2",
                           border: "1px solid",
-                          borderColor: "divider",
+                          borderColor: "#c6ced9",
                           borderRadius: 2,
                           p: { xs: 1.5, sm: 2 },
                         }}
@@ -519,17 +519,31 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                             </Box>
 
                             {day.accommodation && (
-                              <Box data-testid="timeline-accommodation-surface">
+                              <Box
+                                data-testid="timeline-accommodation-surface"
+                                sx={{
+                                  backgroundColor: "#4a525f",
+                                  borderRadius: 1.25,
+                                  px: 0.75,
+                                  py: 0.5,
+                                  width: "fit-content",
+                                }}
+                              >
                                 <Chip
                                   label={renderAccommodationStatus(day.accommodation.status)}
                                   size="small"
-                                  color={day.accommodation.status === "booked" ? "success" : "default"}
-                                  variant="outlined"
+                                  variant="filled"
                                   clickable={Boolean(day.accommodation.link)}
                                   component={day.accommodation.link ? "a" : "div"}
                                   href={day.accommodation.link ?? undefined}
                                   target={day.accommodation.link ? "_blank" : undefined}
                                   rel={day.accommodation.link ? "noreferrer noopener" : undefined}
+                                  sx={{
+                                    bgcolor: day.accommodation.status === "booked" ? "#245c39" : "#5a6473",
+                                    color: "#f8fafc",
+                                    border: "1px solid rgba(248, 250, 252, 0.28)",
+                                    "& .MuiSvgIcon-root": { color: "#f8fafc" },
+                                  }}
                                 />
                               </Box>
                             )}

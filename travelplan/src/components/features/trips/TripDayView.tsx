@@ -1086,8 +1086,9 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                     p: 1.5,
                     borderRadius: 1.5,
                     border: "1px solid",
-                    borderColor: "grey.400",
-                    bgcolor: "grey.200",
+                    borderColor: "#3f4754",
+                    bgcolor: "#4a525f",
+                    color: "#f3f6fb",
                   }}
                 >
                   <Typography variant="body1" fontWeight={600} gutterBottom>
@@ -1111,7 +1112,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                       />
                     </Box>
                   ) : (
-                    <Typography variant="body2" color="text.secondary">
+                    <Typography variant="body2" sx={{ color: "rgba(243, 246, 251, 0.78)" }}>
                       {t("trips.dayView.previousNightEmpty")}
                     </Typography>
                   )}
@@ -1124,7 +1125,8 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                       p: 1.5,
                       borderRadius: 1.5,
                       border: "1px solid",
-                      borderColor: "divider",
+                      borderColor: "#c6ced9",
+                      backgroundColor: "#e8ecf2",
                     }}
                   >
                     <Typography variant="body2" color="text.secondary">
@@ -1144,7 +1146,8 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                           p: 1.5,
                           borderRadius: 1.5,
                           border: "1px solid",
-                          borderColor: "divider",
+                          borderColor: "#c6ced9",
+                          backgroundColor: "#e8ecf2",
                         }}
                       >
                         <Box display="flex" alignItems="flex-start" justifyContent="space-between" gap={1}>
@@ -1223,8 +1226,9 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                     p: 1.5,
                     borderRadius: 1.5,
                     border: "1px solid",
-                    borderColor: "grey.400",
-                    bgcolor: "grey.200",
+                    borderColor: "#3f4754",
+                    bgcolor: "#4a525f",
+                    color: "#f3f6fb",
                   }}
                 >
                   <Typography variant="body1" fontWeight={600} gutterBottom>
@@ -1248,7 +1252,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                       />
                     </Box>
                   ) : (
-                    <Typography variant="body2" color="text.secondary">
+                    <Typography variant="body2" sx={{ color: "rgba(243, 246, 251, 0.78)" }}>
                       {t("trips.dayView.currentNightEmpty")}
                     </Typography>
                   )}
