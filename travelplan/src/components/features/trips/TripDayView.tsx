@@ -1086,9 +1086,9 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                     p: 1.5,
                     borderRadius: 1.5,
                     border: "1px solid",
-                    borderColor: "#3f4754",
-                    bgcolor: "#4a525f",
-                    color: "#f3f6fb",
+                    borderColor: "#aeb7c6",
+                    bgcolor: "#cfd6e2",
+                    color: "#1f2a2e",
                   }}
                 >
                   <Typography variant="body1" fontWeight={600} gutterBottom>
@@ -1112,7 +1112,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                       />
                     </Box>
                   ) : (
-                    <Typography variant="body2" sx={{ color: "rgba(243, 246, 251, 0.78)" }}>
+                    <Typography variant="body2" sx={{ color: "rgba(31, 42, 46, 0.72)" }}>
                       {t("trips.dayView.previousNightEmpty")}
                     </Typography>
                   )}
@@ -1226,9 +1226,9 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                     p: 1.5,
                     borderRadius: 1.5,
                     border: "1px solid",
-                    borderColor: "#3f4754",
-                    bgcolor: "#4a525f",
-                    color: "#f3f6fb",
+                    borderColor: "#aeb7c6",
+                    bgcolor: "#cfd6e2",
+                    color: "#1f2a2e",
                   }}
                 >
                   <Typography variant="body1" fontWeight={600} gutterBottom>
@@ -1252,7 +1252,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                       />
                     </Box>
                   ) : (
-                    <Typography variant="body2" sx={{ color: "rgba(243, 246, 251, 0.78)" }}>
+                    <Typography variant="body2" sx={{ color: "rgba(31, 42, 46, 0.72)" }}>
                       {t("trips.dayView.currentNightEmpty")}
                     </Typography>
                   )}
