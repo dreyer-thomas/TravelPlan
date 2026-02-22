@@ -4,6 +4,32 @@ const ISO_UTC_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
 const HHMM_TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const MINUTES_PER_HOUR = 60;
 
+const normalizeTime = (raw: string): string | null => {
+  const value = raw.trim();
+  const match = value.match(/^(\d{1,2}):(\d{2})(?::\d{2}(?:\.\d{1,3})?)?$/);
+  if (!match) return null;
+
+  const hours = Number.parseInt(match[1], 10);
+  const minutes = Number.parseInt(match[2], 10);
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+};
+
+const importTimeFieldSchema = z.string().transform((value, context): string | typeof z.NEVER => {
+  const normalized = normalizeTime(value);
+  if (!normalized) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Time must be in HH:mm format",
+    });
+    return z.NEVER;
+  }
+  return normalized;
+});
+
+const optionalImportTimeSchema = z.union([importTimeFieldSchema, z.null()]).optional().default(null);
+
 const parseTimeToMinutes = (value: string) => {
   const [hours, minutes] = value.split(":").map((part) => Number.parseInt(part, 10));
   return hours * MINUTES_PER_HOUR + minutes;
@@ -46,6 +72,8 @@ const accommodationImportSchema = z.object({
   status: z.enum(["planned", "booked"]),
   costCents: z.union([z.number().int().nonnegative(), z.null()]),
   link: urlOrNull,
+  checkInTime: optionalImportTimeSchema,
+  checkOutTime: optionalImportTimeSchema,
   location: z.union([locationSchema, z.null()]),
   createdAt: isoUtcDate,
   updatedAt: isoUtcDate,

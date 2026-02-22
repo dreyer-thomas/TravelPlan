@@ -58,6 +58,8 @@ describe("accommodationRepo", () => {
       costCents: 24500,
       link: "https://example.com/harbor-inn",
       notes: "Near the docks",
+      checkInTime: "16:00",
+      checkOutTime: "10:00",
       location: { lat: 48.1351, lng: 11.582, label: "City Center" },
     });
 
@@ -68,6 +70,8 @@ describe("accommodationRepo", () => {
     expect(accommodation?.status).toBe("booked");
     expect(accommodation?.costCents).toBe(24500);
     expect(accommodation?.link).toBe("https://example.com/harbor-inn");
+    expect(accommodation?.checkInTime).toBe("16:00");
+    expect(accommodation?.checkOutTime).toBe("10:00");
     expect(accommodation?.location).toEqual({ lat: 48.1351, lng: 11.582, label: "City Center" });
   });
 
@@ -114,6 +118,8 @@ describe("accommodationRepo", () => {
       costCents: 12000,
       link: "https://example.com/updated",
       notes: "Late check-in",
+      checkInTime: "15:30",
+      checkOutTime: "09:15",
       location: { lat: 48.1372, lng: 11.5756, label: "Altstadt" },
     });
 
@@ -124,8 +130,29 @@ describe("accommodationRepo", () => {
       expect(updated.accommodation.status).toBe("booked");
       expect(updated.accommodation.costCents).toBe(12000);
       expect(updated.accommodation.link).toBe("https://example.com/updated");
+      expect(updated.accommodation.checkInTime).toBe("15:30");
+      expect(updated.accommodation.checkOutTime).toBe("09:15");
       expect(updated.accommodation.location).toEqual({ lat: 48.1372, lng: 11.5756, label: "Altstadt" });
     }
+  });
+
+  it("allows accommodations without check-in or check-out times", async () => {
+    const user = await createUser("stay-null-times@example.com");
+    const { trip, day } = await createTripWithDay(user.id);
+
+    const accommodation = await createAccommodationForTripDay({
+      userId: user.id,
+      tripId: trip.id,
+      tripDayId: day.id,
+      name: "Flexible Stay",
+      status: "planned",
+      costCents: null,
+      link: null,
+      notes: null,
+    });
+
+    expect(accommodation?.checkInTime).toBeNull();
+    expect(accommodation?.checkOutTime).toBeNull();
   });
 
   it("returns missing when updating without an existing accommodation", async () => {

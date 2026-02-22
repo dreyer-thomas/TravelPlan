@@ -145,6 +145,8 @@ export const AccommodationScalarFieldEnum = {
   locationLng: 'locationLng',
   locationLabel: 'locationLabel',
   notes: 'notes',
+  checkInTime: 'checkInTime',
+  checkOutTime: 'checkOutTime',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const

@@ -80,6 +80,8 @@ describe("/api/trips/[id]/accommodations", () => {
         costCents: 9800,
         link: "https://example.com/sunset",
         notes: "Late arrival",
+        checkInTime: "16:00",
+        checkOutTime: "10:00",
         location: { lat: 48.1372, lng: 11.5756, label: "Old Town" },
       }),
     });
@@ -94,6 +96,8 @@ describe("/api/trips/[id]/accommodations", () => {
         status: string;
         costCents: number | null;
         link: string | null;
+        checkInTime: string | null;
+        checkOutTime: string | null;
         location: { lat: number; lng: number; label: string | null } | null;
       };
     }>;
@@ -106,6 +110,8 @@ describe("/api/trips/[id]/accommodations", () => {
     expect(payload.data?.accommodation.status).toBe("booked");
     expect(payload.data?.accommodation.costCents).toBe(9800);
     expect(payload.data?.accommodation.link).toBe("https://example.com/sunset");
+    expect(payload.data?.accommodation.checkInTime).toBe("16:00");
+    expect(payload.data?.accommodation.checkOutTime).toBe("10:00");
     expect(payload.data?.accommodation.location).toEqual({ lat: 48.1372, lng: 11.5756, label: "Old Town" });
   });
 
@@ -206,6 +212,8 @@ describe("/api/trips/[id]/accommodations", () => {
         costCents: 15000,
         link: "https://example.com/updated",
         notes: "Window seat",
+        checkInTime: "15:30",
+        checkOutTime: "09:15",
         location: { lat: 48.145, lng: 11.582, label: "Center" },
       }),
     });
@@ -220,6 +228,8 @@ describe("/api/trips/[id]/accommodations", () => {
         status: string;
         costCents: number | null;
         link: string | null;
+        checkInTime: string | null;
+        checkOutTime: string | null;
         location: { lat: number; lng: number; label: string | null } | null;
       };
     }>;
@@ -231,7 +241,147 @@ describe("/api/trips/[id]/accommodations", () => {
     expect(payload.data?.accommodation.status).toBe("booked");
     expect(payload.data?.accommodation.costCents).toBe(15000);
     expect(payload.data?.accommodation.link).toBe("https://example.com/updated");
+    expect(payload.data?.accommodation.checkInTime).toBe("15:30");
+    expect(payload.data?.accommodation.checkOutTime).toBe("09:15");
     expect(payload.data?.accommodation.location).toEqual({ lat: 48.145, lng: 11.582, label: "Center" });
+  });
+
+  it("allows check-in and check-out times without ordering validation", async () => {
+    const user = await prisma.user.create({
+      data: {
+        email: "route-stay-order@example.com",
+        passwordHash: "hashed",
+        role: "OWNER",
+      },
+    });
+    const token = await createSessionJwt({ sub: user.id, role: user.role });
+
+    const trip = await prisma.trip.create({
+      data: {
+        userId: user.id,
+        name: "Order Trip",
+        startDate: new Date("2026-11-04T00:00:00.000Z"),
+        endDate: new Date("2026-11-04T00:00:00.000Z"),
+      },
+    });
+
+    const day = await prisma.tripDay.create({
+      data: {
+        tripId: trip.id,
+        date: new Date("2026-11-04T00:00:00.000Z"),
+        dayIndex: 1,
+      },
+    });
+
+    await prisma.accommodation.create({
+      data: {
+        tripDayId: day.id,
+        name: "Order Stay",
+        status: "PLANNED",
+        costCents: null,
+        link: null,
+        notes: null,
+      },
+    });
+
+    const request = buildRequest(trip.id, {
+      session: token,
+      csrf: "csrf-token",
+      method: "PATCH",
+      body: JSON.stringify({
+        tripDayId: day.id,
+        name: "Order Stay Updated",
+        status: "planned",
+        costCents: null,
+        link: null,
+        notes: null,
+        checkInTime: "22:00",
+        checkOutTime: "01:15",
+        location: null,
+      }),
+    });
+
+    const response = await PATCH(request, { params: { id: trip.id } });
+    const payload = (await response.json()) as ApiEnvelope<{
+      accommodation: {
+        checkInTime: string | null;
+        checkOutTime: string | null;
+      };
+    }>;
+
+    expect(response.status).toBe(200);
+    expect(payload.error).toBeNull();
+    expect(payload.data?.accommodation.checkInTime).toBe("22:00");
+    expect(payload.data?.accommodation.checkOutTime).toBe("01:15");
+  });
+
+  it("preserves accommodation times when omitted from patch payload", async () => {
+    const user = await prisma.user.create({
+      data: {
+        email: "route-stay-omit@example.com",
+        passwordHash: "hashed",
+        role: "OWNER",
+      },
+    });
+    const token = await createSessionJwt({ sub: user.id, role: user.role });
+
+    const trip = await prisma.trip.create({
+      data: {
+        userId: user.id,
+        name: "Omit Trip",
+        startDate: new Date("2026-11-05T00:00:00.000Z"),
+        endDate: new Date("2026-11-05T00:00:00.000Z"),
+      },
+    });
+
+    const day = await prisma.tripDay.create({
+      data: {
+        tripId: trip.id,
+        date: new Date("2026-11-05T00:00:00.000Z"),
+        dayIndex: 1,
+      },
+    });
+
+    await prisma.accommodation.create({
+      data: {
+        tripDayId: day.id,
+        name: "Time Stay",
+        status: "PLANNED",
+        costCents: null,
+        link: null,
+        notes: null,
+        checkInTime: "15:30",
+        checkOutTime: "09:15",
+      },
+    });
+
+    const request = buildRequest(trip.id, {
+      session: token,
+      csrf: "csrf-token",
+      method: "PATCH",
+      body: JSON.stringify({
+        tripDayId: day.id,
+        name: "Time Stay Updated",
+        status: "planned",
+        costCents: null,
+        link: null,
+        notes: null,
+        location: null,
+      }),
+    });
+
+    const response = await PATCH(request, { params: { id: trip.id } });
+    const payload = (await response.json()) as ApiEnvelope<{
+      accommodation: {
+        checkInTime: string | null;
+        checkOutTime: string | null;
+      };
+    }>;
+
+    expect(response.status).toBe(200);
+    expect(payload.error).toBeNull();
+    expect(payload.data?.accommodation.checkInTime).toBe("15:30");
+    expect(payload.data?.accommodation.checkOutTime).toBe("09:15");
   });
 
   it("returns 404 when updating without an existing accommodation", async () => {

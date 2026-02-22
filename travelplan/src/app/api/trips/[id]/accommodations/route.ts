@@ -69,6 +69,8 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
     return fail(apiError("validation_error", "Invalid accommodation details", parsed.error.flatten()), 400);
   }
 
+  const hasCheckInTime = Object.prototype.hasOwnProperty.call(rawPayload, "checkInTime");
+  const hasCheckOutTime = Object.prototype.hasOwnProperty.call(rawPayload, "checkOutTime");
   const notes = parsed.data.notes?.trim();
   const link = parsed.data.link?.trim() ?? null;
   const location = parsed.data.location ?? null;
@@ -90,6 +92,8 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
     costCents: parsed.data.costCents ?? null,
     link,
     notes: notes ? notes : null,
+    checkInTime: hasCheckInTime ? parsed.data.checkInTime ?? null : undefined,
+    checkOutTime: hasCheckOutTime ? parsed.data.checkOutTime ?? null : undefined,
     location: normalizedLocation,
   });
 
@@ -125,6 +129,8 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
     return fail(apiError("validation_error", "Invalid accommodation details", parsed.error.flatten()), 400);
   }
 
+  const hasCheckInTime = Object.prototype.hasOwnProperty.call(rawPayload, "checkInTime");
+  const hasCheckOutTime = Object.prototype.hasOwnProperty.call(rawPayload, "checkOutTime");
   const notes = parsed.data.notes?.trim();
   const link = parsed.data.link?.trim() ?? null;
   const location = parsed.data.location ?? null;
@@ -146,6 +152,8 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
     costCents: parsed.data.costCents ?? null,
     link,
     notes: notes ? notes : null,
+    checkInTime: hasCheckInTime ? parsed.data.checkInTime ?? null : undefined,
+    checkOutTime: hasCheckOutTime ? parsed.data.checkOutTime ?? null : undefined,
     location: normalizedLocation,
   });
 

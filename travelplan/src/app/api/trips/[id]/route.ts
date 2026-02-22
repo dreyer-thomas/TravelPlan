@@ -80,6 +80,8 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
               status: day.accommodation.status,
               costCents: day.accommodation.costCents,
               link: day.accommodation.link,
+              checkInTime: day.accommodation.checkInTime ?? null,
+              checkOutTime: day.accommodation.checkOutTime ?? null,
               location: day.accommodation.location,
             }
           : null,
@@ -176,6 +178,8 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
               status: day.accommodation.status,
               costCents: day.accommodation.costCents,
               link: day.accommodation.link,
+              checkInTime: day.accommodation.checkInTime ?? null,
+              checkOutTime: day.accommodation.checkOutTime ?? null,
               location: day.accommodation.location,
             }
           : null,

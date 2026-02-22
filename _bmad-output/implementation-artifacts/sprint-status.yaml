@@ -73,13 +73,14 @@ development_status:
   2-19-day-plan-item-costs-roll-up-to-day-and-trip-totals: done
   2-20-day-entry-title-in-day-view-and-cost-list: done
   2-21-day-plan-item-from-to-time-and-card-tag: done
+  2-22-accommodation-check-in-and-check-out-times: done
+  2-23-day-view-travel-segments-between-items: ready-for-dev
   epic-2-retrospective: optional
 
   epic-3: backlog
   3-1-trip-overview-map-with-all-places: done
   3-2-day-route-map-with-ordered-stops: done
   3-3-seed-trip-from-start-and-destination: done
-  3-4-routing-service-setup-and-fallback-strategy: backlog
   3-5-day-view-map-panel-with-ordered-pins: done
   epic-3-retrospective: optional
 

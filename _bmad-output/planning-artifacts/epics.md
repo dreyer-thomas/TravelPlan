@@ -578,6 +578,70 @@ So that I can understand the planned time window for each activity.
 **When** I open day view
 **Then** existing items still render without regression
 
+### Story 2.22: Accommodation Check-in and Check-out Times
+
+As a trip planner,
+I want to set check-in and check-out times for accommodations in day view,
+So that I can model when I am at the hotel around the day plan.
+
+**FRs covered:** FR12, FR16
+
+**Acceptance Criteria:**
+
+**Given** I am viewing a trip day in day view
+**When** I edit the previous-night accommodation entry
+**Then** I can set a checkout time for that accommodation
+**And** the time is saved with that accommodation
+
+**Given** I am viewing a trip day in day view
+**When** I edit the current-night accommodation entry
+**Then** I can set a check-in time for that accommodation
+**And** the time is saved with that accommodation
+
+**Given** an accommodation is created without a time
+**When** I view the accommodation time fields
+**Then** checkout defaults to 10:00 for the previous-night accommodation
+**And** check-in defaults to 16:00 for the current-night accommodation
+
+**Given** check-in and check-out times are set for a day
+**When** I view the day view timeline context
+**Then** the time from midnight to checkout is considered hotel time for the previous night
+**And** the time from check-in to midnight is considered hotel time for the current night
+
+**Given** I edit accommodation times to any values
+**When** I save
+**Then** the system stores the times without enforcing ordering validation
+
+### Story 2.23: Day View Travel Segments Between Items
+
+As a trip planner,
+I want to add travel segments between each pair of adjacent day items,
+So that I can plan the time needed to move between locations.
+
+**FRs covered:** FR25
+
+**Acceptance Criteria:**
+
+**Given** I am viewing a trip day in day view
+**When** I look between adjacent timeline items (including previous-night accommodation, day items, and current-night accommodation)
+**Then** I see a compact travel segment region between each pair
+
+**Given** I open a travel segment between two adjacent items
+**When** I save a transport type and duration
+**Then** the travel segment is stored and shown in the day view
+
+**Given** I choose transport type `car`
+**When** I save the travel segment
+**Then** I can enter a distance in kilometers and it is stored
+
+**Given** I choose a transport type that is not `car`
+**When** I save the travel segment
+**Then** distance is not required
+
+**Given** adjacent items have locations
+**When** I open the travel segment
+**Then** I can trigger a Google Maps directions link using those locations
+
 ## Epic 3: Route & Map-Based Planning
 
 Users can visualize trips and days on maps and seed a trip from Google start + destination.

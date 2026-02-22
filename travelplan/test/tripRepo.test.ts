@@ -47,6 +47,8 @@ const IMPORT_PAYLOAD: TripImportPayloadInput = {
         status: "booked",
         costCents: 22300,
         link: "https://example.com/stay-2",
+        checkInTime: "16:00",
+        checkOutTime: "10:00",
         location: { lat: 48.14, lng: 11.58, label: "Dockside" },
         createdAt: "2026-02-14T12:00:00.000Z",
         updatedAt: "2026-02-14T12:00:00.000Z",
@@ -204,6 +206,8 @@ describe("tripRepo", () => {
         status: "BOOKED",
         costCents: 22300,
         link: "https://example.com/stay",
+        checkInTime: "16:00",
+        checkOutTime: "10:00",
         locationLat: 48.1401,
         locationLng: 11.5802,
         locationLabel: "Dockside",
@@ -251,6 +255,8 @@ describe("tripRepo", () => {
         status: "booked",
         costCents: 22300,
         link: "https://example.com/stay",
+        checkInTime: "16:00",
+        checkOutTime: "10:00",
         location: { lat: 48.1401, lng: 11.5802, label: "Dockside" },
       })
     );
@@ -751,6 +757,8 @@ describe("tripRepo", () => {
     expect(detail?.days[1].imageUrl).toBe("/uploads/trips/export-trip/days/export-day-2/day.webp");
     expect(detail?.days[1].note).toBe("Arrival and city walk");
     expect(detail?.days[1].accommodation?.status).toBe("booked");
+    expect(detail?.days[1].accommodation?.checkInTime).toBe("16:00");
+    expect(detail?.days[1].accommodation?.checkOutTime).toBe("10:00");
     expect(detail?.days[1].accommodation?.location).toEqual({
       lat: 48.14,
       lng: 11.58,

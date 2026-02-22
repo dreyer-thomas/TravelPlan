@@ -35,6 +35,8 @@ const validPayload = {
         status: "booked",
         costCents: 25000,
         link: "https://example.com/stay",
+        checkInTime: "16:00",
+        checkOutTime: "10:00",
         location: {
           lat: 48.14,
           lng: 11.58,

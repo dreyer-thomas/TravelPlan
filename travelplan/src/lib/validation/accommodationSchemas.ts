@@ -9,6 +9,31 @@ const costSchema = z
   .min(0, "Cost must be at least 0")
   .max(100000000, "Cost must be at most 100000000");
 const linkSchema = z.string().trim().url("Link must be a valid URL").max(2000, "Link must be at most 2000 characters");
+const normalizeTime = (raw: string): string | null => {
+  const value = raw.trim();
+  const match = value.match(/^(\d{1,2}):(\d{2})(?::\d{2}(?:\.\d{1,3})?)?$/);
+  if (!match) return null;
+
+  const hours = Number.parseInt(match[1], 10);
+  const minutes = Number.parseInt(match[2], 10);
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+};
+
+const timeFieldSchema = z.string().transform((value, context): string | typeof z.NEVER => {
+  const normalized = normalizeTime(value);
+  if (normalized === null) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Time must be in HH:mm format",
+    });
+    return z.NEVER;
+  }
+  return normalized;
+});
+
+const optionalTimeSchema = z.union([timeFieldSchema, z.null()]).optional();
 
 export const accommodationMutationSchema = z.object({
   tripDayId: z.string().trim().min(1, "Trip day is required"),
@@ -17,6 +42,8 @@ export const accommodationMutationSchema = z.object({
   costCents: costSchema.optional().nullable(),
   link: linkSchema.optional().nullable(),
   notes: notesSchema.optional().nullable(),
+  checkInTime: optionalTimeSchema,
+  checkOutTime: optionalTimeSchema,
   location: locationInputSchema.optional(),
 });
 

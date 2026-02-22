@@ -797,6 +797,11 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
               {t("trips.location.clearAction")}
             </Button>
           </Box>
+          <Typography variant="body2" color="text.secondary">
+            {resolvedLocation
+              ? `${t("trips.location.latLabel")}: ${resolvedLocation.lat.toFixed(6)} · ${t("trips.location.lngLabel")}: ${resolvedLocation.lng.toFixed(6)}`
+              : t("trips.location.noCoordinates")}
+          </Typography>
           {editingItemId && (
             <Box display="flex" flexDirection="column" gap={1}>
               <Typography variant="body2" fontWeight={600}>

@@ -49,6 +49,8 @@ export type AccommodationMinAggregateOutputType = {
   locationLng: number | null
   locationLabel: string | null
   notes: string | null
+  checkInTime: string | null
+  checkOutTime: string | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -64,6 +66,8 @@ export type AccommodationMaxAggregateOutputType = {
   locationLng: number | null
   locationLabel: string | null
   notes: string | null
+  checkInTime: string | null
+  checkOutTime: string | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -79,6 +83,8 @@ export type AccommodationCountAggregateOutputType = {
   locationLng: number
   locationLabel: number
   notes: number
+  checkInTime: number
+  checkOutTime: number
   createdAt: number
   updatedAt: number
   _all: number
@@ -108,6 +114,8 @@ export type AccommodationMinAggregateInputType = {
   locationLng?: true
   locationLabel?: true
   notes?: true
+  checkInTime?: true
+  checkOutTime?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -123,6 +131,8 @@ export type AccommodationMaxAggregateInputType = {
   locationLng?: true
   locationLabel?: true
   notes?: true
+  checkInTime?: true
+  checkOutTime?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -138,6 +148,8 @@ export type AccommodationCountAggregateInputType = {
   locationLng?: true
   locationLabel?: true
   notes?: true
+  checkInTime?: true
+  checkOutTime?: true
   createdAt?: true
   updatedAt?: true
   _all?: true
@@ -240,6 +252,8 @@ export type AccommodationGroupByOutputType = {
   locationLng: number | null
   locationLabel: string | null
   notes: string | null
+  checkInTime: string | null
+  checkOutTime: string | null
   createdAt: Date
   updatedAt: Date
   _count: AccommodationCountAggregateOutputType | null
@@ -278,6 +292,8 @@ export type AccommodationWhereInput = {
   locationLng?: Prisma.FloatNullableFilter<"Accommodation"> | number | null
   locationLabel?: Prisma.StringNullableFilter<"Accommodation"> | string | null
   notes?: Prisma.StringNullableFilter<"Accommodation"> | string | null
+  checkInTime?: Prisma.StringNullableFilter<"Accommodation"> | string | null
+  checkOutTime?: Prisma.StringNullableFilter<"Accommodation"> | string | null
   createdAt?: Prisma.DateTimeFilter<"Accommodation"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Accommodation"> | Date | string
   tripDay?: Prisma.XOR<Prisma.TripDayScalarRelationFilter, Prisma.TripDayWhereInput>
@@ -295,6 +311,8 @@ export type AccommodationOrderByWithRelationInput = {
   locationLng?: Prisma.SortOrderInput | Prisma.SortOrder
   locationLabel?: Prisma.SortOrderInput | Prisma.SortOrder
   notes?: Prisma.SortOrderInput | Prisma.SortOrder
+  checkInTime?: Prisma.SortOrderInput | Prisma.SortOrder
+  checkOutTime?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   tripDay?: Prisma.TripDayOrderByWithRelationInput
@@ -315,6 +333,8 @@ export type AccommodationWhereUniqueInput = Prisma.AtLeast<{
   locationLng?: Prisma.FloatNullableFilter<"Accommodation"> | number | null
   locationLabel?: Prisma.StringNullableFilter<"Accommodation"> | string | null
   notes?: Prisma.StringNullableFilter<"Accommodation"> | string | null
+  checkInTime?: Prisma.StringNullableFilter<"Accommodation"> | string | null
+  checkOutTime?: Prisma.StringNullableFilter<"Accommodation"> | string | null
   createdAt?: Prisma.DateTimeFilter<"Accommodation"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Accommodation"> | Date | string
   tripDay?: Prisma.XOR<Prisma.TripDayScalarRelationFilter, Prisma.TripDayWhereInput>
@@ -332,6 +352,8 @@ export type AccommodationOrderByWithAggregationInput = {
   locationLng?: Prisma.SortOrderInput | Prisma.SortOrder
   locationLabel?: Prisma.SortOrderInput | Prisma.SortOrder
   notes?: Prisma.SortOrderInput | Prisma.SortOrder
+  checkInTime?: Prisma.SortOrderInput | Prisma.SortOrder
+  checkOutTime?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   _count?: Prisma.AccommodationCountOrderByAggregateInput
@@ -355,6 +377,8 @@ export type AccommodationScalarWhereWithAggregatesInput = {
   locationLng?: Prisma.FloatNullableWithAggregatesFilter<"Accommodation"> | number | null
   locationLabel?: Prisma.StringNullableWithAggregatesFilter<"Accommodation"> | string | null
   notes?: Prisma.StringNullableWithAggregatesFilter<"Accommodation"> | string | null
+  checkInTime?: Prisma.StringNullableWithAggregatesFilter<"Accommodation"> | string | null
+  checkOutTime?: Prisma.StringNullableWithAggregatesFilter<"Accommodation"> | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"Accommodation"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"Accommodation"> | Date | string
 }
@@ -369,6 +393,8 @@ export type AccommodationCreateInput = {
   locationLng?: number | null
   locationLabel?: string | null
   notes?: string | null
+  checkInTime?: string | null
+  checkOutTime?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   tripDay: Prisma.TripDayCreateNestedOneWithoutAccommodationInput
@@ -386,6 +412,8 @@ export type AccommodationUncheckedCreateInput = {
   locationLng?: number | null
   locationLabel?: string | null
   notes?: string | null
+  checkInTime?: string | null
+  checkOutTime?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   images?: Prisma.AccommodationImageUncheckedCreateNestedManyWithoutAccommodationInput
@@ -401,6 +429,8 @@ export type AccommodationUpdateInput = {
   locationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
   locationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  checkInTime?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  checkOutTime?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   tripDay?: Prisma.TripDayUpdateOneRequiredWithoutAccommodationNestedInput
@@ -418,6 +448,8 @@ export type AccommodationUncheckedUpdateInput = {
   locationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
   locationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  checkInTime?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  checkOutTime?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   images?: Prisma.AccommodationImageUncheckedUpdateManyWithoutAccommodationNestedInput
@@ -434,6 +466,8 @@ export type AccommodationCreateManyInput = {
   locationLng?: number | null
   locationLabel?: string | null
   notes?: string | null
+  checkInTime?: string | null
+  checkOutTime?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -448,6 +482,8 @@ export type AccommodationUpdateManyMutationInput = {
   locationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
   locationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  checkInTime?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  checkOutTime?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -463,6 +499,8 @@ export type AccommodationUncheckedUpdateManyInput = {
   locationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
   locationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  checkInTime?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  checkOutTime?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -483,6 +521,8 @@ export type AccommodationCountOrderByAggregateInput = {
   locationLng?: Prisma.SortOrder
   locationLabel?: Prisma.SortOrder
   notes?: Prisma.SortOrder
+  checkInTime?: Prisma.SortOrder
+  checkOutTime?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -504,6 +544,8 @@ export type AccommodationMaxOrderByAggregateInput = {
   locationLng?: Prisma.SortOrder
   locationLabel?: Prisma.SortOrder
   notes?: Prisma.SortOrder
+  checkInTime?: Prisma.SortOrder
+  checkOutTime?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -519,6 +561,8 @@ export type AccommodationMinOrderByAggregateInput = {
   locationLng?: Prisma.SortOrder
   locationLabel?: Prisma.SortOrder
   notes?: Prisma.SortOrder
+  checkInTime?: Prisma.SortOrder
+  checkOutTime?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -602,6 +646,8 @@ export type AccommodationCreateWithoutTripDayInput = {
   locationLng?: number | null
   locationLabel?: string | null
   notes?: string | null
+  checkInTime?: string | null
+  checkOutTime?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   images?: Prisma.AccommodationImageCreateNestedManyWithoutAccommodationInput
@@ -617,6 +663,8 @@ export type AccommodationUncheckedCreateWithoutTripDayInput = {
   locationLng?: number | null
   locationLabel?: string | null
   notes?: string | null
+  checkInTime?: string | null
+  checkOutTime?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   images?: Prisma.AccommodationImageUncheckedCreateNestedManyWithoutAccommodationInput
@@ -648,6 +696,8 @@ export type AccommodationUpdateWithoutTripDayInput = {
   locationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
   locationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  checkInTime?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  checkOutTime?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   images?: Prisma.AccommodationImageUpdateManyWithoutAccommodationNestedInput
@@ -663,6 +713,8 @@ export type AccommodationUncheckedUpdateWithoutTripDayInput = {
   locationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
   locationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  checkInTime?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  checkOutTime?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   images?: Prisma.AccommodationImageUncheckedUpdateManyWithoutAccommodationNestedInput
@@ -678,6 +730,8 @@ export type AccommodationCreateWithoutImagesInput = {
   locationLng?: number | null
   locationLabel?: string | null
   notes?: string | null
+  checkInTime?: string | null
+  checkOutTime?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   tripDay: Prisma.TripDayCreateNestedOneWithoutAccommodationInput
@@ -694,6 +748,8 @@ export type AccommodationUncheckedCreateWithoutImagesInput = {
   locationLng?: number | null
   locationLabel?: string | null
   notes?: string | null
+  checkInTime?: string | null
+  checkOutTime?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -724,6 +780,8 @@ export type AccommodationUpdateWithoutImagesInput = {
   locationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
   locationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  checkInTime?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  checkOutTime?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   tripDay?: Prisma.TripDayUpdateOneRequiredWithoutAccommodationNestedInput
@@ -740,6 +798,8 @@ export type AccommodationUncheckedUpdateWithoutImagesInput = {
   locationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
   locationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  checkInTime?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  checkOutTime?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -786,6 +846,8 @@ export type AccommodationSelect<ExtArgs extends runtime.Types.Extensions.Interna
   locationLng?: boolean
   locationLabel?: boolean
   notes?: boolean
+  checkInTime?: boolean
+  checkOutTime?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   tripDay?: boolean | Prisma.TripDayDefaultArgs<ExtArgs>
@@ -804,6 +866,8 @@ export type AccommodationSelectCreateManyAndReturn<ExtArgs extends runtime.Types
   locationLng?: boolean
   locationLabel?: boolean
   notes?: boolean
+  checkInTime?: boolean
+  checkOutTime?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   tripDay?: boolean | Prisma.TripDayDefaultArgs<ExtArgs>
@@ -820,6 +884,8 @@ export type AccommodationSelectUpdateManyAndReturn<ExtArgs extends runtime.Types
   locationLng?: boolean
   locationLabel?: boolean
   notes?: boolean
+  checkInTime?: boolean
+  checkOutTime?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   tripDay?: boolean | Prisma.TripDayDefaultArgs<ExtArgs>
@@ -836,11 +902,13 @@ export type AccommodationSelectScalar = {
   locationLng?: boolean
   locationLabel?: boolean
   notes?: boolean
+  checkInTime?: boolean
+  checkOutTime?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }
 
-export type AccommodationOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "tripDayId" | "name" | "status" | "costCents" | "link" | "locationLat" | "locationLng" | "locationLabel" | "notes" | "createdAt" | "updatedAt", ExtArgs["result"]["accommodation"]>
+export type AccommodationOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "tripDayId" | "name" | "status" | "costCents" | "link" | "locationLat" | "locationLng" | "locationLabel" | "notes" | "checkInTime" | "checkOutTime" | "createdAt" | "updatedAt", ExtArgs["result"]["accommodation"]>
 export type AccommodationInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   tripDay?: boolean | Prisma.TripDayDefaultArgs<ExtArgs>
   images?: boolean | Prisma.Accommodation$imagesArgs<ExtArgs>
@@ -870,6 +938,8 @@ export type $AccommodationPayload<ExtArgs extends runtime.Types.Extensions.Inter
     locationLng: number | null
     locationLabel: string | null
     notes: string | null
+    checkInTime: string | null
+    checkOutTime: string | null
     createdAt: Date
     updatedAt: Date
   }, ExtArgs["result"]["accommodation"]>
@@ -1307,6 +1377,8 @@ export interface AccommodationFieldRefs {
   readonly locationLng: Prisma.FieldRef<"Accommodation", 'Float'>
   readonly locationLabel: Prisma.FieldRef<"Accommodation", 'String'>
   readonly notes: Prisma.FieldRef<"Accommodation", 'String'>
+  readonly checkInTime: Prisma.FieldRef<"Accommodation", 'String'>
+  readonly checkOutTime: Prisma.FieldRef<"Accommodation", 'String'>
   readonly createdAt: Prisma.FieldRef<"Accommodation", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"Accommodation", 'DateTime'>
 }

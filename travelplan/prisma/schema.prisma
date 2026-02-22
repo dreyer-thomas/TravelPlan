@@ -105,6 +105,8 @@ model Accommodation {
   locationLng Float? @map("location_lng")
   locationLabel String? @map("location_label")
   notes     String?  @map("notes")
+  checkInTime String? @map("check_in_time")
+  checkOutTime String? @map("check_out_time")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 

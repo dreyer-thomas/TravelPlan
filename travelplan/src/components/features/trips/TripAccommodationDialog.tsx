@@ -37,6 +37,8 @@ type TripDay = {
     status: "planned" | "booked";
     costCents: number | null;
     link: string | null;
+    checkInTime: string | null;
+    checkOutTime: string | null;
     location?: { lat: number; lng: number; label?: string | null } | null;
   } | null;
 };
@@ -47,6 +49,8 @@ type AccommodationFormValues = {
   status: "planned" | "booked";
   costCents: string;
   link: string;
+  checkInTime: string;
+  checkOutTime: string;
 };
 
 type GalleryImage = {
@@ -58,12 +62,34 @@ type GalleryImage = {
 type TripAccommodationDialogProps = {
   open: boolean;
   tripId: string;
+  stayType: "previous" | "current";
   day: TripDay | null;
   onClose: () => void;
   onSaved: () => void;
 };
 
-export default function TripAccommodationDialog({ open, tripId, day, onClose, onSaved }: TripAccommodationDialogProps) {
+const DEFAULT_CHECK_IN = "16:00";
+const DEFAULT_CHECK_OUT = "10:00";
+
+const normalizeTimeInput = (raw: string): string | null => {
+  const value = raw.trim();
+  if (!value) return null;
+  const match = value.match(/^(\d{1,2}):(\d{2})(?::\d{2}(?:\.\d{1,3})?)?$/);
+  if (!match) return null;
+  const hours = Number.parseInt(match[1], 10);
+  const minutes = Number.parseInt(match[2], 10);
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+};
+
+export default function TripAccommodationDialog({
+  open,
+  tripId,
+  stayType,
+  day,
+  onClose,
+  onSaved,
+}: TripAccommodationDialogProps) {
   const { t } = useI18n();
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
@@ -83,7 +109,7 @@ export default function TripAccommodationDialog({ open, tripId, day, onClose, on
     register,
     control,
     handleSubmit,
-    formState: { errors, isSubmitting },
+    formState: { errors, isSubmitting, dirtyFields },
     setError,
     reset,
   } = useForm<AccommodationFormValues>({
@@ -96,6 +122,8 @@ export default function TripAccommodationDialog({ open, tripId, day, onClose, on
           ? (day.accommodation.costCents / 100).toFixed(2)
           : "",
       link: day?.accommodation?.link ?? "",
+      checkInTime: day?.accommodation?.checkInTime ?? DEFAULT_CHECK_IN,
+      checkOutTime: day?.accommodation?.checkOutTime ?? DEFAULT_CHECK_OUT,
     },
   });
 
@@ -115,6 +143,8 @@ export default function TripAccommodationDialog({ open, tripId, day, onClose, on
           ? (day.accommodation.costCents / 100).toFixed(2)
           : "",
       link: day?.accommodation?.link ?? "",
+      checkInTime: day?.accommodation?.checkInTime ?? DEFAULT_CHECK_IN,
+      checkOutTime: day?.accommodation?.checkOutTime ?? DEFAULT_CHECK_OUT,
     });
     setResolvedLocation(
       day?.accommodation?.location
@@ -222,7 +252,17 @@ export default function TripAccommodationDialog({ open, tripId, day, onClose, on
     const costCents = costValue ? Math.round(Number(costValue) * 100) : null;
     const linkValue = values.link.trim();
 
-    const payload = {
+    const payload: {
+      tripDayId: string;
+      name: string;
+      status: "planned" | "booked";
+      costCents: number | null;
+      link: string | null;
+      notes: string | null;
+      location: { lat: number; lng: number; label: string | null } | null;
+      checkInTime?: string | null;
+      checkOutTime?: string | null;
+    } = {
       tripDayId: day.id,
       name: values.name,
       status: values.status,
@@ -231,6 +271,12 @@ export default function TripAccommodationDialog({ open, tripId, day, onClose, on
       notes: values.notes.trim() ? values.notes : null,
       location: resolvedLocation,
     };
+    if (stayType === "current" && dirtyFields.checkInTime) {
+      payload.checkInTime = normalizeTimeInput(values.checkInTime) ?? null;
+    }
+    if (stayType === "previous" && dirtyFields.checkOutTime) {
+      payload.checkOutTime = normalizeTimeInput(values.checkOutTime) ?? null;
+    }
 
     try {
       const response = await fetch(`/api/trips/${tripId}/accommodations`, {
@@ -507,6 +553,16 @@ export default function TripAccommodationDialog({ open, tripId, day, onClose, on
     [t],
   );
 
+  const timeRules = useMemo(
+    () => ({
+      validate: (value: string) => {
+        if (!value.trim()) return true;
+        return normalizeTimeInput(value) ? true : t("trips.stay.timeInvalid");
+      },
+    }),
+    [t],
+  );
+
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
       <DialogTitle>
@@ -569,6 +625,27 @@ export default function TripAccommodationDialog({ open, tripId, day, onClose, on
               inputMode="url"
               placeholder="https://"
             />
+            {stayType === "current" ? (
+              <TextField
+                label={t("trips.stay.checkInLabel")}
+                error={Boolean(errors.checkInTime)}
+                helperText={errors.checkInTime?.message}
+                {...register("checkInTime", timeRules)}
+                fullWidth
+                placeholder={DEFAULT_CHECK_IN}
+                inputProps={{ inputMode: "numeric" }}
+              />
+            ) : (
+              <TextField
+                label={t("trips.stay.checkOutLabel")}
+                error={Boolean(errors.checkOutTime)}
+                helperText={errors.checkOutTime?.message}
+                {...register("checkOutTime", timeRules)}
+                fullWidth
+                placeholder={DEFAULT_CHECK_OUT}
+                inputProps={{ inputMode: "numeric" }}
+              />
+            )}
             <Box display="flex" gap={1} alignItems="flex-start">
               <TextField
                 label={t("trips.location.searchLabel")}

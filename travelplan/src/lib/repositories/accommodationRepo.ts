@@ -8,6 +8,8 @@ export type AccommodationDetail = {
   status: AccommodationStatus;
   costCents: number | null;
   link: string | null;
+  checkInTime: string | null;
+  checkOutTime: string | null;
   location: { lat: number; lng: number; label: string | null } | null;
 };
 
@@ -27,6 +29,8 @@ type AccommodationMutationParams = {
   costCents?: number | null;
   link?: string | null;
   notes?: string | null;
+  checkInTime?: string | null;
+  checkOutTime?: string | null;
   location?: { lat: number; lng: number; label?: string | null } | null;
 };
 
@@ -127,6 +131,8 @@ const toDetail = (accommodation: {
   locationLat: number | null;
   locationLng: number | null;
   locationLabel: string | null;
+  checkInTime: string | null;
+  checkOutTime: string | null;
 }) => ({
   id: accommodation.id,
   tripDayId: accommodation.tripDayId,
@@ -135,6 +141,8 @@ const toDetail = (accommodation: {
   status: toStatus(accommodation.status),
   costCents: accommodation.costCents,
   link: accommodation.link,
+  checkInTime: accommodation.checkInTime,
+  checkOutTime: accommodation.checkOutTime,
   location:
     accommodation.locationLat !== null && accommodation.locationLng !== null
       ? {
@@ -155,6 +163,8 @@ export const createAccommodationForTripDay = async (
   }
 
   const { status, costCents, link } = params;
+  const checkInTime = params.checkInTime ?? null;
+  const checkOutTime = params.checkOutTime ?? null;
   const location = params.location ?? null;
   const accommodation = await prisma.accommodation.upsert({
     where: { tripDayId },
@@ -164,6 +174,8 @@ export const createAccommodationForTripDay = async (
       status: toDbStatus(status),
       costCents: costCents ?? null,
       link: link ?? null,
+      checkInTime,
+      checkOutTime,
       locationLat: location?.lat ?? null,
       locationLng: location?.lng ?? null,
       locationLabel: location?.label?.trim() || null,
@@ -175,6 +187,8 @@ export const createAccommodationForTripDay = async (
       status: toDbStatus(status),
       costCents: costCents ?? null,
       link: link ?? null,
+      checkInTime,
+      checkOutTime,
       locationLat: location?.lat ?? null,
       locationLng: location?.lng ?? null,
       locationLabel: location?.label?.trim() || null,
@@ -200,18 +214,38 @@ export const updateAccommodationForTripDay = async (
 
   const { status, costCents, link } = params;
   const location = params.location ?? null;
+  const data = {
+    name,
+    notes: notes ?? null,
+    status: toDbStatus(status),
+    costCents: costCents ?? null,
+    link: link ?? null,
+    locationLat: location?.lat ?? null,
+    locationLng: location?.lng ?? null,
+    locationLabel: location?.label?.trim() || null,
+  } as {
+    name: string;
+    notes: string | null;
+    status: "PLANNED" | "BOOKED";
+    costCents: number | null;
+    link: string | null;
+    locationLat: number | null;
+    locationLng: number | null;
+    locationLabel: string | null;
+    checkInTime?: string | null;
+    checkOutTime?: string | null;
+  };
+
+  if (params.checkInTime !== undefined) {
+    data.checkInTime = params.checkInTime;
+  }
+  if (params.checkOutTime !== undefined) {
+    data.checkOutTime = params.checkOutTime;
+  }
+
   const updated = await prisma.accommodation.update({
     where: { id: existing.id },
-    data: {
-      name,
-      notes: notes ?? null,
-      status: toDbStatus(status),
-      costCents: costCents ?? null,
-      link: link ?? null,
-      locationLat: location?.lat ?? null,
-      locationLng: location?.lng ?? null,
-      locationLabel: location?.label?.trim() || null,
-    },
+    data,
   });
 
   return { status: "updated", accommodation: toDetail(updated) };

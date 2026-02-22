@@ -60,6 +60,8 @@ type TripDay = {
     status: "planned" | "booked";
     costCents: number | null;
     link: string | null;
+    checkInTime: string | null;
+    checkOutTime: string | null;
     location?: { lat: number; lng: number; label?: string | null } | null;
   } | null;
   dayPlanItems: {
@@ -332,6 +334,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [stayOpen, setStayOpen] = useState(false);
+  const [previousStayOpen, setPreviousStayOpen] = useState(false);
   const [planDialogMode, setPlanDialogMode] = useState<PlanDialogMode | null>(null);
   const [selectedPlanItem, setSelectedPlanItem] = useState<DayPlanItem | null>(null);
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
@@ -347,6 +350,8 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const [fullscreenImage, setFullscreenImage] = useState<{ imageUrl: string; alt: string } | null>(null);
   const planItemsRef = useRef<DayPlanItem[]>([]);
   const handledDeepLinkRef = useRef<string | null>(null);
+  const defaultCheckInTime = "16:00";
+  const defaultCheckOutTime = "10:00";
 
   useEffect(() => {
     planItemsRef.current = planItems;
@@ -676,6 +681,14 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const previousStay = previousDay?.accommodation ?? null;
   const currentStay = day?.accommodation ?? null;
   const dayHasTimelineContent = Boolean(previousStay || currentStay || planItems.length > 0);
+  const resolveStayTime = (value: string | null | undefined, fallback: string) =>
+    value && value.trim() ? value : fallback;
+  const previousStayRange = previousStay
+    ? `00:00 - ${resolveStayTime(previousStay.checkOutTime, defaultCheckOutTime)}`
+    : null;
+  const currentStayRange = currentStay
+    ? `${resolveStayTime(currentStay.checkInTime, defaultCheckInTime)} - 24:00`
+    : null;
   const hasDayImage = Boolean(day?.imageUrl && day.imageUrl.trim().length > 0);
 
   const updateLocalDayMeta = useCallback(
@@ -1091,12 +1104,30 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                     color: "#1f2a2e",
                   }}
                 >
-                  <Typography variant="body1" fontWeight={600} gutterBottom>
-                    {t("trips.dayView.previousNightTitle")}
-                  </Typography>
+                  <Box display="flex" alignItems="center" justifyContent="space-between" gap={1}>
+                    <Typography variant="body1" fontWeight={600}>
+                      {t("trips.dayView.previousNightTitle")}
+                    </Typography>
+                    {previousDay ? (
+                      <Button size="small" variant="text" onClick={() => setPreviousStayOpen(true)}>
+                        {previousStay ? t("trips.stay.editAction") : t("trips.stay.addAction")}
+                      </Button>
+                    ) : null}
+                  </Box>
                   {previousStay ? (
                     <Box display="flex" flexDirection="column" gap={0.75}>
                       <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                        {previousStayRange ? (
+                          <Chip
+                            label={previousStayRange}
+                            size="small"
+                            sx={{
+                              bgcolor: "#1b3d73",
+                              color: "#ffffff",
+                              borderColor: "#1b3d73",
+                            }}
+                          />
+                        ) : null}
                         <Typography variant="body2">{previousStay.name}</Typography>
                         <Chip
                           label={previousStay.status === "booked" ? t("trips.stay.statusBooked") : t("trips.stay.statusPlanned")}
@@ -1237,6 +1268,17 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                   {currentStay ? (
                     <Box display="flex" flexDirection="column" gap={0.75}>
                       <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                        {currentStayRange ? (
+                          <Chip
+                            label={currentStayRange}
+                            size="small"
+                            sx={{
+                              bgcolor: "#1b3d73",
+                              color: "#ffffff",
+                              borderColor: "#1b3d73",
+                            }}
+                          />
+                        ) : null}
                         <Typography variant="body2">{currentStay.name}</Typography>
                         <Chip
                           label={currentStay.status === "booked" ? t("trips.stay.statusBooked") : t("trips.stay.statusPlanned")}
@@ -1320,10 +1362,22 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
           <TripAccommodationDialog
             open={stayOpen}
             tripId={tripId}
+            stayType="current"
             day={day}
             onClose={() => setStayOpen(false)}
             onSaved={() => {
               setStayOpen(false);
+              loadDay();
+            }}
+          />
+          <TripAccommodationDialog
+            open={previousStayOpen}
+            tripId={tripId}
+            stayType="previous"
+            day={previousDay}
+            onClose={() => setPreviousStayOpen(false)}
+            onSaved={() => {
+              setPreviousStayOpen(false);
               loadDay();
             }}
           />

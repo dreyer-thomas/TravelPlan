@@ -522,7 +522,7 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                               <Box
                                 data-testid="timeline-accommodation-surface"
                                 sx={{
-                                  backgroundColor: "transparent",
+                                  backgroundColor: "#4a525f",
                                   borderRadius: 1.25,
                                   px: 0,
                                   py: 0,

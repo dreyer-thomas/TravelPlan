@@ -203,6 +203,86 @@ describe("TripDayView layout", () => {
     vi.unstubAllGlobals();
   });
 
+  it("renders hotel time ranges for previous and current night accommodations", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const fetchMock = vi.fn(async () => {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-02T00:00:00.000Z",
+              dayCount: 2,
+              accommodationCostTotalCents: 20000,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 10000,
+                missingAccommodation: false,
+                missingPlan: true,
+                accommodation: {
+                  id: "stay-prev",
+                  name: "Previous Hotel",
+                  notes: null,
+                  status: "booked",
+                  costCents: 10000,
+                  link: null,
+                  checkInTime: null,
+                  checkOutTime: "09:30",
+                  location: null,
+                },
+                dayPlanItems: [],
+              },
+              {
+                id: "day-2",
+                date: "2026-12-02T00:00:00.000Z",
+                dayIndex: 2,
+                plannedCostSubtotal: 10000,
+                missingAccommodation: false,
+                missingPlan: true,
+                accommodation: {
+                  id: "stay-current",
+                  name: "Current Hotel",
+                  notes: null,
+                  status: "booked",
+                  costCents: 10000,
+                  link: null,
+                  checkInTime: "16:30",
+                  checkOutTime: null,
+                  location: null,
+                },
+                dayPlanItems: [],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-2" />
+      </I18nProvider>,
+    );
+
+    await screen.findByRole("heading", { name: "Day 2", level: 5 });
+    expect(screen.getByText("00:00 - 09:30")).toBeInTheDocument();
+    expect(screen.getByText("16:30 - 24:00")).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
   it("shows previous and next navigation links for a middle day based on chronological order", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
@@ -788,7 +868,7 @@ describe("TripDayView layout", () => {
     expect(screen.getAllByText("City Hotel").length).toBeGreaterThan(0);
     expect(screen.getByText("Day total")).toBeInTheDocument();
     expect(screen.getAllByText("Cost: 160.00").length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: "Edit stay" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Edit stay" }).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Add plan item" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit plan item" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete plan item" })).toBeInTheDocument();

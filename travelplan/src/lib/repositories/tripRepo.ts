@@ -50,6 +50,8 @@ export type TripDaySummary = {
     status: "planned" | "booked";
     costCents: number | null;
     link: string | null;
+    checkInTime: string | null;
+    checkOutTime: string | null;
     location: { lat: number; lng: number; label: string | null } | null;
   } | null;
   dayPlanItems: {
@@ -103,6 +105,8 @@ export type TripExportPayload = {
       status: "planned" | "booked";
       costCents: number | null;
       link: string | null;
+      checkInTime: string | null;
+      checkOutTime: string | null;
       location: { lat: number; lng: number; label: string | null } | null;
       createdAt: string;
       updatedAt: string;
@@ -371,6 +375,8 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
               status: true,
               costCents: true,
               link: true,
+              checkInTime: true,
+              checkOutTime: true,
               locationLat: true,
               locationLng: true,
               locationLabel: true,
@@ -458,6 +464,8 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
               status,
               costCents: day.accommodation!.costCents,
               link: day.accommodation!.link,
+              checkInTime: day.accommodation!.checkInTime ?? null,
+              checkOutTime: day.accommodation!.checkOutTime ?? null,
               location:
                 day.accommodation!.locationLat !== null && day.accommodation!.locationLng !== null
                   ? {
@@ -576,6 +584,8 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
               status: true,
               costCents: true,
               link: true,
+              checkInTime: true,
+              checkOutTime: true,
               locationLat: true,
               locationLng: true,
               locationLabel: true,
@@ -651,6 +661,8 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
             status: day.accommodation.status === "BOOKED" ? "booked" : "planned",
             costCents: day.accommodation.costCents,
             link: day.accommodation.link,
+            checkInTime: day.accommodation.checkInTime ?? null,
+            checkOutTime: day.accommodation.checkOutTime ?? null,
             location:
               day.accommodation.locationLat !== null && day.accommodation.locationLng !== null
                 ? {
@@ -723,6 +735,8 @@ const createImportedDays = async ({
           status: toAccommodationStatus(day.accommodation.status),
           costCents: day.accommodation.costCents,
           link: day.accommodation.link,
+          checkInTime: day.accommodation.checkInTime ?? null,
+          checkOutTime: day.accommodation.checkOutTime ?? null,
           locationLat: day.accommodation.location?.lat ?? null,
           locationLng: day.accommodation.location?.lng ?? null,
           locationLabel: day.accommodation.location?.label ?? null,
