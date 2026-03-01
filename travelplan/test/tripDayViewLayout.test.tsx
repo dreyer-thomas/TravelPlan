@@ -947,6 +947,334 @@ describe("TripDayView layout", () => {
     vi.unstubAllGlobals();
   });
 
+  it("shows copy previous night action when a previous-night accommodation exists", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const fetchMock = vi.fn(async () => {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-02T00:00:00.000Z",
+              dayCount: 2,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-prev",
+                date: "2026-11-30T00:00:00.000Z",
+                dayIndex: 0,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: {
+                  id: "stay-prev",
+                  name: "Airport Hotel",
+                  notes: null,
+                  status: "planned",
+                  costCents: 12000,
+                  link: null,
+                  checkInTime: null,
+                  checkOutTime: null,
+                  location: null,
+                },
+                dayPlanItems: [],
+              },
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: true,
+                accommodation: null,
+                dayPlanItems: [],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-1" />
+      </I18nProvider>,
+    );
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+    expect(screen.getByRole("button", { name: "Copy previous night" })).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("hides copy previous night action when a current-night accommodation already exists", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const fetchMock = vi.fn(async () => {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-02T00:00:00.000Z",
+              dayCount: 2,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-prev",
+                date: "2026-11-30T00:00:00.000Z",
+                dayIndex: 0,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: {
+                  id: "stay-prev",
+                  name: "Airport Hotel",
+                  notes: null,
+                  status: "planned",
+                  costCents: 12000,
+                  link: null,
+                  checkInTime: null,
+                  checkOutTime: null,
+                  location: null,
+                },
+                dayPlanItems: [],
+              },
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: true,
+                accommodation: {
+                  id: "stay-current",
+                  name: "City Hotel",
+                  notes: null,
+                  status: "planned",
+                  costCents: 15000,
+                  link: null,
+                  checkInTime: null,
+                  checkOutTime: null,
+                  location: null,
+                },
+                dayPlanItems: [],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-1" />
+      </I18nProvider>,
+    );
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+    expect(screen.queryByRole("button", { name: "Copy previous night" })).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("hides copy previous night action when there is no previous-night accommodation", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const fetchMock = vi.fn(async () => {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-02T00:00:00.000Z",
+              dayCount: 2,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-prev",
+                date: "2026-11-30T00:00:00.000Z",
+                dayIndex: 0,
+                plannedCostSubtotal: 0,
+                missingAccommodation: true,
+                missingPlan: false,
+                accommodation: null,
+                dayPlanItems: [],
+              },
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: true,
+                accommodation: null,
+                dayPlanItems: [],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-1" />
+      </I18nProvider>,
+    );
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+    expect(screen.queryByRole("button", { name: "Copy previous night" })).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("updates the current-night accommodation after copying the previous night", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/api/auth/csrf")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
+        };
+      }
+      if (url.includes("/accommodations/copy")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: {
+              accommodation: {
+                id: "stay-current",
+                tripDayId: "day-1",
+                name: "Copied Stay",
+                notes: "Same notes",
+                status: "planned",
+                costCents: null,
+                link: "https://example.com/copy",
+                checkInTime: "15:00",
+                checkOutTime: "11:00",
+                location: { lat: 48.1372, lng: 11.5756, label: "Old Town" },
+              },
+            },
+            error: null,
+          }),
+        };
+      }
+      if (url.includes("/accommodations/images") || url.includes("/day-plan-items/images")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { images: [] }, error: null }),
+        };
+      }
+      if (url.includes("/api/trips/trip-1")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: {
+              trip: {
+                id: "trip-1",
+                name: "Trip",
+                startDate: "2026-12-01T00:00:00.000Z",
+                endDate: "2026-12-02T00:00:00.000Z",
+                dayCount: 2,
+                accommodationCostTotalCents: null,
+                heroImageUrl: null,
+              },
+              days: [
+                {
+                  id: "day-prev",
+                  date: "2026-11-30T00:00:00.000Z",
+                  dayIndex: 0,
+                  plannedCostSubtotal: 0,
+                  missingAccommodation: false,
+                  missingPlan: false,
+                  accommodation: {
+                    id: "stay-prev",
+                    name: "Previous Stay",
+                    notes: null,
+                    status: "booked",
+                    costCents: 12000,
+                    link: null,
+                    checkInTime: null,
+                    checkOutTime: null,
+                    location: null,
+                  },
+                  dayPlanItems: [],
+                },
+                {
+                  id: "day-1",
+                  date: "2026-12-01T00:00:00.000Z",
+                  dayIndex: 1,
+                  plannedCostSubtotal: 0,
+                  missingAccommodation: false,
+                  missingPlan: false,
+                accommodation: null,
+                  dayPlanItems: [],
+                },
+              ],
+            },
+            error: null,
+          }),
+        };
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ data: null, error: null }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-1" />
+      </I18nProvider>,
+    );
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+    fireEvent.click(screen.getByRole("button", { name: "Copy previous night" }));
+
+    await waitFor(() => expect(screen.getAllByText("Copied Stay").length).toBeGreaterThan(0));
+
+    vi.unstubAllGlobals();
+  });
+
   it("renders image mini-strips with +N indicator for gallery images", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";

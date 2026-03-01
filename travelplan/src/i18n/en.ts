@@ -263,6 +263,7 @@ const en: Dictionary = {
   "trips.plan.editItemMissing": "Missing plan item to edit.",
   "trips.stay.addAction": "Add stay",
   "trips.stay.editAction": "Edit stay",
+  "trips.stay.copyPreviousAction": "Copy previous night",
   "trips.stay.addTitle": "Add stay",
   "trips.stay.editTitle": "Edit stay",
   "trips.stay.nameLabel": "Stay name",

@@ -402,6 +402,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const [activeSegment, setActiveSegment] = useState<TravelSegment | null>(null);
   const [activeSegmentFrom, setActiveSegmentFrom] = useState<SegmentItem | null>(null);
   const [activeSegmentTo, setActiveSegmentTo] = useState<SegmentItem | null>(null);
+  const [copyingStay, setCopyingStay] = useState(false);
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
   const [dayMetaOpen, setDayMetaOpen] = useState(false);
   const [dayImageFile, setDayImageFile] = useState<File | null>(null);
@@ -800,6 +801,49 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     value && value.trim() ? value : fallback;
   const previousStay = previousDay?.accommodation ?? null;
   const currentStay = day?.accommodation ?? null;
+  const canCopyPreviousStay = Boolean(previousStay && !currentStay);
+  const handleCopyPreviousStay = useCallback(async () => {
+    if (!day || !previousStay) return;
+
+    setCopyingStay(true);
+    setError(null);
+    const dayIdForCopy = day.id;
+
+    try {
+      const token = await ensureCsrfToken();
+      const response = await fetch(`/api/trips/${tripId}/accommodations/copy`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "x-csrf-token": token,
+        },
+        body: JSON.stringify({ tripDayId: dayIdForCopy }),
+      });
+
+      const body = (await response.json()) as ApiEnvelope<{ accommodation: TripDay["accommodation"] }>;
+      if (!response.ok || body.error || !body.data?.accommodation) {
+        setError(body.error?.message ? `${t("trips.stay.error")} (${body.error.message})` : t("trips.stay.error"));
+        return;
+      }
+
+      const nextAccommodation = body.data.accommodation;
+      setDay((current) => (current ? { ...current, accommodation: nextAccommodation } : current));
+      setDetail((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          days: current.days.map((entry) =>
+            entry.id === dayIdForCopy ? { ...entry, accommodation: nextAccommodation } : entry,
+          ),
+        };
+      });
+    } catch {
+      setError(t("trips.stay.error"));
+    } finally {
+      setCopyingStay(false);
+    }
+  }, [day, ensureCsrfToken, previousStay, t, tripId]);
   const previousStaySegment = previousStay
     ? {
         id: previousStay.id,
@@ -1520,9 +1564,16 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                     color: "#1f2a2e",
                   }}
                 >
-                  <Typography variant="body1" fontWeight={600} gutterBottom>
-                    {t("trips.dayView.currentNightTitle")}
-                  </Typography>
+                  <Box display="flex" alignItems="center" justifyContent="space-between" gap={1} flexWrap="wrap">
+                    <Typography variant="body1" fontWeight={600}>
+                      {t("trips.dayView.currentNightTitle")}
+                    </Typography>
+                    {canCopyPreviousStay ? (
+                      <Button size="small" variant="text" disabled={copyingStay} onClick={() => void handleCopyPreviousStay()}>
+                        {t("trips.stay.copyPreviousAction")}
+                      </Button>
+                    ) : null}
+                  </Box>
                   {currentStay ? (
                     <Box display="flex" flexDirection="column" gap={0.75}>
                       <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">

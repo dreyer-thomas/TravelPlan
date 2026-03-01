@@ -54,3 +54,9 @@ export const accommodationDeleteSchema = z.object({
 });
 
 export type AccommodationDeleteInput = z.infer<typeof accommodationDeleteSchema>;
+
+export const accommodationCopySchema = z.object({
+  tripDayId: z.string().trim().min(1, "Trip day is required"),
+});
+
+export type AccommodationCopyInput = z.infer<typeof accommodationCopySchema>;

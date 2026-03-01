@@ -263,6 +263,7 @@ const de: Dictionary = {
   "trips.plan.editItemMissing": "Zu bearbeitender Planpunkt fehlt.",
   "trips.stay.addAction": "Unterkunft hinzufügen",
   "trips.stay.editAction": "Unterkunft bearbeiten",
+  "trips.stay.copyPreviousAction": "Vorherige Nacht kopieren",
   "trips.stay.addTitle": "Unterkunft hinzufügen",
   "trips.stay.editTitle": "Unterkunft bearbeiten",
   "trips.stay.nameLabel": "Name der Unterkunft",

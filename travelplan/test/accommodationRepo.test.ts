@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db/prisma";
 import {
   createAccommodationForTripDay,
+  copyAccommodationFromPreviousNight,
   deleteAccommodationForTripDay,
   getAccommodationCostTotalForTrip,
   updateAccommodationForTripDay,
@@ -35,6 +36,35 @@ const createTripWithDay = async (userId: string) => {
   });
 
   return { trip, day };
+};
+
+const createTripWithTwoDays = async (userId: string) => {
+  const trip = await prisma.trip.create({
+    data: {
+      userId,
+      name: "Stay Trip",
+      startDate: new Date("2026-10-01T00:00:00.000Z"),
+      endDate: new Date("2026-10-02T00:00:00.000Z"),
+    },
+  });
+
+  const previousDay = await prisma.tripDay.create({
+    data: {
+      tripId: trip.id,
+      date: new Date("2026-10-01T00:00:00.000Z"),
+      dayIndex: 1,
+    },
+  });
+
+  const currentDay = await prisma.tripDay.create({
+    data: {
+      tripId: trip.id,
+      date: new Date("2026-10-02T00:00:00.000Z"),
+      dayIndex: 2,
+    },
+  });
+
+  return { trip, previousDay, currentDay };
 };
 
 describe("accommodationRepo", () => {
@@ -280,5 +310,161 @@ describe("accommodationRepo", () => {
     const total = await getAccommodationCostTotalForTrip(user.id, trip.id);
 
     expect(total).toBe(20000);
+  });
+
+  it("copies the previous-night accommodation onto the current day", async () => {
+    const user = await createUser("stay-copy@example.com");
+    const { trip, previousDay, currentDay } = await createTripWithTwoDays(user.id);
+
+    await prisma.accommodation.create({
+      data: {
+        tripDayId: previousDay.id,
+        name: "Harbor Inn",
+        status: "BOOKED",
+        costCents: 28000,
+        link: "https://example.com/harbor",
+        notes: "Ocean view",
+        checkInTime: "15:00",
+        checkOutTime: "11:00",
+        locationLat: 48.1351,
+        locationLng: 11.582,
+        locationLabel: "City Center",
+      },
+    });
+
+    const result = await copyAccommodationFromPreviousNight({
+      userId: user.id,
+      tripId: trip.id,
+      tripDayId: currentDay.id,
+    });
+
+    expect(result.status).toBe("copied");
+    if (result.status === "copied") {
+      expect(result.accommodation.tripDayId).toBe(currentDay.id);
+      expect(result.accommodation.name).toBe("Harbor Inn");
+      expect(result.accommodation.status).toBe("booked");
+      expect(result.accommodation.costCents).toBeNull();
+      expect(result.accommodation.link).toBe("https://example.com/harbor");
+      expect(result.accommodation.notes).toBe("Ocean view");
+      expect(result.accommodation.checkInTime).toBe("15:00");
+      expect(result.accommodation.checkOutTime).toBe("11:00");
+      expect(result.accommodation.location).toEqual({ lat: 48.1351, lng: 11.582, label: "City Center" });
+    }
+  });
+
+  it("overwrites an existing current-night accommodation when copying", async () => {
+    const user = await createUser("stay-copy-overwrite@example.com");
+    const { trip, previousDay, currentDay } = await createTripWithTwoDays(user.id);
+
+    await prisma.accommodation.create({
+      data: {
+        tripDayId: previousDay.id,
+        name: "Previous Stay",
+        status: "PLANNED",
+        costCents: null,
+        link: null,
+        notes: null,
+      },
+    });
+
+    await prisma.accommodation.create({
+      data: {
+        tripDayId: currentDay.id,
+        name: "Current Stay",
+        status: "BOOKED",
+        costCents: 12000,
+        link: "https://example.com/current",
+        notes: "Existing",
+      },
+    });
+
+    const result = await copyAccommodationFromPreviousNight({
+      userId: user.id,
+      tripId: trip.id,
+      tripDayId: currentDay.id,
+    });
+
+    expect(result.status).toBe("copied");
+    if (result.status === "copied") {
+      expect(result.accommodation.name).toBe("Previous Stay");
+      expect(result.accommodation.status).toBe("planned");
+    }
+  });
+
+  it("copies from a previous-day index of zero", async () => {
+    const user = await createUser("stay-copy-zero@example.com");
+    const trip = await prisma.trip.create({
+      data: {
+        userId: user.id,
+        name: "Stay Trip",
+        startDate: new Date("2026-10-01T00:00:00.000Z"),
+        endDate: new Date("2026-10-02T00:00:00.000Z"),
+      },
+    });
+
+    const previousDay = await prisma.tripDay.create({
+      data: {
+        tripId: trip.id,
+        date: new Date("2026-09-30T00:00:00.000Z"),
+        dayIndex: 0,
+      },
+    });
+
+    const currentDay = await prisma.tripDay.create({
+      data: {
+        tripId: trip.id,
+        date: new Date("2026-10-01T00:00:00.000Z"),
+        dayIndex: 1,
+      },
+    });
+
+    await prisma.accommodation.create({
+      data: {
+        tripDayId: previousDay.id,
+        name: "Zero Stay",
+        status: "PLANNED",
+        costCents: 9000,
+      },
+    });
+
+    const result = await copyAccommodationFromPreviousNight({
+      userId: user.id,
+      tripId: trip.id,
+      tripDayId: currentDay.id,
+    });
+
+    expect(result.status).toBe("copied");
+    if (result.status === "copied") {
+      expect(result.accommodation.tripDayId).toBe(currentDay.id);
+      expect(result.accommodation.name).toBe("Zero Stay");
+      expect(result.accommodation.costCents).toBeNull();
+    }
+  });
+
+  it("returns missing when no previous-night accommodation exists", async () => {
+    const user = await createUser("stay-copy-missing@example.com");
+    const { trip, currentDay } = await createTripWithTwoDays(user.id);
+
+    const result = await copyAccommodationFromPreviousNight({
+      userId: user.id,
+      tripId: trip.id,
+      tripDayId: currentDay.id,
+    });
+
+    expect(result.status).toBe("missing");
+  });
+
+  it("returns not_found when copying a non-owned trip day", async () => {
+    const owner = await createUser("stay-copy-owner@example.com");
+    const other = await createUser("stay-copy-other@example.com");
+    const { trip, currentDay } = await createTripWithTwoDays(owner.id);
+
+    const result = await copyAccommodationFromPreviousNight({
+      userId: other.id,
+      tripId: trip.id,
+      tripDayId: currentDay.id,
+    });
+
+    expect(result.status).toBe("not_found");
   });
 });

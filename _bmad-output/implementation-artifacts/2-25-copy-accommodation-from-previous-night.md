@@ -1,6 +1,6 @@
 # Story 2.25: Copy Accommodation From Previous Night
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -13,7 +13,7 @@ so that I can quickly apply the same stay across multiple days without re-enteri
 ## Acceptance Criteria
 
 1. **Given** I am viewing a trip day in day view  
-   **When** a previous-night accommodation exists  
+   **When** a previous-night accommodation exists and the current night has no accommodation  
    **Then** I can trigger a “Copy previous night” action for the current night
 2. **Given** I use “Copy previous night”  
    **When** the action completes  
@@ -27,19 +27,19 @@ so that I can quickly apply the same stay across multiple days without re-enteri
 5. **Given** there is no previous-night accommodation  
    **When** I view the current-night accommodation area  
    **Then** the copy action is not shown or is disabled
-6. **Given** I copy the previous night into a current-night accommodation that already exists  
-   **When** the copy completes  
-   **Then** the current-night accommodation is overwritten with the copied fields (except cost)
+6. **Given** a current-night accommodation already exists  
+   **When** I view the current-night accommodation area  
+   **Then** the copy action is not shown (remove the current-night stay to enable copy)
 7. **Given** I copy an accommodation  
    **When** I return to day view  
    **Then** the timeline reflects the updated current-night accommodation without a full refresh
 
 ## Tasks / Subtasks
 
-- [ ] UI: add “Copy previous night” action in current-night accommodation section (AC: 1, 5)
-- [ ] API/repo: add server-side copy operation scoped to day+user (AC: 2, 6)
-- [ ] Copy rules: clone all accommodation fields except cost (AC: 3-4)
-- [ ] Update day view state after copy without full refresh (AC: 7)
+- [x] UI: add “Copy previous night” action in current-night accommodation section (AC: 1, 5, 6)
+- [x] API/repo: add server-side copy operation scoped to day+user (AC: 2)
+- [x] Copy rules: clone all accommodation fields except cost (AC: 3-4)
+- [x] Update day view state after copy without full refresh (AC: 7)
 
 ## Dev Notes
 
@@ -117,7 +117,7 @@ so that I can quickly apply the same stay across multiple days without re-enteri
 
 ## Story Completion Status
 
-- Status set to **ready-for-dev**.
+- Status set to **review**.
 - Completion note: Copy-from-previous-night accommodation defined with cost exclusion and day view UX scope.
 
 ## Dev Agent Record
@@ -135,14 +135,30 @@ Codex (GPT-5)
 - Copy action defined in day view with overwrite behavior and cost exclusion.
 - API/repo pattern required for secure copy operation.
 - Tests required for visibility, access, and field copying.
+- Added current-night copy action button gated by previous-night stay presence.
+- Added UI tests for copy-action visibility.
+- Added repository copy helper and API endpoint for previous-night copy.
+- Added repo and API route tests for copy operation.
+- Updated copy behavior to exclude cost while preserving optional fields.
+- Wired copy action to call API and update day view state without reload.
+- Added UI coverage for post-copy state update.
+- Tests: `npm test`; `npm test -- tripDayViewLayout.test.tsx`; `npm test -- accommodationRepo.test.ts tripAccommodationCopyRoute.test.ts`.
+- Restricted copy action visibility to only show when current-night accommodation is empty.
+- Adjusted AC6 to keep copy action hidden when a current-night stay exists.
+- Allowed previous-day index 0 during copy and added repo coverage.
+- Added copy route access-control tests (unauthorized, csrf, non-owner).
+- Out-of-scope workspace changes present (not part of this story): `.codex/*`, `_bmad-output/implementation-artifacts/2-27-change-font.md`.
 
 ### File List
 
 - `_bmad-output/implementation-artifacts/2-25-copy-accommodation-from-previous-night.md`
-- `_bmad-output/implementation-artifacts/2-5-add-or-update-nightly-accommodation.md`
-- `_bmad-output/implementation-artifacts/2-6-track-accommodation-status-cost-and-link.md`
-- `_bmad-output/implementation-artifacts/2-22-accommodation-check-in-and-check-out-times.md`
-- `_bmad-output/planning-artifacts/epics.md`
-- `_bmad-output/planning-artifacts/architecture.md`
-- `_bmad-output/planning-artifacts/prd.md`
-- `_bmad-output/planning-artifacts/ux-design-specification.md`
+- `_bmad-output/implementation-artifacts/sprint-status.yaml`
+- `travelplan/src/components/features/trips/TripDayView.tsx`
+- `travelplan/src/i18n/en.ts`
+- `travelplan/src/i18n/de.ts`
+- `travelplan/test/tripDayViewLayout.test.tsx`
+- `travelplan/src/lib/repositories/accommodationRepo.ts`
+- `travelplan/src/lib/validation/accommodationSchemas.ts`
+- `travelplan/src/app/api/trips/[id]/accommodations/copy/route.ts`
+- `travelplan/test/accommodationRepo.test.ts`
+- `travelplan/test/tripAccommodationCopyRoute.test.ts`

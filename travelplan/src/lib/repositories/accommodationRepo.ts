@@ -20,6 +20,11 @@ export type AccommodationUpdateResult =
   | { status: "missing" }
   | { status: "updated"; accommodation: AccommodationDetail };
 
+export type AccommodationCopyResult =
+  | { status: "not_found" }
+  | { status: "missing" }
+  | { status: "copied"; accommodation: AccommodationDetail };
+
 type AccommodationMutationParams = {
   userId: string;
   tripId: string;
@@ -249,6 +254,73 @@ export const updateAccommodationForTripDay = async (
   });
 
   return { status: "updated", accommodation: toDetail(updated) };
+};
+
+export const copyAccommodationFromPreviousNight = async (params: {
+  userId: string;
+  tripId: string;
+  tripDayId: string;
+}): Promise<AccommodationCopyResult> => {
+  const { userId, tripId, tripDayId } = params;
+  const currentDay = await prisma.tripDay.findFirst({
+    where: {
+      id: tripDayId,
+      tripId,
+      trip: { userId },
+    },
+    select: { id: true, dayIndex: true },
+  });
+
+  if (!currentDay) {
+    return { status: "not_found" };
+  }
+
+  const previousDayIndex = currentDay.dayIndex - 1;
+  if (previousDayIndex < 0) {
+    return { status: "missing" };
+  }
+
+  const previousDay = await prisma.tripDay.findFirst({
+    where: {
+      tripId,
+      dayIndex: previousDayIndex,
+      trip: { userId },
+    },
+    select: { id: true },
+  });
+
+  if (!previousDay) {
+    return { status: "missing" };
+  }
+
+  const previousAccommodation = await prisma.accommodation.findUnique({
+    where: { tripDayId: previousDay.id },
+  });
+
+  if (!previousAccommodation) {
+    return { status: "missing" };
+  }
+
+  const data = {
+    name: previousAccommodation.name,
+    notes: previousAccommodation.notes,
+    status: previousAccommodation.status,
+    costCents: null,
+    link: previousAccommodation.link,
+    checkInTime: previousAccommodation.checkInTime,
+    checkOutTime: previousAccommodation.checkOutTime,
+    locationLat: previousAccommodation.locationLat,
+    locationLng: previousAccommodation.locationLng,
+    locationLabel: previousAccommodation.locationLabel,
+  };
+
+  const nextAccommodation = await prisma.accommodation.upsert({
+    where: { tripDayId: currentDay.id },
+    update: data,
+    create: { tripDayId: currentDay.id, ...data },
+  });
+
+  return { status: "copied", accommodation: toDetail(nextAccommodation) };
 };
 
 export const deleteAccommodationForTripDay = async (params: AccommodationDeleteParams): Promise<boolean> => {
