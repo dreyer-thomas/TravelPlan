@@ -107,6 +107,7 @@ type SegmentItem = {
   type: "accommodation" | "dayPlanItem";
   label: string;
   location: { lat: number; lng: number; label?: string | null } | null;
+  endTime?: string | null;
 };
 
 type GalleryImage = {
@@ -292,6 +293,26 @@ const formatDurationMinutes = (value: number) => {
   if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
   if (hours > 0) return `${hours}h`;
   return `${minutes}m`;
+};
+
+const parseTimeToMinutes = (value: string): number | null => {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const [hoursRaw, minutesRaw] = trimmed.split(":");
+  if (hoursRaw === undefined || minutesRaw === undefined) return null;
+  const hours = Number(hoursRaw);
+  const minutes = Number(minutesRaw);
+  if (!Number.isInteger(hours) || !Number.isInteger(minutes)) return null;
+  if (hours < 0 || hours > 24 || minutes < 0 || minutes >= 60) return null;
+  if (hours === 24 && minutes !== 0) return null;
+  return hours * 60 + minutes;
+};
+
+const formatMinutesToTime = (value: number) => {
+  const bounded = Math.max(0, Math.min(value, 24 * 60));
+  const hours = Math.floor(bounded / 60);
+  const minutes = bounded % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 };
 
 const buildSegmentKey = (from: SegmentItem, to: SegmentItem) => `${from.type}:${from.id}::${to.type}:${to.id}`;
@@ -775,17 +796,28 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     void loadImages();
   }, [day, planItems, previousDay, tripId]);
 
+  const resolveStayTime = (value: string | null | undefined, fallback: string) =>
+    value && value.trim() ? value : fallback;
   const previousStay = previousDay?.accommodation ?? null;
   const currentStay = day?.accommodation ?? null;
   const previousStaySegment = previousStay
-    ? { id: previousStay.id, type: "accommodation" as const, label: previousStay.name, location: previousStay.location ?? null }
+    ? {
+        id: previousStay.id,
+        type: "accommodation" as const,
+        label: previousStay.name,
+        location: previousStay.location ?? null,
+        endTime: resolveStayTime(previousStay.checkOutTime, defaultCheckOutTime),
+      }
     : null;
   const currentStaySegment = currentStay
-    ? { id: currentStay.id, type: "accommodation" as const, label: currentStay.name, location: currentStay.location ?? null }
+    ? {
+        id: currentStay.id,
+        type: "accommodation" as const,
+        label: currentStay.name,
+        location: currentStay.location ?? null,
+      }
     : null;
   const dayHasTimelineContent = Boolean(previousStay || currentStay || planItems.length > 0);
-  const resolveStayTime = (value: string | null | undefined, fallback: string) =>
-    value && value.trim() ? value : fallback;
   const previousStayRange = previousStay
     ? `00:00 - ${resolveStayTime(previousStay.checkOutTime, defaultCheckOutTime)}`
     : null;
@@ -806,6 +838,13 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     },
     [t],
   );
+  const buildTravelTimeRange = useCallback((startTime: string | null | undefined, durationMinutes: number | null | undefined) => {
+    if (!startTime || !durationMinutes || durationMinutes <= 0) return null;
+    const startMinutes = parseTimeToMinutes(startTime);
+    if (startMinutes === null) return null;
+    const endMinutes = Math.min(startMinutes + durationMinutes, 24 * 60);
+    return `${formatMinutesToTime(startMinutes)} - ${formatMinutesToTime(endMinutes)}`;
+  }, []);
   const getPlanItemLabel = useCallback(
     (item: DayPlanItem, index: number) => {
       const preview = parsePlanText(item.contentJson) || formatMessage(t("trips.dayView.budgetItemPlan"), { index: index + 1 });
@@ -820,11 +859,13 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
           type: "dayPlanItem" as const,
           label: getPlanItemLabel(planItems[0], 0),
           location: planItems[0].location,
+          endTime: planItems[0].toTime ?? null,
         }
       : null;
   const previousSegmentTarget = firstPlanSegment ?? (planItems.length === 0 ? currentStaySegment : null);
   const renderTravelSegment = (from: SegmentItem, to: SegmentItem) => {
     const segment = segmentsByKey.get(buildSegmentKey(from, to)) ?? null;
+    const travelTimeRange = segment ? buildTravelTimeRange(from.endTime, segment.durationMinutes) : null;
     return (
       <Box
         key={`segment-${from.id}-${to.id}`}
@@ -840,9 +881,22 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
           color: "text.secondary",
         }}
       >
-        <Typography variant="caption" sx={{ fontWeight: 600 }}>
-          {travelSegmentLabel(segment)}
-        </Typography>
+        <Box display="flex" alignItems="center" gap={0.75} flexWrap="wrap">
+          {travelTimeRange ? (
+            <Chip
+              label={travelTimeRange}
+              size="small"
+              sx={{
+                bgcolor: "#1b3d73",
+                color: "#ffffff",
+                borderColor: "#1b3d73",
+              }}
+            />
+          ) : null}
+          <Typography variant="caption" sx={{ fontWeight: 600 }}>
+            {travelSegmentLabel(segment)}
+          </Typography>
+        </Box>
         <Button size="small" variant="text" onClick={() => handleOpenTravelSegment(from, to)}>
           {segment ? t("trips.travelSegment.editAction") : t("trips.travelSegment.addAction")}
         </Button>
@@ -1357,6 +1411,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                       type: "dayPlanItem",
                       label: title,
                       location: item.location,
+                      endTime: item.toTime ?? null,
                     };
                     const nextPlanItem = planItems[index + 1];
                     const nextSegmentItem = nextPlanItem
@@ -1365,6 +1420,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                           type: "dayPlanItem" as const,
                           label: getPlanItemLabel(nextPlanItem, index + 1),
                           location: nextPlanItem.location,
+                          endTime: nextPlanItem.toTime ?? null,
                         }
                       : currentStaySegment;
 
