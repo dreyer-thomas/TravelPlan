@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
-import type { TravelSegmentItemType, TravelTransportType } from "@/generated/prisma";
+import type { TravelSegmentItemType, TravelTransportType } from "@/generated/prisma/enums";
 
 export type TravelSegmentDetail = {
   id: string;
