@@ -159,6 +159,8 @@ const en: Dictionary = {
   "trips.dayView.budgetNoAmount": "No cost captured",
   "trips.dayView.budgetEmpty": "No budget entries for this day yet.",
   "trips.dayView.mapTitle": "Day map",
+  "trips.dayView.mapExpand": "Expand map",
+  "trips.dayView.mapDialogTitle": "Map details",
   "trips.dayView.mapEmptyTitle": "No locations to map yet",
   "trips.dayView.mapEmptyBody": "Add locations to stays or plan items to see the route.",
   "trips.dayView.mapMissingTitle": "Missing locations",

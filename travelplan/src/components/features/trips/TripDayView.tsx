@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Box,
@@ -23,9 +23,14 @@ import {
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import TripAccommodationDialog from "@/components/features/trips/TripAccommodationDialog";
-import TripDayMapPanel, { buildDayMapPanelData } from "@/components/features/trips/TripDayMapPanel";
+import TripDayMapPanel, {
+  buildDayMapPanelData,
+  buildTripDayMapItems,
+  type TripDayMapPoint,
+} from "@/components/features/trips/TripDayMapPanel";
 import TripDayPlanDialog from "@/components/features/trips/TripDayPlanDialog";
 import TripDayTravelSegmentDialog from "@/components/features/trips/TripDayTravelSegmentDialog";
+import { MiniImageStrip, PlanItemRichContent, isSafeLink, parsePlanText } from "@/components/features/trips/TripDayPlanItemContent";
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
 
@@ -121,6 +126,11 @@ type TravelSegment = NonNullable<TripDay["travelSegments"]>[number];
 
 type PlanDialogMode = "add" | "edit";
 
+type MapDialogItem =
+  | { kind: "planItem"; id: string; label: string; planItem: DayPlanItem }
+  | { kind: "previousStay"; id: string; label: string; stay: TripDay["accommodation"] }
+  | { kind: "currentStay"; id: string; label: string; stay: TripDay["accommodation"] };
+
 type TripDetail = {
   trip: TripSummary;
   days: TripDay[];
@@ -139,151 +149,6 @@ const compareTripDaysChronologically = (left: TripDay, right: TripDay) => {
     return leftTime - rightTime;
   }
   return left.id.localeCompare(right.id);
-};
-
-const parsePlanText = (value: string) => {
-  try {
-    const doc = JSON.parse(value);
-    const parts: string[] = [];
-
-    const walk = (node: { text?: string; content?: unknown[] }) => {
-      if (!node) return;
-      if (typeof node.text === "string") parts.push(node.text);
-      if (Array.isArray(node.content)) {
-        node.content.forEach((child) => walk(child as { text?: string; content?: unknown[] }));
-      }
-    };
-
-    walk(doc as { text?: string; content?: unknown[] });
-    return parts.join(" ").trim();
-  } catch {
-    return "";
-  }
-};
-
-type RichDocNode = {
-  type?: string;
-  text?: string;
-  marks?: Array<{ type?: string; attrs?: { href?: string } }>;
-  attrs?: { src?: string; alt?: string };
-  content?: RichDocNode[];
-};
-
-const isSafeLink = (value: string) => {
-  const normalized = value.trim().toLowerCase();
-  return normalized.startsWith("http://") || normalized.startsWith("https://");
-};
-
-const parseRichDoc = (value: string): RichDocNode | null => {
-  try {
-    const parsed = JSON.parse(value) as RichDocNode;
-    if (!parsed || typeof parsed !== "object") return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-};
-
-const applyMarks = (text: string, marks: RichDocNode["marks"]): ReactNode => {
-  return (marks ?? []).reduce<ReactNode>((acc, mark, index) => {
-    if (mark?.type === "italic") return <em key={`mark-italic-${index}`}>{acc}</em>;
-    if (mark?.type === "bold") return <strong key={`mark-bold-${index}`}>{acc}</strong>;
-    if (mark?.type === "strike") return <s key={`mark-strike-${index}`}>{acc}</s>;
-    if (mark?.type === "code") return <code key={`mark-code-${index}`}>{acc}</code>;
-    if (mark?.type === "link" && mark.attrs?.href && isSafeLink(mark.attrs.href)) {
-      return (
-        <a key={`mark-link-${index}`} href={mark.attrs.href} target="_blank" rel="noreferrer noopener">
-          {acc}
-        </a>
-      );
-    }
-    return acc;
-  }, text);
-};
-
-const renderRichNode = (node: RichDocNode, key: string, imageAltFallback: string): ReactNode => {
-  const children = Array.isArray(node.content)
-    ? node.content.map((child, index) => renderRichNode(child, `${key}-${index}`, imageAltFallback)).filter(Boolean)
-    : [];
-
-  if (node.type === "doc") return <Box key={key}>{children}</Box>;
-  if (node.type === "paragraph") {
-    return (
-      <Typography key={key} variant="body2" component="p" sx={{ m: 0, whiteSpace: "pre-wrap" }}>
-        {children}
-      </Typography>
-    );
-  }
-  if (node.type === "bulletList") {
-    return (
-      <Box key={key} component="ul" sx={{ m: 0, pl: 2.5 }}>
-        {children}
-      </Box>
-    );
-  }
-  if (node.type === "orderedList") {
-    return (
-      <Box key={key} component="ol" sx={{ m: 0, pl: 2.5 }}>
-        {children}
-      </Box>
-    );
-  }
-  if (node.type === "listItem") return <Box key={key} component="li">{children}</Box>;
-  if (node.type === "hardBreak") return <br key={key} />;
-  if (node.type === "image" && typeof node.attrs?.src === "string" && isSafeLink(node.attrs.src)) {
-    return (
-      <Box
-        key={key}
-        component="img"
-        src={node.attrs.src}
-        alt={typeof node.attrs.alt === "string" && node.attrs.alt.trim() ? node.attrs.alt : imageAltFallback}
-        data-testid="day-plan-inline-image"
-        sx={{
-          display: "block",
-          maxWidth: "100%",
-          width: "100%",
-          height: "auto",
-          maxHeight: 240,
-          objectFit: "contain",
-          borderRadius: 1,
-          border: "1px solid",
-          borderColor: "divider",
-          my: 0.75,
-        }}
-      />
-    );
-  }
-  if (node.type === "text" && typeof node.text === "string") return <span key={key}>{applyMarks(node.text, node.marks)}</span>;
-  if (children.length > 0) return <Box key={key}>{children}</Box>;
-  return null;
-};
-
-const PlanItemRichContent = ({ contentJson, fallbackText }: { contentJson: string; fallbackText: string }) => {
-  const { t } = useI18n();
-  const doc = parseRichDoc(contentJson);
-  if (!doc) {
-    return <Typography variant="body2">{fallbackText}</Typography>;
-  }
-
-  const rendered = renderRichNode(doc, "root", t("trips.plan.inlineImageAlt"));
-  if (!rendered) {
-    return <Typography variant="body2">{fallbackText}</Typography>;
-  }
-
-  return <Box display="flex" flexDirection="column" gap={0.75}>{rendered}</Box>;
-};
-
-const getMapLocation = (value: { lat: number; lng: number } | null | undefined) => {
-  if (!value) return null;
-  if (
-    typeof value.lat !== "number" ||
-    typeof value.lng !== "number" ||
-    !Number.isFinite(value.lat) ||
-    !Number.isFinite(value.lng)
-  ) {
-    return null;
-  }
-  return value;
 };
 
 const formatDurationMinutes = (value: number) => {
@@ -338,52 +203,6 @@ const parsePolyline = (value: unknown): [number, number][] => {
     .map((point) => [point[0], point[1]]);
 };
 
-const MiniImageStrip = ({
-  images,
-  altPrefix,
-  onImageClick,
-}: {
-  images: GalleryImage[];
-  altPrefix: string;
-  onImageClick: (imageUrl: string, alt: string) => void;
-}) => {
-  if (images.length === 0) {
-    return null;
-  }
-
-  const visible = images.slice(0, 3);
-  const remaining = images.length - visible.length;
-
-  return (
-    <Box display="flex" alignItems="center" gap={0.75} mt={0.75}>
-      {visible.map((image, index) => (
-        <Box
-          key={image.id}
-          component="img"
-          src={image.imageUrl}
-          alt={`${altPrefix} ${index + 1}`}
-          sx={{
-            width: 96,
-            height: 96,
-            objectFit: "cover",
-            borderRadius: 1,
-            border: "1px solid",
-            borderColor: "divider",
-            cursor: "pointer",
-          }}
-          loading="lazy"
-          onClick={() => onImageClick(image.imageUrl, `${altPrefix} ${index + 1}`)}
-        />
-      ))}
-      {remaining > 0 ? (
-        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
-          +{remaining}
-        </Typography>
-      ) : null}
-    </Box>
-  );
-};
-
 export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const { language, t } = useI18n();
   const searchParams = useSearchParams();
@@ -407,6 +226,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const [dayMetaOpen, setDayMetaOpen] = useState(false);
   const [dayImageFile, setDayImageFile] = useState<File | null>(null);
   const [dayNoteDraft, setDayNoteDraft] = useState("");
+  const [mapDialogItem, setMapDialogItem] = useState<MapDialogItem | null>(null);
   const [dayImageSaving, setDayImageSaving] = useState(false);
   const [accommodationImages, setAccommodationImages] = useState<GalleryImage[]>([]);
   const [previousAccommodationImages, setPreviousAccommodationImages] = useState<GalleryImage[]>([]);
@@ -416,12 +236,30 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const [fullscreenImage, setFullscreenImage] = useState<{ imageUrl: string; alt: string } | null>(null);
   const planItemsRef = useRef<DayPlanItem[]>([]);
   const handledDeepLinkRef = useRef<string | null>(null);
+  const scrollRestoreKey = useMemo(() => `trip-day-scroll:${tripId}:${dayId}`, [dayId, tripId]);
   const defaultCheckInTime = "16:00";
   const defaultCheckOutTime = "10:00";
 
   useEffect(() => {
     planItemsRef.current = planItems;
   }, [planItems]);
+
+  useEffect(() => {
+    if (loading || !day) return;
+    if (typeof window === "undefined") return;
+    try {
+      const stored = sessionStorage.getItem(scrollRestoreKey);
+      if (!stored) return;
+      sessionStorage.removeItem(scrollRestoreKey);
+      const value = Number(stored);
+      if (!Number.isFinite(value)) return;
+      window.requestAnimationFrame(() => {
+        window.scrollTo({ top: value, behavior: "auto" });
+      });
+    } catch {
+      // Ignore storage failures.
+    }
+  }, [day, loading, scrollRestoreKey]);
 
   const formatDate = useMemo(
     () => (value: string) =>
@@ -1137,36 +975,54 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const dayTotalCents = knownBudgetEntries.reduce((sum, entry) => sum + entry.amountCents, 0);
 
   const mapData = useMemo(
-    () =>
-      buildDayMapPanelData({
-        previousStay: previousStay
-          ? {
-              id: previousStay.id,
-              label: previousStay.name,
-              kind: "previousStay",
-              location: getMapLocation(previousStay.location),
-            }
-          : null,
-        planItems: planItems.map((item, index) => ({
+    () => {
+      const mapItems = buildTripDayMapItems({
+        previousStay: previousStay ? { id: previousStay.id, name: previousStay.name, location: previousStay.location } : null,
+        planItems: planItems.map((item) => ({
           id: item.id,
-          label:
-            item.title?.trim() ||
-            parsePlanText(item.contentJson) ||
-            formatMessage(t("trips.dayView.budgetItemPlan"), { index: index + 1 }),
-          kind: "planItem" as const,
-          location: getMapLocation(item.location),
+          title: item.title,
+          contentJson: item.contentJson,
+          location: item.location,
         })),
-        currentStay: currentStay
-          ? {
-              id: currentStay.id,
-              label: currentStay.name,
-              kind: "currentStay",
-              location: getMapLocation(currentStay.location),
-            }
-          : null,
-      }),
+        currentStay: currentStay ? { id: currentStay.id, name: currentStay.name, location: currentStay.location } : null,
+        getPlanItemFallbackLabel: (index) => formatMessage(t("trips.dayView.budgetItemPlan"), { index }),
+      });
+      return buildDayMapPanelData(mapItems);
+    },
     [currentStay, planItems, previousStay, t],
   );
+
+  const handleMapMarkerClick = useCallback(
+    (point: TripDayMapPoint) => {
+      if (point.kind === "planItem") {
+        const planItem = planItems.find((item) => item.id === point.id);
+        if (!planItem) return;
+        setMapDialogItem({ kind: "planItem", id: planItem.id, label: point.label, planItem });
+        return;
+      }
+
+      if (point.kind === "previousStay") {
+        if (!previousStay) return;
+        setMapDialogItem({ kind: "previousStay", id: previousStay.id, label: point.label, stay: previousStay });
+        return;
+      }
+
+      if (point.kind === "currentStay") {
+        if (!currentStay) return;
+        setMapDialogItem({ kind: "currentStay", id: currentStay.id, label: point.label, stay: currentStay });
+      }
+    },
+    [currentStay, planItems, previousStay],
+  );
+
+  const handleMapExpand = useCallback(() => {
+    if (typeof window === "undefined") return;
+    try {
+      sessionStorage.setItem(scrollRestoreKey, String(window.scrollY));
+    } catch {
+      // Ignore storage failures.
+    }
+  }, [scrollRestoreKey]);
 
   useEffect(() => {
     const fallbackPolyline = mapData.points.map((point) => point.position);
@@ -1658,6 +1514,9 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                 missingLocations={mapData.missingLocations}
                 polylinePositions={routePolyline.length >= 2 ? routePolyline : mapData.points.map((point) => point.position)}
                 routingUnavailable={routingUnavailable}
+                expandHref={day ? `/trips/${tripId}/days/${day.id}/map` : undefined}
+                onExpandClick={handleMapExpand}
+                onMarkerClick={handleMapMarkerClick}
               />
             </Box>
           </Box>
@@ -1819,6 +1678,43 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                 />
               </DialogContent>
             ) : null}
+          </Dialog>
+          <Dialog open={Boolean(mapDialogItem)} onClose={() => setMapDialogItem(null)} fullWidth maxWidth="sm">
+            <DialogTitle>{mapDialogItem?.label ?? ""}</DialogTitle>
+            <DialogContent>
+              {mapDialogItem ? (
+                <Box display="flex" flexDirection="column" gap={1.5}>
+                  {mapDialogItem.kind === "planItem" ? (
+                    <>
+                      <PlanItemRichContent
+                        contentJson={mapDialogItem.planItem.contentJson}
+                        fallbackText={parsePlanText(mapDialogItem.planItem.contentJson) || mapDialogItem.label}
+                      />
+                      <MiniImageStrip
+                        images={planItemImagesById[mapDialogItem.planItem.id] ?? []}
+                        altPrefix={mapDialogItem.label}
+                        onImageClick={(imageUrl, alt) => setFullscreenImage({ imageUrl, alt })}
+                      />
+                    </>
+                  ) : (
+                    <>
+                      {mapDialogItem.stay?.notes ? (
+                        <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
+                          {mapDialogItem.stay.notes}
+                        </Typography>
+                      ) : null}
+                      <MiniImageStrip
+                        images={
+                          mapDialogItem.kind === "previousStay" ? previousAccommodationImages : accommodationImages
+                        }
+                        altPrefix={mapDialogItem.label}
+                        onImageClick={(imageUrl, alt) => setFullscreenImage({ imageUrl, alt })}
+                      />
+                    </>
+                  )}
+                </Box>
+              ) : null}
+            </DialogContent>
           </Dialog>
         </>
       )}

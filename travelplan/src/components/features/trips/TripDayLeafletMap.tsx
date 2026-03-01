@@ -49,9 +49,18 @@ const EnsureMapSized = () => {
 type TripDayLeafletMapProps = {
   points: TripDayMapPoint[];
   polylinePositions?: [number, number][];
+  height?: number | string;
+  onMarkerClick?: (point: TripDayMapPoint) => void;
 };
 
-export default function TripDayLeafletMap({ points, polylinePositions }: TripDayLeafletMapProps) {
+const DEFAULT_DAY_MAP_HEIGHT = "clamp(240px, 35vh, 360px)";
+
+export default function TripDayLeafletMap({
+  points,
+  polylinePositions,
+  height = DEFAULT_DAY_MAP_HEIGHT,
+  onMarkerClick,
+}: TripDayLeafletMapProps) {
   const center = useMemo<[number, number]>(() => points[0]?.position ?? [0, 0], [points]);
   const fallbackPolylinePositions = useMemo(() => points.map((point) => point.position), [points]);
   const routePolyline = polylinePositions ?? fallbackPolylinePositions;
@@ -67,13 +76,19 @@ export default function TripDayLeafletMap({ points, polylinePositions }: TripDay
   );
 
   return (
-    <MapContainerCompat center={center} zoom={12} style={{ height: 220, width: "100%" }} scrollWheelZoom={false}>
+    <MapContainerCompat center={center} zoom={12} style={{ height, width: "100%" }} scrollWheelZoom={false}>
       <TileLayerCompat
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         attribution="&copy; OpenStreetMap contributors"
       />
       {points.map((point, index) => (
-        <MarkerCompat key={point.id} position={point.position} icon={markerIcon} data-testid={`day-map-marker-${index}`} />
+        <MarkerCompat
+          key={point.id}
+          position={point.position}
+          icon={markerIcon}
+          data-testid={`day-map-marker-${index}`}
+          eventHandlers={onMarkerClick ? { click: () => onMarkerClick(point) } : undefined}
+        />
       ))}
       {routePolyline.length >= 2 && <PolylineCompat positions={routePolyline} data-testid="day-map-polyline" />}
       <EnsureMapSized />

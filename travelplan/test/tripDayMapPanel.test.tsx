@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import TripDayMapPanel, { buildDayMapPanelData } from "@/components/features/trips/TripDayMapPanel";
 import { I18nProvider } from "@/i18n/provider";
@@ -8,10 +9,24 @@ import type { ReactNode } from "react";
 
 vi.mock("next/dynamic", () => ({
   default: () =>
-    ({ points, polylinePositions }: { points: { position: [number, number] }[]; polylinePositions?: [number, number][] }) => (
+    ({
+      points,
+      polylinePositions,
+      onMarkerClick,
+    }: {
+      points: { id: string; position: [number, number] }[];
+      polylinePositions?: [number, number][];
+      onMarkerClick?: (id: string) => void;
+    }) => (
       <div data-testid="day-map-container">
         {points.map((point, index) => (
-          <div key={index} data-testid={`day-map-marker-${index}`} data-position={point.position.join(",")} />
+          <button
+            key={point.id}
+            type="button"
+            data-testid={`day-map-marker-${index}`}
+            data-position={point.position.join(",")}
+            onClick={() => onMarkerClick?.(point.id)}
+          />
         ))}
         {(polylinePositions ?? points.map((point) => point.position)).length >= 2 ? (
           <div
@@ -47,6 +62,35 @@ vi.mock("leaflet", () => ({
 }));
 
 describe("TripDayMapPanel", () => {
+  it("renders an icon-only expand control with tooltip", async () => {
+    const user = userEvent.setup();
+    const { points, missingLocations } = buildDayMapPanelData({
+      previousStay: {
+        id: "stay-prev",
+        label: "Previous Stay",
+        kind: "previousStay",
+        location: { lat: 40.7, lng: -73.9 },
+      },
+    });
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayMapPanel
+          points={points}
+          missingLocations={missingLocations}
+          loading={false}
+          expandHref="/trips/trip-1/days/day-1/map"
+        />
+      </I18nProvider>,
+    );
+
+    const expandButton = screen.getByRole("link", { name: "Expand map" });
+    expect(expandButton).toBeInTheDocument();
+
+    await user.hover(expandButton);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Expand map");
+  });
+
   it("renders ordered pins with a connecting polyline", () => {
     const { points, missingLocations } = buildDayMapPanelData({
       previousStay: {

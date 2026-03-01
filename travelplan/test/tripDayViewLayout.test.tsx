@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import TripDayView from "@/components/features/trips/TripDayView";
 import { I18nProvider } from "@/i18n/provider";
@@ -119,16 +120,27 @@ vi.mock("next/dynamic", () => ({
     ({
       points,
       polylinePositions,
+      onMarkerClick,
     }: {
-      points: { position: [number, number] }[];
+      points: { id: string; position: [number, number] }[];
       polylinePositions?: [number, number][];
+      onMarkerClick?: (point: { id: string }) => void;
     }) => (
       <div data-testid="day-map-container">
         {points.map((point, index) => (
-          <div key={index} data-testid="day-map-marker" data-position={point.position.join(",")} />
+          <button
+            key={point.id}
+            type="button"
+            data-testid="day-map-marker"
+            data-position={point.position.join(",")}
+            onClick={() => onMarkerClick?.(point)}
+          />
         ))}
         {(polylinePositions ?? points.map((point) => point.position)).length >= 2 ? (
-          <div data-testid="day-map-polyline" data-positions={JSON.stringify(polylinePositions ?? points.map((point) => point.position))} />
+          <div
+            data-testid="day-map-polyline"
+            data-positions={JSON.stringify(polylinePositions ?? points.map((point) => point.position))}
+          />
         ) : null}
       </div>
     ),
@@ -2056,6 +2068,100 @@ describe("TripDayView layout", () => {
         [48.145, 11.582],
       ]),
     );
+    vi.unstubAllGlobals();
+  });
+
+  it("opens a map marker dialog with plan item details", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const user = userEvent.setup();
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/day-plan-items/images")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: { images: [{ id: "img-1", dayPlanItemId: "plan-1", imageUrl: "/plan-1.jpg", sortOrder: 0 }] },
+            error: null,
+          }),
+        };
+      }
+      if (url.includes("/accommodations/images")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { images: [] }, error: null }),
+        };
+      }
+      if (url.includes("/route")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { route: { polyline: [[48.1, 11.5], [48.2, 11.6]] } }, error: null }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-02T00:00:00.000Z",
+              dayCount: 1,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: null,
+                dayPlanItems: [
+                  {
+                    id: "plan-1",
+                    title: "Museum visit",
+                    fromTime: null,
+                    toTime: null,
+                    contentJson: JSON.stringify({
+                      type: "doc",
+                      content: [{ type: "paragraph", content: [{ type: "text", text: "Plan details" }] }],
+                    }),
+                    costCents: null,
+                    linkUrl: null,
+                    location: { lat: 48.1, lng: 11.5 },
+                  },
+                ],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-1" />
+      </I18nProvider>,
+    );
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+    const markers = await screen.findAllByTestId("day-map-marker");
+    await user.click(markers[0]);
+
+    expect(await screen.findAllByText("Plan details")).toHaveLength(2);
+    expect(screen.getByRole("img", { name: "Museum visit 1" })).toBeInTheDocument();
     vi.unstubAllGlobals();
   });
 

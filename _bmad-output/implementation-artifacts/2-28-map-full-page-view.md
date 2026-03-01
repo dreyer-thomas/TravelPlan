@@ -1,6 +1,6 @@
 # Story 2.28: Map Full Page View
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -39,13 +39,13 @@ so that I can review route details and item info without losing context.
 
 ## Tasks / Subtasks
 
-- [ ] Increase the day map panel height in `TripDayLeafletMap` and the loading/empty states (AC: 1)
-- [ ] Add an icon-only expand control in the day map panel header with accessible label + tooltip (AC: 2)
-- [ ] Implement a full-page day map route (new page under day view routes) that reuses the day map data + rendering (AC: 2, 3, 6)
-- [ ] Add marker click handling to open an item details dialog (AC: 4, 5)
-- [ ] Ensure dialog content uses the same rendering logic as the timeline for plan item text and images (AC: 4, 5)
-- [ ] Add i18n strings for the new button and dialog labels in EN/DE (AC: 2, 4, 5)
-- [ ] Add/update UI tests for marker click -> dialog content and full-page map routing (AC: 2, 4)
+- [x] Increase the day map panel height in `TripDayLeafletMap` and the loading/empty states (AC: 1)
+- [x] Add an icon-only expand control in the day map panel header with accessible label + tooltip (AC: 2)
+- [x] Implement a full-page day map route (new page under day view routes) that reuses the day map data + rendering (AC: 2, 3, 6)
+- [x] Add marker click handling to open an item details dialog (AC: 4, 5)
+- [x] Ensure dialog content uses the same rendering logic as the timeline for plan item text and images (AC: 4, 5)
+- [x] Add i18n strings for the new button and dialog labels in EN/DE (AC: 2, 4, 5)
+- [x] Add/update UI tests for marker click -> dialog content and full-page map routing (AC: 2, 4)
 
 ## Dev Notes
 
@@ -133,8 +133,8 @@ so that I can review route details and item info without losing context.
 
 ## Story Completion Status
 
-- Status set to **ready-for-dev**.
-- Completion note: Full-page day map and marker detail dialog requirements defined with UI + testing guidance.
+- Status set to **review**.
+- Completion note: Full-page day map and marker detail dialog implemented with tests.
 
 ## Dev Agent Record
 
@@ -146,17 +146,50 @@ Codex (GPT-5)
 
 - Created story context for day-view map expansion and marker details dialog.
 
+### Implementation Plan
+
+- Increase day-map panel height using a shared clamp-based height for the Leaflet map, loading skeleton, and empty state container.
+- Add a unit test to assert the map container uses the larger height.
+- Add an icon-only expand control in the map header with tooltip and accessible label, plus a UI test for tooltip presence.
+- Build a full-page day map route that loads day data, reuses day map ordering, and renders the same markers/polyline with empty-state messaging.
+- Wire map marker click handlers to open a details dialog placeholder in day view and full-page map.
+- Reuse timeline rich content and image strip components in map dialogs for plan items and accommodations.
+- Add i18n strings for map expand control and dialog title in EN/DE.
+- Add UI tests that verify marker click opens dialog content and full-page map renders markers.
+
 ### Completion Notes List
 
 - Enlarge day map panel, add full-page map route, and wire marker click to details dialog.
 - Reuse existing timeline rendering + image strips for consistent item previews.
+- Increased day map panel height via shared clamp height in `TripDayMapPanel`/`TripDayLeafletMap`; added `tripDayLeafletMap` height test. Tests: `npm test`.
+- Added icon-only expand control with tooltip in `TripDayMapPanel`; added tooltip UI test in `tripDayMapPanel`. Tests: `npm test`.
+- Added full-page day map route and `TripDayMapFullPage` loader to reuse day map data/polylines with empty-state + missing list messaging; wired expand link. Tests: `npm test`.
+- Added marker click handlers in `TripDayLeafletMap`, `TripDayMapPanel`, `TripDayView`, and `TripDayMapFullPage` to open a details dialog shell. Tests: `npm test`.
+- Reused timeline rich content + image strip logic in map dialogs via shared `TripDayPlanItemContent`; added image loading in full-page map. Tests: `npm test`.
+- Added EN/DE i18n strings for map expand and map dialog title. Tests: `npm test`.
+- Added UI tests for marker click dialog content in day view and full-page map. Tests: `npm test`.
+- Removed map dialog title prefix so the dialog uses only the item title. Tests: `npm test`.
+- Added return link on full-page map to go back to day view. Tests: `npm test`.
+- Centralized map item metadata (labels/locations) via `buildTripDayMapItems` shared helper for panel/full-page maps. Tests: not run (not requested).
+- Preserved day view scroll position when returning from full-page map, with a history-aware back button. Tests: not run (not requested).
 
 ### File List
 
 - `_bmad-output/implementation-artifacts/2-28-map-full-page-view.md`
-- `_bmad-output/implementation-artifacts/3-5-day-view-map-panel-with-ordered-pins.md`
-- `_bmad-output/implementation-artifacts/2-27-change-font.md`
-- `_bmad-output/planning-artifacts/epics.md`
-- `_bmad-output/planning-artifacts/architecture.md`
-- `_bmad-output/planning-artifacts/prd.md`
-- `_bmad-output/planning-artifacts/ux-design-specification.md`
+- `_bmad-output/implementation-artifacts/sprint-status.yaml`
+- `.codex/.codex-global-state.json`
+- `.codex/models_cache.json`
+- `.codex/vendor_imports/skills-curated-cache.json`
+- `travelplan/src/components/features/trips/TripDayLeafletMap.tsx`
+- `travelplan/src/components/features/trips/TripDayMapPanel.tsx`
+- `travelplan/src/components/features/trips/TripDayMapBackButton.tsx`
+- `travelplan/src/components/features/trips/TripDayMapFullPage.tsx`
+- `travelplan/src/components/features/trips/TripDayPlanItemContent.tsx`
+- `travelplan/test/tripDayLeafletMap.test.tsx`
+- `travelplan/test/tripDayMapPanel.test.tsx`
+- `travelplan/test/tripDayMapFullPage.test.tsx`
+- `travelplan/src/components/features/trips/TripDayView.tsx`
+- `travelplan/src/app/(routes)/trips/[id]/days/[dayId]/map/page.tsx`
+- `travelplan/src/i18n/en.ts`
+- `travelplan/src/i18n/de.ts`
+- `travelplan/test/tripDayViewLayout.test.tsx`
