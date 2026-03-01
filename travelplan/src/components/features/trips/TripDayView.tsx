@@ -23,6 +23,13 @@ import {
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import TripAccommodationDialog from "@/components/features/trips/TripAccommodationDialog";
+import TripDayGanttBar from "@/components/features/trips/TripDayGanttBar";
+import {
+  buildPlanItemSegments,
+  buildStaySegments,
+  buildTravelSegments,
+  deriveCoverageSummary,
+} from "@/components/features/trips/TripDayGanttSegments";
 import TripDayMapPanel, {
   buildDayMapPanelData,
   buildTripDayMapItems,
@@ -702,6 +709,75 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
         location: currentStay.location ?? null,
       }
     : null;
+  const staySegments = useMemo(
+    () =>
+      buildStaySegments({
+        previousStay: previousStay
+          ? { checkOutTime: resolveStayTime(previousStay.checkOutTime, defaultCheckOutTime) }
+          : null,
+        currentStay: currentStay ? { checkInTime: currentStay.checkInTime } : null,
+      }),
+    [currentStay?.checkInTime, previousStay?.checkOutTime],
+  );
+  const planItemSegments = useMemo(
+    () =>
+      buildPlanItemSegments(
+        planItems.map((item) => ({
+          id: item.id,
+          fromTime: item.fromTime,
+          toTime: item.toTime,
+        })),
+      ),
+    [planItems],
+  );
+  const travelSegmentsForGantt = useMemo(() => {
+    if (!travelSegments.length) return [];
+    const accommodationEndTimes: Record<string, string | null | undefined> = {};
+    if (previousStay) {
+      accommodationEndTimes[previousStay.id] = resolveStayTime(previousStay.checkOutTime, defaultCheckOutTime);
+    }
+    const planItemEndTimes: Record<string, string | null | undefined> = {};
+    for (const item of planItems) {
+      planItemEndTimes[item.id] = item.toTime;
+    }
+    return buildTravelSegments({
+      travelSegments: travelSegments.map((segment) => ({
+        id: segment.id,
+        fromItemType: segment.fromItemType,
+        fromItemId: segment.fromItemId,
+        durationMinutes: segment.durationMinutes,
+      })),
+      accommodationEndTimes,
+      planItemEndTimes,
+    });
+  }, [planItems, previousStay, travelSegments]);
+  const ganttSegments = useMemo(
+    () => [...staySegments, ...planItemSegments, ...travelSegmentsForGantt],
+    [planItemSegments, staySegments, travelSegmentsForGantt],
+  );
+  const ganttCoverage = useMemo(() => deriveCoverageSummary(ganttSegments), [ganttSegments]);
+  const formatDurationSummary = useCallback(
+    (minutes: number) => {
+      const safeMinutes = Math.max(0, Math.round(minutes));
+      const hours = Math.floor(safeMinutes / 60);
+      const remainingMinutes = safeMinutes % 60;
+      if (hours > 0 && remainingMinutes > 0) {
+        return formatMessage(t("trips.dayView.ganttHoursMinutes"), { hours, minutes: remainingMinutes });
+      }
+      if (hours > 0) {
+        return formatMessage(t("trips.dayView.ganttHours"), { hours });
+      }
+      return formatMessage(t("trips.dayView.ganttMinutes"), { minutes: remainingMinutes });
+    },
+    [t],
+  );
+  const plannedSummary = formatDurationSummary(ganttCoverage.plannedMinutes);
+  const unplannedSummary = formatDurationSummary(ganttCoverage.unplannedMinutes);
+  const ganttSummary = formatMessage(t("trips.dayView.ganttSummary"), {
+    planned: plannedSummary,
+    unplanned: unplannedSummary,
+  });
+  const isFullyPlanned = ganttCoverage.unplannedMinutes <= 0;
   const dayHasTimelineContent = Boolean(previousStay || currentStay || planItems.length > 0);
   const previousStayRange = previousStay
     ? `00:00 - ${resolveStayTime(previousStay.checkOutTime, defaultCheckOutTime)}`
@@ -1185,6 +1261,17 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                   <Typography variant="body2" color="text.secondary">
                     {formatDate(day.date)}
                   </Typography>
+                  <Box pt={0.5} pr={{ xs: 0, sm: 2 }}>
+                    <TripDayGanttBar segments={ganttSegments} ariaLabel={t("trips.dayView.ganttAriaLabel")} />
+                  </Box>
+                  <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                    <Typography variant="caption" color="text.secondary" aria-live="polite">
+                      {ganttSummary}
+                    </Typography>
+                    {isFullyPlanned ? (
+                      <Chip size="small" color="success" label={t("trips.dayView.ganttFullyPlanned")} />
+                    ) : null}
+                  </Box>
                 </Box>
               </Box>
               {hasDayImage && (

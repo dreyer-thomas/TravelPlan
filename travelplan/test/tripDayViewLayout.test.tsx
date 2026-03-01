@@ -164,6 +164,437 @@ vi.mock("leaflet", () => ({
 }));
 
 describe("TripDayView layout", () => {
+  it("renders the day gantt bar in the header overview area", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const fetchMock = vi.fn(async () => {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-01T00:00:00.000Z",
+              dayCount: 1,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: null,
+                dayPlanItems: [],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-1" />
+      </I18nProvider>,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
+    expect(screen.getByTestId("trip-day-gantt-bar")).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
+  it("renders a textual planned vs unplanned summary for the gantt bar", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const fetchMock = vi.fn(async () => {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-01T00:00:00.000Z",
+              dayCount: 1,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: true,
+                missingPlan: true,
+                accommodation: null,
+                dayPlanItems: [],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-1" />
+      </I18nProvider>,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
+    expect(screen.getByText("Planned 0m, Unplanned 24h")).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
+  it("shows a fully planned indicator when the gantt coverage reaches 24 hours", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const fetchMock = vi.fn(async () => {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-02T00:00:00.000Z",
+              dayCount: 2,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: true,
+                accommodation: {
+                  id: "stay-prev",
+                  name: "Previous Hotel",
+                  notes: null,
+                  status: "booked",
+                  costCents: null,
+                  link: null,
+                  checkInTime: null,
+                  checkOutTime: "10:00",
+                  location: null,
+                },
+                dayPlanItems: [],
+              },
+              {
+                id: "day-2",
+                date: "2026-12-02T00:00:00.000Z",
+                dayIndex: 2,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: true,
+                accommodation: {
+                  id: "stay-current",
+                  name: "Current Hotel",
+                  notes: null,
+                  status: "booked",
+                  costCents: null,
+                  link: null,
+                  checkInTime: "10:00",
+                  checkOutTime: null,
+                  location: null,
+                },
+                dayPlanItems: [],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-2" />
+      </I18nProvider>,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Day 2", level: 5 })).toBeInTheDocument();
+    expect(screen.getByText("Fully planned day")).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
+  it("updates the gantt summary after saving a travel segment", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const fetchMock = vi.fn(async () => {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-01T00:00:00.000Z",
+              dayCount: 1,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: {
+                  id: "stay-prev",
+                  name: "Previous Hotel",
+                  notes: null,
+                  status: "booked",
+                  costCents: null,
+                  link: null,
+                  checkInTime: null,
+                  checkOutTime: "08:00",
+                  location: null,
+                },
+                dayPlanItems: [
+                  {
+                    id: "item-1",
+                    title: "Museum",
+                    fromTime: "09:00",
+                    toTime: "10:00",
+                    contentJson: JSON.stringify({
+                      type: "doc",
+                      content: [{ type: "paragraph", content: [{ type: "text", text: "Visit" }] }],
+                    }),
+                    costCents: null,
+                    linkUrl: null,
+                    location: null,
+                  },
+                ],
+                travelSegments: [],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-1" />
+      </I18nProvider>,
+    );
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+    expect(screen.getByText("Planned 1h, Unplanned 23h")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Add travel" }));
+    fireEvent.click(await screen.findByTestId("segment-save"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Planned 2h, Unplanned 22h")).toBeInTheDocument();
+    });
+
+    vi.unstubAllGlobals();
+  });
+
+  it("renders overlapping gantt segments for different planned sources", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const fetchMock = vi.fn(async () => {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-02T00:00:00.000Z",
+              dayCount: 2,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: true,
+                accommodation: {
+                  id: "stay-prev",
+                  name: "Previous Hotel",
+                  notes: null,
+                  status: "booked",
+                  costCents: null,
+                  link: null,
+                  checkInTime: null,
+                  checkOutTime: "10:00",
+                  location: null,
+                },
+                dayPlanItems: [],
+              },
+              {
+                id: "day-2",
+                date: "2026-12-02T00:00:00.000Z",
+                dayIndex: 2,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: null,
+                dayPlanItems: [
+                  {
+                    id: "item-1",
+                    title: "Museum",
+                    fromTime: "09:00",
+                    toTime: "11:00",
+                    contentJson: JSON.stringify({
+                      type: "doc",
+                      content: [{ type: "paragraph", content: [{ type: "text", text: "Visit" }] }],
+                    }),
+                    costCents: null,
+                    linkUrl: null,
+                    location: null,
+                  },
+                ],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-2" />
+      </I18nProvider>,
+    );
+
+    await screen.findByRole("heading", { name: "Day 2", level: 5 });
+    const segments = screen.getAllByTestId("trip-day-gantt-segment");
+    expect(segments.some((segment) => segment.getAttribute("data-kind") === "planItem")).toBe(true);
+    expect(segments.some((segment) => segment.getAttribute("data-kind") === "accommodation")).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
+  it("colors travel segments in orange", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const fetchMock = vi.fn(async () => {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-01T00:00:00.000Z",
+              dayCount: 1,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-2",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: {
+                  id: "stay-prev",
+                  name: "Previous Hotel",
+                  notes: null,
+                  status: "booked",
+                  costCents: null,
+                  link: null,
+                  checkInTime: null,
+                  checkOutTime: "08:00",
+                  location: null,
+                },
+                dayPlanItems: [
+                  {
+                    id: "item-1",
+                    title: "Museum",
+                    fromTime: "09:00",
+                    toTime: "11:00",
+                    contentJson: JSON.stringify({
+                      type: "doc",
+                      content: [{ type: "paragraph", content: [{ type: "text", text: "Visit" }] }],
+                    }),
+                    costCents: null,
+                    linkUrl: null,
+                    location: null,
+                  },
+                ],
+                travelSegments: [
+                  {
+                    id: "segment-1",
+                    fromItemType: "dayPlanItem",
+                    fromItemId: "item-1",
+                    toItemType: "accommodation",
+                    toItemId: "stay-prev",
+                    transportType: "car",
+                    durationMinutes: 60,
+                    distanceKm: null,
+                    linkUrl: null,
+                  },
+                ],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-2" />
+      </I18nProvider>,
+    );
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+    const segments = screen.getAllByTestId("trip-day-gantt-segment");
+    expect(segments.some((segment) => segment.getAttribute("data-kind") === "travel")).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
   it("renders a day plan time-range chip as HH:mm - HH:mm", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
