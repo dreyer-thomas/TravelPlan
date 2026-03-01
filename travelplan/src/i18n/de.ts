@@ -226,7 +226,7 @@ const de: Dictionary = {
   "trips.plan.editItem": "Element bearbeiten",
   "trips.plan.saveNew": "Element speichern",
   "trips.plan.saveUpdate": "Änderungen speichern",
-  "trips.plan.deleteItem": "Element löschen",
+  "trips.plan.deleteItem": "Löschen",
   "trips.plan.editItemAria": "Planpunkt bearbeiten",
   "trips.plan.deleteItemAria": "Planpunkt löschen",
   "trips.plan.deleteConfirm": "Diesen Planpunkt löschen?",

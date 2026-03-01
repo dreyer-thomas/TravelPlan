@@ -1,6 +1,6 @@
 # Story 2.26: Move Day Item Delete Into Dialog
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -30,10 +30,10 @@ so that I don’t accidentally delete items by misclicking small adjacent button
 
 ## Tasks / Subtasks
 
-- [ ] UI: remove inline delete icon from day plan item card (AC: 1)
-- [ ] UI: add delete action to day plan item dialog footer (AC: 2, 5)
-- [ ] Behavior: wire delete action to existing delete flow and close dialog (AC: 3)
-- [ ] State update: ensure day view updates without full refresh (AC: 4)
+- [x] UI: remove inline delete icon from day plan item card (AC: 1)
+- [x] UI: add delete action to day plan item dialog footer (AC: 2, 5)
+- [x] Behavior: wire delete action to existing delete flow and close dialog (AC: 3)
+- [x] State update: ensure day view updates without full refresh (AC: 4)
 
 ## Dev Notes
 
@@ -102,8 +102,8 @@ so that I don’t accidentally delete items by misclicking small adjacent button
 
 ## Story Completion Status
 
-- Status set to **ready-for-dev**.
-- Completion note: Delete action moved into day plan item dialog; inline card delete removed.
+- Status set to **review**.
+- Completion note: Delete action moved into day plan item dialog; inline card delete removed and dialog-driven delete updates the view without refresh.
 
 ## Dev Agent Record
 
@@ -111,21 +111,38 @@ so that I don’t accidentally delete items by misclicking small adjacent button
 
 Codex (GPT-5)
 
+### Implementation Plan
+
+- Remove inline delete control and route deletes through the plan dialog footer.
+- Keep existing delete confirmation and optimistic state updates.
+- Add dialog-specific tests for delete visibility and action.
+
 ### Debug Log References
 
-- Built story context for moving delete action into day item dialog.
+- Removed inline delete icon, wired dialog delete, and adjusted layout tests.
 
 ### Completion Notes List
 
-- Remove inline delete icon; add dialog delete action for existing items only.
-- Maintain confirmation and refreshless state updates.
+- Removed inline delete icon from day plan cards.
+- Added dialog delete action for existing items with confirmation and close-on-success flow.
+- Updated dialog and day view tests; full `npm test` run passing.
+- Aligned dialog delete placement/label and added regression coverage for inline delete removal.
 
 ### File List
 
 - `_bmad-output/implementation-artifacts/2-26-move-day-item-delete-into-dialog.md`
-- `_bmad-output/implementation-artifacts/2-13-day-view-plan-item-add-edit-delete-icon-actions.md`
-- `_bmad-output/implementation-artifacts/2-21-day-plan-item-from-to-time-and-card-tag.md`
-- `_bmad-output/planning-artifacts/epics.md`
-- `_bmad-output/planning-artifacts/architecture.md`
-- `_bmad-output/planning-artifacts/prd.md`
-- `_bmad-output/planning-artifacts/ux-design-specification.md`
+- `.codex/.codex-global-state.json`
+- `.codex/models_cache.json`
+- `.codex/vendor_imports/skills-curated-cache.json`
+- `_bmad-output/implementation-artifacts/sprint-status.yaml`
+- `travelplan/src/components/features/trips/TripDayView.tsx`
+- `travelplan/src/components/features/trips/TripDayPlanDialog.tsx`
+- `travelplan/src/i18n/en.ts`
+- `travelplan/src/i18n/de.ts`
+- `travelplan/test/tripDayViewLayout.test.tsx`
+- `travelplan/test/tripDayPlanDialog.test.tsx`
+
+## Change Log
+
+- 2026-03-01: Moved day plan item delete into dialog footer, removed inline delete icon, and updated tests.
+- 2026-03-01: Adjusted dialog delete placement/label and added inline delete regression coverage.

@@ -7,7 +7,14 @@ import { I18nProvider } from "@/i18n/provider";
 import type { ReactNode } from "react";
 
 const planDialogMockState = vi.hoisted(() => ({
-  lastProps: null as null | { open: boolean; mode: "add" | "edit"; item: { id: string; linkUrl: string | null } | null },
+  lastProps: null as null | {
+    open: boolean;
+    mode: "add" | "edit";
+    item: { id: string; linkUrl: string | null } | null;
+    onDelete?: (itemId: string) => Promise<boolean>;
+    onClose: () => void;
+    onSaved: () => void;
+  },
 }));
 const navigationMockState = vi.hoisted(() => ({
   search: "",
@@ -22,13 +29,22 @@ vi.mock("@/components/features/trips/TripDayPlanDialog", () => ({
     open: boolean;
     mode: "add" | "edit";
     item: { id: string; linkUrl: string | null } | null;
+    onDelete?: (itemId: string) => Promise<boolean>;
+    onClose: () => void;
+    onSaved: () => void;
   }) => {
     planDialogMockState.lastProps = props;
+    if (!props.open) return null;
     return (
       <div data-testid="plan-dialog">
         <span data-testid="plan-dialog-mode">{props.mode}</span>
         <span data-testid="plan-dialog-item-id">{props.item?.id ?? "none"}</span>
         <span data-testid="plan-dialog-item-link">{props.item?.linkUrl ?? "none"}</span>
+        {props.mode === "edit" && props.item ? (
+          <button type="button" onClick={() => void props.onDelete?.(props.item.id)}>
+            Delete plan item
+          </button>
+        ) : null}
       </div>
     );
   },
@@ -931,9 +947,12 @@ describe("TripDayView layout", () => {
     expect(screen.getAllByRole("button", { name: "Edit stay" }).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Add plan item" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit plan item" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Delete plan item" })).toBeInTheDocument();
-    expect(screen.getByTestId("plan-dialog-mode")).toHaveTextContent("add");
-    expect(screen.getByTestId("plan-dialog-item-id")).toHaveTextContent("none");
+    const planItemActions = screen.getByTestId("day-plan-item-actions");
+    expect(within(planItemActions).getAllByRole("button")).toHaveLength(1);
+    expect(within(planItemActions).getByTestId("day-plan-item-edit")).toBeInTheDocument();
+    expect(screen.queryAllByRole("button", { name: "Delete plan item" })).toHaveLength(0);
+    expect(screen.queryByTestId("plan-dialog-mode")).toBeNull();
+    expect(screen.queryByTestId("plan-dialog-item-id")).toBeNull();
     expect(screen.getAllByTestId("day-map-marker")).toHaveLength(3);
     expect(screen.getByTestId("day-map-polyline")).toBeInTheDocument();
 
@@ -1491,7 +1510,7 @@ describe("TripDayView layout", () => {
     vi.unstubAllGlobals();
   });
 
-  it("deletes a day plan item from row icon action and updates the visible list", async () => {
+  it("deletes a day plan item from dialog action and updates the visible list", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
     const items = [
@@ -1586,6 +1605,9 @@ describe("TripDayView layout", () => {
     );
 
     expect((await screen.findAllByText("Museum visit")).length).toBeGreaterThan(0);
+    expect(screen.queryAllByRole("button", { name: "Delete plan item" })).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Edit plan item" }));
+    await waitFor(() => expect(planDialogMockState.lastProps?.open).toBe(true));
     fireEvent.click(screen.getByRole("button", { name: "Delete plan item" }));
 
     await waitFor(() =>

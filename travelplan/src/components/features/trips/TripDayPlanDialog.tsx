@@ -66,6 +66,7 @@ type TripDayPlanDialogProps = {
   tripId: string;
   day: TripDay | null;
   item: DayPlanItem | null;
+  onDelete?: (itemId: string) => Promise<boolean>;
   onClose: () => void;
   onSaved: () => void;
 };
@@ -147,11 +148,21 @@ const parseAmountToCents = (rawValue: string): number | null => {
   return Math.round(amount * 100);
 };
 
-export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClose, onSaved }: TripDayPlanDialogProps) {
+export default function TripDayPlanDialog({
+  open,
+  mode,
+  tripId,
+  day,
+  item,
+  onDelete,
+  onClose,
+  onSaved,
+}: TripDayPlanDialogProps) {
   const { t } = useI18n();
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [loadingInit, setLoadingInit] = useState(false);
   const [contentJson, setContentJson] = useState<string>(toDocString(emptyDoc));
   const [titleInput, setTitleInput] = useState<string>("");
@@ -329,7 +340,8 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
   }, [day, t]);
 
   const saveLabel = mode === "edit" ? t("trips.plan.saveUpdate") : t("trips.plan.saveNew");
-  const isBusy = saving || loadingInit;
+  const isBusy = saving || deleting || loadingInit;
+  const canDelete = Boolean(editingItemId && onDelete);
 
   const resolveApiError = useCallback(
     (code: string | undefined, fallback: string) => {
@@ -449,6 +461,16 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
       setSaving(false);
     }
   };
+
+  const handleDelete = useCallback(async () => {
+    if (!editingItemId || !onDelete) return;
+    setDeleting(true);
+    const deleted = await onDelete(editingItemId);
+    setDeleting(false);
+    if (deleted) {
+      onClose();
+    }
+  }, [editingItemId, onClose, onDelete]);
 
   const handleInsertLink = () => {
     if (!editor) return;
@@ -877,12 +899,21 @@ export default function TripDayPlanDialog({ open, mode, tripId, day, item, onClo
         </Box>
       </DialogContent>
       <DialogActions sx={{ justifyContent: "space-between" }}>
-        <Button onClick={onClose} disabled={isBusy}>
-          {t("common.cancel")}
-        </Button>
-        <Button variant="contained" onClick={handleSave} disabled={isBusy || !day}>
-          {saving ? <CircularProgress size={22} /> : saveLabel}
-        </Button>
+        <Box display="flex" alignItems="center" gap={1}>
+          <Button onClick={onClose} disabled={isBusy}>
+            {t("common.cancel")}
+          </Button>
+          {canDelete ? (
+            <Button color="error" onClick={() => void handleDelete()} disabled={isBusy}>
+              {t("trips.plan.deleteItem")}
+            </Button>
+          ) : null}
+        </Box>
+        <Box display="flex" alignItems="center" gap={1}>
+          <Button variant="contained" onClick={handleSave} disabled={isBusy || !day}>
+            {saving ? <CircularProgress size={22} /> : saveLabel}
+          </Button>
+        </Box>
       </DialogActions>
       <Dialog
         open={Boolean(fullscreenImage)}

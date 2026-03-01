@@ -603,10 +603,10 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
 
   const handleDeletePlan = useCallback(
     async (itemId: string) => {
-      if (!day) return;
+      if (!day) return false;
 
       const confirmed = window.confirm(t("trips.plan.deleteConfirm"));
-      if (!confirmed) return;
+      if (!confirmed) return false;
 
       const snapshot = planItemsRef.current;
       const removedIndex = snapshot.findIndex((item) => item.id === itemId);
@@ -636,7 +636,9 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
             });
           }
           setError(resolveApiError(body.error?.code));
+          return false;
         }
+        return true;
       } catch {
         if (removedItem) {
           setPlanItems((current) => {
@@ -646,6 +648,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
           });
         }
         setError(resolveApiError("network_error"));
+        return false;
       }
     },
     [day, ensureCsrfToken, resolveApiError, t, tripId],
@@ -1523,25 +1526,16 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                                 onImageClick={(imageUrl, alt) => setFullscreenImage({ imageUrl, alt })}
                               />
                             </Box>
-                            <Box display="flex" alignItems="center" gap={0.5}>
+                            <Box display="flex" alignItems="center" gap={0.5} data-testid="day-plan-item-actions">
                               <IconButton
                                 size="small"
                                 aria-label={t("trips.plan.editItemAria")}
                                 title={t("trips.plan.editItemAria")}
                                 onClick={() => handleOpenEditPlan(item)}
+                                data-testid="day-plan-item-edit"
                               >
                                 <SvgIcon fontSize="inherit">
                                   <path d="M3 17.25V21h3.75l11-11-3.75-3.75-11 11zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66z" />
-                                </SvgIcon>
-                              </IconButton>
-                              <IconButton
-                                size="small"
-                                aria-label={t("trips.plan.deleteItemAria")}
-                                title={t("trips.plan.deleteItemAria")}
-                                onClick={() => void handleDeletePlan(item.id)}
-                              >
-                                <SvgIcon fontSize="inherit">
-                                  <path d="M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-3.5l-1-1z" />
                                 </SvgIcon>
                               </IconButton>
                             </Box>
@@ -1716,6 +1710,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
             tripId={tripId}
             day={day}
             item={selectedPlanItem}
+            onDelete={handleDeletePlan}
             onClose={() => {
               setPlanDialogMode(null);
               setSelectedPlanItem(null);

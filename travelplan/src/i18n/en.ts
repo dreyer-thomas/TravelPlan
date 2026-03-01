@@ -226,7 +226,7 @@ const en: Dictionary = {
   "trips.plan.editItem": "Edit item",
   "trips.plan.saveNew": "Save item",
   "trips.plan.saveUpdate": "Update item",
-  "trips.plan.deleteItem": "Delete item",
+  "trips.plan.deleteItem": "Delete",
   "trips.plan.editItemAria": "Edit plan item",
   "trips.plan.deleteItemAria": "Delete plan item",
   "trips.plan.deleteConfirm": "Delete this plan item?",

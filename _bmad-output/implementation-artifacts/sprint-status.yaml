@@ -77,8 +77,9 @@ development_status:
   2-23-day-view-travel-segments-between-items: done
   2-24-travel-segment-time-tags: done
   2-25-copy-accommodation-from-previous-night: done
-  2-26-move-day-item-delete-into-dialog: ready-for-dev
+  2-26-move-day-item-delete-into-dialog: done
   2-27-change-font: ready-for-dev
+  2-28-map-full-page-view: ready-for-dev
   epic-2-retrospective: optional
 
   epic-3: backlog

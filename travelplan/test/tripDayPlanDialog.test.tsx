@@ -408,6 +408,105 @@ describe("TripDayPlanDialog", () => {
     expect(onSaved).toHaveBeenCalledTimes(1);
   });
 
+  it("shows delete action only for existing items and closes after delete", async () => {
+    const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
+
+    const fetchMock = vi.fn(async (input: RequestInfo, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.url;
+
+      if (url.includes("/api/auth/csrf")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
+        };
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ data: {}, error: null }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+    const onDelete = vi.fn(async () => true);
+    const onClose = vi.fn();
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayPlanDialog
+          open
+          mode="edit"
+          tripId="trip-1"
+          day={{ id: "day-1", dayIndex: 1 }}
+          item={{
+            id: "item-1",
+            tripDayId: "day-1",
+            title: "Old Town walk",
+            fromTime: "10:00",
+            toTime: "11:00",
+            contentJson: tiptapMocks.sampleDoc,
+            costCents: 2100,
+            linkUrl: "https://example.com/original",
+            location: { lat: 48.1372, lng: 11.5756, label: "Old Town" },
+            createdAt: "2026-12-01T09:00:00.000Z",
+          }}
+          onDelete={onDelete}
+          onClose={onClose}
+          onSaved={() => undefined}
+        />
+      </I18nProvider>,
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const deleteButton = screen.getByRole("button", { name: "Delete" });
+    fireEvent.click(deleteButton);
+    await waitFor(() => expect(onDelete).toHaveBeenCalledWith("item-1"));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+
+  it("hides delete action for new items", async () => {
+    const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
+
+    const fetchMock = vi.fn(async (input: RequestInfo) => {
+      const url = typeof input === "string" ? input : input.url;
+
+      if (url.includes("/api/auth/csrf")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
+        };
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ data: {}, error: null }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayPlanDialog
+          open
+          mode="add"
+          tripId="trip-1"
+          day={{ id: "day-1", dayIndex: 1 }}
+          item={null}
+          onClose={() => undefined}
+          onSaved={() => undefined}
+        />
+      </I18nProvider>,
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+  });
+
   it("shows title validation error and blocks completion when server rejects empty title", async () => {
     const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
 
