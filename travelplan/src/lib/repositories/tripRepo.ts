@@ -40,6 +40,7 @@ export type TripDaySummary = {
   dayIndex: number;
   imageUrl: string | null;
   note: string | null;
+  updatedAt: Date;
   plannedCostSubtotal: number;
   missingAccommodation: boolean;
   missingPlan: boolean;

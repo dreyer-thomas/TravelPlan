@@ -63,51 +63,55 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
         accommodationCostTotalCents: trip.accommodationCostTotalCents,
         heroImageUrl: trip.heroImageUrl,
       },
-      days: trip.days.map((day) => ({
-        id: day.id,
-        date: day.date.toISOString(),
-        dayIndex: day.dayIndex,
-        imageUrl: day.imageUrl,
-        note: day.note,
-        updatedAt: day.updatedAt.toISOString(),
-        plannedCostSubtotal: day.plannedCostSubtotal,
-        missingAccommodation: day.missingAccommodation,
-        missingPlan: day.missingPlan,
-        accommodation: day.accommodation
-          ? {
-              id: day.accommodation.id,
-              name: day.accommodation.name,
-              notes: day.accommodation.notes,
-              status: day.accommodation.status,
-              costCents: day.accommodation.costCents,
-              link: day.accommodation.link,
-              checkInTime: day.accommodation.checkInTime ?? null,
-              checkOutTime: day.accommodation.checkOutTime ?? null,
-              location: day.accommodation.location,
-            }
-          : null,
-        dayPlanItems: day.dayPlanItems.map((item) => ({
-          id: item.id,
-          title: item.title,
-          fromTime: item.fromTime,
-          toTime: item.toTime,
-          contentJson: item.contentJson,
-          costCents: item.costCents,
-          linkUrl: item.linkUrl,
-          location: item.location,
-        })),
-        travelSegments: day.travelSegments.map((segment) => ({
-          id: segment.id,
-          fromItemType: segment.fromItemType,
-          fromItemId: segment.fromItemId,
-          toItemType: segment.toItemType,
-          toItemId: segment.toItemId,
-          transportType: segment.transportType,
-          durationMinutes: segment.durationMinutes,
-          distanceKm: segment.distanceKm,
-          linkUrl: segment.linkUrl,
-        })),
-      })),
+      days: trip.days.map((day) => {
+        const dayUpdatedAt = (day as { updatedAt?: Date }).updatedAt ?? day.date;
+
+        return {
+          id: day.id,
+          date: day.date.toISOString(),
+          dayIndex: day.dayIndex,
+          imageUrl: day.imageUrl,
+          note: day.note,
+          updatedAt: dayUpdatedAt.toISOString(),
+          plannedCostSubtotal: day.plannedCostSubtotal,
+          missingAccommodation: day.missingAccommodation,
+          missingPlan: day.missingPlan,
+          accommodation: day.accommodation
+            ? {
+                id: day.accommodation.id,
+                name: day.accommodation.name,
+                notes: day.accommodation.notes,
+                status: day.accommodation.status,
+                costCents: day.accommodation.costCents,
+                link: day.accommodation.link,
+                checkInTime: day.accommodation.checkInTime ?? null,
+                checkOutTime: day.accommodation.checkOutTime ?? null,
+                location: day.accommodation.location,
+              }
+            : null,
+          dayPlanItems: day.dayPlanItems.map((item) => ({
+            id: item.id,
+            title: item.title,
+            fromTime: item.fromTime,
+            toTime: item.toTime,
+            contentJson: item.contentJson,
+            costCents: item.costCents,
+            linkUrl: item.linkUrl,
+            location: item.location,
+          })),
+          travelSegments: day.travelSegments.map((segment) => ({
+            id: segment.id,
+            fromItemType: segment.fromItemType,
+            fromItemId: segment.fromItemId,
+            toItemType: segment.toItemType,
+            toItemId: segment.toItemId,
+            transportType: segment.transportType,
+            durationMinutes: segment.durationMinutes,
+            distanceKm: segment.distanceKm,
+            linkUrl: segment.linkUrl,
+          })),
+        };
+      }),
     });
   } catch {
     return fail(apiError("server_error", "Unable to load trip"), 500);
@@ -173,51 +177,55 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
         accommodationCostTotalCents: detail.accommodationCostTotalCents,
         heroImageUrl: detail.heroImageUrl,
       },
-      days: detail.days.map((day) => ({
-        id: day.id,
-        date: day.date.toISOString(),
-        dayIndex: day.dayIndex,
-        imageUrl: day.imageUrl,
-        note: day.note,
-        updatedAt: day.updatedAt.toISOString(),
-        plannedCostSubtotal: day.plannedCostSubtotal,
-        missingAccommodation: day.missingAccommodation,
-        missingPlan: day.missingPlan,
-        accommodation: day.accommodation
-          ? {
-              id: day.accommodation.id,
-              name: day.accommodation.name,
-              notes: day.accommodation.notes,
-              status: day.accommodation.status,
-              costCents: day.accommodation.costCents,
-              link: day.accommodation.link,
-              checkInTime: day.accommodation.checkInTime ?? null,
-              checkOutTime: day.accommodation.checkOutTime ?? null,
-              location: day.accommodation.location,
-            }
-          : null,
-        dayPlanItems: day.dayPlanItems.map((item) => ({
-          id: item.id,
-          title: item.title,
-          fromTime: item.fromTime,
-          toTime: item.toTime,
-          contentJson: item.contentJson,
-          costCents: item.costCents,
-          linkUrl: item.linkUrl,
-          location: item.location,
-        })),
-        travelSegments: day.travelSegments.map((segment) => ({
-          id: segment.id,
-          fromItemType: segment.fromItemType,
-          fromItemId: segment.fromItemId,
-          toItemType: segment.toItemType,
-          toItemId: segment.toItemId,
-          transportType: segment.transportType,
-          durationMinutes: segment.durationMinutes,
-          distanceKm: segment.distanceKm,
-          linkUrl: segment.linkUrl,
-        })),
-      })),
+      days: detail.days.map((day) => {
+        const dayUpdatedAt = (day as { updatedAt?: Date }).updatedAt ?? day.date;
+
+        return {
+          id: day.id,
+          date: day.date.toISOString(),
+          dayIndex: day.dayIndex,
+          imageUrl: day.imageUrl,
+          note: day.note,
+          updatedAt: dayUpdatedAt.toISOString(),
+          plannedCostSubtotal: day.plannedCostSubtotal,
+          missingAccommodation: day.missingAccommodation,
+          missingPlan: day.missingPlan,
+          accommodation: day.accommodation
+            ? {
+                id: day.accommodation.id,
+                name: day.accommodation.name,
+                notes: day.accommodation.notes,
+                status: day.accommodation.status,
+                costCents: day.accommodation.costCents,
+                link: day.accommodation.link,
+                checkInTime: day.accommodation.checkInTime ?? null,
+                checkOutTime: day.accommodation.checkOutTime ?? null,
+                location: day.accommodation.location,
+              }
+            : null,
+          dayPlanItems: day.dayPlanItems.map((item) => ({
+            id: item.id,
+            title: item.title,
+            fromTime: item.fromTime,
+            toTime: item.toTime,
+            contentJson: item.contentJson,
+            costCents: item.costCents,
+            linkUrl: item.linkUrl,
+            location: item.location,
+          })),
+          travelSegments: day.travelSegments.map((segment) => ({
+            id: segment.id,
+            fromItemType: segment.fromItemType,
+            fromItemId: segment.fromItemId,
+            toItemType: segment.toItemType,
+            toItemId: segment.toItemId,
+            transportType: segment.transportType,
+            durationMinutes: segment.durationMinutes,
+            distanceKm: segment.distanceKm,
+            linkUrl: segment.linkUrl,
+          })),
+        };
+      }),
     });
   } catch {
     return fail(apiError("server_error", "Unable to update trip"), 500);
