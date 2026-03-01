@@ -188,7 +188,7 @@ export default function TripDayTravelSegmentDialog({
   const validate = () => {
     const nextErrors: { durationMinutes?: string; distanceKm?: string; linkUrl?: string } = {};
     const durationValue = parseTimeToMinutes(durationInput);
-    if (!Number.isFinite(durationValue) || durationValue <= 0) {
+    if (durationValue === null || !Number.isFinite(durationValue) || durationValue <= 0) {
       nextErrors.durationMinutes = t("trips.travelSegment.durationRequired");
     }
 
