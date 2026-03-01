@@ -33,7 +33,7 @@ type SegmentItem = {
 
 type TravelSegment = {
   id: string;
-  tripDayId: string;
+  tripDayId?: string;
   fromItemType: "accommodation" | "dayPlanItem";
   fromItemId: string;
   toItemType: "accommodation" | "dayPlanItem";
