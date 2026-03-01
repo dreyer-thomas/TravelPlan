@@ -1,4 +1,4 @@
-# generated: 2026-02-12 15:40:42 CET
+# generated: 2026-03-01 13:08:00 CET
 # project: TravelPlan
 # project_key: NOKEY
 # tracking_system: file-system
@@ -33,7 +33,7 @@
 # - SM typically creates next story after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
-generated: 2026-02-12 15:40:42 CET
+generated: 2026-03-01 13:08:00 CET
 project: TravelPlan
 project_key: NOKEY
 tracking_system: file-system
@@ -91,10 +91,15 @@ development_status:
   3-5-day-view-map-panel-with-ordered-pins: done
   epic-3-retrospective: optional
 
-  epic-4: backlog
-  4-1-invite-viewer-or-contributor-by-email-with-temp-password: backlog
-  4-2-enforce-first-login-password-change: backlog
-  4-3-viewer-access-with-comments-and-votes: backlog
-  4-4-contributor-full-edit-permissions: backlog
-  4-5-edit-own-comments: backlog
+  epic-4: in-progress
+  4-1-manage-trip-bucket-list-items: review
+  4-2-add-bucket-list-item-to-day-plan: backlog
   epic-4-retrospective: optional
+
+  epic-5: backlog
+  5-1-invite-viewer-or-contributor-by-email-with-temp-password: backlog
+  5-2-enforce-first-login-password-change: backlog
+  5-3-viewer-access-with-comments-and-votes: backlog
+  5-4-contributor-full-edit-permissions: backlog
+  5-5-edit-own-comments: backlog
+  epic-5-retrospective: optional

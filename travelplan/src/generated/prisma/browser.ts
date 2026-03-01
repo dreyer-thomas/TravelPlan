@@ -62,3 +62,8 @@ export type AccommodationImage = Prisma.AccommodationImageModel
  * 
  */
 export type DayPlanItemImage = Prisma.DayPlanItemImageModel
+/**
+ * Model TripBucketListItem
+ * 
+ */
+export type TripBucketListItem = Prisma.TripBucketListItemModel

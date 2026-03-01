@@ -26,6 +26,7 @@ import TripDayGanttBar from "@/components/features/trips/TripDayGanttBar";
 import { buildOverviewGanttSegments } from "@/components/features/trips/TripDayGanttOverviewData";
 import { deriveCoverageSummary } from "@/components/features/trips/TripDayGanttSegments";
 import TripOverviewMapPanel from "@/components/features/trips/TripOverviewMapPanel";
+import TripBucketListPanel from "@/components/features/trips/TripBucketListPanel";
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
 
@@ -473,6 +474,8 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
           </Paper>
 
           <TripOverviewMapPanel points={overviewMapData.points} missingLocations={overviewMapData.missingLocations} />
+
+          <TripBucketListPanel tripId={detail.trip.id} />
 
           <Paper
             elevation={1}

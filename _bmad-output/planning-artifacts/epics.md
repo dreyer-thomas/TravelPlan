@@ -46,6 +46,8 @@ FR26: Maps integration for overall trip visualization and day-plan mapping.
 FR27: Ability to start a trip plan using Google (start + destination).
 FR28: Owners can grant a contributor role with full edit permissions.
 FR29: Users can reset their password via email.
+FR30: Users can add, view, and delete trip-level bucket list items for unplanned places.
+FR31: Users can add a bucket list item to a day plan and remove it from the bucket list.
 
 ### NonFunctional Requirements
 
@@ -101,15 +103,17 @@ FR18: Epic 2 - Core Trip Planning (Days, Stays, Plans, Budget, Export)
 FR19: Epic 2 - Core Trip Planning (Days, Stays, Plans, Budget, Export)
 FR20: Epic 2 - Core Trip Planning (Days, Stays, Plans, Budget, Export)
 FR21: Epic 2 - Core Trip Planning (Days, Stays, Plans, Budget, Export)
-FR22: Epic 4 - Sharing & Light Contribution
-FR23: Epic 4 - Sharing & Light Contribution
-FR24: Epic 4 - Sharing & Light Contribution
+FR22: Epic 5 - Sharing & Light Contribution
+FR23: Epic 5 - Sharing & Light Contribution
+FR24: Epic 5 - Sharing & Light Contribution
 FR25: Epic 2 - Core Trip Planning (Days, Stays, Plans, Budget, Export)
 FR34: Epic 2 - Core Trip Planning (Days, Stays, Plans, Budget, Export)
 FR26: Epic 3 - Route & Map-Based Planning
 FR27: Epic 3 - Route & Map-Based Planning
-FR28: Epic 4 - Sharing & Light Contribution
+FR28: Epic 5 - Sharing & Light Contribution
 FR29: Epic 1 - Secure Access & Personal Workspace
+FR30: Epic 4 - Trip Bucket List (Idea Capture)
+FR31: Epic 4 - Trip Bucket List (Idea Capture)
 
 ## Epic List
 
@@ -125,7 +129,11 @@ Users can create trips, manage day-by-day planning, accommodations, day plans, a
 Users can visualize trips and days on maps and seed a trip from Google start + destination.
 **FRs covered:** FR26, FR27
 
-### Epic 4: Sharing & Light Contribution
+### Epic 4: Trip Bucket List (Idea Capture)
+Users can collect unplanned places at the trip level and add them to day plans later.
+**FRs covered:** FR30, FR31
+
+### Epic 5: Sharing & Light Contribution
 Users can share trips with viewers who can comment/suggest without changing core details.
 **FRs covered:** FR22, FR23, FR24, FR28
 
@@ -745,11 +753,66 @@ so that I can understand the day route at a glance.
 **When** the map renders
 **Then** the missing place is excluded and flagged as missing location
 
-## Epic 4: Sharing & Light Contribution
+## Epic 4: Trip Bucket List (Idea Capture)
+
+Users can collect unplanned places at the trip level and add them to day plans later.
+
+### Story 4.1: Manage Trip Bucket List Items
+
+As a trip planner,
+I want to add, view, and delete bucket list items at the trip level,
+So that I can capture ideas without assigning them to a specific day yet.
+
+**FRs covered:** FR30
+
+**Acceptance Criteria:**
+
+**Given** I am viewing a trip overview
+**When** I open the bucket list view
+**Then** I see existing bucket list items ordered alphabetically by title
+
+**Given** I add a bucket list item with title, description, and position text
+**When** I save the item
+**Then** the item is added to the bucket list
+**And** the app attempts to geocode the position text
+
+**Given** the position text cannot be geocoded
+**When** I save the item
+**Then** the position text is retained
+**And** the item is saved without lat/long
+
+**Given** I delete a bucket list item
+**When** I confirm deletion
+**Then** the item is removed from the bucket list
+
+### Story 4.2: Add Bucket List Item to Day Plan
+
+As a trip planner,
+I want to add a bucket list item to a specific day plan,
+So that the idea becomes a scheduled day item and no longer stays in the bucket list.
+
+**FRs covered:** FR31
+
+**Acceptance Criteria:**
+
+**Given** I am viewing a trip day
+**When** I see the bucket list panel below the map
+**Then** I can select an item and add it to the current day
+
+**Given** I add a bucket list item to the day
+**When** the day item is created
+**Then** title, description, and position text carry over
+**And** any lat/long stored with the bucket item is copied
+
+**Given** I add a bucket list item to the day
+**When** the day item is created
+**Then** the bucket list item is removed from the bucket list
+
+## Epic 5: Sharing & Light Contribution
 
 Users can share trips with viewers who can comment/suggest without changing core details.
 
-### Story 4.1: Invite Viewer or Contributor by Email With Temp Password
+### Story 5.1: Invite Viewer or Contributor by Email With Temp Password
 
 As a trip owner,
 I want to add a viewer or contributor by email with a temporary password,
@@ -767,7 +830,7 @@ So that I can grant access without sending email invitations yet.
 **When** I attempt to add the person
 **Then** I see an error and the person is not added
 
-### Story 4.2: Enforce First-Login Password Change
+### Story 5.2: Enforce First-Login Password Change
 
 As a newly invited user,
 I want to change my temporary password on first login,
@@ -785,7 +848,7 @@ So that my account is secure.
 **When** I save it
 **Then** I can proceed into the app
 
-### Story 4.3: Viewer Access With Comments and Votes
+### Story 5.3: Viewer Access With Comments and Votes
 
 As a viewer,
 I want to view the trip and add comments or votes,
@@ -807,7 +870,7 @@ So that I can contribute suggestions without changing core details.
 **When** I add a comment or vote on a trip element
 **Then** my input is saved and visible on that element
 
-### Story 4.4: Contributor Full Edit Permissions
+### Story 5.4: Contributor Full Edit Permissions
 
 As a contributor,
 I want to edit trip data like the owner,
@@ -821,7 +884,7 @@ So that I can help maintain the plan directly.
 **When** I edit trip details, accommodations, or day plans
 **Then** my changes are saved and visible
 
-### Story 4.5: Edit Own Comments
+### Story 5.5: Edit Own Comments
 
 As a contributor or viewer,
 I want to edit my own comments,

@@ -392,7 +392,8 @@ export const ModelName = {
   Accommodation: 'Accommodation',
   DayPlanItem: 'DayPlanItem',
   AccommodationImage: 'AccommodationImage',
-  DayPlanItemImage: 'DayPlanItemImage'
+  DayPlanItemImage: 'DayPlanItemImage',
+  TripBucketListItem: 'TripBucketListItem'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -408,7 +409,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "passwordResetToken" | "trip" | "tripDay" | "travelSegment" | "accommodation" | "dayPlanItem" | "accommodationImage" | "dayPlanItemImage"
+    modelProps: "user" | "passwordResetToken" | "trip" | "tripDay" | "travelSegment" | "accommodation" | "dayPlanItem" | "accommodationImage" | "dayPlanItemImage" | "tripBucketListItem"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -1078,6 +1079,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    TripBucketListItem: {
+      payload: Prisma.$TripBucketListItemPayload<ExtArgs>
+      fields: Prisma.TripBucketListItemFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.TripBucketListItemFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripBucketListItemPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.TripBucketListItemFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripBucketListItemPayload>
+        }
+        findFirst: {
+          args: Prisma.TripBucketListItemFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripBucketListItemPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.TripBucketListItemFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripBucketListItemPayload>
+        }
+        findMany: {
+          args: Prisma.TripBucketListItemFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripBucketListItemPayload>[]
+        }
+        create: {
+          args: Prisma.TripBucketListItemCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripBucketListItemPayload>
+        }
+        createMany: {
+          args: Prisma.TripBucketListItemCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.TripBucketListItemCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripBucketListItemPayload>[]
+        }
+        delete: {
+          args: Prisma.TripBucketListItemDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripBucketListItemPayload>
+        }
+        update: {
+          args: Prisma.TripBucketListItemUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripBucketListItemPayload>
+        }
+        deleteMany: {
+          args: Prisma.TripBucketListItemDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.TripBucketListItemUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.TripBucketListItemUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripBucketListItemPayload>[]
+        }
+        upsert: {
+          args: Prisma.TripBucketListItemUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripBucketListItemPayload>
+        }
+        aggregate: {
+          args: Prisma.TripBucketListItemAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateTripBucketListItem>
+        }
+        groupBy: {
+          args: Prisma.TripBucketListItemGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TripBucketListItemGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.TripBucketListItemCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TripBucketListItemCountAggregateOutputType> | number
+        }
+      }
+    }
   }
 } & {
   other: {
@@ -1253,6 +1328,22 @@ export const DayPlanItemImageScalarFieldEnum = {
 } as const
 
 export type DayPlanItemImageScalarFieldEnum = (typeof DayPlanItemImageScalarFieldEnum)[keyof typeof DayPlanItemImageScalarFieldEnum]
+
+
+export const TripBucketListItemScalarFieldEnum = {
+  id: 'id',
+  tripId: 'tripId',
+  title: 'title',
+  description: 'description',
+  positionText: 'positionText',
+  locationLat: 'locationLat',
+  locationLng: 'locationLng',
+  locationLabel: 'locationLabel',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type TripBucketListItemScalarFieldEnum = (typeof TripBucketListItemScalarFieldEnum)[keyof typeof TripBucketListItemScalarFieldEnum]
 
 
 export const SortOrder = {
@@ -1450,6 +1541,7 @@ export type GlobalOmitConfig = {
   dayPlanItem?: Prisma.DayPlanItemOmit
   accommodationImage?: Prisma.AccommodationImageOmit
   dayPlanItemImage?: Prisma.DayPlanItemImageOmit
+  tripBucketListItem?: Prisma.TripBucketListItemOmit
 }
 
 /* Types for Logging */

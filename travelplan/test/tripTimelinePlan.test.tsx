@@ -22,6 +22,10 @@ vi.mock("@/components/features/trips/TripOverviewMapPanel", () => ({
   default: () => <div data-testid="overview-map-panel" />,
 }));
 
+vi.mock("@/components/features/trips/TripBucketListPanel", () => ({
+  default: () => <div data-testid="bucket-list-panel" />,
+}));
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
 }));
