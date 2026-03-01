@@ -1375,9 +1375,6 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                         altPrefix={previousStay.name}
                         onImageClick={(imageUrl, alt) => setFullscreenImage({ imageUrl, alt })}
                       />
-                      {previousStaySegment && previousSegmentTarget ? (
-                        <Box mt={0.5}>{renderTravelSegment(previousStaySegment, previousSegmentTarget)}</Box>
-                      ) : null}
                     </Box>
                   ) : (
                     <Typography variant="body2" sx={{ color: "rgba(31, 42, 46, 0.72)" }}>
@@ -1385,6 +1382,10 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                     </Typography>
                   )}
                 </Paper>
+
+                {previousStaySegment && previousSegmentTarget ? (
+                  <Box mt={-0.25}>{renderTravelSegment(previousStaySegment, previousSegmentTarget)}</Box>
+                ) : null}
 
                 {planItems.length === 0 ? (
                   <Paper

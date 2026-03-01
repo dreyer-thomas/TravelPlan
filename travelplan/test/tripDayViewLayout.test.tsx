@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import TripDayView from "@/components/features/trips/TripDayView";
 import { I18nProvider } from "@/i18n/provider";
@@ -30,6 +30,66 @@ vi.mock("@/components/features/trips/TripDayPlanDialog", () => ({
         <span data-testid="plan-dialog-item-id">{props.item?.id ?? "none"}</span>
         <span data-testid="plan-dialog-item-link">{props.item?.linkUrl ?? "none"}</span>
       </div>
+    );
+  },
+}));
+
+vi.mock("@/components/features/trips/TripDayTravelSegmentDialog", () => ({
+  default: (props: {
+    open: boolean;
+    segment: {
+      id: string;
+      fromItemType: "accommodation" | "dayPlanItem";
+      fromItemId: string;
+      toItemType: "accommodation" | "dayPlanItem";
+      toItemId: string;
+      transportType: "car" | "ship" | "flight";
+      durationMinutes: number;
+      distanceKm: number | null;
+      linkUrl: string | null;
+    } | null;
+    fromItem: { id: string; type: "accommodation" | "dayPlanItem" } | null;
+    toItem: { id: string; type: "accommodation" | "dayPlanItem" } | null;
+    onSaved: (segment: {
+      id: string;
+      fromItemType: "accommodation" | "dayPlanItem";
+      fromItemId: string;
+      toItemType: "accommodation" | "dayPlanItem";
+      toItemId: string;
+      transportType: "car" | "ship" | "flight";
+      durationMinutes: number;
+      distanceKm: number | null;
+      linkUrl: string | null;
+    }) => void;
+  }) => {
+    if (!props.open) return null;
+    const baseSegment =
+      props.segment ??
+      (props.fromItem && props.toItem
+        ? {
+            id: "segment-new",
+            fromItemType: props.fromItem.type,
+            fromItemId: props.fromItem.id,
+            toItemType: props.toItem.type,
+            toItemId: props.toItem.id,
+            transportType: "car" as const,
+            durationMinutes: 30,
+            distanceKm: null,
+            linkUrl: null,
+          }
+        : null);
+
+    return (
+      <button
+        type="button"
+        data-testid="segment-save"
+        onClick={() => {
+          if (!baseSegment) return;
+          props.onSaved({ ...baseSegment, durationMinutes: 60 });
+        }}
+      >
+        Save segment
+      </button>
     );
   },
 }));
@@ -1649,7 +1709,7 @@ describe("TripDayView layout", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders travel segments between timeline items", async () => {
+  it("renders travel segments between timeline items with time tags", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -1697,6 +1757,8 @@ describe("TripDayView layout", () => {
                   status: "planned",
                   costCents: null,
                   link: null,
+                  checkInTime: null,
+                  checkOutTime: null,
                   location: null,
                 },
                 dayPlanItems: [],
@@ -1715,6 +1777,8 @@ describe("TripDayView layout", () => {
                   status: "planned",
                   costCents: null,
                   link: null,
+                  checkInTime: "16:00",
+                  checkOutTime: "09:30",
                   location: null,
                 },
                 dayPlanItems: [
@@ -1735,7 +1799,7 @@ describe("TripDayView layout", () => {
                     id: "item-2",
                     title: "Noon",
                     fromTime: "12:00",
-                    toTime: "13:00",
+                    toTime: "23:30",
                     contentJson: JSON.stringify({
                       type: "doc",
                       content: [{ type: "paragraph", content: [{ type: "text", text: "Plan 2" }] }],
@@ -1743,6 +1807,41 @@ describe("TripDayView layout", () => {
                     costCents: null,
                     linkUrl: null,
                     location: null,
+                  },
+                ],
+                travelSegments: [
+                  {
+                    id: "segment-1",
+                    fromItemType: "accommodation",
+                    fromItemId: "stay-prev",
+                    toItemType: "dayPlanItem",
+                    toItemId: "item-1",
+                    transportType: "car",
+                    durationMinutes: 45,
+                    distanceKm: null,
+                    linkUrl: null,
+                  },
+                  {
+                    id: "segment-2",
+                    fromItemType: "dayPlanItem",
+                    fromItemId: "item-1",
+                    toItemType: "dayPlanItem",
+                    toItemId: "item-2",
+                    transportType: "car",
+                    durationMinutes: 30,
+                    distanceKm: null,
+                    linkUrl: null,
+                  },
+                  {
+                    id: "segment-3",
+                    fromItemType: "dayPlanItem",
+                    fromItemId: "item-2",
+                    toItemType: "accommodation",
+                    toItemId: "stay-current",
+                    transportType: "car",
+                    durationMinutes: 90,
+                    distanceKm: null,
+                    linkUrl: null,
                   },
                 ],
               },
@@ -1763,7 +1862,268 @@ describe("TripDayView layout", () => {
 
     await screen.findByRole("heading", { name: "Day 2", level: 5 });
     expect(screen.getAllByTestId("travel-segment")).toHaveLength(3);
-    expect(screen.getAllByText("Add travel segment")).toHaveLength(3);
+    expect(screen.getAllByText("Edit travel")).toHaveLength(3);
+    expect(screen.getByText("10:00 - 10:45")).toBeInTheDocument();
+    expect(screen.getByText("10:00 - 10:30")).toBeInTheDocument();
+    expect(screen.getByText("23:30 - 24:00")).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("updates travel segment time tags after save without full refresh", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/day-plan-items/images")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { images: [] }, error: null }),
+        };
+      }
+      if (url.includes("/accommodations/images")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { images: [] }, error: null }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-02T00:00:00.000Z",
+              dayCount: 2,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: true,
+                accommodation: {
+                  id: "stay-prev",
+                  name: "Prev Stay",
+                  notes: null,
+                  status: "planned",
+                  costCents: null,
+                  link: null,
+                  checkInTime: null,
+                  checkOutTime: null,
+                  location: null,
+                },
+                dayPlanItems: [],
+              },
+              {
+                id: "day-2",
+                date: "2026-12-02T00:00:00.000Z",
+                dayIndex: 2,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: {
+                  id: "stay-current",
+                  name: "Current Stay",
+                  notes: null,
+                  status: "planned",
+                  costCents: null,
+                  link: null,
+                  checkInTime: "16:00",
+                  checkOutTime: "09:30",
+                  location: null,
+                },
+                dayPlanItems: [
+                  {
+                    id: "item-1",
+                    title: "Morning",
+                    fromTime: "09:00",
+                    toTime: "10:00",
+                    contentJson: JSON.stringify({
+                      type: "doc",
+                      content: [{ type: "paragraph", content: [{ type: "text", text: "Plan" }] }],
+                    }),
+                    costCents: null,
+                    linkUrl: null,
+                    location: null,
+                  },
+                  {
+                    id: "item-2",
+                    title: "Noon",
+                    fromTime: "12:00",
+                    toTime: "23:30",
+                    contentJson: JSON.stringify({
+                      type: "doc",
+                      content: [{ type: "paragraph", content: [{ type: "text", text: "Plan 2" }] }],
+                    }),
+                    costCents: null,
+                    linkUrl: null,
+                    location: null,
+                  },
+                ],
+                travelSegments: [
+                  {
+                    id: "segment-1",
+                    fromItemType: "accommodation",
+                    fromItemId: "stay-prev",
+                    toItemType: "dayPlanItem",
+                    toItemId: "item-1",
+                    transportType: "car",
+                    durationMinutes: 45,
+                    distanceKm: null,
+                    linkUrl: null,
+                  },
+                  {
+                    id: "segment-2",
+                    fromItemType: "dayPlanItem",
+                    fromItemId: "item-1",
+                    toItemType: "dayPlanItem",
+                    toItemId: "item-2",
+                    transportType: "car",
+                    durationMinutes: 30,
+                    distanceKm: null,
+                    linkUrl: null,
+                  },
+                ],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-2" />
+      </I18nProvider>,
+    );
+
+    await screen.findByRole("heading", { name: "Day 2", level: 5 });
+    expect(screen.getByText("10:00 - 10:30")).toBeInTheDocument();
+
+    const segments = screen.getAllByTestId("travel-segment");
+    const targetSegment = segments.find(
+      (segment) => segment.getAttribute("data-from-id") === "item-1" && segment.getAttribute("data-to-id") === "item-2",
+    );
+    expect(targetSegment).toBeTruthy();
+
+    fireEvent.click(within(targetSegment as HTMLElement).getByRole("button", { name: "Edit travel" }));
+    fireEvent.click(await screen.findByTestId("segment-save"));
+    await screen.findByText("10:00 - 11:00");
+    vi.unstubAllGlobals();
+  });
+
+  it("hides travel segment time tags when the previous item has no end time", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/day-plan-items/images")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { images: [] }, error: null }),
+        };
+      }
+      if (url.includes("/accommodations/images")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { images: [] }, error: null }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-01T00:00:00.000Z",
+              dayCount: 1,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: {
+                  id: "stay-current",
+                  name: "Current Stay",
+                  notes: null,
+                  status: "planned",
+                  costCents: null,
+                  link: null,
+                  checkInTime: "16:00",
+                  checkOutTime: "09:30",
+                  location: null,
+                },
+                dayPlanItems: [
+                  {
+                    id: "item-1",
+                    title: "Open Slot",
+                    fromTime: "10:00",
+                    toTime: null,
+                    contentJson: JSON.stringify({
+                      type: "doc",
+                      content: [{ type: "paragraph", content: [{ type: "text", text: "Plan" }] }],
+                    }),
+                    costCents: null,
+                    linkUrl: null,
+                    location: null,
+                  },
+                ],
+                travelSegments: [
+                  {
+                    id: "segment-1",
+                    fromItemType: "dayPlanItem",
+                    fromItemId: "item-1",
+                    toItemType: "accommodation",
+                    toItemId: "stay-current",
+                    transportType: "car",
+                    durationMinutes: 45,
+                    distanceKm: null,
+                    linkUrl: null,
+                  },
+                ],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-1" />
+      </I18nProvider>,
+    );
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+    expect(screen.getAllByTestId("travel-segment")).toHaveLength(1);
+    expect(screen.queryByText("10:00 - 10:45")).not.toBeInTheDocument();
 
     vi.unstubAllGlobals();
   });

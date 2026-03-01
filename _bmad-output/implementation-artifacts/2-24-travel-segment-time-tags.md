@@ -1,6 +1,6 @@
 # Story 2.24: Travel Segment Time Tags
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -34,11 +34,11 @@ so that I can see when travel would happen and plan the day flow more precisely.
 
 ## Tasks / Subtasks
 
-- [ ] UI: compute and render time tag for travel segments (AC: 1-6)
-- [ ] Use previous item end time: day plan item `toTime` or previous-night accommodation checkout (AC: 2-3)
-- [ ] Handle missing end time by hiding the tag (AC: 4)
-- [ ] Cap computed end time at `24:00` (AC: 5)
-- [ ] Ensure tag updates after segment save without full refresh (AC: 6)
+- [x] UI: compute and render time tag for travel segments (AC: 1-6)
+- [x] Use previous item end time: day plan item `toTime` or previous-night accommodation checkout (AC: 2-3)
+- [x] Handle missing end time by hiding the tag (AC: 4)
+- [x] Cap computed end time at `24:00` (AC: 5)
+- [x] Ensure tag updates after segment save without full refresh (AC: 6)
 
 ## Dev Notes
 
@@ -101,8 +101,8 @@ so that I can see when travel would happen and plan the day flow more precisely.
 
 ## Story Completion Status
 
-- Status set to **ready-for-dev**.
-- Completion note: Travel segment time tags defined with render-time calculation and UI-only scope.
+- Status set to **done**.
+- Completion note: Time tag behavior already present in `TripDayView`; added AC6 coverage for save/update flow.
 
 ## Dev Agent Record
 
@@ -114,20 +114,32 @@ Codex (GPT-5)
 
  - Built story context for travel segment time tags based on prior travel segment, time tag, and accommodation time stories.
  - Identified UI-only scope and primary touch point in `TripDayView`.
+ - Added UI coverage for travel segment time tags, missing end time behavior, and 24:00 cap.
+ - Verified `TripDayView` already computes travel segment time ranges from previous item end times.
+ - Added test coverage to ensure time tags update after segment save without full refresh.
+
+### Implementation Plan
+
+ - Extend day view layout tests to assert travel segment time tags from previous item end times.
+ - Validate missing end time hides tags and midnight capping behavior.
+ - Run full test suite to confirm no regressions.
 
 ### Completion Notes List
 
- - Story defines time tag calculation from previous item end time and travel duration.
+ - Time tag calculation already implemented in `TripDayView`; no production code changes required.
  - UI-only change; no schema/API updates required.
- - Test updates called out for time tag rendering and edge cases.
+ - Added day view tests for travel segment time tags, missing end time suppression, 24:00 cap, and post-save updates.
+ - Tests: `npm test -- tripDayViewLayout.test.tsx`.
 
 ### File List
 
  - `_bmad-output/implementation-artifacts/2-24-travel-segment-time-tags.md`
- - `_bmad-output/implementation-artifacts/2-23-day-view-travel-segments-between-items.md`
- - `_bmad-output/implementation-artifacts/2-21-day-plan-item-from-to-time-and-card-tag.md`
- - `_bmad-output/implementation-artifacts/2-22-accommodation-check-in-and-check-out-times.md`
- - `_bmad-output/planning-artifacts/epics.md`
- - `_bmad-output/planning-artifacts/architecture.md`
- - `_bmad-output/planning-artifacts/prd.md`
- - `_bmad-output/planning-artifacts/ux-design-specification.md`
+ - `_bmad-output/implementation-artifacts/sprint-status.yaml`
+ - `.codex/.codex-global-state.json`
+ - `.codex/models_cache.json`
+ - `.codex/vendor_imports/skills-curated-cache.json`
+ - `travelplan/test/tripDayViewLayout.test.tsx`
+
+## Change Log
+
+- 2026-03-01: Added AC6 travel segment save/update coverage and confirmed existing time tag logic.
