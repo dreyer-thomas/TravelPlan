@@ -25,6 +25,7 @@ import { useSearchParams } from "next/navigation";
 import TripAccommodationDialog from "@/components/features/trips/TripAccommodationDialog";
 import TripDayMapPanel, { buildDayMapPanelData } from "@/components/features/trips/TripDayMapPanel";
 import TripDayPlanDialog from "@/components/features/trips/TripDayPlanDialog";
+import TripDayTravelSegmentDialog from "@/components/features/trips/TripDayTravelSegmentDialog";
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
 
@@ -50,6 +51,7 @@ type TripDay = {
   dayIndex: number;
   imageUrl?: string | null;
   note?: string | null;
+  updatedAt?: string;
   plannedCostSubtotal: number;
   missingAccommodation: boolean;
   missingPlan: boolean;
@@ -74,6 +76,17 @@ type TripDay = {
     linkUrl: string | null;
     location: { lat: number; lng: number; label?: string | null } | null;
   }[];
+  travelSegments?: {
+    id: string;
+    fromItemType: "accommodation" | "dayPlanItem";
+    fromItemId: string;
+    toItemType: "accommodation" | "dayPlanItem";
+    toItemId: string;
+    transportType: "car" | "ship" | "flight";
+    durationMinutes: number;
+    distanceKm: number | null;
+    linkUrl: string | null;
+  }[];
 };
 
 type DayPlanItem = {
@@ -89,12 +102,21 @@ type DayPlanItem = {
   createdAt: string;
 };
 
+type SegmentItem = {
+  id: string;
+  type: "accommodation" | "dayPlanItem";
+  label: string;
+  location: { lat: number; lng: number; label?: string | null } | null;
+};
+
 type GalleryImage = {
   id: string;
   dayPlanItemId?: string;
   imageUrl: string;
   sortOrder: number;
 };
+
+type TravelSegment = NonNullable<TripDay["travelSegments"]>[number];
 
 type PlanDialogMode = "add" | "edit";
 
@@ -263,6 +285,23 @@ const getMapLocation = (value: { lat: number; lng: number } | null | undefined) 
   return value;
 };
 
+const formatDurationMinutes = (value: number) => {
+  if (!Number.isFinite(value) || value <= 0) return "";
+  const hours = Math.floor(value / 60);
+  const minutes = value % 60;
+  if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h`;
+  return `${minutes}m`;
+};
+
+const buildSegmentKey = (from: SegmentItem, to: SegmentItem) => `${from.type}:${from.id}::${to.type}:${to.id}`;
+const buildSegmentKeyFromIds = (
+  fromType: "accommodation" | "dayPlanItem",
+  fromId: string,
+  toType: "accommodation" | "dayPlanItem",
+  toId: string,
+) => `${fromType}:${fromId}::${toType}:${toId}`;
+
 const parsePolyline = (value: unknown): [number, number][] => {
   if (!Array.isArray(value)) return [];
   return value
@@ -330,6 +369,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const [detail, setDetail] = useState<TripDetail | null>(null);
   const [day, setDay] = useState<TripDay | null>(null);
   const [planItems, setPlanItems] = useState<DayPlanItem[]>([]);
+  const [travelSegments, setTravelSegments] = useState<TravelSegment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
@@ -337,6 +377,10 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const [previousStayOpen, setPreviousStayOpen] = useState(false);
   const [planDialogMode, setPlanDialogMode] = useState<PlanDialogMode | null>(null);
   const [selectedPlanItem, setSelectedPlanItem] = useState<DayPlanItem | null>(null);
+  const [segmentDialogOpen, setSegmentDialogOpen] = useState(false);
+  const [activeSegment, setActiveSegment] = useState<TravelSegment | null>(null);
+  const [activeSegmentFrom, setActiveSegmentFrom] = useState<SegmentItem | null>(null);
+  const [activeSegmentTo, setActiveSegmentTo] = useState<SegmentItem | null>(null);
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
   const [dayMetaOpen, setDayMetaOpen] = useState(false);
   const [dayImageFile, setDayImageFile] = useState<File | null>(null);
@@ -415,6 +459,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
         setDetail(null);
         setDay(null);
         setPlanItems([]);
+        setTravelSegments([]);
         return;
       }
 
@@ -423,6 +468,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
         setDetail(null);
         setDay(null);
         setPlanItems([]);
+        setTravelSegments([]);
         return;
       }
 
@@ -432,6 +478,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
         setDetail(null);
         setDay(null);
         setPlanItems([]);
+        setTravelSegments([]);
         return;
       }
 
@@ -451,11 +498,14 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
           createdAt: "",
         })),
       );
+      setTravelSegments(Array.isArray(resolvedDay.travelSegments) ? resolvedDay.travelSegments : []);
     } catch {
       setError(t("trips.dayView.loadError"));
       setDetail(null);
       setDay(null);
       setPlanItems([]);
+      setTravelSegments([]);
+      setTravelSegments([]);
     } finally {
       setLoading(false);
     }
@@ -471,6 +521,53 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     setCsrfToken(body.data.csrfToken);
     return body.data.csrfToken;
   }, [csrfToken]);
+
+  const segmentsByKey = useMemo(() => {
+    const map = new Map<string, TravelSegment>();
+    for (const segment of travelSegments) {
+      map.set(
+        buildSegmentKeyFromIds(segment.fromItemType, segment.fromItemId, segment.toItemType, segment.toItemId),
+        segment,
+      );
+    }
+    return map;
+  }, [travelSegments]);
+
+  const handleOpenTravelSegment = (from: SegmentItem, to: SegmentItem) => {
+    setActiveSegmentFrom(from);
+    setActiveSegmentTo(to);
+    setActiveSegment(segmentsByKey.get(buildSegmentKey(from, to)) ?? null);
+    setSegmentDialogOpen(true);
+  };
+
+  const handleTravelSegmentSaved = (segment: TravelSegment) => {
+    setTravelSegments((current) => {
+      const index = current.findIndex((item) => item.id === segment.id);
+      if (index >= 0) {
+        const next = [...current];
+        next[index] = segment;
+        return next;
+      }
+      return [...current, segment];
+    });
+    setDay((current) =>
+      current
+        ? { ...current, travelSegments: [...(current.travelSegments ?? []).filter((item) => item.id !== segment.id), segment] }
+        : current,
+    );
+    setDetail((current) => {
+      if (!current || !day) return current;
+      return {
+        ...current,
+        days: current.days.map((entry) =>
+          entry.id === day.id
+            ? { ...entry, travelSegments: [...(entry.travelSegments ?? []).filter((item) => item.id !== segment.id), segment] }
+            : entry,
+        ),
+      };
+    });
+    setSegmentDialogOpen(false);
+  };
 
   const handleOpenAddPlan = () => {
     setSelectedPlanItem(null);
@@ -680,6 +777,12 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
 
   const previousStay = previousDay?.accommodation ?? null;
   const currentStay = day?.accommodation ?? null;
+  const previousStaySegment = previousStay
+    ? { id: previousStay.id, type: "accommodation" as const, label: previousStay.name, location: previousStay.location ?? null }
+    : null;
+  const currentStaySegment = currentStay
+    ? { id: currentStay.id, type: "accommodation" as const, label: currentStay.name, location: currentStay.location ?? null }
+    : null;
   const dayHasTimelineContent = Boolean(previousStay || currentStay || planItems.length > 0);
   const resolveStayTime = (value: string | null | undefined, fallback: string) =>
     value && value.trim() ? value : fallback;
@@ -690,18 +793,87 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     ? `${resolveStayTime(currentStay.checkInTime, defaultCheckInTime)} - 24:00`
     : null;
   const hasDayImage = Boolean(day?.imageUrl && day.imageUrl.trim().length > 0);
+  const travelSegmentLabel = useCallback(
+    (segment: TravelSegment | null) => {
+      if (!segment) return t("trips.travelSegment.addPrompt");
+      const transport = t(`trips.travelSegment.transport.${segment.transportType}`);
+      const duration = formatDurationMinutes(segment.durationMinutes);
+      const distance =
+        segment.transportType === "car" && typeof segment.distanceKm === "number"
+          ? `${segment.distanceKm} ${t("trips.travelSegment.kmSuffix")}`
+          : null;
+      return [transport, duration, distance].filter(Boolean).join(" · ");
+    },
+    [t],
+  );
+  const getPlanItemLabel = useCallback(
+    (item: DayPlanItem, index: number) => {
+      const preview = parsePlanText(item.contentJson) || formatMessage(t("trips.dayView.budgetItemPlan"), { index: index + 1 });
+      return item.title?.trim() || preview;
+    },
+    [t],
+  );
+  const firstPlanSegment =
+    planItems.length > 0
+      ? {
+          id: planItems[0].id,
+          type: "dayPlanItem" as const,
+          label: getPlanItemLabel(planItems[0], 0),
+          location: planItems[0].location,
+        }
+      : null;
+  const previousSegmentTarget = firstPlanSegment ?? (planItems.length === 0 ? currentStaySegment : null);
+  const renderTravelSegment = (from: SegmentItem, to: SegmentItem) => {
+    const segment = segmentsByKey.get(buildSegmentKey(from, to)) ?? null;
+    return (
+      <Box
+        key={`segment-${from.id}-${to.id}`}
+        data-testid="travel-segment"
+        data-from-id={from.id}
+        data-to-id={to.id}
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          px: 1,
+          py: 0.25,
+          color: "text.secondary",
+        }}
+      >
+        <Typography variant="caption" sx={{ fontWeight: 600 }}>
+          {travelSegmentLabel(segment)}
+        </Typography>
+        <Button size="small" variant="text" onClick={() => handleOpenTravelSegment(from, to)}>
+          {segment ? t("trips.travelSegment.editAction") : t("trips.travelSegment.addAction")}
+        </Button>
+      </Box>
+    );
+  };
+
+  const resolveDayImageSrc = useCallback((imageUrl?: string | null, updatedAt?: string) => {
+    if (!imageUrl || !imageUrl.trim()) return null;
+    if (!updatedAt) return imageUrl;
+    const version = encodeURIComponent(updatedAt);
+    return imageUrl.includes("?") ? `${imageUrl}&v=${version}` : `${imageUrl}?v=${version}`;
+  }, []);
 
   const updateLocalDayMeta = useCallback(
-    (payload: { imageUrl: string | null; note: string | null }) => {
+    (payload: { imageUrl: string | null; note: string | null; updatedAt?: string }) => {
       if (!day) return;
 
-      setDay((current) => (current ? { ...current, imageUrl: payload.imageUrl, note: payload.note } : current));
+      setDay((current) =>
+        current
+          ? { ...current, imageUrl: payload.imageUrl, note: payload.note, updatedAt: payload.updatedAt ?? current.updatedAt }
+          : current,
+      );
       setDetail((current) => {
         if (!current) return current;
         return {
           ...current,
           days: current.days.map((entry) =>
-            entry.id === day.id ? { ...entry, imageUrl: payload.imageUrl, note: payload.note } : entry,
+            entry.id === day.id
+              ? { ...entry, imageUrl: payload.imageUrl, note: payload.note, updatedAt: payload.updatedAt ?? entry.updatedAt }
+              : entry,
           ),
         };
       });
@@ -733,7 +905,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
         });
 
         const uploadBody = (await uploadResponse.json()) as ApiEnvelope<{
-          day: { id: string; imageUrl: string | null; note: string | null };
+          day: { id: string; imageUrl: string | null; note: string | null; updatedAt: string };
         }>;
         if (!uploadResponse.ok || uploadBody.error || !uploadBody.data?.day) {
           setError(
@@ -743,7 +915,11 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
           );
           return;
         }
-        updateLocalDayMeta({ imageUrl: uploadBody.data.day.imageUrl, note: uploadBody.data.day.note });
+        updateLocalDayMeta({
+          imageUrl: uploadBody.data.day.imageUrl,
+          note: uploadBody.data.day.note,
+          updatedAt: uploadBody.data.day.updatedAt,
+        });
         setDayImageFile(null);
         setDayNoteDraft(uploadBody.data.day.note ?? "");
         setDayMetaOpen(false);
@@ -763,13 +939,15 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
         }),
       });
 
-      const body = (await response.json()) as ApiEnvelope<{ day: { id: string; imageUrl: string | null; note: string | null } }>;
+      const body = (await response.json()) as ApiEnvelope<{
+        day: { id: string; imageUrl: string | null; note: string | null; updatedAt: string };
+      }>;
       if (!response.ok || body.error || !body.data?.day) {
         setError(body.error?.message ? `${t("trips.dayImage.saveError")} (${body.error.message})` : t("trips.dayImage.saveError"));
         return;
       }
 
-      updateLocalDayMeta({ imageUrl: body.data.day.imageUrl, note: body.data.day.note });
+      updateLocalDayMeta({ imageUrl: body.data.day.imageUrl, note: body.data.day.note, updatedAt: body.data.day.updatedAt });
       setDayImageFile(null);
       setDayNoteDraft(body.data.day.note ?? "");
       setDayMetaOpen(false);
@@ -798,13 +976,15 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
         body: JSON.stringify({ imageUrl: null, note: dayNoteDraft.trim().length > 0 ? dayNoteDraft.trim() : null }),
       });
 
-      const body = (await response.json()) as ApiEnvelope<{ day: { id: string; imageUrl: string | null; note: string | null } }>;
+      const body = (await response.json()) as ApiEnvelope<{
+        day: { id: string; imageUrl: string | null; note: string | null; updatedAt: string };
+      }>;
       if (!response.ok || body.error || !body.data?.day) {
         setError(body.error?.message ? `${t("trips.dayImage.saveError")} (${body.error.message})` : t("trips.dayImage.saveError"));
         return;
       }
 
-      updateLocalDayMeta({ imageUrl: null, note: body.data.day.note });
+      updateLocalDayMeta({ imageUrl: null, note: body.data.day.note, updatedAt: body.data.day.updatedAt });
       setDayImageFile(null);
       setDayNoteDraft(body.data.day.note ?? "");
     } catch {
@@ -1053,7 +1233,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
               {hasDayImage && (
                 <Box
                   component="img"
-                  src={day.imageUrl ?? undefined}
+                  src={resolveDayImageSrc(day.imageUrl, day.updatedAt) ?? undefined}
                   alt={t("trips.dayImage.previewAlt")}
                   sx={{
                     width: { xs: "100%", sm: 320 },
@@ -1141,6 +1321,9 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                         altPrefix={previousStay.name}
                         onImageClick={(imageUrl, alt) => setFullscreenImage({ imageUrl, alt })}
                       />
+                      {previousStaySegment && previousSegmentTarget ? (
+                        <Box mt={0.5}>{renderTravelSegment(previousStaySegment, previousSegmentTarget)}</Box>
+                      ) : null}
                     </Box>
                   ) : (
                     <Typography variant="body2" sx={{ color: "rgba(31, 42, 46, 0.72)" }}>
@@ -1169,84 +1352,102 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                     const preview =
                       parsePlanText(item.contentJson) || formatMessage(t("trips.dayView.budgetItemPlan"), { index: index + 1 });
                     const title = item.title?.trim() || preview;
+                    const segmentItem: SegmentItem = {
+                      id: item.id,
+                      type: "dayPlanItem",
+                      label: title,
+                      location: item.location,
+                    };
+                    const nextPlanItem = planItems[index + 1];
+                    const nextSegmentItem = nextPlanItem
+                      ? {
+                          id: nextPlanItem.id,
+                          type: "dayPlanItem" as const,
+                          label: getPlanItemLabel(nextPlanItem, index + 1),
+                          location: nextPlanItem.location,
+                        }
+                      : currentStaySegment;
+
                     return (
-                      <Paper
-                        key={item.id}
-                        elevation={0}
-                        sx={{
-                          p: 1.5,
-                          borderRadius: 1.5,
-                          border: "1px solid",
-                          borderColor: "#c6ced9",
-                          backgroundColor: "#e8ecf2",
-                        }}
-                      >
-                        <Box display="flex" alignItems="flex-start" justifyContent="space-between" gap={1}>
-                          <Box display="flex" flexDirection="column" gap={0.75}>
-                            <Box display="flex" alignItems="center" gap={0.75} flexWrap="wrap">
-                              {item.fromTime && item.toTime ? (
-                                <Chip
-                                  label={`${item.fromTime} - ${item.toTime}`}
+                      <Box key={item.id} display="flex" flexDirection="column" gap={0.75}>
+                        <Paper
+                          elevation={0}
+                          sx={{
+                            p: 1.5,
+                            borderRadius: 1.5,
+                            border: "1px solid",
+                            borderColor: "#c6ced9",
+                            backgroundColor: "#e8ecf2",
+                          }}
+                        >
+                          <Box display="flex" alignItems="flex-start" justifyContent="space-between" gap={1}>
+                            <Box display="flex" flexDirection="column" gap={0.75}>
+                              <Box display="flex" alignItems="center" gap={0.75} flexWrap="wrap">
+                                {item.fromTime && item.toTime ? (
+                                  <Chip
+                                    label={`${item.fromTime} - ${item.toTime}`}
+                                    size="small"
+                                    sx={{
+                                      bgcolor: "#1b3d73",
+                                      color: "#ffffff",
+                                      borderColor: "#1b3d73",
+                                    }}
+                                  />
+                                ) : null}
+                                <Typography variant="body2" fontWeight={700}>
+                                  {title}
+                                </Typography>
+                              </Box>
+                              <PlanItemRichContent contentJson={item.contentJson} fallbackText={preview} />
+                              {item.linkUrl && isSafeLink(item.linkUrl) ? (
+                                <Button
+                                  component="a"
+                                  href={item.linkUrl}
+                                  target="_blank"
+                                  rel="noreferrer noopener"
+                                  variant="text"
                                   size="small"
-                                  sx={{
-                                    bgcolor: "#1b3d73",
-                                    color: "#ffffff",
-                                    borderColor: "#1b3d73",
-                                  }}
-                                />
-                              ) : null}
-                              <Typography variant="body2" fontWeight={700}>
-                                {title}
-                              </Typography>
+                                  sx={{ p: 0, minWidth: "auto", alignSelf: "flex-start" }}
+                                >
+                                  {t("trips.plan.linkOpen")}
+                                </Button>
+                              ) : (
+                                <Typography variant="body2" color="text.secondary">
+                                  {t("trips.plan.noLink")}
+                                </Typography>
+                              )}
+                              <MiniImageStrip
+                                images={planItemImagesById[item.id] ?? []}
+                                altPrefix={t("trips.dayView.timelineTitle")}
+                                onImageClick={(imageUrl, alt) => setFullscreenImage({ imageUrl, alt })}
+                              />
                             </Box>
-                            <PlanItemRichContent contentJson={item.contentJson} fallbackText={preview} />
-                            {item.linkUrl && isSafeLink(item.linkUrl) ? (
-                              <Button
-                                component="a"
-                                href={item.linkUrl}
-                                target="_blank"
-                                rel="noreferrer noopener"
-                                variant="text"
+                            <Box display="flex" alignItems="center" gap={0.5}>
+                              <IconButton
                                 size="small"
-                                sx={{ p: 0, minWidth: "auto", alignSelf: "flex-start" }}
+                                aria-label={t("trips.plan.editItemAria")}
+                                title={t("trips.plan.editItemAria")}
+                                onClick={() => handleOpenEditPlan(item)}
                               >
-                                {t("trips.plan.linkOpen")}
-                              </Button>
-                            ) : (
-                              <Typography variant="body2" color="text.secondary">
-                                {t("trips.plan.noLink")}
-                              </Typography>
-                            )}
-                            <MiniImageStrip
-                              images={planItemImagesById[item.id] ?? []}
-                              altPrefix={t("trips.dayView.timelineTitle")}
-                              onImageClick={(imageUrl, alt) => setFullscreenImage({ imageUrl, alt })}
-                            />
+                                <SvgIcon fontSize="inherit">
+                                  <path d="M3 17.25V21h3.75l11-11-3.75-3.75-11 11zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66z" />
+                                </SvgIcon>
+                              </IconButton>
+                              <IconButton
+                                size="small"
+                                aria-label={t("trips.plan.deleteItemAria")}
+                                title={t("trips.plan.deleteItemAria")}
+                                onClick={() => void handleDeletePlan(item.id)}
+                              >
+                                <SvgIcon fontSize="inherit">
+                                  <path d="M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-3.5l-1-1z" />
+                                </SvgIcon>
+                              </IconButton>
+                            </Box>
                           </Box>
-                          <Box display="flex" alignItems="center" gap={0.5}>
-                            <IconButton
-                              size="small"
-                              aria-label={t("trips.plan.editItemAria")}
-                              title={t("trips.plan.editItemAria")}
-                              onClick={() => handleOpenEditPlan(item)}
-                            >
-                              <SvgIcon fontSize="inherit">
-                                <path d="M3 17.25V21h3.75l11-11-3.75-3.75-11 11zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66z" />
-                              </SvgIcon>
-                            </IconButton>
-                            <IconButton
-                              size="small"
-                              aria-label={t("trips.plan.deleteItemAria")}
-                              title={t("trips.plan.deleteItemAria")}
-                              onClick={() => void handleDeletePlan(item.id)}
-                            >
-                              <SvgIcon fontSize="inherit">
-                                <path d="M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-3.5l-1-1z" />
-                              </SvgIcon>
-                            </IconButton>
-                          </Box>
-                        </Box>
-                      </Paper>
+                        </Paper>
+                        {nextSegmentItem ? renderTravelSegment(segmentItem, nextSegmentItem) : null}
+                      </Box>
                     );
                   })
                 )}
@@ -1379,6 +1580,26 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
             onSaved={() => {
               setPreviousStayOpen(false);
               loadDay();
+            }}
+          />
+          <TripDayTravelSegmentDialog
+            open={segmentDialogOpen}
+            tripId={tripId}
+            tripDayId={day?.id ?? null}
+            fromItem={activeSegmentFrom}
+            toItem={activeSegmentTo}
+            segment={activeSegment}
+            onClose={() => {
+              setSegmentDialogOpen(false);
+              setActiveSegment(null);
+              setActiveSegmentFrom(null);
+              setActiveSegmentTo(null);
+            }}
+            onSaved={(segment) => {
+              handleTravelSegmentSaved(segment);
+              setActiveSegment(null);
+              setActiveSegmentFrom(null);
+              setActiveSegmentTo(null);
             }}
           />
           <TripDayPlanDialog

@@ -31,3 +31,20 @@ export const AccommodationStatus = {
 } as const
 
 export type AccommodationStatus = (typeof AccommodationStatus)[keyof typeof AccommodationStatus]
+
+
+export const TravelSegmentItemType = {
+  ACCOMMODATION: 'ACCOMMODATION',
+  DAY_PLAN_ITEM: 'DAY_PLAN_ITEM'
+} as const
+
+export type TravelSegmentItemType = (typeof TravelSegmentItemType)[keyof typeof TravelSegmentItemType]
+
+
+export const TravelTransportType = {
+  CAR: 'CAR',
+  SHIP: 'SHIP',
+  FLIGHT: 'FLIGHT'
+} as const
+
+export type TravelTransportType = (typeof TravelTransportType)[keyof typeof TravelTransportType]

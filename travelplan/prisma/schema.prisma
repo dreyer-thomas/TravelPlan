@@ -23,6 +23,17 @@ enum AccommodationStatus {
   BOOKED
 }
 
+enum TravelSegmentItemType {
+  ACCOMMODATION
+  DAY_PLAN_ITEM
+}
+
+enum TravelTransportType {
+  CAR
+  SHIP
+  FLIGHT
+}
+
 model User {
   id           String   @id @default(cuid()) @map("id")
   email        String   @unique @map("email")
@@ -48,7 +59,7 @@ model PasswordResetToken {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId], map: "idx_trips_user_id")
+  @@index([userId], map: "password_reset_tokens_user_id_idx")
   @@unique([tokenHash])
   @@map("password_reset_tokens")
 }
@@ -89,9 +100,31 @@ model TripDay {
   trip Trip @relation(fields: [tripId], references: [id], onDelete: Cascade)
   accommodation Accommodation?
   dayPlanItems  DayPlanItem[]
+  travelSegments TravelSegment[]
 
   @@index([tripId], map: "idx_trip_days_trip_id")
   @@map("trip_days")
+}
+
+model TravelSegment {
+  id        String   @id @default(cuid()) @map("id")
+  tripDayId String   @map("trip_day_id")
+  fromItemType TravelSegmentItemType @map("from_item_type")
+  fromItemId String   @map("from_item_id")
+  toItemType TravelSegmentItemType @map("to_item_type")
+  toItemId String   @map("to_item_id")
+  transportType TravelTransportType @map("transport_type")
+  durationMinutes Int @map("duration_minutes")
+  distanceKm Float? @map("distance_km")
+  linkUrl   String?  @map("link_url")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tripDay TripDay @relation(fields: [tripDayId], references: [id], onDelete: Cascade)
+
+  @@index([tripDayId], map: "idx_travel_segments_trip_day_id")
+  @@unique([tripDayId, fromItemType, fromItemId, toItemType, toItemId], map: "idx_travel_segments_pair")
+  @@map("travel_segments")
 }
 
 model Accommodation {

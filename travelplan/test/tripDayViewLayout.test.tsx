@@ -1413,8 +1413,7 @@ describe("TripDayView layout", () => {
     );
 
     await waitFor(() =>
-      expect(screen.getByRole("img", { name: "Day image" })).toHaveAttribute(
-        "src",
+      expect(screen.getByRole("img", { name: "Day image" }).getAttribute("src") ?? "").toContain(
         "/uploads/trips/trip-1/days/day-1/day.webp",
       ),
     );
@@ -1647,6 +1646,125 @@ describe("TripDayView layout", () => {
         [48.145, 11.582],
       ]),
     );
+    vi.unstubAllGlobals();
+  });
+
+  it("renders travel segments between timeline items", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/day-plan-items/images")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { images: [] }, error: null }),
+        };
+      }
+      if (url.includes("/accommodations/images")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { images: [] }, error: null }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-02T00:00:00.000Z",
+              dayCount: 2,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: true,
+                accommodation: {
+                  id: "stay-prev",
+                  name: "Prev Stay",
+                  notes: null,
+                  status: "planned",
+                  costCents: null,
+                  link: null,
+                  location: null,
+                },
+                dayPlanItems: [],
+              },
+              {
+                id: "day-2",
+                date: "2026-12-02T00:00:00.000Z",
+                dayIndex: 2,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: {
+                  id: "stay-current",
+                  name: "Current Stay",
+                  notes: null,
+                  status: "planned",
+                  costCents: null,
+                  link: null,
+                  location: null,
+                },
+                dayPlanItems: [
+                  {
+                    id: "item-1",
+                    title: "Morning",
+                    fromTime: "09:00",
+                    toTime: "10:00",
+                    contentJson: JSON.stringify({
+                      type: "doc",
+                      content: [{ type: "paragraph", content: [{ type: "text", text: "Plan" }] }],
+                    }),
+                    costCents: null,
+                    linkUrl: null,
+                    location: null,
+                  },
+                  {
+                    id: "item-2",
+                    title: "Noon",
+                    fromTime: "12:00",
+                    toTime: "13:00",
+                    contentJson: JSON.stringify({
+                      type: "doc",
+                      content: [{ type: "paragraph", content: [{ type: "text", text: "Plan 2" }] }],
+                    }),
+                    costCents: null,
+                    linkUrl: null,
+                    location: null,
+                  },
+                ],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-2" />
+      </I18nProvider>,
+    );
+
+    await screen.findByRole("heading", { name: "Day 2", level: 5 });
+    expect(screen.getAllByTestId("travel-segment")).toHaveLength(3);
+    expect(screen.getAllByText("Add travel segment")).toHaveLength(3);
+
     vi.unstubAllGlobals();
   });
 });

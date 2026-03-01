@@ -165,6 +165,28 @@ const en: Dictionary = {
   "trips.dayView.mapMissingTag": "Missing",
   "trips.dayView.routingUnavailableTitle": "Routing unavailable",
   "trips.dayView.routingUnavailableBody": "Showing direct line order. Check your connection and try again.",
+  "trips.travelSegment.addPrompt": "Add travel segment",
+  "trips.travelSegment.addAction": "Add travel",
+  "trips.travelSegment.editAction": "Edit travel",
+  "trips.travelSegment.addTitle": "Add travel segment",
+  "trips.travelSegment.editTitle": "Edit travel segment",
+  "trips.travelSegment.fromLabel": "From",
+  "trips.travelSegment.toLabel": "To",
+  "trips.travelSegment.transportLabel": "Transport",
+  "trips.travelSegment.durationLabel": "Duration (HH:mm)",
+  "trips.travelSegment.distanceLabel": "Distance (km)",
+  "trips.travelSegment.linkLabel": "Link (optional)",
+  "trips.travelSegment.linkHelper": "Paste a Google Maps or other directions link",
+  "trips.travelSegment.linkInvalid": "Enter a valid http(s) link",
+  "trips.travelSegment.openLink": "Open Google Maps",
+  "trips.travelSegment.durationRequired": "Duration is required",
+  "trips.travelSegment.distanceRequired": "Distance is required for car travel",
+  "trips.travelSegment.initError": "Unable to initialize travel segment editor. Please refresh.",
+  "trips.travelSegment.saveError": "Travel segment update failed. Please try again.",
+  "trips.travelSegment.kmSuffix": "km",
+  "trips.travelSegment.transport.car": "Car",
+  "trips.travelSegment.transport.ship": "Ship",
+  "trips.travelSegment.transport.flight": "Flight",
   "trips.dayImage.title": "Day image",
   "trips.dayImage.previewAlt": "Day image",
   "trips.dayImage.empty": "No day image selected yet.",
@@ -290,7 +312,8 @@ const en: Dictionary = {
   "trips.location.coordinatesRequiredTogether": "Latitude and longitude must both be provided",
   "trips.location.latInvalid": "Latitude must be between -90 and 90",
   "trips.location.lngInvalid": "Longitude must be between -180 and 180",
-  "common.cancel": "Cancel"
+  "common.cancel": "Cancel",
+  "common.save": "Save"
 };
 
 export default en;

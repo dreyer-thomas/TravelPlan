@@ -1,6 +1,6 @@
 # Story 2.23: Day View Travel Segments Between Items
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -42,23 +42,23 @@ so that I can plan the time needed to move between locations.
 
 ## Tasks / Subtasks
 
-- [ ] Data model and migration (AC: 1-5)  
-- [ ] Add travel segment entity with `fromItemId`, `toItemId`, `transportType`, `durationMinutes`, `distanceKm?`, `link?`.  
-- [ ] Define how to store references for accommodation/day items uniformly.  
-- [ ] Validation and API updates (AC: 2-5)  
-- [ ] Add Zod schema for travel segment create/update with required duration and conditional distance for `car`.  
-- [ ] Add API routes for travel segment CRUD in day context.  
-- [ ] Repository updates (AC: 2-5)  
-- [ ] Persist/read travel segments and include them in day view payloads.  
-- [ ] UI updates (AC: 1-5)  
-- [ ] Render compact, unframed travel segment regions between adjacent items.  
-- [ ] Add dialog to edit transport type, duration, distance (car only), and link.  
-- [ ] Default dialog values to `car` and `30 min`.  
-- [ ] Add Google Maps directions link based on adjacent item locations.  
-- [ ] Tests (AC: 1-5)  
-- [ ] Schema tests for duration required and distance conditional.  
-- [ ] Repo/API tests for segment roundtrip.  
-- [ ] UI tests for rendering and dialog validation.  
+- [x] Data model and migration (AC: 1-5)  
+- [x] Add travel segment entity with `fromItemId`, `toItemId`, `transportType`, `durationMinutes`, `distanceKm?`, `link?`.  
+- [x] Define how to store references for accommodation/day items uniformly.  
+- [x] Validation and API updates (AC: 2-5)  
+- [x] Add Zod schema for travel segment create/update with required duration and conditional distance for `car`.  
+- [x] Add API routes for travel segment CRUD in day context.  
+- [x] Repository updates (AC: 2-5)  
+- [x] Persist/read travel segments and include them in day view payloads.  
+- [x] UI updates (AC: 1-5)  
+- [x] Render compact, unframed travel segment regions between adjacent items.  
+- [x] Add dialog to edit transport type, duration, distance (car only), and link.  
+- [x] Default dialog values to `car` and `30 min`.  
+- [x] Add Google Maps directions link based on adjacent item locations.  
+- [x] Tests (AC: 1-5)  
+- [x] Schema tests for duration required and distance conditional.  
+- [x] Repo/API tests for segment roundtrip.  
+- [x] UI tests for rendering and dialog validation.  
 
 ## Dev Notes
 
@@ -133,8 +133,8 @@ so that I can plan the time needed to move between locations.
 
 ## Story Completion Status
 
-- Status set to **ready-for-dev**.  
-- Completion note: Context story created for manual travel segments between adjacent day view items.  
+- Status set to **review**.  
+- Completion note: Travel segments implemented with persistence, validation, UI editing, and automated coverage.  
 
 ## Dev Agent Record
 
@@ -144,15 +144,53 @@ Codex (GPT-5)
 
 ### Debug Log References
 
-- Added Story 2.23 to epics and sprint status.  
-- Created story file with requirements, tasks, and architecture guardrails.  
+- Added TravelSegment Prisma model, enums, and migration.  
+- Implemented validation, repository, API routes, and day-view payload updates.  
+- Built day-view travel segment UI + dialog with Google Maps link helper and defaults.  
+- Added schema, API, and UI tests for travel segments.  
+- Restored travel segment link entry and default map link handling, plus adjacency validation and API error handling.  
 
 ### Completion Notes List
 
-- Travel segments are manual, day-view-only, and tied to adjacent items with required duration and conditional distance.  
+- Implemented travel segment persistence with item-type references and trip-day scoping.  
+- Added CRUD API and Zod validation with conditional distance rules.  
+- Inserted compact travel segment regions between timeline items and added edit dialog defaults and maps link helper.  
+- Ensured segment entry point renders between previous-night accommodation and first day item.  
+- Restored travel segment link field with Google Maps default and validation.  
+- Tests: `npm test`.  
+
+### Change Log
+
+- 2026-03-01: Implemented travel segments across data model, API/repo, UI dialog, i18n, and tests.  
+- 2026-03-01: Re-added link entry + adjacency validation + API conflict handling for travel segments.  
 
 ### File List
 
-- `/Users/tommy/Development/TravelPlan/_bmad-output/planning-artifacts/epics.md`  
-- `/Users/tommy/Development/TravelPlan/_bmad-output/implementation-artifacts/sprint-status.yaml`  
-- `/Users/tommy/Development/TravelPlan/_bmad-output/implementation-artifacts/2-23-day-view-travel-segments-between-items.md`  
+- `_bmad-output/implementation-artifacts/sprint-status.yaml`  
+- `_bmad-output/implementation-artifacts/2-23-day-view-travel-segments-between-items.md`  
+- `travelplan/prisma/schema.prisma`  
+- `travelplan/prisma/migrations/20260301105118_add_travel_segments/migration.sql`  
+- `travelplan/src/app/api/trips/[id]/route.ts`  
+- `travelplan/src/app/api/trips/[id]/travel-segments/route.ts`  
+- `travelplan/src/components/features/trips/TripDayTravelSegmentDialog.tsx`  
+- `travelplan/src/components/features/trips/TripDayView.tsx`  
+- `travelplan/src/generated/prisma/browser.ts`  
+- `travelplan/src/generated/prisma/client.ts`  
+- `travelplan/src/generated/prisma/commonInputTypes.ts`  
+- `travelplan/src/generated/prisma/enums.ts`  
+- `travelplan/src/generated/prisma/internal/class.ts`  
+- `travelplan/src/generated/prisma/internal/prismaNamespace.ts`  
+- `travelplan/src/generated/prisma/internal/prismaNamespaceBrowser.ts`  
+- `travelplan/src/generated/prisma/models.ts`  
+- `travelplan/src/generated/prisma/models/TripDay.ts`  
+- `travelplan/src/generated/prisma/models/TravelSegment.ts`  
+- `travelplan/src/i18n/de.ts`  
+- `travelplan/src/i18n/en.ts`  
+- `travelplan/src/lib/repositories/travelSegmentRepo.ts`  
+- `travelplan/src/lib/repositories/tripRepo.ts`  
+- `travelplan/src/lib/validation/travelSegmentSchemas.ts`  
+- `travelplan/test/travelSegmentDialog.test.tsx`  
+- `travelplan/test/travelSegmentRoute.test.ts`  
+- `travelplan/test/travelSegmentSchema.test.ts`  
+- `travelplan/test/travelSegmentSchemas.test.ts`  
+- `travelplan/test/tripDayViewLayout.test.tsx`  

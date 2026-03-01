@@ -55,6 +55,7 @@ export const ModelName = {
   PasswordResetToken: 'PasswordResetToken',
   Trip: 'Trip',
   TripDay: 'TripDay',
+  TravelSegment: 'TravelSegment',
   Accommodation: 'Accommodation',
   DayPlanItem: 'DayPlanItem',
   AccommodationImage: 'AccommodationImage',
@@ -132,6 +133,24 @@ export const TripDayScalarFieldEnum = {
 } as const
 
 export type TripDayScalarFieldEnum = (typeof TripDayScalarFieldEnum)[keyof typeof TripDayScalarFieldEnum]
+
+
+export const TravelSegmentScalarFieldEnum = {
+  id: 'id',
+  tripDayId: 'tripDayId',
+  fromItemType: 'fromItemType',
+  fromItemId: 'fromItemId',
+  toItemType: 'toItemType',
+  toItemId: 'toItemId',
+  transportType: 'transportType',
+  durationMinutes: 'durationMinutes',
+  distanceKm: 'distanceKm',
+  linkUrl: 'linkUrl',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type TravelSegmentScalarFieldEnum = (typeof TravelSegmentScalarFieldEnum)[keyof typeof TravelSegmentScalarFieldEnum]
 
 
 export const AccommodationScalarFieldEnum = {

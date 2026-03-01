@@ -38,6 +38,11 @@ export type Trip = Prisma.TripModel
  */
 export type TripDay = Prisma.TripDayModel
 /**
+ * Model TravelSegment
+ * 
+ */
+export type TravelSegment = Prisma.TravelSegmentModel
+/**
  * Model Accommodation
  * 
  */

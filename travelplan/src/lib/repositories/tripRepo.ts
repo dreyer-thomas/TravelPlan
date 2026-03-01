@@ -64,6 +64,17 @@ export type TripDaySummary = {
     linkUrl: string | null;
     location: { lat: number; lng: number; label: string | null } | null;
   }[];
+  travelSegments: {
+    id: string;
+    fromItemType: "accommodation" | "dayPlanItem";
+    fromItemId: string;
+    toItemType: "accommodation" | "dayPlanItem";
+    toItemId: string;
+    transportType: "car" | "ship" | "flight";
+    durationMinutes: number;
+    distanceKm: number | null;
+    linkUrl: string | null;
+  }[];
 };
 
 export type TripWithDays = {
@@ -398,6 +409,20 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
               locationLabel: true,
             },
           },
+          travelSegments: {
+            orderBy: { createdAt: "asc" },
+            select: {
+              id: true,
+              fromItemType: true,
+              fromItemId: true,
+              toItemType: true,
+              toItemId: true,
+              transportType: true,
+              durationMinutes: true,
+              distanceKm: true,
+              linkUrl: true,
+            },
+          },
           _count: { select: { dayPlanItems: true } },
         },
       },
@@ -414,8 +439,9 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
       id: string;
       image_url: string | null;
       note: string | null;
+      updated_at: Date | string;
     }[]
-  >(`SELECT "id", "image_url", "note" FROM "trip_days" WHERE "trip_id" = ?`, trip.id);
+  >(`SELECT "id", "image_url", "note", "updated_at" FROM "trip_days" WHERE "trip_id" = ?`, trip.id);
   const dayMetaById = new Map(dayMetaRows.map((row) => [row.id, row]));
 
   const getVisibleAccommodationCost = (day: (typeof trip.days)[number]) => {
@@ -446,6 +472,7 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
       const hasAccommodation = accommodationName.length > 0;
       const status = day.accommodation?.status === "BOOKED" ? "booked" : "planned";
       const dayMeta = dayMetaById.get(day.id);
+      const updatedAt = dayMeta?.updated_at ?? day.updatedAt;
 
       return {
         id: day.id,
@@ -453,6 +480,7 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
         dayIndex: day.dayIndex,
         imageUrl: dayMeta?.image_url ?? day.imageUrl ?? null,
         note: dayMeta?.note ?? day.note ?? null,
+        updatedAt: updatedAt instanceof Date ? updatedAt : new Date(updatedAt),
         plannedCostSubtotal: getVisibleDayTotal(day),
         missingAccommodation: !hasAccommodation,
         missingPlan: day._count.dayPlanItems === 0,
@@ -492,6 +520,17 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
                   label: item.locationLabel,
                 }
               : null,
+        })),
+        travelSegments: day.travelSegments.map((segment) => ({
+          id: segment.id,
+          fromItemType: segment.fromItemType === "ACCOMMODATION" ? "accommodation" : "dayPlanItem",
+          fromItemId: segment.fromItemId,
+          toItemType: segment.toItemType === "ACCOMMODATION" ? "accommodation" : "dayPlanItem",
+          toItemId: segment.toItemId,
+          transportType: segment.transportType === "CAR" ? "car" : segment.transportType === "SHIP" ? "ship" : "flight",
+          durationMinutes: segment.durationMinutes,
+          distanceKm: segment.distanceKm,
+          linkUrl: segment.linkUrl,
         })),
       };
     }),

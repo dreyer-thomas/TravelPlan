@@ -165,6 +165,28 @@ const de: Dictionary = {
   "trips.dayView.mapMissingTag": "Fehlt",
   "trips.dayView.routingUnavailableTitle": "Routenberechnung nicht verfügbar",
   "trips.dayView.routingUnavailableBody": "Die direkte Reihenfolge wird angezeigt. Prüfe die Verbindung und versuche es erneut.",
+  "trips.travelSegment.addPrompt": "Reiseabschnitt hinzufügen",
+  "trips.travelSegment.addAction": "Reise hinzufügen",
+  "trips.travelSegment.editAction": "Reise bearbeiten",
+  "trips.travelSegment.addTitle": "Reiseabschnitt hinzufügen",
+  "trips.travelSegment.editTitle": "Reiseabschnitt bearbeiten",
+  "trips.travelSegment.fromLabel": "Von",
+  "trips.travelSegment.toLabel": "Nach",
+  "trips.travelSegment.transportLabel": "Transport",
+  "trips.travelSegment.durationLabel": "Dauer (HH:mm)",
+  "trips.travelSegment.distanceLabel": "Entfernung (km)",
+  "trips.travelSegment.linkLabel": "Link (optional)",
+  "trips.travelSegment.linkHelper": "Google-Maps- oder Routenlink einfügen",
+  "trips.travelSegment.linkInvalid": "Bitte einen gültigen http(s)-Link eingeben",
+  "trips.travelSegment.openLink": "Google Maps öffnen",
+  "trips.travelSegment.durationRequired": "Dauer ist erforderlich",
+  "trips.travelSegment.distanceRequired": "Entfernung ist für Auto erforderlich",
+  "trips.travelSegment.initError": "Reiseabschnitt konnte nicht geladen werden. Bitte aktualisieren.",
+  "trips.travelSegment.saveError": "Reiseabschnitt konnte nicht gespeichert werden. Bitte erneut versuchen.",
+  "trips.travelSegment.kmSuffix": "km",
+  "trips.travelSegment.transport.car": "Auto",
+  "trips.travelSegment.transport.ship": "Schiff",
+  "trips.travelSegment.transport.flight": "Flug",
   "trips.dayImage.title": "Tagesbild",
   "trips.dayImage.previewAlt": "Tagesbild",
   "trips.dayImage.empty": "Noch kein Tagesbild ausgewählt.",
@@ -290,7 +312,8 @@ const de: Dictionary = {
   "trips.location.coordinatesRequiredTogether": "Breitengrad und Längengrad müssen zusammen angegeben werden",
   "trips.location.latInvalid": "Breitengrad muss zwischen -90 und 90 liegen",
   "trips.location.lngInvalid": "Längengrad muss zwischen -180 und 180 liegen",
-  "common.cancel": "Abbrechen"
+  "common.cancel": "Abbrechen",
+  "common.save": "Speichern"
 };
 
 export default de;

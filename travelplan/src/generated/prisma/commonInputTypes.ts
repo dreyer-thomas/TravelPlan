@@ -232,6 +232,40 @@ export type IntWithAggregatesFilter<$PrismaModel = never> = {
   _max?: Prisma.NestedIntFilter<$PrismaModel>
 }
 
+export type EnumTravelSegmentItemTypeFilter<$PrismaModel = never> = {
+  equals?: $Enums.TravelSegmentItemType | Prisma.EnumTravelSegmentItemTypeFieldRefInput<$PrismaModel>
+  in?: $Enums.TravelSegmentItemType[]
+  notIn?: $Enums.TravelSegmentItemType[]
+  not?: Prisma.NestedEnumTravelSegmentItemTypeFilter<$PrismaModel> | $Enums.TravelSegmentItemType
+}
+
+export type EnumTravelTransportTypeFilter<$PrismaModel = never> = {
+  equals?: $Enums.TravelTransportType | Prisma.EnumTravelTransportTypeFieldRefInput<$PrismaModel>
+  in?: $Enums.TravelTransportType[]
+  notIn?: $Enums.TravelTransportType[]
+  not?: Prisma.NestedEnumTravelTransportTypeFilter<$PrismaModel> | $Enums.TravelTransportType
+}
+
+export type EnumTravelSegmentItemTypeWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.TravelSegmentItemType | Prisma.EnumTravelSegmentItemTypeFieldRefInput<$PrismaModel>
+  in?: $Enums.TravelSegmentItemType[]
+  notIn?: $Enums.TravelSegmentItemType[]
+  not?: Prisma.NestedEnumTravelSegmentItemTypeWithAggregatesFilter<$PrismaModel> | $Enums.TravelSegmentItemType
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumTravelSegmentItemTypeFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumTravelSegmentItemTypeFilter<$PrismaModel>
+}
+
+export type EnumTravelTransportTypeWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.TravelTransportType | Prisma.EnumTravelTransportTypeFieldRefInput<$PrismaModel>
+  in?: $Enums.TravelTransportType[]
+  notIn?: $Enums.TravelTransportType[]
+  not?: Prisma.NestedEnumTravelTransportTypeWithAggregatesFilter<$PrismaModel> | $Enums.TravelTransportType
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumTravelTransportTypeFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumTravelTransportTypeFilter<$PrismaModel>
+}
+
 export type EnumAccommodationStatusFilter<$PrismaModel = never> = {
   equals?: $Enums.AccommodationStatus | Prisma.EnumAccommodationStatusFieldRefInput<$PrismaModel>
   in?: $Enums.AccommodationStatus[]
@@ -509,6 +543,40 @@ export type NestedFloatFilter<$PrismaModel = never> = {
   gt?: number | Prisma.FloatFieldRefInput<$PrismaModel>
   gte?: number | Prisma.FloatFieldRefInput<$PrismaModel>
   not?: Prisma.NestedFloatFilter<$PrismaModel> | number
+}
+
+export type NestedEnumTravelSegmentItemTypeFilter<$PrismaModel = never> = {
+  equals?: $Enums.TravelSegmentItemType | Prisma.EnumTravelSegmentItemTypeFieldRefInput<$PrismaModel>
+  in?: $Enums.TravelSegmentItemType[]
+  notIn?: $Enums.TravelSegmentItemType[]
+  not?: Prisma.NestedEnumTravelSegmentItemTypeFilter<$PrismaModel> | $Enums.TravelSegmentItemType
+}
+
+export type NestedEnumTravelTransportTypeFilter<$PrismaModel = never> = {
+  equals?: $Enums.TravelTransportType | Prisma.EnumTravelTransportTypeFieldRefInput<$PrismaModel>
+  in?: $Enums.TravelTransportType[]
+  notIn?: $Enums.TravelTransportType[]
+  not?: Prisma.NestedEnumTravelTransportTypeFilter<$PrismaModel> | $Enums.TravelTransportType
+}
+
+export type NestedEnumTravelSegmentItemTypeWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.TravelSegmentItemType | Prisma.EnumTravelSegmentItemTypeFieldRefInput<$PrismaModel>
+  in?: $Enums.TravelSegmentItemType[]
+  notIn?: $Enums.TravelSegmentItemType[]
+  not?: Prisma.NestedEnumTravelSegmentItemTypeWithAggregatesFilter<$PrismaModel> | $Enums.TravelSegmentItemType
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumTravelSegmentItemTypeFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumTravelSegmentItemTypeFilter<$PrismaModel>
+}
+
+export type NestedEnumTravelTransportTypeWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.TravelTransportType | Prisma.EnumTravelTransportTypeFieldRefInput<$PrismaModel>
+  in?: $Enums.TravelTransportType[]
+  notIn?: $Enums.TravelTransportType[]
+  not?: Prisma.NestedEnumTravelTransportTypeWithAggregatesFilter<$PrismaModel> | $Enums.TravelTransportType
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumTravelTransportTypeFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumTravelTransportTypeFilter<$PrismaModel>
 }
 
 export type NestedEnumAccommodationStatusFilter<$PrismaModel = never> = {

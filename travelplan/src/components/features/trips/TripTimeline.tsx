@@ -46,6 +46,7 @@ type TripDay = {
   dayIndex: number;
   imageUrl?: string | null;
   note?: string | null;
+  updatedAt?: string;
   missingAccommodation: boolean;
   missingPlan: boolean;
   accommodation: {
@@ -160,6 +161,12 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
   }, [loadTrip]);
 
   const listEmpty = useMemo(() => !loading && !!detail && detail.days.length === 0, [loading, detail]);
+  const resolveDayImageSrc = useCallback((imageUrl?: string | null, updatedAt?: string) => {
+    if (!imageUrl || !imageUrl.trim()) return null;
+    if (!updatedAt) return imageUrl;
+    const version = encodeURIComponent(updatedAt);
+    return imageUrl.includes("?") ? `${imageUrl}&v=${version}` : `${imageUrl}?v=${version}`;
+  }, []);
 
   const parsePlanText = useCallback((value: string) => {
     try {
@@ -468,7 +475,10 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                         <Box display="flex" gap={1.5} alignItems="flex-start">
                           <Box
                             component="img"
-                            src={day.imageUrl && day.imageUrl.trim().length > 0 ? day.imageUrl : "/images/world-map-placeholder.svg"}
+                            src={
+                              resolveDayImageSrc(day.imageUrl, day.updatedAt) ??
+                              "/images/world-map-placeholder.svg"
+                            }
                             alt={t("trips.dayImage.previewAlt")}
                             sx={{
                               width: { xs: 108, sm: 132 },
