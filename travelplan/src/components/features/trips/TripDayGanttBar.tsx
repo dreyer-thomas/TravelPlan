@@ -4,6 +4,7 @@ import type { TripDayGanttSegment } from "@/components/features/trips/TripDayGan
 type TripDayGanttBarProps = {
   segments?: TripDayGanttSegment[];
   ariaLabel: string;
+  variant?: "default" | "compact";
 };
 
 const clampMinute = (value: number) => Math.max(0, Math.min(value, 24 * 60));
@@ -14,7 +15,7 @@ const ganttColors = {
 } as const;
 const kindOrder: TripDayGanttSegment["kind"][] = ["accommodation", "planItem", "travel"];
 
-export default function TripDayGanttBar({ segments = [], ariaLabel }: TripDayGanttBarProps) {
+export default function TripDayGanttBar({ segments = [], ariaLabel, variant = "default" }: TripDayGanttBarProps) {
   const ordered = [...segments]
     .map((segment) => ({
       ...segment,
@@ -28,10 +29,11 @@ export default function TripDayGanttBar({ segments = [], ariaLabel }: TripDayGan
     <Box
       data-testid="trip-day-gantt-bar"
       aria-label={ariaLabel}
+      data-variant={variant}
       sx={{
         position: "relative",
         width: "100%",
-        height: 16,
+        height: variant === "compact" ? 10 : 16,
         borderRadius: 999,
         border: "1px solid",
         borderColor: "divider",

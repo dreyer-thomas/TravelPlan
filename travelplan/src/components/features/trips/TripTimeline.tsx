@@ -14,12 +14,17 @@ import {
   Skeleton,
   SvgIcon,
   Typography,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import TripDeleteDialog from "@/components/features/trips/TripDeleteDialog";
 import TripEditDialog, { type TripDetail as EditableTripDetail } from "@/components/features/trips/TripEditDialog";
 import TripImportDialog from "@/components/features/trips/TripImportDialog";
+import TripDayGanttBar from "@/components/features/trips/TripDayGanttBar";
+import { buildOverviewGanttSegments } from "@/components/features/trips/TripDayGanttOverviewData";
+import { deriveCoverageSummary } from "@/components/features/trips/TripDayGanttSegments";
 import TripOverviewMapPanel from "@/components/features/trips/TripOverviewMapPanel";
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
@@ -56,13 +61,28 @@ type TripDay = {
     status: "planned" | "booked";
     costCents: number | null;
     link: string | null;
+    checkInTime?: string | null;
+    checkOutTime?: string | null;
     location: { lat: number; lng: number; label: string | null } | null;
   } | null;
   dayPlanItems: {
     id: string;
+    fromTime?: string | null;
+    toTime?: string | null;
     contentJson: string;
     linkUrl: string | null;
     location: { lat: number; lng: number; label: string | null } | null;
+  }[];
+  travelSegments?: {
+    id: string;
+    fromItemType: "accommodation" | "dayPlanItem";
+    fromItemId: string;
+    toItemType: "accommodation" | "dayPlanItem";
+    toItemId: string;
+    transportType: "car" | "ship" | "flight";
+    durationMinutes: number;
+    distanceKm: number | null;
+    linkUrl: string | null;
   }[];
 };
 
@@ -86,6 +106,8 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const router = useRouter();
+  const theme = useTheme();
+  const isNarrowLayout = useMediaQuery(theme.breakpoints.down("sm"));
 
   const formatDate = useMemo(
     () => (value: string) =>
@@ -187,6 +209,22 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
       return "";
     }
   }, []);
+
+  const formatDurationSummary = useCallback(
+    (minutes: number) => {
+      const safeMinutes = Math.max(0, Math.round(minutes));
+      const hours = Math.floor(safeMinutes / 60);
+      const remainingMinutes = safeMinutes % 60;
+      if (hours > 0 && remainingMinutes > 0) {
+        return formatMessage(t("trips.dayView.ganttHoursMinutes"), { hours, minutes: remainingMinutes });
+      }
+      if (hours > 0) {
+        return formatMessage(t("trips.dayView.ganttHours"), { hours });
+      }
+      return formatMessage(t("trips.dayView.ganttMinutes"), { minutes: remainingMinutes });
+    },
+    [t],
+  );
 
   const overviewMapData = useMemo(() => {
     const points: { id: string; label: string; position: [number, number] }[] = [];
@@ -458,7 +496,50 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
 
               {!listEmpty && (
                 <List disablePadding sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
-                  {detail.days.map((day) => (
+                  {detail.days.map((day, index) => {
+                    const previousDay = index > 0 ? detail.days[index - 1] : null;
+                    const ganttSegments = buildOverviewGanttSegments({
+                      previousStay: previousDay?.accommodation
+                        ? {
+                            id: previousDay.accommodation.id,
+                            checkOutTime: previousDay.accommodation.checkOutTime ?? null,
+                          }
+                        : null,
+                      currentStay: day.accommodation
+                        ? {
+                            id: day.accommodation.id,
+                            checkInTime: day.accommodation.checkInTime ?? null,
+                            checkOutTime: day.accommodation.checkOutTime ?? null,
+                          }
+                        : null,
+                      planItems: day.dayPlanItems.map((item) => ({
+                        id: item.id,
+                        fromTime: item.fromTime ?? null,
+                        toTime: item.toTime ?? null,
+                      })),
+                      travelSegments: Array.isArray(day.travelSegments)
+                        ? day.travelSegments.map((segment) => ({
+                            id: segment.id,
+                            fromItemType: segment.fromItemType,
+                            fromItemId: segment.fromItemId,
+                            durationMinutes: segment.durationMinutes,
+                          }))
+                        : [],
+                    });
+                    const ganttCoverage = deriveCoverageSummary(ganttSegments);
+                    const mergedSegments = ganttCoverage.merged.map((segment) => ({
+                      startMinute: segment.startMinute,
+                      endMinute: segment.endMinute,
+                      kind: "planItem" as const,
+                    }));
+                    const plannedSummary = formatDurationSummary(ganttCoverage.plannedMinutes);
+                    const unplannedSummary = formatDurationSummary(ganttCoverage.unplannedMinutes);
+                    const ganttSummary = formatMessage(t("trips.dayView.ganttSummary"), {
+                      planned: plannedSummary,
+                      unplanned: unplannedSummary,
+                    });
+
+                    return (
                     <ListItem key={day.id} disablePadding>
                       <Paper
                         data-testid="timeline-day-card"
@@ -492,18 +573,65 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                           />
 
                           <Box display="flex" flexDirection="column" gap={1} flex={1} minWidth={0}>
-                            <Box display="flex" alignItems="flex-start" justifyContent="space-between" gap={1.5} flexWrap="wrap">
-                              <Box display="flex" flexDirection="column" gap={0.5}>
+                            <Box
+                              sx={{
+                                display: "grid",
+                                gridTemplateColumns: { xs: "1fr", sm: "minmax(0, 1fr) 220px" },
+                                gridTemplateAreas: { xs: '"title" "actions"', sm: '"title actions"' },
+                                gap: 1.5,
+                                alignItems: "start",
+                              }}
+                              data-layout={isNarrowLayout ? "stacked" : "inline"}
+                            >
+                              <Box display="flex" flexDirection="column" gap={0.5} minWidth={0} sx={{ gridArea: "title" }}>
                                 <Typography variant="subtitle1" fontWeight={600}>
                                   {day.note && day.note.trim().length > 0
                                     ? `${formatMessage(t("trips.timeline.dayLabel"), { index: day.dayIndex })}: ${day.note.trim()}`
                                     : formatMessage(t("trips.timeline.dayLabel"), { index: day.dayIndex })}
                                 </Typography>
-                                <Typography variant="body2" color="text.secondary">
-                                  {formatDate(day.date)}
-                                </Typography>
+                                <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                                  <Typography variant="body2" color="text.secondary">
+                                    {formatDate(day.date)}
+                                  </Typography>
+                                  <Box
+                                    display="flex"
+                                    flexDirection="column"
+                                    gap={0.25}
+                                    minWidth={0}
+                                    sx={{ width: { xs: "100%", md: "50%" } }}
+                                  >
+                                    <TripDayGanttBar
+                                      segments={mergedSegments}
+                                      ariaLabel={t("trips.dayView.ganttAriaLabel")}
+                                      variant="compact"
+                                    />
+                                  </Box>
+                                </Box>
                               </Box>
-                              <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                              <Box
+                                display="flex"
+                                alignItems="center"
+                                gap={1}
+                                flexWrap="wrap"
+                                justifyContent={{ xs: "flex-start", sm: "flex-end" }}
+                                sx={{ gridArea: "actions", width: { sm: 220 } }}
+                              >
+                                {day.missingAccommodation && (
+                                  <Chip
+                                    label={t("trips.timeline.missingStay")}
+                                    size="small"
+                                    color="warning"
+                                    variant="outlined"
+                                  />
+                                )}
+                                {day.missingPlan && (
+                                  <Chip
+                                    label={t("trips.timeline.missingPlan")}
+                                    size="small"
+                                    color="warning"
+                                    variant="outlined"
+                                  />
+                                )}
                                 <IconButton
                                   component={Link}
                                   href={`/trips/${tripId}/days/${day.id}`}
@@ -515,18 +643,11 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                                     <path d="m3 17.25V21h3.75l11-11-3.75-3.75zm17.71-10.04a1 1 0 0 0 0-1.41l-2.5-2.5a1 1 0 0 0-1.41 0l-1.96 1.96 3.75 3.75z" />
                                   </SvgIcon>
                                 </IconButton>
-                                {(day.missingAccommodation || day.missingPlan) && (
-                                  <>
-                                    {day.missingAccommodation && (
-                                      <Chip label={t("trips.timeline.missingStay")} size="small" color="warning" variant="outlined" />
-                                    )}
-                                    {day.missingPlan && (
-                                      <Chip label={t("trips.timeline.missingPlan")} size="small" color="warning" variant="outlined" />
-                                    )}
-                                  </>
-                                )}
                               </Box>
                             </Box>
+                            <Typography variant="caption" color="text.secondary">
+                              {ganttSummary}
+                            </Typography>
 
                             {day.accommodation && (
                               <Box
@@ -560,7 +681,8 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                         </Box>
                       </Paper>
                     </ListItem>
-                  ))}
+                    );
+                  })}
                 </List>
               )}
             </Box>
