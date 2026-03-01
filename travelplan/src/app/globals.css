@@ -9,6 +9,8 @@
   --terracotta-500: #ff8a3d;
   --mist-100: #ffffff;
   --shadow-soft: 0 20px 50px rgba(17, 18, 20, 0.12);
+  --font-body: "Calibri", "Arial", "Helvetica", sans-serif;
+  --font-display: "Calibri", "Arial", "Helvetica", sans-serif;
 }
 
 html,
@@ -20,7 +22,7 @@ body {
 body {
   color: var(--ink-900);
   background: linear-gradient(180deg, #ffffff 0%, var(--parchment-200) 100%);
-  font-family: var(--font-body), "Source Sans 3", sans-serif;
+  font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   min-height: 100vh;
@@ -41,13 +43,19 @@ button {
   font-family: inherit;
 }
 
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
 h1,
 h2,
 h3,
 h4,
 h5,
 h6 {
-  font-family: var(--font-display), "Fraunces", serif;
+  font-family: var(--font-display);
   color: var(--ink-900);
 }
 
