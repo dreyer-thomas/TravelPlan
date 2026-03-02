@@ -277,7 +277,7 @@ export default function TripCostOverview({ tripId }: TripCostOverviewProps) {
                               {entries.map((entry) => {
                                 const amountLabel =
                                   entry.amountCents === null
-                                    ? t("trips.dayView.budgetNoAmount")
+                                    ? "-"
                                     : formatMessage(t("trips.stay.costSummary"), { amount: formatCost(entry.amountCents) });
                                 return (
                                   <Box
