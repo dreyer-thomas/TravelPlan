@@ -1,4 +1,8 @@
 import { prisma } from "@/lib/db/prisma";
+import {
+  deleteBucketListItemForTripInTransaction,
+  findBucketListItemForTripInTransaction,
+} from "@/lib/repositories/bucketListRepo";
 
 export type DayPlanItemDetail = {
   id: string;
@@ -23,6 +27,11 @@ export type DayPlanItemDeleteResult =
   | { status: "missing" }
   | { status: "deleted" };
 
+export type DayPlanItemConversionResult =
+  | { status: "not_found" }
+  | { status: "bucket_missing" }
+  | { status: "created"; item: DayPlanItemDetail };
+
 type DayPlanItemMutationParams = {
   userId: string;
   tripId: string;
@@ -44,6 +53,8 @@ type DayPlanItemDeleteParams = {
   tripDayId: string;
   itemId: string;
 };
+
+type DayPlanItemConversionParams = DayPlanItemMutationParams & { bucketListItemId: string };
 
 export type DayPlanItemImageDetail = {
   id: string;
@@ -217,6 +228,57 @@ export const createDayPlanItemForTripDay = async (
   });
 
   return toDetail(item);
+};
+
+export const convertBucketListItemToDayPlanItemForTripDay = async (
+  params: DayPlanItemConversionParams,
+): Promise<DayPlanItemConversionResult> => {
+  const { userId, tripId, tripDayId, bucketListItemId, contentJson, costCents, linkUrl, location, fromTime, toTime } =
+    params;
+  const tripDay = await findTripDayForUser(userId, tripId, tripDayId);
+  if (!tripDay) {
+    return { status: "not_found" };
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const bucketItem = await findBucketListItemForTripInTransaction({
+      tx,
+      userId,
+      tripId,
+      itemId: bucketListItemId,
+    });
+
+    if (!bucketItem) {
+      return { status: "bucket_missing" };
+    }
+
+    const created = await tx.dayPlanItem.create({
+      data: {
+        tripDayId,
+        title: params.title.trim(),
+        fromTime,
+        toTime,
+        contentJson,
+        costCents: costCents ?? null,
+        linkUrl: linkUrl ?? null,
+        locationLat: location?.lat ?? null,
+        locationLng: location?.lng ?? null,
+        locationLabel: location?.label?.trim() || null,
+      },
+    });
+
+    const deleted = await deleteBucketListItemForTripInTransaction({
+      tx,
+      tripId,
+      itemId: bucketItem.id,
+    });
+
+    if (!deleted) {
+      throw new Error("Bucket list item deletion failed");
+    }
+
+    return { status: "created", item: toDetail(created) };
+  });
 };
 
 export const updateDayPlanItemForTripDay = async (

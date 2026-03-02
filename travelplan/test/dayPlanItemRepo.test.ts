@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db/prisma";
 import {
+  convertBucketListItemToDayPlanItemForTripDay,
   createDayPlanItemForTripDay,
   deleteDayPlanItemForTripDay,
   listDayPlanItemsForTripDay,
@@ -42,6 +43,7 @@ const sampleDoc = (text: string) =>
 
 describe("dayPlanItemRepo", () => {
   beforeEach(async () => {
+    await prisma.tripBucketListItem.deleteMany();
     await prisma.dayPlanItem.deleteMany();
     await prisma.tripDay.deleteMany();
     await prisma.trip.deleteMany();
@@ -243,6 +245,79 @@ describe("dayPlanItemRepo", () => {
     });
 
     expect(deleted.status).toBe("deleted");
+    expect(await prisma.dayPlanItem.count()).toBe(0);
+  });
+
+  it("converts a bucket list item into a day plan item and deletes the bucket list item", async () => {
+    const user = await createUser("plan-convert@example.com");
+    const { trip, day } = await createTripWithDay(user.id);
+
+    const bucketItem = await prisma.tripBucketListItem.create({
+      data: {
+        tripId: trip.id,
+        title: "Bucket stop",
+        description: "Bucket notes",
+        positionText: "Central Station",
+        locationLat: 48.1372,
+        locationLng: 11.5756,
+        locationLabel: "Munich",
+      },
+    });
+
+    const converted = await convertBucketListItemToDayPlanItemForTripDay({
+      userId: user.id,
+      tripId: trip.id,
+      tripDayId: day.id,
+      bucketListItemId: bucketItem.id,
+      title: "Bucket stop",
+      fromTime: "10:00",
+      toTime: "11:00",
+      contentJson: sampleDoc("Bucket notes"),
+      costCents: null,
+      linkUrl: null,
+      location: { lat: 48.1372, lng: 11.5756, label: "Munich" },
+    });
+
+    expect(converted.status).toBe("created");
+    if (converted.status === "created") {
+      expect(converted.item.tripDayId).toBe(day.id);
+      expect(converted.item.title).toBe("Bucket stop");
+      expect(converted.item.contentJson).toContain("Bucket notes");
+      expect(converted.item.location).toEqual({ lat: 48.1372, lng: 11.5756, label: "Munich" });
+    }
+
+    expect(await prisma.tripBucketListItem.count()).toBe(0);
+    expect(await prisma.dayPlanItem.count()).toBe(1);
+  });
+
+  it("keeps the bucket list item when conversion fails", async () => {
+    const user = await createUser("plan-convert-fail@example.com");
+    const { trip, day } = await createTripWithDay(user.id);
+
+    const bucketItem = await prisma.tripBucketListItem.create({
+      data: {
+        tripId: trip.id,
+        title: "Bucket stop",
+      },
+    });
+
+    await expect(
+      convertBucketListItemToDayPlanItemForTripDay({
+        userId: user.id,
+        tripId: trip.id,
+        tripDayId: day.id,
+        bucketListItemId: bucketItem.id,
+        title: "Bucket stop",
+        fromTime: "10:00",
+        toTime: "11:00",
+        // @ts-expect-error intentional invalid payload to force a DB error
+        contentJson: null,
+        costCents: null,
+        linkUrl: null,
+      }),
+    ).rejects.toThrow();
+
+    expect(await prisma.tripBucketListItem.count()).toBe(1);
     expect(await prisma.dayPlanItem.count()).toBe(0);
   });
 

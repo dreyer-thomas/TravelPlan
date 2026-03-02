@@ -39,6 +39,7 @@ const sampleDoc = (text: string) =>
 
 describe("/api/trips/[id]/day-plan-items", () => {
   beforeEach(async () => {
+    await prisma.tripBucketListItem.deleteMany();
     await prisma.dayPlanItem.deleteMany();
     await prisma.tripDay.deleteMany();
     await prisma.trip.deleteMany();
@@ -237,6 +238,71 @@ describe("/api/trips/[id]/day-plan-items", () => {
     expect(payload.data?.dayPlanItem.costCents).toBe(1500);
     expect(payload.data?.dayPlanItem.linkUrl).toBe("https://example.com/plan");
     expect(payload.data?.dayPlanItem.location).toEqual({ lat: 48.145, lng: 11.582, label: "Gallery" });
+  });
+
+  it("converts a bucket list item into a day plan item and removes the bucket list item", async () => {
+    const user = await prisma.user.create({
+      data: { email: "plan-route-convert@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const token = await createSessionJwt({ sub: user.id, role: user.role });
+
+    const trip = await prisma.trip.create({
+      data: {
+        userId: user.id,
+        name: "Convert Trip",
+        startDate: new Date("2026-12-03T00:00:00.000Z"),
+        endDate: new Date("2026-12-03T00:00:00.000Z"),
+      },
+    });
+
+    const day = await prisma.tripDay.create({
+      data: {
+        tripId: trip.id,
+        date: new Date("2026-12-03T00:00:00.000Z"),
+        dayIndex: 1,
+      },
+    });
+
+    const bucketItem = await prisma.tripBucketListItem.create({
+      data: {
+        tripId: trip.id,
+        title: "Bucket stop",
+        description: "Bucket notes",
+        positionText: "Central Station",
+        locationLat: 48.1372,
+        locationLng: 11.5756,
+        locationLabel: "Munich",
+      },
+    });
+
+    const request = buildRequest(`http://localhost/api/trips/${trip.id}/day-plan-items`, {
+      session: token,
+      csrf: "csrf-token",
+      method: "POST",
+      body: JSON.stringify({
+        tripDayId: day.id,
+        bucketListItemId: bucketItem.id,
+        title: "Bucket stop",
+        fromTime: "09:15",
+        toTime: "10:15",
+        contentJson: sampleDoc("Bucket notes"),
+        costCents: null,
+        linkUrl: null,
+        location: { lat: 48.1372, lng: 11.5756, label: "Munich" },
+      }),
+    });
+
+    const response = await POST(request, { params: { id: trip.id } });
+    const payload = (await response.json()) as ApiEnvelope<{
+      dayPlanItem: { id: string; tripDayId: string; title: string | null };
+    }>;
+
+    expect(response.status).toBe(200);
+    expect(payload.error).toBeNull();
+    expect(payload.data?.dayPlanItem.tripDayId).toBe(day.id);
+    expect(payload.data?.dayPlanItem.title).toBe("Bucket stop");
+    expect(await prisma.tripBucketListItem.count()).toBe(0);
+    expect(await prisma.dayPlanItem.count()).toBe(1);
   });
 
   it("creates and returns rich formatted content without data loss", async () => {
@@ -742,6 +808,60 @@ describe("/api/trips/[id]/day-plan-items", () => {
 
     expect(response.status).toBe(400);
     expect(payload.error?.code).toBe("validation_error");
+  });
+
+  it("rejects invalid times when converting a bucket list item", async () => {
+    const user = await prisma.user.create({
+      data: { email: "plan-route-convert-invalid@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const token = await createSessionJwt({ sub: user.id, role: user.role });
+
+    const trip = await prisma.trip.create({
+      data: {
+        userId: user.id,
+        name: "Convert Invalid Trip",
+        startDate: new Date("2026-12-06T00:00:00.000Z"),
+        endDate: new Date("2026-12-06T00:00:00.000Z"),
+      },
+    });
+
+    const day = await prisma.tripDay.create({
+      data: {
+        tripId: trip.id,
+        date: new Date("2026-12-06T00:00:00.000Z"),
+        dayIndex: 1,
+      },
+    });
+
+    const bucketItem = await prisma.tripBucketListItem.create({
+      data: {
+        tripId: trip.id,
+        title: "Bucket stop",
+      },
+    });
+
+    const request = buildRequest(`http://localhost/api/trips/${trip.id}/day-plan-items`, {
+      session: token,
+      csrf: "csrf-token",
+      method: "POST",
+      body: JSON.stringify({
+        tripDayId: day.id,
+        bucketListItemId: bucketItem.id,
+        title: "Bucket stop",
+        fromTime: "10:00",
+        toTime: "09:00",
+        contentJson: sampleDoc("Bucket stop"),
+        linkUrl: null,
+      }),
+    });
+
+    const response = await POST(request, { params: { id: trip.id } });
+    const payload = (await response.json()) as ApiEnvelope<null>;
+
+    expect(response.status).toBe(400);
+    expect(payload.error?.code).toBe("validation_error");
+    expect(await prisma.tripBucketListItem.count()).toBe(1);
+    expect(await prisma.dayPlanItem.count()).toBe(0);
   });
 
   it("rejects missing times on update", async () => {

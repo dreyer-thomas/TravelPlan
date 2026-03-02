@@ -1,6 +1,6 @@
 # Story 4.1: Manage Trip Bucket List Items
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 

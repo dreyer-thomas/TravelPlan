@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/db/prisma";
 
+type TransactionClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+
 export type BucketListItemDetail = {
   id: string;
   tripId: string;
@@ -33,6 +35,12 @@ type BucketListItemCreateParams = {
 type BucketListItemUpdateParams = BucketListItemCreateParams & { itemId: string };
 
 type BucketListItemDeleteParams = {
+  userId: string;
+  tripId: string;
+  itemId: string;
+};
+
+type BucketListItemScopeParams = {
   userId: string;
   tripId: string;
   itemId: string;
@@ -178,4 +186,53 @@ export const deleteBucketListItemForTrip = async (
 
   await prisma.tripBucketListItem.delete({ where: { id: existing.id } });
   return { status: "deleted" };
+};
+
+export const findBucketListItemForTrip = async (
+  params: BucketListItemScopeParams,
+): Promise<BucketListItemDetail | null> => {
+  const item = await prisma.tripBucketListItem.findFirst({
+    where: {
+      id: params.itemId,
+      tripId: params.tripId,
+      trip: { userId: params.userId },
+    },
+  });
+
+  return item ? toDetail(item) : null;
+};
+
+export const findBucketListItemForTripInTransaction = async (
+  params: BucketListItemScopeParams & { tx: TransactionClient },
+): Promise<BucketListItemDetail | null> => {
+  const item = await params.tx.tripBucketListItem.findFirst({
+    where: {
+      id: params.itemId,
+      tripId: params.tripId,
+      trip: { userId: params.userId },
+    },
+  });
+
+  return item ? toDetail(item) : null;
+};
+
+export const deleteBucketListItemForTripInTransaction = async (params: {
+  tx: TransactionClient;
+  tripId: string;
+  itemId: string;
+}): Promise<boolean> => {
+  const existing = await params.tx.tripBucketListItem.findFirst({
+    where: {
+      id: params.itemId,
+      tripId: params.tripId,
+    },
+    select: { id: true },
+  });
+
+  if (!existing) {
+    return false;
+  }
+
+  await params.tx.tripBucketListItem.delete({ where: { id: existing.id } });
+  return true;
 };

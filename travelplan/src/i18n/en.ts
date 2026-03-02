@@ -223,6 +223,7 @@ const en: Dictionary = {
   "trips.overviewMap.missingTag": "Missing",
   "trips.bucketList.title": "Bucket list",
   "trips.bucketList.addAction": "Add item",
+  "trips.bucketList.addToDayAction": "Add to day",
   "trips.bucketList.loading": "Loading bucket list...",
   "trips.bucketList.empty": "No bucket list items yet.",
   "trips.bucketList.loadError": "Unable to load bucket list items.",

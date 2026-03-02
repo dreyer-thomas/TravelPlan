@@ -35,6 +35,7 @@ import TripDayMapPanel, {
   buildTripDayMapItems,
   type TripDayMapPoint,
 } from "@/components/features/trips/TripDayMapPanel";
+import TripDayBucketListPanel from "@/components/features/trips/TripDayBucketListPanel";
 import TripDayPlanDialog from "@/components/features/trips/TripDayPlanDialog";
 import TripDayTravelSegmentDialog from "@/components/features/trips/TripDayTravelSegmentDialog";
 import { MiniImageStrip, PlanItemRichContent, isSafeLink, parsePlanText } from "@/components/features/trips/TripDayPlanItemContent";
@@ -114,6 +115,17 @@ type DayPlanItem = {
   createdAt: string;
 };
 
+type BucketListItem = {
+  id: string;
+  tripId: string;
+  title: string;
+  description: string | null;
+  positionText: string | null;
+  location: { lat: number; lng: number; label: string | null } | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type SegmentItem = {
   id: string;
   type: "accommodation" | "dayPlanItem";
@@ -132,6 +144,13 @@ type GalleryImage = {
 type TravelSegment = NonNullable<TripDay["travelSegments"]>[number];
 
 type PlanDialogMode = "add" | "edit";
+
+type PlanDialogPrefill = {
+  title: string;
+  contentJson: string;
+  location: { lat: number; lng: number; label?: string | null } | null;
+  bucketListItemId: string;
+};
 
 type MapDialogItem =
   | { kind: "planItem"; id: string; label: string; planItem: DayPlanItem }
@@ -216,6 +235,9 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const [detail, setDetail] = useState<TripDetail | null>(null);
   const [day, setDay] = useState<TripDay | null>(null);
   const [planItems, setPlanItems] = useState<DayPlanItem[]>([]);
+  const [bucketItems, setBucketItems] = useState<BucketListItem[]>([]);
+  const [bucketLoading, setBucketLoading] = useState(false);
+  const [bucketError, setBucketError] = useState<string | null>(null);
   const [travelSegments, setTravelSegments] = useState<TravelSegment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -224,6 +246,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const [previousStayOpen, setPreviousStayOpen] = useState(false);
   const [planDialogMode, setPlanDialogMode] = useState<PlanDialogMode | null>(null);
   const [selectedPlanItem, setSelectedPlanItem] = useState<DayPlanItem | null>(null);
+  const [planDialogPrefill, setPlanDialogPrefill] = useState<PlanDialogPrefill | null>(null);
   const [segmentDialogOpen, setSegmentDialogOpen] = useState(false);
   const [activeSegment, setActiveSegment] = useState<TravelSegment | null>(null);
   const [activeSegmentFrom, setActiveSegmentFrom] = useState<SegmentItem | null>(null);
@@ -289,7 +312,8 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   );
 
   const resolveApiError = useCallback(
-    (code?: string) => {
+    (code?: string, fallback?: string) => {
+      const defaultMessage = fallback ?? t("trips.dayView.loadError");
       switch (code) {
         case "unauthorized":
           return t("errors.unauthorized");
@@ -302,10 +326,44 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
         case "network_error":
           return t("errors.network");
         default:
-          return t("trips.dayView.loadError");
+          return defaultMessage;
       }
     },
     [t],
+  );
+
+  const buildBucketListContentJson = useCallback((item: BucketListItem) => {
+    const description = item.description?.trim() ?? "";
+    const positionText = item.positionText?.trim() ?? "";
+    const includePositionText = !item.location && positionText.length > 0;
+    const parts = [description, includePositionText ? positionText : ""].filter((value) => value.length > 0);
+    const content = parts.length > 0 ? parts : [item.title.trim()];
+    return JSON.stringify({
+      type: "doc",
+      content: content.map((text) => ({
+        type: "paragraph",
+        content: [{ type: "text", text }],
+      })),
+    });
+  }, []);
+
+  const buildBucketListPrefill = useCallback(
+    (item: BucketListItem): PlanDialogPrefill => {
+      const location = item.location
+        ? {
+            lat: item.location.lat,
+            lng: item.location.lng,
+            label: item.positionText?.trim() || item.location.label || null,
+          }
+        : null;
+      return {
+        title: item.title,
+        contentJson: buildBucketListContentJson(item),
+        location,
+        bucketListItemId: item.id,
+      };
+    },
+    [buildBucketListContentJson],
   );
 
   const loadDay = useCallback(async () => {
@@ -326,6 +384,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
         setDetail(null);
         setDay(null);
         setPlanItems([]);
+        setBucketItems([]);
         setTravelSegments([]);
         return;
       }
@@ -335,6 +394,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
         setDetail(null);
         setDay(null);
         setPlanItems([]);
+        setBucketItems([]);
         setTravelSegments([]);
         return;
       }
@@ -345,6 +405,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
         setDetail(null);
         setDay(null);
         setPlanItems([]);
+        setBucketItems([]);
         setTravelSegments([]);
         return;
       }
@@ -371,12 +432,38 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
       setDetail(null);
       setDay(null);
       setPlanItems([]);
-      setTravelSegments([]);
+      setBucketItems([]);
       setTravelSegments([]);
     } finally {
       setLoading(false);
     }
   }, [dayId, resolveApiError, t, tripId]);
+
+  const loadBucketListItems = useCallback(async () => {
+    setBucketLoading(true);
+    setBucketError(null);
+    try {
+      const response = await fetch(`/api/trips/${tripId}/bucket-list-items`, {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      });
+      const body = (await response.json()) as ApiEnvelope<{ items: BucketListItem[] }>;
+
+      if (!response.ok || body.error) {
+        setBucketError(resolveApiError(body.error?.code, t("trips.bucketList.loadError")));
+        setBucketItems([]);
+        return;
+      }
+
+      setBucketItems(body.data?.items ?? []);
+    } catch {
+      setBucketError(t("trips.bucketList.loadError"));
+      setBucketItems([]);
+    } finally {
+      setBucketLoading(false);
+    }
+  }, [resolveApiError, t, tripId]);
 
   const ensureCsrfToken = useCallback(async () => {
     if (csrfToken) return csrfToken;
@@ -437,13 +524,21 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   };
 
   const handleOpenAddPlan = () => {
+    setPlanDialogPrefill(null);
     setSelectedPlanItem(null);
     setPlanDialogMode("add");
   };
 
   const handleOpenEditPlan = (item: DayPlanItem) => {
+    setPlanDialogPrefill(null);
     setSelectedPlanItem(item);
     setPlanDialogMode("edit");
+  };
+
+  const handleAddBucketToDay = (item: BucketListItem) => {
+    setPlanDialogPrefill(buildBucketListPrefill(item));
+    setSelectedPlanItem(null);
+    setPlanDialogMode("add");
   };
 
   const handleDeletePlan = useCallback(
@@ -499,9 +594,30 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     [day, ensureCsrfToken, resolveApiError, t, tripId],
   );
 
+  const handlePlanDialogClose = () => {
+    setPlanDialogMode(null);
+    setSelectedPlanItem(null);
+    setPlanDialogPrefill(null);
+  };
+
+  const handlePlanDialogSaved = () => {
+    const shouldReloadBucket = Boolean(planDialogPrefill?.bucketListItemId);
+    setPlanDialogMode(null);
+    setSelectedPlanItem(null);
+    setPlanDialogPrefill(null);
+    loadDay();
+    if (shouldReloadBucket) {
+      loadBucketListItems();
+    }
+  };
+
   useEffect(() => {
     loadDay();
   }, [loadDay]);
+
+  useEffect(() => {
+    loadBucketListItems();
+  }, [loadBucketListItems]);
 
   useEffect(() => {
     setDayImageFile(null);
@@ -837,7 +953,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          px: 1,
+          px: 1.5,
           py: 0.25,
           color: "text.secondary",
         }}
@@ -858,9 +974,22 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
             {travelSegmentLabel(segment)}
           </Typography>
         </Box>
-        <Button size="small" variant="text" onClick={() => handleOpenTravelSegment(from, to)}>
-          {segment ? t("trips.travelSegment.editAction") : t("trips.travelSegment.addAction")}
-        </Button>
+        {segment ? (
+          <IconButton
+            size="small"
+            color="primary"
+            aria-label={t("trips.travelSegment.editAction")}
+            onClick={() => handleOpenTravelSegment(from, to)}
+          >
+            <SvgIcon fontSize="small">
+              <path d="M3 17.25V21h3.75l11-11-3.75-3.75-11 11zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66z" />
+            </SvgIcon>
+          </IconButton>
+        ) : (
+          <Button size="small" variant="text" onClick={() => handleOpenTravelSegment(from, to)}>
+            {t("trips.travelSegment.addAction")}
+          </Button>
+        )}
       </Box>
     );
   };
@@ -1302,7 +1431,16 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                 </Typography>
                 <Box display="flex" alignItems="center" gap={1}>
                   <Button size="small" variant="outlined" onClick={() => setStayOpen(true)}>
-                    {day.accommodation ? t("trips.stay.editAction") : t("trips.stay.addAction")}
+                    {day.accommodation ? (
+                      <>
+                        {t("trips.stay.editAction")}
+                        <SvgIcon fontSize="small" sx={{ ml: 0.75 }}>
+                          <path d="M3 17.25V21h3.75l11-11-3.75-3.75-11 11zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66z" />
+                        </SvgIcon>
+                      </>
+                    ) : (
+                      t("trips.stay.addAction")
+                    )}
                   </Button>
                   <Button size="small" variant="outlined" onClick={handleOpenAddPlan}>
                     {t("trips.plan.addPrimaryAction")}
@@ -1333,9 +1471,18 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                       {t("trips.dayView.previousNightTitle")}
                     </Typography>
                     {previousDay ? (
-                      <Button size="small" variant="text" onClick={() => setPreviousStayOpen(true)}>
-                        {previousStay ? t("trips.stay.editAction") : t("trips.stay.addAction")}
-                      </Button>
+                      previousStay ? (
+                        <Button size="small" variant="text" onClick={() => setPreviousStayOpen(true)}>
+                          {t("trips.stay.editAction")}
+                          <SvgIcon fontSize="small" sx={{ ml: 0.75 }}>
+                            <path d="M3 17.25V21h3.75l11-11-3.75-3.75-11 11zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66z" />
+                          </SvgIcon>
+                        </Button>
+                      ) : (
+                        <Button size="small" variant="text" onClick={() => setPreviousStayOpen(true)}>
+                          {t("trips.stay.addAction")}
+                        </Button>
+                      )
                     ) : null}
                   </Box>
                   {previousStay ? (
@@ -1605,6 +1752,12 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                 onExpandClick={handleMapExpand}
                 onMarkerClick={handleMapMarkerClick}
               />
+              <TripDayBucketListPanel
+                items={bucketItems}
+                loading={bucketLoading}
+                error={bucketError}
+                onAddToDay={handleAddBucketToDay}
+              />
             </Box>
           </Box>
 
@@ -1656,16 +1809,10 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
             tripId={tripId}
             day={day}
             item={selectedPlanItem}
+            prefill={planDialogPrefill}
             onDelete={handleDeletePlan}
-            onClose={() => {
-              setPlanDialogMode(null);
-              setSelectedPlanItem(null);
-            }}
-            onSaved={() => {
-              setPlanDialogMode(null);
-              setSelectedPlanItem(null);
-              loadDay();
-            }}
+            onClose={handlePlanDialogClose}
+            onSaved={handlePlanDialogSaved}
           />
           <Dialog open={dayMetaOpen} onClose={() => setDayMetaOpen(false)} fullWidth maxWidth="sm">
             <DialogTitle>{t("trips.dayImage.dialogTitle")}</DialogTitle>

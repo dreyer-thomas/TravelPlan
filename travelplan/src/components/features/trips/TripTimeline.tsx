@@ -706,9 +706,11 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
               <Button variant="outlined" onClick={() => setImportOpen(true)}>
                 {t("trips.import.action")}
               </Button>
-              <Button variant="outlined" onClick={() => setEditOpen(true)}>
-                {t("trips.edit.open")}
-              </Button>
+              <IconButton aria-label={t("trips.edit.open")} color="primary" onClick={() => setEditOpen(true)}>
+                <SvgIcon fontSize="small">
+                  <path d="M3 17.25V21h3.75l11-11-3.75-3.75-11 11zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66z" />
+                </SvgIcon>
+              </IconButton>
               <Button variant="outlined" color="error" onClick={() => setDeleteOpen(true)}>
                 {t("trips.delete.open")}
               </Button>

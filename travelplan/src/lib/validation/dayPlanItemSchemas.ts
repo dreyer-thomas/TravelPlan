@@ -91,6 +91,7 @@ export const dayPlanItemMutationSchema = z.object({
   costCents: z.number().int().nonnegative("Cost must be zero or greater").optional().nullable(),
   linkUrl: linkSchema.optional().nullable(),
   location: locationInputSchema.optional(),
+  bucketListItemId: z.string().trim().min(1, "Bucket list item is required").optional().nullable(),
 }).superRefine((value, context) => {
   if (typeof value.fromTime !== "string" || typeof value.toTime !== "string") return;
   if (toMinutes(value.toTime) <= toMinutes(value.fromTime)) {

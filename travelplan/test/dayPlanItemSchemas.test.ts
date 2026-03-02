@@ -21,6 +21,7 @@ describe("dayPlanItemSchemas", () => {
         lng: 11.5756,
         label: "Marienplatz",
       },
+      bucketListItemId: "bucket-id",
     });
 
     expect(result.success).toBe(true);
@@ -234,6 +235,18 @@ describe("dayPlanItemSchemas", () => {
       title: "Plan",
       contentJson: sampleDoc,
       linkUrl: null,
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects missing times even when bucketListItemId is provided", () => {
+    const result = dayPlanItemMutationSchema.safeParse({
+      tripDayId: "day-id",
+      title: "Plan",
+      contentJson: sampleDoc,
+      linkUrl: null,
+      bucketListItemId: "bucket-1",
     });
 
     expect(result.success).toBe(false);

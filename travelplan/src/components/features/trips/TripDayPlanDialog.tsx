@@ -60,12 +60,20 @@ type GalleryImage = {
 
 type PlanDialogMode = "add" | "edit";
 
+type PlanDialogPrefill = {
+  title: string;
+  contentJson: string;
+  location: { lat: number; lng: number; label?: string | null } | null;
+  bucketListItemId: string;
+};
+
 type TripDayPlanDialogProps = {
   open: boolean;
   mode: PlanDialogMode;
   tripId: string;
   day: TripDay | null;
   item: DayPlanItem | null;
+  prefill?: PlanDialogPrefill | null;
   onDelete?: (itemId: string) => Promise<boolean>;
   onClose: () => void;
   onSaved: () => void;
@@ -154,6 +162,7 @@ export default function TripDayPlanDialog({
   tripId,
   day,
   item,
+  prefill = null,
   onDelete,
   onClose,
   onSaved,
@@ -255,11 +264,20 @@ export default function TripDayPlanDialog({
       setResolvedLocation(item.location ?? null);
       setLocationQuery(item.location?.label ?? "");
       setEditorContent(item.contentJson);
+    } else if (mode === "add" && prefill) {
+      setTitleInput(prefill.title ?? "");
+      setFromTimeInput("");
+      setToTimeInput("");
+      setCostCentsInput("");
+      setLinkUrl("");
+      setResolvedLocation(prefill.location ?? null);
+      setLocationQuery(prefill.location?.label ?? "");
+      setEditorContent(prefill.contentJson);
     } else {
       resetEditor();
     }
     setLoadingInit(false);
-  }, [item, mode, open, resetEditor, setEditorContent]);
+  }, [item, mode, open, prefill, resetEditor, setEditorContent]);
 
   useEffect(() => {
     if (!open || !day) return;
@@ -405,10 +423,14 @@ export default function TripDayPlanDialog({
       linkUrl: string | null;
       location: { lat: number; lng: number; label?: string | null } | null;
       itemId?: string;
+      bucketListItemId?: string;
     };
 
     if (mode === "edit" && editingItemId) {
       payload.itemId = editingItemId;
+    }
+    if (mode === "add" && prefill?.bucketListItemId) {
+      payload.bucketListItemId = prefill.bucketListItemId;
     }
 
     try {

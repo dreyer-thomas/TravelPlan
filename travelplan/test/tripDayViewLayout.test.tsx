@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import TripDayView from "@/components/features/trips/TripDayView";
 import { I18nProvider } from "@/i18n/provider";
 import type { ReactNode } from "react";
@@ -12,6 +12,12 @@ const planDialogMockState = vi.hoisted(() => ({
     open: boolean;
     mode: "add" | "edit";
     item: { id: string; linkUrl: string | null } | null;
+    prefill?: {
+      title: string;
+      contentJson: string;
+      location: { lat: number; lng: number; label?: string | null } | null;
+      bucketListItemId: string;
+    } | null;
     onDelete?: (itemId: string) => Promise<boolean>;
     onClose: () => void;
     onSaved: () => void;
@@ -30,6 +36,12 @@ vi.mock("@/components/features/trips/TripDayPlanDialog", () => ({
     open: boolean;
     mode: "add" | "edit";
     item: { id: string; linkUrl: string | null } | null;
+    prefill?: {
+      title: string;
+      contentJson: string;
+      location: { lat: number; lng: number; label?: string | null } | null;
+      bucketListItemId: string;
+    } | null;
     onDelete?: (itemId: string) => Promise<boolean>;
     onClose: () => void;
     onSaved: () => void;
@@ -41,6 +53,8 @@ vi.mock("@/components/features/trips/TripDayPlanDialog", () => ({
         <span data-testid="plan-dialog-mode">{props.mode}</span>
         <span data-testid="plan-dialog-item-id">{props.item?.id ?? "none"}</span>
         <span data-testid="plan-dialog-item-link">{props.item?.linkUrl ?? "none"}</span>
+        <span data-testid="plan-dialog-prefill-title">{props.prefill?.title ?? "none"}</span>
+        <span data-testid="plan-dialog-prefill-bucket">{props.prefill?.bucketListItemId ?? "none"}</span>
         {props.mode === "edit" && props.item ? (
           <button type="button" onClick={() => void props.onDelete?.(props.item.id)}>
             Delete plan item
@@ -50,6 +64,36 @@ vi.mock("@/components/features/trips/TripDayPlanDialog", () => ({
     );
   },
 }));
+
+const buildBucketListResponse = (items: unknown[] = []) => ({
+  ok: true,
+  status: 200,
+  json: async () => ({ data: { items }, error: null }),
+});
+
+let bucketListItemsOverride: unknown[] | null = null;
+
+const maybeHandleBucketListRequest = (input: RequestInfo | URL, items: unknown[] = []) => {
+  const url = typeof input === "string" ? input : input.url;
+  if (url.includes("/bucket-list-items")) {
+    const resolvedItems = bucketListItemsOverride ?? items;
+    return buildBucketListResponse(resolvedItems);
+  }
+  return null;
+};
+
+const withBucketList = (
+  handler: (input: RequestInfo | URL, init?: RequestInit) => Promise<{
+    ok: boolean;
+    status: number;
+    json: () => Promise<unknown>;
+  }>,
+) =>
+  vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const bucketResponse = maybeHandleBucketListRequest(input);
+    if (bucketResponse) return bucketResponse;
+    return handler(input, init);
+  });
 
 vi.mock("@/components/features/trips/TripDayTravelSegmentDialog", () => ({
   default: (props: {
@@ -164,10 +208,13 @@ vi.mock("leaflet", () => ({
 }));
 
 describe("TripDayView layout", () => {
+  beforeEach(() => {
+    bucketListItemsOverride = null;
+  });
   it("renders the day gantt bar in the header overview area", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
-    const fetchMock = vi.fn(async () => {
+    const fetchMock = withBucketList(async () => {
       return {
         ok: true,
         status: 200,
@@ -213,10 +260,80 @@ describe("TripDayView layout", () => {
     vi.unstubAllGlobals();
   });
 
+  it("renders bucket list items and opens the plan dialog with prefill data", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    bucketListItemsOverride = [
+      {
+        id: "bucket-1",
+        tripId: "trip-1",
+        title: "Bucket stop",
+        description: "Bucket notes",
+        positionText: "Central Station",
+        location: { lat: 48.1372, lng: 11.5756, label: "Munich" },
+        createdAt: "2026-12-01T00:00:00.000Z",
+        updatedAt: "2026-12-01T00:00:00.000Z",
+      },
+    ];
+    const fetchMock = withBucketList(async () => {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-01T00:00:00.000Z",
+              dayCount: 1,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: null,
+                dayPlanItems: [],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-1" />
+      </I18nProvider>,
+    );
+
+    expect(await screen.findByText("Bucket list")).toBeInTheDocument();
+    expect(screen.getByText("Bucket stop")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Add to day" }));
+
+    await waitFor(() => {
+      expect(planDialogMockState.lastProps?.prefill?.bucketListItemId).toBe("bucket-1");
+      expect(planDialogMockState.lastProps?.prefill?.title).toBe("Bucket stop");
+      expect(planDialogMockState.lastProps?.prefill?.location?.label).toBe("Central Station");
+      expect(planDialogMockState.lastProps?.prefill?.contentJson).toContain("Bucket notes");
+    });
+
+    vi.unstubAllGlobals();
+  });
+
   it("renders a textual planned vs unplanned summary for the gantt bar", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
-    const fetchMock = vi.fn(async () => {
+    const fetchMock = withBucketList(async () => {
       return {
         ok: true,
         status: 200,
@@ -265,7 +382,7 @@ describe("TripDayView layout", () => {
   it("shows a fully planned indicator when the gantt coverage reaches 24 hours", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
-    const fetchMock = vi.fn(async () => {
+    const fetchMock = withBucketList(async () => {
       return {
         ok: true,
         status: 200,
@@ -344,7 +461,7 @@ describe("TripDayView layout", () => {
   it("updates the gantt summary after saving a travel segment", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
-    const fetchMock = vi.fn(async () => {
+    const fetchMock = withBucketList(async () => {
       return {
         ok: true,
         status: 200,
@@ -426,7 +543,7 @@ describe("TripDayView layout", () => {
   it("renders overlapping gantt segments for different planned sources", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
-    const fetchMock = vi.fn(async () => {
+    const fetchMock = withBucketList(async () => {
       return {
         ok: true,
         status: 200,
@@ -511,7 +628,7 @@ describe("TripDayView layout", () => {
   it("colors travel segments in orange", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
-    const fetchMock = vi.fn(async () => {
+    const fetchMock = withBucketList(async () => {
       return {
         ok: true,
         status: 200,
@@ -598,7 +715,7 @@ describe("TripDayView layout", () => {
   it("renders a day plan time-range chip as HH:mm - HH:mm", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
-    const fetchMock = vi.fn(async () => {
+    const fetchMock = withBucketList(async () => {
       return {
         ok: true,
         status: 200,
@@ -661,7 +778,7 @@ describe("TripDayView layout", () => {
   it("renders legacy day plan items without times without showing a chip", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
-    const fetchMock = vi.fn(async () => {
+    const fetchMock = withBucketList(async () => {
       return {
         ok: true,
         status: 200,
@@ -725,7 +842,7 @@ describe("TripDayView layout", () => {
   it("renders hotel time ranges for previous and current night accommodations", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
-    const fetchMock = vi.fn(async () => {
+    const fetchMock = withBucketList(async () => {
       return {
         ok: true,
         status: 200,
@@ -805,7 +922,7 @@ describe("TripDayView layout", () => {
   it("shows previous and next navigation links for a middle day based on chronological order", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
-    const fetchMock = vi.fn(async () => {
+    const fetchMock = withBucketList(async () => {
       return {
         ok: true,
         status: 200,
@@ -879,7 +996,7 @@ describe("TripDayView layout", () => {
   it("renders localized previous and next controls in German", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
-    const fetchMock = vi.fn(async () => {
+    const fetchMock = withBucketList(async () => {
       return {
         ok: true,
         status: 200,
@@ -955,7 +1072,7 @@ describe("TripDayView layout", () => {
   it("disables previous on first day and next on last day", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
-    const fetchMock = vi.fn(async () => {
+    const fetchMock = withBucketList(async () => {
       return {
         ok: true,
         status: 200,
@@ -1035,7 +1152,7 @@ describe("TripDayView layout", () => {
   it("renders destination day details when day route target changes", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
-    const fetchMock = vi.fn(async () => {
+    const fetchMock = withBucketList(async () => {
       return {
         ok: true,
         status: 200,
@@ -1132,7 +1249,7 @@ describe("TripDayView layout", () => {
   it("renders formatted day plan content including italic text and inline images", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const fetchMock = withBucketList(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/day-plan-items/images")) {
         return {
@@ -1217,7 +1334,7 @@ describe("TripDayView layout", () => {
   it("does not render unsafe item links as clickable anchors", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const fetchMock = withBucketList(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/day-plan-items/images")) {
         return {
@@ -1293,7 +1410,7 @@ describe("TripDayView layout", () => {
   it("renders the day view page layout for a selected day", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
-    const fetchMock = vi.fn(async () => {
+    const fetchMock = withBucketList(async () => {
       return {
         ok: true,
         status: 200,
@@ -1371,7 +1488,7 @@ describe("TripDayView layout", () => {
       </I18nProvider>
     );
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(0));
 
     expect(await screen.findByTestId("trip-day-view-page")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
@@ -1412,7 +1529,7 @@ describe("TripDayView layout", () => {
   it("shows copy previous night action when a previous-night accommodation exists", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
-    const fetchMock = vi.fn(async () => {
+    const fetchMock = withBucketList(async () => {
       return {
         ok: true,
         status: 200,
@@ -1482,7 +1599,7 @@ describe("TripDayView layout", () => {
   it("hides copy previous night action when a current-night accommodation already exists", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
-    const fetchMock = vi.fn(async () => {
+    const fetchMock = withBucketList(async () => {
       return {
         ok: true,
         status: 200,
@@ -1562,7 +1679,7 @@ describe("TripDayView layout", () => {
   it("hides copy previous night action when there is no previous-night accommodation", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
-    const fetchMock = vi.fn(async () => {
+    const fetchMock = withBucketList(async () => {
       return {
         ok: true,
         status: 200,
@@ -1622,7 +1739,7 @@ describe("TripDayView layout", () => {
   it("updates the current-night accommodation after copying the previous night", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const fetchMock = withBucketList(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.includes("/api/auth/csrf")) {
         return {
@@ -1740,7 +1857,7 @@ describe("TripDayView layout", () => {
   it("renders image mini-strips with +N indicator for gallery images", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const fetchMock = withBucketList(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/accommodations/images")) {
         return {
@@ -1841,7 +1958,7 @@ describe("TripDayView layout", () => {
   it("renders previous-night accommodation gallery images", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const fetchMock = withBucketList(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/accommodations/images") && url.includes("accommodationId=stay-prev")) {
         return {
@@ -1970,7 +2087,7 @@ describe("TripDayView layout", () => {
       },
     ];
 
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const fetchMock = withBucketList(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = init?.method ?? "GET";
 
@@ -2069,7 +2186,7 @@ describe("TripDayView layout", () => {
   it("opens the plan edit dialog from query params", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "open=plan&itemId=plan-1";
-    const fetchMock = vi.fn(async () => {
+    const fetchMock = withBucketList(async () => {
       return {
         ok: true,
         status: 200,
@@ -2130,7 +2247,7 @@ describe("TripDayView layout", () => {
       </I18nProvider>,
     );
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(0));
     await waitFor(() => expect(planDialogMockState.lastProps?.open).toBe(true));
 
     expect(planDialogMockState.lastProps?.mode).toBe("edit");
@@ -2147,7 +2264,7 @@ describe("TripDayView layout", () => {
       note: "Flight from FRA to SIN" as string | null,
     };
 
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const fetchMock = withBucketList(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = init?.method ?? "GET";
 
@@ -2285,7 +2402,7 @@ describe("TripDayView layout", () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
 
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const fetchMock = withBucketList(async (input: RequestInfo | URL) => {
       const url = String(input);
 
       if (url.includes("/api/trips/trip-1/days/day-1/route")) {
@@ -2401,7 +2518,7 @@ describe("TripDayView layout", () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
 
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const fetchMock = withBucketList(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/api/trips/trip-1/days/day-1/route")) {
         return {
@@ -2507,7 +2624,7 @@ describe("TripDayView layout", () => {
     navigationMockState.search = "";
     const user = userEvent.setup();
 
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const fetchMock = withBucketList(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/day-plan-items/images")) {
         return {
@@ -2599,7 +2716,7 @@ describe("TripDayView layout", () => {
   it("renders travel segments between timeline items with time tags", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const fetchMock = withBucketList(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/day-plan-items/images")) {
         return {
@@ -2760,7 +2877,7 @@ describe("TripDayView layout", () => {
   it("updates travel segment time tags after save without full refresh", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const fetchMock = withBucketList(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/day-plan-items/images")) {
         return {
@@ -2915,7 +3032,7 @@ describe("TripDayView layout", () => {
   it("hides travel segment time tags when the previous item has no end time", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const fetchMock = withBucketList(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/day-plan-items/images")) {
         return {

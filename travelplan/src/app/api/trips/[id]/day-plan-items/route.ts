@@ -5,6 +5,7 @@ import { CSRF_COOKIE_NAME, validateCsrf } from "@/lib/security/csrf";
 import { verifySessionJwt } from "@/lib/auth/jwt";
 import {
   createDayPlanItemForTripDay,
+  convertBucketListItemToDayPlanItemForTripDay,
   deleteDayPlanItemForTripDay,
   listDayPlanItemsForTripDay,
   updateDayPlanItemForTripDay,
@@ -126,7 +127,9 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
         }
       : null;
 
-  const item = await createDayPlanItemForTripDay({
+  const bucketListItemId = parsed.data.bucketListItemId ?? null;
+  const resolvedLinkUrl = linkUrl && linkUrl.length > 0 ? linkUrl : null;
+  const mutationParams = {
     userId,
     tripId,
     tripDayId: parsed.data.tripDayId,
@@ -135,26 +138,44 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
     toTime: parsed.data.toTime,
     contentJson: parsed.data.contentJson,
     costCents: parsed.data.costCents ?? null,
-    linkUrl: linkUrl && linkUrl.length > 0 ? linkUrl : null,
+    linkUrl: resolvedLinkUrl,
     location: normalizedLocation,
-  });
+  };
+
+  const item = bucketListItemId
+    ? await convertBucketListItemToDayPlanItemForTripDay({
+        ...mutationParams,
+        bucketListItemId,
+      })
+    : await createDayPlanItemForTripDay(mutationParams);
 
   if (!item) {
     return fail(apiError("not_found", "Trip day not found"), 404);
   }
 
+  if ("status" in item) {
+    if (item.status === "not_found") {
+      return fail(apiError("not_found", "Trip day not found"), 404);
+    }
+    if (item.status === "bucket_missing") {
+      return fail(apiError("not_found", "Bucket list item not found"), 404);
+    }
+  }
+
+  const resolvedItem = "status" in item ? item.item : item;
+
   return ok({
     dayPlanItem: {
-      id: item.id,
-      tripDayId: item.tripDayId,
-      title: item.title,
-      fromTime: item.fromTime,
-      toTime: item.toTime,
-      contentJson: item.contentJson,
-      costCents: item.costCents,
-      linkUrl: item.linkUrl,
-      location: item.location,
-      createdAt: item.createdAt.toISOString(),
+      id: resolvedItem.id,
+      tripDayId: resolvedItem.tripDayId,
+      title: resolvedItem.title,
+      fromTime: resolvedItem.fromTime,
+      toTime: resolvedItem.toTime,
+      contentJson: resolvedItem.contentJson,
+      costCents: resolvedItem.costCents,
+      linkUrl: resolvedItem.linkUrl,
+      location: resolvedItem.location,
+      createdAt: resolvedItem.createdAt.toISOString(),
     },
   });
 };
