@@ -6,6 +6,7 @@ import {
   Box,
   Button,
   CircularProgress,
+  Collapse,
   Dialog,
   DialogActions,
   DialogContent,
@@ -19,6 +20,7 @@ import {
   Typography,
 } from "@mui/material";
 import { useForm } from "react-hook-form";
+import { formatMessage } from "@/i18n";
 import { useI18n } from "@/i18n/provider";
 
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
@@ -61,6 +63,7 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [isCollapsed, setIsCollapsed] = useState(true);
   const [resolvedLocation, setResolvedLocation] = useState<{ lat: number; lng: number; label: string | null } | null>(
     null,
   );
@@ -377,6 +380,8 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
 
   const dialogTitle = dialogMode === "edit" ? t("trips.bucketList.editTitle") : t("trips.bucketList.addTitle");
   const saveLabel = dialogMode === "edit" ? t("trips.bucketList.saveUpdate") : t("trips.bucketList.saveNew");
+  const entryCountLabel = formatMessage(t("trips.bucketList.countLine"), { count: items.length });
+  const toggleLabel = isCollapsed ? t("trips.bucketList.expandAction") : t("trips.bucketList.collapseAction");
 
   const emptyState = useMemo(() => !loading && items.length === 0, [items.length, loading]);
 
@@ -385,84 +390,109 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
       <Paper elevation={1} sx={{ p: 3, borderRadius: 3, background: "#ffffff" }}>
         <Box display="flex" flexDirection="column" gap={2}>
           <Box display="flex" alignItems="center" justifyContent="space-between" gap={1} flexWrap="wrap">
-            <Typography variant="h6" fontWeight={600}>
-              {t("trips.bucketList.title")}
-            </Typography>
-            <Button variant="outlined" onClick={openAddDialog}>
-              {t("trips.bucketList.addAction")}
-            </Button>
+            <Box display="flex" flexDirection="column" gap={0.25}>
+              <Typography variant="h6" fontWeight={600}>
+                {t("trips.bucketList.title")}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                {entryCountLabel}
+              </Typography>
+            </Box>
+            <Box display="flex" alignItems="center" gap={0.75}>
+              <IconButton aria-label={toggleLabel} title={toggleLabel} onClick={() => setIsCollapsed((prev) => !prev)}>
+                <SvgIcon fontSize="small">
+                  {isCollapsed ? (
+                    <path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z" />
+                  ) : (
+                    <path d="M12 8l6 6-1.41 1.41L12 10.83 7.41 15.41 6 14z" />
+                  )}
+                </SvgIcon>
+              </IconButton>
+              <IconButton
+                aria-label={t("trips.bucketList.addAction")}
+                title={t("trips.bucketList.addAction")}
+                onClick={openAddDialog}
+                sx={{ color: "warning.main", border: "1px solid", borderColor: "warning.main" }}
+              >
+                <SvgIcon fontSize="small">
+                  <path d="M19 13H13v6h-2v-6H5v-2h6V5h2v6h6v2z" />
+                </SvgIcon>
+              </IconButton>
+            </Box>
           </Box>
 
-          {loadError && <Alert severity="error">{loadError}</Alert>}
+          <Collapse in={!isCollapsed} timeout="auto" unmountOnExit>
+            {loadError && <Alert severity="error">{loadError}</Alert>}
 
-          {loading && <Typography variant="body2">{t("trips.bucketList.loading")}</Typography>}
+            {loading && <Typography variant="body2">{t("trips.bucketList.loading")}</Typography>}
 
-          {emptyState && (
-            <Typography variant="body2" color="text.secondary">
-              {t("trips.bucketList.empty")}
-            </Typography>
-          )}
+            {emptyState && (
+              <Typography variant="body2" color="text.secondary">
+                {t("trips.bucketList.empty")}
+              </Typography>
+            )}
 
-          {!loading && items.length > 0 && (
-            <List disablePadding sx={{ display: "flex", flexDirection: "column", gap: 1.25 }}>
-              {items.map((item) => (
-                <ListItem key={item.id} disablePadding>
-                  <Box
-                    display="flex"
-                    justifyContent="space-between"
-                    alignItems="flex-start"
-                    gap={1.5}
-                    sx={{
-                      width: "100%",
-                      p: 2,
-                      borderRadius: 2,
-                      border: "1px solid",
-                      borderColor: "divider",
-                      backgroundColor: "#f7f9fc",
-                    }}
-                  >
-                    <Box display="flex" flexDirection="column" gap={0.5} minWidth={0}>
-                      <Typography variant="subtitle1" fontWeight={600}>
-                        {item.title}
-                      </Typography>
-                      {item.description ? (
-                        <Typography variant="body2" color="text.secondary">
-                          {item.description}
+            {!loading && items.length > 0 && (
+              <List disablePadding sx={{ display: "flex", flexDirection: "column", gap: 1.25 }}>
+                {items.map((item) => (
+                  <ListItem key={item.id} disablePadding>
+                    <Box
+                      display="flex"
+                      justifyContent="space-between"
+                      alignItems="flex-start"
+                      gap={1.5}
+                      sx={{
+                        width: "100%",
+                        p: 2,
+                        borderRadius: 2,
+                        border: "1px solid",
+                        borderColor: "divider",
+                        backgroundColor: "#f7f9fc",
+                      }}
+                    >
+                      <Box display="flex" flexDirection="column" gap={0.5} minWidth={0}>
+                        <Typography variant="subtitle1" fontWeight={600}>
+                          {item.title}
                         </Typography>
-                      ) : null}
-                      <Typography variant="caption" color="text.secondary">
-                        {item.positionText?.trim()
-                          ? item.positionText
-                          : item.location?.label?.trim() ?? t("trips.bucketList.locationMissing")}
-                      </Typography>
+                        {item.description ? (
+                          <Typography variant="body2" color="text.secondary">
+                            {item.description}
+                          </Typography>
+                        ) : null}
+                        <Typography variant="caption" color="text.secondary">
+                          {item.positionText?.trim()
+                            ? item.positionText
+                            : item.location?.label?.trim() ?? t("trips.bucketList.locationMissing")}
+                        </Typography>
+                      </Box>
+                      <Box display="flex" alignItems="center" gap={0.5}>
+                        <IconButton
+                          size="small"
+                          aria-label={t("trips.bucketList.editAction")}
+                          title={t("trips.bucketList.editAction")}
+                          onClick={() => openEditDialog(item)}
+                        >
+                          <SvgIcon fontSize="inherit">
+                            <path d="M3 17.25V21h3.75l11-11-3.75-3.75-11 11zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66z" />
+                          </SvgIcon>
+                        </IconButton>
+                        <IconButton
+                          size="small"
+                          aria-label={t("trips.bucketList.deleteAction")}
+                          title={t("trips.bucketList.deleteAction")}
+                          onClick={() => setDeleteTarget(item)}
+                        >
+                          <SvgIcon fontSize="inherit">
+                            <path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6zm3.5-8h1v7h-1zm4 0h1v7h-1zM15.5 4l-1-1h-5l-1 1H5v2h14V4z" />
+                          </SvgIcon>
+                        </IconButton>
+                      </Box>
                     </Box>
-                    <Box display="flex" alignItems="center" gap={0.5}>
-                      <IconButton
-                        size="small"
-                        aria-label={t("trips.bucketList.editAction")}
-                        title={t("trips.bucketList.editAction")}
-                        onClick={() => openEditDialog(item)}
-                      >
-                        <SvgIcon fontSize="inherit">
-                          <path d="M3 17.25V21h3.75l11-11-3.75-3.75-11 11zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66z" />
-                        </SvgIcon>
-                      </IconButton>
-                      <IconButton
-                        size="small"
-                        aria-label={t("trips.bucketList.deleteAction")}
-                        title={t("trips.bucketList.deleteAction")}
-                        onClick={() => setDeleteTarget(item)}
-                      >
-                        <SvgIcon fontSize="inherit">
-                          <path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6zm3.5-8h1v7h-1zm4 0h1v7h-1zM15.5 4l-1-1h-5l-1 1H5v2h14V4z" />
-                        </SvgIcon>
-                      </IconButton>
-                    </Box>
-                  </Box>
-                </ListItem>
-              ))}
-            </List>
-          )}
+                  </ListItem>
+                ))}
+              </List>
+            )}
+          </Collapse>
         </Box>
       </Paper>
 

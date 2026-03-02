@@ -234,16 +234,7 @@ export default function TripCostOverview({ tripId }: TripCostOverviewProps) {
                 </TableHead>
                 <TableBody>
                   {sortedDays.map((day, index) => {
-                    const previousStay = index > 0 ? sortedDays[index - 1]?.accommodation ?? null : null;
                     const entries: { id: string; label: string; amountCents: number | null }[] = [];
-
-                    if (previousStay) {
-                      entries.push({
-                        id: `previous-stay-${previousStay.id}`,
-                        label: formatMessage(t("trips.dayView.budgetItemPreviousNight"), { name: previousStay.name }),
-                        amountCents: previousStay.costCents,
-                      });
-                    }
 
                     day.dayPlanItems.forEach((item, itemIndex) => {
                       const preview =

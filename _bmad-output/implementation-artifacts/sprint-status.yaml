@@ -95,6 +95,7 @@ development_status:
   4-1-manage-trip-bucket-list-items: done
   4-2-add-bucket-list-item-to-day-plan: done
   4-3-cost-analysis: done
+  4-4-collapsable-bucket-list: done
   epic-4-retrospective: optional
 
   epic-5: backlog
