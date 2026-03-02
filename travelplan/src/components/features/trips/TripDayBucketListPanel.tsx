@@ -5,10 +5,13 @@ import { useI18n } from "@/i18n/provider";
 
 type BucketListItem = {
   id: string;
+  tripId: string;
   title: string;
   description: string | null;
   positionText: string | null;
   location: { lat: number; lng: number; label: string | null } | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 type TripDayBucketListPanelProps = {
