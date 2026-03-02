@@ -831,7 +831,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
         previousStay: previousStay
           ? { checkOutTime: resolveStayTime(previousStay.checkOutTime, defaultCheckOutTime) }
           : null,
-        currentStay: currentStay ? { checkInTime: currentStay.checkInTime } : null,
+        currentStay: currentStay ? { checkInTime: resolveStayTime(currentStay.checkInTime, defaultCheckInTime) } : null,
       }),
     [currentStay?.checkInTime, previousStay?.checkOutTime],
   );
