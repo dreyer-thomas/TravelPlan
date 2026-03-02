@@ -164,6 +164,58 @@ describe("TripTimeline plan action", () => {
     vi.unstubAllGlobals();
   });
 
+  it("links the planned total to the cost overview page", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-01T00:00:00.000Z",
+            dayCount: 1,
+            plannedCostTotal: 9900,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
+          },
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              imageUrl: null,
+              note: null,
+              missingAccommodation: true,
+              missingPlan: true,
+              accommodation: null,
+              dayPlanItems: [],
+              travelSegments: [],
+            },
+          ],
+        },
+        error: null,
+      }),
+    })) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripTimeline tripId="trip-1" />
+      </I18nProvider>,
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+    const costLink = screen.getByRole("link", { name: "Open cost overview" });
+    expect(costLink).toHaveAttribute("href", "/trips/trip-1/costs");
+    expect(screen.getByText("Cost: 99.00")).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
   it("merges overlapping planned segments into a single overview span", async () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,

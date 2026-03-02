@@ -981,6 +981,22 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
             aria-label={t("trips.travelSegment.editAction")}
             onClick={() => handleOpenTravelSegment(from, to)}
           >
+            <Box
+              component="span"
+              sx={{
+                position: "absolute",
+                width: 1,
+                height: 1,
+                p: 0,
+                m: -1,
+                overflow: "hidden",
+                clip: "rect(0 0 0 0)",
+                whiteSpace: "nowrap",
+                border: 0,
+              }}
+            >
+              {t("trips.travelSegment.editAction")}
+            </Box>
             <SvgIcon fontSize="small">
               <path d="M3 17.25V21h3.75l11-11-3.75-3.75-11 11zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66z" />
             </SvgIcon>

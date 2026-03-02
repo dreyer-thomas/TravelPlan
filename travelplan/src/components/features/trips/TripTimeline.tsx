@@ -465,9 +465,22 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                   <Typography variant="body2" color="text.secondary">
                     {formatMessage(t("trips.dashboard.dayCount"), { count: detail.trip.dayCount })}
                   </Typography>
-                  <Typography variant="body2" fontWeight={700}>
+                  <Button
+                    component={Link}
+                    href={`/trips/${tripId}/costs`}
+                    variant="text"
+                    size="small"
+                    aria-label={t("trips.costOverview.openAria")}
+                    sx={{
+                      p: 0,
+                      minWidth: "auto",
+                      textTransform: "none",
+                      fontWeight: 700,
+                      justifyContent: "flex-end",
+                    }}
+                  >
                     {formatMessage(t("trips.stay.costSummary"), { amount: formatCost(detail.trip.plannedCostTotal) })}
-                  </Typography>
+                  </Button>
                 </Box>
               </Box>
             </Box>
