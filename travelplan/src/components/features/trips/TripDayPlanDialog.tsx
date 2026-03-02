@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Box,
@@ -198,6 +198,7 @@ export default function TripDayPlanDialog({
   const [galleryFile, setGalleryFile] = useState<File | null>(null);
   const [galleryBusy, setGalleryBusy] = useState(false);
   const [fullscreenImage, setFullscreenImage] = useState<{ imageUrl: string; alt: string } | null>(null);
+  const deleteTouchGuard = useRef(false);
   const editingItemId = mode === "edit" ? (item?.id ?? null) : null;
 
   const editor = useEditor({
@@ -493,6 +494,21 @@ export default function TripDayPlanDialog({
       onClose();
     }
   }, [editingItemId, onClose, onDelete]);
+
+  const handleDeleteClick = () => {
+    if (deleteTouchGuard.current) {
+      deleteTouchGuard.current = false;
+      return;
+    }
+    void handleDelete();
+  };
+
+  const handleDeleteTouchEnd = (event: React.TouchEvent<HTMLButtonElement>) => {
+    if (isBusy) return;
+    deleteTouchGuard.current = true;
+    event.preventDefault();
+    void handleDelete();
+  };
 
   const handleInsertLink = () => {
     if (!editor) return;
@@ -926,7 +942,7 @@ export default function TripDayPlanDialog({
             {t("common.cancel")}
           </Button>
           {canDelete ? (
-            <Button color="error" onClick={() => void handleDelete()} disabled={isBusy}>
+            <Button color="error" onClick={handleDeleteClick} onTouchEnd={handleDeleteTouchEnd} disabled={isBusy}>
               {t("trips.plan.deleteItem")}
             </Button>
           ) : null}
