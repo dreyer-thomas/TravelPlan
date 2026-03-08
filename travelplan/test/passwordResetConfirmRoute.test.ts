@@ -109,6 +109,7 @@ describe("POST /api/auth/password-reset/confirm", () => {
         email: "reset-success@example.com",
         passwordHash: await hashPassword("oldpassword"),
         role: "OWNER",
+        mustChangePassword: true,
       },
     });
 
@@ -126,6 +127,7 @@ describe("POST /api/auth/password-reset/confirm", () => {
     const refreshed = await prisma.user.findUnique({ where: { id: user.id } });
     expect(refreshed).not.toBeNull();
     expect(await verifyPassword("newpassword", refreshed?.passwordHash ?? "")).toBe(true);
+    expect(refreshed?.mustChangePassword).toBe(false);
 
     const storedToken = await prisma.passwordResetToken.findFirst({ where: { userId: user.id } });
     expect(storedToken?.used).toBe(true);

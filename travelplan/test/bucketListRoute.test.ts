@@ -130,6 +130,39 @@ describe("/api/trips/[id]/bucket-list-items", () => {
     expect(payload.error?.code).toBe("not_found");
   });
 
+  it("blocks flagged sessions from protected bucket-list routes", async () => {
+    const user = await prisma.user.create({
+      data: {
+        email: "bucket-route-flagged@example.com",
+        passwordHash: "hashed",
+        role: "VIEWER",
+        mustChangePassword: true,
+      },
+    });
+    const token = await createSessionJwt({ sub: user.id, role: user.role, mustChangePassword: true });
+
+    const trip = await prisma.trip.create({
+      data: {
+        userId: user.id,
+        name: "Flagged Bucket Trip",
+        startDate: new Date("2026-12-02T00:00:00.000Z"),
+        endDate: new Date("2026-12-02T00:00:00.000Z"),
+      },
+    });
+
+    const request = buildRequest(`http://localhost/api/trips/${trip.id}/bucket-list-items`, {
+      session: token,
+      method: "GET",
+    });
+
+    const response = await GET(request, { params: { id: trip.id } });
+    const payload = (await response.json()) as ApiEnvelope<null>;
+
+    expect(response.status).toBe(403);
+    expect(payload.data).toBeNull();
+    expect(payload.error?.code).toBe("password_change_required");
+  });
+
   it("creates a bucket list item for the trip", async () => {
     const user = await prisma.user.create({
       data: { email: "bucket-route-create@example.com", passwordHash: "hashed", role: "OWNER" },

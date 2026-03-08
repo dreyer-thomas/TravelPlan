@@ -4,21 +4,7 @@ import { fail, ok } from "@/lib/http/response";
 import { CSRF_COOKIE_NAME, validateCsrf } from "@/lib/security/csrf";
 import { createTripSchema } from "@/lib/validation/tripSchemas";
 import { createTripWithDays, listTripsForUser } from "@/lib/repositories/tripRepo";
-import { verifySessionJwt } from "@/lib/auth/jwt";
-
-const getSessionUserId = async (request: NextRequest) => {
-  const token = request.cookies.get("session")?.value;
-  if (!token) {
-    return null;
-  }
-
-  try {
-    const payload = await verifySessionJwt(token);
-    return payload.sub;
-  } catch {
-    return null;
-  }
-};
+import { requireSession } from "@/lib/auth/sessionGuard";
 
 export const POST = async (request: NextRequest) => {
   const csrfCookie = request.cookies.get(CSRF_COOKIE_NAME)?.value;
@@ -27,10 +13,11 @@ export const POST = async (request: NextRequest) => {
     return fail(apiError("csrf_invalid", "Invalid CSRF token"), 403);
   }
 
-  const userId = await getSessionUserId(request);
-  if (!userId) {
-    return fail(apiError("unauthorized", "Authentication required"), 401);
+  const auth = await requireSession(request);
+  if (auth.response) {
+    return auth.response;
   }
+  const userId = auth.session.sub;
 
   let rawPayload: unknown;
   try {
@@ -86,10 +73,11 @@ export const POST = async (request: NextRequest) => {
 };
 
 export const GET = async (request: NextRequest) => {
-  const userId = await getSessionUserId(request);
-  if (!userId) {
-    return fail(apiError("unauthorized", "Authentication required"), 401);
+  const auth = await requireSession(request);
+  if (auth.response) {
+    return auth.response;
   }
+  const userId = auth.session.sub;
 
   try {
     const trips = await listTripsForUser(userId);

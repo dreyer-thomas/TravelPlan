@@ -1,6 +1,6 @@
 # Story 5.1: Invite Viewer or Contributor by Email With Temp Password
 
-Status: in-progress
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -15,7 +15,7 @@ so that I can grant access without sending email invitations yet.
 1. Given I am the trip owner, when I add a person with email, role (`viewer` or `contributor`), and a temporary password, then the account is created if needed and linked to the selected trip with the chosen role.
 2. Given the entered email is invalid, when I attempt to save the invite, then I see a validation error and no user or membership is created.
 3. Given the entered email already belongs to an account that is already linked to the trip, when I attempt to add the same person again, then I see a conflict error and no duplicate membership is created.
-4. Given the entered email already belongs to an existing account that is not yet linked to the trip, when I add that person to the trip, then the existing account is reused, the trip membership is created with the chosen role, and the temporary password is updated for that account.
+4. Given the entered email already belongs to an existing account that is not yet linked to the trip, when I add that person to the trip through this temp-password flow, then I see a conflict error and no password or membership is changed for that account.
 5. Given I am not the trip owner, when I attempt to add a viewer or contributor to the trip, then the request is rejected and no membership or password change is applied.
 6. Given a collaborator has been added successfully, when I view the trip sharing UI, then I can see the collaborator email and assigned trip role.
 7. Given the account was provisioned through this temp-password flow, when the collaborator later signs in, then the account state indicates that a first-login password change is still required for Story 5.2 to enforce.
@@ -28,11 +28,11 @@ so that I can grant access without sending email invitations yet.
  - [x] Add uniqueness constraints so one user can have at most one membership per trip.
  - [x] Add fields needed to support the temp-password onboarding flow for Story 5.2, such as a `mustChangePassword` flag on `User` or equivalent persisted state.
  - [x] Generate the Prisma client and add migration coverage for the new tables/columns.
-- [ ] Task 2: Extend backend validation and invitation APIs.
+- [x] Task 2: Extend backend validation and invitation APIs.
  - [x] Add Zod schemas for invite payload validation with normalized email, allowed trip roles, and password rules aligned with existing auth constraints.
  - [x] Implement a dedicated route for trip membership creation under the existing trip API surface, preserving the `{ data, error }` envelope and CSRF protection.
  - [x] Ensure only the trip owner can create memberships for that trip.
-- [ ] Reuse an existing user account when the email already exists; create a new user only when needed.
+- [x] Reject existing-account emails in this story's temp-password flow so no established account password is overwritten.
  - [x] Hash any supplied temporary password with the existing bcrypt helper instead of storing or logging it in plain text.
  - [x] Set first-login-password-change state during successful invite provisioning.
  - [x] Return additive collaborator data needed by the UI after creation.
@@ -65,7 +65,7 @@ Epic 5 starts a new collaboration capability, but the current application is str
 - Preserve existing session, CSRF, rate-limit, bcrypt, and JWT patterns already used in the auth routes.
 - Temporary passwords must be hashed with the existing bcrypt helper and must never be persisted or returned in plain text after request handling.
 - Persist explicit first-login-password-change state now so Story 5.2 can enforce it without redesigning auth again.
-- Reuse existing accounts by email when possible, but prevent duplicate membership rows for the same trip/user pair.
+- Prevent duplicate membership rows for the same trip/user pair, and reject established existing-account emails in this temp-password flow to avoid credential takeover.
 - Keep this story scoped to provisioning and visibility of collaborators. Do not implement comments, votes, or contributor edit authority yet.
 - Maintain current inaccessible-trip behavior in trip APIs: unauthenticated requests return `401`, authenticated users without access should continue to receive `404` where the current pattern already does that.
 
@@ -98,7 +98,7 @@ Epic 5 starts a new collaboration capability, but the current application is str
 ### Testing Requirements
 
 - Route test: owner can add a new viewer to a trip and receives collaborator data in the response.
-- Route test: owner can add a contributor using an existing account email and no duplicate user is created.
+- Route test: owner attempting to add an existing-account email receives a conflict and no password or membership is changed.
 - Route test: duplicate membership on the same trip returns a conflict error.
 - Route test: non-owner authenticated user cannot provision collaborators for someone else’s trip.
 - Route test: invalid email, invalid role, and invalid temporary password return validation errors.
@@ -162,6 +162,7 @@ No `project-context.md` file was found in this repository.
 - 2026-03-08: Story created with collaboration data-model guidance, owner-only invite flow scope, and implementation guardrails for Epic 5 kickoff.
 - 2026-03-08: Implemented trip-scoped collaborator provisioning, owner-only sharing UI, and regression coverage for invite provisioning.
 - 2026-03-08: Code review fixes aligned collaborator IDs, enabled collaborator trip reads, and blocked existing-account password overwrites pending a safer invite flow.
+- 2026-03-08: Story scope accepted as new-account-only temp-password provisioning; existing-account collaborator onboarding deferred to a safer future flow.
 
 ## Dev Agent Record
 
@@ -191,7 +192,7 @@ GPT-5 Codex
 - Verified collaborator provisioning, duplicate handling, owner-only enforcement, collaborator trip-detail reads, UI flow, and login password-change state through targeted and full-suite tests.
 - Code review follow-up: collaborator creation now returns membership IDs consistently across create/list responses.
 - Code review follow-up: collaborator memberships can read trip detail data through the main trip route.
-- Code review follow-up: existing-account invites are blocked to avoid cross-account password takeover; a safer established-account invite flow is still needed before AC4 can be marked complete.
+- Code review follow-up: existing-account invites are blocked to avoid cross-account password takeover; this reduced-safe scope is accepted for Story 5.1 and established-account onboarding is deferred.
 
 ### File List
 

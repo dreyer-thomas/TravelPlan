@@ -1,30 +1,47 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { verifySessionJwt } from "@/lib/auth/jwt";
+import { getRequestSession } from "@/lib/auth/sessionGuard";
 
 const isProtectedPath = (pathname: string) => pathname.startsWith("/trips");
+const isProtectedApiPath = (pathname: string) => pathname.startsWith("/api/trips");
 const isHomePath = (pathname: string) => pathname === "/";
-
-const isSessionValid = async (token?: string) => {
-  if (!token) {
-    return false;
-  }
-
-  try {
-    await verifySessionJwt(token);
-    return true;
-  } catch {
-    return false;
-  }
-};
+const isForcedPasswordChangePath = (pathname: string) => pathname === "/auth/first-login-password";
 
 export const middleware = async (request: NextRequest) => {
   const { pathname } = request.nextUrl;
-  const token = request.cookies.get("session")?.value;
+  const session = await getRequestSession(request);
+
+  if (isProtectedApiPath(pathname)) {
+    if (!session) {
+      return NextResponse.json(
+        { data: null, error: { code: "unauthorized", message: "Authentication required" } },
+        { status: 401 },
+      );
+    }
+    if (session.mustChangePassword) {
+      return NextResponse.json(
+        { data: null, error: { code: "password_change_required", message: "Password change required" } },
+        { status: 403 },
+      );
+    }
+    return NextResponse.next();
+  }
 
   if (isHomePath(pathname)) {
-    // Keep home-path redirect cheap; ownership checks happen on /trips.
-    if (token) {
+    if (session?.mustChangePassword) {
+      return NextResponse.redirect(new URL("/auth/first-login-password", request.url));
+    }
+    if (session) {
+      return NextResponse.redirect(new URL("/trips", request.url));
+    }
+    return NextResponse.next();
+  }
+
+  if (isForcedPasswordChangePath(pathname)) {
+    if (!session) {
+      return NextResponse.redirect(new URL("/auth/login", request.url));
+    }
+    if (!session.mustChangePassword) {
       return NextResponse.redirect(new URL("/trips", request.url));
     }
     return NextResponse.next();
@@ -34,13 +51,17 @@ export const middleware = async (request: NextRequest) => {
     return NextResponse.next();
   }
 
-  if (!(await isSessionValid(token))) {
+  if (!session) {
     return NextResponse.redirect(new URL("/auth/login", request.url));
+  }
+
+  if (session.mustChangePassword) {
+    return NextResponse.redirect(new URL("/auth/first-login-password", request.url));
   }
 
   return NextResponse.next();
 };
 
 export const config = {
-  matcher: ["/", "/trips/:path*"],
+  matcher: ["/", "/trips/:path*", "/api/trips/:path*", "/auth/first-login-password"],
 };

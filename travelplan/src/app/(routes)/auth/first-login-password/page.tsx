@@ -6,8 +6,7 @@ import { useRouter } from "next/navigation";
 import { Alert, Box, Button, CircularProgress, Container, Paper, TextField, Typography } from "@mui/material";
 import { useI18n } from "@/i18n/provider";
 
-type LoginFormValues = {
-  email: string;
+type FirstLoginPasswordValues = {
   password: string;
 };
 
@@ -16,7 +15,7 @@ type ApiEnvelope<T> = {
   error: { code: string; message: string; details?: unknown } | null;
 };
 
-export default function LoginPage() {
+export default function FirstLoginPasswordPage() {
   const router = useRouter();
   const { t } = useI18n();
   const {
@@ -25,9 +24,8 @@ export default function LoginPage() {
     formState: { errors, isSubmitting },
     setError,
     reset,
-  } = useForm<LoginFormValues>({
+  } = useForm<FirstLoginPasswordValues>({
     defaultValues: {
-      email: "",
       password: "",
     },
   });
@@ -45,14 +43,14 @@ export default function LoginPage() {
           setCsrfToken(body.data.csrfToken);
         }
       } catch {
-        setCsrfToken(null);
+        setServerError(t("auth.firstLogin.initError"));
       }
     };
 
     fetchCsrf();
-  }, []);
+  }, [t]);
 
-  const onSubmit = async (values: LoginFormValues) => {
+  const onSubmit = async (values: FirstLoginPasswordValues) => {
     setServerError(null);
     setSuccess(false);
 
@@ -63,7 +61,7 @@ export default function LoginPage() {
 
     let response: Response;
     try {
-      response = await fetch("/api/auth/login", {
+      response = await fetch("/api/auth/first-login-password", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -76,11 +74,11 @@ export default function LoginPage() {
       return;
     }
 
-    let body: ApiEnvelope<{ userId: string; mustChangePassword: boolean }> | null = null;
+    let body: ApiEnvelope<{ success: boolean }> | null = null;
     try {
-      body = (await response.json()) as ApiEnvelope<{ userId: string }>;
+      body = (await response.json()) as ApiEnvelope<{ success: boolean }>;
     } catch {
-      setServerError(t("auth.login.error"));
+      setServerError(t("auth.firstLogin.error"));
       return;
     }
 
@@ -91,7 +89,7 @@ export default function LoginPage() {
         };
         Object.entries(details.fieldErrors ?? {}).forEach(([field, messages]) => {
           if (messages?.[0]) {
-            setError(field as keyof LoginFormValues, { message: messages[0] });
+            setError(field as keyof FirstLoginPasswordValues, { message: messages[0] });
           }
         });
         return;
@@ -99,8 +97,10 @@ export default function LoginPage() {
 
       const resolveApiError = (code?: string) => {
         switch (code) {
-          case "invalid_credentials":
-            return t("auth.login.invalidCredentials");
+          case "unauthorized":
+            return t("errors.unauthorized");
+          case "password_change_not_required":
+            return t("auth.firstLogin.notRequired");
           case "rate_limited":
             return t("errors.rateLimited");
           case "csrf_invalid":
@@ -110,7 +110,7 @@ export default function LoginPage() {
           case "invalid_json":
             return t("errors.invalidJson");
           default:
-            return t("auth.login.error");
+            return t("auth.firstLogin.error");
         }
       };
 
@@ -119,20 +119,9 @@ export default function LoginPage() {
     }
 
     setSuccess(true);
-    reset({ email: "", password: "" });
-    router.push(body.data?.mustChangePassword ? "/auth/first-login-password" : "/");
+    reset({ password: "" });
+    router.push("/");
   };
-
-  const emailRules = useMemo(
-    () => ({
-      required: t("auth.emailRequired"),
-      pattern: {
-        value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
-        message: t("auth.emailInvalid"),
-      },
-    }),
-    [t],
-  );
 
   const passwordRules = useMemo(
     () => ({
@@ -159,27 +148,19 @@ export default function LoginPage() {
               {t("app.brand")}
             </Typography>
             <Typography variant="h4" fontWeight={600} gutterBottom>
-              {t("auth.login.title")}
+              {t("auth.firstLogin.title")}
             </Typography>
             <Typography variant="body1" color="text.secondary">
-              {t("auth.login.subtitle")}
+              {t("auth.firstLogin.subtitle")}
             </Typography>
           </Box>
 
           {serverError && <Alert severity="error">{serverError}</Alert>}
-          {success && <Alert severity="success">{t("auth.login.success")}</Alert>}
+          {success && <Alert severity="success">{t("auth.firstLogin.success")}</Alert>}
 
           <Box component="form" onSubmit={handleSubmit(onSubmit)} display="flex" flexDirection="column" gap={2}>
             <TextField
-              label={t("auth.emailLabel")}
-              type="email"
-              error={Boolean(errors.email)}
-              helperText={errors.email?.message}
-              {...register("email", emailRules)}
-              fullWidth
-            />
-            <TextField
-              label={t("auth.passwordLabel")}
+              label={t("auth.firstLogin.passwordLabel")}
               type="password"
               error={Boolean(errors.password)}
               helperText={errors.password?.message}
@@ -187,7 +168,7 @@ export default function LoginPage() {
               fullWidth
             />
             <Button type="submit" variant="contained" size="large" disabled={isSubmitting}>
-              {isSubmitting ? <CircularProgress size={22} /> : t("auth.login.submit")}
+              {isSubmitting ? <CircularProgress size={22} /> : t("auth.firstLogin.submit")}
             </Button>
           </Box>
         </Box>

@@ -88,6 +88,32 @@ describe("GET /api/trips/[id]/export", () => {
     expect(payload.error?.code).toBe("unauthorized");
   });
 
+  it("blocks flagged sessions from exporting trips", async () => {
+    const user = await prisma.user.create({
+      data: {
+        email: "trip-export-flagged@example.com",
+        passwordHash: "hashed",
+        role: "VIEWER",
+        mustChangePassword: true,
+      },
+    });
+    const token = await createSessionJwt({ sub: user.id, role: user.role, mustChangePassword: true });
+
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Blocked Export Trip",
+      startDate: "2026-11-10T00:00:00.000Z",
+      endDate: "2026-11-11T00:00:00.000Z",
+    });
+
+    const response = await GET(buildRequest(trip.id, { session: token }), { params: { id: trip.id } });
+    const payload = (await response.json()) as ApiEnvelope<null>;
+
+    expect(response.status).toBe(403);
+    expect(payload.data).toBeNull();
+    expect(payload.error?.code).toBe("password_change_required");
+  });
+
   it("returns 404 for non-owned or missing trips", async () => {
     const owner = await prisma.user.create({
       data: {

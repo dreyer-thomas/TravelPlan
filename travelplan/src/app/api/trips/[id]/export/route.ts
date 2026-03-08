@@ -1,8 +1,8 @@
 import type { NextRequest } from "next/server";
-import { verifySessionJwt } from "@/lib/auth/jwt";
 import { apiError } from "@/lib/errors/apiError";
 import { fail } from "@/lib/http/response";
 import { getTripExportForUser } from "@/lib/repositories/tripRepo";
+import { requireSession } from "@/lib/auth/sessionGuard";
 
 export const runtime = "nodejs";
 
@@ -15,20 +15,6 @@ type RouteContext = {
 const APP_VERSION = process.env.npm_package_version ?? "0.1.0";
 const FORMAT_VERSION = 1;
 
-const getSessionUserId = async (request: NextRequest) => {
-  const token = request.cookies.get("session")?.value;
-  if (!token) {
-    return null;
-  }
-
-  try {
-    const payload = await verifySessionJwt(token);
-    return payload.sub;
-  } catch {
-    return null;
-  }
-};
-
 const toSafeSlug = (name: string) => {
   const normalized = name
     .toLowerCase()
@@ -40,10 +26,11 @@ const toSafeSlug = (name: string) => {
 };
 
 export const GET = async (request: NextRequest, context: RouteContext) => {
-  const userId = await getSessionUserId(request);
-  if (!userId) {
-    return fail(apiError("unauthorized", "Authentication required"), 401);
+  const auth = await requireSession(request);
+  if (auth.response) {
+    return auth.response;
   }
+  const userId = auth.session.sub;
 
   const { id: tripId } = await context.params;
   if (!tripId) {

@@ -66,7 +66,7 @@ export const POST = async (request: NextRequest) => {
 
   let token: string;
   try {
-    token = await createSessionJwt({ sub: user.id, role: user.role });
+    token = await createSessionJwt({ sub: user.id, role: user.role, mustChangePassword: user.mustChangePassword });
   } catch {
     return fail(apiError("server_error", "Unable to create session"), 500);
   }

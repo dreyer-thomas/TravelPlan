@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import { POST } from "@/app/api/auth/login/route";
 import { prisma } from "@/lib/db/prisma";
 import { hashPassword } from "@/lib/auth/bcrypt";
+import { verifySessionJwt } from "@/lib/auth/jwt";
 
 type ApiEnvelope<T> = {
   data: T | null;
@@ -114,5 +115,32 @@ describe("POST /api/auth/login", () => {
     expect(response.status).toBe(200);
     expect(payload.error).toBeNull();
     expect(payload.data?.mustChangePassword).toBe(true);
+  });
+
+  it("stores mustChangePassword in the session jwt for forced-change users", async () => {
+    const passwordHash = await hashPassword("correctpassword");
+    await prisma.user.create({
+      data: {
+        email: "forced-session@example.com",
+        passwordHash,
+        role: "VIEWER",
+        mustChangePassword: true,
+      },
+    });
+
+    const request = buildRequest({ email: "forced-session@example.com", password: "correctpassword" });
+    const response = await POST(request);
+
+    expect(response.status).toBe(200);
+
+    const setCookie = response.headers.get("set-cookie");
+    expect(setCookie).toContain("session=");
+    const sessionCookie = setCookie?.match(/session=([^;]+)/)?.[1];
+    expect(sessionCookie).toBeTruthy();
+
+    const payload = await verifySessionJwt(sessionCookie ?? "");
+    expect(payload.sub).toBeTruthy();
+    expect(payload.role).toBe("VIEWER");
+    expect(payload.mustChangePassword).toBe(true);
   });
 });

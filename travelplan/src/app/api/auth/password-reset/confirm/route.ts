@@ -5,8 +5,8 @@ import { apiError } from "@/lib/errors/apiError";
 import { fail, ok } from "@/lib/http/response";
 import { CSRF_COOKIE_NAME, validateCsrf } from "@/lib/security/csrf";
 import { getPasswordResetToken } from "@/lib/auth/passwordReset";
-import { hashPassword } from "@/lib/auth/bcrypt";
 import { checkRateLimit } from "@/lib/security/rateLimit";
+import { buildPasswordUpdateData } from "@/lib/auth/passwordUpdate";
 
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const RATE_LIMIT_MAX = 10;
@@ -54,14 +54,13 @@ export const POST = async (request: NextRequest) => {
     return fail(apiError("token_expired", "Reset token has expired"), 400);
   }
 
-  const passwordHash = await hashPassword(password);
-
   try {
     const now = new Date();
+    const passwordUpdateData = await buildPasswordUpdateData({ password });
     const [userUpdate] = await prisma.$transaction([
       prisma.user.updateMany({
         where: { id: resetToken.userId },
-        data: { passwordHash },
+        data: passwordUpdateData,
       }),
       prisma.passwordResetToken.updateMany({
         where: { userId: resetToken.userId, used: false },

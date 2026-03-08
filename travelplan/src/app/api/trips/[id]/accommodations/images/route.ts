@@ -1,7 +1,6 @@
 import type { NextRequest } from "next/server";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { verifySessionJwt } from "@/lib/auth/jwt";
 import { apiError } from "@/lib/errors/apiError";
 import { fail, ok } from "@/lib/http/response";
 import {
@@ -16,6 +15,7 @@ import {
   accommodationImageReorderSchema,
   accommodationImageUploadSchema,
 } from "@/lib/validation/imageGallerySchemas";
+import { requireSession } from "@/lib/auth/sessionGuard";
 
 export const runtime = "nodejs";
 
@@ -24,19 +24,6 @@ const ALLOWED_TYPES: Record<string, string> = {
   "image/jpeg": "jpg",
   "image/png": "png",
   "image/webp": "webp",
-};
-
-const getSessionUserId = async (request: NextRequest) => {
-  const token = request.cookies.get("session")?.value;
-  if (!token) {
-    return null;
-  }
-  try {
-    const payload = await verifySessionJwt(token);
-    return payload.sub;
-  } catch {
-    return null;
-  }
 };
 
 type RouteContext = {
@@ -74,10 +61,11 @@ const removeManagedFile = async (tripId: string, imageUrl: string) => {
 };
 
 export const GET = async (request: NextRequest, context: RouteContext) => {
-  const userId = await getSessionUserId(request);
-  if (!userId) {
-    return fail(apiError("unauthorized", "Authentication required"), 401);
+  const auth = await requireSession(request);
+  if (auth.response) {
+    return auth.response;
   }
+  const userId = auth.session.sub;
 
   const { id: tripId } = await context.params;
   if (!tripId) {
@@ -115,10 +103,11 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
     return fail(apiError("csrf_invalid", "Invalid CSRF token"), 403);
   }
 
-  const userId = await getSessionUserId(request);
-  if (!userId) {
-    return fail(apiError("unauthorized", "Authentication required"), 401);
+  const auth = await requireSession(request);
+  if (auth.response) {
+    return auth.response;
   }
+  const userId = auth.session.sub;
 
   const { id: tripId } = await context.params;
   if (!tripId) {
@@ -197,10 +186,11 @@ export const DELETE = async (request: NextRequest, context: RouteContext) => {
     return fail(apiError("csrf_invalid", "Invalid CSRF token"), 403);
   }
 
-  const userId = await getSessionUserId(request);
-  if (!userId) {
-    return fail(apiError("unauthorized", "Authentication required"), 401);
+  const auth = await requireSession(request);
+  if (auth.response) {
+    return auth.response;
   }
+  const userId = auth.session.sub;
 
   const { id: tripId } = await context.params;
   if (!tripId) {
@@ -254,10 +244,11 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
     return fail(apiError("csrf_invalid", "Invalid CSRF token"), 403);
   }
 
-  const userId = await getSessionUserId(request);
-  if (!userId) {
-    return fail(apiError("unauthorized", "Authentication required"), 401);
+  const auth = await requireSession(request);
+  if (auth.response) {
+    return auth.response;
   }
+  const userId = auth.session.sub;
 
   const { id: tripId } = await context.params;
   if (!tripId) {

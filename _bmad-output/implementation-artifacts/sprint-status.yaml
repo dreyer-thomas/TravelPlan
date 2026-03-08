@@ -101,8 +101,8 @@ development_status:
   epic-4-retrospective: optional
 
   epic-5: in-progress
-  5-1-invite-viewer-or-contributor-by-email-with-temp-password: in-progress
-  5-2-enforce-first-login-password-change: backlog
+  5-1-invite-viewer-or-contributor-by-email-with-temp-password: done
+  5-2-enforce-first-login-password-change: done
   5-3-viewer-access-with-comments-and-votes: backlog
   5-4-contributor-full-edit-permissions: backlog
   5-5-edit-own-comments: backlog

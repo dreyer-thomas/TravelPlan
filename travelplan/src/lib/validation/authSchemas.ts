@@ -34,3 +34,9 @@ export const passwordResetConfirmSchema = z.object({
 });
 
 export type PasswordResetConfirmInput = z.infer<typeof passwordResetConfirmSchema>;
+
+export const firstLoginPasswordSchema = z.object({
+  password: passwordSchema,
+});
+
+export type FirstLoginPasswordInput = z.infer<typeof firstLoginPasswordSchema>;
