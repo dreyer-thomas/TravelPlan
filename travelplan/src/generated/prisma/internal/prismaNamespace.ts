@@ -391,6 +391,7 @@ export const ModelName = {
   TravelSegment: 'TravelSegment',
   Accommodation: 'Accommodation',
   DayPlanItem: 'DayPlanItem',
+  CostPayment: 'CostPayment',
   AccommodationImage: 'AccommodationImage',
   DayPlanItemImage: 'DayPlanItemImage',
   TripBucketListItem: 'TripBucketListItem'
@@ -409,7 +410,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "passwordResetToken" | "trip" | "tripDay" | "travelSegment" | "accommodation" | "dayPlanItem" | "accommodationImage" | "dayPlanItemImage" | "tripBucketListItem"
+    modelProps: "user" | "passwordResetToken" | "trip" | "tripDay" | "travelSegment" | "accommodation" | "dayPlanItem" | "costPayment" | "accommodationImage" | "dayPlanItemImage" | "tripBucketListItem"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -931,6 +932,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    CostPayment: {
+      payload: Prisma.$CostPaymentPayload<ExtArgs>
+      fields: Prisma.CostPaymentFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.CostPaymentFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$CostPaymentPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.CostPaymentFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$CostPaymentPayload>
+        }
+        findFirst: {
+          args: Prisma.CostPaymentFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$CostPaymentPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.CostPaymentFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$CostPaymentPayload>
+        }
+        findMany: {
+          args: Prisma.CostPaymentFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$CostPaymentPayload>[]
+        }
+        create: {
+          args: Prisma.CostPaymentCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$CostPaymentPayload>
+        }
+        createMany: {
+          args: Prisma.CostPaymentCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.CostPaymentCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$CostPaymentPayload>[]
+        }
+        delete: {
+          args: Prisma.CostPaymentDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$CostPaymentPayload>
+        }
+        update: {
+          args: Prisma.CostPaymentUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$CostPaymentPayload>
+        }
+        deleteMany: {
+          args: Prisma.CostPaymentDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.CostPaymentUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.CostPaymentUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$CostPaymentPayload>[]
+        }
+        upsert: {
+          args: Prisma.CostPaymentUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$CostPaymentPayload>
+        }
+        aggregate: {
+          args: Prisma.CostPaymentAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateCostPayment>
+        }
+        groupBy: {
+          args: Prisma.CostPaymentGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.CostPaymentGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.CostPaymentCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.CostPaymentCountAggregateOutputType> | number
+        }
+      }
+    }
     AccommodationImage: {
       payload: Prisma.$AccommodationImagePayload<ExtArgs>
       fields: Prisma.AccommodationImageFieldRefs
@@ -1306,6 +1381,20 @@ export const DayPlanItemScalarFieldEnum = {
 export type DayPlanItemScalarFieldEnum = (typeof DayPlanItemScalarFieldEnum)[keyof typeof DayPlanItemScalarFieldEnum]
 
 
+export const CostPaymentScalarFieldEnum = {
+  id: 'id',
+  accommodationId: 'accommodationId',
+  dayPlanItemId: 'dayPlanItemId',
+  amountCents: 'amountCents',
+  dueDate: 'dueDate',
+  sortOrder: 'sortOrder',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type CostPaymentScalarFieldEnum = (typeof CostPaymentScalarFieldEnum)[keyof typeof CostPaymentScalarFieldEnum]
+
+
 export const AccommodationImageScalarFieldEnum = {
   id: 'id',
   accommodationId: 'accommodationId',
@@ -1539,6 +1628,7 @@ export type GlobalOmitConfig = {
   travelSegment?: Prisma.TravelSegmentOmit
   accommodation?: Prisma.AccommodationOmit
   dayPlanItem?: Prisma.DayPlanItemOmit
+  costPayment?: Prisma.CostPaymentOmit
   accommodationImage?: Prisma.AccommodationImageOmit
   dayPlanItemImage?: Prisma.DayPlanItemImageOmit
   tripBucketListItem?: Prisma.TripBucketListItemOmit

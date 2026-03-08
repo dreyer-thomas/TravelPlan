@@ -3,7 +3,10 @@ import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 
 const globalForPrisma = globalThis as unknown as {
   prisma?: PrismaClient;
+  prismaSchemaTag?: string;
 };
+
+const PRISMA_SCHEMA_TAG = "2026-03-08-cost-payment-sort-order";
 
 const getDatabaseUrl = () => {
   const url = process.env.DATABASE_URL;
@@ -23,8 +26,32 @@ const createPrismaClient = () => {
   return client;
 };
 
+const cachedClientMatchesCurrentSchema = (client: PrismaClient | undefined) => {
+  if (!client) return false;
+
+  const runtimeModel = (
+    client as PrismaClient & {
+      _runtimeDataModel?: {
+        models?: Record<string, { fields?: Array<{ name?: string }> }>;
+      };
+    }
+  )._runtimeDataModel;
+
+  const costPaymentFields = runtimeModel?.models?.CostPayment?.fields ?? [];
+  return costPaymentFields.some((field) => field.name === "sortOrder");
+};
+
+const shouldReuseCachedClient =
+  globalForPrisma.prismaSchemaTag === PRISMA_SCHEMA_TAG && cachedClientMatchesCurrentSchema(globalForPrisma.prisma);
+
+if (!shouldReuseCachedClient && globalForPrisma.prisma) {
+  void globalForPrisma.prisma.$disconnect().catch(() => undefined);
+  globalForPrisma.prisma = undefined;
+}
+
 export const prisma = globalForPrisma.prisma ?? createPrismaClient();
 
 if (process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = prisma;
+  globalForPrisma.prismaSchemaTag = PRISMA_SCHEMA_TAG;
 }

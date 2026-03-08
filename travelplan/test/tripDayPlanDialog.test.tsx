@@ -3,6 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "@/i18n/provider";
+import * as React from "react";
 import type { ChangeEvent, ReactNode } from "react";
 
 const tiptapMocks = vi.hoisted(() => ({
@@ -71,6 +72,55 @@ vi.mock("@mui/material", () => {
     DialogTitle: Simple,
     DialogContent: Simple,
     DialogActions: Simple,
+    FormControl: Simple,
+    FormHelperText: ({ children }: { children?: ReactNode }) => <span>{children}</span>,
+    FormLabel: ({ children }: { children?: ReactNode }) => <span>{children}</span>,
+    Radio: ({ ...rest }: { [key: string]: unknown }) => <input type="radio" {...omitLayoutProps(rest)} />,
+    RadioGroup: ({
+      children,
+      value,
+      onChange,
+    }: {
+      children?: ReactNode;
+      value?: string;
+      onChange?: (event: ChangeEvent<HTMLInputElement>) => void;
+    }) => (
+      <div role="radiogroup">
+        {Array.isArray(children)
+          ? children.map((child, index) =>
+              child && typeof child === "object"
+                ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  (React.cloneElement(child as any, { groupValue: value, onGroupChange: onChange, key: index }) as ReactNode)
+                : child,
+            )
+          : children &&
+              typeof children === "object" &&
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              React.cloneElement(children as any, { groupValue: value, onGroupChange: onChange })}
+      </div>
+    ),
+    FormControlLabel: ({
+      label,
+      value,
+      groupValue,
+      onGroupChange,
+    }: {
+      label?: string;
+      value?: string;
+      groupValue?: string;
+      onGroupChange?: (event: ChangeEvent<HTMLInputElement>) => void;
+    }) => (
+      <label>
+        <input
+          type="radio"
+          aria-label={label}
+          value={value}
+          checked={groupValue === value}
+          onChange={(event) => onGroupChange?.(event)}
+        />
+        <span>{label}</span>
+      </label>
+    ),
     SvgIcon: Simple,
     TextField: ({
       label,
@@ -244,7 +294,7 @@ describe("TripDayPlanDialog", () => {
           open
           mode="add"
           tripId="trip-1"
-          day={{ id: "day-1", dayIndex: 1 }}
+          day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
           item={null}
           onClose={() => undefined}
           onSaved={onSaved}
@@ -291,6 +341,7 @@ describe("TripDayPlanDialog", () => {
     expect(requestBody.fromTime).toBe("09:00");
     expect(requestBody.toTime).toBe("10:00");
     expect(requestBody.costCents).toBe(2600);
+    expect(requestBody.payments).toEqual([{ amountCents: 2600, dueDate: "2026-11-01" }]);
     expect(requestBody.location).toEqual({ lat: 48.145, lng: 11.582, label: "Museum" });
     const parsedDoc = JSON.parse(requestBody.contentJson) as { content?: Array<{ type?: string; attrs?: { src?: string } }> };
     expect(parsedDoc.content?.some((node) => node.type === "image" && node.attrs?.src === "https://images.example.com/plan.webp")).toBe(
@@ -355,7 +406,7 @@ describe("TripDayPlanDialog", () => {
           open
           mode="edit"
           tripId="trip-1"
-          day={{ id: "day-1", dayIndex: 1 }}
+          day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
           item={{
             id: "item-1",
             tripDayId: "day-1",
@@ -404,6 +455,7 @@ describe("TripDayPlanDialog", () => {
     expect(patchBody.fromTime).toBe("11:00");
     expect(patchBody.toTime).toBe("12:00");
     expect(patchBody.costCents).toBe(3400);
+    expect(patchBody.payments).toEqual([{ amountCents: 3400, dueDate: "2026-11-01" }]);
 
     expect(onSaved).toHaveBeenCalledTimes(1);
   });
@@ -439,7 +491,7 @@ describe("TripDayPlanDialog", () => {
           open
           mode="edit"
           tripId="trip-1"
-          day={{ id: "day-1", dayIndex: 1 }}
+          day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
           item={{
             id: "item-1",
             tripDayId: "day-1",
@@ -495,7 +547,7 @@ describe("TripDayPlanDialog", () => {
           open
           mode="add"
           tripId="trip-1"
-          day={{ id: "day-1", dayIndex: 1 }}
+          day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
           item={null}
           onClose={() => undefined}
           onSaved={() => undefined}
@@ -553,7 +605,7 @@ describe("TripDayPlanDialog", () => {
           open
           mode="add"
           tripId="trip-1"
-          day={{ id: "day-1", dayIndex: 1 }}
+          day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
           item={null}
           onClose={() => undefined}
           onSaved={onSaved}
@@ -622,7 +674,7 @@ describe("TripDayPlanDialog", () => {
           open
           mode="add"
           tripId="trip-1"
-          day={{ id: "day-1", dayIndex: 1 }}
+          day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
           item={null}
           onClose={() => undefined}
           onSaved={() => undefined}
@@ -644,5 +696,109 @@ describe("TripDayPlanDialog", () => {
     fireEvent.change(screen.getByLabelText("To"), { target: { value: "13:30" } });
     expect(screen.queryByText("From time is required")).not.toBeInTheDocument();
     expect(screen.queryByText("To time must be after from time")).not.toBeInTheDocument();
+  });
+
+  it("blocks save when split payments do not match the total cost", async () => {
+    const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
+    const fetchMock = vi.fn(async (input: RequestInfo) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url.includes("/api/auth/csrf")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
+        };
+      }
+      return {
+        ok: false,
+        status: 404,
+        json: async () => ({ data: null, error: { code: "not_found", message: "Not found" } }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayPlanDialog
+          open
+          mode="add"
+          tripId="trip-1"
+          day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
+          item={null}
+          onClose={() => undefined}
+          onSaved={() => undefined}
+        />
+      </I18nProvider>,
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Tickets" } });
+    fireEvent.change(screen.getByLabelText("From"), { target: { value: "09:00" } });
+    fireEvent.change(screen.getByLabelText("To"), { target: { value: "10:00" } });
+    fireEvent.change(screen.getByLabelText("Cost"), { target: { value: "100.00" } });
+    fireEvent.click(screen.getByLabelText("Split into multiple payments"));
+
+    const amountInputs = screen.getAllByLabelText("Amount");
+    const dateInputs = screen.getAllByLabelText("Due date");
+    fireEvent.change(amountInputs[0], { target: { value: "40.00" } });
+    fireEvent.change(dateInputs[0], { target: { value: "2026-11-01" } });
+    fireEvent.change(amountInputs[1], { target: { value: "50.00" } });
+    fireEvent.change(dateInputs[1], { target: { value: "2026-11-02" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Save item" }));
+
+    expect(await screen.findByText("Payments must add up to the total cost")).toBeInTheDocument();
+    const saveCalls = fetchMock.mock.calls.filter((call) => String(call[0]).includes("/day-plan-items"));
+    expect(saveCalls).toHaveLength(0);
+  });
+
+  it("loads payment schedule when editing an existing plan item", async () => {
+    const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
+    })) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayPlanDialog
+          open
+          mode="edit"
+          tripId="trip-1"
+          day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
+          item={{
+            id: "item-1",
+            tripDayId: "day-1",
+            title: "Museum",
+            fromTime: "09:00",
+            toTime: "10:00",
+            contentJson: "{\"type\":\"doc\"}",
+            costCents: 12000,
+            payments: [
+              { amountCents: 5000, dueDate: "2026-11-01" },
+              { amountCents: 7000, dueDate: "2026-11-02" },
+            ],
+            linkUrl: null,
+            location: null,
+            createdAt: new Date().toISOString(),
+          }}
+          onClose={() => undefined}
+          onSaved={() => undefined}
+        />
+      </I18nProvider>,
+    );
+
+    const splitOption = await screen.findByLabelText("Split into multiple payments");
+    expect(splitOption).toBeChecked();
+    const amountInputs = screen.getAllByLabelText("Amount");
+    const dateInputs = screen.getAllByLabelText("Due date");
+    expect(amountInputs[0]).toHaveValue(50);
+    expect(amountInputs[1]).toHaveValue(70);
+    expect(dateInputs[0]).toHaveValue("2026-11-01");
+    expect(dateInputs[1]).toHaveValue("2026-11-02");
   });
 });

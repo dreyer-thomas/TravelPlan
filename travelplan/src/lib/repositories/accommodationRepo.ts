@@ -7,6 +7,7 @@ export type AccommodationDetail = {
   notes: string | null;
   status: AccommodationStatus;
   costCents: number | null;
+  payments: { amountCents: number; dueDate: string }[];
   link: string | null;
   checkInTime: string | null;
   checkOutTime: string | null;
@@ -32,6 +33,7 @@ type AccommodationMutationParams = {
   name: string;
   status: AccommodationStatus;
   costCents?: number | null;
+  payments?: { amountCents: number; dueDate: string }[] | null;
   link?: string | null;
   notes?: string | null;
   checkInTime?: string | null;
@@ -132,6 +134,7 @@ const toDetail = (accommodation: {
   notes: string | null;
   status: string;
   costCents: number | null;
+  payments?: { amountCents: number; dueDate: string }[];
   link: string | null;
   locationLat: number | null;
   locationLng: number | null;
@@ -145,6 +148,7 @@ const toDetail = (accommodation: {
   notes: accommodation.notes,
   status: toStatus(accommodation.status),
   costCents: accommodation.costCents,
+  payments: accommodation.payments ?? [],
   link: accommodation.link,
   checkInTime: accommodation.checkInTime,
   checkOutTime: accommodation.checkOutTime,
@@ -171,36 +175,61 @@ export const createAccommodationForTripDay = async (
   const checkInTime = params.checkInTime ?? null;
   const checkOutTime = params.checkOutTime ?? null;
   const location = params.location ?? null;
-  const accommodation = await prisma.accommodation.upsert({
-    where: { tripDayId },
-    update: {
-      name,
-      notes: notes ?? null,
-      status: toDbStatus(status),
-      costCents: costCents ?? null,
-      link: link ?? null,
-      checkInTime,
-      checkOutTime,
-      locationLat: location?.lat ?? null,
-      locationLng: location?.lng ?? null,
-      locationLabel: location?.label?.trim() || null,
-    },
-    create: {
-      tripDayId,
-      name,
-      notes: notes ?? null,
-      status: toDbStatus(status),
-      costCents: costCents ?? null,
-      link: link ?? null,
-      checkInTime,
-      checkOutTime,
-      locationLat: location?.lat ?? null,
-      locationLng: location?.lng ?? null,
-      locationLabel: location?.label?.trim() || null,
-    },
-  });
+  return prisma.$transaction(async (tx) => {
+    const accommodation = await tx.accommodation.upsert({
+      where: { tripDayId },
+      update: {
+        name,
+        notes: notes ?? null,
+        status: toDbStatus(status),
+        costCents: costCents ?? null,
+        link: link ?? null,
+        checkInTime,
+        checkOutTime,
+        locationLat: location?.lat ?? null,
+        locationLng: location?.lng ?? null,
+        locationLabel: location?.label?.trim() || null,
+      },
+      create: {
+        tripDayId,
+        name,
+        notes: notes ?? null,
+        status: toDbStatus(status),
+        costCents: costCents ?? null,
+        link: link ?? null,
+        checkInTime,
+        checkOutTime,
+        locationLat: location?.lat ?? null,
+        locationLng: location?.lng ?? null,
+        locationLabel: location?.label?.trim() || null,
+      },
+    });
 
-  return toDetail(accommodation);
+    if (params.payments) {
+      await tx.costPayment.deleteMany({ where: { accommodationId: accommodation.id } });
+      if (params.payments.length > 0) {
+        await tx.costPayment.createMany({
+          data: params.payments.map((payment, index) => ({
+            accommodationId: accommodation.id,
+            amountCents: payment.amountCents,
+            dueDate: payment.dueDate,
+            sortOrder: index,
+          })),
+        });
+      }
+    }
+
+    const payments = await tx.costPayment.findMany({
+      where: { accommodationId: accommodation.id },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+      select: { amountCents: true, dueDate: true },
+    });
+
+    return toDetail({
+      ...accommodation,
+      payments,
+    });
+  });
 };
 
 export const updateAccommodationForTripDay = async (
@@ -248,12 +277,39 @@ export const updateAccommodationForTripDay = async (
     data.checkOutTime = params.checkOutTime;
   }
 
-  const updated = await prisma.accommodation.update({
-    where: { id: existing.id },
-    data,
+  const updated = await prisma.$transaction(async (tx) => {
+    const accommodation = await tx.accommodation.update({
+      where: { id: existing.id },
+      data,
+    });
+
+    if (params.payments) {
+      await tx.costPayment.deleteMany({ where: { accommodationId: existing.id } });
+      if (params.payments.length > 0) {
+        await tx.costPayment.createMany({
+          data: params.payments.map((payment, index) => ({
+            accommodationId: existing.id,
+            amountCents: payment.amountCents,
+            dueDate: payment.dueDate,
+            sortOrder: index,
+          })),
+        });
+      }
+    }
+
+    const payments = await tx.costPayment.findMany({
+      where: { accommodationId: existing.id },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+      select: { amountCents: true, dueDate: true },
+    });
+
+    return toDetail({
+      ...accommodation,
+      payments,
+    });
   });
 
-  return { status: "updated", accommodation: toDetail(updated) };
+  return { status: "updated", accommodation: updated };
 };
 
 export const copyAccommodationFromPreviousNight = async (params: {
@@ -314,13 +370,17 @@ export const copyAccommodationFromPreviousNight = async (params: {
     locationLabel: previousAccommodation.locationLabel,
   };
 
-  const nextAccommodation = await prisma.accommodation.upsert({
-    where: { tripDayId: currentDay.id },
-    update: data,
-    create: { tripDayId: currentDay.id, ...data },
+  const nextAccommodation = await prisma.$transaction(async (tx) => {
+    const accommodation = await tx.accommodation.upsert({
+      where: { tripDayId: currentDay.id },
+      update: data,
+      create: { tripDayId: currentDay.id, ...data },
+    });
+    await tx.costPayment.deleteMany({ where: { accommodationId: accommodation.id } });
+    return accommodation;
   });
 
-  return { status: "copied", accommodation: toDetail(nextAccommodation) };
+  return { status: "copied", accommodation: toDetail({ ...nextAccommodation, payments: [] }) };
 };
 
 export const deleteAccommodationForTripDay = async (params: AccommodationDeleteParams): Promise<boolean> => {

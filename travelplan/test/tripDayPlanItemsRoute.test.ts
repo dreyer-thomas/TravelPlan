@@ -40,6 +40,7 @@ const sampleDoc = (text: string) =>
 describe("/api/trips/[id]/day-plan-items", () => {
   beforeEach(async () => {
     await prisma.tripBucketListItem.deleteMany();
+    await prisma.costPayment.deleteMany();
     await prisma.dayPlanItem.deleteMany();
     await prisma.tripDay.deleteMany();
     await prisma.trip.deleteMany();
@@ -118,6 +119,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
         toTime: string | null;
         contentJson: string;
         costCents: number | null;
+        payments?: { amountCents: number; dueDate: string }[];
         linkUrl: string | null;
         location: { lat: number; lng: number; label: string | null } | null;
       }[];
@@ -129,6 +131,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
     expect(payload.data?.items.map((item) => `${item.fromTime}-${item.toTime}`)).toEqual(["09:00-10:00", "10:30-11:30"]);
     expect(payload.data?.items.map((item) => item.contentJson)).toEqual([sampleDoc("Second"), sampleDoc("First")]);
     expect(payload.data?.items.map((item) => item.costCents)).toEqual([3200, null]);
+    expect(payload.data?.items.map((item) => item.payments ?? [])).toEqual([[], []]);
     expect(payload.data?.items[0].linkUrl).toBe("https://example.com/plan");
     expect(payload.data?.items[0].location).toEqual({ lat: 48.1372, lng: 11.5756, label: "Marienplatz" });
   });
@@ -209,6 +212,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
         toTime: "10:45",
         contentJson: sampleDoc("Plan"),
         costCents: 1500,
+        payments: [{ amountCents: 1500, dueDate: "2026-12-03" }],
         linkUrl: "https://example.com/plan",
         location: { lat: 48.145, lng: 11.582, label: "Gallery" },
       }),
@@ -224,6 +228,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
         toTime: string | null;
         contentJson: string;
         costCents: number | null;
+        payments?: { amountCents: number; dueDate: string }[];
         linkUrl: string | null;
         location: { lat: number; lng: number; label: string | null } | null;
       };
@@ -236,6 +241,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
     expect(payload.data?.dayPlanItem.fromTime).toBe("09:15");
     expect(payload.data?.dayPlanItem.toTime).toBe("10:45");
     expect(payload.data?.dayPlanItem.costCents).toBe(1500);
+    expect(payload.data?.dayPlanItem.payments).toEqual([{ amountCents: 1500, dueDate: "2026-12-03" }]);
     expect(payload.data?.dayPlanItem.linkUrl).toBe("https://example.com/plan");
     expect(payload.data?.dayPlanItem.location).toEqual({ lat: 48.145, lng: 11.582, label: "Gallery" });
   });
@@ -647,6 +653,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
         toTime: "12:15",
         contentJson: sampleDoc("Updated"),
         costCents: 2800,
+        payments: [{ amountCents: 2800, dueDate: "2026-12-05" }],
         linkUrl: "https://example.com/updated",
         location: { lat: 48.13, lng: 11.56, label: "Center" },
       }),
@@ -661,6 +668,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
         toTime: string | null;
         contentJson: string;
         costCents: number | null;
+        payments?: { amountCents: number; dueDate: string }[];
         location: { lat: number; lng: number; label: string | null } | null;
       };
     }>;
@@ -672,6 +680,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
     expect(payload.data?.dayPlanItem.toTime).toBe("12:15");
     expect(payload.data?.dayPlanItem.contentJson).toContain("Updated");
     expect(payload.data?.dayPlanItem.costCents).toBe(2800);
+    expect(payload.data?.dayPlanItem.payments).toEqual([{ amountCents: 2800, dueDate: "2026-12-05" }]);
     expect(payload.data?.dayPlanItem.location).toEqual({ lat: 48.13, lng: 11.56, label: "Center" });
   });
 

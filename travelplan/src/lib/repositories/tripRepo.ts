@@ -50,6 +50,7 @@ export type TripDaySummary = {
     notes: string | null;
     status: "planned" | "booked";
     costCents: number | null;
+    payments: { amountCents: number; dueDate: string }[];
     link: string | null;
     checkInTime: string | null;
     checkOutTime: string | null;
@@ -62,6 +63,7 @@ export type TripDaySummary = {
     toTime: string | null;
     contentJson: string;
     costCents: number | null;
+    payments: { amountCents: number; dueDate: string }[];
     linkUrl: string | null;
     location: { lat: number; lng: number; label: string | null } | null;
   }[];
@@ -116,6 +118,7 @@ export type TripExportPayload = {
       notes: string | null;
       status: "planned" | "booked";
       costCents: number | null;
+      payments: { amountCents: number; dueDate: string }[];
       link: string | null;
       checkInTime: string | null;
       checkOutTime: string | null;
@@ -130,6 +133,7 @@ export type TripExportPayload = {
       toTime: string | null;
       contentJson: string;
       costCents: number | null;
+      payments: { amountCents: number; dueDate: string }[];
       linkUrl: string | null;
       location: { lat: number; lng: number; label: string | null } | null;
       createdAt: string;
@@ -386,6 +390,10 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
               notes: true,
               status: true,
               costCents: true,
+              payments: {
+                select: { amountCents: true, dueDate: true },
+                orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+              },
               link: true,
               checkInTime: true,
               checkOutTime: true,
@@ -404,6 +412,10 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
               createdAt: true,
               contentJson: true,
               costCents: true,
+              payments: {
+                select: { amountCents: true, dueDate: true },
+                orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+              },
               linkUrl: true,
               locationLat: true,
               locationLng: true,
@@ -492,6 +504,7 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
               notes: day.accommodation!.notes,
               status,
               costCents: day.accommodation!.costCents,
+              payments: day.accommodation!.payments ?? [],
               link: day.accommodation!.link,
               checkInTime: day.accommodation!.checkInTime ?? null,
               checkOutTime: day.accommodation!.checkOutTime ?? null,
@@ -512,6 +525,7 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
           toTime: item.toTime,
           contentJson: item.contentJson,
           costCents: item.costCents,
+          payments: item.payments ?? [],
           linkUrl: item.linkUrl,
           location:
             item.locationLat !== null && item.locationLng !== null
@@ -623,6 +637,10 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
               notes: true,
               status: true,
               costCents: true,
+              payments: {
+                select: { amountCents: true, dueDate: true },
+                orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+              },
               link: true,
               checkInTime: true,
               checkOutTime: true,
@@ -642,6 +660,10 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
               toTime: true,
               contentJson: true,
               costCents: true,
+              payments: {
+                select: { amountCents: true, dueDate: true },
+                orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+              },
               linkUrl: true,
               locationLat: true,
               locationLng: true,
@@ -700,6 +722,17 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
             notes: day.accommodation.notes,
             status: day.accommodation.status === "BOOKED" ? "booked" : "planned",
             costCents: day.accommodation.costCents,
+            payments:
+              day.accommodation.payments && day.accommodation.payments.length > 0
+                ? day.accommodation.payments
+                : day.accommodation.costCents !== null
+                  ? [
+                      {
+                        amountCents: day.accommodation.costCents,
+                        dueDate: day.date.toISOString().slice(0, 10),
+                      },
+                    ]
+                  : [],
             link: day.accommodation.link,
             checkInTime: day.accommodation.checkInTime ?? null,
             checkOutTime: day.accommodation.checkOutTime ?? null,
@@ -722,6 +755,17 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
         toTime: item.toTime,
         contentJson: item.contentJson,
         costCents: item.costCents,
+        payments:
+          item.payments && item.payments.length > 0
+            ? item.payments
+            : item.costCents !== null
+              ? [
+                  {
+                    amountCents: item.costCents,
+                    dueDate: day.date.toISOString().slice(0, 10),
+                  },
+                ]
+              : [],
         linkUrl: item.linkUrl,
         location:
           item.locationLat !== null && item.locationLng !== null
@@ -767,7 +811,7 @@ const createImportedDays = async ({
     });
 
     if (day.accommodation) {
-      await tx.accommodation.create({
+      const accommodation = await tx.accommodation.create({
         data: {
           tripDayId: createdDay.id,
           name: day.accommodation.name,
@@ -782,10 +826,31 @@ const createImportedDays = async ({
           locationLabel: day.accommodation.location?.label ?? null,
         },
       });
+      const accommodationPayments =
+        day.accommodation.payments && day.accommodation.payments.length > 0
+          ? day.accommodation.payments
+          : day.accommodation.costCents !== null
+            ? [
+                {
+                  amountCents: day.accommodation.costCents,
+                  dueDate: day.date.slice(0, 10),
+                },
+              ]
+            : [];
+      if (accommodationPayments.length > 0) {
+        await tx.costPayment.createMany({
+          data: accommodationPayments.map((payment, index) => ({
+            accommodationId: accommodation.id,
+            amountCents: payment.amountCents,
+            dueDate: payment.dueDate,
+            sortOrder: index,
+          })),
+        });
+      }
     }
 
     for (const item of day.dayPlanItems) {
-      await tx.dayPlanItem.create({
+      const createdItem = await tx.dayPlanItem.create({
         data: {
           tripDayId: createdDay.id,
           title: item.title ?? null,
@@ -799,6 +864,27 @@ const createImportedDays = async ({
           locationLabel: item.location?.label ?? null,
         },
       });
+      const itemPayments =
+        item.payments && item.payments.length > 0
+          ? item.payments
+          : item.costCents !== null
+            ? [
+                {
+                  amountCents: item.costCents,
+                  dueDate: day.date.slice(0, 10),
+                },
+              ]
+            : [];
+      if (itemPayments.length > 0) {
+        await tx.costPayment.createMany({
+          data: itemPayments.map((payment, index) => ({
+            dayPlanItemId: createdItem.id,
+            amountCents: payment.amountCents,
+            dueDate: payment.dueDate,
+            sortOrder: index,
+          })),
+        });
+      }
     }
   }
 };

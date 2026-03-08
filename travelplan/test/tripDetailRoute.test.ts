@@ -137,14 +137,16 @@ describe("GET /api/trips/[id]", () => {
           name: string;
           notes: string | null;
           status: string;
-        costCents: number | null;
-        link: string | null;
-        location: { lat: number; lng: number; label: string | null } | null;
-      } | null;
+          costCents: number | null;
+          payments?: { amountCents: number; dueDate: string }[];
+          link: string | null;
+          location: { lat: number; lng: number; label: string | null } | null;
+        } | null;
       dayPlanItems: {
         id: string;
         contentJson: string;
         costCents: number | null;
+        payments?: { amountCents: number; dueDate: string }[];
         linkUrl: string | null;
         location: { lat: number; lng: number; label: string | null } | null;
       }[];

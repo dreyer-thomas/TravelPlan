@@ -808,6 +808,32 @@ So that the idea becomes a scheduled day item and no longer stays in the bucket 
 **When** the day item is created
 **Then** the bucket list item is removed from the bucket list
 
+### Story 4.5: Payment Schedule for Costs
+
+As a trip planner,
+I want to split a cost into a downpayment and one or more planned payments with amounts and dates,
+So that the total cost reflects how I pay over time.
+
+**FRs covered:** FR14, FR21
+
+**Acceptance Criteria:**
+
+**Given** I am creating a cost for an accommodation or a day plan item
+**When** I choose to pay all now
+**Then** a single payment is recorded for the full amount with a date
+
+**Given** I am creating a cost for an accommodation or a day plan item
+**When** I choose to split into multiple payments
+**Then** I can add two or more payments with an amount and a date for each
+
+**Given** I have entered multiple payments
+**When** the sum of payment amounts does not equal the total cost
+**Then** I see a validation error and cannot save
+
+**Given** I am editing an existing cost
+**When** I add or adjust payments
+**Then** the total of all payments must still equal the cost amount
+
 ## Epic 5: Sharing & Light Contribution
 
 Users can share trips with viewers who can comment/suggest without changing core details.

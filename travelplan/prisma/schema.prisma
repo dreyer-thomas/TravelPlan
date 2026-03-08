@@ -146,6 +146,7 @@ model Accommodation {
 
   tripDay TripDay @relation(fields: [tripDayId], references: [id], onDelete: Cascade)
   images  AccommodationImage[]
+  payments CostPayment[]
 
   @@map("accommodations")
 }
@@ -167,9 +168,30 @@ model DayPlanItem {
 
   tripDay TripDay @relation(fields: [tripDayId], references: [id], onDelete: Cascade)
   images  DayPlanItemImage[]
+  payments CostPayment[]
 
   @@index([tripDayId], map: "idx_day_plan_items_trip_day_id")
   @@map("day_plan_items")
+}
+
+model CostPayment {
+  id              String   @id @default(cuid()) @map("id")
+  accommodationId String?  @map("accommodation_id")
+  dayPlanItemId   String?  @map("day_plan_item_id")
+  amountCents     Int      @map("amount_cents")
+  dueDate         String   @map("due_date")
+  sortOrder       Int      @map("sort_order")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // Prisma cannot express the SQLite one-target CHECK constraint, so it is
+  // enforced in SQL migration files and guarded by tests.
+  accommodation Accommodation? @relation(fields: [accommodationId], references: [id], onDelete: Cascade)
+  dayPlanItem   DayPlanItem?   @relation(fields: [dayPlanItemId], references: [id], onDelete: Cascade)
+
+  @@index([accommodationId], map: "idx_cost_payments_accommodation_id")
+  @@index([dayPlanItemId], map: "idx_cost_payments_day_plan_item_id")
+  @@map("cost_payments")
 }
 
 model AccommodationImage {

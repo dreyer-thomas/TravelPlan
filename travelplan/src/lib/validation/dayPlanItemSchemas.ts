@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isValidDateOnly } from "@/lib/validation/dateOnly";
 import { locationInputSchema } from "@/lib/validation/locationSchemas";
 
 const isSafeExternalUrl = (value: string): boolean => {
@@ -50,6 +51,15 @@ const linkSchema = z
   .url("Link must be a valid URL")
   .refine((value) => isSafeExternalUrl(value), "Link must use http or https")
   .max(2000, "Link must be at most 2000 characters");
+const dateOnlySchema = z
+  .string()
+  .trim()
+  .refine((value) => isValidDateOnly(value), "Date must be a valid YYYY-MM-DD value");
+const paymentSchema = z.object({
+  amountCents: z.number().int().nonnegative("Cost must be zero or greater"),
+  dueDate: dateOnlySchema,
+});
+const paymentsSchema = z.array(paymentSchema);
 
 const normalizeTime = (raw: string): string | null => {
   const value = raw.trim();
@@ -89,6 +99,7 @@ export const dayPlanItemMutationSchema = z.object({
   toTime: timeFieldSchema,
   contentJson: contentJsonSchema,
   costCents: z.number().int().nonnegative("Cost must be zero or greater").optional().nullable(),
+  payments: paymentsSchema.optional().nullable(),
   linkUrl: linkSchema.optional().nullable(),
   location: locationInputSchema.optional(),
   bucketListItemId: z.string().trim().min(1, "Bucket list item is required").optional().nullable(),
@@ -99,6 +110,36 @@ export const dayPlanItemMutationSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ["toTime"],
       message: "To time must be later than from time",
+    });
+  }
+  const costCents = value.costCents ?? null;
+  const payments = value.payments ?? null;
+  if (costCents === null) {
+    if (payments && payments.length > 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["payments"],
+        message: "Payments require a total cost",
+      });
+    }
+    return;
+  }
+
+  if (!payments || payments.length === 0) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["payments"],
+      message: "Payments are required when cost is set",
+    });
+    return;
+  }
+
+  const total = payments.reduce((sum, payment) => sum + payment.amountCents, 0);
+  if (total !== costCents) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["payments"],
+      message: "Payment total must match cost",
     });
   }
 });

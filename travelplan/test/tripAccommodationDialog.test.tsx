@@ -27,6 +27,7 @@ describe("TripAccommodationDialog", () => {
           stayType="current"
           day={{
             id: "day-1",
+            date: "2026-11-01T00:00:00.000Z",
             dayIndex: 1,
             accommodation: {
               id: "stay-1",
@@ -103,6 +104,7 @@ describe("TripAccommodationDialog", () => {
           stayType="current"
           day={{
             id: "day-1",
+            date: "2026-11-01T00:00:00.000Z",
             dayIndex: 1,
             accommodation: {
               id: "stay-1",
@@ -145,6 +147,7 @@ describe("TripAccommodationDialog", () => {
           stayType="current"
           day={{
             id: "day-1",
+            date: "2026-11-01T00:00:00.000Z",
             dayIndex: 1,
             accommodation: {
               id: "stay-1",
@@ -185,6 +188,7 @@ describe("TripAccommodationDialog", () => {
           stayType="previous"
           day={{
             id: "day-0",
+            date: "2026-10-31T00:00:00.000Z",
             dayIndex: 0,
             accommodation: {
               id: "stay-0",
@@ -206,5 +210,112 @@ describe("TripAccommodationDialog", () => {
 
     const input = await screen.findByLabelText("Check-out time");
     expect(input).toHaveValue("10:00");
+  });
+
+  it("blocks save when split payments do not match the total cost", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/auth/csrf")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
+        };
+      }
+      return {
+        ok: false,
+        status: 404,
+        json: async () => ({ data: null, error: { code: "not_found", message: "Not found" } }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripAccommodationDialog
+          open
+          tripId="trip-1"
+          stayType="current"
+          day={{
+            id: "day-1",
+            date: "2026-11-01T00:00:00.000Z",
+            dayIndex: 1,
+            accommodation: null,
+          }}
+          onClose={() => undefined}
+          onSaved={() => undefined}
+        />
+      </I18nProvider>,
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    fireEvent.change(screen.getByLabelText("Stay name"), { target: { value: "Test Stay" } });
+    fireEvent.change(screen.getByLabelText("Cost"), { target: { value: "100.00" } });
+    fireEvent.click(screen.getByLabelText("Split into multiple payments"));
+
+    const amountInputs = screen.getAllByLabelText("Amount");
+    const dateInputs = screen.getAllByLabelText("Due date");
+    fireEvent.change(amountInputs[0], { target: { value: "40.00" } });
+    fireEvent.change(dateInputs[0], { target: { value: "2026-11-01" } });
+    fireEvent.change(amountInputs[1], { target: { value: "50.00" } });
+    fireEvent.change(dateInputs[1], { target: { value: "2026-11-02" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+
+    expect(await screen.findByText("Payments must add up to the total cost")).toBeInTheDocument();
+    const accommodationCalls = fetchMock.mock.calls.filter((call) => String(call[0]).includes("/accommodations"));
+    expect(accommodationCalls).toHaveLength(0);
+  });
+
+  it("loads payment schedule when editing an accommodation cost", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
+    })) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripAccommodationDialog
+          open
+          tripId="trip-1"
+          stayType="current"
+          day={{
+            id: "day-1",
+            date: "2026-11-01T00:00:00.000Z",
+            dayIndex: 1,
+            accommodation: {
+              id: "stay-1",
+              name: "Harbor Hotel",
+              notes: null,
+              status: "planned",
+              costCents: 12000,
+              payments: [
+                { amountCents: 5000, dueDate: "2026-11-01" },
+                { amountCents: 7000, dueDate: "2026-11-02" },
+              ],
+              link: null,
+              checkInTime: null,
+              checkOutTime: null,
+              location: null,
+            },
+          }}
+          onClose={() => undefined}
+          onSaved={() => undefined}
+        />
+      </I18nProvider>,
+    );
+
+    const splitOption = await screen.findByLabelText("Split into multiple payments");
+    expect(splitOption).toBeChecked();
+    const amountInputs = screen.getAllByLabelText("Amount");
+    const dateInputs = screen.getAllByLabelText("Due date");
+    expect(amountInputs[0]).toHaveValue(50);
+    expect(amountInputs[1]).toHaveValue(70);
+    expect(dateInputs[0]).toHaveValue("2026-11-01");
+    expect(dateInputs[1]).toHaveValue("2026-11-02");
   });
 });

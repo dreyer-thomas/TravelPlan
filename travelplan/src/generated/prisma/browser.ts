@@ -53,6 +53,11 @@ export type Accommodation = Prisma.AccommodationModel
  */
 export type DayPlanItem = Prisma.DayPlanItemModel
 /**
+ * Model CostPayment
+ * 
+ */
+export type CostPayment = Prisma.CostPaymentModel
+/**
  * Model AccommodationImage
  * 
  */

@@ -1,6 +1,8 @@
 import { z } from "zod";
+import { isValidDateOnly } from "@/lib/validation/dateOnly";
 
 const ISO_UTC_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
+const DATE_ONLY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const HHMM_TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const MINUTES_PER_HOUR = 60;
 
@@ -40,6 +42,11 @@ const isoUtcDate = z
   .trim()
   .refine((value) => ISO_UTC_REGEX.test(value), "Date must be ISO 8601 UTC")
   .refine((value) => !Number.isNaN(Date.parse(value)), "Date must be valid ISO 8601 UTC");
+const dateOnlySchema = z
+  .string()
+  .trim()
+  .refine((value) => DATE_ONLY_REGEX.test(value), "Date must be YYYY-MM-DD")
+  .refine((value) => isValidDateOnly(value), "Date must be a valid YYYY-MM-DD value");
 
 const urlOrNull = z
   .union([z.string().trim().url("URL must be valid"), z.null()])
@@ -71,12 +78,39 @@ const accommodationImportSchema = z.object({
   notes: z.union([z.string(), z.null()]),
   status: z.enum(["planned", "booked"]),
   costCents: z.union([z.number().int().nonnegative(), z.null()]),
+  payments: z
+    .array(
+      z.object({
+        amountCents: z.number().int().nonnegative(),
+        dueDate: dateOnlySchema,
+      }),
+    )
+    .optional(),
   link: urlOrNull,
   checkInTime: optionalImportTimeSchema,
   checkOutTime: optionalImportTimeSchema,
   location: z.union([locationSchema, z.null()]),
   createdAt: isoUtcDate,
   updatedAt: isoUtcDate,
+}).superRefine((value, ctx) => {
+  const payments = value.payments ?? [];
+  if (payments.length === 0) return;
+  if (value.costCents === null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["payments"],
+      message: "Payments require a costCents value",
+    });
+    return;
+  }
+  const total = payments.reduce((sum, payment) => sum + payment.amountCents, 0);
+  if (total !== value.costCents) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["payments"],
+      message: "Payments must sum to costCents",
+    });
+  }
 });
 
 const dayPlanItemImportSchema = z
@@ -87,6 +121,14 @@ const dayPlanItemImportSchema = z
     toTime: z.union([z.string().trim().regex(HHMM_TIME_REGEX), z.null()]).optional().default(null),
     contentJson: z.string().trim().min(1, "contentJson is required"),
     costCents: z.union([z.number().int().nonnegative(), z.null()]).optional().default(null),
+    payments: z
+      .array(
+        z.object({
+          amountCents: z.number().int().nonnegative(),
+          dueDate: dateOnlySchema,
+        }),
+      )
+      .optional(),
     linkUrl: urlOrNull,
     location: z.union([locationSchema, z.null()]),
     createdAt: isoUtcDate,
@@ -115,6 +157,25 @@ const dayPlanItemImportSchema = z
           message: "toTime must be later than fromTime",
         });
       }
+    }
+
+    const payments = value.payments ?? [];
+    if (payments.length === 0) return;
+    if (value.costCents === null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["payments"],
+        message: "Payments require a costCents value",
+      });
+      return;
+    }
+    const total = payments.reduce((sum, payment) => sum + payment.amountCents, 0);
+    if (total !== value.costCents) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["payments"],
+        message: "Payments must sum to costCents",
+      });
     }
   });
 

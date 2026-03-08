@@ -74,6 +74,7 @@ type TripDay = {
     notes: string | null;
     status: "planned" | "booked";
     costCents: number | null;
+    payments?: { amountCents: number; dueDate: string }[];
     link: string | null;
     checkInTime: string | null;
     checkOutTime: string | null;
@@ -86,6 +87,7 @@ type TripDay = {
     toTime: string | null;
     contentJson: string;
     costCents: number | null;
+    payments?: { amountCents: number; dueDate: string }[];
     linkUrl: string | null;
     location: { lat: number; lng: number; label?: string | null } | null;
   }[];
@@ -110,6 +112,7 @@ type DayPlanItem = {
   toTime: string | null;
   contentJson: string;
   costCents: number | null;
+  payments?: { amountCents: number; dueDate: string }[];
   linkUrl: string | null;
   location: { lat: number; lng: number; label?: string | null } | null;
   createdAt: string;

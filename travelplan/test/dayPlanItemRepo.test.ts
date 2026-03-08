@@ -44,6 +44,7 @@ const sampleDoc = (text: string) =>
 describe("dayPlanItemRepo", () => {
   beforeEach(async () => {
     await prisma.tripBucketListItem.deleteMany();
+    await prisma.costPayment.deleteMany();
     await prisma.dayPlanItem.deleteMany();
     await prisma.tripDay.deleteMany();
     await prisma.trip.deleteMany();
@@ -76,6 +77,109 @@ describe("dayPlanItemRepo", () => {
     expect(item?.costCents).toBe(1250);
     expect(item?.linkUrl).toBe("https://example.com/plan");
     expect(item?.location).toEqual({ lat: 48.1372, lng: 11.5756, label: "Museum" });
+  });
+
+  it("replaces payment rows when updating a day plan item", async () => {
+    const user = await createUser("plan-payments@example.com");
+    const { trip, day } = await createTripWithDay(user.id);
+
+    const created = await createDayPlanItemForTripDay({
+      userId: user.id,
+      tripId: trip.id,
+      tripDayId: day.id,
+      title: "Tickets",
+      fromTime: "10:00",
+      toTime: "11:00",
+      contentJson: sampleDoc("Tickets"),
+      costCents: 3000,
+      payments: [
+        { amountCents: 1000, dueDate: "2026-11-01" },
+        { amountCents: 2000, dueDate: "2026-11-02" },
+      ],
+      linkUrl: null,
+      location: null,
+    });
+
+    expect(created?.payments).toHaveLength(2);
+    const existingPayments = await prisma.costPayment.findMany({ where: { dayPlanItemId: created?.id } });
+    expect(existingPayments).toHaveLength(2);
+
+    const updated = await updateDayPlanItemForTripDay({
+      userId: user.id,
+      tripId: trip.id,
+      tripDayId: day.id,
+      itemId: created!.id,
+      title: "Tickets",
+      fromTime: "10:00",
+      toTime: "11:00",
+      contentJson: sampleDoc("Tickets"),
+      costCents: 3000,
+      payments: [{ amountCents: 3000, dueDate: "2026-11-03" }],
+      linkUrl: null,
+      location: null,
+    });
+
+    expect(updated.status).toBe("updated");
+    const refreshedPayments = await prisma.costPayment.findMany({
+      where: { dayPlanItemId: created?.id },
+      orderBy: { dueDate: "asc" },
+    });
+    expect(refreshedPayments).toHaveLength(1);
+    expect(refreshedPayments[0].amountCents).toBe(3000);
+    expect(refreshedPayments[0].dueDate).toBe("2026-11-03");
+  });
+
+  it("preserves explicit payment row order when due dates are identical", async () => {
+    const user = await createUser("plan-payment-order@example.com");
+    const { trip, day } = await createTripWithDay(user.id);
+
+    const created = await createDayPlanItemForTripDay({
+      userId: user.id,
+      tripId: trip.id,
+      tripDayId: day.id,
+      title: "Tickets",
+      fromTime: "10:00",
+      toTime: "11:00",
+      contentJson: sampleDoc("Tickets"),
+      costCents: 3000,
+      payments: [
+        { amountCents: 1000, dueDate: "2026-11-01" },
+        { amountCents: 2000, dueDate: "2026-11-01" },
+      ],
+      linkUrl: null,
+      location: null,
+    });
+
+    expect(created?.payments).toEqual([
+      { amountCents: 1000, dueDate: "2026-11-01" },
+      { amountCents: 2000, dueDate: "2026-11-01" },
+    ]);
+
+    const updated = await updateDayPlanItemForTripDay({
+      userId: user.id,
+      tripId: trip.id,
+      tripDayId: day.id,
+      itemId: created!.id,
+      title: "Tickets",
+      fromTime: "10:00",
+      toTime: "11:00",
+      contentJson: sampleDoc("Tickets"),
+      costCents: 3000,
+      payments: [
+        { amountCents: 2000, dueDate: "2026-11-01" },
+        { amountCents: 1000, dueDate: "2026-11-01" },
+      ],
+      linkUrl: null,
+      location: null,
+    });
+
+    expect(updated.status).toBe("updated");
+    if (updated.status === "updated") {
+      expect(updated.item.payments).toEqual([
+        { amountCents: 2000, dueDate: "2026-11-01" },
+        { amountCents: 1000, dueDate: "2026-11-01" },
+      ]);
+    }
   });
 
   it("lists day plan items ordered by fromTime start", async () => {

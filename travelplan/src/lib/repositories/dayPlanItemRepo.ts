@@ -12,6 +12,7 @@ export type DayPlanItemDetail = {
   toTime: string | null;
   contentJson: string;
   costCents: number | null;
+  payments: { amountCents: number; dueDate: string }[];
   linkUrl: string | null;
   location: { lat: number; lng: number; label: string | null } | null;
   createdAt: Date;
@@ -41,6 +42,7 @@ type DayPlanItemMutationParams = {
   toTime: string;
   contentJson: string;
   costCents?: number | null;
+  payments?: { amountCents: number; dueDate: string }[] | null;
   linkUrl?: string | null;
   location?: { lat: number; lng: number; label?: string | null } | null;
 };
@@ -125,6 +127,7 @@ const toDetail = (item: {
   toTime: string | null;
   contentJson: string;
   costCents: number | null;
+  payments?: { amountCents: number; dueDate: string }[];
   linkUrl: string | null;
   locationLat: number | null;
   locationLng: number | null;
@@ -138,6 +141,7 @@ const toDetail = (item: {
   toTime: item.toTime,
   contentJson: item.contentJson,
   costCents: item.costCents,
+  payments: item.payments ?? [],
   linkUrl: item.linkUrl,
   location:
     item.locationLat !== null && item.locationLng !== null
@@ -198,6 +202,12 @@ export const listDayPlanItemsForTripDay = async (params: {
   const items = await prisma.dayPlanItem.findMany({
     where: { tripDayId },
     orderBy: { createdAt: "asc" },
+    include: {
+      payments: {
+        select: { amountCents: true, dueDate: true },
+        orderBy: [{ dueDate: "asc" }, { createdAt: "asc" }],
+      },
+    },
   });
 
   return items.map(toDetail).sort(compareDayPlanItemsByStartTime);
@@ -212,22 +222,44 @@ export const createDayPlanItemForTripDay = async (
     return null;
   }
 
-  const item = await prisma.dayPlanItem.create({
-    data: {
-      tripDayId,
-      title: params.title.trim(),
-      fromTime,
-      toTime,
-      contentJson,
-      costCents: costCents ?? null,
-      linkUrl: linkUrl ?? null,
-      locationLat: location?.lat ?? null,
-      locationLng: location?.lng ?? null,
-      locationLabel: location?.label?.trim() || null,
-    },
-  });
+  return prisma.$transaction(async (tx) => {
+    const item = await tx.dayPlanItem.create({
+      data: {
+        tripDayId,
+        title: params.title.trim(),
+        fromTime,
+        toTime,
+        contentJson,
+        costCents: costCents ?? null,
+        linkUrl: linkUrl ?? null,
+        locationLat: location?.lat ?? null,
+        locationLng: location?.lng ?? null,
+        locationLabel: location?.label?.trim() || null,
+      },
+    });
 
-  return toDetail(item);
+    if (params.payments) {
+      await tx.costPayment.deleteMany({ where: { dayPlanItemId: item.id } });
+      if (params.payments.length > 0) {
+        await tx.costPayment.createMany({
+          data: params.payments.map((payment, index) => ({
+            dayPlanItemId: item.id,
+            amountCents: payment.amountCents,
+            dueDate: payment.dueDate,
+            sortOrder: index,
+          })),
+        });
+      }
+    }
+
+    const payments = await tx.costPayment.findMany({
+      where: { dayPlanItemId: item.id },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+      select: { amountCents: true, dueDate: true },
+    });
+
+    return toDetail({ ...item, payments });
+  });
 };
 
 export const convertBucketListItemToDayPlanItemForTripDay = async (
@@ -267,6 +299,20 @@ export const convertBucketListItemToDayPlanItemForTripDay = async (
       },
     });
 
+    if (params.payments) {
+      await tx.costPayment.deleteMany({ where: { dayPlanItemId: created.id } });
+      if (params.payments.length > 0) {
+        await tx.costPayment.createMany({
+          data: params.payments.map((payment, index) => ({
+            dayPlanItemId: created.id,
+            amountCents: payment.amountCents,
+            dueDate: payment.dueDate,
+            sortOrder: index,
+          })),
+        });
+      }
+    }
+
     const deleted = await deleteBucketListItemForTripInTransaction({
       tx,
       tripId,
@@ -277,7 +323,13 @@ export const convertBucketListItemToDayPlanItemForTripDay = async (
       throw new Error("Bucket list item deletion failed");
     }
 
-    return { status: "created", item: toDetail(created) };
+    const payments = await tx.costPayment.findMany({
+      where: { dayPlanItemId: created.id },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+      select: { amountCents: true, dueDate: true },
+    });
+
+    return { status: "created", item: toDetail({ ...created, payments }) };
   });
 };
 
@@ -301,22 +353,46 @@ export const updateDayPlanItemForTripDay = async (
     return { status: "missing" };
   }
 
-  const updated = await prisma.dayPlanItem.update({
-    where: { id: existing.id },
-    data: {
-      title: title.trim(),
-      fromTime,
-      toTime,
-      contentJson,
-      costCents: costCents ?? null,
-      linkUrl: linkUrl ?? null,
-      locationLat: location?.lat ?? null,
-      locationLng: location?.lng ?? null,
-      locationLabel: location?.label?.trim() || null,
-    },
+  const updated = await prisma.$transaction(async (tx) => {
+    const item = await tx.dayPlanItem.update({
+      where: { id: existing.id },
+      data: {
+        title: title.trim(),
+        fromTime,
+        toTime,
+        contentJson,
+        costCents: costCents ?? null,
+        linkUrl: linkUrl ?? null,
+        locationLat: location?.lat ?? null,
+        locationLng: location?.lng ?? null,
+        locationLabel: location?.label?.trim() || null,
+      },
+    });
+
+    if (params.payments) {
+      await tx.costPayment.deleteMany({ where: { dayPlanItemId: existing.id } });
+      if (params.payments.length > 0) {
+        await tx.costPayment.createMany({
+          data: params.payments.map((payment, index) => ({
+            dayPlanItemId: existing.id,
+            amountCents: payment.amountCents,
+            dueDate: payment.dueDate,
+            sortOrder: index,
+          })),
+        });
+      }
+    }
+
+    const payments = await tx.costPayment.findMany({
+      where: { dayPlanItemId: existing.id },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+      select: { amountCents: true, dueDate: true },
+    });
+
+    return toDetail({ ...item, payments });
   });
 
-  return { status: "updated", item: toDetail(updated) };
+  return { status: "updated", item: updated };
 };
 
 export const deleteDayPlanItemForTripDay = async (

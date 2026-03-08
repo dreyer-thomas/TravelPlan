@@ -34,6 +34,7 @@ const validPayload = {
         notes: "Near station",
         status: "booked",
         costCents: 25000,
+        payments: [{ amountCents: 25000, dueDate: "2026-03-01" }],
         link: "https://example.com/stay",
         checkInTime: "16:00",
         checkOutTime: "10:00",
@@ -143,6 +144,24 @@ describe("tripImportSchemas", () => {
           id: "day-2",
           date: "2026-03-02T00:00:00.000Z",
         },
+      ],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects impossible payment dates in imported schedules", () => {
+    const result = tripImportPayloadSchema.safeParse({
+      ...validPayload,
+      days: [
+        {
+          ...validPayload.days[0],
+          accommodation: {
+            ...validPayload.days[0].accommodation!,
+            payments: [{ amountCents: 25000, dueDate: "2026-02-31" }],
+          },
+        },
+        validPayload.days[1],
       ],
     });
 

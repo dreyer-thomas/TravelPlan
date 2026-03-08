@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Controller, useForm } from "react-hook-form";
+import { Controller, useFieldArray, useForm, useWatch } from "react-hook-form";
 import {
   Alert,
   Box,
@@ -12,8 +12,13 @@ import {
   DialogContent,
   DialogTitle,
   FormControl,
+  FormControlLabel,
+  FormHelperText,
+  FormLabel,
   InputLabel,
   MenuItem,
+  Radio,
+  RadioGroup,
   SvgIcon,
   Select,
   TextField,
@@ -29,6 +34,7 @@ type ApiEnvelope<T> = {
 
 type TripDay = {
   id: string;
+  date: string;
   dayIndex: number;
   accommodation: {
     id: string;
@@ -36,6 +42,7 @@ type TripDay = {
     notes: string | null;
     status: "planned" | "booked";
     costCents: number | null;
+    payments?: { amountCents: number; dueDate: string }[];
     link: string | null;
     checkInTime: string | null;
     checkOutTime: string | null;
@@ -51,6 +58,8 @@ type AccommodationFormValues = {
   link: string;
   checkInTime: string;
   checkOutTime: string;
+  paymentMode: "single" | "split";
+  payments: { amount: string; dueDate: string }[];
 };
 
 type GalleryImage = {
@@ -70,6 +79,45 @@ type TripAccommodationDialogProps = {
 
 const DEFAULT_CHECK_IN = "16:00";
 const DEFAULT_CHECK_OUT = "10:00";
+
+const formatCents = (value: number) => (value / 100).toFixed(2);
+
+const parseAmountToCents = (rawValue: string): number | null => {
+  const value = rawValue.trim();
+  if (!value) return null;
+  if (!/^\d+(\.\d{1,2})?$/.test(value)) return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return null;
+  return Math.round(parsed * 100);
+};
+
+const toDateOnly = (value?: string | null) => {
+  if (!value) return new Date().toISOString().slice(0, 10);
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return new Date().toISOString().slice(0, 10);
+  return parsed.toISOString().slice(0, 10);
+};
+
+const buildDefaultPayments = ({
+  payments,
+  costCents,
+  fallbackDate,
+}: {
+  payments?: { amountCents: number; dueDate: string }[];
+  costCents: number | null | undefined;
+  fallbackDate: string;
+}) => {
+  if (payments && payments.length > 0) {
+    return payments.map((payment) => ({
+      amount: formatCents(payment.amountCents),
+      dueDate: payment.dueDate,
+    }));
+  }
+  if (typeof costCents === "number") {
+    return [{ amount: formatCents(costCents), dueDate: fallbackDate }];
+  }
+  return [{ amount: "", dueDate: "" }];
+};
 
 const normalizeTimeInput = (raw: string): string | null => {
   const value = raw.trim();
@@ -104,6 +152,7 @@ export default function TripAccommodationDialog({
   const [galleryFiles, setGalleryFiles] = useState<File[]>([]);
   const [galleryBusy, setGalleryBusy] = useState(false);
   const [fullscreenImage, setFullscreenImage] = useState<{ imageUrl: string; alt: string } | null>(null);
+  const defaultDueDate = useMemo(() => toDateOnly(day?.date), [day?.date]);
 
   const {
     register,
@@ -111,7 +160,9 @@ export default function TripAccommodationDialog({
     handleSubmit,
     formState: { errors, isSubmitting, dirtyFields },
     setError,
+    clearErrors,
     reset,
+    setValue,
   } = useForm<AccommodationFormValues>({
     defaultValues: {
       name: day?.accommodation?.name ?? "",
@@ -124,8 +175,62 @@ export default function TripAccommodationDialog({
       link: day?.accommodation?.link ?? "",
       checkInTime: day?.accommodation?.checkInTime ?? DEFAULT_CHECK_IN,
       checkOutTime: day?.accommodation?.checkOutTime ?? DEFAULT_CHECK_OUT,
+      paymentMode: day?.accommodation?.payments && day.accommodation.payments.length > 1 ? "split" : "single",
+      payments: buildDefaultPayments({
+        payments: day?.accommodation?.payments,
+        costCents: day?.accommodation?.costCents,
+        fallbackDate: defaultDueDate,
+      }),
     },
   });
+
+  const { fields: paymentFields, append, remove, replace } = useFieldArray({
+    control,
+    name: "payments",
+  });
+  const paymentMode = useWatch({ control, name: "paymentMode" });
+  const costInput = useWatch({ control, name: "costCents" });
+  const watchedPayments = useWatch({ control, name: "payments" });
+
+  useEffect(() => {
+    if (!open) return;
+    if (paymentMode === "split") {
+      if (paymentFields.length < 2) {
+        const next = [...paymentFields];
+        while (next.length < 2) {
+          next.push({ id: `new-${next.length}`, amount: "", dueDate: defaultDueDate } as (typeof paymentFields)[number]);
+        }
+        replace(
+          next.map((field, index) => ({
+            amount: (watchedPayments?.[index]?.amount ?? field.amount ?? "") as string,
+            dueDate: (watchedPayments?.[index]?.dueDate ?? field.dueDate ?? defaultDueDate) as string,
+          })),
+        );
+      }
+    } else if (paymentFields.length !== 1) {
+      const first = watchedPayments?.[0];
+      replace([
+        {
+          amount: first?.amount ?? "",
+          dueDate: first?.dueDate ?? defaultDueDate,
+        },
+      ]);
+    }
+  }, [defaultDueDate, open, paymentFields, paymentMode, replace, watchedPayments]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (paymentMode !== "single") return;
+    const normalized = (costInput ?? "").trim();
+    const current = watchedPayments?.[0]?.amount ?? "";
+    if (normalized !== current) {
+      setValue("payments.0.amount", normalized, { shouldDirty: true });
+    }
+    const dueDate = watchedPayments?.[0]?.dueDate ?? "";
+    if (normalized && !dueDate) {
+      setValue("payments.0.dueDate", defaultDueDate, { shouldDirty: true });
+    }
+  }, [costInput, defaultDueDate, open, paymentMode, setValue, watchedPayments]);
 
   useEffect(() => {
     if (!open) return;
@@ -145,6 +250,12 @@ export default function TripAccommodationDialog({
       link: day?.accommodation?.link ?? "",
       checkInTime: day?.accommodation?.checkInTime ?? DEFAULT_CHECK_IN,
       checkOutTime: day?.accommodation?.checkOutTime ?? DEFAULT_CHECK_OUT,
+      paymentMode: day?.accommodation?.payments && day.accommodation.payments.length > 1 ? "split" : "single",
+      payments: buildDefaultPayments({
+        payments: day?.accommodation?.payments,
+        costCents: day?.accommodation?.costCents,
+        fallbackDate: defaultDueDate,
+      }),
     });
     setResolvedLocation(
       day?.accommodation?.location
@@ -156,7 +267,7 @@ export default function TripAccommodationDialog({
         : null,
     );
     setLocationQuery(day?.accommodation?.location?.label ?? day?.accommodation?.name ?? "");
-  }, [day, open, reset]);
+  }, [day, defaultDueDate, open, reset]);
 
   useEffect(() => {
     if (!open) return;
@@ -249,14 +360,69 @@ export default function TripAccommodationDialog({
     }
 
     const costValue = values.costCents.trim();
-    const costCents = costValue ? Math.round(Number(costValue) * 100) : null;
+    const parsedCostCents = parseAmountToCents(costValue);
+    if (costValue && parsedCostCents === null) {
+      setError("costCents", { message: t("trips.stay.costInvalid") });
+      return;
+    }
+    const costCents = costValue ? parsedCostCents : null;
     const linkValue = values.link.trim();
+    clearErrors("payments");
+
+    let paymentsPayload: { amountCents: number; dueDate: string }[] = [];
+    if (costCents === null) {
+      const hasPaymentInput =
+        values.payments?.some((payment) => payment.amount.trim().length > 0 || payment.dueDate.trim().length > 0) ?? false;
+      if (hasPaymentInput) {
+        setError("payments", { message: t("trips.payments.costRequired") });
+        return;
+      }
+    } else {
+      if (values.paymentMode === "single") {
+        const dueDate = values.payments?.[0]?.dueDate?.trim() ?? "";
+        if (!dueDate) {
+          setError("payments.0.dueDate", { message: t("trips.payments.dateRequired") });
+          return;
+        }
+        paymentsPayload = [{ amountCents: costCents, dueDate }];
+      } else {
+        if (!values.payments || values.payments.length < 2) {
+          setError("payments", { message: t("trips.payments.minRows") });
+          return;
+        }
+        let total = 0;
+        let hasError = false;
+        values.payments.forEach((payment, index) => {
+          const amountValue = payment.amount?.trim() ?? "";
+          const amountCents = parseAmountToCents(amountValue);
+          if (!amountValue || amountCents === null) {
+            setError(`payments.${index}.amount` as const, { message: t("trips.payments.amountRequired") });
+            hasError = true;
+            return;
+          }
+          const dueDate = payment.dueDate?.trim() ?? "";
+          if (!dueDate) {
+            setError(`payments.${index}.dueDate` as const, { message: t("trips.payments.dateRequired") });
+            hasError = true;
+            return;
+          }
+          total += amountCents;
+          paymentsPayload.push({ amountCents, dueDate });
+        });
+        if (hasError) return;
+        if (total !== costCents) {
+          setError("payments", { message: t("trips.payments.sumMismatch") });
+          return;
+        }
+      }
+    }
 
     const payload: {
       tripDayId: string;
       name: string;
       status: "planned" | "booked";
       costCents: number | null;
+      payments: { amountCents: number; dueDate: string }[];
       link: string | null;
       notes: string | null;
       location: { lat: number; lng: number; label: string | null } | null;
@@ -267,6 +433,7 @@ export default function TripAccommodationDialog({
       name: values.name,
       status: values.status,
       costCents,
+      payments: paymentsPayload,
       link: linkValue.length > 0 ? linkValue : null,
       notes: values.notes.trim() ? values.notes : null,
       location: resolvedLocation,
@@ -296,7 +463,11 @@ export default function TripAccommodationDialog({
           const details = body.error.details as { fieldErrors?: Record<string, string[]> };
           Object.entries(details.fieldErrors ?? {}).forEach(([field, messages]) => {
             if (messages?.[0]) {
-              setError(field as keyof AccommodationFormValues, { message: messages[0] });
+              if (field.startsWith("payments")) {
+                setError(field as keyof AccommodationFormValues, { message: messages[0] });
+              } else {
+                setError(field as keyof AccommodationFormValues, { message: messages[0] });
+              }
             }
           });
           return;
@@ -615,6 +786,63 @@ export default function TripAccommodationDialog({
               inputProps={{ min: 0, step: 0.01 }}
               placeholder="0.00"
             />
+            <FormControl component="fieldset" error={Boolean(errors.payments)} variant="standard">
+              <FormLabel>{t("trips.payments.title")}</FormLabel>
+              <RadioGroup
+                row
+                value={paymentMode ?? "single"}
+                onChange={(event) => {
+                  setValue("paymentMode", event.target.value as "single" | "split", { shouldDirty: true });
+                }}
+              >
+                <FormControlLabel value="single" control={<Radio />} label={t("trips.payments.payAllNow")} />
+                <FormControlLabel value="split" control={<Radio />} label={t("trips.payments.split")} />
+              </RadioGroup>
+              <input type="hidden" {...register("paymentMode")} />
+              <Box display="flex" flexDirection="column" gap={1.25} mt={0.5}>
+                {paymentFields.map((field, index) => (
+                  <Box key={field.id} display="flex" gap={1} alignItems="center" flexWrap="wrap">
+                    <TextField
+                      label={t("trips.payments.amountLabel")}
+                      error={Boolean(errors.payments?.[index]?.amount)}
+                      helperText={errors.payments?.[index]?.amount?.message}
+                      {...register(`payments.${index}.amount` as const)}
+                      size="small"
+                      type="number"
+                      inputMode="decimal"
+                      inputProps={{ min: 0, step: 0.01, readOnly: paymentMode !== "split" }}
+                      sx={{ flex: 1, minWidth: 140 }}
+                    />
+                    <TextField
+                      label={t("trips.payments.dateLabel")}
+                      error={Boolean(errors.payments?.[index]?.dueDate)}
+                      helperText={errors.payments?.[index]?.dueDate?.message}
+                      {...register(`payments.${index}.dueDate` as const)}
+                      size="small"
+                      type="date"
+                      InputLabelProps={{ shrink: true }}
+                      sx={{ flex: 1, minWidth: 170 }}
+                    />
+                    {paymentMode === "split" && (
+                      <Button
+                        size="small"
+                        color="inherit"
+                        onClick={() => remove(index)}
+                        disabled={paymentFields.length <= 2}
+                      >
+                        {t("trips.payments.removeAction")}
+                      </Button>
+                    )}
+                  </Box>
+                ))}
+                {paymentMode === "split" && (
+                  <Button size="small" onClick={() => append({ amount: "", dueDate: defaultDueDate })}>
+                    {t("trips.payments.addAction")}
+                  </Button>
+                )}
+              </Box>
+              <FormHelperText>{errors.payments?.message}</FormHelperText>
+            </FormControl>
             <TextField
               label={t("trips.stay.linkLabel")}
               error={Boolean(errors.link)}

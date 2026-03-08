@@ -36,6 +36,7 @@ const buildRequest = (
 
 describe("/api/trips/[id]/accommodations", () => {
   beforeEach(async () => {
+    await prisma.costPayment.deleteMany();
     await prisma.accommodation.deleteMany();
     await prisma.tripDay.deleteMany();
     await prisma.trip.deleteMany();
@@ -78,6 +79,7 @@ describe("/api/trips/[id]/accommodations", () => {
         name: "Sunset Hotel",
         status: "booked",
         costCents: 9800,
+        payments: [{ amountCents: 9800, dueDate: "2026-11-01" }],
         link: "https://example.com/sunset",
         notes: "Late arrival",
         checkInTime: "16:00",
@@ -95,6 +97,7 @@ describe("/api/trips/[id]/accommodations", () => {
         tripDayId: string;
         status: string;
         costCents: number | null;
+        payments?: { amountCents: number; dueDate: string }[];
         link: string | null;
         checkInTime: string | null;
         checkOutTime: string | null;
@@ -109,6 +112,7 @@ describe("/api/trips/[id]/accommodations", () => {
     expect(payload.data?.accommodation.notes).toBe("Late arrival");
     expect(payload.data?.accommodation.status).toBe("booked");
     expect(payload.data?.accommodation.costCents).toBe(9800);
+    expect(payload.data?.accommodation.payments).toEqual([{ amountCents: 9800, dueDate: "2026-11-01" }]);
     expect(payload.data?.accommodation.link).toBe("https://example.com/sunset");
     expect(payload.data?.accommodation.checkInTime).toBe("16:00");
     expect(payload.data?.accommodation.checkOutTime).toBe("10:00");
@@ -210,6 +214,7 @@ describe("/api/trips/[id]/accommodations", () => {
         name: "Updated Stay",
         status: "booked",
         costCents: 15000,
+        payments: [{ amountCents: 15000, dueDate: "2026-11-03" }],
         link: "https://example.com/updated",
         notes: "Window seat",
         checkInTime: "15:30",
@@ -227,6 +232,7 @@ describe("/api/trips/[id]/accommodations", () => {
         tripDayId: string;
         status: string;
         costCents: number | null;
+        payments?: { amountCents: number; dueDate: string }[];
         link: string | null;
         checkInTime: string | null;
         checkOutTime: string | null;
@@ -240,6 +246,7 @@ describe("/api/trips/[id]/accommodations", () => {
     expect(payload.data?.accommodation.notes).toBe("Window seat");
     expect(payload.data?.accommodation.status).toBe("booked");
     expect(payload.data?.accommodation.costCents).toBe(15000);
+    expect(payload.data?.accommodation.payments).toEqual([{ amountCents: 15000, dueDate: "2026-11-03" }]);
     expect(payload.data?.accommodation.link).toBe("https://example.com/updated");
     expect(payload.data?.accommodation.checkInTime).toBe("15:30");
     expect(payload.data?.accommodation.checkOutTime).toBe("09:15");

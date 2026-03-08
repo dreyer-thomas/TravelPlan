@@ -10,6 +10,12 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  FormControl,
+  FormControlLabel,
+  FormHelperText,
+  FormLabel,
+  Radio,
+  RadioGroup,
   SvgIcon,
   TextField,
   Typography,
@@ -36,6 +42,7 @@ type ApiEnvelope<T> = {
 
 type TripDay = {
   id: string;
+  date: string;
   dayIndex: number;
 };
 
@@ -47,6 +54,7 @@ type DayPlanItem = {
   toTime: string | null;
   contentJson: string;
   costCents: number | null;
+  payments?: { amountCents: number; dueDate: string }[];
   linkUrl: string | null;
   location: { lat: number; lng: number; label?: string | null } | null;
   createdAt: string;
@@ -156,6 +164,34 @@ const parseAmountToCents = (rawValue: string): number | null => {
   return Math.round(amount * 100);
 };
 
+const toDateOnly = (value?: string | null) => {
+  if (!value) return new Date().toISOString().slice(0, 10);
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return new Date().toISOString().slice(0, 10);
+  return parsed.toISOString().slice(0, 10);
+};
+
+const buildDefaultPayments = ({
+  payments,
+  costCents,
+  fallbackDate,
+}: {
+  payments?: { amountCents: number; dueDate: string }[];
+  costCents: number | null | undefined;
+  fallbackDate: string;
+}) => {
+  if (payments && payments.length > 0) {
+    return payments.map((payment) => ({
+      amount: formatCentsAsAmount(payment.amountCents),
+      dueDate: payment.dueDate,
+    }));
+  }
+  if (typeof costCents === "number") {
+    return [{ amount: formatCentsAsAmount(costCents), dueDate: fallbackDate }];
+  }
+  return [{ amount: "", dueDate: "" }];
+};
+
 export default function TripDayPlanDialog({
   open,
   mode,
@@ -178,6 +214,12 @@ export default function TripDayPlanDialog({
   const [costCentsInput, setCostCentsInput] = useState<string>("");
   const [fromTimeInput, setFromTimeInput] = useState<string>("");
   const [toTimeInput, setToTimeInput] = useState<string>("");
+  const [paymentMode, setPaymentMode] = useState<"single" | "split">("single");
+  const [payments, setPayments] = useState<Array<{ amount: string; dueDate: string }>>([]);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [paymentRowErrors, setPaymentRowErrors] = useState<Array<{ amount?: string; dueDate?: string }>>([]);
+  const skipPaymentNormalization = useRef(false);
+  const skipCostSync = useRef(false);
   const [linkUrl, setLinkUrl] = useState<string>("");
   const [resolvedLocation, setResolvedLocation] = useState<{ lat: number; lng: number; label?: string | null } | null>(
     null,
@@ -200,6 +242,7 @@ export default function TripDayPlanDialog({
   const [fullscreenImage, setFullscreenImage] = useState<{ imageUrl: string; alt: string } | null>(null);
   const deleteTouchGuard = useRef(false);
   const editingItemId = mode === "edit" ? (item?.id ?? null) : null;
+  const defaultDueDate = useMemo(() => toDateOnly(day?.date), [day?.date]);
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -230,6 +273,10 @@ export default function TripDayPlanDialog({
     setFromTimeInput("");
     setToTimeInput("");
     setCostCentsInput("");
+    setPaymentMode("single");
+    setPayments(buildDefaultPayments({ payments: [], costCents: null, fallbackDate: defaultDueDate }));
+    setPaymentError(null);
+    setPaymentRowErrors([]);
     setLinkUrl("");
     setResolvedLocation(null);
     setLocationQuery("");
@@ -237,7 +284,7 @@ export default function TripDayPlanDialog({
     if (editor) {
       editor.commands.setContent(emptyDoc, { emitUpdate: false });
     }
-  }, [editor]);
+  }, [defaultDueDate, editor]);
 
   const setEditorContent = useCallback(
     (value: string) => {
@@ -261,6 +308,13 @@ export default function TripDayPlanDialog({
       setFromTimeInput(item.fromTime ?? "");
       setToTimeInput(item.toTime ?? "");
       setCostCentsInput(item.costCents !== null ? formatCentsAsAmount(item.costCents) : "");
+      const initialMode = item.payments && item.payments.length > 1 ? "split" : "single";
+      skipPaymentNormalization.current = true;
+      skipCostSync.current = true;
+      setPaymentMode(initialMode);
+      setPayments(buildDefaultPayments({ payments: item.payments, costCents: item.costCents, fallbackDate: defaultDueDate }));
+      setPaymentError(null);
+      setPaymentRowErrors([]);
       setLinkUrl(item.linkUrl ?? "");
       setResolvedLocation(item.location ?? null);
       setLocationQuery(item.location?.label ?? "");
@@ -270,6 +324,10 @@ export default function TripDayPlanDialog({
       setFromTimeInput("");
       setToTimeInput("");
       setCostCentsInput("");
+      setPaymentMode("single");
+      setPayments(buildDefaultPayments({ payments: [], costCents: null, fallbackDate: defaultDueDate }));
+      setPaymentError(null);
+      setPaymentRowErrors([]);
       setLinkUrl("");
       setResolvedLocation(prefill.location ?? null);
       setLocationQuery(prefill.location?.label ?? "");
@@ -278,7 +336,7 @@ export default function TripDayPlanDialog({
       resetEditor();
     }
     setLoadingInit(false);
-  }, [item, mode, open, prefill, resetEditor, setEditorContent]);
+  }, [defaultDueDate, item, mode, open, prefill, resetEditor, setEditorContent]);
 
   useEffect(() => {
     if (!open || !day) return;
@@ -348,6 +406,58 @@ export default function TripDayPlanDialog({
     };
   }, [day, editingItemId, open, tripId]);
 
+  useEffect(() => {
+    if (!open) return;
+    if (skipPaymentNormalization.current) {
+      skipPaymentNormalization.current = false;
+      return;
+    }
+    if (paymentMode === "split") {
+      if (payments.length < 2) {
+        setPayments((current) => {
+          const next = [...current];
+          while (next.length < 2) {
+            next.push({ amount: "", dueDate: defaultDueDate });
+          }
+          return next;
+        });
+      }
+    } else if (payments.length !== 1) {
+      setPayments((current) => {
+        const first = current[0];
+        return [
+          {
+            amount: first?.amount ?? "",
+            dueDate: first?.dueDate ?? defaultDueDate,
+          },
+        ];
+      });
+    }
+  }, [defaultDueDate, open, paymentMode, payments.length]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (paymentMode !== "single") return;
+    if (skipCostSync.current) {
+      skipCostSync.current = false;
+      return;
+    }
+    const normalized = costCentsInput.trim();
+    setPayments((current) => {
+      const next = [...current];
+      if (!next[0]) {
+        return [{ amount: normalized, dueDate: normalized ? defaultDueDate : "" }];
+      }
+      if (next[0].amount === normalized) return current;
+      next[0] = {
+        ...next[0],
+        amount: normalized,
+        dueDate: next[0].dueDate || (normalized ? defaultDueDate : ""),
+      };
+      return next;
+    });
+  }, [costCentsInput, defaultDueDate, open, paymentMode]);
+
   const title = useMemo(() => {
     if (mode === "edit") return t("trips.plan.editDialogTitle");
     return t("trips.plan.addDialogTitle");
@@ -393,6 +503,8 @@ export default function TripDayPlanDialog({
 
     setServerError(null);
     setFieldErrors({});
+    setPaymentError(null);
+    setPaymentRowErrors([]);
     setSaving(true);
 
     const trimmedCost = costCentsInput.trim();
@@ -405,6 +517,64 @@ export default function TripDayPlanDialog({
       return;
     }
 
+    let paymentsPayload: { amountCents: number; dueDate: string }[] = [];
+    if (trimmedCost.length === 0) {
+      const hasPaymentInput = payments.some(
+        (payment) => payment.amount.trim().length > 0 || payment.dueDate.trim().length > 0,
+      );
+      if (hasPaymentInput) {
+        setSaving(false);
+        setPaymentError(t("trips.payments.costRequired"));
+        return;
+      }
+    } else if (paymentMode === "single") {
+      const dueDate = payments[0]?.dueDate?.trim() ?? "";
+      if (!dueDate) {
+        setSaving(false);
+        setPaymentRowErrors([{ dueDate: t("trips.payments.dateRequired") }]);
+        return;
+      }
+      paymentsPayload = [{ amountCents: parsedCostCents!, dueDate }];
+    } else {
+      if (payments.length < 2) {
+        setSaving(false);
+        setPaymentError(t("trips.payments.minRows"));
+        return;
+      }
+      const rowErrors: Array<{ amount?: string; dueDate?: string }> = [];
+      let total = 0;
+      let hasError = false;
+      payments.forEach((payment, index) => {
+        const amountValue = payment.amount.trim();
+        const amountCents = parseAmountToCents(amountValue);
+        const dueDate = payment.dueDate.trim();
+        const nextError: { amount?: string; dueDate?: string } = {};
+        if (!amountValue || amountCents === null) {
+          nextError.amount = t("trips.payments.amountRequired");
+          hasError = true;
+        }
+        if (!dueDate) {
+          nextError.dueDate = t("trips.payments.dateRequired");
+          hasError = true;
+        }
+        rowErrors[index] = nextError;
+        if (amountCents !== null && dueDate) {
+          total += amountCents;
+          paymentsPayload.push({ amountCents, dueDate });
+        }
+      });
+      if (hasError) {
+        setSaving(false);
+        setPaymentRowErrors(rowErrors);
+        return;
+      }
+      if (total !== parsedCostCents) {
+        setSaving(false);
+        setPaymentError(t("trips.payments.sumMismatch"));
+        return;
+      }
+    }
+
     const payload = {
       tripDayId: day.id,
       title: titleInput.trim(),
@@ -412,6 +582,7 @@ export default function TripDayPlanDialog({
       toTime: toTimeInput.trim(),
       contentJson,
       costCents: trimmedCost.length > 0 ? parsedCostCents : null,
+      payments: paymentsPayload,
       linkUrl: trimmedLink.length > 0 ? trimmedLink : null,
       location: resolvedLocation,
     } as {
@@ -421,6 +592,7 @@ export default function TripDayPlanDialog({
       toTime: string;
       contentJson: string;
       costCents: number | null;
+      payments: { amountCents: number; dueDate: string }[];
       linkUrl: string | null;
       location: { lat: number; lng: number; label?: string | null } | null;
       itemId?: string;
@@ -466,6 +638,7 @@ export default function TripDayPlanDialog({
               if (field === "contentJson") nextErrors.contentJson = messages[0];
               if (field === "costCents") nextErrors.costCents = messages[0];
               if (field === "linkUrl") nextErrors.linkUrl = messages[0];
+              if (field.startsWith("payments")) setPaymentError(messages[0]);
             }
           });
           setFieldErrors(nextErrors);
@@ -822,6 +995,76 @@ export default function TripDayPlanDialog({
             inputMode="decimal"
             placeholder="0.00"
           />
+          <FormControl component="fieldset" error={Boolean(paymentError)} variant="standard">
+            <FormLabel>{t("trips.payments.title")}</FormLabel>
+            <RadioGroup
+              row
+              value={paymentMode}
+              onChange={(event) => setPaymentMode(event.target.value as "single" | "split")}
+            >
+              <FormControlLabel value="single" control={<Radio />} label={t("trips.payments.payAllNow")} />
+              <FormControlLabel value="split" control={<Radio />} label={t("trips.payments.split")} />
+            </RadioGroup>
+            <Box display="flex" flexDirection="column" gap={1.25} mt={0.5}>
+              {payments.map((payment, index) => (
+                <Box key={`payment-${index}`} display="flex" gap={1} alignItems="center" flexWrap="wrap">
+                  <TextField
+                    label={t("trips.payments.amountLabel")}
+                    value={payment.amount}
+                    onChange={(event) => {
+                      const next = [...payments];
+                      next[index] = { ...next[index], amount: event.target.value };
+                      setPayments(next);
+                    }}
+                    error={Boolean(paymentRowErrors[index]?.amount)}
+                    helperText={paymentRowErrors[index]?.amount}
+                    size="small"
+                    type="number"
+                    inputMode="decimal"
+                    inputProps={{ min: 0, step: 0.01, readOnly: paymentMode !== "split" }}
+                    sx={{ flex: 1, minWidth: 140 }}
+                  />
+                  <TextField
+                    label={t("trips.payments.dateLabel")}
+                    value={payment.dueDate}
+                    onChange={(event) => {
+                      const next = [...payments];
+                      next[index] = { ...next[index], dueDate: event.target.value };
+                      setPayments(next);
+                    }}
+                    error={Boolean(paymentRowErrors[index]?.dueDate)}
+                    helperText={paymentRowErrors[index]?.dueDate}
+                    size="small"
+                    type="date"
+                    InputLabelProps={{ shrink: true }}
+                    sx={{ flex: 1, minWidth: 170 }}
+                  />
+                  {paymentMode === "split" && (
+                    <Button
+                      size="small"
+                      color="inherit"
+                      onClick={() => {
+                        const next = payments.filter((_, idx) => idx !== index);
+                        setPayments(next);
+                      }}
+                      disabled={payments.length <= 2}
+                    >
+                      {t("trips.payments.removeAction")}
+                    </Button>
+                  )}
+                </Box>
+              ))}
+              {paymentMode === "split" && (
+                <Button
+                  size="small"
+                  onClick={() => setPayments((current) => [...current, { amount: "", dueDate: defaultDueDate }])}
+                >
+                  {t("trips.payments.addAction")}
+                </Button>
+              )}
+            </Box>
+            <FormHelperText>{paymentError ?? undefined}</FormHelperText>
+          </FormControl>
           <TextField
             label={t("trips.plan.linkLabel")}
             value={linkUrl}

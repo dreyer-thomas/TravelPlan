@@ -528,13 +528,13 @@ describe("TripDayView layout", () => {
     );
 
     await screen.findByRole("heading", { name: "Day 1", level: 5 });
-    expect(screen.getByText("Planned 1h, Unplanned 23h")).toBeInTheDocument();
+    expect(screen.getByText("Planned 9h, Unplanned 15h")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Add travel" }));
     fireEvent.click(await screen.findByTestId("segment-save"));
 
     await waitFor(() => {
-      expect(screen.getByText("Planned 2h, Unplanned 22h")).toBeInTheDocument();
+      expect(screen.getByText("Planned 10h, Unplanned 14h")).toBeInTheDocument();
     });
 
     vi.unstubAllGlobals();

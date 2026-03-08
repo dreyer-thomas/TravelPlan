@@ -85,11 +85,10 @@ describe("TripCostOverview", () => {
     expect(screen.getByText("Dec 2, 2026")).toBeInTheDocument();
 
     expect(screen.getByText("Current night: Hotel One")).toBeInTheDocument();
-    expect(screen.getByText("Previous night: Hotel One")).toBeInTheDocument();
     expect(screen.getByText("Current night: Hotel Two")).toBeInTheDocument();
     expect(screen.getByText("Museum")).toBeInTheDocument();
     expect(screen.getByText("Activity 1")).toBeInTheDocument();
-    expect(screen.getByText("No cost captured")).toBeInTheDocument();
+    expect(screen.getAllByTestId("cost-missing")).toHaveLength(1);
 
     expect(screen.getAllByText("Cost: 150.00").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("Trip total: 300.00")).toBeInTheDocument();

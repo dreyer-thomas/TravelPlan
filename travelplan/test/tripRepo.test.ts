@@ -254,6 +254,7 @@ describe("tripRepo", () => {
         name: "Dockside Hotel",
         status: "booked",
         costCents: 22300,
+        payments: [{ amountCents: 22300, dueDate: "2026-11-01" }],
         link: "https://example.com/stay",
         checkInTime: "16:00",
         checkOutTime: "10:00",
@@ -263,12 +264,14 @@ describe("tripRepo", () => {
     expect(exported?.days[0].dayPlanItems[0]).toEqual(
       expect.objectContaining({
         costCents: 1500,
+        payments: [{ amountCents: 1500, dueDate: "2026-11-01" }],
         linkUrl: "https://example.com/plan-1",
         location: { lat: 48.141, lng: 11.581, label: "Museum" },
       })
     );
     expect(exported?.days[1].accommodation).toBeNull();
     expect(exported?.days[1].dayPlanItems).toHaveLength(1);
+    expect(exported?.days[1].dayPlanItems[0].payments).toEqual([]);
     expect(exported?.days[1].dayPlanItems[0].location).toBeNull();
   });
 
@@ -305,6 +308,59 @@ describe("tripRepo", () => {
       "1-2026-12-01T00:00:00.000Z",
       "1-2026-12-02T00:00:00.000Z",
       "2-2026-12-03T00:00:00.000Z",
+    ]);
+  });
+
+  it("preserves payment row order in exports when due dates match", async () => {
+    const user = await prisma.user.create({
+      data: {
+        email: "trip-export-payment-order@example.com",
+        passwordHash: "hashed",
+        role: "OWNER",
+      },
+    });
+
+    const trip = await prisma.trip.create({
+      data: {
+        userId: user.id,
+        name: "Payment Order Trip",
+        startDate: new Date("2026-12-01T00:00:00.000Z"),
+        endDate: new Date("2026-12-01T00:00:00.000Z"),
+      },
+    });
+
+    const day = await prisma.tripDay.create({
+      data: {
+        tripId: trip.id,
+        date: new Date("2026-12-01T00:00:00.000Z"),
+        dayIndex: 1,
+      },
+    });
+
+    const item = await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: day.id,
+        title: "Ordered tickets",
+        fromTime: "09:00",
+        toTime: "10:00",
+        contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Tickets" }] }] }),
+        costCents: 3000,
+        linkUrl: null,
+      },
+    });
+
+    await prisma.costPayment.createMany({
+      data: [
+        { dayPlanItemId: item.id, amountCents: 2000, dueDate: "2026-12-01", sortOrder: 0 },
+        { dayPlanItemId: item.id, amountCents: 1000, dueDate: "2026-12-01", sortOrder: 1 },
+      ],
+    });
+
+    const exported = await getTripExportForUser(user.id, trip.id);
+
+    expect(exported?.days[0].dayPlanItems[0].payments).toEqual([
+      { amountCents: 2000, dueDate: "2026-12-01" },
+      { amountCents: 1000, dueDate: "2026-12-01" },
     ]);
   });
 

@@ -69,6 +69,7 @@ const createTripWithTwoDays = async (userId: string) => {
 
 describe("accommodationRepo", () => {
   beforeEach(async () => {
+    await prisma.costPayment.deleteMany();
     await prisma.accommodation.deleteMany();
     await prisma.tripDay.deleteMany();
     await prisma.trip.deleteMany();
@@ -164,6 +165,109 @@ describe("accommodationRepo", () => {
       expect(updated.accommodation.checkOutTime).toBe("09:15");
       expect(updated.accommodation.location).toEqual({ lat: 48.1372, lng: 11.5756, label: "Altstadt" });
     }
+  });
+
+  it("replaces payment rows when updating an accommodation", async () => {
+    const user = await createUser("stay-payments@example.com");
+    const { trip, day } = await createTripWithDay(user.id);
+
+    const created = await createAccommodationForTripDay({
+      userId: user.id,
+      tripId: trip.id,
+      tripDayId: day.id,
+      name: "Payment Stay",
+      status: "planned",
+      costCents: 20000,
+      link: null,
+      notes: null,
+      payments: [
+        { amountCents: 8000, dueDate: "2026-10-01" },
+        { amountCents: 12000, dueDate: "2026-10-02" },
+      ],
+    });
+
+    expect(created?.payments).toHaveLength(2);
+    const existingPayments = await prisma.costPayment.findMany({
+      where: { accommodationId: created?.id },
+    });
+    expect(existingPayments).toHaveLength(2);
+
+    const updated = await updateAccommodationForTripDay({
+      userId: user.id,
+      tripId: trip.id,
+      tripDayId: day.id,
+      name: "Payment Stay",
+      status: "planned",
+      costCents: 20000,
+      link: null,
+      notes: null,
+      payments: [{ amountCents: 20000, dueDate: "2026-10-03" }],
+    });
+
+    expect(updated.status).toBe("updated");
+    const refreshedPayments = await prisma.costPayment.findMany({
+      where: { accommodationId: created?.id },
+      orderBy: { dueDate: "asc" },
+    });
+    expect(refreshedPayments).toHaveLength(1);
+    expect(refreshedPayments[0].amountCents).toBe(20000);
+    expect(refreshedPayments[0].dueDate).toBe("2026-10-03");
+  });
+
+  it("preserves explicit payment row order when due dates are identical", async () => {
+    const user = await createUser("stay-payment-order@example.com");
+    const { trip, day } = await createTripWithDay(user.id);
+
+    const created = await createAccommodationForTripDay({
+      userId: user.id,
+      tripId: trip.id,
+      tripDayId: day.id,
+      name: "Ordered Stay",
+      status: "planned",
+      costCents: 20000,
+      link: null,
+      notes: null,
+      payments: [
+        { amountCents: 5000, dueDate: "2026-10-01" },
+        { amountCents: 15000, dueDate: "2026-10-01" },
+      ],
+    });
+
+    expect(created?.payments).toEqual([
+      { amountCents: 5000, dueDate: "2026-10-01" },
+      { amountCents: 15000, dueDate: "2026-10-01" },
+    ]);
+
+    const updated = await updateAccommodationForTripDay({
+      userId: user.id,
+      tripId: trip.id,
+      tripDayId: day.id,
+      name: "Ordered Stay",
+      status: "planned",
+      costCents: 20000,
+      link: null,
+      notes: null,
+      payments: [
+        { amountCents: 15000, dueDate: "2026-10-01" },
+        { amountCents: 5000, dueDate: "2026-10-01" },
+      ],
+    });
+
+    expect(updated.status).toBe("updated");
+    if (updated.status === "updated") {
+      expect(updated.accommodation.payments).toEqual([
+        { amountCents: 15000, dueDate: "2026-10-01" },
+        { amountCents: 5000, dueDate: "2026-10-01" },
+      ]);
+    }
+  });
+
+  it("keeps the one-target check constraint on cost payments", async () => {
+    const rows = await prisma.$queryRawUnsafe<Array<{ sql: string | null }>>(
+      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'cost_payments' LIMIT 1`,
+    );
+
+    expect(rows[0]?.sql ?? "").toContain("cost_payments_one_target_check");
   });
 
   it("allows accommodations without check-in or check-out times", async () => {

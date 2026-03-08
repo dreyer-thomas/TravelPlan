@@ -15,6 +15,7 @@ describe("dayPlanItemSchemas", () => {
       toTime: "11:00",
       contentJson: sampleDoc,
       costCents: 1200,
+      payments: [{ amountCents: 1200, dueDate: "2026-11-01" }],
       linkUrl: "https://example.com/plan",
       location: {
         lat: 48.1372,
@@ -25,6 +26,21 @@ describe("dayPlanItemSchemas", () => {
     });
 
     expect(result.success).toBe(true);
+  });
+
+  it("rejects impossible payment dates", () => {
+    const result = dayPlanItemMutationSchema.safeParse({
+      tripDayId: "day-id",
+      title: "Museum visit",
+      fromTime: "09:30",
+      toTime: "11:00",
+      contentJson: sampleDoc,
+      costCents: 1200,
+      payments: [{ amountCents: 1200, dueDate: "2026-02-31" }],
+      linkUrl: "https://example.com/plan",
+    });
+
+    expect(result.success).toBe(false);
   });
 
   it("rejects empty title", () => {
