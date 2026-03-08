@@ -95,4 +95,24 @@ describe("POST /api/auth/login", () => {
     expect(setCookie).toContain("HttpOnly");
     expect(setCookie).toContain("lang=de");
   });
+
+  it("returns mustChangePassword state for provisioned collaborator accounts", async () => {
+    const passwordHash = await hashPassword("correctpassword");
+    await prisma.user.create({
+      data: {
+        email: "invited@example.com",
+        passwordHash,
+        role: "VIEWER",
+        mustChangePassword: true,
+      },
+    });
+
+    const request = buildRequest({ email: "invited@example.com", password: "correctpassword" });
+    const response = await POST(request);
+    const payload = (await response.json()) as ApiEnvelope<{ userId: string; mustChangePassword: boolean }>;
+
+    expect(response.status).toBe(200);
+    expect(payload.error).toBeNull();
+    expect(payload.data?.mustChangePassword).toBe(true);
+  });
 });

@@ -49,11 +49,11 @@ export const POST = async (request: NextRequest) => {
 
   const { email, password } = parsed.data;
 
-  let user: { id: string; passwordHash: string; role: string; preferredLanguage: string } | null = null;
+  let user: { id: string; passwordHash: string; role: string; preferredLanguage: string; mustChangePassword: boolean } | null = null;
   try {
     user = await prisma.user.findUnique({
       where: { email },
-      select: { id: true, passwordHash: true, role: true, preferredLanguage: true },
+      select: { id: true, passwordHash: true, role: true, preferredLanguage: true, mustChangePassword: true },
     });
   } catch {
     return fail(apiError("server_error", "Unable to validate credentials"), 500);
@@ -71,7 +71,7 @@ export const POST = async (request: NextRequest) => {
     return fail(apiError("server_error", "Unable to create session"), 500);
   }
 
-  const response = ok({ userId: user.id });
+  const response = ok({ userId: user.id, mustChangePassword: user.mustChangePassword });
   setSessionCookie(response, token);
   response.cookies.set({
     name: LANGUAGE_COOKIE_NAME,

@@ -180,6 +180,55 @@ describe("GET /api/trips/[id]", () => {
     expect(payload.data?.days[1].dayPlanItems[0].location).toEqual({ lat: 48.145, lng: 11.582, label: "Museum" });
   });
 
+  it("returns trip and days for collaborator memberships", async () => {
+    const owner = await prisma.user.create({
+      data: {
+        email: "owner@example.com",
+        passwordHash: "hashed",
+        role: "OWNER",
+      },
+    });
+    const collaborator = await prisma.user.create({
+      data: {
+        email: "viewer@example.com",
+        passwordHash: "hashed",
+        role: "VIEWER",
+      },
+    });
+    const token = await createSessionJwt({ sub: collaborator.id, role: collaborator.role });
+
+    const { trip } = await createTripWithDays({
+      userId: owner.id,
+      name: "Shared Trip",
+      startDate: "2026-06-01T00:00:00.000Z",
+      endDate: "2026-06-02T00:00:00.000Z",
+    });
+    await prisma.tripMember.create({
+      data: {
+        tripId: trip.id,
+        userId: collaborator.id,
+        role: "VIEWER",
+      },
+    });
+
+    const request = buildRequest(trip.id, { session: token });
+    const response = await GET(request, { params: { id: trip.id } });
+    const payload = (await response.json()) as ApiEnvelope<{
+      trip: { id: string; name: string };
+      days: Array<{ dayIndex: number }>;
+    }>;
+
+    expect(response.status).toBe(200);
+    expect(payload.error).toBeNull();
+    expect(payload.data?.trip).toEqual(
+      expect.objectContaining({
+        id: trip.id,
+        name: "Shared Trip",
+      }),
+    );
+    expect(payload.data?.days.map((day) => day.dayIndex)).toEqual([1, 2]);
+  });
+
   it("rejects unauthenticated requests", async () => {
     const request = buildRequest("missing-trip");
     const response = await GET(request, { params: { id: "missing-trip" } });

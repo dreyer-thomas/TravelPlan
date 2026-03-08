@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
+import { hashPassword } from "@/lib/auth/bcrypt";
+import { Prisma } from "@/generated/prisma/client";
 import type { TripImportConflictStrategy, TripImportPayloadInput } from "@/lib/validation/tripImportSchemas";
 
 export type CreateTripParams = {
@@ -167,6 +169,42 @@ type ImportTripSuccessResult = {
 
 export type ImportTripResult = ImportTripConflictResult | ImportTripSuccessResult;
 
+export type TripAccessRole = "owner" | "viewer" | "contributor";
+
+export type TripAccess = {
+  tripId: string;
+  ownerUserId: string;
+  accessRole: TripAccessRole;
+};
+
+export type TripCollaborator = {
+  id: string;
+  email: string;
+  role: "viewer" | "contributor";
+};
+
+export type CreateTripCollaboratorParams = {
+  ownerUserId: string;
+  tripId: string;
+  email: string;
+  role: "viewer" | "contributor";
+  temporaryPassword: string;
+};
+
+export type CreateTripCollaboratorResult =
+  | {
+      outcome: "created";
+      collaborator: TripCollaborator;
+      collaborators: TripCollaborator[];
+    }
+  | {
+      outcome: "conflict";
+      reason: "already_member" | "owner_email" | "existing_account";
+    }
+  | {
+      outcome: "not_found";
+    };
+
 const normalizeToUtcDate = (date: Date) =>
   new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 
@@ -212,6 +250,39 @@ const buildLocationData = (location?: TripLocationInput) =>
         lng: location?.lng ?? null,
         label: location?.label ?? null,
       };
+
+const mapTripMemberRole = (role: "VIEWER" | "CONTRIBUTOR"): "viewer" | "contributor" =>
+  role === "VIEWER" ? "viewer" : "contributor";
+
+const toTripMemberRole = (role: "viewer" | "contributor") => (role === "viewer" ? "VIEWER" : "CONTRIBUTOR");
+
+const listTripCollaborators = async (
+  tx: Prisma.TransactionClient | typeof prisma,
+  tripId: string,
+  ownerUserId: string,
+): Promise<TripCollaborator[]> =>
+  tx.tripMember.findMany({
+    where: {
+      tripId,
+      trip: { userId: ownerUserId },
+    },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    select: {
+      id: true,
+      role: true,
+      user: {
+        select: {
+          email: true,
+        },
+      },
+    },
+  }).then((rows) =>
+    rows.map((row) => ({
+      id: row.id,
+      email: row.user.email,
+      role: mapTripMemberRole(row.role),
+    })),
+  );
 
 export const createTripWithDays = async ({
   userId,
@@ -378,7 +449,10 @@ export const updateTripWithDays = async ({
 
 export const getTripWithDaysForUser = async (userId: string, tripId: string): Promise<TripWithDays | null> => {
   const trip = await prisma.trip.findFirst({
-    where: { id: tripId, userId },
+    where: {
+      id: tripId,
+      OR: [{ userId }, { members: { some: { userId } } }],
+    },
     include: {
       days: {
         orderBy: [{ dayIndex: "asc" }, { date: "asc" }],
@@ -1031,6 +1105,155 @@ export const deleteTripForUser = async (userId: string, tripId: string) => {
   });
 
   return result.count > 0;
+};
+
+export const getTripAccessForUser = async (userId: string, tripId: string): Promise<TripAccess | null> => {
+  const trip = await prisma.trip.findFirst({
+    where: {
+      id: tripId,
+      OR: [{ userId }, { members: { some: { userId } } }],
+    },
+    select: {
+      id: true,
+      userId: true,
+      members: {
+        where: { userId },
+        select: { role: true },
+        take: 1,
+      },
+    },
+  });
+
+  if (!trip) {
+    return null;
+  }
+
+  if (trip.userId === userId) {
+    return {
+      tripId: trip.id,
+      ownerUserId: trip.userId,
+      accessRole: "owner",
+    };
+  }
+
+  const membership = trip.members[0];
+  if (!membership) {
+    return null;
+  }
+
+  return {
+    tripId: trip.id,
+    ownerUserId: trip.userId,
+    accessRole: mapTripMemberRole(membership.role),
+  };
+};
+
+export const listTripCollaboratorsForOwner = async (
+  ownerUserId: string,
+  tripId: string,
+): Promise<TripCollaborator[] | null> => {
+  const trip = await prisma.trip.findFirst({
+    where: { id: tripId, userId: ownerUserId },
+    select: { id: true },
+  });
+
+  if (!trip) {
+    return null;
+  }
+
+  return listTripCollaborators(prisma, tripId, ownerUserId);
+};
+
+export const createTripCollaboratorForOwner = async ({
+  ownerUserId,
+  tripId,
+  email,
+  role,
+  temporaryPassword,
+}: CreateTripCollaboratorParams): Promise<CreateTripCollaboratorResult> => {
+  const normalizedEmail = email.trim().toLowerCase();
+
+  return prisma.$transaction(async (tx) => {
+    const trip = await tx.trip.findFirst({
+      where: { id: tripId, userId: ownerUserId },
+      select: { id: true },
+    });
+
+    if (!trip) {
+      return { outcome: "not_found" } satisfies CreateTripCollaboratorResult;
+    }
+
+    const existingUser = await tx.user.findUnique({
+      where: { email: normalizedEmail },
+      select: {
+        id: true,
+      },
+    });
+
+    if (existingUser?.id === ownerUserId) {
+      return { outcome: "conflict", reason: "owner_email" } satisfies CreateTripCollaboratorResult;
+    }
+
+    if (existingUser) {
+      const duplicate = await tx.tripMember.findUnique({
+        where: {
+          tripId_userId: {
+            tripId,
+            userId: existingUser.id,
+          },
+        },
+        select: { id: true },
+      });
+
+      if (duplicate) {
+        return { outcome: "conflict", reason: "already_member" } satisfies CreateTripCollaboratorResult;
+      }
+
+      return { outcome: "conflict", reason: "existing_account" } satisfies CreateTripCollaboratorResult;
+    }
+
+    const passwordHash = await hashPassword(temporaryPassword);
+    const user = await tx.user.create({
+      data: {
+        email: normalizedEmail,
+        passwordHash,
+        role: "VIEWER",
+        mustChangePassword: true,
+      },
+      select: { id: true, email: true },
+    });
+
+    try {
+      const membership = await tx.tripMember.create({
+        data: {
+          tripId,
+          userId: user.id,
+          role: toTripMemberRole(role),
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      const collaborators = await listTripCollaborators(tx, tripId, ownerUserId);
+
+      return {
+        outcome: "created",
+        collaborator: {
+          id: membership.id,
+          email: user.email,
+          role,
+        },
+        collaborators,
+      };
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        return { outcome: "conflict", reason: "already_member" } satisfies CreateTripCollaboratorResult;
+      }
+
+      throw error;
+    }
+  });
 };
 
 export const getTripByIdForUser = async (userId: string, tripId: string) =>

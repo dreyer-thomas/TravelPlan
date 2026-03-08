@@ -17,6 +17,14 @@ export const UserRole = {
 export type UserRole = (typeof UserRole)[keyof typeof UserRole]
 
 
+export const TripMemberRole = {
+  VIEWER: 'VIEWER',
+  CONTRIBUTOR: 'CONTRIBUTOR'
+} as const
+
+export type TripMemberRole = (typeof TripMemberRole)[keyof typeof TripMemberRole]
+
+
 export const PreferredLanguage = {
   en: 'en',
   de: 'de'

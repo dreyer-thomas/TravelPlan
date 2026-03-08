@@ -6,7 +6,7 @@ const globalForPrisma = globalThis as unknown as {
   prismaSchemaTag?: string;
 };
 
-const PRISMA_SCHEMA_TAG = "2026-03-08-cost-payment-sort-order";
+const PRISMA_SCHEMA_TAG = "2026-03-08-trip-memberships";
 
 const getDatabaseUrl = () => {
   const url = process.env.DATABASE_URL;
@@ -38,7 +38,14 @@ const cachedClientMatchesCurrentSchema = (client: PrismaClient | undefined) => {
   )._runtimeDataModel;
 
   const costPaymentFields = runtimeModel?.models?.CostPayment?.fields ?? [];
-  return costPaymentFields.some((field) => field.name === "sortOrder");
+  const userFields = runtimeModel?.models?.User?.fields ?? [];
+  const tripMemberFields = runtimeModel?.models?.TripMember?.fields ?? [];
+
+  return (
+    costPaymentFields.some((field) => field.name === "sortOrder") &&
+    userFields.some((field) => field.name === "mustChangePassword") &&
+    tripMemberFields.some((field) => field.name === "role")
+  );
 };
 
 const shouldReuseCachedClient =

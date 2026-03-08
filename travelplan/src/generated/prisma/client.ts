@@ -55,6 +55,11 @@ export type PasswordResetToken = Prisma.PasswordResetTokenModel
  */
 export type Trip = Prisma.TripModel
 /**
+ * Model TripMember
+ * 
+ */
+export type TripMember = Prisma.TripMemberModel
+/**
  * Model TripDay
  * 
  */

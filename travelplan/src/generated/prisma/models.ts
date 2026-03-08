@@ -11,6 +11,7 @@
 export type * from './models/User'
 export type * from './models/PasswordResetToken'
 export type * from './models/Trip'
+export type * from './models/TripMember'
 export type * from './models/TripDay'
 export type * from './models/TravelSegment'
 export type * from './models/Accommodation'

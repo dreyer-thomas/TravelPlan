@@ -22,6 +22,7 @@ import { useRouter } from "next/navigation";
 import TripDeleteDialog from "@/components/features/trips/TripDeleteDialog";
 import TripEditDialog, { type TripDetail as EditableTripDetail } from "@/components/features/trips/TripEditDialog";
 import TripImportDialog from "@/components/features/trips/TripImportDialog";
+import TripShareDialog from "@/components/features/trips/TripShareDialog";
 import TripDayGanttBar from "@/components/features/trips/TripDayGanttBar";
 import { buildOverviewGanttSegments } from "@/components/features/trips/TripDayGanttOverviewData";
 import { deriveCoverageSummary } from "@/components/features/trips/TripDayGanttSegments";
@@ -106,6 +107,7 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const router = useRouter();
   const theme = useTheme();
   const isNarrowLayout = useMediaQuery(theme.breakpoints.down("sm"));
@@ -719,6 +721,9 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
               <Button variant="outlined" onClick={handleExport}>
                 {t("trips.export.action")}
               </Button>
+              <Button variant="outlined" onClick={() => setShareOpen(true)}>
+                {t("trips.share.open")}
+              </Button>
               <Button variant="outlined" onClick={() => setEditOpen(true)}>
                 {t("trips.edit.open")}
               </Button>
@@ -740,6 +745,7 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
             onClose={handleDeleteClose}
             onDeleted={handleDeleted}
           />
+          <TripShareDialog open={shareOpen} tripId={detail.trip.id} onClose={() => setShareOpen(false)} />
           <TripImportDialog open={importOpen} tripId={detail.trip.id} onClose={() => setImportOpen(false)} onImported={handleImported} />
         </>
       )}

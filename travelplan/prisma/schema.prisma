@@ -13,6 +13,11 @@ enum UserRole {
   VIEWER
 }
 
+enum TripMemberRole {
+  VIEWER
+  CONTRIBUTOR
+}
+
 enum PreferredLanguage {
   en
   de
@@ -35,14 +40,16 @@ enum TravelTransportType {
 }
 
 model User {
-  id           String   @id @default(cuid()) @map("id")
-  email        String   @unique @map("email")
-  passwordHash String   @map("password_hash")
-  role         UserRole @default(OWNER) @map("role")
+  id                 String   @id @default(cuid()) @map("id")
+  email              String   @unique @map("email")
+  passwordHash       String   @map("password_hash")
+  role               UserRole @default(OWNER) @map("role")
+  mustChangePassword Boolean  @default(false) @map("must_change_password")
   preferredLanguage PreferredLanguage @default(en) @map("preferred_language")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
   passwordResetTokens PasswordResetToken[]
+  memberships        TripMember[]
   trips        Trip[]
 
   @@map("users")
@@ -81,11 +88,29 @@ model Trip {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   user  User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  members TripMember[]
   days  TripDay[]
   bucketListItems TripBucketListItem[]
 
   @@index([userId])
   @@map("trips")
+}
+
+model TripMember {
+  id        String         @id @default(cuid()) @map("id")
+  tripId    String         @map("trip_id")
+  userId    String         @map("user_id")
+  role      TripMemberRole @map("role")
+  createdAt DateTime       @default(now()) @map("created_at")
+  updatedAt DateTime       @updatedAt @map("updated_at")
+
+  trip Trip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tripId], map: "idx_trip_members_trip_id")
+  @@index([userId], map: "idx_trip_members_user_id")
+  @@unique([tripId, userId], map: "trip_members_trip_id_user_id_key")
+  @@map("trip_members")
 }
 
 model TripDay {

@@ -387,6 +387,7 @@ export const ModelName = {
   User: 'User',
   PasswordResetToken: 'PasswordResetToken',
   Trip: 'Trip',
+  TripMember: 'TripMember',
   TripDay: 'TripDay',
   TravelSegment: 'TravelSegment',
   Accommodation: 'Accommodation',
@@ -410,7 +411,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "passwordResetToken" | "trip" | "tripDay" | "travelSegment" | "accommodation" | "dayPlanItem" | "costPayment" | "accommodationImage" | "dayPlanItemImage" | "tripBucketListItem"
+    modelProps: "user" | "passwordResetToken" | "trip" | "tripMember" | "tripDay" | "travelSegment" | "accommodation" | "dayPlanItem" | "costPayment" | "accommodationImage" | "dayPlanItemImage" | "tripBucketListItem"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -633,6 +634,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         count: {
           args: Prisma.TripCountArgs<ExtArgs>
           result: runtime.Types.Utils.Optional<Prisma.TripCountAggregateOutputType> | number
+        }
+      }
+    }
+    TripMember: {
+      payload: Prisma.$TripMemberPayload<ExtArgs>
+      fields: Prisma.TripMemberFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.TripMemberFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripMemberPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.TripMemberFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripMemberPayload>
+        }
+        findFirst: {
+          args: Prisma.TripMemberFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripMemberPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.TripMemberFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripMemberPayload>
+        }
+        findMany: {
+          args: Prisma.TripMemberFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripMemberPayload>[]
+        }
+        create: {
+          args: Prisma.TripMemberCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripMemberPayload>
+        }
+        createMany: {
+          args: Prisma.TripMemberCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.TripMemberCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripMemberPayload>[]
+        }
+        delete: {
+          args: Prisma.TripMemberDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripMemberPayload>
+        }
+        update: {
+          args: Prisma.TripMemberUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripMemberPayload>
+        }
+        deleteMany: {
+          args: Prisma.TripMemberDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.TripMemberUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.TripMemberUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripMemberPayload>[]
+        }
+        upsert: {
+          args: Prisma.TripMemberUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripMemberPayload>
+        }
+        aggregate: {
+          args: Prisma.TripMemberAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateTripMember>
+        }
+        groupBy: {
+          args: Prisma.TripMemberGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TripMemberGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.TripMemberCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TripMemberCountAggregateOutputType> | number
         }
       }
     }
@@ -1269,6 +1344,7 @@ export const UserScalarFieldEnum = {
   email: 'email',
   passwordHash: 'passwordHash',
   role: 'role',
+  mustChangePassword: 'mustChangePassword',
   preferredLanguage: 'preferredLanguage',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
@@ -1308,6 +1384,18 @@ export const TripScalarFieldEnum = {
 } as const
 
 export type TripScalarFieldEnum = (typeof TripScalarFieldEnum)[keyof typeof TripScalarFieldEnum]
+
+
+export const TripMemberScalarFieldEnum = {
+  id: 'id',
+  tripId: 'tripId',
+  userId: 'userId',
+  role: 'role',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type TripMemberScalarFieldEnum = (typeof TripMemberScalarFieldEnum)[keyof typeof TripMemberScalarFieldEnum]
 
 
 export const TripDayScalarFieldEnum = {
@@ -1472,6 +1560,13 @@ export type EnumUserRoleFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaM
 
 
 /**
+ * Reference to a field of type 'Boolean'
+ */
+export type BooleanFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Boolean'>
+    
+
+
+/**
  * Reference to a field of type 'PreferredLanguage'
  */
 export type EnumPreferredLanguageFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'PreferredLanguage'>
@@ -1486,16 +1581,16 @@ export type DateTimeFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel
 
 
 /**
- * Reference to a field of type 'Boolean'
+ * Reference to a field of type 'Float'
  */
-export type BooleanFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Boolean'>
+export type FloatFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Float'>
     
 
 
 /**
- * Reference to a field of type 'Float'
+ * Reference to a field of type 'TripMemberRole'
  */
-export type FloatFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Float'>
+export type EnumTripMemberRoleFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'TripMemberRole'>
     
 
 
@@ -1624,6 +1719,7 @@ export type GlobalOmitConfig = {
   user?: Prisma.UserOmit
   passwordResetToken?: Prisma.PasswordResetTokenOmit
   trip?: Prisma.TripOmit
+  tripMember?: Prisma.TripMemberOmit
   tripDay?: Prisma.TripDayOmit
   travelSegment?: Prisma.TravelSegmentOmit
   accommodation?: Prisma.AccommodationOmit
