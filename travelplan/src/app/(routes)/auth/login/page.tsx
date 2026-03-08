@@ -78,7 +78,7 @@ export default function LoginPage() {
 
     let body: ApiEnvelope<{ userId: string; mustChangePassword: boolean }> | null = null;
     try {
-      body = (await response.json()) as ApiEnvelope<{ userId: string }>;
+      body = (await response.json()) as ApiEnvelope<{ userId: string; mustChangePassword: boolean }>;
     } catch {
       setServerError(t("auth.login.error"));
       return;
