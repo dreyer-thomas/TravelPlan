@@ -834,6 +834,49 @@ So that the total cost reflects how I pay over time.
 **When** I add or adjust payments
 **Then** the total of all payments must still equal the cost amount
 
+### Story 4.6: Show Open Costs by Month
+
+As a trip planner,
+I want to switch the trip cost overview between the existing day list and a monthly payment list,
+So that I can quickly see which open costs I need to pay in each month.
+
+**FRs covered:** FR21
+
+**Acceptance Criteria:**
+
+**Given** I am on the trip cost overview page
+**When** the page loads
+**Then** I can switch between a `Days` view and a `Months` view
+**And** the existing day-based behavior remains available unchanged
+
+**Given** I switch to the `Months` view
+**When** open scheduled payments exist
+**Then** they are grouped by month using each payment due date
+**And** months are ordered chronologically
+
+**Given** I switch to the `Months` view
+**When** open regular accommodation or day-plan-item costs exist without a split schedule
+**Then** they also appear in the month list
+**And** the entered date is used when it is known
+
+**Given** a month contains multiple open cost items
+**When** the month section is shown
+**Then** I see each payment or cost entry with a clear label, date, and amount
+**And** I see the total amount due for that month
+
+**Given** an item is already represented by scheduled payments
+**When** the `Months` view is rendered
+**Then** the base cost is not shown a second time
+
+**Given** there are no relevant open cost items
+**When** I open the `Months` view
+**Then** I see a clear empty state
+
+**Given** I switch between `Days` and `Months`
+**When** the view changes
+**Then** no payment or cost data is modified
+**And** trip planned totals remain unchanged
+
 ## Epic 5: Sharing & Light Contribution
 
 Users can share trips with viewers who can comment/suggest without changing core details.

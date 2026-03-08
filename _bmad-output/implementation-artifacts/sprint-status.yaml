@@ -97,6 +97,7 @@ development_status:
   4-3-cost-analysis: done
   4-4-collapsable-bucket-list: done
   4-5-payment-schedule: done
+  4-6-show-open-costs: done
   epic-4-retrospective: optional
 
   epic-5: backlog
