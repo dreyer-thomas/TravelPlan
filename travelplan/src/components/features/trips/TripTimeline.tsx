@@ -499,27 +499,6 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
 
           {!isReadOnlyCollaborator ? <TripBucketListPanel tripId={detail.trip.id} /> : null}
 
-          <TripFeedbackPanel
-            tripId={detail.trip.id}
-            feedback={detail.trip.feedback}
-            targetType="trip"
-            targetId={detail.trip.id}
-            contextLabel={detail.trip.name}
-            onUpdated={(feedback) =>
-              setDetail((current) =>
-                current
-                  ? {
-                      ...current,
-                      trip: {
-                        ...current.trip,
-                        feedback,
-                      },
-                    }
-                  : current,
-              )
-            }
-          />
-
           <Paper
             elevation={1}
             sx={{

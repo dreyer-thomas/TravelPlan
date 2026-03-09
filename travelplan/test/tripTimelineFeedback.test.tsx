@@ -117,10 +117,10 @@ describe("TripTimeline feedback", () => {
 
     expect(screen.queryByLabelText("Add a comment")).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", {
+      screen.queryByRole("button", {
         name: "Open comments dialog for Viewer Trip, no comments, Upvote 0, Downvote 0",
       }),
-    ).toBeInTheDocument();
+    ).not.toBeInTheDocument();
     expect(
       screen.getByRole("button", {
         name: "Open comments dialog for Day 1, no comments, Upvote 0, Downvote 0",
