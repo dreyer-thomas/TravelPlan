@@ -105,6 +105,17 @@ const findTripDayForUser = async (userId: string, tripId: string, tripDayId: str
     },
   });
 
+const findTripDayForTripParticipant = async (userId: string, tripId: string, tripDayId: string) =>
+  prisma.tripDay.findFirst({
+    where: {
+      id: tripDayId,
+      tripId,
+      trip: {
+        OR: [{ userId }, { members: { some: { userId } } }],
+      },
+    },
+  });
+
 const findScopedDayPlanItem = async ({ userId, tripId, tripDayId, dayPlanItemId }: DayPlanItemImageScopeParams) =>
   prisma.dayPlanItem.findFirst({
     where: {
@@ -114,6 +125,27 @@ const findScopedDayPlanItem = async ({ userId, tripId, tripDayId, dayPlanItemId 
         id: tripDayId,
         tripId,
         trip: { userId },
+      },
+    },
+    select: { id: true },
+  });
+
+const findScopedDayPlanItemForTripParticipant = async ({
+  userId,
+  tripId,
+  tripDayId,
+  dayPlanItemId,
+}: DayPlanItemImageScopeParams) =>
+  prisma.dayPlanItem.findFirst({
+    where: {
+      id: dayPlanItemId,
+      tripDayId,
+      tripDay: {
+        id: tripDayId,
+        tripId,
+        trip: {
+          OR: [{ userId }, { members: { some: { userId } } }],
+        },
       },
     },
     select: { id: true },
@@ -422,7 +454,7 @@ export const deleteDayPlanItemForTripDay = async (
 export const listDayPlanItemImages = async (
   params: DayPlanItemImageScopeParams,
 ): Promise<DayPlanItemImageDetail[] | null> => {
-  const item = await findScopedDayPlanItem(params);
+  const item = await findScopedDayPlanItemForTripParticipant(params);
   if (!item) {
     return null;
   }
@@ -439,7 +471,7 @@ export const listDayPlanItemImagesForTripDay = async (params: {
   tripId: string;
   tripDayId: string;
 }): Promise<DayPlanItemImageDetail[] | null> => {
-  const tripDay = await findTripDayForUser(params.userId, params.tripId, params.tripDayId);
+  const tripDay = await findTripDayForTripParticipant(params.userId, params.tripId, params.tripDayId);
   if (!tripDay) {
     return null;
   }

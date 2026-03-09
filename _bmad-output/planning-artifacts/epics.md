@@ -877,6 +877,41 @@ So that I can quickly see which open costs I need to pay in each month.
 **Then** no payment or cost data is modified
 **And** trip planned totals remain unchanged
 
+### Story 4.7: Comments in Dialog
+
+As a trip participant,
+I want comments and pro/con feedback shown as a compact summary that opens a dialog,
+So that the main planning UI stays focused while discussion remains easy to access.
+
+**FRs covered:** FR24 (UX refinement of the existing comments and votes feature)
+
+**Acceptance Criteria:**
+
+**Given** I open a day, accommodation, or day-plan-item card that supports feedback
+**When** the UI renders
+**Then** the full comments panel is no longer shown inline by default
+**And** I instead see a compact comments trigger in the lower area of the card
+
+**Given** a feedback summary is shown
+**When** I look at the trigger
+**Then** I see a comments symbol and a short label such as `no comments`, `1 comment`, or `5 comments`
+
+**Given** a feedback summary is shown
+**When** votes exist
+**Then** I also see thumbs up and thumbs down indicators with their counts
+
+**Given** I activate the comments trigger
+**When** the dialog opens
+**Then** I can read existing comments and use the current comments/votes interactions there
+
+**Given** I add a comment or vote in the dialog
+**When** the action succeeds
+**Then** the dialog content and compact summary update to the latest saved values
+
+**Given** I close the dialog
+**When** I return to the trip screen
+**Then** I remain in the same context without losing my place
+
 ## Epic 5: Sharing & Light Contribution
 
 Users can share trips with viewers who can comment/suggest without changing core details.

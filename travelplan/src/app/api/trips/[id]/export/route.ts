@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { apiError } from "@/lib/errors/apiError";
 import { fail } from "@/lib/http/response";
+import { hasTripOwnerAccess } from "@/lib/auth/tripAccess";
 import { getTripExportForUser } from "@/lib/repositories/tripRepo";
 import { requireSession } from "@/lib/auth/sessionGuard";
 
@@ -34,6 +35,9 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
 
   const { id: tripId } = await context.params;
   if (!tripId) {
+    return fail(apiError("not_found", "Trip not found"), 404);
+  }
+  if (!(await hasTripOwnerAccess(userId, tripId))) {
     return fail(apiError("not_found", "Trip not found"), 404);
   }
 

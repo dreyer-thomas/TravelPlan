@@ -77,3 +77,18 @@ export type DayPlanItemImage = Prisma.DayPlanItemImageModel
  * 
  */
 export type TripBucketListItem = Prisma.TripBucketListItemModel
+/**
+ * Model TripFeedbackTarget
+ * 
+ */
+export type TripFeedbackTarget = Prisma.TripFeedbackTargetModel
+/**
+ * Model TripFeedbackComment
+ * 
+ */
+export type TripFeedbackComment = Prisma.TripFeedbackCommentModel
+/**
+ * Model TripFeedbackVote
+ * 
+ */
+export type TripFeedbackVote = Prisma.TripFeedbackVoteModel

@@ -203,6 +203,56 @@ describe("PATCH /api/trips/[id]/days/[dayId]/image", () => {
     expect(payload.error?.code).toBe("not_found");
   });
 
+  it("returns 404 when a viewer tries to upload a day image", async () => {
+    const owner = await prisma.user.create({
+      data: {
+        email: "day-image-viewer-owner@example.com",
+        passwordHash: "hashed",
+        role: "OWNER",
+      },
+    });
+    const viewer = await prisma.user.create({
+      data: {
+        email: "day-image-viewer@example.com",
+        passwordHash: "hashed",
+        role: "VIEWER",
+      },
+    });
+    const token = await createSessionJwt({ sub: viewer.id, role: viewer.role });
+
+    const { trip } = await createTripWithDays({
+      userId: owner.id,
+      name: "Viewer Upload Trip",
+      startDate: "2026-08-01T00:00:00.000Z",
+      endDate: "2026-08-01T00:00:00.000Z",
+    });
+    const day = await prisma.tripDay.findFirstOrThrow({ where: { tripId: trip.id } });
+    await prisma.tripMember.create({
+      data: {
+        tripId: trip.id,
+        userId: viewer.id,
+        role: "VIEWER",
+      },
+    });
+
+    const request = await buildUploadRequest({
+      tripId: trip.id,
+      dayId: day.id,
+      session: token,
+      csrf: "csrf-token",
+      file: new File([Buffer.from("fake-image")], "day.webp", { type: "image/webp" }),
+    });
+
+    const response = await POST(request, {
+      params: Promise.resolve({ id: trip.id, dayId: day.id }),
+    });
+    const payload = (await response.json()) as ApiEnvelope<null>;
+
+    expect(response.status).toBe(404);
+    expect(payload.error?.code).toBe("not_found");
+    await expect(fs.access(path.join(uploadsRoot, trip.id, "days", day.id, "day.webp"))).rejects.toBeDefined();
+  });
+
   it("sets and removes day image", async () => {
     const user = await prisma.user.create({
       data: {

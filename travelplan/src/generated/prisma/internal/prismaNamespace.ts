@@ -395,7 +395,10 @@ export const ModelName = {
   CostPayment: 'CostPayment',
   AccommodationImage: 'AccommodationImage',
   DayPlanItemImage: 'DayPlanItemImage',
-  TripBucketListItem: 'TripBucketListItem'
+  TripBucketListItem: 'TripBucketListItem',
+  TripFeedbackTarget: 'TripFeedbackTarget',
+  TripFeedbackComment: 'TripFeedbackComment',
+  TripFeedbackVote: 'TripFeedbackVote'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -411,7 +414,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "passwordResetToken" | "trip" | "tripMember" | "tripDay" | "travelSegment" | "accommodation" | "dayPlanItem" | "costPayment" | "accommodationImage" | "dayPlanItemImage" | "tripBucketListItem"
+    modelProps: "user" | "passwordResetToken" | "trip" | "tripMember" | "tripDay" | "travelSegment" | "accommodation" | "dayPlanItem" | "costPayment" | "accommodationImage" | "dayPlanItemImage" | "tripBucketListItem" | "tripFeedbackTarget" | "tripFeedbackComment" | "tripFeedbackVote"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -1303,6 +1306,228 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    TripFeedbackTarget: {
+      payload: Prisma.$TripFeedbackTargetPayload<ExtArgs>
+      fields: Prisma.TripFeedbackTargetFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.TripFeedbackTargetFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripFeedbackTargetPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.TripFeedbackTargetFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripFeedbackTargetPayload>
+        }
+        findFirst: {
+          args: Prisma.TripFeedbackTargetFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripFeedbackTargetPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.TripFeedbackTargetFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripFeedbackTargetPayload>
+        }
+        findMany: {
+          args: Prisma.TripFeedbackTargetFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripFeedbackTargetPayload>[]
+        }
+        create: {
+          args: Prisma.TripFeedbackTargetCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripFeedbackTargetPayload>
+        }
+        createMany: {
+          args: Prisma.TripFeedbackTargetCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.TripFeedbackTargetCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripFeedbackTargetPayload>[]
+        }
+        delete: {
+          args: Prisma.TripFeedbackTargetDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripFeedbackTargetPayload>
+        }
+        update: {
+          args: Prisma.TripFeedbackTargetUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripFeedbackTargetPayload>
+        }
+        deleteMany: {
+          args: Prisma.TripFeedbackTargetDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.TripFeedbackTargetUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.TripFeedbackTargetUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripFeedbackTargetPayload>[]
+        }
+        upsert: {
+          args: Prisma.TripFeedbackTargetUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripFeedbackTargetPayload>
+        }
+        aggregate: {
+          args: Prisma.TripFeedbackTargetAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateTripFeedbackTarget>
+        }
+        groupBy: {
+          args: Prisma.TripFeedbackTargetGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TripFeedbackTargetGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.TripFeedbackTargetCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TripFeedbackTargetCountAggregateOutputType> | number
+        }
+      }
+    }
+    TripFeedbackComment: {
+      payload: Prisma.$TripFeedbackCommentPayload<ExtArgs>
+      fields: Prisma.TripFeedbackCommentFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.TripFeedbackCommentFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripFeedbackCommentPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.TripFeedbackCommentFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripFeedbackCommentPayload>
+        }
+        findFirst: {
+          args: Prisma.TripFeedbackCommentFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripFeedbackCommentPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.TripFeedbackCommentFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripFeedbackCommentPayload>
+        }
+        findMany: {
+          args: Prisma.TripFeedbackCommentFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripFeedbackCommentPayload>[]
+        }
+        create: {
+          args: Prisma.TripFeedbackCommentCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripFeedbackCommentPayload>
+        }
+        createMany: {
+          args: Prisma.TripFeedbackCommentCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.TripFeedbackCommentCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripFeedbackCommentPayload>[]
+        }
+        delete: {
+          args: Prisma.TripFeedbackCommentDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripFeedbackCommentPayload>
+        }
+        update: {
+          args: Prisma.TripFeedbackCommentUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripFeedbackCommentPayload>
+        }
+        deleteMany: {
+          args: Prisma.TripFeedbackCommentDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.TripFeedbackCommentUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.TripFeedbackCommentUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripFeedbackCommentPayload>[]
+        }
+        upsert: {
+          args: Prisma.TripFeedbackCommentUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripFeedbackCommentPayload>
+        }
+        aggregate: {
+          args: Prisma.TripFeedbackCommentAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateTripFeedbackComment>
+        }
+        groupBy: {
+          args: Prisma.TripFeedbackCommentGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TripFeedbackCommentGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.TripFeedbackCommentCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TripFeedbackCommentCountAggregateOutputType> | number
+        }
+      }
+    }
+    TripFeedbackVote: {
+      payload: Prisma.$TripFeedbackVotePayload<ExtArgs>
+      fields: Prisma.TripFeedbackVoteFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.TripFeedbackVoteFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripFeedbackVotePayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.TripFeedbackVoteFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripFeedbackVotePayload>
+        }
+        findFirst: {
+          args: Prisma.TripFeedbackVoteFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripFeedbackVotePayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.TripFeedbackVoteFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripFeedbackVotePayload>
+        }
+        findMany: {
+          args: Prisma.TripFeedbackVoteFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripFeedbackVotePayload>[]
+        }
+        create: {
+          args: Prisma.TripFeedbackVoteCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripFeedbackVotePayload>
+        }
+        createMany: {
+          args: Prisma.TripFeedbackVoteCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.TripFeedbackVoteCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripFeedbackVotePayload>[]
+        }
+        delete: {
+          args: Prisma.TripFeedbackVoteDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripFeedbackVotePayload>
+        }
+        update: {
+          args: Prisma.TripFeedbackVoteUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripFeedbackVotePayload>
+        }
+        deleteMany: {
+          args: Prisma.TripFeedbackVoteDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.TripFeedbackVoteUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.TripFeedbackVoteUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripFeedbackVotePayload>[]
+        }
+        upsert: {
+          args: Prisma.TripFeedbackVoteUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TripFeedbackVotePayload>
+        }
+        aggregate: {
+          args: Prisma.TripFeedbackVoteAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateTripFeedbackVote>
+        }
+        groupBy: {
+          args: Prisma.TripFeedbackVoteGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TripFeedbackVoteGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.TripFeedbackVoteCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TripFeedbackVoteCountAggregateOutputType> | number
+        }
+      }
+    }
   }
 } & {
   other: {
@@ -1523,6 +1748,45 @@ export const TripBucketListItemScalarFieldEnum = {
 export type TripBucketListItemScalarFieldEnum = (typeof TripBucketListItemScalarFieldEnum)[keyof typeof TripBucketListItemScalarFieldEnum]
 
 
+export const TripFeedbackTargetScalarFieldEnum = {
+  id: 'id',
+  tripId: 'tripId',
+  targetType: 'targetType',
+  targetKey: 'targetKey',
+  tripDayId: 'tripDayId',
+  accommodationId: 'accommodationId',
+  dayPlanItemId: 'dayPlanItemId',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type TripFeedbackTargetScalarFieldEnum = (typeof TripFeedbackTargetScalarFieldEnum)[keyof typeof TripFeedbackTargetScalarFieldEnum]
+
+
+export const TripFeedbackCommentScalarFieldEnum = {
+  id: 'id',
+  targetId: 'targetId',
+  authorId: 'authorId',
+  body: 'body',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type TripFeedbackCommentScalarFieldEnum = (typeof TripFeedbackCommentScalarFieldEnum)[keyof typeof TripFeedbackCommentScalarFieldEnum]
+
+
+export const TripFeedbackVoteScalarFieldEnum = {
+  id: 'id',
+  targetId: 'targetId',
+  userId: 'userId',
+  value: 'value',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type TripFeedbackVoteScalarFieldEnum = (typeof TripFeedbackVoteScalarFieldEnum)[keyof typeof TripFeedbackVoteScalarFieldEnum]
+
+
 export const SortOrder = {
   asc: 'asc',
   desc: 'desc'
@@ -1619,6 +1883,20 @@ export type EnumTravelTransportTypeFieldRefInput<$PrismaModel> = FieldRefInputTy
  * Reference to a field of type 'AccommodationStatus'
  */
 export type EnumAccommodationStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'AccommodationStatus'>
+    
+
+
+/**
+ * Reference to a field of type 'FeedbackTargetType'
+ */
+export type EnumFeedbackTargetTypeFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'FeedbackTargetType'>
+    
+
+
+/**
+ * Reference to a field of type 'FeedbackVoteValue'
+ */
+export type EnumFeedbackVoteValueFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'FeedbackVoteValue'>
     
 
 /**
@@ -1728,6 +2006,9 @@ export type GlobalOmitConfig = {
   accommodationImage?: Prisma.AccommodationImageOmit
   dayPlanItemImage?: Prisma.DayPlanItemImageOmit
   tripBucketListItem?: Prisma.TripBucketListItemOmit
+  tripFeedbackTarget?: Prisma.TripFeedbackTargetOmit
+  tripFeedbackComment?: Prisma.TripFeedbackCommentOmit
+  tripFeedbackVote?: Prisma.TripFeedbackVoteOmit
 }
 
 /* Types for Logging */

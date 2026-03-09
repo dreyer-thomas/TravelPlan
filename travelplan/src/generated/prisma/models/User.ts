@@ -208,6 +208,8 @@ export type UserWhereInput = {
   updatedAt?: Prisma.DateTimeFilter<"User"> | Date | string
   passwordResetTokens?: Prisma.PasswordResetTokenListRelationFilter
   memberships?: Prisma.TripMemberListRelationFilter
+  feedbackComments?: Prisma.TripFeedbackCommentListRelationFilter
+  feedbackVotes?: Prisma.TripFeedbackVoteListRelationFilter
   trips?: Prisma.TripListRelationFilter
 }
 
@@ -222,6 +224,8 @@ export type UserOrderByWithRelationInput = {
   updatedAt?: Prisma.SortOrder
   passwordResetTokens?: Prisma.PasswordResetTokenOrderByRelationAggregateInput
   memberships?: Prisma.TripMemberOrderByRelationAggregateInput
+  feedbackComments?: Prisma.TripFeedbackCommentOrderByRelationAggregateInput
+  feedbackVotes?: Prisma.TripFeedbackVoteOrderByRelationAggregateInput
   trips?: Prisma.TripOrderByRelationAggregateInput
 }
 
@@ -239,6 +243,8 @@ export type UserWhereUniqueInput = Prisma.AtLeast<{
   updatedAt?: Prisma.DateTimeFilter<"User"> | Date | string
   passwordResetTokens?: Prisma.PasswordResetTokenListRelationFilter
   memberships?: Prisma.TripMemberListRelationFilter
+  feedbackComments?: Prisma.TripFeedbackCommentListRelationFilter
+  feedbackVotes?: Prisma.TripFeedbackVoteListRelationFilter
   trips?: Prisma.TripListRelationFilter
 }, "id" | "email">
 
@@ -281,6 +287,8 @@ export type UserCreateInput = {
   updatedAt?: Date | string
   passwordResetTokens?: Prisma.PasswordResetTokenCreateNestedManyWithoutUserInput
   memberships?: Prisma.TripMemberCreateNestedManyWithoutUserInput
+  feedbackComments?: Prisma.TripFeedbackCommentCreateNestedManyWithoutAuthorInput
+  feedbackVotes?: Prisma.TripFeedbackVoteCreateNestedManyWithoutUserInput
   trips?: Prisma.TripCreateNestedManyWithoutUserInput
 }
 
@@ -295,6 +303,8 @@ export type UserUncheckedCreateInput = {
   updatedAt?: Date | string
   passwordResetTokens?: Prisma.PasswordResetTokenUncheckedCreateNestedManyWithoutUserInput
   memberships?: Prisma.TripMemberUncheckedCreateNestedManyWithoutUserInput
+  feedbackComments?: Prisma.TripFeedbackCommentUncheckedCreateNestedManyWithoutAuthorInput
+  feedbackVotes?: Prisma.TripFeedbackVoteUncheckedCreateNestedManyWithoutUserInput
   trips?: Prisma.TripUncheckedCreateNestedManyWithoutUserInput
 }
 
@@ -309,6 +319,8 @@ export type UserUpdateInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   passwordResetTokens?: Prisma.PasswordResetTokenUpdateManyWithoutUserNestedInput
   memberships?: Prisma.TripMemberUpdateManyWithoutUserNestedInput
+  feedbackComments?: Prisma.TripFeedbackCommentUpdateManyWithoutAuthorNestedInput
+  feedbackVotes?: Prisma.TripFeedbackVoteUpdateManyWithoutUserNestedInput
   trips?: Prisma.TripUpdateManyWithoutUserNestedInput
 }
 
@@ -323,6 +335,8 @@ export type UserUncheckedUpdateInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   passwordResetTokens?: Prisma.PasswordResetTokenUncheckedUpdateManyWithoutUserNestedInput
   memberships?: Prisma.TripMemberUncheckedUpdateManyWithoutUserNestedInput
+  feedbackComments?: Prisma.TripFeedbackCommentUncheckedUpdateManyWithoutAuthorNestedInput
+  feedbackVotes?: Prisma.TripFeedbackVoteUncheckedUpdateManyWithoutUserNestedInput
   trips?: Prisma.TripUncheckedUpdateManyWithoutUserNestedInput
 }
 
@@ -459,6 +473,34 @@ export type UserUpdateOneRequiredWithoutMembershipsNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.UserUpdateToOneWithWhereWithoutMembershipsInput, Prisma.UserUpdateWithoutMembershipsInput>, Prisma.UserUncheckedUpdateWithoutMembershipsInput>
 }
 
+export type UserCreateNestedOneWithoutFeedbackCommentsInput = {
+  create?: Prisma.XOR<Prisma.UserCreateWithoutFeedbackCommentsInput, Prisma.UserUncheckedCreateWithoutFeedbackCommentsInput>
+  connectOrCreate?: Prisma.UserCreateOrConnectWithoutFeedbackCommentsInput
+  connect?: Prisma.UserWhereUniqueInput
+}
+
+export type UserUpdateOneRequiredWithoutFeedbackCommentsNestedInput = {
+  create?: Prisma.XOR<Prisma.UserCreateWithoutFeedbackCommentsInput, Prisma.UserUncheckedCreateWithoutFeedbackCommentsInput>
+  connectOrCreate?: Prisma.UserCreateOrConnectWithoutFeedbackCommentsInput
+  upsert?: Prisma.UserUpsertWithoutFeedbackCommentsInput
+  connect?: Prisma.UserWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.UserUpdateToOneWithWhereWithoutFeedbackCommentsInput, Prisma.UserUpdateWithoutFeedbackCommentsInput>, Prisma.UserUncheckedUpdateWithoutFeedbackCommentsInput>
+}
+
+export type UserCreateNestedOneWithoutFeedbackVotesInput = {
+  create?: Prisma.XOR<Prisma.UserCreateWithoutFeedbackVotesInput, Prisma.UserUncheckedCreateWithoutFeedbackVotesInput>
+  connectOrCreate?: Prisma.UserCreateOrConnectWithoutFeedbackVotesInput
+  connect?: Prisma.UserWhereUniqueInput
+}
+
+export type UserUpdateOneRequiredWithoutFeedbackVotesNestedInput = {
+  create?: Prisma.XOR<Prisma.UserCreateWithoutFeedbackVotesInput, Prisma.UserUncheckedCreateWithoutFeedbackVotesInput>
+  connectOrCreate?: Prisma.UserCreateOrConnectWithoutFeedbackVotesInput
+  upsert?: Prisma.UserUpsertWithoutFeedbackVotesInput
+  connect?: Prisma.UserWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.UserUpdateToOneWithWhereWithoutFeedbackVotesInput, Prisma.UserUpdateWithoutFeedbackVotesInput>, Prisma.UserUncheckedUpdateWithoutFeedbackVotesInput>
+}
+
 export type UserCreateWithoutPasswordResetTokensInput = {
   id?: string
   email: string
@@ -469,6 +511,8 @@ export type UserCreateWithoutPasswordResetTokensInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   memberships?: Prisma.TripMemberCreateNestedManyWithoutUserInput
+  feedbackComments?: Prisma.TripFeedbackCommentCreateNestedManyWithoutAuthorInput
+  feedbackVotes?: Prisma.TripFeedbackVoteCreateNestedManyWithoutUserInput
   trips?: Prisma.TripCreateNestedManyWithoutUserInput
 }
 
@@ -482,6 +526,8 @@ export type UserUncheckedCreateWithoutPasswordResetTokensInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   memberships?: Prisma.TripMemberUncheckedCreateNestedManyWithoutUserInput
+  feedbackComments?: Prisma.TripFeedbackCommentUncheckedCreateNestedManyWithoutAuthorInput
+  feedbackVotes?: Prisma.TripFeedbackVoteUncheckedCreateNestedManyWithoutUserInput
   trips?: Prisma.TripUncheckedCreateNestedManyWithoutUserInput
 }
 
@@ -511,6 +557,8 @@ export type UserUpdateWithoutPasswordResetTokensInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   memberships?: Prisma.TripMemberUpdateManyWithoutUserNestedInput
+  feedbackComments?: Prisma.TripFeedbackCommentUpdateManyWithoutAuthorNestedInput
+  feedbackVotes?: Prisma.TripFeedbackVoteUpdateManyWithoutUserNestedInput
   trips?: Prisma.TripUpdateManyWithoutUserNestedInput
 }
 
@@ -524,6 +572,8 @@ export type UserUncheckedUpdateWithoutPasswordResetTokensInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   memberships?: Prisma.TripMemberUncheckedUpdateManyWithoutUserNestedInput
+  feedbackComments?: Prisma.TripFeedbackCommentUncheckedUpdateManyWithoutAuthorNestedInput
+  feedbackVotes?: Prisma.TripFeedbackVoteUncheckedUpdateManyWithoutUserNestedInput
   trips?: Prisma.TripUncheckedUpdateManyWithoutUserNestedInput
 }
 
@@ -538,6 +588,8 @@ export type UserCreateWithoutTripsInput = {
   updatedAt?: Date | string
   passwordResetTokens?: Prisma.PasswordResetTokenCreateNestedManyWithoutUserInput
   memberships?: Prisma.TripMemberCreateNestedManyWithoutUserInput
+  feedbackComments?: Prisma.TripFeedbackCommentCreateNestedManyWithoutAuthorInput
+  feedbackVotes?: Prisma.TripFeedbackVoteCreateNestedManyWithoutUserInput
 }
 
 export type UserUncheckedCreateWithoutTripsInput = {
@@ -551,6 +603,8 @@ export type UserUncheckedCreateWithoutTripsInput = {
   updatedAt?: Date | string
   passwordResetTokens?: Prisma.PasswordResetTokenUncheckedCreateNestedManyWithoutUserInput
   memberships?: Prisma.TripMemberUncheckedCreateNestedManyWithoutUserInput
+  feedbackComments?: Prisma.TripFeedbackCommentUncheckedCreateNestedManyWithoutAuthorInput
+  feedbackVotes?: Prisma.TripFeedbackVoteUncheckedCreateNestedManyWithoutUserInput
 }
 
 export type UserCreateOrConnectWithoutTripsInput = {
@@ -580,6 +634,8 @@ export type UserUpdateWithoutTripsInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   passwordResetTokens?: Prisma.PasswordResetTokenUpdateManyWithoutUserNestedInput
   memberships?: Prisma.TripMemberUpdateManyWithoutUserNestedInput
+  feedbackComments?: Prisma.TripFeedbackCommentUpdateManyWithoutAuthorNestedInput
+  feedbackVotes?: Prisma.TripFeedbackVoteUpdateManyWithoutUserNestedInput
 }
 
 export type UserUncheckedUpdateWithoutTripsInput = {
@@ -593,6 +649,8 @@ export type UserUncheckedUpdateWithoutTripsInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   passwordResetTokens?: Prisma.PasswordResetTokenUncheckedUpdateManyWithoutUserNestedInput
   memberships?: Prisma.TripMemberUncheckedUpdateManyWithoutUserNestedInput
+  feedbackComments?: Prisma.TripFeedbackCommentUncheckedUpdateManyWithoutAuthorNestedInput
+  feedbackVotes?: Prisma.TripFeedbackVoteUncheckedUpdateManyWithoutUserNestedInput
 }
 
 export type UserCreateWithoutMembershipsInput = {
@@ -605,6 +663,8 @@ export type UserCreateWithoutMembershipsInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   passwordResetTokens?: Prisma.PasswordResetTokenCreateNestedManyWithoutUserInput
+  feedbackComments?: Prisma.TripFeedbackCommentCreateNestedManyWithoutAuthorInput
+  feedbackVotes?: Prisma.TripFeedbackVoteCreateNestedManyWithoutUserInput
   trips?: Prisma.TripCreateNestedManyWithoutUserInput
 }
 
@@ -618,6 +678,8 @@ export type UserUncheckedCreateWithoutMembershipsInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   passwordResetTokens?: Prisma.PasswordResetTokenUncheckedCreateNestedManyWithoutUserInput
+  feedbackComments?: Prisma.TripFeedbackCommentUncheckedCreateNestedManyWithoutAuthorInput
+  feedbackVotes?: Prisma.TripFeedbackVoteUncheckedCreateNestedManyWithoutUserInput
   trips?: Prisma.TripUncheckedCreateNestedManyWithoutUserInput
 }
 
@@ -647,6 +709,8 @@ export type UserUpdateWithoutMembershipsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   passwordResetTokens?: Prisma.PasswordResetTokenUpdateManyWithoutUserNestedInput
+  feedbackComments?: Prisma.TripFeedbackCommentUpdateManyWithoutAuthorNestedInput
+  feedbackVotes?: Prisma.TripFeedbackVoteUpdateManyWithoutUserNestedInput
   trips?: Prisma.TripUpdateManyWithoutUserNestedInput
 }
 
@@ -660,6 +724,160 @@ export type UserUncheckedUpdateWithoutMembershipsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   passwordResetTokens?: Prisma.PasswordResetTokenUncheckedUpdateManyWithoutUserNestedInput
+  feedbackComments?: Prisma.TripFeedbackCommentUncheckedUpdateManyWithoutAuthorNestedInput
+  feedbackVotes?: Prisma.TripFeedbackVoteUncheckedUpdateManyWithoutUserNestedInput
+  trips?: Prisma.TripUncheckedUpdateManyWithoutUserNestedInput
+}
+
+export type UserCreateWithoutFeedbackCommentsInput = {
+  id?: string
+  email: string
+  passwordHash: string
+  role?: $Enums.UserRole
+  mustChangePassword?: boolean
+  preferredLanguage?: $Enums.PreferredLanguage
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  passwordResetTokens?: Prisma.PasswordResetTokenCreateNestedManyWithoutUserInput
+  memberships?: Prisma.TripMemberCreateNestedManyWithoutUserInput
+  feedbackVotes?: Prisma.TripFeedbackVoteCreateNestedManyWithoutUserInput
+  trips?: Prisma.TripCreateNestedManyWithoutUserInput
+}
+
+export type UserUncheckedCreateWithoutFeedbackCommentsInput = {
+  id?: string
+  email: string
+  passwordHash: string
+  role?: $Enums.UserRole
+  mustChangePassword?: boolean
+  preferredLanguage?: $Enums.PreferredLanguage
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  passwordResetTokens?: Prisma.PasswordResetTokenUncheckedCreateNestedManyWithoutUserInput
+  memberships?: Prisma.TripMemberUncheckedCreateNestedManyWithoutUserInput
+  feedbackVotes?: Prisma.TripFeedbackVoteUncheckedCreateNestedManyWithoutUserInput
+  trips?: Prisma.TripUncheckedCreateNestedManyWithoutUserInput
+}
+
+export type UserCreateOrConnectWithoutFeedbackCommentsInput = {
+  where: Prisma.UserWhereUniqueInput
+  create: Prisma.XOR<Prisma.UserCreateWithoutFeedbackCommentsInput, Prisma.UserUncheckedCreateWithoutFeedbackCommentsInput>
+}
+
+export type UserUpsertWithoutFeedbackCommentsInput = {
+  update: Prisma.XOR<Prisma.UserUpdateWithoutFeedbackCommentsInput, Prisma.UserUncheckedUpdateWithoutFeedbackCommentsInput>
+  create: Prisma.XOR<Prisma.UserCreateWithoutFeedbackCommentsInput, Prisma.UserUncheckedCreateWithoutFeedbackCommentsInput>
+  where?: Prisma.UserWhereInput
+}
+
+export type UserUpdateToOneWithWhereWithoutFeedbackCommentsInput = {
+  where?: Prisma.UserWhereInput
+  data: Prisma.XOR<Prisma.UserUpdateWithoutFeedbackCommentsInput, Prisma.UserUncheckedUpdateWithoutFeedbackCommentsInput>
+}
+
+export type UserUpdateWithoutFeedbackCommentsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  email?: Prisma.StringFieldUpdateOperationsInput | string
+  passwordHash?: Prisma.StringFieldUpdateOperationsInput | string
+  role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
+  mustChangePassword?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  preferredLanguage?: Prisma.EnumPreferredLanguageFieldUpdateOperationsInput | $Enums.PreferredLanguage
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  passwordResetTokens?: Prisma.PasswordResetTokenUpdateManyWithoutUserNestedInput
+  memberships?: Prisma.TripMemberUpdateManyWithoutUserNestedInput
+  feedbackVotes?: Prisma.TripFeedbackVoteUpdateManyWithoutUserNestedInput
+  trips?: Prisma.TripUpdateManyWithoutUserNestedInput
+}
+
+export type UserUncheckedUpdateWithoutFeedbackCommentsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  email?: Prisma.StringFieldUpdateOperationsInput | string
+  passwordHash?: Prisma.StringFieldUpdateOperationsInput | string
+  role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
+  mustChangePassword?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  preferredLanguage?: Prisma.EnumPreferredLanguageFieldUpdateOperationsInput | $Enums.PreferredLanguage
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  passwordResetTokens?: Prisma.PasswordResetTokenUncheckedUpdateManyWithoutUserNestedInput
+  memberships?: Prisma.TripMemberUncheckedUpdateManyWithoutUserNestedInput
+  feedbackVotes?: Prisma.TripFeedbackVoteUncheckedUpdateManyWithoutUserNestedInput
+  trips?: Prisma.TripUncheckedUpdateManyWithoutUserNestedInput
+}
+
+export type UserCreateWithoutFeedbackVotesInput = {
+  id?: string
+  email: string
+  passwordHash: string
+  role?: $Enums.UserRole
+  mustChangePassword?: boolean
+  preferredLanguage?: $Enums.PreferredLanguage
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  passwordResetTokens?: Prisma.PasswordResetTokenCreateNestedManyWithoutUserInput
+  memberships?: Prisma.TripMemberCreateNestedManyWithoutUserInput
+  feedbackComments?: Prisma.TripFeedbackCommentCreateNestedManyWithoutAuthorInput
+  trips?: Prisma.TripCreateNestedManyWithoutUserInput
+}
+
+export type UserUncheckedCreateWithoutFeedbackVotesInput = {
+  id?: string
+  email: string
+  passwordHash: string
+  role?: $Enums.UserRole
+  mustChangePassword?: boolean
+  preferredLanguage?: $Enums.PreferredLanguage
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  passwordResetTokens?: Prisma.PasswordResetTokenUncheckedCreateNestedManyWithoutUserInput
+  memberships?: Prisma.TripMemberUncheckedCreateNestedManyWithoutUserInput
+  feedbackComments?: Prisma.TripFeedbackCommentUncheckedCreateNestedManyWithoutAuthorInput
+  trips?: Prisma.TripUncheckedCreateNestedManyWithoutUserInput
+}
+
+export type UserCreateOrConnectWithoutFeedbackVotesInput = {
+  where: Prisma.UserWhereUniqueInput
+  create: Prisma.XOR<Prisma.UserCreateWithoutFeedbackVotesInput, Prisma.UserUncheckedCreateWithoutFeedbackVotesInput>
+}
+
+export type UserUpsertWithoutFeedbackVotesInput = {
+  update: Prisma.XOR<Prisma.UserUpdateWithoutFeedbackVotesInput, Prisma.UserUncheckedUpdateWithoutFeedbackVotesInput>
+  create: Prisma.XOR<Prisma.UserCreateWithoutFeedbackVotesInput, Prisma.UserUncheckedCreateWithoutFeedbackVotesInput>
+  where?: Prisma.UserWhereInput
+}
+
+export type UserUpdateToOneWithWhereWithoutFeedbackVotesInput = {
+  where?: Prisma.UserWhereInput
+  data: Prisma.XOR<Prisma.UserUpdateWithoutFeedbackVotesInput, Prisma.UserUncheckedUpdateWithoutFeedbackVotesInput>
+}
+
+export type UserUpdateWithoutFeedbackVotesInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  email?: Prisma.StringFieldUpdateOperationsInput | string
+  passwordHash?: Prisma.StringFieldUpdateOperationsInput | string
+  role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
+  mustChangePassword?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  preferredLanguage?: Prisma.EnumPreferredLanguageFieldUpdateOperationsInput | $Enums.PreferredLanguage
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  passwordResetTokens?: Prisma.PasswordResetTokenUpdateManyWithoutUserNestedInput
+  memberships?: Prisma.TripMemberUpdateManyWithoutUserNestedInput
+  feedbackComments?: Prisma.TripFeedbackCommentUpdateManyWithoutAuthorNestedInput
+  trips?: Prisma.TripUpdateManyWithoutUserNestedInput
+}
+
+export type UserUncheckedUpdateWithoutFeedbackVotesInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  email?: Prisma.StringFieldUpdateOperationsInput | string
+  passwordHash?: Prisma.StringFieldUpdateOperationsInput | string
+  role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
+  mustChangePassword?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  preferredLanguage?: Prisma.EnumPreferredLanguageFieldUpdateOperationsInput | $Enums.PreferredLanguage
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  passwordResetTokens?: Prisma.PasswordResetTokenUncheckedUpdateManyWithoutUserNestedInput
+  memberships?: Prisma.TripMemberUncheckedUpdateManyWithoutUserNestedInput
+  feedbackComments?: Prisma.TripFeedbackCommentUncheckedUpdateManyWithoutAuthorNestedInput
   trips?: Prisma.TripUncheckedUpdateManyWithoutUserNestedInput
 }
 
@@ -671,12 +889,16 @@ export type UserUncheckedUpdateWithoutMembershipsInput = {
 export type UserCountOutputType = {
   passwordResetTokens: number
   memberships: number
+  feedbackComments: number
+  feedbackVotes: number
   trips: number
 }
 
 export type UserCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   passwordResetTokens?: boolean | UserCountOutputTypeCountPasswordResetTokensArgs
   memberships?: boolean | UserCountOutputTypeCountMembershipsArgs
+  feedbackComments?: boolean | UserCountOutputTypeCountFeedbackCommentsArgs
+  feedbackVotes?: boolean | UserCountOutputTypeCountFeedbackVotesArgs
   trips?: boolean | UserCountOutputTypeCountTripsArgs
 }
 
@@ -707,6 +929,20 @@ export type UserCountOutputTypeCountMembershipsArgs<ExtArgs extends runtime.Type
 /**
  * UserCountOutputType without action
  */
+export type UserCountOutputTypeCountFeedbackCommentsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.TripFeedbackCommentWhereInput
+}
+
+/**
+ * UserCountOutputType without action
+ */
+export type UserCountOutputTypeCountFeedbackVotesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.TripFeedbackVoteWhereInput
+}
+
+/**
+ * UserCountOutputType without action
+ */
 export type UserCountOutputTypeCountTripsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   where?: Prisma.TripWhereInput
 }
@@ -723,6 +959,8 @@ export type UserSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = r
   updatedAt?: boolean
   passwordResetTokens?: boolean | Prisma.User$passwordResetTokensArgs<ExtArgs>
   memberships?: boolean | Prisma.User$membershipsArgs<ExtArgs>
+  feedbackComments?: boolean | Prisma.User$feedbackCommentsArgs<ExtArgs>
+  feedbackVotes?: boolean | Prisma.User$feedbackVotesArgs<ExtArgs>
   trips?: boolean | Prisma.User$tripsArgs<ExtArgs>
   _count?: boolean | Prisma.UserCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["user"]>
@@ -764,6 +1002,8 @@ export type UserOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = run
 export type UserInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   passwordResetTokens?: boolean | Prisma.User$passwordResetTokensArgs<ExtArgs>
   memberships?: boolean | Prisma.User$membershipsArgs<ExtArgs>
+  feedbackComments?: boolean | Prisma.User$feedbackCommentsArgs<ExtArgs>
+  feedbackVotes?: boolean | Prisma.User$feedbackVotesArgs<ExtArgs>
   trips?: boolean | Prisma.User$tripsArgs<ExtArgs>
   _count?: boolean | Prisma.UserCountOutputTypeDefaultArgs<ExtArgs>
 }
@@ -775,6 +1015,8 @@ export type $UserPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
   objects: {
     passwordResetTokens: Prisma.$PasswordResetTokenPayload<ExtArgs>[]
     memberships: Prisma.$TripMemberPayload<ExtArgs>[]
+    feedbackComments: Prisma.$TripFeedbackCommentPayload<ExtArgs>[]
+    feedbackVotes: Prisma.$TripFeedbackVotePayload<ExtArgs>[]
     trips: Prisma.$TripPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
@@ -1182,6 +1424,8 @@ export interface Prisma__UserClient<T, Null = never, ExtArgs extends runtime.Typ
   readonly [Symbol.toStringTag]: "PrismaPromise"
   passwordResetTokens<T extends Prisma.User$passwordResetTokensArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$passwordResetTokensArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$PasswordResetTokenPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   memberships<T extends Prisma.User$membershipsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$membershipsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$TripMemberPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  feedbackComments<T extends Prisma.User$feedbackCommentsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$feedbackCommentsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$TripFeedbackCommentPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  feedbackVotes<T extends Prisma.User$feedbackVotesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$feedbackVotesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$TripFeedbackVotePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   trips<T extends Prisma.User$tripsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$tripsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$TripPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
@@ -1651,6 +1895,54 @@ export type User$membershipsArgs<ExtArgs extends runtime.Types.Extensions.Intern
   take?: number
   skip?: number
   distinct?: Prisma.TripMemberScalarFieldEnum | Prisma.TripMemberScalarFieldEnum[]
+}
+
+/**
+ * User.feedbackComments
+ */
+export type User$feedbackCommentsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the TripFeedbackComment
+   */
+  select?: Prisma.TripFeedbackCommentSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the TripFeedbackComment
+   */
+  omit?: Prisma.TripFeedbackCommentOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.TripFeedbackCommentInclude<ExtArgs> | null
+  where?: Prisma.TripFeedbackCommentWhereInput
+  orderBy?: Prisma.TripFeedbackCommentOrderByWithRelationInput | Prisma.TripFeedbackCommentOrderByWithRelationInput[]
+  cursor?: Prisma.TripFeedbackCommentWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.TripFeedbackCommentScalarFieldEnum | Prisma.TripFeedbackCommentScalarFieldEnum[]
+}
+
+/**
+ * User.feedbackVotes
+ */
+export type User$feedbackVotesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the TripFeedbackVote
+   */
+  select?: Prisma.TripFeedbackVoteSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the TripFeedbackVote
+   */
+  omit?: Prisma.TripFeedbackVoteOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.TripFeedbackVoteInclude<ExtArgs> | null
+  where?: Prisma.TripFeedbackVoteWhereInput
+  orderBy?: Prisma.TripFeedbackVoteOrderByWithRelationInput | Prisma.TripFeedbackVoteOrderByWithRelationInput[]
+  cursor?: Prisma.TripFeedbackVoteWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.TripFeedbackVoteScalarFieldEnum | Prisma.TripFeedbackVoteScalarFieldEnum[]
 }
 
 /**

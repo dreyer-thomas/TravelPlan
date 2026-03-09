@@ -327,6 +327,40 @@ export type IntNullableWithAggregatesFilter<$PrismaModel = never> = {
   _max?: Prisma.NestedIntNullableFilter<$PrismaModel>
 }
 
+export type EnumFeedbackTargetTypeFilter<$PrismaModel = never> = {
+  equals?: $Enums.FeedbackTargetType | Prisma.EnumFeedbackTargetTypeFieldRefInput<$PrismaModel>
+  in?: $Enums.FeedbackTargetType[]
+  notIn?: $Enums.FeedbackTargetType[]
+  not?: Prisma.NestedEnumFeedbackTargetTypeFilter<$PrismaModel> | $Enums.FeedbackTargetType
+}
+
+export type EnumFeedbackTargetTypeWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.FeedbackTargetType | Prisma.EnumFeedbackTargetTypeFieldRefInput<$PrismaModel>
+  in?: $Enums.FeedbackTargetType[]
+  notIn?: $Enums.FeedbackTargetType[]
+  not?: Prisma.NestedEnumFeedbackTargetTypeWithAggregatesFilter<$PrismaModel> | $Enums.FeedbackTargetType
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumFeedbackTargetTypeFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumFeedbackTargetTypeFilter<$PrismaModel>
+}
+
+export type EnumFeedbackVoteValueFilter<$PrismaModel = never> = {
+  equals?: $Enums.FeedbackVoteValue | Prisma.EnumFeedbackVoteValueFieldRefInput<$PrismaModel>
+  in?: $Enums.FeedbackVoteValue[]
+  notIn?: $Enums.FeedbackVoteValue[]
+  not?: Prisma.NestedEnumFeedbackVoteValueFilter<$PrismaModel> | $Enums.FeedbackVoteValue
+}
+
+export type EnumFeedbackVoteValueWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.FeedbackVoteValue | Prisma.EnumFeedbackVoteValueFieldRefInput<$PrismaModel>
+  in?: $Enums.FeedbackVoteValue[]
+  notIn?: $Enums.FeedbackVoteValue[]
+  not?: Prisma.NestedEnumFeedbackVoteValueWithAggregatesFilter<$PrismaModel> | $Enums.FeedbackVoteValue
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumFeedbackVoteValueFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumFeedbackVoteValueFilter<$PrismaModel>
+}
+
 export type NestedStringFilter<$PrismaModel = never> = {
   equals?: string | Prisma.StringFieldRefInput<$PrismaModel>
   in?: string[]
@@ -644,6 +678,40 @@ export type NestedIntNullableWithAggregatesFilter<$PrismaModel = never> = {
   _sum?: Prisma.NestedIntNullableFilter<$PrismaModel>
   _min?: Prisma.NestedIntNullableFilter<$PrismaModel>
   _max?: Prisma.NestedIntNullableFilter<$PrismaModel>
+}
+
+export type NestedEnumFeedbackTargetTypeFilter<$PrismaModel = never> = {
+  equals?: $Enums.FeedbackTargetType | Prisma.EnumFeedbackTargetTypeFieldRefInput<$PrismaModel>
+  in?: $Enums.FeedbackTargetType[]
+  notIn?: $Enums.FeedbackTargetType[]
+  not?: Prisma.NestedEnumFeedbackTargetTypeFilter<$PrismaModel> | $Enums.FeedbackTargetType
+}
+
+export type NestedEnumFeedbackTargetTypeWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.FeedbackTargetType | Prisma.EnumFeedbackTargetTypeFieldRefInput<$PrismaModel>
+  in?: $Enums.FeedbackTargetType[]
+  notIn?: $Enums.FeedbackTargetType[]
+  not?: Prisma.NestedEnumFeedbackTargetTypeWithAggregatesFilter<$PrismaModel> | $Enums.FeedbackTargetType
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumFeedbackTargetTypeFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumFeedbackTargetTypeFilter<$PrismaModel>
+}
+
+export type NestedEnumFeedbackVoteValueFilter<$PrismaModel = never> = {
+  equals?: $Enums.FeedbackVoteValue | Prisma.EnumFeedbackVoteValueFieldRefInput<$PrismaModel>
+  in?: $Enums.FeedbackVoteValue[]
+  notIn?: $Enums.FeedbackVoteValue[]
+  not?: Prisma.NestedEnumFeedbackVoteValueFilter<$PrismaModel> | $Enums.FeedbackVoteValue
+}
+
+export type NestedEnumFeedbackVoteValueWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.FeedbackVoteValue | Prisma.EnumFeedbackVoteValueFieldRefInput<$PrismaModel>
+  in?: $Enums.FeedbackVoteValue[]
+  notIn?: $Enums.FeedbackVoteValue[]
+  not?: Prisma.NestedEnumFeedbackVoteValueWithAggregatesFilter<$PrismaModel> | $Enums.FeedbackVoteValue
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumFeedbackVoteValueFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumFeedbackVoteValueFilter<$PrismaModel>
 }
 
 

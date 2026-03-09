@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { apiError } from "@/lib/errors/apiError";
 import { fail, ok } from "@/lib/http/response";
+import { hasTripOwnerAccess } from "@/lib/auth/tripAccess";
 import {
   createAccommodationImage,
   deleteAccommodationImage,
@@ -113,6 +114,9 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
   if (!tripId) {
     return fail(apiError("not_found", "Trip not found"), 404);
   }
+  if (!(await hasTripOwnerAccess(userId, tripId))) {
+    return fail(apiError("not_found", "Accommodation not found"), 404);
+  }
 
   let formData: FormData;
   try {
@@ -195,6 +199,9 @@ export const DELETE = async (request: NextRequest, context: RouteContext) => {
   const { id: tripId } = await context.params;
   if (!tripId) {
     return fail(apiError("not_found", "Trip not found"), 404);
+  }
+  if (!(await hasTripOwnerAccess(userId, tripId))) {
+    return fail(apiError("not_found", "Accommodation not found"), 404);
   }
 
   const rawPayload = await parseJson(request);

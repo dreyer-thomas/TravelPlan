@@ -39,6 +39,18 @@ enum TravelTransportType {
   FLIGHT
 }
 
+enum FeedbackTargetType {
+  TRIP
+  TRIP_DAY
+  ACCOMMODATION
+  DAY_PLAN_ITEM
+}
+
+enum FeedbackVoteValue {
+  UP
+  DOWN
+}
+
 model User {
   id                 String   @id @default(cuid()) @map("id")
   email              String   @unique @map("email")
@@ -50,6 +62,8 @@ model User {
   updatedAt          DateTime @updatedAt @map("updated_at")
   passwordResetTokens PasswordResetToken[]
   memberships        TripMember[]
+  feedbackComments   TripFeedbackComment[]
+  feedbackVotes      TripFeedbackVote[]
   trips        Trip[]
 
   @@map("users")
@@ -91,6 +105,7 @@ model Trip {
   members TripMember[]
   days  TripDay[]
   bucketListItems TripBucketListItem[]
+  feedbackTargets TripFeedbackTarget[]
 
   @@index([userId])
   @@map("trips")
@@ -127,6 +142,7 @@ model TripDay {
   accommodation Accommodation?
   dayPlanItems  DayPlanItem[]
   travelSegments TravelSegment[]
+  feedbackTargets TripFeedbackTarget[]
 
   @@index([tripId], map: "idx_trip_days_trip_id")
   @@map("trip_days")
@@ -172,6 +188,7 @@ model Accommodation {
   tripDay TripDay @relation(fields: [tripDayId], references: [id], onDelete: Cascade)
   images  AccommodationImage[]
   payments CostPayment[]
+  feedbackTargets TripFeedbackTarget[]
 
   @@map("accommodations")
 }
@@ -194,6 +211,7 @@ model DayPlanItem {
   tripDay TripDay @relation(fields: [tripDayId], references: [id], onDelete: Cascade)
   images  DayPlanItemImage[]
   payments CostPayment[]
+  feedbackTargets TripFeedbackTarget[]
 
   @@index([tripDayId], map: "idx_day_plan_items_trip_day_id")
   @@map("day_plan_items")
@@ -265,4 +283,62 @@ model TripBucketListItem {
 
   @@index([tripId], map: "idx_trip_bucket_list_items_trip_id")
   @@map("trip_bucket_list_items")
+}
+
+model TripFeedbackTarget {
+  id              String             @id @default(cuid()) @map("id")
+  tripId          String             @map("trip_id")
+  targetType      FeedbackTargetType @map("target_type")
+  targetKey       String             @unique(map: "trip_feedback_targets_target_key_key") @map("target_key")
+  tripDayId       String?            @map("trip_day_id")
+  accommodationId String?            @map("accommodation_id")
+  dayPlanItemId   String?            @map("day_plan_item_id")
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+
+  trip          Trip           @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  tripDay       TripDay?       @relation(fields: [tripDayId], references: [id], onDelete: Cascade)
+  accommodation Accommodation? @relation(fields: [accommodationId], references: [id], onDelete: Cascade)
+  dayPlanItem   DayPlanItem?   @relation(fields: [dayPlanItemId], references: [id], onDelete: Cascade)
+  comments      TripFeedbackComment[]
+  votes         TripFeedbackVote[]
+
+  @@index([tripId, targetType], map: "idx_trip_feedback_targets_trip_type")
+  @@index([tripDayId], map: "idx_trip_feedback_targets_trip_day_id")
+  @@index([accommodationId], map: "idx_trip_feedback_targets_accommodation_id")
+  @@index([dayPlanItemId], map: "idx_trip_feedback_targets_day_plan_item_id")
+  @@map("trip_feedback_targets")
+}
+
+model TripFeedbackComment {
+  id        String   @id @default(cuid()) @map("id")
+  targetId  String   @map("target_id")
+  authorId  String   @map("author_id")
+  body      String   @map("body")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  target TripFeedbackTarget @relation(fields: [targetId], references: [id], onDelete: Cascade)
+  author User               @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([targetId, createdAt], map: "idx_trip_feedback_comments_target_created_at")
+  @@index([authorId], map: "idx_trip_feedback_comments_author_id")
+  @@map("trip_feedback_comments")
+}
+
+model TripFeedbackVote {
+  id        String            @id @default(cuid()) @map("id")
+  targetId  String            @map("target_id")
+  userId    String            @map("user_id")
+  value     FeedbackVoteValue @map("value")
+  createdAt DateTime          @default(now()) @map("created_at")
+  updatedAt DateTime          @updatedAt @map("updated_at")
+
+  target TripFeedbackTarget @relation(fields: [targetId], references: [id], onDelete: Cascade)
+  user   User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([targetId], map: "idx_trip_feedback_votes_target_id")
+  @@index([userId], map: "idx_trip_feedback_votes_user_id")
+  @@unique([targetId, userId], map: "trip_feedback_votes_target_id_user_id_key")
+  @@map("trip_feedback_votes")
 }

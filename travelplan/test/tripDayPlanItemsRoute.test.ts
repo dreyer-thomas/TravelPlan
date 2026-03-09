@@ -246,6 +246,59 @@ describe("/api/trips/[id]/day-plan-items", () => {
     expect(payload.data?.dayPlanItem.location).toEqual({ lat: 48.145, lng: 11.582, label: "Gallery" });
   });
 
+  it("returns 404 when a viewer tries to create a day plan item", async () => {
+    const owner = await prisma.user.create({
+      data: { email: "plan-route-viewer-owner@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const viewer = await prisma.user.create({
+      data: { email: "plan-route-viewer@example.com", passwordHash: "hashed", role: "VIEWER" },
+    });
+    const token = await createSessionJwt({ sub: viewer.id, role: viewer.role });
+
+    const trip = await prisma.trip.create({
+      data: {
+        userId: owner.id,
+        name: "Viewer Create Trip",
+        startDate: new Date("2026-12-03T00:00:00.000Z"),
+        endDate: new Date("2026-12-03T00:00:00.000Z"),
+      },
+    });
+    const day = await prisma.tripDay.create({
+      data: {
+        tripId: trip.id,
+        date: new Date("2026-12-03T00:00:00.000Z"),
+        dayIndex: 1,
+      },
+    });
+    await prisma.tripMember.create({
+      data: {
+        tripId: trip.id,
+        userId: viewer.id,
+        role: "VIEWER",
+      },
+    });
+
+    const request = buildRequest(`http://localhost/api/trips/${trip.id}/day-plan-items`, {
+      session: token,
+      csrf: "csrf-token",
+      method: "POST",
+      body: JSON.stringify({
+        tripDayId: day.id,
+        title: "Blocked plan",
+        fromTime: "09:15",
+        toTime: "10:45",
+        contentJson: sampleDoc("Plan"),
+        linkUrl: null,
+      }),
+    });
+
+    const response = await POST(request, { params: { id: trip.id } });
+    const payload = (await response.json()) as ApiEnvelope<null>;
+
+    expect(response.status).toBe(404);
+    expect(payload.error?.code).toBe("not_found");
+  });
+
   it("converts a bucket list item into a day plan item and removes the bucket list item", async () => {
     const user = await prisma.user.create({
       data: { email: "plan-route-convert@example.com", passwordHash: "hashed", role: "OWNER" },
@@ -731,6 +784,62 @@ describe("/api/trips/[id]/day-plan-items", () => {
     expect(response.status).toBe(200);
     expect(payload.error).toBeNull();
     expect(payload.data?.deleted).toBe(true);
+  });
+
+  it("returns 404 when a viewer tries to delete a day plan item", async () => {
+    const owner = await prisma.user.create({
+      data: { email: "plan-route-viewer-delete-owner@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const viewer = await prisma.user.create({
+      data: { email: "plan-route-viewer-delete@example.com", passwordHash: "hashed", role: "VIEWER" },
+    });
+    const token = await createSessionJwt({ sub: viewer.id, role: viewer.role });
+
+    const trip = await prisma.trip.create({
+      data: {
+        userId: owner.id,
+        name: "Viewer Delete Trip",
+        startDate: new Date("2026-12-06T00:00:00.000Z"),
+        endDate: new Date("2026-12-06T00:00:00.000Z"),
+      },
+    });
+    const day = await prisma.tripDay.create({
+      data: {
+        tripId: trip.id,
+        date: new Date("2026-12-06T00:00:00.000Z"),
+        dayIndex: 1,
+      },
+    });
+    const item = await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: day.id,
+        title: "Delete title",
+        fromTime: "09:00",
+        toTime: "10:00",
+        contentJson: sampleDoc("Delete"),
+        linkUrl: null,
+      },
+    });
+    await prisma.tripMember.create({
+      data: {
+        tripId: trip.id,
+        userId: viewer.id,
+        role: "VIEWER",
+      },
+    });
+
+    const request = buildRequest(`http://localhost/api/trips/${trip.id}/day-plan-items`, {
+      session: token,
+      csrf: "csrf-token",
+      method: "DELETE",
+      body: JSON.stringify({ tripDayId: day.id, itemId: item.id }),
+    });
+
+    const response = await DELETE(request, { params: { id: trip.id } });
+    const payload = (await response.json()) as ApiEnvelope<null>;
+
+    expect(response.status).toBe(404);
+    expect(payload.error?.code).toBe("not_found");
   });
 
   it("rejects missing times on create", async () => {

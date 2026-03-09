@@ -34,6 +34,10 @@ describe("/api/trips/[id]/accommodations/images", () => {
       data: { email: "accommodation-images-other@example.com", passwordHash: "hashed", role: "OWNER" },
     });
     const otherToken = await createSessionJwt({ sub: other.id, role: other.role });
+    const viewer = await prisma.user.create({
+      data: { email: "accommodation-images-viewer@example.com", passwordHash: "hashed", role: "VIEWER" },
+    });
+    const viewerToken = await createSessionJwt({ sub: viewer.id, role: viewer.role });
 
     const trip = await prisma.trip.create({
       data: {
@@ -48,6 +52,9 @@ describe("/api/trips/[id]/accommodations/images", () => {
     });
     const accommodation = await prisma.accommodation.create({
       data: { tripDayId: day.id, name: "Gallery Hotel" },
+    });
+    await prisma.tripMember.create({
+      data: { tripId: trip.id, userId: viewer.id, role: "VIEWER" },
     });
 
     const unauthGet = new NextRequest(
@@ -98,6 +105,16 @@ describe("/api/trips/[id]/accommodations/images", () => {
     const getPayload = (await getResponse.json()) as ApiEnvelope<{ images: { id: string }[] }>;
     expect(getResponse.status).toBe(200);
     expect(getPayload.data?.images).toHaveLength(1);
+
+    const viewerGetRequest = new NextRequest(
+      `http://localhost/api/trips/${trip.id}/accommodations/images?tripDayId=${day.id}&accommodationId=${accommodation.id}`,
+      {
+        method: "GET",
+        headers: { cookie: `session=${viewerToken}` },
+      },
+    );
+    const viewerGetResponse = await GET(viewerGetRequest, { params: Promise.resolve({ id: trip.id }) });
+    expect(viewerGetResponse.status).toBe(200);
 
     const unauthorizedGetRequest = new NextRequest(
       `http://localhost/api/trips/${trip.id}/accommodations/images?tripDayId=${day.id}&accommodationId=${accommodation.id}`,

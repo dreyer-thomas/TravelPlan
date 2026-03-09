@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { verifyPassword } from "@/lib/auth/bcrypt";
+import { getTripAccessForUser } from "@/lib/auth/tripAccess";
 import { prisma } from "@/lib/db/prisma";
 import {
   createTripCollaboratorForOwner,
-  getTripAccessForUser,
   listTripCollaboratorsForOwner,
 } from "@/lib/repositories/tripRepo";
 

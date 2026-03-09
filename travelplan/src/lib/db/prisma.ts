@@ -6,7 +6,7 @@ const globalForPrisma = globalThis as unknown as {
   prismaSchemaTag?: string;
 };
 
-const PRISMA_SCHEMA_TAG = "2026-03-08-trip-memberships";
+const PRISMA_SCHEMA_TAG = "2026-03-09-trip-feedback";
 
 const getDatabaseUrl = () => {
   const url = process.env.DATABASE_URL;
@@ -40,11 +40,15 @@ const cachedClientMatchesCurrentSchema = (client: PrismaClient | undefined) => {
   const costPaymentFields = runtimeModel?.models?.CostPayment?.fields ?? [];
   const userFields = runtimeModel?.models?.User?.fields ?? [];
   const tripMemberFields = runtimeModel?.models?.TripMember?.fields ?? [];
+  const feedbackTargetFields = runtimeModel?.models?.TripFeedbackTarget?.fields ?? [];
+  const feedbackVoteFields = runtimeModel?.models?.TripFeedbackVote?.fields ?? [];
 
   return (
     costPaymentFields.some((field) => field.name === "sortOrder") &&
     userFields.some((field) => field.name === "mustChangePassword") &&
-    tripMemberFields.some((field) => field.name === "role")
+    tripMemberFields.some((field) => field.name === "role") &&
+    feedbackTargetFields.some((field) => field.name === "targetKey") &&
+    feedbackVoteFields.some((field) => field.name === "value")
   );
 };
 

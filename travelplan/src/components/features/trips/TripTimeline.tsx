@@ -24,6 +24,7 @@ import TripEditDialog, { type TripDetail as EditableTripDetail } from "@/compone
 import TripImportDialog from "@/components/features/trips/TripImportDialog";
 import TripShareDialog from "@/components/features/trips/TripShareDialog";
 import TripDayGanttBar from "@/components/features/trips/TripDayGanttBar";
+import TripFeedbackPanel, { type FeedbackSummary } from "@/components/features/trips/TripFeedbackPanel";
 import { buildOverviewGanttSegments } from "@/components/features/trips/TripDayGanttOverviewData";
 import { deriveCoverageSummary } from "@/components/features/trips/TripDayGanttSegments";
 import TripOverviewMapPanel from "@/components/features/trips/TripOverviewMapPanel";
@@ -39,12 +40,14 @@ type ApiEnvelope<T> = {
 type TripSummary = {
   id: string;
   name: string;
+  accessRole?: "owner" | "viewer" | "contributor";
   startDate: string;
   endDate: string;
   dayCount: number;
   plannedCostTotal: number;
   accommodationCostTotalCents: number | null;
   heroImageUrl: string | null;
+  feedback: FeedbackSummary;
 };
 
 type TripDay = {
@@ -66,6 +69,7 @@ type TripDay = {
     checkInTime?: string | null;
     checkOutTime?: string | null;
     location: { lat: number; lng: number; label: string | null } | null;
+    feedback: FeedbackSummary;
   } | null;
   dayPlanItems: {
     id: string;
@@ -74,6 +78,7 @@ type TripDay = {
     contentJson: string;
     linkUrl: string | null;
     location: { lat: number; lng: number; label: string | null } | null;
+    feedback: FeedbackSummary;
   }[];
   travelSegments?: {
     id: string;
@@ -86,6 +91,7 @@ type TripDay = {
     distanceKm: number | null;
     linkUrl: string | null;
   }[];
+  feedback: FeedbackSummary;
 };
 
 type TripDetail = {
@@ -111,6 +117,7 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
   const router = useRouter();
   const theme = useTheme();
   const isNarrowLayout = useMediaQuery(theme.breakpoints.down("sm"));
+  const isReadOnlyCollaborator = detail?.trip.accessRole ? detail.trip.accessRole !== "owner" : false;
 
   const formatDate = useMemo(
     () => (value: string) =>
@@ -490,7 +497,28 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
 
           <TripOverviewMapPanel points={overviewMapData.points} missingLocations={overviewMapData.missingLocations} />
 
-          <TripBucketListPanel tripId={detail.trip.id} />
+          {!isReadOnlyCollaborator ? <TripBucketListPanel tripId={detail.trip.id} /> : null}
+
+          <TripFeedbackPanel
+            tripId={detail.trip.id}
+            feedback={detail.trip.feedback}
+            targetType="trip"
+            targetId={detail.trip.id}
+            contextLabel={detail.trip.name}
+            onUpdated={(feedback) =>
+              setDetail((current) =>
+                current
+                  ? {
+                      ...current,
+                      trip: {
+                        ...current.trip,
+                        feedback,
+                      },
+                    }
+                  : current,
+              )
+            }
+          />
 
           <Paper
             elevation={1}
@@ -658,7 +686,7 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                                   title={t("trips.timeline.openDay")}
                                 >
                                   <SvgIcon sx={{ fontSize: 18 }} viewBox="0 0 24 24">
-                                    <path d="m3 17.25V21h3.75l11-11-3.75-3.75zm17.71-10.04a1 1 0 0 0 0-1.41l-2.5-2.5a1 1 0 0 0-1.41 0l-1.96 1.96 3.75 3.75z" />
+                                    <path d="M12 4a8 8 0 1 1 0 16 8 8 0 0 1 0-16Zm0 3a1.25 1.25 0 1 0 0 2.5A1.25 1.25 0 0 0 12 7Zm-2 6.5h1v3h2v-3h1v-2h-4v2Z" />
                                   </SvgIcon>
                                 </IconButton>
                               </Box>
@@ -695,6 +723,28 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                                 />
                               </Box>
                             )}
+
+                            <TripFeedbackPanel
+                              tripId={detail.trip.id}
+                              feedback={day.feedback}
+                              targetType="tripDay"
+                              targetId={day.id}
+                              contextLabel={
+                                day.note && day.note.trim().length > 0
+                                  ? `${formatMessage(t("trips.timeline.dayLabel"), { index: day.dayIndex })}: ${day.note.trim()}`
+                                  : formatMessage(t("trips.timeline.dayLabel"), { index: day.dayIndex })
+                              }
+                              onUpdated={(feedback) =>
+                                setDetail((current) =>
+                                  current
+                                    ? {
+                                        ...current,
+                                        days: current.days.map((entry) => (entry.id === day.id ? { ...entry, feedback } : entry)),
+                                      }
+                                    : current,
+                                )
+                              }
+                            />
                           </Box>
                         </Box>
                       </Paper>
@@ -715,21 +765,29 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
             }}
           >
             <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
-              <Button variant="outlined" onClick={() => setImportOpen(true)}>
-                {t("trips.import.action")}
-              </Button>
+              {!isReadOnlyCollaborator ? (
+                <Button variant="outlined" onClick={() => setImportOpen(true)}>
+                  {t("trips.import.action")}
+                </Button>
+              ) : null}
               <Button variant="outlined" onClick={handleExport}>
                 {t("trips.export.action")}
               </Button>
-              <Button variant="outlined" onClick={() => setShareOpen(true)}>
-                {t("trips.share.open")}
-              </Button>
-              <Button variant="outlined" onClick={() => setEditOpen(true)}>
-                {t("trips.edit.open")}
-              </Button>
-              <Button variant="outlined" color="error" onClick={() => setDeleteOpen(true)}>
-                {t("trips.delete.open")}
-              </Button>
+              {!isReadOnlyCollaborator ? (
+                <Button variant="outlined" onClick={() => setShareOpen(true)}>
+                  {t("trips.share.open")}
+                </Button>
+              ) : null}
+              {!isReadOnlyCollaborator ? (
+                <Button variant="outlined" onClick={() => setEditOpen(true)}>
+                  {t("trips.edit.open")}
+                </Button>
+              ) : null}
+              {!isReadOnlyCollaborator ? (
+                <Button variant="outlined" color="error" onClick={() => setDeleteOpen(true)}>
+                  {t("trips.delete.open")}
+                </Button>
+              ) : null}
             </Box>
           </Paper>
         </>

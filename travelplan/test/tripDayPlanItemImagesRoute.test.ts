@@ -34,6 +34,10 @@ describe("/api/trips/[id]/day-plan-items/images", () => {
       data: { email: "day-plan-item-images-other@example.com", passwordHash: "hashed", role: "OWNER" },
     });
     const otherToken = await createSessionJwt({ sub: other.id, role: other.role });
+    const viewer = await prisma.user.create({
+      data: { email: "day-plan-item-images-viewer@example.com", passwordHash: "hashed", role: "VIEWER" },
+    });
+    const viewerToken = await createSessionJwt({ sub: viewer.id, role: viewer.role });
 
     const trip = await prisma.trip.create({
       data: {
@@ -54,6 +58,9 @@ describe("/api/trips/[id]/day-plan-items/images", () => {
           content: [{ type: "paragraph", content: [{ type: "text", text: "Gallery stop" }] }],
         }),
       },
+    });
+    await prisma.tripMember.create({
+      data: { tripId: trip.id, userId: viewer.id, role: "VIEWER" },
     });
 
     const unauthGet = new NextRequest(
@@ -103,6 +110,16 @@ describe("/api/trips/[id]/day-plan-items/images", () => {
     const getPayload = (await getResponse.json()) as ApiEnvelope<{ images: { id: string }[] }>;
     expect(getResponse.status).toBe(200);
     expect(getPayload.data?.images).toHaveLength(1);
+
+    const viewerGetRequest = new NextRequest(
+      `http://localhost/api/trips/${trip.id}/day-plan-items/images?tripDayId=${day.id}&dayPlanItemId=${dayPlanItem.id}`,
+      {
+        method: "GET",
+        headers: { cookie: `session=${viewerToken}` },
+      },
+    );
+    const viewerGetResponse = await GET(viewerGetRequest, { params: Promise.resolve({ id: trip.id }) });
+    expect(viewerGetResponse.status).toBe(200);
 
     const batchGetRequest = new NextRequest(
       `http://localhost/api/trips/${trip.id}/day-plan-items/images?tripDayId=${day.id}`,

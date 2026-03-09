@@ -56,3 +56,21 @@ export const TravelTransportType = {
 } as const
 
 export type TravelTransportType = (typeof TravelTransportType)[keyof typeof TravelTransportType]
+
+
+export const FeedbackTargetType = {
+  TRIP: 'TRIP',
+  TRIP_DAY: 'TRIP_DAY',
+  ACCOMMODATION: 'ACCOMMODATION',
+  DAY_PLAN_ITEM: 'DAY_PLAN_ITEM'
+} as const
+
+export type FeedbackTargetType = (typeof FeedbackTargetType)[keyof typeof FeedbackTargetType]
+
+
+export const FeedbackVoteValue = {
+  UP: 'UP',
+  DOWN: 'DOWN'
+} as const
+
+export type FeedbackVoteValue = (typeof FeedbackVoteValue)[keyof typeof FeedbackVoteValue]

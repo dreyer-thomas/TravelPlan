@@ -1,6 +1,9 @@
 import { prisma } from "@/lib/db/prisma";
 import { hashPassword } from "@/lib/auth/bcrypt";
 import { Prisma } from "@/generated/prisma/client";
+import { getTripAccessForUser, type TripAccessRole } from "@/lib/auth/tripAccess";
+import type { TripFeedbackSummary } from "@/lib/repositories/tripFeedbackRepo";
+import { listTripFeedbackForUser } from "@/lib/repositories/tripFeedbackRepo";
 import type { TripImportConflictStrategy, TripImportPayloadInput } from "@/lib/validation/tripImportSchemas";
 
 export type CreateTripParams = {
@@ -57,6 +60,7 @@ export type TripDaySummary = {
     checkInTime: string | null;
     checkOutTime: string | null;
     location: { lat: number; lng: number; label: string | null } | null;
+    feedback: TripFeedbackSummary;
   } | null;
   dayPlanItems: {
     id: string;
@@ -68,6 +72,7 @@ export type TripDaySummary = {
     payments: { amountCents: number; dueDate: string }[];
     linkUrl: string | null;
     location: { lat: number; lng: number; label: string | null } | null;
+    feedback: TripFeedbackSummary;
   }[];
   travelSegments: {
     id: string;
@@ -80,17 +85,20 @@ export type TripDaySummary = {
     distanceKm: number | null;
     linkUrl: string | null;
   }[];
+  feedback: TripFeedbackSummary;
 };
 
 export type TripWithDays = {
   id: string;
   name: string;
+  accessRole: TripAccessRole;
   startDate: Date;
   endDate: Date;
   dayCount: number;
   plannedCostTotal: number;
   accommodationCostTotalCents: number;
   heroImageUrl: string | null;
+  feedback: TripFeedbackSummary;
   days: TripDaySummary[];
 };
 
@@ -168,14 +176,6 @@ type ImportTripSuccessResult = {
 };
 
 export type ImportTripResult = ImportTripConflictResult | ImportTripSuccessResult;
-
-export type TripAccessRole = "owner" | "viewer" | "contributor";
-
-export type TripAccess = {
-  tripId: string;
-  ownerUserId: string;
-  accessRole: TripAccessRole;
-};
 
 export type TripCollaborator = {
   id: string;
@@ -453,7 +453,18 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
       id: tripId,
       OR: [{ userId }, { members: { some: { userId } } }],
     },
-    include: {
+    select: {
+      id: true,
+      userId: true,
+      name: true,
+      startDate: true,
+      endDate: true,
+      heroImageUrl: true,
+      members: {
+        where: { userId },
+        select: { role: true },
+        take: 1,
+      },
       days: {
         orderBy: [{ dayIndex: "asc" }, { date: "asc" }],
         include: {
@@ -521,6 +532,20 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
     return null;
   }
 
+  const accessRole: TripAccessRole =
+    trip.userId === userId ? "owner" : mapTripMemberRole(trip.members[0]?.role ?? "VIEWER");
+  const feedbackByKey = (await listTripFeedbackForUser(userId, trip.id)) ?? {};
+  const emptyFeedback = (targetType: TripFeedbackSummary["targetType"], targetId: string): TripFeedbackSummary => ({
+    targetType,
+    targetId,
+    comments: [],
+    voteSummary: {
+      upCount: 0,
+      downCount: 0,
+      userVote: null,
+    },
+  });
+
   const dayMetaRows = await prisma.$queryRawUnsafe<
     {
       id: string;
@@ -548,12 +573,14 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
   return {
     id: trip.id,
     name: trip.name,
+    accessRole,
     startDate: trip.startDate,
     endDate: trip.endDate,
     dayCount: trip._count.days,
     plannedCostTotal,
     accommodationCostTotalCents,
     heroImageUrl: trip.heroImageUrl,
+    feedback: feedbackByKey[`trip:${trip.id}`] ?? emptyFeedback("trip", trip.id),
     days: trip.days.map((day) => {
       const accommodationName = day.accommodation?.name?.trim() ?? "";
       const hasAccommodation = accommodationName.length > 0;
@@ -590,6 +617,9 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
                       label: day.accommodation!.locationLabel,
                     }
                   : null,
+              feedback:
+                feedbackByKey[`accommodation:${day.accommodation!.id}`] ??
+                emptyFeedback("accommodation", day.accommodation!.id),
             }
           : null,
         dayPlanItems: [...day.dayPlanItems].sort(compareDayPlanItemsByStartTime).map((item) => ({
@@ -609,6 +639,7 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
                   label: item.locationLabel,
                 }
               : null,
+          feedback: feedbackByKey[`dayPlanItem:${item.id}`] ?? emptyFeedback("dayPlanItem", item.id),
         })),
         travelSegments: day.travelSegments.map((segment) => ({
           id: segment.id,
@@ -621,6 +652,7 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
           distanceKm: segment.distanceKm,
           linkUrl: segment.linkUrl,
         })),
+        feedback: feedbackByKey[`tripDay:${day.id}`] ?? emptyFeedback("tripDay", day.id),
       };
     }),
   };
@@ -1107,47 +1139,6 @@ export const deleteTripForUser = async (userId: string, tripId: string) => {
   return result.count > 0;
 };
 
-export const getTripAccessForUser = async (userId: string, tripId: string): Promise<TripAccess | null> => {
-  const trip = await prisma.trip.findFirst({
-    where: {
-      id: tripId,
-      OR: [{ userId }, { members: { some: { userId } } }],
-    },
-    select: {
-      id: true,
-      userId: true,
-      members: {
-        where: { userId },
-        select: { role: true },
-        take: 1,
-      },
-    },
-  });
-
-  if (!trip) {
-    return null;
-  }
-
-  if (trip.userId === userId) {
-    return {
-      tripId: trip.id,
-      ownerUserId: trip.userId,
-      accessRole: "owner",
-    };
-  }
-
-  const membership = trip.members[0];
-  if (!membership) {
-    return null;
-  }
-
-  return {
-    tripId: trip.id,
-    ownerUserId: trip.userId,
-    accessRole: mapTripMemberRole(membership.role),
-  };
-};
-
 export const listTripCollaboratorsForOwner = async (
   ownerUserId: string,
   tripId: string,
@@ -1275,7 +1266,9 @@ export const getTripDayByIdForUser = async ({
     where: {
       id: dayId,
       tripId,
-      trip: { userId },
+      trip: {
+        OR: [{ userId }, { members: { some: { userId } } }],
+      },
     },
     select: { id: true, tripId: true },
   });
@@ -1300,7 +1293,9 @@ export const getDayRoutePointsForUser = async ({
     where: {
       id: dayId,
       tripId,
-      trip: { userId },
+      trip: {
+        OR: [{ userId }, { members: { some: { userId } } }],
+      },
     },
     select: {
       id: true,

@@ -94,6 +94,17 @@ const findTripDayForUser = async (userId: string, tripId: string, tripDayId: str
     },
   });
 
+const findTripDayForTripParticipant = async (userId: string, tripId: string, tripDayId: string) =>
+  prisma.tripDay.findFirst({
+    where: {
+      id: tripDayId,
+      tripId,
+      trip: {
+        OR: [{ userId }, { members: { some: { userId } } }],
+      },
+    },
+  });
+
 const findScopedAccommodation = async ({ userId, tripId, tripDayId, accommodationId }: AccommodationImageScopeParams) =>
   prisma.accommodation.findFirst({
     where: {
@@ -103,6 +114,27 @@ const findScopedAccommodation = async ({ userId, tripId, tripDayId, accommodatio
         id: tripDayId,
         tripId,
         trip: { userId },
+      },
+    },
+    select: { id: true },
+  });
+
+const findScopedAccommodationForTripParticipant = async ({
+  userId,
+  tripId,
+  tripDayId,
+  accommodationId,
+}: AccommodationImageScopeParams) =>
+  prisma.accommodation.findFirst({
+    where: {
+      id: accommodationId,
+      tripDayId,
+      tripDay: {
+        id: tripDayId,
+        tripId,
+        trip: {
+          OR: [{ userId }, { members: { some: { userId } } }],
+        },
       },
     },
     select: { id: true },
@@ -425,7 +457,7 @@ export const getAccommodationCostTotalForTrip = async (
 export const listAccommodationImages = async (
   params: AccommodationImageScopeParams,
 ): Promise<AccommodationImageDetail[] | null> => {
-  const accommodation = await findScopedAccommodation(params);
+  const accommodation = await findScopedAccommodationForTripParticipant(params);
   if (!accommodation) {
     return null;
   }

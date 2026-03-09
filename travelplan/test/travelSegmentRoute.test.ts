@@ -215,6 +215,75 @@ describe("/api/trips/[id]/travel-segments", () => {
     expect(deletePayload.data?.deleted).toBe(true);
   });
 
+  it("returns 404 when a viewer tries to create a travel segment", async () => {
+    const owner = await prisma.user.create({
+      data: { email: "segment-viewer-owner@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const viewer = await prisma.user.create({
+      data: { email: "segment-viewer@example.com", passwordHash: "hashed", role: "VIEWER" },
+    });
+    const token = await createSessionJwt({ sub: viewer.id, role: viewer.role });
+
+    const trip = await prisma.trip.create({
+      data: {
+        userId: owner.id,
+        name: "Viewer Segment Trip",
+        startDate: new Date("2026-12-11T00:00:00.000Z"),
+        endDate: new Date("2026-12-11T00:00:00.000Z"),
+      },
+    });
+    const day = await prisma.tripDay.create({
+      data: {
+        tripId: trip.id,
+        date: new Date("2026-12-11T00:00:00.000Z"),
+        dayIndex: 1,
+      },
+    });
+    const accommodation = await prisma.accommodation.create({
+      data: {
+        tripDayId: day.id,
+        name: "Station Stay",
+        status: "PLANNED",
+      },
+    });
+    const planItem = await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: day.id,
+        contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Plan" }] }] }),
+      },
+    });
+    await prisma.tripMember.create({
+      data: {
+        tripId: trip.id,
+        userId: viewer.id,
+        role: "VIEWER",
+      },
+    });
+
+    const request = buildRequest(`http://localhost/api/trips/${trip.id}/travel-segments`, {
+      session: token,
+      csrf: "csrf-token",
+      method: "POST",
+      body: JSON.stringify({
+        tripDayId: day.id,
+        fromItemType: "dayPlanItem",
+        fromItemId: planItem.id,
+        toItemType: "accommodation",
+        toItemId: accommodation.id,
+        transportType: "car",
+        durationMinutes: 30,
+        distanceKm: 12.2,
+        linkUrl: "https://maps.example.com",
+      }),
+    });
+
+    const response = await POST(request, { params: { id: trip.id } });
+    const payload = (await response.json()) as ApiEnvelope<null>;
+
+    expect(response.status).toBe(404);
+    expect(payload.error?.code).toBe("not_found");
+  });
+
   it("rejects non-adjacent travel segments", async () => {
     const user = await prisma.user.create({
       data: { email: "segment-adjacent@example.com", passwordHash: "hashed", role: "OWNER" },

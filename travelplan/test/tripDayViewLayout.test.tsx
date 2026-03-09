@@ -260,6 +260,254 @@ describe("TripDayView layout", () => {
     vi.unstubAllGlobals();
   });
 
+  it("hides owner-only day controls while showing compact feedback triggers", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const fetchMock = withBucketList(async (input) => {
+      const url = String(input);
+      if (url.includes("/accommodations/images") || url.includes("/day-plan-items/images")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { images: [] }, error: null }),
+        };
+      }
+      if (url.includes("/days/day-1/route")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { points: [], route: { polyline: [], distanceMeters: null, durationSeconds: null } }, error: null }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              accessRole: "viewer",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-01T00:00:00.000Z",
+              dayCount: 1,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: {
+                  id: "stay-1",
+                  name: "Viewer Hotel",
+                  notes: null,
+                  status: "booked",
+                  costCents: null,
+                  payments: [],
+                  link: null,
+                  checkInTime: null,
+                  checkOutTime: null,
+                  location: null,
+                  feedback: { targetType: "accommodation", targetId: "stay-1", comments: [], voteSummary: { upCount: 0, downCount: 0, userVote: null } },
+                },
+                dayPlanItems: [
+                  {
+                    id: "item-1",
+                    title: "Museum",
+                    fromTime: "09:00",
+                    toTime: "10:00",
+                    contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Visit" }] }] }),
+                    costCents: null,
+                    payments: [],
+                    linkUrl: null,
+                    location: null,
+                    feedback: { targetType: "dayPlanItem", targetId: "item-1", comments: [], voteSummary: { upCount: 0, downCount: 0, userVote: null } },
+                  },
+                ],
+                travelSegments: [],
+                feedback: { targetType: "tripDay", targetId: "day-1", comments: [], voteSummary: { upCount: 0, downCount: 0, userVote: null } },
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-1" />
+      </I18nProvider>,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add stay" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add item" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("day-plan-item-edit")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Add a comment")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "Open comments dialog for Day 1, no comments, Upvote 0, Downvote 0",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "Open comments dialog for Current night accommodation: Viewer Hotel, no comments, Upvote 0, Downvote 0",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "Open comments dialog for Museum, no comments, Upvote 0, Downvote 0",
+      }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Bucket list")).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("submits viewer feedback from the day view without showing owner-only controls", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const fetchMock = withBucketList(async (input, init) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.includes("/accommodations/images") || url.includes("/day-plan-items/images")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { images: [] }, error: null }),
+        };
+      }
+      if (url.includes("/days/day-1/route")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { points: [], route: { polyline: [], distanceMeters: null, durationSeconds: null } }, error: null }),
+        };
+      }
+      if (url.endsWith("/api/auth/csrf") && method === "GET") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
+        };
+      }
+      if (url.endsWith("/api/trips/trip-1/feedback/comments") && method === "POST") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: {
+              feedback: {
+                targetType: "tripDay",
+                targetId: "day-1",
+                comments: [
+                  {
+                    id: "comment-1",
+                    body: "Looks promising",
+                    createdAt: "",
+                    updatedAt: "",
+                    author: { id: "viewer-1", email: "viewer@example.com" },
+                  },
+                ],
+                voteSummary: { upCount: 0, downCount: 0, userVote: null },
+              },
+            },
+            error: null,
+          }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              accessRole: "viewer",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-01T00:00:00.000Z",
+              dayCount: 1,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: {
+                  id: "stay-1",
+                  name: "Viewer Hotel",
+                  notes: null,
+                  status: "booked",
+                  costCents: null,
+                  payments: [],
+                  link: null,
+                  checkInTime: null,
+                  checkOutTime: null,
+                  location: null,
+                  feedback: { targetType: "accommodation", targetId: "stay-1", comments: [], voteSummary: { upCount: 0, downCount: 0, userVote: null } },
+                },
+                dayPlanItems: [
+                  {
+                    id: "item-1",
+                    title: "Museum",
+                    fromTime: "09:00",
+                    toTime: "10:00",
+                    contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Visit" }] }] }),
+                    costCents: null,
+                    payments: [],
+                    linkUrl: null,
+                    location: null,
+                    feedback: { targetType: "dayPlanItem", targetId: "item-1", comments: [], voteSummary: { upCount: 0, downCount: 0, userVote: null } },
+                  },
+                ],
+                travelSegments: [],
+                feedback: { targetType: "tripDay", targetId: "day-1", comments: [], voteSummary: { upCount: 0, downCount: 0, userVote: null } },
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-1" />
+      </I18nProvider>,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add stay" })).not.toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Open comments dialog for Day 1, no comments, Upvote 0, Downvote 0",
+      }),
+    );
+    await userEvent.type(await screen.findByLabelText("Add a comment"), "Looks promising");
+    await userEvent.click(screen.getByRole("button", { name: "Post comment" }));
+
+    expect(await screen.findByText("Looks promising")).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
   it("renders bucket list items and opens the plan dialog with prefill data", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";

@@ -38,6 +38,7 @@ import TripDayMapPanel, {
 import TripDayBucketListPanel from "@/components/features/trips/TripDayBucketListPanel";
 import TripDayPlanDialog from "@/components/features/trips/TripDayPlanDialog";
 import TripDayTravelSegmentDialog from "@/components/features/trips/TripDayTravelSegmentDialog";
+import TripFeedbackPanel, { type FeedbackSummary } from "@/components/features/trips/TripFeedbackPanel";
 import { MiniImageStrip, PlanItemRichContent, isSafeLink, parsePlanText } from "@/components/features/trips/TripDayPlanItemContent";
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
@@ -50,12 +51,14 @@ type ApiEnvelope<T> = {
 type TripSummary = {
   id: string;
   name: string;
+  accessRole?: "owner" | "viewer" | "contributor";
   startDate: string;
   endDate: string;
   dayCount: number;
   plannedCostTotal: number;
   accommodationCostTotalCents: number | null;
   heroImageUrl: string | null;
+  feedback?: FeedbackSummary;
 };
 
 type TripDay = {
@@ -79,6 +82,7 @@ type TripDay = {
     checkInTime: string | null;
     checkOutTime: string | null;
     location?: { lat: number; lng: number; label?: string | null } | null;
+    feedback?: FeedbackSummary;
   } | null;
   dayPlanItems: {
     id: string;
@@ -90,6 +94,7 @@ type TripDay = {
     payments?: { amountCents: number; dueDate: string }[];
     linkUrl: string | null;
     location: { lat: number; lng: number; label?: string | null } | null;
+    feedback?: FeedbackSummary;
   }[];
   travelSegments?: {
     id: string;
@@ -102,6 +107,7 @@ type TripDay = {
     distanceKm: number | null;
     linkUrl: string | null;
   }[];
+  feedback?: FeedbackSummary;
 };
 
 type DayPlanItem = {
@@ -116,6 +122,7 @@ type DayPlanItem = {
   linkUrl: string | null;
   location: { lat: number; lng: number; label?: string | null } | null;
   createdAt: string;
+  feedback?: FeedbackSummary;
 };
 
 type BucketListItem = {
@@ -272,6 +279,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const scrollRestoreKey = useMemo(() => `trip-day-scroll:${tripId}:${dayId}`, [dayId, tripId]);
   const defaultCheckInTime = "16:00";
   const defaultCheckOutTime = "10:00";
+  const isReadOnlyCollaborator = detail?.trip.accessRole ? detail.trip.accessRole !== "owner" : false;
 
   useEffect(() => {
     planItemsRef.current = planItems;
@@ -303,6 +311,11 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
         timeZone: "UTC",
       }).format(new Date(value)),
     [language],
+  );
+
+  const buildFeedbackContextLabel = useCallback(
+    (value: string) => value.trim(),
+    [],
   );
 
   const formatCost = useMemo(
@@ -427,6 +440,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
           linkUrl: item.linkUrl,
           location: item.location,
           createdAt: "",
+          feedback: item.feedback,
         })),
       );
       setTravelSegments(Array.isArray(resolvedDay.travelSegments) ? resolvedDay.travelSegments : []);
@@ -446,6 +460,13 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     setBucketLoading(true);
     setBucketError(null);
     try {
+      if (detail?.trip.accessRole && detail.trip.accessRole !== "owner") {
+        setBucketItems([]);
+        setBucketError(null);
+        setBucketLoading(false);
+        return;
+      }
+
       const response = await fetch(`/api/trips/${tripId}/bucket-list-items`, {
         method: "GET",
         credentials: "include",
@@ -466,7 +487,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     } finally {
       setBucketLoading(false);
     }
-  }, [resolveApiError, t, tripId]);
+  }, [detail?.trip.accessRole, resolveApiError, t, tripId]);
 
   const ensureCsrfToken = useCallback(async () => {
     if (csrfToken) return csrfToken;
@@ -491,6 +512,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   }, [travelSegments]);
 
   const handleOpenTravelSegment = (from: SegmentItem, to: SegmentItem) => {
+    if (isReadOnlyCollaborator) return;
     setActiveSegmentFrom(from);
     setActiveSegmentTo(to);
     setActiveSegment(segmentsByKey.get(buildSegmentKey(from, to)) ?? null);
@@ -527,18 +549,21 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   };
 
   const handleOpenAddPlan = () => {
+    if (isReadOnlyCollaborator) return;
     setPlanDialogPrefill(null);
     setSelectedPlanItem(null);
     setPlanDialogMode("add");
   };
 
   const handleOpenEditPlan = (item: DayPlanItem) => {
+    if (isReadOnlyCollaborator) return;
     setPlanDialogPrefill(null);
     setSelectedPlanItem(item);
     setPlanDialogMode("edit");
   };
 
   const handleAddBucketToDay = (item: BucketListItem) => {
+    if (isReadOnlyCollaborator) return;
     setPlanDialogPrefill(buildBucketListPrefill(item));
     setSelectedPlanItem(null);
     setPlanDialogMode("add");
@@ -637,13 +662,15 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     const key = `${day.id}:${openTarget}:${itemId ?? ""}`;
     if (handledDeepLinkRef.current === key) return;
 
-    if (openTarget === "stay") {
-      setStayOpen(true);
+      if (openTarget === "stay") {
+      if (isReadOnlyCollaborator) return;
+        setStayOpen(true);
       handledDeepLinkRef.current = key;
       return;
     }
 
     if (openTarget === "plan") {
+      if (isReadOnlyCollaborator) return;
       if (itemId) {
         const item = planItems.find((entry) => entry.id === itemId) ?? null;
         if (item) {
@@ -658,7 +685,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
       setPlanDialogMode("add");
       handledDeepLinkRef.current = key;
     }
-  }, [day, loading, planItems, searchParams]);
+  }, [day, isReadOnlyCollaborator, loading, planItems, searchParams]);
 
   const orderedDays = useMemo(() => {
     if (!detail) return [];
@@ -977,7 +1004,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
             {travelSegmentLabel(segment)}
           </Typography>
         </Box>
-        {segment ? (
+        {isReadOnlyCollaborator ? null : segment ? (
           <IconButton
             size="small"
             color="primary"
@@ -1395,16 +1422,18 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                     <Typography variant="h5" fontWeight={700}>
                       {dayTitle}
                     </Typography>
-                    <IconButton
-                      size="small"
-                      aria-label={t("trips.dayImage.editAction")}
-                      title={t("trips.dayImage.editAction")}
-                      onClick={() => setDayMetaOpen(true)}
-                    >
-                      <SvgIcon fontSize="inherit">
-                        <path d="M3 17.25V21h3.75l11-11-3.75-3.75-11 11zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66z" />
-                      </SvgIcon>
-                    </IconButton>
+                    {!isReadOnlyCollaborator ? (
+                      <IconButton
+                        size="small"
+                        aria-label={t("trips.dayImage.editAction")}
+                        title={t("trips.dayImage.editAction")}
+                        onClick={() => setDayMetaOpen(true)}
+                      >
+                        <SvgIcon fontSize="inherit">
+                          <path d="M3 17.25V21h3.75l11-11-3.75-3.75-11 11zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66z" />
+                        </SvgIcon>
+                      </IconButton>
+                    ) : null}
                   </Box>
                   <Typography variant="body2" color="text.secondary">
                     {formatDate(day.date)}
@@ -1420,6 +1449,28 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                       <Chip size="small" color="success" label={t("trips.dayView.ganttFullyPlanned")} />
                     ) : null}
                   </Box>
+                  <TripFeedbackPanel
+                    tripId={tripId}
+                    feedback={day.feedback}
+                    targetType="tripDay"
+                    targetId={day.id}
+                    contextLabel={buildFeedbackContextLabel(
+                      day.note && day.note.trim().length > 0
+                        ? formatMessage(t("trips.dayView.titleWithNote"), { index: day.dayIndex, note: day.note.trim() })
+                        : formatMessage(t("trips.dayView.title"), { index: day.dayIndex }),
+                    )}
+                    onUpdated={(feedback) => {
+                      setDay((current) => (current ? { ...current, feedback } : current));
+                      setDetail((current) =>
+                        current
+                          ? {
+                              ...current,
+                              days: current.days.map((entry) => (entry.id === day.id ? { ...entry, feedback } : entry)),
+                            }
+                          : current,
+                      );
+                    }}
+                  />
                 </Box>
               </Box>
               {hasDayImage && (
@@ -1449,21 +1500,25 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                   {t("trips.dayView.timelineTitle")}
                 </Typography>
                 <Box display="flex" alignItems="center" gap={1}>
-                  <Button size="small" variant="outlined" onClick={() => setStayOpen(true)}>
-                    {day.accommodation ? (
-                      <>
-                        {t("trips.stay.editAction")}
-                        <SvgIcon fontSize="small" sx={{ ml: 0.75 }}>
-                          <path d="M3 17.25V21h3.75l11-11-3.75-3.75-11 11zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66z" />
-                        </SvgIcon>
-                      </>
-                    ) : (
-                      t("trips.stay.addAction")
-                    )}
-                  </Button>
-                  <Button size="small" variant="outlined" onClick={handleOpenAddPlan}>
-                    {t("trips.plan.addPrimaryAction")}
-                  </Button>
+                  {!isReadOnlyCollaborator ? (
+                    <Button size="small" variant="outlined" onClick={() => setStayOpen(true)}>
+                      {day.accommodation ? (
+                        <>
+                          {t("trips.stay.editAction")}
+                          <SvgIcon fontSize="small" sx={{ ml: 0.75 }}>
+                            <path d="M3 17.25V21h3.75l11-11-3.75-3.75-11 11zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66z" />
+                          </SvgIcon>
+                        </>
+                      ) : (
+                        t("trips.stay.addAction")
+                      )}
+                    </Button>
+                  ) : null}
+                  {!isReadOnlyCollaborator ? (
+                    <Button size="small" variant="outlined" onClick={handleOpenAddPlan}>
+                      {t("trips.plan.addPrimaryAction")}
+                    </Button>
+                  ) : null}
                 </Box>
               </Box>
               <Divider sx={{ my: 1.5 }} />
@@ -1489,7 +1544,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                     <Typography variant="body1" fontWeight={600}>
                       {t("trips.dayView.previousNightTitle")}
                     </Typography>
-                    {previousDay ? (
+                    {previousDay && !isReadOnlyCollaborator ? (
                       previousStay ? (
                         <Button size="small" variant="text" onClick={() => setPreviousStayOpen(true)}>
                           {t("trips.stay.editAction")}
@@ -1530,6 +1585,30 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                         images={previousAccommodationImages}
                         altPrefix={previousStay.name}
                         onImageClick={(imageUrl, alt) => setFullscreenImage({ imageUrl, alt })}
+                      />
+                      <TripFeedbackPanel
+                        tripId={tripId}
+                        feedback={previousStay.feedback}
+                        targetType="accommodation"
+                        targetId={previousStay.id}
+                        contextLabel={buildFeedbackContextLabel(
+                          `${t("trips.dayView.previousNightTitle")}: ${previousStay.name}`,
+                        )}
+                        tripDayId={previousDay?.id}
+                        onUpdated={(feedback) =>
+                          setDetail((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  days: current.days.map((entry) =>
+                                    entry.id === previousDay?.id && entry.accommodation
+                                      ? { ...entry, accommodation: { ...entry.accommodation, feedback } }
+                                      : entry,
+                                  ),
+                                }
+                              : current,
+                          )
+                        }
                       />
                     </Box>
                   ) : (
@@ -1634,20 +1713,62 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                                 altPrefix={t("trips.dayView.timelineTitle")}
                                 onImageClick={(imageUrl, alt) => setFullscreenImage({ imageUrl, alt })}
                               />
+                              <TripFeedbackPanel
+                                tripId={tripId}
+                                feedback={item.feedback}
+                                targetType="dayPlanItem"
+                                targetId={item.id}
+                                contextLabel={buildFeedbackContextLabel(title)}
+                                tripDayId={day.id}
+                                onUpdated={(feedback) => {
+                                  setPlanItems((current) =>
+                                    current.map((entry) => (entry.id === item.id ? { ...entry, feedback } : entry)),
+                                  );
+                                  setDay((current) =>
+                                    current
+                                      ? {
+                                          ...current,
+                                          dayPlanItems: current.dayPlanItems.map((entry) =>
+                                            entry.id === item.id ? { ...entry, feedback } : entry,
+                                          ),
+                                        }
+                                      : current,
+                                  );
+                                  setDetail((current) =>
+                                    current
+                                      ? {
+                                          ...current,
+                                          days: current.days.map((entry) =>
+                                            entry.id === day.id
+                                              ? {
+                                                  ...entry,
+                                                  dayPlanItems: entry.dayPlanItems.map((planItem) =>
+                                                    planItem.id === item.id ? { ...planItem, feedback } : planItem,
+                                                  ),
+                                                }
+                                              : entry,
+                                          ),
+                                        }
+                                      : current,
+                                  );
+                                }}
+                              />
                             </Box>
-                            <Box display="flex" alignItems="center" gap={0.5} data-testid="day-plan-item-actions">
-                              <IconButton
-                                size="small"
-                                aria-label={t("trips.plan.editItemAria")}
-                                title={t("trips.plan.editItemAria")}
-                                onClick={() => handleOpenEditPlan(item)}
-                                data-testid="day-plan-item-edit"
-                              >
-                                <SvgIcon fontSize="inherit">
-                                  <path d="M3 17.25V21h3.75l11-11-3.75-3.75-11 11zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66z" />
-                                </SvgIcon>
-                              </IconButton>
-                            </Box>
+                            {!isReadOnlyCollaborator ? (
+                              <Box display="flex" alignItems="center" gap={0.5} data-testid="day-plan-item-actions">
+                                <IconButton
+                                  size="small"
+                                  aria-label={t("trips.plan.editItemAria")}
+                                  title={t("trips.plan.editItemAria")}
+                                  onClick={() => handleOpenEditPlan(item)}
+                                  data-testid="day-plan-item-edit"
+                                >
+                                  <SvgIcon fontSize="inherit">
+                                    <path d="M3 17.25V21h3.75l11-11-3.75-3.75-11 11zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66z" />
+                                  </SvgIcon>
+                                </IconButton>
+                              </Box>
+                            ) : null}
                           </Box>
                         </Paper>
                         {nextSegmentItem ? renderTravelSegment(segmentItem, nextSegmentItem) : null}
@@ -1671,7 +1792,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                     <Typography variant="body1" fontWeight={600}>
                       {t("trips.dayView.currentNightTitle")}
                     </Typography>
-                    {canCopyPreviousStay ? (
+                    {canCopyPreviousStay && !isReadOnlyCollaborator ? (
                       <Button size="small" variant="text" disabled={copyingStay} onClick={() => void handleCopyPreviousStay()}>
                         {t("trips.stay.copyPreviousAction")}
                       </Button>
@@ -1703,6 +1824,35 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                         images={accommodationImages}
                         altPrefix={currentStay.name}
                         onImageClick={(imageUrl, alt) => setFullscreenImage({ imageUrl, alt })}
+                      />
+                      <TripFeedbackPanel
+                        tripId={tripId}
+                        feedback={currentStay.feedback}
+                        targetType="accommodation"
+                        targetId={currentStay.id}
+                        contextLabel={buildFeedbackContextLabel(
+                          `${t("trips.dayView.currentNightTitle")}: ${currentStay.name}`,
+                        )}
+                        tripDayId={day.id}
+                        onUpdated={(feedback) => {
+                          setDay((current) =>
+                            current && current.accommodation
+                              ? { ...current, accommodation: { ...current.accommodation, feedback } }
+                              : current,
+                          );
+                          setDetail((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  days: current.days.map((entry) =>
+                                    entry.id === day.id && entry.accommodation
+                                      ? { ...entry, accommodation: { ...entry.accommodation, feedback } }
+                                      : entry,
+                                  ),
+                                }
+                              : current,
+                          );
+                        }}
                       />
                     </Box>
                   ) : (
@@ -1771,12 +1921,14 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                 onExpandClick={handleMapExpand}
                 onMarkerClick={handleMapMarkerClick}
               />
-              <TripDayBucketListPanel
-                items={bucketItems}
-                loading={bucketLoading}
-                error={bucketError}
-                onAddToDay={handleAddBucketToDay}
-              />
+              {!isReadOnlyCollaborator ? (
+                <TripDayBucketListPanel
+                  items={bucketItems}
+                  loading={bucketLoading}
+                  error={bucketError}
+                  onAddToDay={handleAddBucketToDay}
+                />
+              ) : null}
             </Box>
           </Box>
 
