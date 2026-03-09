@@ -1,4 +1,4 @@
-import { Prisma } from "@/generated/prisma/client";
+import type { $Enums } from "@/generated/prisma/client";
 import { getTripAccessForUser } from "@/lib/auth/tripAccess";
 import { prisma } from "@/lib/db/prisma";
 
@@ -35,7 +35,7 @@ type FeedbackTargetInput =
   | { type: "accommodation"; tripId: string; tripDayId: string; accommodationId: string }
   | { type: "dayPlanItem"; tripId: string; tripDayId: string; dayPlanItemId: string };
 
-const toPrismaTargetType = (type: FeedbackTargetType): Prisma.FeedbackTargetType => {
+const toPrismaTargetType = (type: FeedbackTargetType): $Enums.FeedbackTargetType => {
   switch (type) {
     case "trip":
       return "TRIP";
