@@ -117,7 +117,8 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
   const router = useRouter();
   const theme = useTheme();
   const isNarrowLayout = useMediaQuery(theme.breakpoints.down("sm"));
-  const isReadOnlyCollaborator = detail?.trip.accessRole ? detail.trip.accessRole !== "owner" : false;
+  const isOwner = detail?.trip.accessRole ? detail.trip.accessRole === "owner" : true;
+  const canEditPlanning = detail?.trip.accessRole ? detail.trip.accessRole !== "viewer" : true;
 
   const formatDate = useMemo(
     () => (value: string) =>
@@ -497,7 +498,7 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
 
           <TripOverviewMapPanel points={overviewMapData.points} missingLocations={overviewMapData.missingLocations} />
 
-          {!isReadOnlyCollaborator ? <TripBucketListPanel tripId={detail.trip.id} /> : null}
+          {isOwner ? <TripBucketListPanel tripId={detail.trip.id} /> : null}
 
           <Paper
             elevation={1}
@@ -744,7 +745,7 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
             }}
           >
             <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
-              {!isReadOnlyCollaborator ? (
+              {isOwner ? (
                 <Button variant="outlined" onClick={() => setImportOpen(true)}>
                   {t("trips.import.action")}
                 </Button>
@@ -752,17 +753,17 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
               <Button variant="outlined" onClick={handleExport}>
                 {t("trips.export.action")}
               </Button>
-              {!isReadOnlyCollaborator ? (
+              {isOwner ? (
                 <Button variant="outlined" onClick={() => setShareOpen(true)}>
                   {t("trips.share.open")}
                 </Button>
               ) : null}
-              {!isReadOnlyCollaborator ? (
+              {canEditPlanning ? (
                 <Button variant="outlined" onClick={() => setEditOpen(true)}>
                   {t("trips.edit.open")}
                 </Button>
               ) : null}
-              {!isReadOnlyCollaborator ? (
+              {isOwner ? (
                 <Button variant="outlined" color="error" onClick={() => setDeleteOpen(true)}>
                   {t("trips.delete.open")}
                 </Button>

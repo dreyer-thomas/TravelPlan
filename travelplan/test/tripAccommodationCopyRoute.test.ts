@@ -129,6 +129,79 @@ describe("/api/trips/[id]/accommodations/copy", () => {
     expect(payload.data?.accommodation.location).toEqual({ lat: 48.1372, lng: 11.5756, label: "Old Town" });
   });
 
+  it("allows a contributor to copy the previous-night accommodation", async () => {
+    const owner = await prisma.user.create({
+      data: {
+        email: "route-copy-contributor-owner@example.com",
+        passwordHash: "hashed",
+        role: "OWNER",
+      },
+    });
+    const contributor = await prisma.user.create({
+      data: {
+        email: "route-copy-contributor@example.com",
+        passwordHash: "hashed",
+        role: "VIEWER",
+      },
+    });
+    const token = await createSessionJwt({ sub: contributor.id, role: contributor.role });
+
+    const trip = await prisma.trip.create({
+      data: {
+        userId: owner.id,
+        name: "Contributor Copy Trip",
+        startDate: new Date("2026-11-01T00:00:00.000Z"),
+        endDate: new Date("2026-11-02T00:00:00.000Z"),
+      },
+    });
+
+    await prisma.tripMember.create({
+      data: {
+        tripId: trip.id,
+        userId: contributor.id,
+        role: "CONTRIBUTOR",
+      },
+    });
+
+    const previousDay = await prisma.tripDay.create({
+      data: {
+        tripId: trip.id,
+        date: new Date("2026-11-01T00:00:00.000Z"),
+        dayIndex: 1,
+      },
+    });
+    const currentDay = await prisma.tripDay.create({
+      data: {
+        tripId: trip.id,
+        date: new Date("2026-11-02T00:00:00.000Z"),
+        dayIndex: 2,
+      },
+    });
+
+    await prisma.accommodation.create({
+      data: {
+        tripDayId: previousDay.id,
+        name: "Contributor Copy Stay",
+        status: "BOOKED",
+      },
+    });
+
+    const response = await POST(
+      buildRequest(trip.id, {
+        session: token,
+        csrf: "csrf-token",
+        method: "POST",
+        body: JSON.stringify({ tripDayId: currentDay.id }),
+      }),
+      { params: { id: trip.id } },
+    );
+    const payload = (await response.json()) as ApiEnvelope<{ accommodation: { tripDayId: string; name: string } }>;
+
+    expect(response.status).toBe(200);
+    expect(payload.data?.accommodation.tripDayId).toBe(currentDay.id);
+    expect(payload.data?.accommodation.name).toBe("Contributor Copy Stay");
+  });
+
   it("returns not_found when there is no previous-night accommodation", async () => {
     const user = await prisma.user.create({
       data: {

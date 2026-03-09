@@ -178,6 +178,116 @@ describe("/api/trips/[id]/day-plan-items", () => {
     expect(payload.error?.code).toBe("not_found");
   });
 
+  it("allows viewers to list day plan items for shared trips", async () => {
+    const owner = await prisma.user.create({
+      data: { email: "plan-route-viewer-read-owner@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const viewer = await prisma.user.create({
+      data: { email: "plan-route-viewer-read@example.com", passwordHash: "hashed", role: "VIEWER" },
+    });
+    const token = await createSessionJwt({ sub: viewer.id, role: viewer.role });
+
+    const trip = await prisma.trip.create({
+      data: {
+        userId: owner.id,
+        name: "Viewer Read Trip",
+        startDate: new Date("2026-12-02T00:00:00.000Z"),
+        endDate: new Date("2026-12-02T00:00:00.000Z"),
+      },
+    });
+    const day = await prisma.tripDay.create({
+      data: {
+        tripId: trip.id,
+        date: new Date("2026-12-02T00:00:00.000Z"),
+        dayIndex: 1,
+      },
+    });
+    await prisma.tripMember.create({
+      data: {
+        tripId: trip.id,
+        userId: viewer.id,
+        role: "VIEWER",
+      },
+    });
+    await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: day.id,
+        title: "Viewer visible item",
+        fromTime: "09:00",
+        toTime: "10:00",
+        contentJson: sampleDoc("Viewer can read"),
+      },
+    });
+
+    const response = await GET(
+      buildRequest(`http://localhost/api/trips/${trip.id}/day-plan-items?tripDayId=${day.id}`, {
+        session: token,
+        method: "GET",
+      }),
+      { params: { id: trip.id } },
+    );
+    const payload = (await response.json()) as ApiEnvelope<{ items: { title: string | null }[] }>;
+
+    expect(response.status).toBe(200);
+    expect(payload.error).toBeNull();
+    expect(payload.data?.items.map((item) => item.title)).toEqual(["Viewer visible item"]);
+  });
+
+  it("allows contributors to list day plan items for shared trips", async () => {
+    const owner = await prisma.user.create({
+      data: { email: "plan-route-contributor-read-owner@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const contributor = await prisma.user.create({
+      data: { email: "plan-route-contributor-read@example.com", passwordHash: "hashed", role: "VIEWER" },
+    });
+    const token = await createSessionJwt({ sub: contributor.id, role: contributor.role });
+
+    const trip = await prisma.trip.create({
+      data: {
+        userId: owner.id,
+        name: "Contributor Read Trip",
+        startDate: new Date("2026-12-02T00:00:00.000Z"),
+        endDate: new Date("2026-12-02T00:00:00.000Z"),
+      },
+    });
+    const day = await prisma.tripDay.create({
+      data: {
+        tripId: trip.id,
+        date: new Date("2026-12-02T00:00:00.000Z"),
+        dayIndex: 1,
+      },
+    });
+    await prisma.tripMember.create({
+      data: {
+        tripId: trip.id,
+        userId: contributor.id,
+        role: "CONTRIBUTOR",
+      },
+    });
+    await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: day.id,
+        title: "Contributor visible item",
+        fromTime: "09:30",
+        toTime: "10:30",
+        contentJson: sampleDoc("Contributor can read"),
+      },
+    });
+
+    const response = await GET(
+      buildRequest(`http://localhost/api/trips/${trip.id}/day-plan-items?tripDayId=${day.id}`, {
+        session: token,
+        method: "GET",
+      }),
+      { params: { id: trip.id } },
+    );
+    const payload = (await response.json()) as ApiEnvelope<{ items: { title: string | null }[] }>;
+
+    expect(response.status).toBe(200);
+    expect(payload.error).toBeNull();
+    expect(payload.data?.items.map((item) => item.title)).toEqual(["Contributor visible item"]);
+  });
+
   it("creates a day plan item for the trip day", async () => {
     const user = await prisma.user.create({
       data: { email: "plan-route-create@example.com", passwordHash: "hashed", role: "OWNER" },
@@ -297,6 +407,102 @@ describe("/api/trips/[id]/day-plan-items", () => {
 
     expect(response.status).toBe(404);
     expect(payload.error?.code).toBe("not_found");
+  });
+
+  it("allows a contributor to create, update, and delete a day plan item", async () => {
+    const owner = await prisma.user.create({
+      data: { email: "plan-route-contributor-owner@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const contributor = await prisma.user.create({
+      data: { email: "plan-route-contributor@example.com", passwordHash: "hashed", role: "VIEWER" },
+    });
+    const token = await createSessionJwt({ sub: contributor.id, role: contributor.role });
+
+    const trip = await prisma.trip.create({
+      data: {
+        userId: owner.id,
+        name: "Contributor Plan Trip",
+        startDate: new Date("2026-12-03T00:00:00.000Z"),
+        endDate: new Date("2026-12-03T00:00:00.000Z"),
+      },
+    });
+    await prisma.tripMember.create({
+      data: {
+        tripId: trip.id,
+        userId: contributor.id,
+        role: "CONTRIBUTOR",
+      },
+    });
+
+    const day = await prisma.tripDay.create({
+      data: {
+        tripId: trip.id,
+        date: new Date("2026-12-03T00:00:00.000Z"),
+        dayIndex: 1,
+      },
+    });
+
+    const createResponse = await POST(
+      buildRequest(`http://localhost/api/trips/${trip.id}/day-plan-items`, {
+        session: token,
+        csrf: "csrf-token",
+        method: "POST",
+        body: JSON.stringify({
+          tripDayId: day.id,
+          title: "Contributor plan",
+          fromTime: "09:15",
+          toTime: "10:45",
+          contentJson: sampleDoc("Contributor content"),
+          linkUrl: null,
+        }),
+      }),
+      { params: { id: trip.id } },
+    );
+    const createPayload = (await createResponse.json()) as ApiEnvelope<{ dayPlanItem: { id: string; title: string | null } }>;
+
+    expect(createResponse.status).toBe(200);
+    expect(createPayload.data?.dayPlanItem.title).toBe("Contributor plan");
+
+    const itemId = createPayload.data?.dayPlanItem.id ?? "";
+
+    const updateResponse = await PATCH(
+      buildRequest(`http://localhost/api/trips/${trip.id}/day-plan-items`, {
+        session: token,
+        csrf: "csrf-token",
+        method: "PATCH",
+        body: JSON.stringify({
+          tripDayId: day.id,
+          itemId,
+          title: "Contributor plan updated",
+          fromTime: "10:00",
+          toTime: "11:00",
+          contentJson: sampleDoc("Updated contributor content"),
+          linkUrl: null,
+        }),
+      }),
+      { params: { id: trip.id } },
+    );
+    const updatePayload = (await updateResponse.json()) as ApiEnvelope<{ dayPlanItem: { title: string | null } }>;
+
+    expect(updateResponse.status).toBe(200);
+    expect(updatePayload.data?.dayPlanItem.title).toBe("Contributor plan updated");
+
+    const deleteResponse = await DELETE(
+      buildRequest(`http://localhost/api/trips/${trip.id}/day-plan-items`, {
+        session: token,
+        csrf: "csrf-token",
+        method: "DELETE",
+        body: JSON.stringify({
+          tripDayId: day.id,
+          itemId,
+        }),
+      }),
+      { params: { id: trip.id } },
+    );
+    const deletePayload = (await deleteResponse.json()) as ApiEnvelope<{ deleted: boolean }>;
+
+    expect(deleteResponse.status).toBe(200);
+    expect(deletePayload.data?.deleted).toBe(true);
   });
 
   it("converts a bucket list item into a day plan item and removes the bucket list item", async () => {

@@ -245,6 +245,57 @@ describe("/api/trips/[id]/members", () => {
     expect(payload.error?.code).toBe("not_found");
   });
 
+  it("keeps member management owner-only for contributors", async () => {
+    const owner = await prisma.user.create({
+      data: {
+        email: "members-owner@example.com",
+        passwordHash: "hashed",
+        role: "OWNER",
+      },
+    });
+    const contributor = await prisma.user.create({
+      data: {
+        email: "members-contributor@example.com",
+        passwordHash: "hashed",
+        role: "VIEWER",
+      },
+    });
+    const trip = await prisma.trip.create({
+      data: {
+        userId: owner.id,
+        name: "Protected Members Trip",
+        startDate: new Date("2026-10-01T00:00:00.000Z"),
+        endDate: new Date("2026-10-02T00:00:00.000Z"),
+      },
+    });
+    await prisma.tripMember.create({
+      data: {
+        tripId: trip.id,
+        userId: contributor.id,
+        role: "CONTRIBUTOR",
+      },
+    });
+    const session = await createSessionJwt({ sub: contributor.id, role: contributor.role });
+
+    const response = await POST(
+      buildRequest(trip.id, {
+        method: "POST",
+        session,
+        csrf: "test-csrf-token",
+        body: {
+          email: "viewer@example.com",
+          role: "viewer",
+          temporaryPassword: "TempPass123",
+        },
+      }),
+      { params: Promise.resolve({ id: trip.id }) },
+    );
+    const payload = (await response.json()) as ApiEnvelope<null>;
+
+    expect(response.status).toBe(404);
+    expect(payload.error?.code).toBe("not_found");
+  });
+
   it("returns validation errors for invalid email, role, and temporary password", async () => {
     const owner = await prisma.user.create({
       data: {

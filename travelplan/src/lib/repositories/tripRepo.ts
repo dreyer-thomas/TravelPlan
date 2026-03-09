@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { hashPassword } from "@/lib/auth/bcrypt";
 import { Prisma } from "@/generated/prisma/client";
-import { getTripAccessForUser, type TripAccessRole } from "@/lib/auth/tripAccess";
+import type { TripAccessRole } from "@/lib/auth/tripAccess";
 import type { TripFeedbackSummary } from "@/lib/repositories/tripFeedbackRepo";
 import { listTripFeedbackForUser } from "@/lib/repositories/tripFeedbackRepo";
 import type { TripImportConflictStrategy, TripImportPayloadInput } from "@/lib/validation/tripImportSchemas";
@@ -368,7 +368,10 @@ export const updateTripWithDays = async ({
 
   return prisma.$transaction(async (tx) => {
     const trip = await tx.trip.findFirst({
-      where: { id: tripId, userId },
+      where: {
+        id: tripId,
+        OR: [{ userId }, { members: { some: { userId, role: "CONTRIBUTOR" } } }],
+      },
       include: { days: true },
     });
 

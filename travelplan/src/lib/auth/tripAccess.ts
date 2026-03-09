@@ -8,6 +8,13 @@ export type TripAccess = {
   accessRole: TripAccessRole;
 };
 
+export const canTripAccessRoleRead = (accessRole: TripAccessRole | null | undefined) => accessRole !== null && accessRole !== undefined;
+
+export const canTripAccessRoleManageTrip = (accessRole: TripAccessRole | null | undefined) => accessRole === "owner";
+
+export const canTripAccessRoleWrite = (accessRole: TripAccessRole | null | undefined) =>
+  accessRole === "owner" || accessRole === "contributor";
+
 const mapTripMemberRole = (role: "VIEWER" | "CONTRIBUTOR"): Exclude<TripAccessRole, "owner"> =>
   role === "VIEWER" ? "viewer" : "contributor";
 
@@ -54,10 +61,15 @@ export const getTripAccessForUser = async (userId: string, tripId: string): Prom
 
 export const hasTripReadAccess = async (userId: string, tripId: string) => {
   const access = await getTripAccessForUser(userId, tripId);
-  return access !== null;
+  return canTripAccessRoleRead(access?.accessRole);
 };
 
 export const hasTripOwnerAccess = async (userId: string, tripId: string) => {
   const access = await getTripAccessForUser(userId, tripId);
-  return access?.accessRole === "owner";
+  return canTripAccessRoleManageTrip(access?.accessRole);
+};
+
+export const hasTripOwnerOrContributorAccess = async (userId: string, tripId: string) => {
+  const access = await getTripAccessForUser(userId, tripId);
+  return canTripAccessRoleWrite(access?.accessRole);
 };

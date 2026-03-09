@@ -215,6 +215,148 @@ describe("/api/trips/[id]/travel-segments", () => {
     expect(deletePayload.data?.deleted).toBe(true);
   });
 
+  it("allows viewers to list travel segments for shared trips", async () => {
+    const owner = await prisma.user.create({
+      data: { email: "segment-viewer-read-owner@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const viewer = await prisma.user.create({
+      data: { email: "segment-viewer-read@example.com", passwordHash: "hashed", role: "VIEWER" },
+    });
+    const token = await createSessionJwt({ sub: viewer.id, role: viewer.role });
+
+    const trip = await prisma.trip.create({
+      data: {
+        userId: owner.id,
+        name: "Viewer Read Segment Trip",
+        startDate: new Date("2026-12-11T00:00:00.000Z"),
+        endDate: new Date("2026-12-11T00:00:00.000Z"),
+      },
+    });
+    const day = await prisma.tripDay.create({
+      data: {
+        tripId: trip.id,
+        date: new Date("2026-12-11T00:00:00.000Z"),
+        dayIndex: 1,
+      },
+    });
+    const accommodation = await prisma.accommodation.create({
+      data: {
+        tripDayId: day.id,
+        name: "Viewer Harbor Hotel",
+        status: "PLANNED",
+      },
+    });
+    const planItem = await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: day.id,
+        contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Plan" }] }] }),
+      },
+    });
+    await prisma.tripMember.create({
+      data: {
+        tripId: trip.id,
+        userId: viewer.id,
+        role: "VIEWER",
+      },
+    });
+    await prisma.travelSegment.create({
+      data: {
+        tripDayId: day.id,
+        fromItemType: "DAY_PLAN_ITEM",
+        fromItemId: planItem.id,
+        toItemType: "ACCOMMODATION",
+        toItemId: accommodation.id,
+        transportType: "CAR",
+        durationMinutes: 45,
+      },
+    });
+
+    const response = await GET(
+      buildRequest(`http://localhost/api/trips/${trip.id}/travel-segments?tripDayId=${day.id}`, {
+        session: token,
+        method: "GET",
+      }),
+      { params: { id: trip.id } },
+    );
+    const payload = (await response.json()) as ApiEnvelope<{ segments: { transportType: string }[] }>;
+
+    expect(response.status).toBe(200);
+    expect(payload.error).toBeNull();
+    expect(payload.data?.segments).toHaveLength(1);
+    expect(payload.data?.segments[0].transportType).toBe("car");
+  });
+
+  it("allows contributors to list travel segments for shared trips", async () => {
+    const owner = await prisma.user.create({
+      data: { email: "segment-contributor-read-owner@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const contributor = await prisma.user.create({
+      data: { email: "segment-contributor-read@example.com", passwordHash: "hashed", role: "VIEWER" },
+    });
+    const token = await createSessionJwt({ sub: contributor.id, role: contributor.role });
+
+    const trip = await prisma.trip.create({
+      data: {
+        userId: owner.id,
+        name: "Contributor Read Segment Trip",
+        startDate: new Date("2026-12-11T00:00:00.000Z"),
+        endDate: new Date("2026-12-11T00:00:00.000Z"),
+      },
+    });
+    const day = await prisma.tripDay.create({
+      data: {
+        tripId: trip.id,
+        date: new Date("2026-12-11T00:00:00.000Z"),
+        dayIndex: 1,
+      },
+    });
+    const accommodation = await prisma.accommodation.create({
+      data: {
+        tripDayId: day.id,
+        name: "Contributor Harbor Hotel",
+        status: "PLANNED",
+      },
+    });
+    const planItem = await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: day.id,
+        contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Plan" }] }] }),
+      },
+    });
+    await prisma.tripMember.create({
+      data: {
+        tripId: trip.id,
+        userId: contributor.id,
+        role: "CONTRIBUTOR",
+      },
+    });
+    await prisma.travelSegment.create({
+      data: {
+        tripDayId: day.id,
+        fromItemType: "DAY_PLAN_ITEM",
+        fromItemId: planItem.id,
+        toItemType: "ACCOMMODATION",
+        toItemId: accommodation.id,
+        transportType: "CAR",
+        durationMinutes: 50,
+      },
+    });
+
+    const response = await GET(
+      buildRequest(`http://localhost/api/trips/${trip.id}/travel-segments?tripDayId=${day.id}`, {
+        session: token,
+        method: "GET",
+      }),
+      { params: { id: trip.id } },
+    );
+    const payload = (await response.json()) as ApiEnvelope<{ segments: { transportType: string }[] }>;
+
+    expect(response.status).toBe(200);
+    expect(payload.error).toBeNull();
+    expect(payload.data?.segments).toHaveLength(1);
+    expect(payload.data?.segments[0].transportType).toBe("car");
+  });
+
   it("returns 404 when a viewer tries to create a travel segment", async () => {
     const owner = await prisma.user.create({
       data: { email: "segment-viewer-owner@example.com", passwordHash: "hashed", role: "OWNER" },
@@ -282,6 +424,121 @@ describe("/api/trips/[id]/travel-segments", () => {
 
     expect(response.status).toBe(404);
     expect(payload.error?.code).toBe("not_found");
+  });
+
+  it("allows a contributor to create, update, and delete a travel segment", async () => {
+    const owner = await prisma.user.create({
+      data: { email: "segment-contributor-owner@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const contributor = await prisma.user.create({
+      data: { email: "segment-contributor@example.com", passwordHash: "hashed", role: "VIEWER" },
+    });
+    const token = await createSessionJwt({ sub: contributor.id, role: contributor.role });
+
+    const trip = await prisma.trip.create({
+      data: {
+        userId: owner.id,
+        name: "Contributor Segment Trip",
+        startDate: new Date("2026-12-11T00:00:00.000Z"),
+        endDate: new Date("2026-12-11T00:00:00.000Z"),
+      },
+    });
+    await prisma.tripMember.create({
+      data: {
+        tripId: trip.id,
+        userId: contributor.id,
+        role: "CONTRIBUTOR",
+      },
+    });
+
+    const day = await prisma.tripDay.create({
+      data: {
+        tripId: trip.id,
+        date: new Date("2026-12-11T00:00:00.000Z"),
+        dayIndex: 1,
+      },
+    });
+    const accommodation = await prisma.accommodation.create({
+      data: {
+        tripDayId: day.id,
+        name: "Station Stay",
+        status: "PLANNED",
+      },
+    });
+    const planItem = await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: day.id,
+        contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Plan" }] }] }),
+      },
+    });
+
+    const createResponse = await POST(
+      buildRequest(`http://localhost/api/trips/${trip.id}/travel-segments`, {
+        session: token,
+        csrf: "csrf-token",
+        method: "POST",
+        body: JSON.stringify({
+          tripDayId: day.id,
+          fromItemType: "dayPlanItem",
+          fromItemId: planItem.id,
+          toItemType: "accommodation",
+          toItemId: accommodation.id,
+          transportType: "car",
+          durationMinutes: 30,
+          distanceKm: 12.2,
+          linkUrl: "https://maps.example.com",
+        }),
+      }),
+      { params: { id: trip.id } },
+    );
+    const createPayload = (await createResponse.json()) as ApiEnvelope<{ segment: { id: string } }>;
+
+    expect(createResponse.status).toBe(200);
+    expect(createPayload.data?.segment.id).toBeDefined();
+
+    const segmentId = createPayload.data?.segment.id ?? "";
+
+    const updateResponse = await PATCH(
+      buildRequest(`http://localhost/api/trips/${trip.id}/travel-segments`, {
+        session: token,
+        csrf: "csrf-token",
+        method: "PATCH",
+        body: JSON.stringify({
+          tripDayId: day.id,
+          segmentId,
+          fromItemType: "dayPlanItem",
+          fromItemId: planItem.id,
+          toItemType: "accommodation",
+          toItemId: accommodation.id,
+          transportType: "ship",
+          durationMinutes: 90,
+          distanceKm: null,
+          linkUrl: null,
+        }),
+      }),
+      { params: { id: trip.id } },
+    );
+    const updatePayload = (await updateResponse.json()) as ApiEnvelope<{ segment: { transportType: string } }>;
+
+    expect(updateResponse.status).toBe(200);
+    expect(updatePayload.data?.segment.transportType).toBe("ship");
+
+    const deleteResponse = await DELETE(
+      buildRequest(`http://localhost/api/trips/${trip.id}/travel-segments`, {
+        session: token,
+        csrf: "csrf-token",
+        method: "DELETE",
+        body: JSON.stringify({
+          tripDayId: day.id,
+          segmentId,
+        }),
+      }),
+      { params: { id: trip.id } },
+    );
+    const deletePayload = (await deleteResponse.json()) as ApiEnvelope<{ deleted: boolean }>;
+
+    expect(deleteResponse.status).toBe(200);
+    expect(deletePayload.data?.deleted).toBe(true);
   });
 
   it("rejects non-adjacent travel segments", async () => {

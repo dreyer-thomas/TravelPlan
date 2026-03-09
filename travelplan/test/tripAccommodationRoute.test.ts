@@ -119,6 +119,109 @@ describe("/api/trips/[id]/accommodations", () => {
     expect(payload.data?.accommodation.location).toEqual({ lat: 48.1372, lng: 11.5756, label: "Old Town" });
   });
 
+  it("allows a contributor to create, update, and delete accommodation data", async () => {
+    const owner = await prisma.user.create({
+      data: {
+        email: "route-stay-contributor-owner@example.com",
+        passwordHash: "hashed",
+        role: "OWNER",
+      },
+    });
+    const contributor = await prisma.user.create({
+      data: {
+        email: "route-stay-contributor@example.com",
+        passwordHash: "hashed",
+        role: "VIEWER",
+      },
+    });
+    const token = await createSessionJwt({ sub: contributor.id, role: contributor.role });
+
+    const trip = await prisma.trip.create({
+      data: {
+        userId: owner.id,
+        name: "Contributor Stay Trip",
+        startDate: new Date("2026-11-01T00:00:00.000Z"),
+        endDate: new Date("2026-11-01T00:00:00.000Z"),
+      },
+    });
+
+    await prisma.tripMember.create({
+      data: {
+        tripId: trip.id,
+        userId: contributor.id,
+        role: "CONTRIBUTOR",
+      },
+    });
+
+    const day = await prisma.tripDay.create({
+      data: {
+        tripId: trip.id,
+        date: new Date("2026-11-01T00:00:00.000Z"),
+        dayIndex: 1,
+      },
+    });
+
+    const createResponse = await POST(
+      buildRequest(trip.id, {
+        session: token,
+        csrf: "csrf-token",
+        method: "POST",
+        body: JSON.stringify({
+          tripDayId: day.id,
+          name: "Contributor Hotel",
+          status: "planned",
+          costCents: 9800,
+          payments: [{ amountCents: 9800, dueDate: "2026-11-01" }],
+          link: "https://example.com/contributor-stay",
+          notes: "Arrival note",
+        }),
+      }),
+      { params: { id: trip.id } },
+    );
+    const createPayload = (await createResponse.json()) as ApiEnvelope<{ accommodation: { tripDayId: string; name: string } }>;
+
+    expect(createResponse.status).toBe(200);
+    expect(createPayload.data?.accommodation.tripDayId).toBe(day.id);
+    expect(createPayload.data?.accommodation.name).toBe("Contributor Hotel");
+
+    const updateResponse = await PATCH(
+      buildRequest(trip.id, {
+        session: token,
+        csrf: "csrf-token",
+        method: "PATCH",
+        body: JSON.stringify({
+          tripDayId: day.id,
+          name: "Contributor Hotel Updated",
+          status: "booked",
+          costCents: 12000,
+          payments: [{ amountCents: 12000, dueDate: "2026-11-01" }],
+          link: "https://example.com/contributor-stay-updated",
+          notes: "Updated note",
+        }),
+      }),
+      { params: { id: trip.id } },
+    );
+    const updatePayload = (await updateResponse.json()) as ApiEnvelope<{ accommodation: { name: string; status: string } }>;
+
+    expect(updateResponse.status).toBe(200);
+    expect(updatePayload.data?.accommodation.name).toBe("Contributor Hotel Updated");
+    expect(updatePayload.data?.accommodation.status).toBe("booked");
+
+    const deleteResponse = await DELETE(
+      buildRequest(trip.id, {
+        session: token,
+        csrf: "csrf-token",
+        method: "DELETE",
+        body: JSON.stringify({ tripDayId: day.id }),
+      }),
+      { params: { id: trip.id } },
+    );
+    const deletePayload = (await deleteResponse.json()) as ApiEnvelope<{ deleted: boolean }>;
+
+    expect(deleteResponse.status).toBe(200);
+    expect(deletePayload.data?.deleted).toBe(true);
+  });
+
   it("rejects accommodation creation without valid CSRF", async () => {
     const user = await prisma.user.create({
       data: {

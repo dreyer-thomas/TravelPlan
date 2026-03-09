@@ -129,6 +129,30 @@ const findTripDayForUser = async (userId: string, tripId: string, tripDayId: str
     select: { id: true },
   });
 
+const findTripDayForTripParticipant = async (userId: string, tripId: string, tripDayId: string) =>
+  prisma.tripDay.findFirst({
+    where: {
+      id: tripDayId,
+      tripId,
+      trip: {
+        OR: [{ userId }, { members: { some: { userId } } }],
+      },
+    },
+    select: { id: true },
+  });
+
+const findTripDayForTripWriter = async (userId: string, tripId: string, tripDayId: string) =>
+  prisma.tripDay.findFirst({
+    where: {
+      id: tripDayId,
+      tripId,
+      trip: {
+        OR: [{ userId }, { members: { some: { userId, role: "CONTRIBUTOR" } } }],
+      },
+    },
+    select: { id: true },
+  });
+
 const comparePlanItemsByStartTime = (
   left: { fromTime: string | null; createdAt: Date; id: string },
   right: { fromTime: string | null; createdAt: Date; id: string },
@@ -156,7 +180,9 @@ const buildSegmentTimeline = async (
     where: {
       id: tripDayId,
       tripId,
-      trip: { userId },
+      trip: {
+        OR: [{ userId }, { members: { some: { userId, role: "CONTRIBUTOR" } } }],
+      },
     },
     select: {
       id: true,
@@ -222,7 +248,7 @@ export const listTravelSegmentsForTripDay = async (params: {
   tripDayId: string;
 }): Promise<TravelSegmentDetail[] | null> => {
   const { userId, tripId, tripDayId } = params;
-  const tripDay = await findTripDayForUser(userId, tripId, tripDayId);
+  const tripDay = await findTripDayForTripParticipant(userId, tripId, tripDayId);
   if (!tripDay) return null;
 
   const segments = await prisma.travelSegment.findMany({
@@ -237,7 +263,7 @@ export const createTravelSegmentForTripDay = async (
   params: TravelSegmentMutationParams,
 ): Promise<TravelSegmentCreateResult> => {
   const { userId, tripId, tripDayId, fromItemType, fromItemId, toItemType, toItemId, transportType } = params;
-  const tripDay = await findTripDayForUser(userId, tripId, tripDayId);
+  const tripDay = await findTripDayForTripWriter(userId, tripId, tripDayId);
   if (!tripDay) return { status: "not_found" };
 
   const itemStatus = await ensureSegmentItemsExist(params);
@@ -265,7 +291,7 @@ export const updateTravelSegmentForTripDay = async (
   params: TravelSegmentUpdateParams,
 ): Promise<TravelSegmentUpdateResult> => {
   const { userId, tripId, tripDayId, segmentId, fromItemType, fromItemId, toItemType, toItemId, transportType } = params;
-  const tripDay = await findTripDayForUser(userId, tripId, tripDayId);
+  const tripDay = await findTripDayForTripWriter(userId, tripId, tripDayId);
   if (!tripDay) return { status: "not_found" };
 
   const existing = await prisma.travelSegment.findFirst({
@@ -301,7 +327,7 @@ export const deleteTravelSegmentForTripDay = async (
   params: TravelSegmentDeleteParams,
 ): Promise<TravelSegmentDeleteResult> => {
   const { userId, tripId, tripDayId, segmentId } = params;
-  const tripDay = await findTripDayForUser(userId, tripId, tripDayId);
+  const tripDay = await findTripDayForTripWriter(userId, tripId, tripDayId);
   if (!tripDay) return { status: "not_found" };
 
   const existing = await prisma.travelSegment.findFirst({

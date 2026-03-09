@@ -321,6 +321,117 @@ describe("GET /api/trips/[id]", () => {
 
 describe("PATCH /api/trips/[id]", () => {
   beforeEach(async () => {
+    await prisma.tripMember.deleteMany();
+    await prisma.tripDay.deleteMany();
+    await prisma.trip.deleteMany();
+    await prisma.user.deleteMany();
+  });
+
+  it("allows a contributor to update trip details through the shared trip route", async () => {
+    const owner = await prisma.user.create({
+      data: {
+        email: "trip-owner-patch@example.com",
+        passwordHash: "hashed",
+        role: "OWNER",
+      },
+    });
+    const contributor = await prisma.user.create({
+      data: {
+        email: "trip-contributor-patch@example.com",
+        passwordHash: "hashed",
+        role: "VIEWER",
+      },
+    });
+    const token = await createSessionJwt({ sub: contributor.id, role: contributor.role });
+
+    const { trip } = await createTripWithDays({
+      userId: owner.id,
+      name: "Shared Trip",
+      startDate: "2026-06-01T00:00:00.000Z",
+      endDate: "2026-06-02T00:00:00.000Z",
+    });
+
+    await prisma.tripMember.create({
+      data: {
+        tripId: trip.id,
+        userId: contributor.id,
+        role: "CONTRIBUTOR",
+      },
+    });
+
+    const request = buildRequest(trip.id, {
+      session: token,
+      csrf: "csrf-token",
+      method: "PATCH",
+      body: JSON.stringify({
+        name: "Contributor Updated Trip",
+        startDate: "2026-06-02T00:00:00.000Z",
+        endDate: "2026-06-04T00:00:00.000Z",
+      }),
+    });
+
+    const response = await PATCH(request, { params: { id: trip.id } });
+    const payload = (await response.json()) as ApiEnvelope<{
+      trip: { name: string; accessRole: "owner" | "viewer" | "contributor"; dayCount: number };
+      days: Array<{ dayIndex: number }>;
+    }>;
+
+    expect(response.status).toBe(200);
+    expect(payload.error).toBeNull();
+    expect(payload.data?.trip.name).toBe("Contributor Updated Trip");
+    expect(payload.data?.trip.accessRole).toBe("contributor");
+    expect(payload.data?.trip.dayCount).toBe(3);
+    expect(payload.data?.days.map((day) => day.dayIndex)).toEqual([1, 2, 3]);
+  });
+
+  it("keeps trip deletion owner-only for contributors", async () => {
+    const owner = await prisma.user.create({
+      data: {
+        email: "trip-owner-delete-owner@example.com",
+        passwordHash: "hashed",
+        role: "OWNER",
+      },
+    });
+    const contributor = await prisma.user.create({
+      data: {
+        email: "trip-owner-delete-contributor@example.com",
+        passwordHash: "hashed",
+        role: "VIEWER",
+      },
+    });
+    const token = await createSessionJwt({ sub: contributor.id, role: contributor.role });
+
+    const { trip } = await createTripWithDays({
+      userId: owner.id,
+      name: "Protected Trip",
+      startDate: "2026-06-10T00:00:00.000Z",
+      endDate: "2026-06-11T00:00:00.000Z",
+    });
+
+    await prisma.tripMember.create({
+      data: {
+        tripId: trip.id,
+        userId: contributor.id,
+        role: "CONTRIBUTOR",
+      },
+    });
+
+    const request = buildRequest(trip.id, {
+      session: token,
+      csrf: "csrf-token",
+      method: "DELETE",
+    });
+
+    const response = await DELETE(request, { params: { id: trip.id } });
+    const payload = (await response.json()) as ApiEnvelope<null>;
+
+    expect(response.status).toBe(404);
+    expect(payload.error?.code).toBe("not_found");
+  });
+});
+
+describe("PATCH /api/trips/[id]", () => {
+  beforeEach(async () => {
     await prisma.tripDay.deleteMany();
     await prisma.trip.deleteMany();
     await prisma.user.deleteMany();

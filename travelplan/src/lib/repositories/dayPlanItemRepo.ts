@@ -116,6 +116,17 @@ const findTripDayForTripParticipant = async (userId: string, tripId: string, tri
     },
   });
 
+const findTripDayForTripWriter = async (userId: string, tripId: string, tripDayId: string) =>
+  prisma.tripDay.findFirst({
+    where: {
+      id: tripDayId,
+      tripId,
+      trip: {
+        OR: [{ userId }, { members: { some: { userId, role: "CONTRIBUTOR" } } }],
+      },
+    },
+  });
+
 const findScopedDayPlanItem = async ({ userId, tripId, tripDayId, dayPlanItemId }: DayPlanItemImageScopeParams) =>
   prisma.dayPlanItem.findFirst({
     where: {
@@ -226,7 +237,7 @@ export const listDayPlanItemsForTripDay = async (params: {
   tripDayId: string;
 }): Promise<DayPlanItemDetail[] | null> => {
   const { userId, tripId, tripDayId } = params;
-  const tripDay = await findTripDayForUser(userId, tripId, tripDayId);
+  const tripDay = await findTripDayForTripParticipant(userId, tripId, tripDayId);
   if (!tripDay) {
     return null;
   }
@@ -249,7 +260,7 @@ export const createDayPlanItemForTripDay = async (
   params: DayPlanItemMutationParams,
 ): Promise<DayPlanItemDetail | null> => {
   const { userId, tripId, tripDayId, contentJson, costCents, linkUrl, location, fromTime, toTime } = params;
-  const tripDay = await findTripDayForUser(userId, tripId, tripDayId);
+  const tripDay = await findTripDayForTripWriter(userId, tripId, tripDayId);
   if (!tripDay) {
     return null;
   }
@@ -299,7 +310,7 @@ export const convertBucketListItemToDayPlanItemForTripDay = async (
 ): Promise<DayPlanItemConversionResult> => {
   const { userId, tripId, tripDayId, bucketListItemId, contentJson, costCents, linkUrl, location, fromTime, toTime } =
     params;
-  const tripDay = await findTripDayForUser(userId, tripId, tripDayId);
+  const tripDay = await findTripDayForTripWriter(userId, tripId, tripDayId);
   if (!tripDay) {
     return { status: "not_found" };
   }
@@ -369,7 +380,7 @@ export const updateDayPlanItemForTripDay = async (
   params: DayPlanItemUpdateParams,
 ): Promise<DayPlanItemUpdateResult> => {
   const { userId, tripId, tripDayId, itemId, contentJson, costCents, linkUrl, location, title, fromTime, toTime } = params;
-  const tripDay = await findTripDayForUser(userId, tripId, tripDayId);
+  const tripDay = await findTripDayForTripWriter(userId, tripId, tripDayId);
   if (!tripDay) {
     return { status: "not_found" };
   }
@@ -431,7 +442,7 @@ export const deleteDayPlanItemForTripDay = async (
   params: DayPlanItemDeleteParams,
 ): Promise<DayPlanItemDeleteResult> => {
   const { userId, tripId, tripDayId, itemId } = params;
-  const tripDay = await findTripDayForUser(userId, tripId, tripDayId);
+  const tripDay = await findTripDayForTripWriter(userId, tripId, tripDayId);
   if (!tripDay) {
     return { status: "not_found" };
   }

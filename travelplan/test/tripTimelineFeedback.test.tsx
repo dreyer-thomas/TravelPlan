@@ -139,4 +139,82 @@ describe("TripTimeline feedback", () => {
 
     vi.unstubAllGlobals();
   });
+
+  it("shows contributor trip editing while keeping owner-only management actions hidden", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+
+      if (url.endsWith("/api/trips/trip-1") && method === "GET") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: {
+              trip: {
+                id: "trip-1",
+                name: "Contributor Trip",
+                accessRole: "contributor",
+                startDate: "2026-12-01T00:00:00.000Z",
+                endDate: "2026-12-02T00:00:00.000Z",
+                dayCount: 1,
+                plannedCostTotal: 0,
+                accommodationCostTotalCents: null,
+                heroImageUrl: null,
+                feedback: {
+                  targetType: "trip",
+                  targetId: "trip-1",
+                  comments: [],
+                  voteSummary: { upCount: 0, downCount: 0, userVote: null },
+                },
+              },
+              days: [
+                {
+                  id: "day-1",
+                  date: "2026-12-01T00:00:00.000Z",
+                  dayIndex: 1,
+                  imageUrl: null,
+                  note: null,
+                  updatedAt: "2026-12-01T00:00:00.000Z",
+                  plannedCostSubtotal: 0,
+                  missingAccommodation: true,
+                  missingPlan: true,
+                  accommodation: null,
+                  dayPlanItems: [],
+                  travelSegments: [],
+                  feedback: {
+                    targetType: "tripDay",
+                    targetId: "day-1",
+                    comments: [],
+                    voteSummary: { upCount: 0, downCount: 0, userVote: null },
+                  },
+                },
+              ],
+            },
+            error: null,
+          }),
+        };
+      }
+
+      throw new Error(`Unhandled fetch ${method} ${url}`);
+    }) as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripTimeline tripId="trip-1" />
+      </I18nProvider>,
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/trips/trip-1", expect.anything()));
+
+    expect(screen.getByRole("button", { name: "Edit trip" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Share trip" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete trip" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Import trip" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("bucket-list-panel")).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
 });

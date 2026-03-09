@@ -279,7 +279,8 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const scrollRestoreKey = useMemo(() => `trip-day-scroll:${tripId}:${dayId}`, [dayId, tripId]);
   const defaultCheckInTime = "16:00";
   const defaultCheckOutTime = "10:00";
-  const isReadOnlyCollaborator = detail?.trip.accessRole ? detail.trip.accessRole !== "owner" : false;
+  const isOwner = detail?.trip.accessRole ? detail.trip.accessRole === "owner" : true;
+  const canEditPlanning = detail?.trip.accessRole ? detail.trip.accessRole !== "viewer" : true;
 
   useEffect(() => {
     planItemsRef.current = planItems;
@@ -460,7 +461,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     setBucketLoading(true);
     setBucketError(null);
     try {
-      if (detail?.trip.accessRole && detail.trip.accessRole !== "owner") {
+      if (!isOwner) {
         setBucketItems([]);
         setBucketError(null);
         setBucketLoading(false);
@@ -487,7 +488,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     } finally {
       setBucketLoading(false);
     }
-  }, [detail?.trip.accessRole, resolveApiError, t, tripId]);
+  }, [isOwner, resolveApiError, t, tripId]);
 
   const ensureCsrfToken = useCallback(async () => {
     if (csrfToken) return csrfToken;
@@ -512,7 +513,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   }, [travelSegments]);
 
   const handleOpenTravelSegment = (from: SegmentItem, to: SegmentItem) => {
-    if (isReadOnlyCollaborator) return;
+    if (!canEditPlanning) return;
     setActiveSegmentFrom(from);
     setActiveSegmentTo(to);
     setActiveSegment(segmentsByKey.get(buildSegmentKey(from, to)) ?? null);
@@ -549,21 +550,21 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   };
 
   const handleOpenAddPlan = () => {
-    if (isReadOnlyCollaborator) return;
+    if (!canEditPlanning) return;
     setPlanDialogPrefill(null);
     setSelectedPlanItem(null);
     setPlanDialogMode("add");
   };
 
   const handleOpenEditPlan = (item: DayPlanItem) => {
-    if (isReadOnlyCollaborator) return;
+    if (!canEditPlanning) return;
     setPlanDialogPrefill(null);
     setSelectedPlanItem(item);
     setPlanDialogMode("edit");
   };
 
   const handleAddBucketToDay = (item: BucketListItem) => {
-    if (isReadOnlyCollaborator) return;
+    if (!canEditPlanning) return;
     setPlanDialogPrefill(buildBucketListPrefill(item));
     setSelectedPlanItem(null);
     setPlanDialogMode("add");
@@ -663,14 +664,14 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     if (handledDeepLinkRef.current === key) return;
 
       if (openTarget === "stay") {
-      if (isReadOnlyCollaborator) return;
+      if (!canEditPlanning) return;
         setStayOpen(true);
       handledDeepLinkRef.current = key;
       return;
     }
 
     if (openTarget === "plan") {
-      if (isReadOnlyCollaborator) return;
+      if (!canEditPlanning) return;
       if (itemId) {
         const item = planItems.find((entry) => entry.id === itemId) ?? null;
         if (item) {
@@ -685,7 +686,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
       setPlanDialogMode("add");
       handledDeepLinkRef.current = key;
     }
-  }, [day, isReadOnlyCollaborator, loading, planItems, searchParams]);
+  }, [canEditPlanning, day, loading, planItems, searchParams]);
 
   const orderedDays = useMemo(() => {
     if (!detail) return [];
@@ -863,7 +864,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
           : null,
         currentStay: currentStay ? { checkInTime: resolveStayTime(currentStay.checkInTime, defaultCheckInTime) } : null,
       }),
-    [currentStay?.checkInTime, previousStay?.checkOutTime],
+    [currentStay, defaultCheckInTime, defaultCheckOutTime, previousStay],
   );
   const planItemSegments = useMemo(
     () =>
@@ -1004,7 +1005,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
             {travelSegmentLabel(segment)}
           </Typography>
         </Box>
-        {isReadOnlyCollaborator ? null : segment ? (
+        {!canEditPlanning ? null : segment ? (
           <IconButton
             size="small"
             color="primary"
@@ -1422,7 +1423,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                     <Typography variant="h5" fontWeight={700}>
                       {dayTitle}
                     </Typography>
-                    {!isReadOnlyCollaborator ? (
+                    {isOwner ? (
                       <IconButton
                         size="small"
                         aria-label={t("trips.dayImage.editAction")}
@@ -1500,7 +1501,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                   {t("trips.dayView.timelineTitle")}
                 </Typography>
                 <Box display="flex" alignItems="center" gap={1}>
-                  {!isReadOnlyCollaborator ? (
+                  {canEditPlanning ? (
                     <Button size="small" variant="outlined" onClick={() => setStayOpen(true)}>
                       {day.accommodation ? (
                         <>
@@ -1514,7 +1515,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                       )}
                     </Button>
                   ) : null}
-                  {!isReadOnlyCollaborator ? (
+                  {canEditPlanning ? (
                     <Button size="small" variant="outlined" onClick={handleOpenAddPlan}>
                       {t("trips.plan.addPrimaryAction")}
                     </Button>
@@ -1544,7 +1545,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                     <Typography variant="body1" fontWeight={600}>
                       {t("trips.dayView.previousNightTitle")}
                     </Typography>
-                    {previousDay && !isReadOnlyCollaborator ? (
+                    {previousDay && canEditPlanning ? (
                       previousStay ? (
                         <Button size="small" variant="text" onClick={() => setPreviousStayOpen(true)}>
                           {t("trips.stay.editAction")}
@@ -1754,7 +1755,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                                 }}
                               />
                             </Box>
-                            {!isReadOnlyCollaborator ? (
+                            {canEditPlanning ? (
                               <Box display="flex" alignItems="center" gap={0.5} data-testid="day-plan-item-actions">
                                 <IconButton
                                   size="small"
@@ -1792,7 +1793,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                     <Typography variant="body1" fontWeight={600}>
                       {t("trips.dayView.currentNightTitle")}
                     </Typography>
-                    {canCopyPreviousStay && !isReadOnlyCollaborator ? (
+                    {canCopyPreviousStay && canEditPlanning ? (
                       <Button size="small" variant="text" disabled={copyingStay} onClick={() => void handleCopyPreviousStay()}>
                         {t("trips.stay.copyPreviousAction")}
                       </Button>
@@ -1921,7 +1922,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                 onExpandClick={handleMapExpand}
                 onMarkerClick={handleMapMarkerClick}
               />
-              {!isReadOnlyCollaborator ? (
+              {isOwner ? (
                 <TripDayBucketListPanel
                   items={bucketItems}
                   loading={bucketLoading}

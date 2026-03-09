@@ -85,22 +85,13 @@ export type AccommodationImageReorderResult =
   | { status: "missing" }
   | { status: "reordered" };
 
-const findTripDayForUser = async (userId: string, tripId: string, tripDayId: string) =>
-  prisma.tripDay.findFirst({
-    where: {
-      id: tripDayId,
-      tripId,
-      trip: { userId },
-    },
-  });
-
-const findTripDayForTripParticipant = async (userId: string, tripId: string, tripDayId: string) =>
+const findTripDayForTripWriter = async (userId: string, tripId: string, tripDayId: string) =>
   prisma.tripDay.findFirst({
     where: {
       id: tripDayId,
       tripId,
       trip: {
-        OR: [{ userId }, { members: { some: { userId } } }],
+        OR: [{ userId }, { members: { some: { userId, role: "CONTRIBUTOR" } } }],
       },
     },
   });
@@ -198,7 +189,7 @@ export const createAccommodationForTripDay = async (
   params: AccommodationMutationParams,
 ): Promise<AccommodationDetail | null> => {
   const { userId, tripId, tripDayId, name, notes } = params;
-  const tripDay = await findTripDayForUser(userId, tripId, tripDayId);
+  const tripDay = await findTripDayForTripWriter(userId, tripId, tripDayId);
   if (!tripDay) {
     return null;
   }
@@ -268,7 +259,7 @@ export const updateAccommodationForTripDay = async (
   params: AccommodationMutationParams,
 ): Promise<AccommodationUpdateResult> => {
   const { userId, tripId, tripDayId, name, notes } = params;
-  const tripDay = await findTripDayForUser(userId, tripId, tripDayId);
+  const tripDay = await findTripDayForTripWriter(userId, tripId, tripDayId);
   if (!tripDay) {
     return { status: "not_found" };
   }
@@ -354,7 +345,9 @@ export const copyAccommodationFromPreviousNight = async (params: {
     where: {
       id: tripDayId,
       tripId,
-      trip: { userId },
+      trip: {
+        OR: [{ userId }, { members: { some: { userId, role: "CONTRIBUTOR" } } }],
+      },
     },
     select: { id: true, dayIndex: true },
   });
@@ -372,7 +365,9 @@ export const copyAccommodationFromPreviousNight = async (params: {
     where: {
       tripId,
       dayIndex: previousDayIndex,
-      trip: { userId },
+      trip: {
+        OR: [{ userId }, { members: { some: { userId, role: "CONTRIBUTOR" } } }],
+      },
     },
     select: { id: true },
   });
@@ -417,7 +412,7 @@ export const copyAccommodationFromPreviousNight = async (params: {
 
 export const deleteAccommodationForTripDay = async (params: AccommodationDeleteParams): Promise<boolean> => {
   const { userId, tripId, tripDayId } = params;
-  const tripDay = await findTripDayForUser(userId, tripId, tripDayId);
+  const tripDay = await findTripDayForTripWriter(userId, tripId, tripDayId);
   if (!tripDay) {
     return false;
   }
