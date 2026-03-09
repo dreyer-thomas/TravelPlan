@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
 import { POST as POST_COMMENT } from "@/app/api/trips/[id]/feedback/comments/route";
+import { PUT as PUT_COMMENT } from "@/app/api/trips/[id]/feedback/comments/[commentId]/route";
 import { PUT as PUT_VOTE } from "@/app/api/trips/[id]/feedback/votes/route";
 import { GET as GET_TRIP, PATCH as PATCH_TRIP } from "@/app/api/trips/[id]/route";
 import { POST as POST_STAY } from "@/app/api/trips/[id]/accommodations/route";
@@ -216,5 +217,167 @@ describe("trip feedback routes", () => {
       { params: { id: trip.id } },
     );
     expect(stayResponse.status).toBe(404);
+  });
+
+  it("lets viewers and contributors edit their own comments and returns the updated feedback payload", async () => {
+    const owner = await prisma.user.create({ data: { email: "owner@example.com", passwordHash: "hashed", role: "OWNER" } });
+    const viewer = await prisma.user.create({ data: { email: "viewer@example.com", passwordHash: "hashed", role: "VIEWER" } });
+    const contributor = await prisma.user.create({
+      data: { email: "contributor@example.com", passwordHash: "hashed", role: "VIEWER" },
+    });
+    const trip = await prisma.trip.create({
+      data: {
+        userId: owner.id,
+        name: "Editable Trip",
+        startDate: new Date("2026-09-12T00:00:00.000Z"),
+        endDate: new Date("2026-09-13T00:00:00.000Z"),
+      },
+    });
+    await prisma.tripMember.createMany({
+      data: [
+        { tripId: trip.id, userId: viewer.id, role: "VIEWER" },
+        { tripId: trip.id, userId: contributor.id, role: "CONTRIBUTOR" },
+      ],
+    });
+
+    const viewerSession = await createSessionJwt({ sub: viewer.id, role: viewer.role });
+    const contributorSession = await createSessionJwt({ sub: contributor.id, role: contributor.role });
+
+    const createdByViewer = await POST_COMMENT(
+      buildRequest(`http://localhost/api/trips/${trip.id}/feedback/comments`, {
+        method: "POST",
+        session: viewerSession,
+        csrf: "csrf-token",
+        body: { targetType: "trip", targetId: trip.id, body: "Viewer draft" },
+      }),
+      { params: Promise.resolve({ id: trip.id }) },
+    );
+    const viewerCommentPayload = (await createdByViewer.json()) as ApiEnvelope<{ feedback: { comments: Array<{ id: string }> } }>;
+    const viewerCommentId = viewerCommentPayload.data!.feedback.comments[0]!.id;
+
+    const updatedByViewer = await PUT_COMMENT(
+      buildRequest(`http://localhost/api/trips/${trip.id}/feedback/comments/${viewerCommentId}`, {
+        method: "PUT",
+        session: viewerSession,
+        csrf: "csrf-token",
+        body: { body: "Viewer final" },
+      }),
+      { params: Promise.resolve({ id: trip.id, commentId: viewerCommentId }) },
+    );
+    const viewerUpdatePayload = (await updatedByViewer.json()) as ApiEnvelope<{ feedback: { comments: Array<{ body: string }> } }>;
+    expect(updatedByViewer.status).toBe(200);
+    expect(viewerUpdatePayload.data?.feedback.comments[0]?.body).toBe("Viewer final");
+
+    const createdByContributor = await POST_COMMENT(
+      buildRequest(`http://localhost/api/trips/${trip.id}/feedback/comments`, {
+        method: "POST",
+        session: contributorSession,
+        csrf: "csrf-token",
+        body: { targetType: "trip", targetId: trip.id, body: "Contributor draft" },
+      }),
+      { params: Promise.resolve({ id: trip.id }) },
+    );
+    const contributorCommentPayload = (await createdByContributor.json()) as ApiEnvelope<{
+      feedback: { comments: Array<{ id: string; author: { email: string } }> };
+    }>;
+    const contributorCommentId = contributorCommentPayload.data!.feedback.comments.find(
+      (comment) => comment.author.email === "contributor@example.com",
+    )!.id;
+
+    const updatedByContributor = await PUT_COMMENT(
+      buildRequest(`http://localhost/api/trips/${trip.id}/feedback/comments/${contributorCommentId}`, {
+        method: "PUT",
+        session: contributorSession,
+        csrf: "csrf-token",
+        body: { body: "Contributor final" },
+      }),
+      { params: Promise.resolve({ id: trip.id, commentId: contributorCommentId }) },
+    );
+    const contributorUpdatePayload = (await updatedByContributor.json()) as ApiEnvelope<{ feedback: { comments: Array<{ body: string }> } }>;
+    expect(updatedByContributor.status).toBe(200);
+    expect(contributorUpdatePayload.data?.feedback.comments.some((comment) => comment.body === "Contributor final")).toBe(true);
+  });
+
+  it("blocks editing another user's comment, rejects invalid bodies, and keeps non-members on not-found behavior", async () => {
+    const owner = await prisma.user.create({ data: { email: "owner@example.com", passwordHash: "hashed", role: "OWNER" } });
+    const viewer = await prisma.user.create({ data: { email: "viewer@example.com", passwordHash: "hashed", role: "VIEWER" } });
+    const contributor = await prisma.user.create({
+      data: { email: "contributor@example.com", passwordHash: "hashed", role: "VIEWER" },
+    });
+    const outsider = await prisma.user.create({ data: { email: "outsider@example.com", passwordHash: "hashed", role: "VIEWER" } });
+    const trip = await prisma.trip.create({
+      data: {
+        userId: owner.id,
+        name: "Private Editable Trip",
+        startDate: new Date("2026-09-14T00:00:00.000Z"),
+        endDate: new Date("2026-09-15T00:00:00.000Z"),
+      },
+    });
+    await prisma.tripMember.createMany({
+      data: [
+        { tripId: trip.id, userId: viewer.id, role: "VIEWER" },
+        { tripId: trip.id, userId: contributor.id, role: "CONTRIBUTOR" },
+      ],
+    });
+    const viewerSession = await createSessionJwt({ sub: viewer.id, role: viewer.role });
+    const contributorSession = await createSessionJwt({ sub: contributor.id, role: contributor.role });
+    const outsiderSession = await createSessionJwt({ sub: outsider.id, role: outsider.role });
+
+    const created = await POST_COMMENT(
+      buildRequest(`http://localhost/api/trips/${trip.id}/feedback/comments`, {
+        method: "POST",
+        session: viewerSession,
+        csrf: "csrf-token",
+        body: { targetType: "trip", targetId: trip.id, body: "Protected comment" },
+      }),
+      { params: Promise.resolve({ id: trip.id }) },
+    );
+    const createdPayload = (await created.json()) as ApiEnvelope<{ feedback: { comments: Array<{ id: string }> } }>;
+    const commentId = createdPayload.data!.feedback.comments[0]!.id;
+
+    const forbiddenResponse = await PUT_COMMENT(
+      buildRequest(`http://localhost/api/trips/${trip.id}/feedback/comments/${commentId}`, {
+        method: "PUT",
+        session: contributorSession,
+        csrf: "csrf-token",
+        body: { body: "Hijacked" },
+      }),
+      { params: Promise.resolve({ id: trip.id, commentId }) },
+    );
+    const forbiddenPayload = (await forbiddenResponse.json()) as ApiEnvelope<null>;
+    expect(forbiddenResponse.status).toBe(403);
+    expect(forbiddenPayload.error?.code).toBe("forbidden");
+
+    const invalidResponse = await PUT_COMMENT(
+      buildRequest(`http://localhost/api/trips/${trip.id}/feedback/comments/${commentId}`, {
+        method: "PUT",
+        session: viewerSession,
+        csrf: "csrf-token",
+        body: { body: "   " },
+      }),
+      { params: Promise.resolve({ id: trip.id, commentId }) },
+    );
+    const invalidPayload = (await invalidResponse.json()) as ApiEnvelope<null>;
+    expect(invalidResponse.status).toBe(400);
+    expect(invalidPayload.error?.code).toBe("validation_error");
+
+    const outsiderResponse = await PUT_COMMENT(
+      buildRequest(`http://localhost/api/trips/${trip.id}/feedback/comments/${commentId}`, {
+        method: "PUT",
+        session: outsiderSession,
+        csrf: "csrf-token",
+        body: { body: "Outsider edit" },
+      }),
+      { params: Promise.resolve({ id: trip.id, commentId }) },
+    );
+    const outsiderPayload = (await outsiderResponse.json()) as ApiEnvelope<null>;
+    expect(outsiderResponse.status).toBe(404);
+    expect(outsiderPayload.error?.code).toBe("not_found");
+
+    const persisted = await prisma.tripFeedbackComment.findUnique({
+      where: { id: commentId },
+      select: { body: true },
+    });
+    expect(persisted?.body).toBe("Protected comment");
   });
 });

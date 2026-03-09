@@ -44,6 +44,7 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
       trip: {
         id: trip.id,
         name: trip.name,
+        currentUserId: userId,
         accessRole: trip.accessRole,
         startDate: trip.startDate.toISOString(),
         endDate: trip.endDate.toISOString(),
@@ -213,6 +214,7 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
       trip: {
         id: detail.id,
         name: detail.name,
+        currentUserId: userId,
         accessRole: detail.accessRole,
         startDate: detail.startDate.toISOString(),
         endDate: detail.endDate.toISOString(),

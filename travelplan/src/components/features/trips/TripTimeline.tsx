@@ -40,6 +40,7 @@ type ApiEnvelope<T> = {
 type TripSummary = {
   id: string;
   name: string;
+  currentUserId?: string;
   accessRole?: "owner" | "viewer" | "contributor";
   startDate: string;
   endDate: string;
@@ -470,6 +471,24 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                   <Typography variant="body2" color="text.secondary">
                     {buildDateRange(detail.trip)}
                   </Typography>
+                  <TripFeedbackPanel
+                    tripId={detail.trip.id}
+                    feedback={detail.trip.feedback}
+                    targetType="trip"
+                    targetId={detail.trip.id}
+                    currentUserId={detail.trip.currentUserId}
+                    contextLabel={detail.trip.name}
+                    onUpdated={(feedback) =>
+                      setDetail((current) =>
+                        current
+                          ? {
+                              ...current,
+                              trip: { ...current.trip, feedback },
+                            }
+                          : current,
+                      )
+                    }
+                  />
                 </Box>
                 <Box display="flex" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={2}>
                   <Typography variant="body2" color="text.secondary">
@@ -603,7 +622,7 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                               sx={{
                                 display: "grid",
                                 gridTemplateColumns: { xs: "1fr", sm: "minmax(0, 1fr) 220px" },
-                                gridTemplateAreas: { xs: '"title" "actions"', sm: '"title actions"' },
+                                gridTemplateAreas: { xs: '"title" "actions" "meta"', sm: '"title actions" "meta meta"' },
                                 gap: 1.5,
                                 alignItems: "start",
                               }}
@@ -670,61 +689,73 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                                   </SvgIcon>
                                 </IconButton>
                               </Box>
-                            </Box>
-                            <Typography variant="caption" color="text.secondary">
-                              {ganttSummary}
-                            </Typography>
-
-                            {day.accommodation && (
                               <Box
-                                data-testid="timeline-accommodation-surface"
-                                sx={{
-                                  backgroundColor: "#4a525f",
-                                  borderRadius: 1.25,
-                                  px: 0,
-                                  py: 0,
-                                  width: "fit-content",
-                                }}
+                                display="flex"
+                                alignItems={{ xs: "flex-start", sm: "center" }}
+                                gap={1}
+                                flexWrap="wrap"
+                                justifyContent="space-between"
+                                sx={{ gridArea: "meta" }}
+                                data-testid="timeline-day-meta-row"
                               >
-                                <Chip
-                                  label={renderAccommodationStatus(day.accommodation.status)}
-                                  size="small"
-                                  variant="filled"
-                                  clickable={Boolean(day.accommodation.link)}
-                                  component={day.accommodation.link ? "a" : "div"}
-                                  href={day.accommodation.link ?? undefined}
-                                  target={day.accommodation.link ? "_blank" : undefined}
-                                  rel={day.accommodation.link ? "noreferrer noopener" : undefined}
-                                  sx={{
-                                    bgcolor: day.accommodation.status === "booked" ? "#245c39" : "#5a6473",
-                                    color: "#f8fafc",
-                                    "& .MuiSvgIcon-root": { color: "#f8fafc" },
-                                  }}
-                                />
+                                <Box display="flex" alignItems="center" gap={1} flexWrap="wrap" minWidth={0}>
+                                  {day.accommodation ? (
+                                    <Box
+                                      sx={{
+                                        backgroundColor: "#4a525f",
+                                        borderRadius: 1.25,
+                                        px: 0,
+                                        py: 0,
+                                        width: "fit-content",
+                                      }}
+                                    >
+                                      <Chip
+                                        label={renderAccommodationStatus(day.accommodation.status)}
+                                        size="small"
+                                        variant="filled"
+                                        clickable={Boolean(day.accommodation.link)}
+                                        component={day.accommodation.link ? "a" : "div"}
+                                        href={day.accommodation.link ?? undefined}
+                                        target={day.accommodation.link ? "_blank" : undefined}
+                                        rel={day.accommodation.link ? "noreferrer noopener" : undefined}
+                                        sx={{
+                                          bgcolor: day.accommodation.status === "booked" ? "#245c39" : "#5a6473",
+                                          color: "#f8fafc",
+                                          "& .MuiSvgIcon-root": { color: "#f8fafc" },
+                                        }}
+                                      />
+                                    </Box>
+                                  ) : null}
+                                  <Typography variant="caption" color="text.secondary">
+                                    {ganttSummary}
+                                  </Typography>
+                                </Box>
+                                <Box sx={{ marginLeft: { xs: 0, sm: "auto" } }}>
+                                  <TripFeedbackPanel
+                                    tripId={detail.trip.id}
+                                    feedback={day.feedback}
+                                    targetType="tripDay"
+                                    targetId={day.id}
+                                    currentUserId={detail.trip.currentUserId}
+                                    contextLabel={
+                                      day.note && day.note.trim().length > 0
+                                        ? `${formatMessage(t("trips.timeline.dayLabel"), { index: day.dayIndex })}: ${day.note.trim()}`
+                                        : formatMessage(t("trips.timeline.dayLabel"), { index: day.dayIndex })
+                                    }
+                                    onUpdated={(feedback) =>
+                                      setDetail((current) =>
+                                        current
+                                          ? {
+                                              ...current,
+                                              days: current.days.map((entry) => (entry.id === day.id ? { ...entry, feedback } : entry)),
+                                            }
+                                          : current,
+                                      )
+                                    }
+                                  />
+                                </Box>
                               </Box>
-                            )}
-
-                            <TripFeedbackPanel
-                              tripId={detail.trip.id}
-                              feedback={day.feedback}
-                              targetType="tripDay"
-                              targetId={day.id}
-                              contextLabel={
-                                day.note && day.note.trim().length > 0
-                                  ? `${formatMessage(t("trips.timeline.dayLabel"), { index: day.dayIndex })}: ${day.note.trim()}`
-                                  : formatMessage(t("trips.timeline.dayLabel"), { index: day.dayIndex })
-                              }
-                              onUpdated={(feedback) =>
-                                setDetail((current) =>
-                                  current
-                                    ? {
-                                        ...current,
-                                        days: current.days.map((entry) => (entry.id === day.id ? { ...entry, feedback } : entry)),
-                                      }
-                                    : current,
-                                )
-                              }
-                            />
+                            </Box>
                           </Box>
                         </Box>
                       </Paper>

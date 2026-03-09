@@ -29,6 +29,7 @@ describe("TripTimeline feedback", () => {
               trip: {
                 id: "trip-1",
                 name: "Viewer Trip",
+                currentUserId: "u1",
                 accessRole: "viewer",
                 startDate: "2026-12-01T00:00:00.000Z",
                 endDate: "2026-12-02T00:00:00.000Z",
@@ -117,15 +118,24 @@ describe("TripTimeline feedback", () => {
 
     expect(screen.queryByLabelText("Add a comment")).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("button", {
+      screen.getByRole("button", {
         name: "Open comments dialog for Viewer Trip, no comments, Upvote 0, Downvote 0",
       }),
-    ).not.toBeInTheDocument();
+    ).toBeInTheDocument();
     expect(
       screen.getByRole("button", {
         name: "Open comments dialog for Day 1, no comments, Upvote 0, Downvote 0",
       }),
     ).toBeInTheDocument();
+    const metaRow = screen.getByTestId("timeline-day-meta-row");
+    expect(metaRow).toContainElement(
+      screen.getByRole("button", {
+        name: "Open comments dialog for Day 1, no comments, Upvote 0, Downvote 0",
+      }),
+    );
+    expect(metaRow).toHaveTextContent("Planned 0m, Unplanned 24h");
+    expect(metaRow).not.toHaveTextContent("Accommodation missing");
+    expect(metaRow).not.toHaveTextContent("Plan missing");
 
     await userEvent.click(
       screen.getByRole("button", {
@@ -154,6 +164,7 @@ describe("TripTimeline feedback", () => {
               trip: {
                 id: "trip-1",
                 name: "Contributor Trip",
+                currentUserId: "u2",
                 accessRole: "contributor",
                 startDate: "2026-12-01T00:00:00.000Z",
                 endDate: "2026-12-02T00:00:00.000Z",
@@ -214,6 +225,105 @@ describe("TripTimeline feedback", () => {
     expect(screen.queryByRole("button", { name: "Delete trip" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Import trip" })).not.toBeInTheDocument();
     expect(screen.queryByTestId("bucket-list-panel")).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps accommodation status and comments trigger in the same compact metadata row", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+
+      if (url.endsWith("/api/trips/trip-1") && method === "GET") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: {
+              trip: {
+                id: "trip-1",
+                name: "Accommodation Trip",
+                currentUserId: "u1",
+                accessRole: "viewer",
+                startDate: "2026-12-01T00:00:00.000Z",
+                endDate: "2026-12-02T00:00:00.000Z",
+                dayCount: 1,
+                plannedCostTotal: 0,
+                accommodationCostTotalCents: null,
+                heroImageUrl: null,
+                feedback: {
+                  targetType: "trip",
+                  targetId: "trip-1",
+                  comments: [],
+                  voteSummary: { upCount: 0, downCount: 0, userVote: null },
+                },
+              },
+              days: [
+                {
+                  id: "day-1",
+                  date: "2026-12-01T00:00:00.000Z",
+                  dayIndex: 1,
+                  imageUrl: null,
+                  note: null,
+                  updatedAt: "2026-12-01T00:00:00.000Z",
+                  plannedCostSubtotal: 0,
+                  missingAccommodation: false,
+                  missingPlan: true,
+                  accommodation: {
+                    id: "stay-1",
+                    name: "Booked stay",
+                    notes: null,
+                    status: "booked",
+                    costCents: null,
+                    link: null,
+                    checkInTime: null,
+                    checkOutTime: null,
+                    location: null,
+                    feedback: {
+                      targetType: "accommodation",
+                      targetId: "stay-1",
+                      comments: [],
+                      voteSummary: { upCount: 0, downCount: 0, userVote: null },
+                    },
+                  },
+                  dayPlanItems: [],
+                  travelSegments: [],
+                  feedback: {
+                    targetType: "tripDay",
+                    targetId: "day-1",
+                    comments: [],
+                    voteSummary: { upCount: 0, downCount: 0, userVote: null },
+                  },
+                },
+              ],
+            },
+            error: null,
+          }),
+        };
+      }
+
+      throw new Error(`Unhandled fetch ${method} ${url}`);
+    }) as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripTimeline tripId="trip-1" />
+      </I18nProvider>,
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/trips/trip-1", expect.anything()));
+
+    const metaRow = screen.getByTestId("timeline-day-meta-row");
+    expect(metaRow).toHaveTextContent("booked");
+    expect(metaRow).toHaveTextContent("Planned 8h, Unplanned 16h");
+    expect(metaRow).toContainElement(
+      screen.getByRole("button", {
+        name: "Open comments dialog for Day 1, no comments, Upvote 0, Downvote 0",
+      }),
+    );
+    expect(screen.queryByTestId("timeline-accommodation-surface")).not.toBeInTheDocument();
 
     vi.unstubAllGlobals();
   });

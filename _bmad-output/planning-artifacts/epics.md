@@ -1005,3 +1005,25 @@ So that I can correct or refine my feedback.
 **Given** I try to edit someone else’s comment
 **When** I attempt to save changes
 **Then** I am blocked
+
+### Story 5.6: Add Existing Contributor to Another Trip
+
+As a trip owner,
+I want to add an existing contributor account to another trip,
+So that the same person can collaborate across multiple trips without duplicate-account errors.
+
+**FRs covered:** FR22, FR28
+
+**Acceptance Criteria:**
+
+**Given** the entered email already belongs to an existing account that is not yet linked to the current trip
+**When** I add that person as a contributor
+**Then** the existing account is linked to the current trip with a new membership
+
+**Given** the entered email already belongs to an existing account that is already linked to the current trip
+**When** I attempt to add that person again
+**Then** I see a trip-specific duplicate message and no duplicate membership is created
+
+**Given** the entered email does not belong to an existing account
+**When** I add that person through the current share flow
+**Then** the existing temporary-password provisioning behavior still works

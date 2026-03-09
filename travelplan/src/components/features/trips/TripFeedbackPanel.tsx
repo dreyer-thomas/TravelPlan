@@ -54,6 +54,7 @@ type TripFeedbackPanelProps = {
   feedback?: FeedbackSummary | null;
   targetType: FeedbackTargetType;
   targetId: string;
+  currentUserId?: string;
   contextLabel?: string;
   tripDayId?: string;
   onUpdated: (feedback: FeedbackSummary) => void;
@@ -88,24 +89,45 @@ const VoteIcon = ({ direction }: { direction: "up" | "down" }) => (
 
 function TripFeedbackBody({
   resolvedFeedback,
+  currentUserId,
   comment,
+  editingCommentId,
+  editComment,
   error,
   savingComment,
+  savingEditComment,
   savingVote,
   setComment,
+  setEditComment,
+  startEditingComment,
+  cancelEditingComment,
   saveComment,
+  saveEditedComment,
   saveVote,
 }: {
   resolvedFeedback: FeedbackSummary;
+  currentUserId?: string;
   comment: string;
+  editingCommentId: string | null;
+  editComment: string;
   error: string | null;
   savingComment: boolean;
+  savingEditComment: boolean;
   savingVote: boolean;
   setComment: (value: string) => void;
+  setEditComment: (value: string) => void;
+  startEditingComment: (commentId: string, body: string) => void;
+  cancelEditingComment: () => void;
   saveComment: () => Promise<void>;
+  saveEditedComment: () => Promise<void>;
   saveVote: (value: "up" | "down") => Promise<void>;
 }) {
   const { t } = useI18n();
+  const getEditActionAriaLabel = (body: string) => {
+    const trimmed = body.trim();
+    const preview = trimmed.length > 40 ? `${trimmed.slice(0, 37)}...` : trimmed;
+    return formatMessage(t("trips.feedback.commentEditActionAria"), { preview });
+  };
 
   return (
     <Box display="flex" flexDirection="column" gap={1.5}>
@@ -150,10 +172,50 @@ function TripFeedbackBody({
         <List disablePadding>
           {resolvedFeedback.comments.map((item) => (
             <ListItem key={item.id} disableGutters sx={{ display: "block", py: 0.75 }}>
-              <Typography variant="caption" color="text.secondary">
-                {item.author.email}
-              </Typography>
-              <Typography variant="body2">{item.body}</Typography>
+              <Box display="flex" alignItems="flex-start" justifyContent="space-between" gap={1}>
+                <Box display="flex" flexDirection="column" gap={0.5} flex={1} minWidth={0}>
+                  <Typography variant="caption" color="text.secondary">
+                    {item.author.email}
+                  </Typography>
+                  {editingCommentId === item.id ? (
+                    <Box display="flex" flexDirection="column" gap={1}>
+                      <TextField
+                        label={t("trips.feedback.commentEditLabel")}
+                        value={editComment}
+                        onChange={(event) => setEditComment(event.target.value)}
+                        multiline
+                        minRows={2}
+                        size="small"
+                      />
+                      <Box display="flex" justifyContent="flex-end" gap={1}>
+                        <Button variant="text" size="small" onClick={cancelEditingComment}>
+                          {t("trips.feedback.commentEditCancel")}
+                        </Button>
+                        <Button
+                          variant="contained"
+                          size="small"
+                          onClick={() => void saveEditedComment()}
+                          disabled={savingEditComment || !editComment.trim()}
+                        >
+                          {t("trips.feedback.commentEditSave")}
+                        </Button>
+                      </Box>
+                    </Box>
+                  ) : (
+                    <Typography variant="body2">{item.body}</Typography>
+                  )}
+                </Box>
+                {currentUserId === item.author.id && editingCommentId !== item.id ? (
+                  <Button
+                    size="small"
+                    variant="text"
+                    onClick={() => startEditingComment(item.id, item.body)}
+                    aria-label={getEditActionAriaLabel(item.body)}
+                  >
+                    {t("trips.feedback.commentEditAction")}
+                  </Button>
+                ) : null}
+              </Box>
             </ListItem>
           ))}
         </List>
@@ -167,6 +229,7 @@ export default function TripFeedbackPanel({
   feedback,
   targetType,
   targetId,
+  currentUserId,
   contextLabel,
   tripDayId,
   onUpdated,
@@ -179,13 +242,18 @@ export default function TripFeedbackPanel({
   const [open, setOpen] = useState(false);
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
   const [comment, setComment] = useState("");
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editComment, setEditComment] = useState("");
   const [savingComment, setSavingComment] = useState(false);
+  const [savingEditComment, setSavingEditComment] = useState(false);
   const [savingVote, setSavingVote] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) {
       setComment("");
+      setEditingCommentId(null);
+      setEditComment("");
       setError(null);
     }
   }, [open]);
@@ -196,6 +264,7 @@ export default function TripFeedbackPanel({
     if (count === 1) return formatMessage(t("trips.feedback.commentCountSingular"), { count });
     return formatMessage(t("trips.feedback.commentCountPlural"), { count });
   }, [resolvedFeedback.comments.length, t]);
+  const visibleCommentCountLabel = useMemo(() => String(resolvedFeedback.comments.length), [resolvedFeedback.comments.length]);
 
   const dialogTitle = contextLabel
     ? formatMessage(t("trips.feedback.titleWithTarget"), { target: contextLabel })
@@ -251,6 +320,51 @@ export default function TripFeedbackPanel({
       setError(t("trips.feedback.saveError"));
     } finally {
       setSavingComment(false);
+    }
+  };
+
+  const startEditingComment = (commentId: string, body: string) => {
+    setEditingCommentId(commentId);
+    setEditComment(body);
+    setError(null);
+  };
+
+  const cancelEditingComment = () => {
+    setEditingCommentId(null);
+    setEditComment("");
+    setError(null);
+  };
+
+  const saveEditedComment = async () => {
+    if (!editingCommentId) return;
+    const body = editComment.trim();
+    if (!body) return;
+
+    setSavingEditComment(true);
+    setError(null);
+    try {
+      const token = await fetchCsrfToken();
+      const response = await fetch(`/api/trips/${tripId}/feedback/comments/${editingCommentId}`, {
+        method: "PUT",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "x-csrf-token": token,
+        },
+        body: JSON.stringify({ body }),
+      });
+      const payload = (await response.json()) as ApiEnvelope<{ feedback: FeedbackSummary }>;
+      if (!response.ok || payload.error || !payload.data?.feedback) {
+        setError(t("trips.feedback.editError"));
+        return;
+      }
+      onUpdated(payload.data.feedback);
+      setEditingCommentId(null);
+      setEditComment("");
+    } catch {
+      setError(t("trips.feedback.editError"));
+    } finally {
+      setSavingEditComment(false);
     }
   };
 
@@ -322,8 +436,8 @@ export default function TripFeedbackPanel({
       >
         <Box display="flex" alignItems="center" gap={1} minWidth={0}>
           <CommentIcon />
-          <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>
-            {commentCountLabel}
+          <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: "nowrap", minWidth: "1ch" }}>
+            {visibleCommentCountLabel}
           </Typography>
         </Box>
         <Box display="flex" alignItems="center" gap={1.25} color="text.secondary">
@@ -352,12 +466,20 @@ export default function TripFeedbackPanel({
         <DialogContent dividers>
           <TripFeedbackBody
             resolvedFeedback={resolvedFeedback}
+            currentUserId={currentUserId}
             comment={comment}
+            editingCommentId={editingCommentId}
+            editComment={editComment}
             error={error}
             savingComment={savingComment}
+            savingEditComment={savingEditComment}
             savingVote={savingVote}
             setComment={setComment}
+            setEditComment={setEditComment}
+            startEditingComment={startEditingComment}
+            cancelEditingComment={cancelEditingComment}
             saveComment={saveComment}
+            saveEditedComment={saveEditedComment}
             saveVote={saveVote}
           />
         </DialogContent>

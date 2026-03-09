@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db/prisma";
-import { addTripFeedbackComment, listTripFeedbackForUser, upsertTripFeedbackVote } from "@/lib/repositories/tripFeedbackRepo";
+import {
+  addTripFeedbackComment,
+  listTripFeedbackForUser,
+  updateTripFeedbackComment,
+  upsertTripFeedbackVote,
+} from "@/lib/repositories/tripFeedbackRepo";
 
 describe("trip feedback repository", () => {
   beforeEach(async () => {
@@ -98,5 +103,101 @@ describe("trip feedback repository", () => {
         body: "I should not see this.",
       }),
     ).resolves.toBeNull();
+  });
+
+  it("updates an authored comment and returns the refreshed summary", async () => {
+    const owner = await prisma.user.create({
+      data: { email: "owner@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const viewer = await prisma.user.create({
+      data: { email: "viewer@example.com", passwordHash: "hashed", role: "VIEWER" },
+    });
+    const trip = await prisma.trip.create({
+      data: {
+        userId: owner.id,
+        name: "Editable Feedback Trip",
+        startDate: new Date("2026-09-01T00:00:00.000Z"),
+        endDate: new Date("2026-09-02T00:00:00.000Z"),
+      },
+    });
+    await prisma.tripMember.create({
+      data: { tripId: trip.id, userId: viewer.id, role: "VIEWER" },
+    });
+
+    const created = await addTripFeedbackComment({
+      userId: viewer.id,
+      target: { type: "trip", tripId: trip.id },
+      body: "Original comment",
+    });
+
+    const updated = await updateTripFeedbackComment({
+      userId: viewer.id,
+      tripId: trip.id,
+      commentId: created!.comments[0]!.id,
+      body: "Updated comment",
+    });
+
+    expect(updated).toEqual(
+      expect.objectContaining({
+        outcome: "updated",
+        feedback: expect.objectContaining({
+          targetType: "trip",
+          targetId: trip.id,
+          comments: [
+            expect.objectContaining({
+              id: created!.comments[0]!.id,
+              body: "Updated comment",
+            }),
+          ],
+        }),
+      }),
+    );
+  });
+
+  it("rejects attempts to edit another participant's comment without mutating it", async () => {
+    const owner = await prisma.user.create({
+      data: { email: "owner@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const viewer = await prisma.user.create({
+      data: { email: "viewer@example.com", passwordHash: "hashed", role: "VIEWER" },
+    });
+    const contributor = await prisma.user.create({
+      data: { email: "contributor@example.com", passwordHash: "hashed", role: "VIEWER" },
+    });
+    const trip = await prisma.trip.create({
+      data: {
+        userId: owner.id,
+        name: "Protected Feedback Trip",
+        startDate: new Date("2026-09-03T00:00:00.000Z"),
+        endDate: new Date("2026-09-04T00:00:00.000Z"),
+      },
+    });
+    await prisma.tripMember.createMany({
+      data: [
+        { tripId: trip.id, userId: viewer.id, role: "VIEWER" },
+        { tripId: trip.id, userId: contributor.id, role: "CONTRIBUTOR" },
+      ],
+    });
+
+    const created = await addTripFeedbackComment({
+      userId: viewer.id,
+      target: { type: "trip", tripId: trip.id },
+      body: "Viewer comment",
+    });
+
+    await expect(
+      updateTripFeedbackComment({
+        userId: contributor.id,
+        tripId: trip.id,
+        commentId: created!.comments[0]!.id,
+        body: "Intrusion",
+      }),
+    ).resolves.toEqual({ outcome: "forbidden" });
+
+    const persisted = await prisma.tripFeedbackComment.findUnique({
+      where: { id: created!.comments[0]!.id },
+      select: { body: true },
+    });
+    expect(persisted?.body).toBe("Viewer comment");
   });
 });

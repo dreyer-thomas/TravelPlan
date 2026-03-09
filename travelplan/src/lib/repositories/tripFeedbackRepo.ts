@@ -28,6 +28,10 @@ export type TripFeedbackSummary = {
 };
 
 export type TripFeedbackMap = Record<string, TripFeedbackSummary>;
+export type UpdateTripFeedbackCommentResult =
+  | { outcome: "updated"; feedback: TripFeedbackSummary }
+  | { outcome: "not_found" }
+  | { outcome: "forbidden" };
 
 type FeedbackTargetInput =
   | { type: "trip"; tripId: string }
@@ -326,4 +330,89 @@ export const upsertTripFeedbackVote = async ({
 export const canWriteTripFeedback = async (userId: string, tripId: string) => {
   const access = await getTripAccessForUser(userId, tripId);
   return access !== null;
+};
+
+export const updateTripFeedbackComment = async ({
+  userId,
+  tripId,
+  commentId,
+  body,
+}: {
+  userId: string;
+  tripId: string;
+  commentId: string;
+  body: string;
+}): Promise<UpdateTripFeedbackCommentResult> => {
+  const access = await getTripAccessForUser(userId, tripId);
+  if (!access) {
+    return { outcome: "not_found" };
+  }
+
+  const trimmedBody = body.trim();
+  if (!trimmedBody) {
+    throw new Error("Comment body is required");
+  }
+
+  const comment = await prisma.tripFeedbackComment.findFirst({
+    where: {
+      id: commentId,
+      target: {
+        tripId,
+      },
+    },
+    select: {
+      id: true,
+      authorId: true,
+      target: {
+        select: {
+          tripId: true,
+          targetType: true,
+          tripDayId: true,
+          accommodationId: true,
+          dayPlanItemId: true,
+        },
+      },
+    },
+  });
+
+  if (!comment) {
+    return { outcome: "not_found" };
+  }
+
+  if (comment.authorId !== userId) {
+    return { outcome: "forbidden" };
+  }
+
+  await prisma.tripFeedbackComment.update({
+    where: { id: comment.id },
+    data: {
+      body: trimmedBody,
+    },
+  });
+
+  const targetType: FeedbackTargetType =
+    comment.target.targetType === "TRIP"
+      ? "trip"
+      : comment.target.targetType === "TRIP_DAY"
+        ? "tripDay"
+        : comment.target.targetType === "ACCOMMODATION"
+          ? "accommodation"
+          : "dayPlanItem";
+  const targetId =
+    targetType === "trip"
+      ? comment.target.tripId
+      : targetType === "tripDay"
+        ? comment.target.tripDayId!
+        : targetType === "accommodation"
+          ? comment.target.accommodationId!
+          : comment.target.dayPlanItemId!;
+
+  const feedback = await listTripFeedbackForUser(userId, tripId);
+  const summary = feedback?.[toSummaryKey(targetType, targetId)] ?? null;
+
+  if (!summary) {
+    return { outcome: "not_found" };
+  }
+
+  return { outcome: "updated", feedback: summary };
 };

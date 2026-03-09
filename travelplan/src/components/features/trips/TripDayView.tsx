@@ -51,6 +51,7 @@ type ApiEnvelope<T> = {
 type TripSummary = {
   id: string;
   name: string;
+  currentUserId?: string;
   accessRole?: "owner" | "viewer" | "contributor";
   startDate: string;
   endDate: string;
@@ -1455,6 +1456,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                     feedback={day.feedback}
                     targetType="tripDay"
                     targetId={day.id}
+                    currentUserId={detail?.trip.currentUserId}
                     contextLabel={buildFeedbackContextLabel(
                       day.note && day.note.trim().length > 0
                         ? formatMessage(t("trips.dayView.titleWithNote"), { index: day.dayIndex, note: day.note.trim() })
@@ -1592,6 +1594,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                         feedback={previousStay.feedback}
                         targetType="accommodation"
                         targetId={previousStay.id}
+                        currentUserId={detail?.trip.currentUserId}
                         contextLabel={buildFeedbackContextLabel(
                           `${t("trips.dayView.previousNightTitle")}: ${previousStay.name}`,
                         )}
@@ -1719,6 +1722,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                                 feedback={item.feedback}
                                 targetType="dayPlanItem"
                                 targetId={item.id}
+                                currentUserId={detail?.trip.currentUserId}
                                 contextLabel={buildFeedbackContextLabel(title)}
                                 tripDayId={day.id}
                                 onUpdated={(feedback) => {
@@ -1831,6 +1835,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                         feedback={currentStay.feedback}
                         targetType="accommodation"
                         targetId={currentStay.id}
+                        currentUserId={detail?.trip.currentUserId}
                         contextLabel={buildFeedbackContextLabel(
                           `${t("trips.dayView.currentNightTitle")}: ${currentStay.name}`,
                         )}

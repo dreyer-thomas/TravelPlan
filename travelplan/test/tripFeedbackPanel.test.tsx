@@ -2,6 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import * as React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TripFeedbackPanel, { type FeedbackSummary } from "@/components/features/trips/TripFeedbackPanel";
 import { I18nProvider } from "@/i18n/provider";
@@ -46,13 +47,14 @@ describe("TripFeedbackPanel", () => {
     setMatchMedia(1280);
   });
 
-  it("renders a compact summary trigger with no-comments copy and vote counts", () => {
+  it("renders a compact summary trigger with numeric comment count and vote counts", () => {
     render(
       <I18nProvider initialLanguage="en">
         <TripFeedbackPanel
           tripId="trip-1"
           targetType="tripDay"
           targetId="day-1"
+          currentUserId="u1"
           contextLabel="Day 1"
           feedback={buildFeedback()}
           onUpdated={vi.fn()}
@@ -65,11 +67,10 @@ describe("TripFeedbackPanel", () => {
     });
     expect(trigger).toBeInTheDocument();
     expect(screen.queryByLabelText("Add a comment")).not.toBeInTheDocument();
-    expect(within(trigger).getByText("no comments")).toBeInTheDocument();
-    expect(within(trigger).getAllByText("0")).toHaveLength(2);
+    expect(within(trigger).getAllByText("0").length).toBeGreaterThanOrEqual(3);
   });
 
-  it("renders singular and plural comment count copy", () => {
+  it("renders numeric comment counts without visible copy text", () => {
     const oneComment = buildFeedback({
       comments: [{ id: "comment-1", body: "First", createdAt: "", updatedAt: "", author: { id: "u1", email: "a@example.com" } }],
     });
@@ -86,13 +87,14 @@ describe("TripFeedbackPanel", () => {
           tripId="trip-1"
           targetType="tripDay"
           targetId="day-1"
+          currentUserId="u1"
           contextLabel="Day 1"
           feedback={oneComment}
           onUpdated={vi.fn()}
         />
       </I18nProvider>,
     );
-    expect(screen.getByText("1 comment")).toBeInTheDocument();
+    expect(screen.getByText("1")).toBeInTheDocument();
 
     rerender(
       <I18nProvider initialLanguage="en">
@@ -100,13 +102,14 @@ describe("TripFeedbackPanel", () => {
           tripId="trip-1"
           targetType="tripDay"
           targetId="day-1"
+          currentUserId="u1"
           contextLabel="Day 1"
           feedback={manyComments}
           onUpdated={vi.fn()}
         />
       </I18nProvider>,
     );
-    expect(screen.getByText("2 comments")).toBeInTheDocument();
+    expect(screen.getByText("2")).toBeInTheDocument();
   });
 
   it("opens in a dialog, submits comment and vote updates, and returns focus to the trigger", async () => {
@@ -186,6 +189,7 @@ describe("TripFeedbackPanel", () => {
           tripId="trip-1"
           targetType="tripDay"
           targetId="day-1"
+          currentUserId="u1"
           contextLabel="Day 1"
           feedback={feedback}
           onUpdated={(next) => {
@@ -195,8 +199,6 @@ describe("TripFeedbackPanel", () => {
         />
       );
     };
-
-    const React = await import("react");
 
     render(
       <I18nProvider initialLanguage="en">
@@ -216,7 +218,7 @@ describe("TripFeedbackPanel", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: "Post comment" }));
 
     await waitFor(() => expect(onUpdated).toHaveBeenCalled());
-    expect(screen.getByText("1 comment")).toBeInTheDocument();
+    expect(screen.getByText("1")).toBeInTheDocument();
 
     await userEvent.click(within(dialog).getByRole("button", { name: "Upvote 0" }));
 
@@ -246,6 +248,7 @@ describe("TripFeedbackPanel", () => {
           tripId="trip-1"
           targetType="tripDay"
           targetId="day-1"
+          currentUserId="u1"
           contextLabel="Day 1"
           feedback={buildFeedback()}
           onUpdated={vi.fn()}
@@ -261,5 +264,136 @@ describe("TripFeedbackPanel", () => {
 
     const dialog = await screen.findByRole("dialog", { name: "Suggestions and votes for Day 1" });
     expect(dialog.closest(".MuiDialog-paperFullScreen")).not.toBeNull();
+  });
+
+  it("shows edit controls only for authored comments and supports save and cancel flows", async () => {
+    const onUpdated = vi.fn();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+
+      if (url.endsWith("/api/auth/csrf") && method === "GET") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
+        };
+      }
+
+      if (url.endsWith("/api/trips/trip-1/feedback/comments/comment-1") && method === "PUT") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: {
+              feedback: buildFeedback({
+                comments: [
+                  {
+                    id: "comment-1",
+                    body: "Edited body",
+                    createdAt: "",
+                    updatedAt: "",
+                    author: { id: "u1", email: "viewer@example.com" },
+                  },
+                  {
+                    id: "comment-2",
+                    body: "Other comment",
+                    createdAt: "",
+                    updatedAt: "",
+                    author: { id: "u2", email: "other@example.com" },
+                  },
+                ],
+              }),
+            },
+            error: null,
+          }),
+        };
+      }
+
+      throw new Error(`Unhandled fetch ${method} ${url}`);
+    }) as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const Harness = () => {
+      const [feedback, setFeedback] = React.useState(
+        buildFeedback({
+          comments: [
+            {
+              id: "comment-1",
+              body: "Original body",
+              createdAt: "",
+              updatedAt: "",
+              author: { id: "u1", email: "viewer@example.com" },
+            },
+            {
+              id: "comment-2",
+              body: "Other comment",
+              createdAt: "",
+              updatedAt: "",
+              author: { id: "u2", email: "other@example.com" },
+            },
+          ],
+        }),
+      );
+
+      return (
+        <TripFeedbackPanel
+          tripId="trip-1"
+          targetType="tripDay"
+          targetId="day-1"
+          currentUserId="u1"
+          contextLabel="Day 1"
+          feedback={feedback}
+          onUpdated={(next) => {
+            setFeedback(next);
+            onUpdated(next);
+          }}
+        />
+      );
+    };
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <Harness />
+      </I18nProvider>,
+    );
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Open comments dialog for Day 1, 2 comments, Upvote 0, Downvote 0",
+      }),
+    );
+
+    const dialog = await screen.findByRole("dialog", { name: "Suggestions and votes for Day 1" });
+    expect(within(dialog).getByRole("button", { name: "Edit your comment: Original body" })).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Edit your comment: Other comment" })).not.toBeInTheDocument();
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Edit your comment: Original body" }));
+    const editor = within(dialog).getByLabelText("Edit comment");
+    expect(editor).toHaveValue("Original body");
+
+    await userEvent.clear(editor);
+    await userEvent.type(editor, "Draft edit");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Cancel edit" }));
+    expect(within(dialog).queryByLabelText("Edit comment")).not.toBeInTheDocument();
+    expect(within(dialog).getByText("Original body")).toBeInTheDocument();
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Edit your comment: Original body" }));
+    const activeEditor = within(dialog).getByLabelText("Edit comment");
+    await userEvent.clear(activeEditor);
+    await userEvent.type(activeEditor, "Edited body");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save comment" }));
+
+    await waitFor(() =>
+      expect(onUpdated).toHaveBeenCalledWith(
+        expect.objectContaining({
+          comments: expect.arrayContaining([expect.objectContaining({ id: "comment-1", body: "Edited body" })]),
+        }),
+      ),
+    );
+    expect(within(dialog).getByText("Edited body")).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
   });
 });
