@@ -5,7 +5,6 @@ import {
   Alert,
   Box,
   Button,
-  ButtonBase,
   Chip,
   Dialog,
   DialogContent,
@@ -294,9 +293,10 @@ export default function TripFeedbackPanel({
 
   return (
     <>
-      <ButtonBase
+      <Paper
         ref={triggerRef}
-        component={Paper}
+        component="button"
+        type="button"
         elevation={0}
         onClick={() => setOpen(true)}
         aria-label={triggerLabel}
@@ -311,10 +311,13 @@ export default function TripFeedbackPanel({
           border: "1px solid rgba(17,18,20,0.08)",
           backgroundColor: "#f6f8fb",
           textAlign: "left",
+          display: "flex",
           justifyContent: "flex-start",
           alignItems: "center",
           gap: 1,
           color: "inherit",
+          cursor: "pointer",
+          appearance: "none",
         }}
       >
         <Box display="flex" alignItems="center" gap={1} minWidth={0}>
@@ -333,7 +336,7 @@ export default function TripFeedbackPanel({
             <Typography variant="caption">{resolvedFeedback.voteSummary.downCount}</Typography>
           </Box>
         </Box>
-      </ButtonBase>
+      </Paper>
 
       <Dialog open={open} onClose={closeDialog} fullWidth maxWidth="sm" fullScreen={fullScreen} aria-labelledby={`${targetType}-${targetId}-feedback-title`}>
         <DialogTitle id={`${targetType}-${targetId}-feedback-title`} sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1 }}>
