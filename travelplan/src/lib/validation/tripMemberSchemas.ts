@@ -8,7 +8,14 @@ export const tripMemberRoleSchema = z.enum(["viewer", "contributor"], {
 export const createTripMemberSchema = z.object({
   email: normalizedEmailSchema,
   role: tripMemberRoleSchema,
-  temporaryPassword: passwordSchema,
+  temporaryPassword: z.preprocess(
+    (value) => {
+      if (typeof value !== "string") return value;
+      const normalized = value.trim();
+      return normalized.length === 0 ? undefined : normalized;
+    },
+    passwordSchema.optional(),
+  ),
 });
 
 export type CreateTripMemberInput = z.infer<typeof createTripMemberSchema>;

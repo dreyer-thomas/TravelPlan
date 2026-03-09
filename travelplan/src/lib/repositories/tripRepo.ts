@@ -188,18 +188,24 @@ export type CreateTripCollaboratorParams = {
   tripId: string;
   email: string;
   role: "viewer" | "contributor";
-  temporaryPassword: string;
+  temporaryPassword?: string;
 };
 
 export type CreateTripCollaboratorResult =
   | {
       outcome: "created";
+      accountAction: "created_account" | "linked_existing_account";
       collaborator: TripCollaborator;
       collaborators: TripCollaborator[];
     }
   | {
       outcome: "conflict";
-      reason: "already_member" | "owner_email" | "existing_account";
+      reason: "already_member" | "owner_email";
+    }
+  | {
+      outcome: "validation_error";
+      field: "temporaryPassword";
+      message: string;
     }
   | {
       outcome: "not_found";
@@ -1203,7 +1209,50 @@ export const createTripCollaboratorForOwner = async ({
         return { outcome: "conflict", reason: "already_member" } satisfies CreateTripCollaboratorResult;
       }
 
-      return { outcome: "conflict", reason: "existing_account" } satisfies CreateTripCollaboratorResult;
+      try {
+        const membership = await tx.tripMember.create({
+          data: {
+            tripId,
+            userId: existingUser.id,
+            role: toTripMemberRole(role),
+          },
+          select: {
+            id: true,
+            user: {
+              select: {
+                email: true,
+              },
+            },
+          },
+        });
+
+        const collaborators = await listTripCollaborators(tx, tripId, ownerUserId);
+
+        return {
+          outcome: "created",
+          accountAction: "linked_existing_account",
+          collaborator: {
+            id: membership.id,
+            email: membership.user.email,
+            role,
+          },
+          collaborators,
+        };
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+          return { outcome: "conflict", reason: "already_member" } satisfies CreateTripCollaboratorResult;
+        }
+
+        throw error;
+      }
+    }
+
+    if (!temporaryPassword) {
+      return {
+        outcome: "validation_error",
+        field: "temporaryPassword",
+        message: "Temporary password is required for new collaborator accounts",
+      } satisfies CreateTripCollaboratorResult;
     }
 
     const passwordHash = await hashPassword(temporaryPassword);
@@ -1233,6 +1282,7 @@ export const createTripCollaboratorForOwner = async ({
 
       return {
         outcome: "created",
+        accountAction: "created_account",
         collaborator: {
           id: membership.id,
           email: user.email,

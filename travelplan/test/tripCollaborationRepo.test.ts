@@ -75,7 +75,7 @@ describe("trip collaboration repository", () => {
     ]);
   });
 
-  it("rejects existing accounts instead of overwriting their password", async () => {
+  it("reuses an existing account for a new trip without overwriting credentials", async () => {
     const owner = await prisma.user.create({
       data: {
         email: "owner@example.com",
@@ -89,6 +89,22 @@ describe("trip collaboration repository", () => {
         passwordHash: "old-hash",
         role: "VIEWER",
         mustChangePassword: false,
+        preferredLanguage: "de",
+      },
+    });
+    const originalTrip = await prisma.trip.create({
+      data: {
+        userId: owner.id,
+        name: "Original Trip",
+        startDate: new Date("2026-07-20T00:00:00.000Z"),
+        endDate: new Date("2026-07-21T00:00:00.000Z"),
+      },
+    });
+    await prisma.tripMember.create({
+      data: {
+        tripId: originalTrip.id,
+        userId: existing.id,
+        role: "VIEWER",
       },
     });
     const trip = await prisma.trip.create({
@@ -108,10 +124,13 @@ describe("trip collaboration repository", () => {
       temporaryPassword: "FreshPass123",
     });
 
-    expect(result).toEqual({
-      outcome: "conflict",
-      reason: "existing_account",
-    });
+    expect(result.outcome).toBe("created");
+    expect(result.collaborator).toEqual(
+      expect.objectContaining({
+        email: "existing@example.com",
+        role: "contributor",
+      }),
+    );
 
     const users = await prisma.user.findMany({
       where: {
@@ -122,7 +141,32 @@ describe("trip collaboration repository", () => {
     expect(users[0].id).toBe(existing.id);
     expect(users[0].mustChangePassword).toBe(false);
     expect(users[0].passwordHash).toBe("old-hash");
-    expect(await prisma.tripMember.count({ where: { tripId: trip.id, userId: existing.id } })).toBe(0);
+    expect(users[0].preferredLanguage).toBe("de");
+
+    const memberships = await prisma.tripMember.findMany({
+      where: { userId: existing.id },
+      orderBy: { tripId: "asc" },
+    });
+    expect(memberships).toHaveLength(2);
+    expect(memberships).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ tripId: originalTrip.id, role: "VIEWER" }),
+        expect.objectContaining({ tripId: trip.id, role: "CONTRIBUTOR" }),
+      ]),
+    );
+
+    await expect(getTripAccessForUser(existing.id, originalTrip.id)).resolves.toEqual(
+      expect.objectContaining({
+        tripId: originalTrip.id,
+        accessRole: "viewer",
+      }),
+    );
+    await expect(getTripAccessForUser(existing.id, trip.id)).resolves.toEqual(
+      expect.objectContaining({
+        tripId: trip.id,
+        accessRole: "contributor",
+      }),
+    );
   });
 
   it("returns conflict when the user is already linked to the trip", async () => {

@@ -1027,3 +1027,37 @@ So that the same person can collaborate across multiple trips without duplicate-
 **Given** the entered email does not belong to an existing account
 **When** I add that person through the current share flow
 **Then** the existing temporary-password provisioning behavior still works
+
+### Story 5.7: Limit Voting to Day Items
+
+As a trip participant,
+I want days and accommodations to stay commentable without voting,
+So that lightweight discussion remains available while voting is reserved for concrete day-item suggestions.
+
+**FRs covered:** FR24
+
+**Acceptance Criteria:**
+
+**Given** I view a day entry in the trip overview
+**When** the feedback trigger is rendered
+**Then** I still see comment access for that day
+**And** I do not see vote counts or vote actions for the day itself
+
+**Given** I open the day view for a specific day
+**When** the day-level feedback trigger is rendered
+**Then** I can still read and add comments for the day
+**And** I do not see vote counts or vote actions for the day itself
+
+**Given** I view an accommodation that supports feedback
+**When** its feedback trigger is rendered
+**Then** I can still read and add comments for that accommodation
+**And** I do not see vote counts or vote actions for that accommodation
+
+**Given** I view a day plan item that supports feedback
+**When** its feedback trigger is rendered
+**Then** the existing comments and voting behavior remains available
+
+**Given** a client attempts to submit a vote for a day or accommodation target
+**When** the request reaches the feedback API
+**Then** the request is rejected as unsupported
+**And** no vote state is created or changed for that target

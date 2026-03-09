@@ -685,7 +685,7 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                                   title={t("trips.timeline.openDay")}
                                 >
                                   <SvgIcon sx={{ fontSize: 18 }} viewBox="0 0 24 24">
-                                    <path d="M12 4a8 8 0 1 1 0 16 8 8 0 0 1 0-16Zm0 3a1.25 1.25 0 1 0 0 2.5A1.25 1.25 0 0 0 12 7Zm-2 6.5h1v3h2v-3h1v-2h-4v2Z" />
+                                    <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25Zm2.92 2.33H5v-.92l9.06-9.06.92.92L5.92 19.58ZM20.71 7.04a1.003 1.003 0 0 0 0-1.42L18.37 3.29a1.003 1.003 0 0 0-1.42 0l-1.13 1.13 3.75 3.75 1.14-1.13Z" />
                                   </SvgIcon>
                                 </IconButton>
                               </Box>
@@ -701,6 +701,7 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                                 <Box display="flex" alignItems="center" gap={1} flexWrap="wrap" minWidth={0}>
                                   {day.accommodation ? (
                                     <Box
+                                      data-testid="timeline-accommodation-surface"
                                       sx={{
                                         backgroundColor: "#4a525f",
                                         borderRadius: 1.25,

@@ -107,5 +107,6 @@ development_status:
   5-3-viewer-access-with-comments-and-votes: done
   5-4-contributor-full-edit-permissions: done
   5-5-edit-own-comments: done
-  5-6-add-existing-contributor: ready-for-dev
+  5-6-add-existing-contributor: done
+  5-7-limit-voting-to-day-items: ready-for-dev
   epic-5-retrospective: optional

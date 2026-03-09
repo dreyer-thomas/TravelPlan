@@ -86,18 +86,27 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
       return fail(apiError("not_found", "Trip not found"), 404);
     }
 
+    if (result.outcome === "validation_error") {
+      return fail(
+        apiError("validation_error", "Invalid collaborator details", {
+          fieldErrors: {
+            [result.field]: [result.message],
+          },
+        }),
+        400,
+      );
+    }
+
     if (result.outcome === "conflict") {
-      if (result.reason === "existing_account") {
-        return fail(
-          apiError("trip_member_existing_account", "Existing accounts cannot be reprovisioned with a temporary password"),
-          409,
-        );
+      if (result.reason === "owner_email") {
+        return fail(apiError("trip_owner_email", "Trip owner is already linked to this trip"), 409);
       }
 
       return fail(apiError("trip_member_exists", "Collaborator is already linked to this trip"), 409);
     }
 
     return ok({
+      accountAction: result.accountAction,
       collaborator: result.collaborator,
       collaborators: result.collaborators,
     });

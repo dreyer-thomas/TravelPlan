@@ -323,7 +323,7 @@ describe("TripTimeline feedback", () => {
         name: "Open comments dialog for Day 1, no comments, Upvote 0, Downvote 0",
       }),
     );
-    expect(screen.queryByTestId("timeline-accommodation-surface")).not.toBeInTheDocument();
+    expect(metaRow).toContainElement(screen.getByTestId("timeline-accommodation-surface"));
 
     vi.unstubAllGlobals();
   });

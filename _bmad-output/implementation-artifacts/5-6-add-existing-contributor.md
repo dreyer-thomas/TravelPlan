@@ -1,6 +1,6 @@
 # Story 5.6: Add Existing Contributor to Another Trip
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -22,31 +22,31 @@ so that the same person can collaborate across multiple trips without duplicate-
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Reuse existing user accounts when creating trip memberships instead of treating them as invite conflicts. (AC: 1, 2, 4, 5)
-  - [ ] Update `travelplan/src/lib/repositories/tripRepo.ts` so `createTripCollaboratorForOwner` distinguishes between `existing account, not yet linked` and `existing account, already linked`.
-  - [ ] For an existing account that is not yet a member of the current trip, create a `TripMember` row with the requested role and return the refreshed collaborator list.
-  - [ ] Preserve the current owner-email protection and current duplicate-membership protection.
-- [ ] Task 2: Adjust the members API contract so existing-account reuse is a supported success path. (AC: 1, 2, 7)
-  - [ ] Update `travelplan/src/app/api/trips/[id]/members/route.ts` so the owner can add an existing account to a new trip without receiving `trip_member_existing_account`.
-  - [ ] Preserve session enforcement, CSRF validation, and the `{ data, error }` response envelope.
-  - [ ] Keep `404` inaccessible-trip behavior for non-owners and keep duplicate-on-same-trip conflicts explicit.
-- [ ] Task 3: Refine collaborator validation and flow rules for “new account” versus “existing account”. (AC: 1, 3, 4, 6)
-  - [ ] Keep the temp-password requirement for brand-new accounts created through the owner invite flow.
-  - [ ] Introduce a safe path for existing accounts where a temporary password is optional or ignored rather than required for success.
-  - [ ] Ensure existing-account reuse never overwrites password hashes, password-change flags, or other user-level fields.
-- [ ] Task 4: Update the share dialog so owners can successfully add existing accounts to more than one trip. (AC: 1, 2, 3, 6)
-  - [ ] Update `travelplan/src/components/features/trips/TripShareDialog.tsx` so the form copy and error handling support both “create new collaborator account” and “link existing account to this trip”.
-  - [ ] Remove the dead-end message that currently tells the owner to “use that account directly” when the actual intent is to attach that account to the current trip.
-  - [ ] Keep the collaborator list refresh and success feedback aligned with the current dialog pattern and EN/DE i18n setup.
-- [ ] Task 5: Preserve trip-scoped access rules and avoid scope creep into invitation redesign. (AC: 4, 5, 7)
-  - [ ] Keep collaborator access modeled through `TripMember`; do not add a second membership model or a global contributor role.
-  - [ ] Do not add email invitations, account search pages, password resets, role-editing, or collaborator removal in this story.
-  - [ ] Keep cross-trip reuse limited to linking an existing `User` into another trip with a new trip-specific role.
-- [ ] Task 6: Add regression coverage for existing-account reuse and same-trip duplicates. (AC: 1, 2, 3, 4, 5, 6, 7)
-  - [ ] Add repository tests proving an existing account can be linked to a second trip without password or profile mutation.
-  - [ ] Add route tests proving the owner can add an existing account to another trip, receives collaborator data, and the linked user can access the trip afterward.
-  - [ ] Add route tests proving the same account still receives a conflict when already linked to the current trip and that non-owners remain blocked.
-  - [ ] Add UI tests proving the share dialog surfaces the correct success/duplicate behavior for existing accounts and still supports the new-account temp-password path.
+- [x] Task 1: Reuse existing user accounts when creating trip memberships instead of treating them as invite conflicts. (AC: 1, 2, 4, 5)
+  - [x] Update `travelplan/src/lib/repositories/tripRepo.ts` so `createTripCollaboratorForOwner` distinguishes between `existing account, not yet linked` and `existing account, already linked`.
+  - [x] For an existing account that is not yet a member of the current trip, create a `TripMember` row with the requested role and return the refreshed collaborator list.
+  - [x] Preserve the current owner-email protection and current duplicate-membership protection.
+- [x] Task 2: Adjust the members API contract so existing-account reuse is a supported success path. (AC: 1, 2, 7)
+  - [x] Update `travelplan/src/app/api/trips/[id]/members/route.ts` so the owner can add an existing account to a new trip without receiving `trip_member_existing_account`.
+  - [x] Preserve session enforcement, CSRF validation, and the `{ data, error }` response envelope.
+  - [x] Keep `404` inaccessible-trip behavior for non-owners and keep duplicate-on-same-trip conflicts explicit.
+- [x] Task 3: Refine collaborator validation and flow rules for “new account” versus “existing account”. (AC: 1, 3, 4, 6)
+  - [x] Keep the temp-password requirement for brand-new accounts created through the owner invite flow.
+  - [x] Introduce a safe path for existing accounts where a temporary password is optional or ignored rather than required for success.
+  - [x] Ensure existing-account reuse never overwrites password hashes, password-change flags, or other user-level fields.
+- [x] Task 4: Update the share dialog so owners can successfully add existing accounts to more than one trip. (AC: 1, 2, 3, 6)
+  - [x] Update `travelplan/src/components/features/trips/TripShareDialog.tsx` so the form copy and error handling support both “create new collaborator account” and “link existing account to this trip”.
+  - [x] Remove the dead-end message that currently tells the owner to “use that account directly” when the actual intent is to attach that account to the current trip.
+  - [x] Keep the collaborator list refresh and success feedback aligned with the current dialog pattern and EN/DE i18n setup.
+- [x] Task 5: Preserve trip-scoped access rules and avoid scope creep into invitation redesign. (AC: 4, 5, 7)
+  - [x] Keep collaborator access modeled through `TripMember`; do not add a second membership model or a global contributor role.
+  - [x] Do not add email invitations, account search pages, password resets, role-editing, or collaborator removal in this story.
+  - [x] Keep cross-trip reuse limited to linking an existing `User` into another trip with a new trip-specific role.
+- [x] Task 6: Add regression coverage for existing-account reuse and same-trip duplicates. (AC: 1, 2, 3, 4, 5, 6, 7)
+  - [x] Add repository tests proving an existing account can be linked to a second trip without password or profile mutation.
+  - [x] Add route tests proving the owner can add an existing account to another trip, receives collaborator data, and the linked user can access the trip afterward.
+  - [x] Add route tests proving the same account still receives a conflict when already linked to the current trip and that non-owners remain blocked.
+  - [x] Add UI tests proving the share dialog surfaces the correct success/duplicate behavior for existing accounts and still supports the new-account temp-password path.
 
 ## Dev Notes
 
@@ -164,14 +164,37 @@ GPT-5 Codex
 - Story key `5-6-add-existing-contributor` was provided directly by the user rather than discovered from `sprint-status.yaml`.
 - The BMAD validation task runner `_bmad/core/tasks/validate-workflow.xml` referenced by the workflow is not present in this repository, so checklist validation could not be run through the expected task file.
 - Story context was grounded in the existing Epic 5 planning artifacts and the live collaboration implementation in `tripRepo.ts`, `/api/trips/[id]/members`, `TripShareDialog.tsx`, and associated tests.
+- Full regression validation passed with `npm test` (`82` files, `432` tests). `npm run lint` reported existing warnings only and no errors.
+- While clearing the full-suite gate, restored/realigned the `timeline-accommodation-surface` test hook in timeline coverage tests without changing story behavior.
+- Code review follow-up fixes addressed the existing-user duplicate race, restored distinct owner-email conflict handling at the API/UI boundary, and hardened share-dialog submit error handling.
+- Targeted post-review regression validation passed with `npm test -- tripMembersRoute.test.ts` and `npm test -- tripTimelineSharing.test.tsx`.
 
 ### Completion Notes List
 
-- Created Story 5.6 as a follow-on to Story 5.1’s intentionally deferred existing-account onboarding gap.
-- Framed the change as a trip-membership reuse fix, not a schema redesign.
-- Preserved the current temp-password invite path for brand-new accounts while adding a success path for existing accounts on new trips.
-- Kept duplicate prevention scoped to same-trip membership and preserved owner-only member management.
+- Reworked `createTripCollaboratorForOwner` to link existing users into new trips via `TripMember` creation, preserve owner-email and same-trip duplicate guards, and keep existing user credentials/profile fields unchanged.
+- Updated the members route to treat existing-account reuse as a success path, return `accountAction` metadata for the dialog, and surface a field-level validation error when a brand-new account is submitted without a temporary password.
+- Relaxed collaborator schema/UI handling so temporary passwords are optional for existing accounts, added linked-account success copy in EN/DE, and removed the old existing-account dead-end blocker from the share dialog.
+- Added regression coverage for repository, route, and UI flows around cross-trip reuse, same-trip duplicates, owner-only enforcement, and the unchanged new-account temp-password path.
+- Restored the timeline accommodation-surface test hook and aligned the related timeline feedback test so the full repository suite returns green.
+- Post-review fixes now translate duplicate-member races for existing accounts into the documented conflict response, preserve a dedicated owner-email conflict response, and surface a friendly dialog error on submit transport failures.
 
 ### File List
 
 - _bmad-output/implementation-artifacts/5-6-add-existing-contributor.md
+- _bmad-output/implementation-artifacts/sprint-status.yaml
+- travelplan/src/lib/repositories/tripRepo.ts
+- travelplan/src/app/api/trips/[id]/members/route.ts
+- travelplan/src/lib/validation/tripMemberSchemas.ts
+- travelplan/src/components/features/trips/TripShareDialog.tsx
+- travelplan/src/components/features/trips/TripTimeline.tsx
+- travelplan/src/i18n/en.ts
+- travelplan/src/i18n/de.ts
+- travelplan/test/tripCollaborationRepo.test.ts
+- travelplan/test/tripMembersRoute.test.ts
+- travelplan/test/tripTimelineSharing.test.tsx
+- travelplan/test/tripTimelineFeedback.test.tsx
+
+## Change Log
+
+- 2026-03-09: Reused existing user accounts across trips in the owner share flow, updated collaborator validation/UI messaging, added regression coverage, and repaired timeline test-hook consistency required for the full regression suite.
+- 2026-03-09: Fixed code-review findings by guarding the existing-account membership race, restoring dedicated owner-email conflict handling, and covering dialog submit failure behavior with regression tests.

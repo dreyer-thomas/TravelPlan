@@ -38,7 +38,7 @@ type TripShareDialogProps = {
 type TripShareFormValues = {
   email: string;
   role: "viewer" | "contributor";
-  temporaryPassword: string;
+  temporaryPassword?: string;
 };
 
 const defaultValues: TripShareFormValues = {
@@ -72,10 +72,10 @@ export default function TripShareDialog({ open, tripId, onClose }: TripShareDial
           return t("errors.unauthorized");
         case "csrf_invalid":
           return t("errors.csrfInvalid");
+        case "trip_owner_email":
+          return t("trips.share.ownerEmailError");
         case "trip_member_exists":
           return t("trips.share.duplicateError");
-        case "trip_member_existing_account":
-          return t("trips.share.existingAccountError");
         case "invalid_json":
           return t("errors.invalidJson");
         case "validation_error":
@@ -163,41 +163,50 @@ export default function TripShareDialog({ open, tripId, onClose }: TripShareDial
       return;
     }
 
-    const response = await fetch(`/api/trips/${tripId}/members`, {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-        "x-csrf-token": csrfToken,
-      },
-      body: JSON.stringify(values),
-    });
+    try {
+      const response = await fetch(`/api/trips/${tripId}/members`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "x-csrf-token": csrfToken,
+        },
+        body: JSON.stringify(values),
+      });
 
-    const body = (await response.json()) as ApiEnvelope<{
-      collaborator: TripCollaborator;
-      collaborators: TripCollaborator[];
-    }>;
+      const body = (await response.json()) as ApiEnvelope<{
+        accountAction?: "created_account" | "linked_existing_account";
+        collaborator: TripCollaborator;
+        collaborators: TripCollaborator[];
+      }>;
 
-    if (!response.ok || body.error || !body.data) {
-      if (body.error?.code === "validation_error" && body.error.details) {
-        const details = body.error.details as {
-          fieldErrors?: Record<string, string[]>;
-        };
+      if (!response.ok || body.error || !body.data) {
+        if (body.error?.code === "validation_error" && body.error.details) {
+          const details = body.error.details as {
+            fieldErrors?: Record<string, string[]>;
+          };
 
-        Object.entries(details.fieldErrors ?? {}).forEach(([field, messages]) => {
-          if (messages?.[0]) {
-            setError(field as keyof TripShareFormValues, { message: messages[0] });
-          }
-        });
+          Object.entries(details.fieldErrors ?? {}).forEach(([field, messages]) => {
+            if (messages?.[0]) {
+              setError(field as keyof TripShareFormValues, { message: messages[0] });
+            }
+          });
+        }
+
+        setServerError(resolveApiError(body.error?.code));
+        return;
       }
 
-      setServerError(resolveApiError(body.error?.code));
-      return;
+      setCollaborators(body.data.collaborators);
+      setSuccess(
+        body.data.accountAction === "linked_existing_account"
+          ? t("trips.share.linkSuccess")
+          : t("trips.share.success"),
+      );
+      reset(defaultValues);
+    } catch {
+      setServerError(t("trips.share.error"));
     }
-
-    setCollaborators(body.data.collaborators);
-    setSuccess(t("trips.share.success"));
-    reset(defaultValues);
   };
 
   const collaboratorRoleLabel = (role: TripCollaborator["role"]) =>
@@ -242,12 +251,12 @@ export default function TripShareDialog({ open, tripId, onClose }: TripShareDial
               <option value="contributor">{t("trips.share.roleContributor")}</option>
             </TextField>
             <TextField
-              label={t("trips.share.temporaryPasswordLabel")}
+              label={t("trips.share.temporaryPasswordOptionalLabel")}
               type="password"
               autoComplete="new-password"
               error={Boolean(errors.temporaryPassword)}
               helperText={errors.temporaryPassword?.message ?? t("trips.share.temporaryPasswordHelp")}
-              {...register("temporaryPassword", { required: t("auth.passwordRequired") })}
+              {...register("temporaryPassword")}
             />
             <Box display="flex" justifyContent="flex-end">
               <Button type="submit" variant="contained" disabled={isSubmitting || loading}>
