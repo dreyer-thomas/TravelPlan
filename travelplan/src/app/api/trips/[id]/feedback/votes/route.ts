@@ -3,7 +3,7 @@ import { apiError } from "@/lib/errors/apiError";
 import { fail, ok } from "@/lib/http/response";
 import { requireSession } from "@/lib/auth/sessionGuard";
 import { CSRF_COOKIE_NAME, validateCsrf } from "@/lib/security/csrf";
-import { upsertTripFeedbackVote } from "@/lib/repositories/tripFeedbackRepo";
+import { UnsupportedTripFeedbackVoteError, upsertTripFeedbackVote } from "@/lib/repositories/tripFeedbackRepo";
 import { tripFeedbackVoteSchema } from "@/lib/validation/tripFeedbackSchemas";
 
 type RouteContext = {
@@ -88,7 +88,11 @@ export const PUT = async (request: NextRequest, context: RouteContext) => {
         voteSummary: feedback.voteSummary,
       },
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof UnsupportedTripFeedbackVoteError) {
+      return fail(apiError("validation_error", "Voting is not supported for this feedback target"), 400);
+    }
+
     return fail(apiError("server_error", "Unable to save feedback vote"), 500);
   }
 };

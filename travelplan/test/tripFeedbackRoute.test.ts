@@ -138,6 +138,105 @@ describe("trip feedback routes", () => {
     expect(await prisma.tripFeedbackVote.count()).toBe(1);
   });
 
+  it("rejects votes for trip-day targets before persistence", async () => {
+    const owner = await prisma.user.create({ data: { email: "owner@example.com", passwordHash: "hashed", role: "OWNER" } });
+    const viewer = await prisma.user.create({ data: { email: "viewer@example.com", passwordHash: "hashed", role: "VIEWER" } });
+    const trip = await prisma.trip.create({
+      data: {
+        userId: owner.id,
+        name: "Vote Limits Trip",
+        startDate: new Date("2026-09-05T00:00:00.000Z"),
+        endDate: new Date("2026-09-06T00:00:00.000Z"),
+      },
+    });
+    const day = await prisma.tripDay.create({
+      data: { tripId: trip.id, date: new Date("2026-09-05T00:00:00.000Z"), dayIndex: 1 },
+    });
+    await prisma.tripMember.create({
+      data: { tripId: trip.id, userId: viewer.id, role: "VIEWER" },
+    });
+    const session = await createSessionJwt({ sub: viewer.id, role: viewer.role });
+
+    const response = await PUT_VOTE(
+      buildRequest(`http://localhost/api/trips/${trip.id}/feedback/votes`, {
+        method: "PUT",
+        session,
+        csrf: "csrf-token",
+        body: { targetType: "tripDay", targetId: day.id, value: "up" },
+      }),
+      { params: Promise.resolve({ id: trip.id }) },
+    );
+    const payload = (await response.json()) as ApiEnvelope<null>;
+
+    expect(response.status).toBe(400);
+    expect(payload.error?.code).toBe("validation_error");
+    expect(await prisma.tripFeedbackVote.count()).toBe(0);
+  });
+
+  it("rejects votes for accommodation targets before persistence while keeping day-plan-item votes enabled", async () => {
+    const owner = await prisma.user.create({ data: { email: "owner@example.com", passwordHash: "hashed", role: "OWNER" } });
+    const viewer = await prisma.user.create({ data: { email: "viewer@example.com", passwordHash: "hashed", role: "VIEWER" } });
+    const trip = await prisma.trip.create({
+      data: {
+        userId: owner.id,
+        name: "Mixed Feedback Trip",
+        startDate: new Date("2026-09-05T00:00:00.000Z"),
+        endDate: new Date("2026-09-06T00:00:00.000Z"),
+      },
+    });
+    const day = await prisma.tripDay.create({
+      data: { tripId: trip.id, date: new Date("2026-09-05T00:00:00.000Z"), dayIndex: 1 },
+    });
+    const stay = await prisma.accommodation.create({
+      data: {
+        tripDayId: day.id,
+        name: "Harbor Hotel",
+        status: "PLANNED",
+      },
+    });
+    const item = await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: day.id,
+        contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Museum" }] }] }),
+      },
+    });
+    await prisma.tripMember.create({
+      data: { tripId: trip.id, userId: viewer.id, role: "VIEWER" },
+    });
+    const session = await createSessionJwt({ sub: viewer.id, role: viewer.role });
+
+    const blockedResponse = await PUT_VOTE(
+      buildRequest(`http://localhost/api/trips/${trip.id}/feedback/votes`, {
+        method: "PUT",
+        session,
+        csrf: "csrf-token",
+        body: { targetType: "accommodation", targetId: stay.id, tripDayId: day.id, value: "up" },
+      }),
+      { params: Promise.resolve({ id: trip.id }) },
+    );
+    const blockedPayload = (await blockedResponse.json()) as ApiEnvelope<null>;
+
+    expect(blockedResponse.status).toBe(400);
+    expect(blockedPayload.error?.code).toBe("validation_error");
+
+    const allowedResponse = await PUT_VOTE(
+      buildRequest(`http://localhost/api/trips/${trip.id}/feedback/votes`, {
+        method: "PUT",
+        session,
+        csrf: "csrf-token",
+        body: { targetType: "dayPlanItem", targetId: item.id, tripDayId: day.id, value: "up" },
+      }),
+      { params: Promise.resolve({ id: trip.id }) },
+    );
+    const allowedPayload = (await allowedResponse.json()) as ApiEnvelope<{
+      feedback: { voteSummary: { upCount: number; downCount: number; userVote: string | null } };
+    }>;
+
+    expect(allowedResponse.status).toBe(200);
+    expect(allowedPayload.data?.feedback.voteSummary).toEqual({ upCount: 1, downCount: 0, userVote: "up" });
+    expect(await prisma.tripFeedbackVote.count()).toBe(1);
+  });
+
   it("returns inaccessible-trip behavior for non-members on feedback routes", async () => {
     const owner = await prisma.user.create({ data: { email: "owner@example.com", passwordHash: "hashed", role: "OWNER" } });
     const outsider = await prisma.user.create({ data: { email: "outsider@example.com", passwordHash: "hashed", role: "VIEWER" } });
@@ -148,6 +247,9 @@ describe("trip feedback routes", () => {
         startDate: new Date("2026-09-07T00:00:00.000Z"),
         endDate: new Date("2026-09-08T00:00:00.000Z"),
       },
+    });
+    const day = await prisma.tripDay.create({
+      data: { tripId: trip.id, date: new Date("2026-09-07T00:00:00.000Z"), dayIndex: 1 },
     });
     const session = await createSessionJwt({ sub: outsider.id, role: outsider.role });
 
@@ -164,6 +266,20 @@ describe("trip feedback routes", () => {
 
     expect(response.status).toBe(404);
     expect(payload.error?.code).toBe("not_found");
+
+    const unsupportedVoteResponse = await PUT_VOTE(
+      buildRequest(`http://localhost/api/trips/${trip.id}/feedback/votes`, {
+        method: "PUT",
+        session,
+        csrf: "csrf-token",
+        body: { targetType: "tripDay", targetId: day.id, value: "up" },
+      }),
+      { params: Promise.resolve({ id: trip.id }) },
+    );
+    const unsupportedVotePayload = (await unsupportedVoteResponse.json()) as ApiEnvelope<null>;
+
+    expect(unsupportedVoteResponse.status).toBe(404);
+    expect(unsupportedVotePayload.error?.code).toBe("not_found");
   });
 
   it("keeps viewers blocked from protected core trip mutations", async () => {

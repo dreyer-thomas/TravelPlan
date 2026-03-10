@@ -1,6 +1,6 @@
 # Story 5.7: Limit Voting to Day Items
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -23,31 +23,31 @@ so that lightweight discussion remains available while voting is reserved for co
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Introduce explicit feedback capabilities per target type. (AC: 1, 2, 3, 4, 8)
-  - [ ] Add or reuse a shared target-capability definition so `tripDay` and `accommodation` targets are comment-only while `dayPlanItem` keeps comments plus votes.
-  - [ ] Preserve current trip-level behavior unless this story explicitly touches it.
-  - [ ] Keep the decision centralized instead of hard-coding different behavior separately in each component and route.
-- [ ] Task 2: Restrict unsupported vote writes at the backend boundary. (AC: 5, 7)
-  - [ ] Update `travelplan/src/app/api/trips/[id]/feedback/votes/route.ts` and the supporting validation/repository flow so votes for `tripDay` and `accommodation` targets are rejected before persistence.
-  - [ ] Preserve the current `{ data, error }` envelope, session checks, CSRF validation, and inaccessible-trip handling.
-  - [ ] Avoid schema or migration work unless the implementation uncovers a hard blocker; this story should primarily be capability enforcement rather than data-model redesign.
-- [ ] Task 3: Update the reusable feedback UI so comment-only targets no longer show voting affordances. (AC: 1, 2, 3, 4, 6, 7)
-  - [ ] Extend `travelplan/src/components/features/trips/TripFeedbackPanel.tsx` so it can render comment-only targets without upvote/downvote chips, vote counts, or vote-specific trigger text.
-  - [ ] Preserve the current compact trigger plus dialog interaction introduced by Story 4.7 and the comment-edit behavior introduced by Story 5.5.
-  - [ ] Keep day plan item targets on the existing full comments-and-votes presentation.
-- [ ] Task 4: Apply the new target rules to the current trip surfaces. (AC: 1, 2, 3, 4, 8)
-  - [ ] Update `travelplan/src/components/features/trips/TripTimeline.tsx` so day entries in the trip overview remain commentable but no longer show voting.
-  - [ ] Update `travelplan/src/components/features/trips/TripDayView.tsx` so the day-level feedback surface and accommodation feedback surfaces are comment-only.
-  - [ ] Keep day plan item feedback unchanged in `TripDayView.tsx`.
-- [ ] Task 5: Preserve collaboration boundaries and existing comment permissions. (AC: 5, 6, 8)
-  - [ ] Keep owner, contributor, and viewer comment permissions unchanged from the current collaboration model.
-  - [ ] Do not expand scope into deleting historical votes, introducing moderation, or changing trip-member roles.
-  - [ ] Do not alter unrelated trip-level feedback behavior unless implementation evidence makes that unavoidable and the story is updated accordingly.
-- [ ] Task 6: Add regression coverage for UI and route enforcement. (AC: 1, 2, 3, 4, 5, 6, 7, 8)
-  - [ ] Add route tests proving votes for `tripDay` and `accommodation` targets are rejected while `dayPlanItem` votes still succeed.
-  - [ ] Add UI tests proving day entries in `TripTimeline.tsx` show comment access without vote counts or vote actions.
-  - [ ] Add UI tests proving day-level and accommodation feedback in `TripDayView.tsx` are comment-only while day item feedback still shows comments and voting.
-  - [ ] Add regression tests proving comment creation and editing still work on day and accommodation targets after the capability split.
+- [x] Task 1: Introduce explicit feedback capabilities per target type. (AC: 1, 2, 3, 4, 8)
+  - [x] Add or reuse a shared target-capability definition so `tripDay` and `accommodation` targets are comment-only while `dayPlanItem` keeps comments plus votes.
+  - [x] Preserve current trip-level behavior unless this story explicitly touches it.
+  - [x] Keep the decision centralized instead of hard-coding different behavior separately in each component and route.
+- [x] Task 2: Restrict unsupported vote writes at the backend boundary. (AC: 5, 7)
+  - [x] Update `travelplan/src/app/api/trips/[id]/feedback/votes/route.ts` and the supporting validation/repository flow so votes for `tripDay` and `accommodation` targets are rejected before persistence.
+  - [x] Preserve the current `{ data, error }` envelope, session checks, CSRF validation, and inaccessible-trip handling.
+  - [x] Avoid schema or migration work unless the implementation uncovers a hard blocker; this story should primarily be capability enforcement rather than data-model redesign.
+- [x] Task 3: Update the reusable feedback UI so comment-only targets no longer show voting affordances. (AC: 1, 2, 3, 4, 6, 7)
+  - [x] Extend `travelplan/src/components/features/trips/TripFeedbackPanel.tsx` so it can render comment-only targets without upvote/downvote chips, vote counts, or vote-specific trigger text.
+  - [x] Preserve the current compact trigger plus dialog interaction introduced by Story 4.7 and the comment-edit behavior introduced by Story 5.5.
+  - [x] Keep day plan item targets on the existing full comments-and-votes presentation.
+- [x] Task 4: Apply the new target rules to the current trip surfaces. (AC: 1, 2, 3, 4, 8)
+  - [x] Update `travelplan/src/components/features/trips/TripTimeline.tsx` so day entries in the trip overview remain commentable but no longer show voting.
+  - [x] Update `travelplan/src/components/features/trips/TripDayView.tsx` so the day-level feedback surface and accommodation feedback surfaces are comment-only.
+  - [x] Keep day plan item feedback unchanged in `TripDayView.tsx`.
+- [x] Task 5: Preserve collaboration boundaries and existing comment permissions. (AC: 5, 6, 8)
+  - [x] Keep owner, contributor, and viewer comment permissions unchanged from the current collaboration model.
+  - [x] Do not expand scope into deleting historical votes, introducing moderation, or changing trip-member roles.
+  - [x] Do not alter unrelated trip-level feedback behavior unless implementation evidence makes that unavoidable and the story is updated accordingly.
+- [x] Task 6: Add regression coverage for UI and route enforcement. (AC: 1, 2, 3, 4, 5, 6, 7, 8)
+  - [x] Add route tests proving votes for `tripDay` and `accommodation` targets are rejected while `dayPlanItem` votes still succeed.
+  - [x] Add UI tests proving day entries in `TripTimeline.tsx` show comment access without vote counts or vote actions.
+  - [x] Add UI tests proving day-level and accommodation feedback in `TripDayView.tsx` are comment-only while day item feedback still shows comments and voting.
+  - [x] Add regression tests proving comment creation and editing still work on day and accommodation targets after the capability split.
 
 ## Dev Notes
 
@@ -164,15 +164,39 @@ GPT-5 Codex
 - Story key `5-7-limit-voting-to-day-items` was created from a new user-requested change rather than auto-discovered from the current sprint backlog.
 - `project-context.md` was not present, so story context was built from planning artifacts, existing Epic 5 implementation stories, and the live feedback UI/API code.
 - The BMAD validation task runner `_bmad/core/tasks/validate-workflow.xml` referenced by the workflow is not present in this repository, so checklist validation could not be run through the expected task file.
+- Added a shared feedback capability map and reused it across the shared panel, trip surfaces, vote route, and repository guard so vote behavior stays aligned across UI and API.
+- Full validation completed with `npm test` passing `437/437`; `npm run lint` completed with pre-existing warnings only and no errors.
+- Code review follow-up fixes removed the hidden-trip `400` leak from the vote route, eliminated the `TripFeedbackPanel` capability override, and added end-to-end regression coverage for inaccessible unsupported votes plus accommodation comment editing.
 
 ### Completion Notes List
 
 - Created Story 5.7 as a follow-on collaboration refinement that keeps comments on days and accommodations while narrowing voting to day plan items.
 - Scoped the change across UI and API layers so unsupported day/accommodation votes are blocked, not merely hidden.
 - Preserved trip-level feedback behavior as out of scope for this request.
+- Implemented comment-only dialog titles and trigger labels for `tripDay` and `accommodation` targets while keeping `dayPlanItem` and trip-level vote UI unchanged.
+- Added repository, route, shared-panel, timeline, and day-view regression coverage for the capability split, plus updated repository expectations for the narrowed vote contract.
+- Follow-up review fixes preserved `404` inaccessible-trip behavior for unsupported vote requests, re-centralized voting capability in `TripFeedbackPanel`, and extended `TripDayView` coverage to prove accommodation comment editing still works without vote affordances.
 
 ### File List
 
 - _bmad-output/implementation-artifacts/5-7-limit-voting-to-day-items.md
 - _bmad-output/implementation-artifacts/sprint-status.yaml
-- _bmad-output/planning-artifacts/epics.md
+- travelplan/src/app/api/trips/[id]/feedback/votes/route.ts
+- travelplan/src/components/features/trips/TripDayView.tsx
+- travelplan/src/components/features/trips/TripFeedbackPanel.tsx
+- travelplan/src/components/features/trips/TripTimeline.tsx
+- travelplan/src/i18n/de.ts
+- travelplan/src/i18n/en.ts
+- travelplan/src/lib/feedback/tripFeedbackCapabilities.ts
+- travelplan/src/lib/repositories/tripFeedbackRepo.ts
+- travelplan/src/lib/validation/tripFeedbackSchemas.ts
+- travelplan/test/tripDayViewLayout.test.tsx
+- travelplan/test/tripFeedbackPanel.test.tsx
+- travelplan/test/tripFeedbackRepo.test.ts
+- travelplan/test/tripFeedbackRoute.test.ts
+- travelplan/test/tripTimelineFeedback.test.tsx
+
+### Change Log
+
+- 2026-03-09: Implemented target-specific feedback capabilities, blocked unsupported day/accommodation vote writes, updated comment-only UI triggers/dialogs, and added regression coverage for route, repository, timeline, day-view, and shared-panel behavior.
+- 2026-03-10: Fixed code-review findings by restoring inaccessible-trip vote handling, removing the feedback-panel voting override, and adding regression tests for inaccessible unsupported votes and accommodation comment editing.

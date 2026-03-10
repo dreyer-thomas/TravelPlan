@@ -354,12 +354,12 @@ describe("TripDayView layout", () => {
     expect(screen.queryByLabelText("Add a comment")).not.toBeInTheDocument();
     expect(
       screen.getByRole("button", {
-        name: "Open comments dialog for Day 1, no comments, Upvote 0, Downvote 0",
+        name: "Open comments dialog for Day 1, no comments",
       }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", {
-        name: "Open comments dialog for Current night accommodation: Viewer Hotel, no comments, Upvote 0, Downvote 0",
+        name: "Open comments dialog for Current night accommodation: Viewer Hotel, no comments",
       }),
     ).toBeInTheDocument();
     expect(
@@ -593,13 +593,149 @@ describe("TripDayView layout", () => {
 
     await userEvent.click(
       screen.getByRole("button", {
-        name: "Open comments dialog for Day 1, no comments, Upvote 0, Downvote 0",
+        name: "Open comments dialog for Day 1, no comments",
       }),
     );
+    const dialog = await screen.findByRole("dialog", { name: "Comments for Day 1" });
+    expect(within(dialog).queryByRole("button", { name: /Upvote/i })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: /Downvote/i })).not.toBeInTheDocument();
+
     await userEvent.type(await screen.findByLabelText("Add a comment"), "Looks promising");
     await userEvent.click(screen.getByRole("button", { name: "Post comment" }));
 
     expect(await screen.findByText("Looks promising")).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps accommodation feedback comment-only and supports editing existing comments", async () => {
+    const fetchMock = withBucketList(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+
+      if (url.endsWith("/api/auth/csrf") && method === "GET") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
+        };
+      }
+
+      if (url.endsWith("/api/trips/trip-1/feedback/comments/comment-1") && method === "PUT") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: {
+              feedback: {
+                targetType: "accommodation",
+                targetId: "stay-1",
+                comments: [
+                  {
+                    id: "comment-1",
+                    body: "Updated stay note",
+                    createdAt: "2026-12-01T09:00:00.000Z",
+                    updatedAt: "2026-12-01T10:00:00.000Z",
+                    author: { id: "viewer-1", email: "viewer@example.com" },
+                  },
+                ],
+                voteSummary: { upCount: 2, downCount: 1, userVote: "up" },
+              },
+            },
+            error: null,
+          }),
+        };
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              accessRole: "viewer",
+              currentUserId: "viewer-1",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-01T00:00:00.000Z",
+              dayCount: 1,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: {
+                  id: "stay-1",
+                  name: "Viewer Hotel",
+                  notes: null,
+                  status: "booked",
+                  costCents: null,
+                  payments: [],
+                  link: null,
+                  checkInTime: null,
+                  checkOutTime: null,
+                  location: null,
+                  feedback: {
+                    targetType: "accommodation",
+                    targetId: "stay-1",
+                    comments: [
+                      {
+                        id: "comment-1",
+                        body: "Original stay note",
+                        createdAt: "2026-12-01T09:00:00.000Z",
+                        updatedAt: "2026-12-01T09:00:00.000Z",
+                        author: { id: "viewer-1", email: "viewer@example.com" },
+                      },
+                    ],
+                    voteSummary: { upCount: 2, downCount: 1, userVote: "up" },
+                  },
+                },
+                dayPlanItems: [],
+                travelSegments: [],
+                feedback: { targetType: "tripDay", targetId: "day-1", comments: [], voteSummary: { upCount: 0, downCount: 0, userVote: null } },
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-1" />
+      </I18nProvider>,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Open comments dialog for Current night accommodation: Viewer Hotel, 1 comment",
+      }),
+    );
+
+    const dialog = await screen.findByRole("dialog", { name: "Comments for Current night accommodation: Viewer Hotel" });
+    expect(within(dialog).queryByRole("button", { name: /Upvote/i })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: /Downvote/i })).not.toBeInTheDocument();
+    expect(within(dialog).getByText("Original stay note")).toBeInTheDocument();
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Edit your comment: Original stay note" }));
+    const editor = within(dialog).getByLabelText("Edit comment");
+    await userEvent.clear(editor);
+    await userEvent.type(editor, "Updated stay note");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save comment" }));
+
+    expect(await within(dialog).findByText("Updated stay note")).toBeInTheDocument();
 
     vi.unstubAllGlobals();
   });

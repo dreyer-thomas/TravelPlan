@@ -162,6 +162,8 @@ const de: Dictionary = {
   "trips.share.initError": "Freigabe konnte nicht geladen werden. Bitte aktualisieren.",
   "trips.feedback.title": "Kommentare und Stimmen",
   "trips.feedback.titleWithTarget": "Kommentare und Stimmen für {target}",
+  "trips.feedback.commentsTitle": "Kommentare",
+  "trips.feedback.commentsTitleWithTarget": "Kommentare für {target}",
   "trips.feedback.openDialogAria": "Kommentardialog öffnen",
   "trips.feedback.openDialogAriaWithTarget": "Kommentardialog für {target} öffnen",
   "trips.feedback.closeDialogAria": "Kommentardialog schließen",

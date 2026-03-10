@@ -31,8 +31,8 @@ const setMatchMedia = (width: number) => {
 };
 
 const buildFeedback = (overrides?: Partial<FeedbackSummary>): FeedbackSummary => ({
-  targetType: "tripDay",
-  targetId: "day-1",
+  targetType: "dayPlanItem",
+  targetId: "item-1",
   comments: [],
   voteSummary: {
     upCount: 0,
@@ -52,8 +52,8 @@ describe("TripFeedbackPanel", () => {
       <I18nProvider initialLanguage="en">
         <TripFeedbackPanel
           tripId="trip-1"
-          targetType="tripDay"
-          targetId="day-1"
+          targetType="dayPlanItem"
+          targetId="item-1"
           currentUserId="u1"
           contextLabel="Day 1"
           feedback={buildFeedback()}
@@ -85,8 +85,8 @@ describe("TripFeedbackPanel", () => {
       <I18nProvider initialLanguage="en">
         <TripFeedbackPanel
           tripId="trip-1"
-          targetType="tripDay"
-          targetId="day-1"
+          targetType="dayPlanItem"
+          targetId="item-1"
           currentUserId="u1"
           contextLabel="Day 1"
           feedback={oneComment}
@@ -100,8 +100,8 @@ describe("TripFeedbackPanel", () => {
       <I18nProvider initialLanguage="en">
         <TripFeedbackPanel
           tripId="trip-1"
-          targetType="tripDay"
-          targetId="day-1"
+          targetType="dayPlanItem"
+          targetId="item-1"
           currentUserId="u1"
           contextLabel="Day 1"
           feedback={manyComments}
@@ -110,6 +110,34 @@ describe("TripFeedbackPanel", () => {
       </I18nProvider>,
     );
     expect(screen.getByText("2")).toBeInTheDocument();
+  });
+
+  it("renders comment-only feedback targets without vote counts or vote actions", async () => {
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripFeedbackPanel
+          tripId="trip-1"
+          targetType="tripDay"
+          targetId="day-1"
+          currentUserId="u1"
+          contextLabel="Day 1"
+          feedback={buildFeedback({ targetType: "tripDay", targetId: "day-1" })}
+          onUpdated={vi.fn()}
+        />
+      </I18nProvider>,
+    );
+
+    const trigger = screen.getByRole("button", {
+      name: "Open comments dialog for Day 1, no comments",
+    });
+    expect(trigger).toBeInTheDocument();
+    expect(within(trigger).queryByText("Upvote")).not.toBeInTheDocument();
+
+    await userEvent.click(trigger);
+
+    const dialog = await screen.findByRole("dialog", { name: "Comments for Day 1" });
+    expect(within(dialog).queryByRole("button", { name: /Upvote/i })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: /Downvote/i })).not.toBeInTheDocument();
   });
 
   it("opens in a dialog, submits comment and vote updates, and returns focus to the trigger", async () => {
@@ -187,8 +215,8 @@ describe("TripFeedbackPanel", () => {
       return (
         <TripFeedbackPanel
           tripId="trip-1"
-          targetType="tripDay"
-          targetId="day-1"
+          targetType="dayPlanItem"
+          targetId="item-1"
           currentUserId="u1"
           contextLabel="Day 1"
           feedback={feedback}
@@ -246,8 +274,8 @@ describe("TripFeedbackPanel", () => {
       <I18nProvider initialLanguage="en">
         <TripFeedbackPanel
           tripId="trip-1"
-          targetType="tripDay"
-          targetId="day-1"
+          targetType="dayPlanItem"
+          targetId="item-1"
           currentUserId="u1"
           contextLabel="Day 1"
           feedback={buildFeedback()}
@@ -340,8 +368,8 @@ describe("TripFeedbackPanel", () => {
       return (
         <TripFeedbackPanel
           tripId="trip-1"
-          targetType="tripDay"
-          targetId="day-1"
+          targetType="dayPlanItem"
+          targetId="item-1"
           currentUserId="u1"
           contextLabel="Day 1"
           feedback={feedback}

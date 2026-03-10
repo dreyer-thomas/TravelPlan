@@ -21,6 +21,7 @@ import {
   useTheme,
 } from "@mui/material";
 import { formatMessage } from "@/i18n";
+import { supportsTripFeedbackVoting, type FeedbackTargetType } from "@/lib/feedback/tripFeedbackCapabilities";
 import { useI18n } from "@/i18n/provider";
 
 type ApiEnvelope<T> = {
@@ -28,7 +29,6 @@ type ApiEnvelope<T> = {
   error: { code: string; message: string; details?: unknown } | null;
 };
 
-export type FeedbackTargetType = "trip" | "tripDay" | "accommodation" | "dayPlanItem";
 export type FeedbackSummary = {
   targetType: FeedbackTargetType;
   targetId: string;
@@ -104,6 +104,7 @@ function TripFeedbackBody({
   saveComment,
   saveEditedComment,
   saveVote,
+  votingEnabled,
 }: {
   resolvedFeedback: FeedbackSummary;
   currentUserId?: string;
@@ -121,6 +122,7 @@ function TripFeedbackBody({
   saveComment: () => Promise<void>;
   saveEditedComment: () => Promise<void>;
   saveVote: (value: "up" | "down") => Promise<void>;
+  votingEnabled: boolean;
 }) {
   const { t } = useI18n();
   const getEditActionAriaLabel = (body: string) => {
@@ -131,24 +133,26 @@ function TripFeedbackBody({
 
   return (
     <Box display="flex" flexDirection="column" gap={1.5}>
-      <Box display="flex" gap={1} flexWrap="wrap">
-        <Chip
-          label={`${t("trips.feedback.voteUp")} ${resolvedFeedback.voteSummary.upCount}`}
-          size="small"
-          color={resolvedFeedback.voteSummary.userVote === "up" ? "primary" : "default"}
-          icon={<VoteIcon direction="up" />}
-          onClick={() => void saveVote("up")}
-          disabled={savingVote}
-        />
-        <Chip
-          label={`${t("trips.feedback.voteDown")} ${resolvedFeedback.voteSummary.downCount}`}
-          size="small"
-          color={resolvedFeedback.voteSummary.userVote === "down" ? "primary" : "default"}
-          icon={<VoteIcon direction="down" />}
-          onClick={() => void saveVote("down")}
-          disabled={savingVote}
-        />
-      </Box>
+      {votingEnabled ? (
+        <Box display="flex" gap={1} flexWrap="wrap">
+          <Chip
+            label={`${t("trips.feedback.voteUp")} ${resolvedFeedback.voteSummary.upCount}`}
+            size="small"
+            color={resolvedFeedback.voteSummary.userVote === "up" ? "primary" : "default"}
+            icon={<VoteIcon direction="up" />}
+            onClick={() => void saveVote("up")}
+            disabled={savingVote}
+          />
+          <Chip
+            label={`${t("trips.feedback.voteDown")} ${resolvedFeedback.voteSummary.downCount}`}
+            size="small"
+            color={resolvedFeedback.voteSummary.userVote === "down" ? "primary" : "default"}
+            icon={<VoteIcon direction="down" />}
+            onClick={() => void saveVote("down")}
+            disabled={savingVote}
+          />
+        </Box>
+      ) : null}
       {error ? <Alert severity="error">{error}</Alert> : null}
       <TextField
         label={t("trips.feedback.commentLabel")}
@@ -237,6 +241,7 @@ export default function TripFeedbackPanel({
   const { t } = useI18n();
   const theme = useTheme();
   const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
+  const canVote = supportsTripFeedbackVoting(targetType);
   const resolvedFeedback = feedback ?? buildDefaultFeedback(targetType, targetId);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const [open, setOpen] = useState(false);
@@ -266,16 +271,22 @@ export default function TripFeedbackPanel({
   }, [resolvedFeedback.comments.length, t]);
   const visibleCommentCountLabel = useMemo(() => String(resolvedFeedback.comments.length), [resolvedFeedback.comments.length]);
 
-  const dialogTitle = contextLabel
-    ? formatMessage(t("trips.feedback.titleWithTarget"), { target: contextLabel })
-    : t("trips.feedback.title");
+  const dialogTitle = canVote
+    ? contextLabel
+      ? formatMessage(t("trips.feedback.titleWithTarget"), { target: contextLabel })
+      : t("trips.feedback.title")
+    : contextLabel
+      ? formatMessage(t("trips.feedback.commentsTitleWithTarget"), { target: contextLabel })
+      : t("trips.feedback.commentsTitle");
   const openDialogLabel = contextLabel
     ? formatMessage(t("trips.feedback.openDialogAriaWithTarget"), { target: contextLabel })
     : t("trips.feedback.openDialogAria");
   const closeDialogLabel = contextLabel
     ? formatMessage(t("trips.feedback.closeDialogAriaWithTarget"), { target: contextLabel })
     : t("trips.feedback.closeDialogAria");
-  const triggerLabel = `${openDialogLabel}, ${commentCountLabel}, ${t("trips.feedback.voteUp")} ${resolvedFeedback.voteSummary.upCount}, ${t("trips.feedback.voteDown")} ${resolvedFeedback.voteSummary.downCount}`;
+  const triggerLabel = canVote
+    ? `${openDialogLabel}, ${commentCountLabel}, ${t("trips.feedback.voteUp")} ${resolvedFeedback.voteSummary.upCount}, ${t("trips.feedback.voteDown")} ${resolvedFeedback.voteSummary.downCount}`
+    : `${openDialogLabel}, ${commentCountLabel}`;
 
   const fetchCsrfToken = async () => {
     if (csrfToken) return csrfToken;
@@ -369,6 +380,7 @@ export default function TripFeedbackPanel({
   };
 
   const saveVote = async (value: "up" | "down") => {
+    if (!canVote) return;
     setSavingVote(true);
     setError(null);
     try {
@@ -440,16 +452,18 @@ export default function TripFeedbackPanel({
             {visibleCommentCountLabel}
           </Typography>
         </Box>
-        <Box display="flex" alignItems="center" gap={1.25} color="text.secondary">
-          <Box display="flex" alignItems="center" gap={0.25}>
-            <VoteIcon direction="up" />
-            <Typography variant="caption">{resolvedFeedback.voteSummary.upCount}</Typography>
+        {canVote ? (
+          <Box display="flex" alignItems="center" gap={1.25} color="text.secondary">
+            <Box display="flex" alignItems="center" gap={0.25}>
+              <VoteIcon direction="up" />
+              <Typography variant="caption">{resolvedFeedback.voteSummary.upCount}</Typography>
+            </Box>
+            <Box display="flex" alignItems="center" gap={0.25}>
+              <VoteIcon direction="down" />
+              <Typography variant="caption">{resolvedFeedback.voteSummary.downCount}</Typography>
+            </Box>
           </Box>
-          <Box display="flex" alignItems="center" gap={0.25}>
-            <VoteIcon direction="down" />
-            <Typography variant="caption">{resolvedFeedback.voteSummary.downCount}</Typography>
-          </Box>
-        </Box>
+        ) : null}
       </Paper>
 
       <Dialog open={open} onClose={closeDialog} fullWidth maxWidth="sm" fullScreen={fullScreen} aria-labelledby={`${targetType}-${targetId}-feedback-title`}>
@@ -481,6 +495,7 @@ export default function TripFeedbackPanel({
             saveComment={saveComment}
             saveEditedComment={saveEditedComment}
             saveVote={saveVote}
+            votingEnabled={canVote}
           />
         </DialogContent>
       </Dialog>

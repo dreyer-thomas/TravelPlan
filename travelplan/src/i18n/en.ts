@@ -162,6 +162,8 @@ const en: Dictionary = {
   "trips.share.initError": "Unable to load sharing controls. Please refresh.",
   "trips.feedback.title": "Suggestions and votes",
   "trips.feedback.titleWithTarget": "Suggestions and votes for {target}",
+  "trips.feedback.commentsTitle": "Comments",
+  "trips.feedback.commentsTitleWithTarget": "Comments for {target}",
   "trips.feedback.openDialogAria": "Open comments dialog",
   "trips.feedback.openDialogAriaWithTarget": "Open comments dialog for {target}",
   "trips.feedback.closeDialogAria": "Close comments dialog",

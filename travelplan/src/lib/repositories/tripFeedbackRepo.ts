@@ -1,8 +1,7 @@
 import type { $Enums } from "@/generated/prisma/client";
 import { getTripAccessForUser } from "@/lib/auth/tripAccess";
 import { prisma } from "@/lib/db/prisma";
-
-export type FeedbackTargetType = "trip" | "tripDay" | "accommodation" | "dayPlanItem";
+import { supportsTripFeedbackVoting, type FeedbackTargetType } from "@/lib/feedback/tripFeedbackCapabilities";
 export type FeedbackVoteValue = "up" | "down";
 
 export type TripFeedbackComment = {
@@ -32,6 +31,13 @@ export type UpdateTripFeedbackCommentResult =
   | { outcome: "updated"; feedback: TripFeedbackSummary }
   | { outcome: "not_found" }
   | { outcome: "forbidden" };
+
+export class UnsupportedTripFeedbackVoteError extends Error {
+  constructor(targetType: FeedbackTargetType) {
+    super(`Voting is not supported for ${targetType} feedback targets`);
+    this.name = "UnsupportedTripFeedbackVoteError";
+  }
+}
 
 type FeedbackTargetInput =
   | { type: "trip"; tripId: string }
@@ -302,6 +308,10 @@ export const upsertTripFeedbackVote = async ({
 }): Promise<TripFeedbackSummary | null> => {
   const access = await getTripAccessForUser(userId, target.tripId);
   if (!access) return null;
+
+  if (!supportsTripFeedbackVoting(target.type)) {
+    throw new UnsupportedTripFeedbackVoteError(target.type);
+  }
 
   const resolvedTarget = await ensureFeedbackTarget(target);
   if (!resolvedTarget) return null;

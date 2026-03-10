@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { type FeedbackTargetType } from "@/lib/feedback/tripFeedbackCapabilities";
 
 const targetTypeSchema = z.enum(["trip", "tripDay", "accommodation", "dayPlanItem"]);
 
@@ -23,3 +24,4 @@ export const tripFeedbackVoteSchema = z.object({
 export type TripFeedbackCommentInput = z.infer<typeof tripFeedbackCommentSchema>;
 export type TripFeedbackCommentEditInput = z.infer<typeof tripFeedbackCommentEditSchema>;
 export type TripFeedbackVoteInput = z.infer<typeof tripFeedbackVoteSchema>;
+export type TripFeedbackTargetType = FeedbackTargetType;

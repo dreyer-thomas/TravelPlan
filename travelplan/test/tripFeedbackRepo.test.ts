@@ -20,7 +20,7 @@ describe("trip feedback repository", () => {
     await prisma.user.deleteMany();
   });
 
-  it("persists comments and aggregates votes for supported targets", async () => {
+  it("persists comments, rejects trip-day votes, and aggregates day-plan-item votes", async () => {
     const owner = await prisma.user.create({
       data: { email: "owner@example.com", passwordHash: "hashed", role: "OWNER" },
     });
@@ -37,6 +37,12 @@ describe("trip feedback repository", () => {
     });
     const day = await prisma.tripDay.create({
       data: { tripId: trip.id, date: new Date("2026-07-01T00:00:00.000Z"), dayIndex: 1 },
+    });
+    const item = await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: day.id,
+        contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Museum" }] }] }),
+      },
     });
     await prisma.tripMember.create({
       data: { tripId: trip.id, userId: viewer.id, role: "VIEWER" },
@@ -57,21 +63,35 @@ describe("trip feedback repository", () => {
     expect(comment?.comments).toHaveLength(1);
     expect(comment?.comments[0]?.author.email).toBe("viewer@example.com");
 
+    await expect(
+      upsertTripFeedbackVote({
+        userId: viewer.id,
+        target: { type: "tripDay", tripId: trip.id, tripDayId: day.id },
+        value: "up",
+      }),
+    ).rejects.toThrow("Voting is not supported for tripDay feedback targets");
+
     await upsertTripFeedbackVote({
       userId: viewer.id,
-      target: { type: "tripDay", tripId: trip.id, tripDayId: day.id },
+      target: { type: "dayPlanItem", tripId: trip.id, tripDayId: day.id, dayPlanItemId: item.id },
       value: "up",
     });
     await upsertTripFeedbackVote({
       userId: viewer.id,
-      target: { type: "tripDay", tripId: trip.id, tripDayId: day.id },
+      target: { type: "dayPlanItem", tripId: trip.id, tripDayId: day.id, dayPlanItemId: item.id },
       value: "down",
     });
 
     const feedback = await listTripFeedbackForUser(viewer.id, trip.id);
     const dayFeedback = feedback?.[`tripDay:${day.id}`];
+    const itemFeedback = feedback?.[`dayPlanItem:${item.id}`];
 
     expect(dayFeedback?.voteSummary).toEqual({
+      upCount: 0,
+      downCount: 0,
+      userVote: null,
+    });
+    expect(itemFeedback?.voteSummary).toEqual({
       upCount: 0,
       downCount: 1,
       userVote: "down",

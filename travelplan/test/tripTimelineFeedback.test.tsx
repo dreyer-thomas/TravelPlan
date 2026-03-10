@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import TripTimeline from "@/components/features/trips/TripTimeline";
@@ -124,13 +124,13 @@ describe("TripTimeline feedback", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", {
-        name: "Open comments dialog for Day 1, no comments, Upvote 0, Downvote 0",
+        name: "Open comments dialog for Day 1, no comments",
       }),
     ).toBeInTheDocument();
     const metaRow = screen.getByTestId("timeline-day-meta-row");
     expect(metaRow).toContainElement(
       screen.getByRole("button", {
-        name: "Open comments dialog for Day 1, no comments, Upvote 0, Downvote 0",
+        name: "Open comments dialog for Day 1, no comments",
       }),
     );
     expect(metaRow).toHaveTextContent("Planned 0m, Unplanned 24h");
@@ -139,9 +139,13 @@ describe("TripTimeline feedback", () => {
 
     await userEvent.click(
       screen.getByRole("button", {
-        name: "Open comments dialog for Day 1, no comments, Upvote 0, Downvote 0",
+        name: "Open comments dialog for Day 1, no comments",
       }),
     );
+    const dialog = await screen.findByRole("dialog", { name: "Comments for Day 1" });
+    expect(within(dialog).queryByRole("button", { name: /Upvote/i })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: /Downvote/i })).not.toBeInTheDocument();
+
     await userEvent.type(await screen.findByLabelText("Add a comment"), "Looks promising");
     await userEvent.click(screen.getByRole("button", { name: "Post comment" }));
 
@@ -320,7 +324,7 @@ describe("TripTimeline feedback", () => {
     expect(metaRow).toHaveTextContent("Planned 8h, Unplanned 16h");
     expect(metaRow).toContainElement(
       screen.getByRole("button", {
-        name: "Open comments dialog for Day 1, no comments, Upvote 0, Downvote 0",
+        name: "Open comments dialog for Day 1, no comments",
       }),
     );
     expect(metaRow).toContainElement(screen.getByTestId("timeline-accommodation-surface"));
