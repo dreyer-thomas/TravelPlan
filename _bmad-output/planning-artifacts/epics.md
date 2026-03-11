@@ -753,6 +753,37 @@ so that I can understand the day route at a glance.
 **When** the map renders
 **Then** the missing place is excluded and flagged as missing location
 
+### Story 3.6: Trip Overview Full-Size Map With Chronological Route
+
+As a trip planner,
+I want to open a full-size trip map from the trip overview,
+so that I can inspect the full trip route in chronological order and review the linked stay or day item behind each place.
+
+**FRs covered:** FR26
+
+**Acceptance Criteria:**
+
+**Given** I am viewing the trip overview map
+**When** I activate the full-size map action
+**Then** a full-size trip map opens for the current trip
+
+**Given** the full-size trip map is open
+**When** it renders
+**Then** it shows all trip places with valid locations
+**And** connects them in chronological order across the trip
+
+**Given** I click or tap a place marker on the full-size trip map
+**When** the marker popup opens
+**Then** it shows the linked accommodation or day item for that place
+
+**Given** a trip place is missing location data
+**When** the full-size trip map renders
+**Then** that place is excluded and the missing-location handling remains clear and non-blocking
+
+**Given** the trip overview mini map and the full-size trip map represent the same trip
+**When** I compare them
+**Then** the full-size map uses interaction and visual patterns consistent with the day full-page map where applicable
+
 ## Epic 4: Trip Bucket List (Idea Capture)
 
 Users can collect unplanned places at the trip level and add them to day plans later.

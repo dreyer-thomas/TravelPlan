@@ -29,6 +29,7 @@ import { buildOverviewGanttSegments } from "@/components/features/trips/TripDayG
 import { deriveCoverageSummary } from "@/components/features/trips/TripDayGanttSegments";
 import TripOverviewMapPanel from "@/components/features/trips/TripOverviewMapPanel";
 import TripBucketListPanel from "@/components/features/trips/TripBucketListPanel";
+import { buildTripOverviewMapData } from "@/components/features/trips/TripOverviewMapData";
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
 
@@ -74,6 +75,7 @@ type TripDay = {
   } | null;
   dayPlanItems: {
     id: string;
+    title?: string | null;
     fromTime?: string | null;
     toTime?: string | null;
     contentJson: string;
@@ -202,26 +204,6 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
     return imageUrl.includes("?") ? `${imageUrl}&v=${version}` : `${imageUrl}?v=${version}`;
   }, []);
 
-  const parsePlanText = useCallback((value: string) => {
-    try {
-      const doc = JSON.parse(value);
-      const parts: string[] = [];
-
-      const walk = (node: { text?: string; content?: unknown[] }) => {
-        if (!node) return;
-        if (typeof node.text === "string") parts.push(node.text);
-        if (Array.isArray(node.content)) {
-          node.content.forEach((child) => walk(child as { text?: string; content?: unknown[] }));
-        }
-      };
-
-      walk(doc as { text?: string; content?: unknown[] });
-      return parts.join(" ").trim();
-    } catch {
-      return "";
-    }
-  }, []);
-
   const formatDurationSummary = useCallback(
     (minutes: number) => {
       const safeMinutes = Math.max(0, Math.round(minutes));
@@ -239,57 +221,35 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
   );
 
   const overviewMapData = useMemo(() => {
-    const points: { id: string; label: string; position: [number, number] }[] = [];
-    const missingLocations: { id: string; label: string; href: string }[] = [];
-
     if (!detail) {
-      return { points, missingLocations };
+      return { points: [], missingLocations: [], polylinePositions: [] };
     }
 
-    detail.days.forEach((day) => {
-      if (day.accommodation) {
-        const label =
-          day.accommodation.location?.label?.trim() ||
-          day.accommodation.name.trim() ||
-          formatMessage(t("trips.timeline.dayLabel"), { index: day.dayIndex });
-        if (day.accommodation.location) {
-          points.push({
-            id: `day-${day.id}-accommodation`,
-            label,
-            position: [day.accommodation.location.lat, day.accommodation.location.lng],
-          });
-        } else {
-          missingLocations.push({
-            id: `day-${day.id}-accommodation`,
-            label,
-            href: `/trips/${tripId}/days/${day.id}?open=stay`,
-          });
-        }
-      }
-
-      day.dayPlanItems.forEach((item, itemIndex) => {
-        const label =
-          item.location?.label?.trim() ||
-          parsePlanText(item.contentJson) ||
-          formatMessage(t("trips.plan.previewFallback"), { index: itemIndex + 1 });
-        if (item.location) {
-          points.push({
-            id: item.id,
-            label,
-            position: [item.location.lat, item.location.lng],
-          });
-        } else {
-          missingLocations.push({
-            id: item.id,
-            label,
-            href: `/trips/${tripId}/days/${day.id}?open=plan&itemId=${item.id}`,
-          });
-        }
-      });
+    return buildTripOverviewMapData({
+      tripId,
+      days: detail.days.map((day) => ({
+        id: day.id,
+        date: day.date,
+        dayIndex: day.dayIndex,
+        accommodation: day.accommodation
+          ? {
+              id: day.accommodation.id,
+              name: day.accommodation.name,
+              notes: day.accommodation.notes,
+              location: day.accommodation.location,
+            }
+          : null,
+        dayPlanItems: day.dayPlanItems.map((item) => ({
+          id: item.id,
+          title: item.title ?? null,
+          contentJson: item.contentJson,
+          location: item.location,
+        })),
+      })),
+      getDayLabel: (index) => formatMessage(t("trips.timeline.dayLabel"), { index }),
+      getPlanItemFallbackLabel: (index) => formatMessage(t("trips.plan.previewFallback"), { index }),
     });
-
-    return { points, missingLocations };
-  }, [detail, parsePlanText, t, tripId]);
+  }, [detail, t, tripId]);
 
   if (loading) {
     return (
@@ -515,7 +475,12 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
             </Box>
           </Paper>
 
-          <TripOverviewMapPanel points={overviewMapData.points} missingLocations={overviewMapData.missingLocations} />
+          <TripOverviewMapPanel
+            points={overviewMapData.points}
+            missingLocations={overviewMapData.missingLocations}
+            polylinePositions={overviewMapData.polylinePositions}
+            expandHref={`/trips/${tripId}/map`}
+          />
 
           {isOwner ? <TripBucketListPanel tripId={detail.trip.id} /> : null}
 

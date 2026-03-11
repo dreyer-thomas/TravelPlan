@@ -251,7 +251,7 @@ TravelPlan is a web SPA targeting Chrome/Safari on desktop and mobile/tablet.
 ### Transport & Routing
 
 - FR25: Users can add transport segments between days with mode, origin, destination, and time.
-- FR26: Users can view a map-based overview of the trip route.
+- FR26: Users can view a map-based overview of the trip route, including a full-size trip map that can be opened from the overview and inspected via clickable place markers.
 - FR27: Users can see travel time and distance for transport segments.
 
 ### Trip Seeding

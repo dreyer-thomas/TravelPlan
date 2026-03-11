@@ -318,6 +318,12 @@ Usage: Default landing after selecting a trip.
 Anatomy: Summary cards, gap panel, mini map, budget strip.
 States: Loading, normal, empty, warnings.
 Accessibility: Clear headings, ARIA for status counts.
+Trip overview mini map behavior:
+- Shows all trip places that have valid locations.
+- Provides a clear action to open a full-size trip map.
+- The full-size trip map connects places in chronological trip order.
+- Clicking a marker reveals the linked accommodation or day item.
+- The full-size trip map should mirror the day full-page map interaction style where practical.
 
 #### Navigation Rail / Mode Switcher
 Purpose: Switch between Overview, Route, Stay, Day, Budget.

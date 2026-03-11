@@ -133,6 +133,7 @@ npx create-next-app@latest travelplan
 ### Mapping Libraries (Future Integration)
 
 - Leaflet stable `1.9.4`; Leaflet `2.0.0-alpha.1` exists but is a major change, so avoid for now.
+- Trip-level full-size maps should reuse the same Leaflet and route/page composition patterns already established for the day full-page map instead of introducing a separate map stack.
 
 ## Core Architectural Decisions (In Progress)
 

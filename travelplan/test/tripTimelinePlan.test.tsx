@@ -19,7 +19,15 @@ vi.mock("@/components/features/trips/TripDeleteDialog", () => ({
 }));
 
 vi.mock("@/components/features/trips/TripOverviewMapPanel", () => ({
-  default: () => <div data-testid="overview-map-panel" />,
+  default: ({ expandHref }: { expandHref?: string }) => (
+    <div data-testid="overview-map-panel">
+      {expandHref ? (
+        <a href={expandHref} data-testid="overview-map-expand-link">
+          Expand map
+        </a>
+      ) : null}
+    </div>
+  ),
 }));
 
 vi.mock("@/components/features/trips/TripBucketListPanel", () => ({
@@ -130,6 +138,12 @@ describe("TripTimeline plan action", () => {
             plannedCostTotal: 0,
             accommodationCostTotalCents: null,
             heroImageUrl: null,
+            feedback: {
+              targetType: "trip",
+              targetId: "trip-1",
+              comments: [],
+              voteSummary: { upCount: 0, downCount: 0, userVote: null },
+            },
           },
           days: [
             {
@@ -212,6 +226,72 @@ describe("TripTimeline plan action", () => {
     const costLink = screen.getByRole("link", { name: "Open cost overview" });
     expect(costLink).toHaveAttribute("href", "/trips/trip-1/costs");
     expect(screen.getByText("Cost: 99.00")).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("passes the full-page map route to the overview map panel", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-01T00:00:00.000Z",
+            dayCount: 1,
+            plannedCostTotal: 0,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
+          },
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              imageUrl: null,
+              note: null,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: {
+                id: "stay-1",
+                name: "Harbor Hotel",
+                notes: null,
+                status: "booked",
+                costCents: null,
+                link: null,
+                checkInTime: null,
+                checkOutTime: null,
+                location: { lat: 53.55, lng: 10, label: "Hamburg" },
+                feedback: { targetType: "tripAccommodation", targetId: "stay-1", comments: [], voteSummary: { upCount: 0, downCount: 0, userVote: null } },
+              },
+              dayPlanItems: [],
+              travelSegments: [],
+              feedback: {
+                targetType: "tripDay",
+                targetId: "day-1",
+                comments: [],
+                voteSummary: { upCount: 0, downCount: 0, userVote: null },
+              },
+            },
+          ],
+        },
+        error: null,
+      }),
+    })) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripTimeline tripId="trip-1" />
+      </I18nProvider>,
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(screen.getByTestId("overview-map-expand-link")).toHaveAttribute("href", "/trips/trip-1/map");
 
     vi.unstubAllGlobals();
   });

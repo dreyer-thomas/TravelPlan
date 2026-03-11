@@ -43,4 +43,18 @@ describe("TripOverviewMapPanel", () => {
       "/trips/trip-1/days/day-1?open=plan&itemId=m1",
     );
   });
+
+  it("renders an icon-only expand control that links to the full-page trip map", () => {
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripOverviewMapPanel
+          points={[{ id: "p1", label: "Hotel", position: [48.1372, 11.5756] }]}
+          missingLocations={[]}
+          expandHref="/trips/trip-1/map"
+        />
+      </I18nProvider>,
+    );
+
+    expect(screen.getByRole("link", { name: "Expand map" })).toHaveAttribute("href", "/trips/trip-1/map");
+  });
 });

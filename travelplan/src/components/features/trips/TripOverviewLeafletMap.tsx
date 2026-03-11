@@ -1,14 +1,15 @@
 "use client";
 
-import { MapContainer, Marker, TileLayer, useMap } from "react-leaflet";
+import { MapContainer, Marker, Polyline, TileLayer, useMap } from "react-leaflet";
 import { useEffect, useMemo } from "react";
 import type { ReactElement } from "react";
 // @ts-expect-error Leaflet types are not resolved in this build environment.
 import L from "leaflet";
-import type { TripOverviewMapPoint } from "@/components/features/trips/TripOverviewMapPanel";
+import type { TripOverviewMapPoint } from "@/components/features/trips/TripOverviewMapData";
 
 const MapContainerCompat = MapContainer as unknown as (props: Record<string, unknown>) => ReactElement;
 const MarkerCompat = Marker as unknown as (props: Record<string, unknown>) => ReactElement;
+const PolylineCompat = Polyline as unknown as (props: Record<string, unknown>) => ReactElement;
 const TileLayerCompat = TileLayer as unknown as (props: Record<string, unknown>) => ReactElement;
 
 const FitToBounds = ({ points }: { points: TripOverviewMapPoint[] }) => {
@@ -47,10 +48,21 @@ const EnsureMapSized = () => {
 
 type TripOverviewLeafletMapProps = {
   points: TripOverviewMapPoint[];
+  polylinePositions?: [number, number][];
+  height?: number | string;
+  onMarkerClick?: (point: TripOverviewMapPoint) => void;
 };
 
-export default function TripOverviewLeafletMap({ points }: TripOverviewLeafletMapProps) {
+const DEFAULT_TRIP_MAP_HEIGHT = 280;
+
+export default function TripOverviewLeafletMap({
+  points,
+  polylinePositions,
+  height = DEFAULT_TRIP_MAP_HEIGHT,
+  onMarkerClick,
+}: TripOverviewLeafletMapProps) {
   const center = useMemo<[number, number]>(() => points[0]?.position ?? [0, 0], [points]);
+  const routePolyline = useMemo(() => polylinePositions ?? points.map((point) => point.position), [points, polylinePositions]);
   const markerIcon = useMemo(
     () =>
       L.divIcon({
@@ -63,14 +75,21 @@ export default function TripOverviewLeafletMap({ points }: TripOverviewLeafletMa
   );
 
   return (
-    <MapContainerCompat center={center} zoom={5} style={{ height: 280, width: "100%" }} scrollWheelZoom={false}>
+    <MapContainerCompat center={center} zoom={5} style={{ height, width: "100%" }} scrollWheelZoom={false}>
       <TileLayerCompat
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         attribution="&copy; OpenStreetMap contributors"
       />
       {points.map((point, index) => (
-        <MarkerCompat key={point.id} position={point.position} icon={markerIcon} data-testid={`overview-map-marker-${index}`} />
+        <MarkerCompat
+          key={point.id}
+          position={point.position}
+          icon={markerIcon}
+          data-testid={`overview-map-marker-${index}`}
+          eventHandlers={onMarkerClick ? { click: () => onMarkerClick(point) } : undefined}
+        />
       ))}
+      {routePolyline.length >= 2 ? <PolylineCompat positions={routePolyline} data-testid="overview-map-polyline" /> : null}
       <EnsureMapSized />
       <FitToBounds points={points} />
     </MapContainerCompat>
