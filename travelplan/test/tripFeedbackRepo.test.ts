@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db/prisma";
 import {
   addTripFeedbackComment,
+  deleteTripFeedbackComment,
   listTripFeedbackForUser,
   updateTripFeedbackComment,
   upsertTripFeedbackVote,
@@ -211,6 +212,96 @@ describe("trip feedback repository", () => {
         tripId: trip.id,
         commentId: created!.comments[0]!.id,
         body: "Intrusion",
+      }),
+    ).resolves.toEqual({ outcome: "forbidden" });
+
+    const persisted = await prisma.tripFeedbackComment.findUnique({
+      where: { id: created!.comments[0]!.id },
+      select: { body: true },
+    });
+    expect(persisted?.body).toBe("Viewer comment");
+  });
+
+  it("deletes an authored comment and returns the refreshed summary", async () => {
+    const owner = await prisma.user.create({
+      data: { email: "owner@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const viewer = await prisma.user.create({
+      data: { email: "viewer@example.com", passwordHash: "hashed", role: "VIEWER" },
+    });
+    const trip = await prisma.trip.create({
+      data: {
+        userId: owner.id,
+        name: "Deletable Feedback Trip",
+        startDate: new Date("2026-09-05T00:00:00.000Z"),
+        endDate: new Date("2026-09-06T00:00:00.000Z"),
+      },
+    });
+    await prisma.tripMember.create({
+      data: { tripId: trip.id, userId: viewer.id, role: "VIEWER" },
+    });
+
+    const created = await addTripFeedbackComment({
+      userId: viewer.id,
+      target: { type: "trip", tripId: trip.id },
+      body: "Delete me",
+    });
+
+    const deleted = await deleteTripFeedbackComment({
+      userId: viewer.id,
+      tripId: trip.id,
+      commentId: created!.comments[0]!.id,
+    });
+
+    expect(deleted).toEqual(
+      expect.objectContaining({
+        outcome: "updated",
+        feedback: expect.objectContaining({
+          targetType: "trip",
+          targetId: trip.id,
+          comments: [],
+        }),
+      }),
+    );
+    expect(await prisma.tripFeedbackComment.findUnique({ where: { id: created!.comments[0]!.id } })).toBeNull();
+  });
+
+  it("rejects attempts to delete another participant's comment without mutating it", async () => {
+    const owner = await prisma.user.create({
+      data: { email: "owner@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const viewer = await prisma.user.create({
+      data: { email: "viewer@example.com", passwordHash: "hashed", role: "VIEWER" },
+    });
+    const contributor = await prisma.user.create({
+      data: { email: "contributor@example.com", passwordHash: "hashed", role: "VIEWER" },
+    });
+    const trip = await prisma.trip.create({
+      data: {
+        userId: owner.id,
+        name: "Protected Delete Trip",
+        startDate: new Date("2026-09-07T00:00:00.000Z"),
+        endDate: new Date("2026-09-08T00:00:00.000Z"),
+      },
+    });
+    await prisma.tripMember.createMany({
+      data: [
+        { tripId: trip.id, userId: viewer.id, role: "VIEWER" },
+        { tripId: trip.id, userId: contributor.id, role: "CONTRIBUTOR" },
+      ],
+    });
+
+    const created = await addTripFeedbackComment({
+      userId: viewer.id,
+      target: { type: "trip", tripId: trip.id },
+      body: "Viewer comment",
+    });
+
+    await expect(
+      deleteTripFeedbackComment({
+        userId: contributor.id,
+        tripId: trip.id,
+        commentId: created!.comments[0]!.id,
       }),
     ).resolves.toEqual({ outcome: "forbidden" });
 

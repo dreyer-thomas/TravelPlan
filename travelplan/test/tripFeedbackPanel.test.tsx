@@ -67,10 +67,11 @@ describe("TripFeedbackPanel", () => {
     });
     expect(trigger).toBeInTheDocument();
     expect(screen.queryByLabelText("Add a comment")).not.toBeInTheDocument();
-    expect(within(trigger).getAllByText("0").length).toBeGreaterThanOrEqual(3);
+    expect(within(trigger).getByText("no comments")).toBeInTheDocument();
+    expect(within(trigger).getAllByText("0").length).toBeGreaterThanOrEqual(2);
   });
 
-  it("renders numeric comment counts without visible copy text", () => {
+  it("renders visible comment count copy for singular and plural states", () => {
     const oneComment = buildFeedback({
       comments: [{ id: "comment-1", body: "First", createdAt: "", updatedAt: "", author: { id: "u1", email: "a@example.com" } }],
     });
@@ -94,7 +95,7 @@ describe("TripFeedbackPanel", () => {
         />
       </I18nProvider>,
     );
-    expect(screen.getByText("1")).toBeInTheDocument();
+    expect(screen.getByText("1 comment")).toBeInTheDocument();
 
     rerender(
       <I18nProvider initialLanguage="en">
@@ -109,7 +110,7 @@ describe("TripFeedbackPanel", () => {
         />
       </I18nProvider>,
     );
-    expect(screen.getByText("2")).toBeInTheDocument();
+    expect(screen.getByText("2 comments")).toBeInTheDocument();
   });
 
   it("renders comment-only feedback targets without vote counts or vote actions", async () => {
@@ -246,7 +247,7 @@ describe("TripFeedbackPanel", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: "Post comment" }));
 
     await waitFor(() => expect(onUpdated).toHaveBeenCalled());
-    expect(screen.getByText("1")).toBeInTheDocument();
+    expect(screen.getByText("1 comment")).toBeInTheDocument();
 
     await userEvent.click(within(dialog).getByRole("button", { name: "Upvote 0" }));
 
@@ -421,6 +422,193 @@ describe("TripFeedbackPanel", () => {
       ),
     );
     expect(within(dialog).getByText("Edited body")).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("renders comments above a bottom composer in chronological order", async () => {
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripFeedbackPanel
+          tripId="trip-1"
+          targetType="tripDay"
+          targetId="day-1"
+          currentUserId="u1"
+          contextLabel="Day 1"
+          feedback={buildFeedback({
+            targetType: "tripDay",
+            targetId: "day-1",
+            comments: [
+              { id: "comment-1", body: "Oldest", createdAt: "2026-01-01T10:00:00.000Z", updatedAt: "2026-01-01T10:00:00.000Z", author: { id: "u1", email: "viewer@example.com" } },
+              { id: "comment-2", body: "Newest", createdAt: "2026-01-01T11:00:00.000Z", updatedAt: "2026-01-01T11:00:00.000Z", author: { id: "u2", email: "other@example.com" } },
+            ],
+          })}
+          onUpdated={vi.fn()}
+        />
+      </I18nProvider>,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Open comments dialog for Day 1, 2 comments" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Comments for Day 1" });
+    const messageHistory = within(dialog).getByTestId("feedback-message-history");
+    const composer = within(dialog).getByTestId("feedback-composer");
+    const layout = within(dialog).getByTestId("feedback-chat-layout");
+
+    expect(within(messageHistory).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      expect.stringContaining("Oldest"),
+      expect.stringContaining("Newest"),
+    ]);
+    expect(Array.from(layout.children).indexOf(messageHistory)).toBeLessThan(Array.from(layout.children).indexOf(composer));
+  });
+
+  it("posts and deletes comments while keeping the newest item and summary count at the bottom", async () => {
+    const onUpdated = vi.fn();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+
+      if (url.endsWith("/api/auth/csrf") && method === "GET") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
+        };
+      }
+
+      if (url.endsWith("/api/trips/trip-1/feedback/comments") && method === "POST") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: {
+              feedback: buildFeedback({
+                comments: [
+                  {
+                    id: "comment-1",
+                    body: "First",
+                    createdAt: "2026-01-01T10:00:00.000Z",
+                    updatedAt: "2026-01-01T10:00:00.000Z",
+                    author: { id: "u2", email: "other@example.com" },
+                  },
+                  {
+                    id: "comment-2",
+                    body: "Newest",
+                    createdAt: "2026-01-01T11:00:00.000Z",
+                    updatedAt: "2026-01-01T11:00:00.000Z",
+                    author: { id: "u1", email: "viewer@example.com" },
+                  },
+                ],
+              }),
+            },
+            error: null,
+          }),
+        };
+      }
+
+      if (url.endsWith("/api/trips/trip-1/feedback/comments/comment-2") && method === "DELETE") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: {
+              feedback: buildFeedback({
+                comments: [
+                  {
+                    id: "comment-1",
+                    body: "First",
+                    createdAt: "2026-01-01T10:00:00.000Z",
+                    updatedAt: "2026-01-01T10:00:00.000Z",
+                    author: { id: "u2", email: "other@example.com" },
+                  },
+                ],
+              }),
+            },
+            error: null,
+          }),
+        };
+      }
+
+      throw new Error(`Unhandled fetch ${method} ${url}`);
+    }) as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const Harness = () => {
+      const [feedback, setFeedback] = React.useState(
+        buildFeedback({
+          comments: [
+            {
+              id: "comment-1",
+              body: "First",
+              createdAt: "2026-01-01T10:00:00.000Z",
+              updatedAt: "2026-01-01T10:00:00.000Z",
+              author: { id: "u2", email: "other@example.com" },
+            },
+          ],
+        }),
+      );
+
+      return (
+        <TripFeedbackPanel
+          tripId="trip-1"
+          targetType="dayPlanItem"
+          targetId="item-1"
+          currentUserId="u1"
+          contextLabel="Day 1"
+          feedback={feedback}
+          onUpdated={(next) => {
+            setFeedback(next);
+            onUpdated(next);
+          }}
+        />
+      );
+    };
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <Harness />
+      </I18nProvider>,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Open comments dialog for Day 1, 1 comment, Upvote 0, Downvote 0" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Suggestions and votes for Day 1" });
+    await userEvent.type(within(dialog).getByLabelText("Add a comment"), "Newest");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Post comment" }));
+
+    await waitFor(() =>
+      expect(onUpdated).toHaveBeenCalledWith(
+        expect.objectContaining({
+          comments: expect.arrayContaining([expect.objectContaining({ body: "Newest" })]),
+        }),
+      ),
+    );
+
+    const historyAfterPost = within(dialog).getByTestId("feedback-message-history");
+    expect(within(historyAfterPost).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      expect.stringContaining("First"),
+      expect.stringContaining("Newest"),
+    ]);
+    expect(
+      screen.getByRole("button", { name: "Open comments dialog for Day 1, 2 comments, Upvote 0, Downvote 0", hidden: true }),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Delete your comment: Newest" })).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Delete your comment: First" })).not.toBeInTheDocument();
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Delete your comment: Newest" }));
+
+    await waitFor(() =>
+      expect(onUpdated).toHaveBeenCalledWith(
+        expect.objectContaining({
+          comments: [expect.objectContaining({ body: "First" })],
+        }),
+      ),
+    );
+    expect(
+      screen.getByRole("button", { name: "Open comments dialog for Day 1, 1 comment, Upvote 0, Downvote 0", hidden: true }),
+    ).toBeInTheDocument();
+    expect(within(dialog).queryByText("Newest")).not.toBeInTheDocument();
 
     vi.unstubAllGlobals();
   });

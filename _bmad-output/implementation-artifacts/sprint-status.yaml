@@ -114,4 +114,6 @@ development_status:
 
   epic-6: in-progress
   6-1-remove-trip-overview-header-feedback: review
+  6-2-feedback-as-chat: done
+  6-3-optimize-comments: ready-for-dev
   epic-6-retrospective: optional

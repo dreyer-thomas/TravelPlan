@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Alert,
   Box,
@@ -13,6 +13,7 @@ import {
   IconButton,
   List,
   ListItem,
+  ListItemText,
   Paper,
   SvgIcon,
   TextField,
@@ -103,6 +104,8 @@ function TripFeedbackBody({
   cancelEditingComment,
   saveComment,
   saveEditedComment,
+  deleteComment,
+  deletingCommentId,
   saveVote,
   votingEnabled,
 }: {
@@ -121,18 +124,40 @@ function TripFeedbackBody({
   cancelEditingComment: () => void;
   saveComment: () => Promise<void>;
   saveEditedComment: () => Promise<void>;
+  deleteComment: (commentId: string, body: string) => Promise<void>;
+  deletingCommentId: string | null;
   saveVote: (value: "up" | "down") => Promise<void>;
   votingEnabled: boolean;
 }) {
   const { t } = useI18n();
+  const historyRef = useRef<HTMLDivElement | null>(null);
   const getEditActionAriaLabel = (body: string) => {
     const trimmed = body.trim();
     const preview = trimmed.length > 40 ? `${trimmed.slice(0, 37)}...` : trimmed;
     return formatMessage(t("trips.feedback.commentEditActionAria"), { preview });
   };
+  const getDeleteActionAriaLabel = (body: string) => {
+    const trimmed = body.trim();
+    const preview = trimmed.length > 40 ? `${trimmed.slice(0, 37)}...` : trimmed;
+    return formatMessage(t("trips.feedback.commentDeleteActionAria"), { preview });
+  };
+
+  useEffect(() => {
+    const history = historyRef.current;
+    if (!history) {
+      return;
+    }
+    history.scrollTop = history.scrollHeight;
+  }, [resolvedFeedback.comments]);
 
   return (
-    <Box display="flex" flexDirection="column" gap={1.5}>
+    <Box
+      display="flex"
+      flexDirection="column"
+      gap={1.5}
+      data-testid="feedback-chat-layout"
+      sx={{ minHeight: { xs: "min(70vh, 32rem)", sm: "28rem" } }}
+    >
       {votingEnabled ? (
         <Box display="flex" gap={1} flexWrap="wrap">
           <Chip
@@ -154,33 +179,48 @@ function TripFeedbackBody({
         </Box>
       ) : null}
       {error ? <Alert severity="error">{error}</Alert> : null}
-      <TextField
-        label={t("trips.feedback.commentLabel")}
-        value={comment}
-        onChange={(event) => setComment(event.target.value)}
-        multiline
-        minRows={2}
-        size="small"
-      />
-      <Box display="flex" justifyContent="flex-end">
-        <Button variant="contained" size="small" onClick={() => void saveComment()} disabled={savingComment || !comment.trim()}>
-          {t("trips.feedback.commentSubmit")}
-        </Button>
-      </Box>
-      <Divider />
-      {resolvedFeedback.comments.length === 0 ? (
-        <Typography variant="body2" color="text.secondary">
-          {t("trips.feedback.empty")}
-        </Typography>
-      ) : (
-        <List disablePadding>
+      <Paper
+        ref={historyRef}
+        variant="outlined"
+        data-testid="feedback-message-history"
+        sx={{
+          flex: 1,
+          minHeight: 0,
+          px: 1.5,
+          py: 1,
+          borderRadius: 3,
+          overflowY: "auto",
+          backgroundColor: "#faf7f2",
+          borderColor: "rgba(17,18,20,0.08)",
+        }}
+      >
+        {resolvedFeedback.comments.length === 0 ? (
+          <Box display="flex" alignItems="center" justifyContent="center" minHeight={160} px={1}>
+            <Typography variant="body2" color="text.secondary" textAlign="center">
+              {t("trips.feedback.empty")}
+            </Typography>
+          </Box>
+        ) : (
+          <List disablePadding>
           {resolvedFeedback.comments.map((item) => (
             <ListItem key={item.id} disableGutters sx={{ display: "block", py: 0.75 }}>
-              <Box display="flex" alignItems="flex-start" justifyContent="space-between" gap={1}>
-                <Box display="flex" flexDirection="column" gap={0.5} flex={1} minWidth={0}>
-                  <Typography variant="caption" color="text.secondary">
-                    {item.author.email}
-                  </Typography>
+              <Box
+                display="flex"
+                justifyContent={currentUserId === item.author.id ? "flex-end" : "flex-start"}
+              >
+                <Paper
+                  variant="outlined"
+                  sx={{
+                    maxWidth: "100%",
+                    width: "fit-content",
+                    minWidth: 0,
+                    px: 1.25,
+                    py: 1,
+                    borderRadius: 3,
+                    backgroundColor: currentUserId === item.author.id ? "#eef6ff" : "#ffffff",
+                    borderColor: currentUserId === item.author.id ? "rgba(24, 94, 170, 0.2)" : "rgba(17,18,20,0.08)",
+                  }}
+                >
                   {editingCommentId === item.id ? (
                     <Box display="flex" flexDirection="column" gap={1}>
                       <TextField
@@ -206,24 +246,69 @@ function TripFeedbackBody({
                       </Box>
                     </Box>
                   ) : (
-                    <Typography variant="body2">{item.body}</Typography>
+                    <ListItemText
+                      primary={
+                        <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                          {item.body}
+                        </Typography>
+                      }
+                      secondary={
+                        <Typography variant="caption" color="text.secondary">
+                          {item.author.email}
+                        </Typography>
+                      }
+                      sx={{ m: 0 }}
+                    />
                   )}
-                </Box>
-                {currentUserId === item.author.id && editingCommentId !== item.id ? (
-                  <Button
-                    size="small"
-                    variant="text"
-                    onClick={() => startEditingComment(item.id, item.body)}
-                    aria-label={getEditActionAriaLabel(item.body)}
-                  >
-                    {t("trips.feedback.commentEditAction")}
-                  </Button>
-                ) : null}
+                  {currentUserId === item.author.id && editingCommentId !== item.id ? (
+                    <Box display="flex" justifyContent="flex-end" gap={0.5} mt={0.75}>
+                      <Button
+                        size="small"
+                        variant="text"
+                        onClick={() => startEditingComment(item.id, item.body)}
+                        aria-label={getEditActionAriaLabel(item.body)}
+                      >
+                        {t("trips.feedback.commentEditAction")}
+                      </Button>
+                      <Button
+                        size="small"
+                        color="error"
+                        variant="text"
+                        onClick={() => void deleteComment(item.id)}
+                        aria-label={getDeleteActionAriaLabel(item.body)}
+                        disabled={deletingCommentId === item.id}
+                      >
+                        {t("trips.feedback.commentDeleteAction")}
+                      </Button>
+                    </Box>
+                  ) : null}
+                </Paper>
               </Box>
             </ListItem>
           ))}
-        </List>
-      )}
+          </List>
+        )}
+      </Paper>
+      <Box data-testid="feedback-composer">
+        <Divider sx={{ mb: 1.5 }} />
+        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+          {t("trips.feedback.chatHelper")}
+        </Typography>
+        <TextField
+          label={t("trips.feedback.commentLabel")}
+          value={comment}
+          onChange={(event) => setComment(event.target.value)}
+          multiline
+          minRows={2}
+          size="small"
+          fullWidth
+        />
+        <Box display="flex" justifyContent="flex-end" mt={1}>
+          <Button variant="contained" size="small" onClick={() => void saveComment()} disabled={savingComment || !comment.trim()}>
+            {t("trips.feedback.commentSubmit")}
+          </Button>
+        </Box>
+      </Box>
     </Box>
   );
 }
@@ -251,6 +336,7 @@ export default function TripFeedbackPanel({
   const [editComment, setEditComment] = useState("");
   const [savingComment, setSavingComment] = useState(false);
   const [savingEditComment, setSavingEditComment] = useState(false);
+  const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null);
   const [savingVote, setSavingVote] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -259,17 +345,18 @@ export default function TripFeedbackPanel({
       setComment("");
       setEditingCommentId(null);
       setEditComment("");
+      setDeletingCommentId(null);
       setError(null);
     }
   }, [open]);
 
-  const commentCountLabel = useMemo(() => {
-    const count = resolvedFeedback.comments.length;
-    if (count === 0) return t("trips.feedback.noComments");
-    if (count === 1) return formatMessage(t("trips.feedback.commentCountSingular"), { count });
-    return formatMessage(t("trips.feedback.commentCountPlural"), { count });
-  }, [resolvedFeedback.comments.length, t]);
-  const visibleCommentCountLabel = useMemo(() => String(resolvedFeedback.comments.length), [resolvedFeedback.comments.length]);
+  const count = resolvedFeedback.comments.length;
+  const commentCountLabel =
+    count === 0
+      ? t("trips.feedback.noComments")
+      : count === 1
+        ? formatMessage(t("trips.feedback.commentCountSingular"), { count })
+        : formatMessage(t("trips.feedback.commentCountPlural"), { count });
 
   const dialogTitle = canVote
     ? contextLabel
@@ -412,6 +499,35 @@ export default function TripFeedbackPanel({
     }
   };
 
+  const deleteComment = async (commentId: string) => {
+    setDeletingCommentId(commentId);
+    setError(null);
+    try {
+      const token = await fetchCsrfToken();
+      const response = await fetch(`/api/trips/${tripId}/feedback/comments/${commentId}`, {
+        method: "DELETE",
+        credentials: "include",
+        headers: {
+          "x-csrf-token": token,
+        },
+      });
+      const payload = (await response.json()) as ApiEnvelope<{ feedback: FeedbackSummary }>;
+      if (!response.ok || payload.error || !payload.data?.feedback) {
+        setError(t("trips.feedback.deleteError"));
+        return;
+      }
+      onUpdated(payload.data.feedback);
+      if (editingCommentId === commentId) {
+        setEditingCommentId(null);
+        setEditComment("");
+      }
+    } catch {
+      setError(t("trips.feedback.deleteError"));
+    } finally {
+      setDeletingCommentId((current) => (current === commentId ? null : current));
+    }
+  };
+
   const closeDialog = () => {
     setOpen(false);
     setTimeout(() => triggerRef.current?.focus(), 0);
@@ -448,8 +564,8 @@ export default function TripFeedbackPanel({
       >
         <Box display="flex" alignItems="center" gap={1} minWidth={0}>
           <CommentIcon />
-          <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: "nowrap", minWidth: "1ch" }}>
-            {visibleCommentCountLabel}
+          <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>
+            {commentCountLabel}
           </Typography>
         </Box>
         {canVote ? (
@@ -494,6 +610,8 @@ export default function TripFeedbackPanel({
             cancelEditingComment={cancelEditingComment}
             saveComment={saveComment}
             saveEditedComment={saveEditedComment}
+            deleteComment={deleteComment}
+            deletingCommentId={deletingCommentId}
             saveVote={saveVote}
             votingEnabled={canVote}
           />

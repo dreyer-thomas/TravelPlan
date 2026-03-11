@@ -32,6 +32,33 @@ export type UpdateTripFeedbackCommentResult =
   | { outcome: "not_found" }
   | { outcome: "forbidden" };
 
+const toSummaryIdentity = (target: {
+  targetType: $Enums.FeedbackTargetType;
+  tripId: string;
+  tripDayId: string | null;
+  accommodationId: string | null;
+  dayPlanItemId: string | null;
+}) => {
+  const targetType: FeedbackTargetType =
+    target.targetType === "TRIP"
+      ? "trip"
+      : target.targetType === "TRIP_DAY"
+        ? "tripDay"
+        : target.targetType === "ACCOMMODATION"
+          ? "accommodation"
+          : "dayPlanItem";
+  const targetId =
+    targetType === "trip"
+      ? target.tripId
+      : targetType === "tripDay"
+        ? target.tripDayId!
+        : targetType === "accommodation"
+          ? target.accommodationId!
+          : target.dayPlanItemId!;
+
+  return { targetType, targetId };
+};
+
 export class UnsupportedTripFeedbackVoteError extends Error {
   constructor(targetType: FeedbackTargetType) {
     super(`Voting is not supported for ${targetType} feedback targets`);
@@ -400,28 +427,84 @@ export const updateTripFeedbackComment = async ({
     },
   });
 
-  const targetType: FeedbackTargetType =
-    comment.target.targetType === "TRIP"
-      ? "trip"
-      : comment.target.targetType === "TRIP_DAY"
-        ? "tripDay"
-        : comment.target.targetType === "ACCOMMODATION"
-          ? "accommodation"
-          : "dayPlanItem";
-  const targetId =
-    targetType === "trip"
-      ? comment.target.tripId
-      : targetType === "tripDay"
-        ? comment.target.tripDayId!
-        : targetType === "accommodation"
-          ? comment.target.accommodationId!
-          : comment.target.dayPlanItemId!;
+  const { targetType, targetId } = toSummaryIdentity(comment.target);
 
   const feedback = await listTripFeedbackForUser(userId, tripId);
   const summary = feedback?.[toSummaryKey(targetType, targetId)] ?? null;
 
   if (!summary) {
     return { outcome: "not_found" };
+  }
+
+  return { outcome: "updated", feedback: summary };
+};
+
+export const deleteTripFeedbackComment = async ({
+  userId,
+  tripId,
+  commentId,
+}: {
+  userId: string;
+  tripId: string;
+  commentId: string;
+}): Promise<UpdateTripFeedbackCommentResult> => {
+  const access = await getTripAccessForUser(userId, tripId);
+  if (!access) {
+    return { outcome: "not_found" };
+  }
+
+  const comment = await prisma.tripFeedbackComment.findFirst({
+    where: {
+      id: commentId,
+      target: {
+        tripId,
+      },
+    },
+    select: {
+      id: true,
+      authorId: true,
+      target: {
+        select: {
+          tripId: true,
+          targetType: true,
+          tripDayId: true,
+          accommodationId: true,
+          dayPlanItemId: true,
+        },
+      },
+    },
+  });
+
+  if (!comment) {
+    return { outcome: "not_found" };
+  }
+
+  if (comment.authorId !== userId) {
+    return { outcome: "forbidden" };
+  }
+
+  await prisma.tripFeedbackComment.delete({
+    where: { id: comment.id },
+  });
+
+  const { targetType, targetId } = toSummaryIdentity(comment.target);
+  const feedback = await listTripFeedbackForUser(userId, tripId);
+  const summary = feedback?.[toSummaryKey(targetType, targetId)] ?? null;
+
+  if (!summary) {
+    return {
+      outcome: "updated",
+      feedback: {
+        targetType,
+        targetId,
+        comments: [],
+        voteSummary: {
+          upCount: 0,
+          downCount: 0,
+          userVote: null,
+        },
+      },
+    };
   }
 
   return { outcome: "updated", feedback: summary };

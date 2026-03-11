@@ -1127,3 +1127,86 @@ So that the overview feels cleaner and the least useful feedback surface is remo
 **Given** the trip overview header shows core summary content such as title, date range, hero image, map, or sharing actions
 **When** the feedback section is removed
 **Then** the remaining layout stays usable on desktop and mobile without empty gaps or broken alignment
+
+### Story 6.2: Feedback as Chat
+
+As a trip participant,
+I want comment dialogs to behave like a chat surface with comment deletion for my own messages,
+So that conversation feels natural and I can fully manage feedback I authored.
+
+**FRs covered:** FR23, FR24
+
+**Acceptance Criteria:**
+
+**Given** I open a comments dialog for a supported feedback target
+**When** the dialog renders
+**Then** the existing comments appear above the composer area
+**And** the composer for a new comment is anchored at the bottom of the dialog
+
+**Given** a target has multiple comments
+**When** the comments are rendered in the dialog
+**Then** they are shown in chronological order with the oldest at the top and the newest at the bottom
+**And** the newest saved comment appears closest to the composer area
+
+**Given** I add a new comment
+**When** the save succeeds
+**Then** the new comment appears at the bottom of the comment list without requiring a page refresh
+
+**Given** I view the comments dialog on desktop or mobile
+**When** the chat layout is shown
+**Then** the dialog visually reads like a messaging surface with a distinct message history area and a bottom composer
+**And** the layout remains usable and accessible on smaller screens
+
+**Given** I authored a comment on a supported feedback target
+**When** I view that comment in the dialog
+**Then** I can discover a delete action for my own comment in addition to the existing edit action
+
+**Given** I delete my own comment
+**When** the delete succeeds
+**Then** the comment is removed completely from the UI and persisted storage
+**And** the updated comment count is reflected anywhere that feedback target is summarized
+
+**Given** I did not author a comment
+**When** I view that comment
+**Then** I cannot delete it
+**And** attempts to delete another participant's comment are rejected without mutating stored data
+
+### Story 6.3: Optimize Comments
+
+As a trip participant,
+I want comment indicators and comment actions to use a more compact visual format,
+So that day and trip planning surfaces stay easier to scan and each comment bubble uses less space.
+
+**FRs covered:** FR23, FR24
+
+**Acceptance Criteria:**
+
+**Given** a comment indicator is rendered for a day item, a day overview surface, or a day in the trip overview
+**When** the indicator shows the number of comments
+**Then** it displays only the numeric count
+**And** it does not append text such as `Kommentar`, `Kommentare`, `comment`, or `comments`
+
+**Given** the compact comment indicator is rendered in any supported surface
+**When** the count is `0`, `1`, or greater than `1`
+**Then** the visible trigger still stays compact
+**And** the accessible name continues to communicate the comment purpose and count
+
+**Given** I view a comment that I authored inside the comments dialog
+**When** the available comment actions are rendered
+**Then** the edit action is shown as a pen icon instead of the text `Kommentar bearbeiten`
+**And** the delete action is shown as a trash icon instead of the text `Kommentar löschen`
+
+**Given** the edit and delete icons are shown for my own comment
+**When** the comment bubble is rendered
+**Then** both icons are placed to the right of the comment text content
+**And** the message bubble uses less horizontal space than the current text-button layout
+
+**Given** I do not own a comment
+**When** I view that comment in the dialog
+**Then** I do not see the edit or delete icons for that comment
+**And** the existing ownership restrictions remain unchanged
+
+**Given** I use the compact comment trigger or the icon-only comment actions on desktop or mobile
+**When** I interact with them
+**Then** the controls remain clearly clickable and keyboard accessible
+**And** screen readers still receive meaningful labels for opening comments, editing, and deleting

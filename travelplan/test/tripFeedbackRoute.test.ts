@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
 import { POST as POST_COMMENT } from "@/app/api/trips/[id]/feedback/comments/route";
-import { PUT as PUT_COMMENT } from "@/app/api/trips/[id]/feedback/comments/[commentId]/route";
+import { DELETE as DELETE_COMMENT, PUT as PUT_COMMENT } from "@/app/api/trips/[id]/feedback/comments/[commentId]/route";
 import { PUT as PUT_VOTE } from "@/app/api/trips/[id]/feedback/votes/route";
 import { GET as GET_TRIP, PATCH as PATCH_TRIP } from "@/app/api/trips/[id]/route";
 import { POST as POST_STAY } from "@/app/api/trips/[id]/accommodations/route";
@@ -495,5 +495,147 @@ describe("trip feedback routes", () => {
       select: { body: true },
     });
     expect(persisted?.body).toBe("Protected comment");
+  });
+
+  it("deletes an authored comment and returns the refreshed feedback payload", async () => {
+    const owner = await prisma.user.create({ data: { email: "owner@example.com", passwordHash: "hashed", role: "OWNER" } });
+    const viewer = await prisma.user.create({ data: { email: "viewer@example.com", passwordHash: "hashed", role: "VIEWER" } });
+    const trip = await prisma.trip.create({
+      data: {
+        userId: owner.id,
+        name: "Delete Route Trip",
+        startDate: new Date("2026-09-16T00:00:00.000Z"),
+        endDate: new Date("2026-09-17T00:00:00.000Z"),
+      },
+    });
+    await prisma.tripMember.create({
+      data: { tripId: trip.id, userId: viewer.id, role: "VIEWER" },
+    });
+
+    const viewerSession = await createSessionJwt({ sub: viewer.id, role: viewer.role });
+    const created = await POST_COMMENT(
+      buildRequest(`http://localhost/api/trips/${trip.id}/feedback/comments`, {
+        method: "POST",
+        session: viewerSession,
+        csrf: "csrf-token",
+        body: { targetType: "trip", targetId: trip.id, body: "Delete me" },
+      }),
+      { params: Promise.resolve({ id: trip.id }) },
+    );
+    const createdPayload = (await created.json()) as ApiEnvelope<{ feedback: { comments: Array<{ id: string }> } }>;
+    const commentId = createdPayload.data!.feedback.comments[0]!.id;
+
+    const deleted = await DELETE_COMMENT(
+      buildRequest(`http://localhost/api/trips/${trip.id}/feedback/comments/${commentId}`, {
+        method: "DELETE",
+        session: viewerSession,
+        csrf: "csrf-token",
+      }),
+      { params: Promise.resolve({ id: trip.id, commentId }) },
+    );
+    const deletedPayload = (await deleted.json()) as ApiEnvelope<{ feedback: { comments: Array<{ id: string }> } }>;
+
+    expect(deleted.status).toBe(200);
+    expect(deletedPayload.data?.feedback.comments).toEqual([]);
+    expect(await prisma.tripFeedbackComment.findUnique({ where: { id: commentId } })).toBeNull();
+  });
+
+  it("rejects delete attempts from non-authors and non-members without mutating data", async () => {
+    const owner = await prisma.user.create({ data: { email: "owner@example.com", passwordHash: "hashed", role: "OWNER" } });
+    const viewer = await prisma.user.create({ data: { email: "viewer@example.com", passwordHash: "hashed", role: "VIEWER" } });
+    const contributor = await prisma.user.create({ data: { email: "contributor@example.com", passwordHash: "hashed", role: "VIEWER" } });
+    const outsider = await prisma.user.create({ data: { email: "outsider@example.com", passwordHash: "hashed", role: "VIEWER" } });
+    const trip = await prisma.trip.create({
+      data: {
+        userId: owner.id,
+        name: "Protected Delete Route Trip",
+        startDate: new Date("2026-09-18T00:00:00.000Z"),
+        endDate: new Date("2026-09-19T00:00:00.000Z"),
+      },
+    });
+    await prisma.tripMember.createMany({
+      data: [
+        { tripId: trip.id, userId: viewer.id, role: "VIEWER" },
+        { tripId: trip.id, userId: contributor.id, role: "CONTRIBUTOR" },
+      ],
+    });
+
+    const viewerSession = await createSessionJwt({ sub: viewer.id, role: viewer.role });
+    const contributorSession = await createSessionJwt({ sub: contributor.id, role: contributor.role });
+    const outsiderSession = await createSessionJwt({ sub: outsider.id, role: outsider.role });
+
+    const created = await POST_COMMENT(
+      buildRequest(`http://localhost/api/trips/${trip.id}/feedback/comments`, {
+        method: "POST",
+        session: viewerSession,
+        csrf: "csrf-token",
+        body: { targetType: "trip", targetId: trip.id, body: "Protected delete" },
+      }),
+      { params: Promise.resolve({ id: trip.id }) },
+    );
+    const createdPayload = (await created.json()) as ApiEnvelope<{ feedback: { comments: Array<{ id: string }> } }>;
+    const commentId = createdPayload.data!.feedback.comments[0]!.id;
+
+    const forbidden = await DELETE_COMMENT(
+      buildRequest(`http://localhost/api/trips/${trip.id}/feedback/comments/${commentId}`, {
+        method: "DELETE",
+        session: contributorSession,
+        csrf: "csrf-token",
+      }),
+      { params: Promise.resolve({ id: trip.id, commentId }) },
+    );
+    const forbiddenPayload = (await forbidden.json()) as ApiEnvelope<null>;
+    expect(forbidden.status).toBe(403);
+    expect(forbiddenPayload.error?.code).toBe("forbidden");
+
+    const outsiderDelete = await DELETE_COMMENT(
+      buildRequest(`http://localhost/api/trips/${trip.id}/feedback/comments/${commentId}`, {
+        method: "DELETE",
+        session: outsiderSession,
+        csrf: "csrf-token",
+      }),
+      { params: Promise.resolve({ id: trip.id, commentId }) },
+    );
+    const outsiderPayload = (await outsiderDelete.json()) as ApiEnvelope<null>;
+    expect(outsiderDelete.status).toBe(404);
+    expect(outsiderPayload.error?.code).toBe("not_found");
+
+    const persisted = await prisma.tripFeedbackComment.findUnique({
+      where: { id: commentId },
+      select: { body: true },
+    });
+    expect(persisted?.body).toBe("Protected delete");
+  });
+
+  it("returns not-found for delete requests that reference an invalid comment id", async () => {
+    const owner = await prisma.user.create({ data: { email: "owner@example.com", passwordHash: "hashed", role: "OWNER" } });
+    const viewer = await prisma.user.create({ data: { email: "viewer@example.com", passwordHash: "hashed", role: "VIEWER" } });
+    const trip = await prisma.trip.create({
+      data: {
+        userId: owner.id,
+        name: "Missing Comment Route Trip",
+        startDate: new Date("2026-09-20T00:00:00.000Z"),
+        endDate: new Date("2026-09-21T00:00:00.000Z"),
+      },
+    });
+    await prisma.tripMember.create({
+      data: { tripId: trip.id, userId: viewer.id, role: "VIEWER" },
+    });
+
+    const viewerSession = await createSessionJwt({ sub: viewer.id, role: viewer.role });
+
+    const response = await DELETE_COMMENT(
+      buildRequest(`http://localhost/api/trips/${trip.id}/feedback/comments/missing-comment`, {
+        method: "DELETE",
+        session: viewerSession,
+        csrf: "csrf-token",
+      }),
+      { params: Promise.resolve({ id: trip.id, commentId: "missing-comment" }) },
+    );
+    const payload = (await response.json()) as ApiEnvelope<null>;
+
+    expect(response.status).toBe(404);
+    expect(payload.error?.code).toBe("not_found");
+    expect(await prisma.tripFeedbackComment.count()).toBe(0);
   });
 });
