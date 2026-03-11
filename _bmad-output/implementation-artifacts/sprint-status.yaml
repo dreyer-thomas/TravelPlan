@@ -111,3 +111,7 @@ development_status:
   5-6-add-existing-contributor: done
   5-7-limit-voting-to-day-items: done
   epic-5-retrospective: optional
+
+  epic-6: in-progress
+  6-1-remove-trip-overview-header-feedback: review
+  epic-6-retrospective: optional

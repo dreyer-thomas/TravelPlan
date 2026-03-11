@@ -117,11 +117,10 @@ describe("TripTimeline feedback", () => {
     expect(screen.queryByTestId("bucket-list-panel")).not.toBeInTheDocument();
 
     expect(screen.queryByLabelText("Add a comment")).not.toBeInTheDocument();
-    expect(
-      screen.getByRole("button", {
-        name: "Open comments dialog for Viewer Trip, no comments, Upvote 0, Downvote 0",
-      }),
-    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Viewer Trip/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Viewer Trip", level: 4 })).toBeInTheDocument();
+    expect(screen.getByText("Dec 1, 2026 - Dec 2, 2026")).toBeInTheDocument();
+    expect(screen.getByTestId("overview-map-panel")).toBeInTheDocument();
     expect(
       screen.getByRole("button", {
         name: "Open comments dialog for Day 1, no comments",

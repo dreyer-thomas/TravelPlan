@@ -427,28 +427,10 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                 </Box>
               </Box>
               <Box display="flex" flexDirection="column" gap={1}>
-                <Box display="flex" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={2}>
+                <Box display="flex" alignItems="center" flexWrap="wrap" gap={2}>
                   <Typography variant="body2" color="text.secondary">
                     {buildDateRange(detail.trip)}
                   </Typography>
-                  <TripFeedbackPanel
-                    tripId={detail.trip.id}
-                    feedback={detail.trip.feedback}
-                    targetType="trip"
-                    targetId={detail.trip.id}
-                    currentUserId={detail.trip.currentUserId}
-                    contextLabel={detail.trip.name}
-                    onUpdated={(feedback) =>
-                      setDetail((current) =>
-                        current
-                          ? {
-                              ...current,
-                              trip: { ...current.trip, feedback },
-                            }
-                          : current,
-                      )
-                    }
-                  />
                 </Box>
                 <Box display="flex" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={2}>
                   <Typography variant="body2" color="text.secondary">

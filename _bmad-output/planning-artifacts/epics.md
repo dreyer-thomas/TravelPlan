@@ -137,6 +137,10 @@ Users can collect unplanned places at the trip level and add them to day plans l
 Users can share trips with viewers who can comment/suggest without changing core details.
 **FRs covered:** FR22, FR23, FR24, FR28
 
+### Epic 6: Usability Refinements
+Users can iterate on focused UX improvements that simplify planning screens without changing the core product model.
+**FRs covered:** FR6, FR9, FR23, FR24
+
 ## Epic 1: Secure Access & Personal Workspace
 
 Users can create accounts and safely access their private trips.
@@ -1092,3 +1096,34 @@ So that lightweight discussion remains available while voting is reserved for co
 **When** the request reaches the feedback API
 **Then** the request is rejected as unsupported
 **And** no vote state is created or changed for that target
+
+## Epic 6: Usability Refinements
+
+Users can iterate on focused UX improvements that simplify planning screens without changing the core product model.
+
+### Story 6.1: Remove Trip Overview Header Feedback
+
+As a trip participant,
+I want the trip overview header to focus on core trip context instead of comments or voting,
+So that the overview feels cleaner and the least useful feedback surface is removed.
+
+**FRs covered:** FR6, FR9, FR23, FR24
+
+**Acceptance Criteria:**
+
+**Given** I open a trip overview
+**When** the trip header renders
+**Then** I do not see a comments trigger, comment count, vote count, or vote action in the header area
+
+**Given** trip-level feedback data exists for the trip
+**When** the overview header renders after this change
+**Then** the header still does not show feedback UI
+**And** the story does not require deleting existing feedback rows as part of the change
+
+**Given** I view day entries, accommodations, or day-plan items that still support feedback
+**When** those surfaces render
+**Then** their existing feedback behavior remains unchanged unless explicitly updated by a later story
+
+**Given** the trip overview header shows core summary content such as title, date range, hero image, map, or sharing actions
+**When** the feedback section is removed
+**Then** the remaining layout stays usable on desktop and mobile without empty gaps or broken alignment
