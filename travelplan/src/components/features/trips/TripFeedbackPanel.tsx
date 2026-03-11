@@ -136,7 +136,7 @@ function TripFeedbackBody({
   cancelEditingComment: () => void;
   saveComment: () => Promise<void>;
   saveEditedComment: () => Promise<void>;
-  deleteComment: (commentId: string, body: string) => Promise<void>;
+  deleteComment: (commentId: string) => Promise<void>;
   deletingCommentId: string | null;
   saveVote: (value: "up" | "down") => Promise<void>;
   votingEnabled: boolean;
