@@ -1189,14 +1189,6 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const budgetEntries = useMemo(() => {
     const entries: { id: string; label: string; amountCents: number | null }[] = [];
 
-    if (previousStay) {
-      entries.push({
-        id: `previous-stay-${previousStay.id}`,
-        label: formatMessage(t("trips.dayView.budgetItemPreviousNight"), { name: previousStay.name }),
-        amountCents: previousStay.costCents,
-      });
-    }
-
     planItems.forEach((item, index) => {
       const preview = parsePlanText(item.contentJson) || formatMessage(t("trips.dayView.budgetItemPlan"), { index: index + 1 });
       const title = item.title?.trim() || preview;
@@ -1216,7 +1208,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     }
 
     return entries;
-  }, [currentStay, planItems, previousStay, t]);
+  }, [currentStay, planItems, t]);
 
   const knownBudgetEntries = useMemo(
     () =>

@@ -116,4 +116,5 @@ development_status:
   6-1-remove-trip-overview-header-feedback: done
   6-2-feedback-as-chat: done
   6-3-optimize-comments: done
+  6-4-fix-day-view-accommodation-cost-duplication: done
   epic-6-retrospective: optional

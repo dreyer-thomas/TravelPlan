@@ -1210,3 +1210,36 @@ So that day and trip planning surfaces stay easier to scan and each comment bubb
 **When** I interact with them
 **Then** the controls remain clearly clickable and keyboard accessible
 **And** screen readers still receive meaningful labels for opening comments, editing, and deleting
+
+### Story 6.4: Fix Day View Accommodation Cost Duplication
+
+As a trip planner,
+I want the day-view cost area to count an overnight stay only on the day that owns that stay,
+So that the daily total is accurate and the same accommodation cost is not shown again on the following day as previous-night context.
+
+**FRs covered:** FR10, FR22, FR24
+
+**Acceptance Criteria:**
+
+**Given** a day view shows a previous-night accommodation that was already counted on the prior day
+**When** the day-view cost area renders for the current day
+**Then** that previous-night accommodation cost is not included in the current day's cost list
+**And** it is not included in the current day's displayed total
+
+**Given** a day has a current-night accommodation with a saved cost
+**When** the day-view cost area renders
+**Then** that current-night accommodation cost is included in the current day's cost list and total
+
+**Given** a day has day-plan items with costs
+**When** the day-view cost area renders
+**Then** those item costs continue to appear unchanged
+**And** they continue to be included in the current day's displayed total
+
+**Given** a previous-night accommodation is shown in day view for timeline or context purposes
+**When** the day-view page renders
+**Then** the accommodation card and hotel-time context remain visible
+**And** only the duplicated cost attribution is removed from the current day's cost area
+
+**Given** a day has no current-night accommodation cost and no day-plan item costs
+**When** the day-view cost area renders
+**Then** it continues to show the existing zero-cost or empty-cost behavior without errors

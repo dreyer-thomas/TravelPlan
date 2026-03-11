@@ -2113,6 +2113,103 @@ describe("TripDayView layout", () => {
     vi.unstubAllGlobals();
   });
 
+  it("excludes previous-night accommodation cost from the selected day summary while keeping overnight context visible", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const fetchMock = withBucketList(async () => {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-02T00:00:00.000Z",
+              dayCount: 2,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-0",
+                date: "2026-11-30T00:00:00.000Z",
+                dayIndex: 0,
+                plannedCostSubtotal: 12000,
+                missingAccommodation: false,
+                missingPlan: true,
+                accommodation: {
+                  id: "stay-prev",
+                  name: "Airport Hotel",
+                  notes: null,
+                  status: "booked",
+                  costCents: 12000,
+                  link: null,
+                  checkOutTime: "09:00",
+                  location: { lat: 48.3538, lng: 11.7861 },
+                },
+                dayPlanItems: [],
+              },
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 20500,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: {
+                  id: "stay-current",
+                  name: "City Hotel",
+                  notes: null,
+                  status: "planned",
+                  costCents: 16000,
+                  link: null,
+                  checkInTime: "16:00",
+                  location: { lat: 48.145, lng: 11.582 },
+                },
+                dayPlanItems: [
+                  {
+                    id: "plan-1",
+                    title: "Museum title",
+                    contentJson: JSON.stringify({
+                      type: "doc",
+                      content: [{ type: "paragraph", content: [{ type: "text", text: "Body details" }] }],
+                    }),
+                    costCents: 4500,
+                    linkUrl: "https://example.com/museum",
+                    location: { lat: 48.1372, lng: 11.5756 },
+                  },
+                ],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-1" />
+      </I18nProvider>,
+    );
+
+    expect(await screen.findByTestId("trip-day-view-page")).toBeInTheDocument();
+    expect(screen.getByText("Previous night accommodation")).toBeInTheDocument();
+    expect(screen.getAllByText("Airport Hotel").length).toBeGreaterThan(0);
+    expect(screen.getByText("00:00 - 09:00")).toBeInTheDocument();
+    expect(screen.queryByText("Previous night: Airport Hotel")).toBeNull();
+    expect(screen.getByText("Current night: City Hotel")).toBeInTheDocument();
+    expect(screen.getAllByText("Museum title").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("Cost: 205.00")).toBeInTheDocument();
+    expect(screen.queryByText("Cost: 120.00")).toBeNull();
+
+    vi.unstubAllGlobals();
+  });
+
   it("shows copy previous night action when a previous-night accommodation exists", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
