@@ -126,6 +126,14 @@ describe("TripTimeline feedback", () => {
         name: "Open comments dialog for Day 1, no comments",
       }),
     ).toBeInTheDocument();
+    expect(
+      within(
+        screen.getByRole("button", {
+          name: "Open comments dialog for Day 1, no comments",
+        }),
+      ).getByText("0"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("no comments")).not.toBeInTheDocument();
     const metaRow = screen.getByTestId("timeline-day-meta-row");
     expect(metaRow).toContainElement(
       screen.getByRole("button", {
@@ -326,6 +334,14 @@ describe("TripTimeline feedback", () => {
         name: "Open comments dialog for Day 1, no comments",
       }),
     );
+    expect(
+      within(
+        screen.getByRole("button", {
+          name: "Open comments dialog for Day 1, no comments",
+        }),
+      ).getByText("0"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("no comments")).not.toBeInTheDocument();
     expect(metaRow).toContainElement(screen.getByTestId("timeline-accommodation-surface"));
 
     vi.unstubAllGlobals();

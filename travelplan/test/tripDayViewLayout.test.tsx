@@ -358,6 +358,14 @@ describe("TripDayView layout", () => {
       }),
     ).toBeInTheDocument();
     expect(
+      within(
+        screen.getByRole("button", {
+          name: "Open comments dialog for Day 1, no comments",
+        }),
+      ).getByText("0"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("no comments")).not.toBeInTheDocument();
+    expect(
       screen.getByRole("button", {
         name: "Open comments dialog for Current night accommodation: Viewer Hotel, no comments",
       }),
@@ -818,6 +826,15 @@ describe("TripDayView layout", () => {
     expect(within(dialog).queryByRole("button", { name: /Upvote/i })).not.toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: /Downvote/i })).not.toBeInTheDocument();
     expect(within(dialog).getByText("Original stay note")).toBeInTheDocument();
+    expect(
+      within(
+        screen.getByRole("button", {
+          name: "Open comments dialog for Current night accommodation: Viewer Hotel, 1 comment",
+          hidden: true,
+        }),
+      ).getByText("1"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("1 comment")).not.toBeInTheDocument();
 
     await userEvent.click(within(dialog).getByRole("button", { name: "Edit your comment: Original stay note" }));
     const editor = within(dialog).getByLabelText("Edit comment");

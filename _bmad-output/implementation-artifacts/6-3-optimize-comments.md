@@ -1,6 +1,6 @@
 # Story 6.3: Optimize Comments
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -21,26 +21,26 @@ so that day and trip planning surfaces stay easier to scan and each comment bubb
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Replace visible comment-count copy with a number-only trigger across all existing feedback entry points. (AC: 1, 2, 6)
-  - [ ] Update `travelplan/src/components/features/trips/TripFeedbackPanel.tsx` so the visible trigger text renders only the numeric count while preserving a descriptive accessible name for the button.
-  - [ ] Keep the same compact-trigger behavior for comment-only targets and vote-capable targets; only the visible label format changes.
-  - [ ] Verify the change flows through every existing `TripFeedbackPanel` usage, including trip overview day cards in `TripTimeline.tsx` and day/accommodation/day-plan-item surfaces in `TripDayView.tsx`.
-- [ ] Task 2: Convert authored-comment edit and delete actions from text buttons to icon buttons. (AC: 3, 5, 6)
-  - [ ] Replace the visible `commentEditAction` and `commentDeleteAction` button text with icon-only controls in `TripFeedbackPanel.tsx`.
-  - [ ] Keep explicit `aria-label` values for both actions so icon-only controls remain accessible.
-  - [ ] Preserve the existing author-only visibility rules and delete/edit request flow without changing API behavior.
-- [ ] Task 3: Move authored-comment action icons into the message row to reduce bubble width. (AC: 4, 6)
-  - [ ] Refactor the comment bubble layout so the text block and authored action icons share a single horizontal row or compact action rail aligned to the right of the message content.
-  - [ ] Keep long comment text readable and wrapping correctly without the action icons overlapping or forcing layout breakage on narrow screens.
-  - [ ] Preserve the current inline edit state and composer behavior introduced in Story 6.2.
-- [ ] Task 4: Update i18n and accessibility support for the compact UI. (AC: 2, 3, 6)
-  - [ ] Adjust `travelplan/src/i18n/en.ts` and `travelplan/src/i18n/de.ts` so visible count copy can be number-only while the button `aria-label` still conveys "open comments" plus the count.
-  - [ ] Keep edit/delete accessible labels meaningful for screen readers even though the visible controls become icon-only.
-  - [ ] Avoid removing any localized strings still required by the edit form, error handling, or dialog titles.
-- [ ] Task 5: Add regression coverage for the compact comment trigger and icon-only actions. (AC: 1, 2, 3, 4, 5, 6)
-  - [ ] Update `travelplan/test/tripFeedbackPanel.test.tsx` to assert number-only visible trigger copy, preserved accessible names, and icon-only author actions.
-  - [ ] Extend `travelplan/test/tripTimelineFeedback.test.tsx` and any relevant day-view tests so trip overview days and day-level feedback surfaces keep the compact visible comment count.
-  - [ ] Add UI assertions that the authored action icons remain unavailable on comments from other participants and that the chat layout stays usable after the layout change.
+- [x] Task 1: Replace visible comment-count copy with a number-only trigger across all existing feedback entry points. (AC: 1, 2, 6)
+  - [x] Update `travelplan/src/components/features/trips/TripFeedbackPanel.tsx` so the visible trigger text renders only the numeric count while preserving a descriptive accessible name for the button.
+  - [x] Keep the same compact-trigger behavior for comment-only targets and vote-capable targets; only the visible label format changes.
+  - [x] Verify the change flows through every existing `TripFeedbackPanel` usage, including trip overview day cards in `TripTimeline.tsx` and day/accommodation/day-plan-item surfaces in `TripDayView.tsx`.
+- [x] Task 2: Convert authored-comment edit and delete actions from text buttons to icon buttons. (AC: 3, 5, 6)
+  - [x] Replace the visible `commentEditAction` and `commentDeleteAction` button text with icon-only controls in `TripFeedbackPanel.tsx`.
+  - [x] Keep explicit `aria-label` values for both actions so icon-only controls remain accessible.
+  - [x] Preserve the existing author-only visibility rules and delete/edit request flow without changing API behavior.
+- [x] Task 3: Move authored-comment action icons into the message row to reduce bubble width. (AC: 4, 6)
+  - [x] Refactor the comment bubble layout so the text block and authored action icons share a single horizontal row or compact action rail aligned to the right of the message content.
+  - [x] Keep long comment text readable and wrapping correctly without the action icons overlapping or forcing layout breakage on narrow screens.
+  - [x] Preserve the current inline edit state and composer behavior introduced in Story 6.2.
+- [x] Task 4: Update i18n and accessibility support for the compact UI. (AC: 2, 3, 6)
+  - [x] Adjust `travelplan/src/i18n/en.ts` and `travelplan/src/i18n/de.ts` so visible count copy can be number-only while the button `aria-label` still conveys "open comments" plus the count.
+  - [x] Keep edit/delete accessible labels meaningful for screen readers even though the visible controls become icon-only.
+  - [x] Avoid removing any localized strings still required by the edit form, error handling, or dialog titles.
+- [x] Task 5: Add regression coverage for the compact comment trigger and icon-only actions. (AC: 1, 2, 3, 4, 5, 6)
+  - [x] Update `travelplan/test/tripFeedbackPanel.test.tsx` to assert number-only visible trigger copy, preserved accessible names, and icon-only author actions.
+  - [x] Extend `travelplan/test/tripTimelineFeedback.test.tsx` and any relevant day-view tests so trip overview days and day-level feedback surfaces keep the compact visible comment count.
+  - [x] Add UI assertions that the authored action icons remain unavailable on comments from other participants and that the chat layout stays usable after the layout change.
 
 ## Dev Notes
 
@@ -144,19 +144,35 @@ GPT-5 Codex
 - Story `6-3-optimize-comments` was requested directly by the user and did not yet exist in `epics.md` or `sprint-status.yaml`, so the planning artifacts were updated first and the context story was then generated from the user-provided requirement plus existing Epic 5/6 feedback context.
 - No `project-context.md` file exists in this repository, so context came from the planning artifacts, Story 5.5, Story 6.2, the current feedback UI implementation, and existing feedback tests.
 - `_bmad/core/tasks/validate-workflow.xml` is referenced by the BMAD workflow but is not present in this repository, so checklist validation could not be run through the expected task runner.
+- Implemented Story 6.3 by keeping the shared `TripFeedbackPanel` API intact and limiting code changes to the existing feedback UI, localized dictionaries, and regression tests.
+- Full repository validation completed with `npm test` passing; `npm run lint` completed with pre-existing warnings only and no new errors introduced by this story.
+- Code review fixes tightened mobile touch targets for the compact feedback trigger and icon-only comment actions, hardened author email wrapping in compact bubbles, and strengthened the compact-count regression assertion.
 
 ### Completion Notes List
 
 - Added Story 6.3 to Epic 6 in `epics.md` with scoped acceptance criteria covering number-only comment counts, icon-only comment actions, and compact authored-message layout.
 - Created the ready-for-dev implementation context file for `6-3-optimize-comments` with implementation seams, guardrails, and regression expectations tied to the existing shared feedback UI.
 - Kept scope intentionally narrow: shared UI and i18n changes only, with no planned backend or persistence changes unless implementation uncovers an unexpected dependency.
+- Replaced the visible feedback trigger label with a localized compact count while preserving descriptive `aria-label` strings for zero, singular, and plural comment states.
+- Converted authored comment edit/delete controls to icon-only `IconButton` actions, moved them into the message row, and added stable test hooks to verify compact bubble layout.
+- Extended regression coverage across shared feedback panel, trip timeline, and day view surfaces; full `vitest` suite passed with 452/452 tests.
+- Follow-up review fixes preserved AC6 on touch devices by enforcing 44px minimum targets for the trigger and authored action icons and ensured compact bubbles still wrap long author emails safely.
+- Strengthened the compact-trigger regression test so vote totals can no longer mask a missing visible comment count.
 
 ### File List
 
 - _bmad-output/implementation-artifacts/6-3-optimize-comments.md
 - _bmad-output/implementation-artifacts/sprint-status.yaml
 - _bmad-output/planning-artifacts/epics.md
+- travelplan/src/components/features/trips/TripFeedbackPanel.tsx
+- travelplan/src/i18n/en.ts
+- travelplan/src/i18n/de.ts
+- travelplan/test/tripFeedbackPanel.test.tsx
+- travelplan/test/tripTimelineFeedback.test.tsx
+- travelplan/test/tripDayViewLayout.test.tsx
 
 ## Change Log
 
 - 2026-03-11: Added Story 6.3 "Optimize Comments" to Epic 6, created the ready-for-dev context story, and registered the story in sprint tracking.
+- 2026-03-11: Implemented compact numeric feedback triggers, icon-only authored comment actions, localized compact count support, and regression coverage across feedback surfaces; story moved to review.
+- 2026-03-11: Applied code review fixes for mobile touch targets, compact bubble wrapping resilience, and compact-count regression coverage; story moved to done.

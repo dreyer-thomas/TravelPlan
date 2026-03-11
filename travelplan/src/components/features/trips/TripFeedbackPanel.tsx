@@ -88,6 +88,18 @@ const VoteIcon = ({ direction }: { direction: "up" | "down" }) => (
   </SvgIcon>
 );
 
+const EditIcon = () => (
+  <SvgIcon sx={{ fontSize: 18 }} aria-hidden="true">
+    <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25Zm2.92 2.33H5v-.92l9.06-9.06.92.92L5.92 19.58ZM20.71 7.04a1.003 1.003 0 0 0 0-1.42L18.37 3.29a1.003 1.003 0 0 0-1.42 0l-1.13 1.13 3.75 3.75 1.14-1.13Z" />
+  </SvgIcon>
+);
+
+const DeleteIcon = () => (
+  <SvgIcon sx={{ fontSize: 18 }} aria-hidden="true">
+    <path d="M9 3h6l1 1h4v2H4V4h4l1-1Zm1 6h2v8h-2V9Zm4 0h2v8h-2V9ZM7 9h2v8H7V9Zm-1 12a2 2 0 0 1-2-2V7h16v12a2 2 0 0 1-2 2H6Z" />
+  </SvgIcon>
+);
+
 function TripFeedbackBody({
   resolvedFeedback,
   currentUserId,
@@ -210,6 +222,7 @@ function TripFeedbackBody({
               >
                 <Paper
                   variant="outlined"
+                  data-testid={`feedback-comment-${item.id}`}
                   sx={{
                     maxWidth: "100%",
                     width: "fit-content",
@@ -246,42 +259,60 @@ function TripFeedbackBody({
                       </Box>
                     </Box>
                   ) : (
-                    <ListItemText
-                      primary={
-                        <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                          {item.body}
-                        </Typography>
-                      }
-                      secondary={
-                        <Typography variant="caption" color="text.secondary">
-                          {item.author.email}
-                        </Typography>
-                      }
-                      sx={{ m: 0 }}
-                    />
-                  )}
-                  {currentUserId === item.author.id && editingCommentId !== item.id ? (
-                    <Box display="flex" justifyContent="flex-end" gap={0.5} mt={0.75}>
-                      <Button
-                        size="small"
-                        variant="text"
-                        onClick={() => startEditingComment(item.id, item.body)}
-                        aria-label={getEditActionAriaLabel(item.body)}
-                      >
-                        {t("trips.feedback.commentEditAction")}
-                      </Button>
-                      <Button
-                        size="small"
-                        color="error"
-                        variant="text"
-                        onClick={() => void deleteComment(item.id)}
-                        aria-label={getDeleteActionAriaLabel(item.body)}
-                        disabled={deletingCommentId === item.id}
-                      >
-                        {t("trips.feedback.commentDeleteAction")}
-                      </Button>
+                    <Box
+                      display="flex"
+                      alignItems="flex-start"
+                      gap={0.5}
+                      sx={{ minWidth: 0 }}
+                    >
+                      <ListItemText
+                        data-testid="feedback-comment-body"
+                        primary={
+                          <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                            {item.body}
+                          </Typography>
+                        }
+                        secondary={
+                          <Typography
+                            variant="caption"
+                            color="text.secondary"
+                            sx={{ whiteSpace: "normal", overflowWrap: "anywhere", wordBreak: "break-word" }}
+                          >
+                            {item.author.email}
+                          </Typography>
+                        }
+                        sx={{ m: 0, minWidth: 0, flex: 1 }}
+                      />
+                      {currentUserId === item.author.id ? (
+                        <Box
+                          data-testid="feedback-comment-actions"
+                          display="flex"
+                          alignItems="flex-start"
+                          gap={0.25}
+                          sx={{ flexShrink: 0, pt: 0.125 }}
+                        >
+                          <IconButton
+                            size="small"
+                            onClick={() => startEditingComment(item.id, item.body)}
+                            aria-label={getEditActionAriaLabel(item.body)}
+                            sx={{ p: 0.5, minWidth: 44, minHeight: 44 }}
+                          >
+                            <EditIcon />
+                          </IconButton>
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => void deleteComment(item.id)}
+                            aria-label={getDeleteActionAriaLabel(item.body)}
+                            disabled={deletingCommentId === item.id}
+                            sx={{ p: 0.5, minWidth: 44, minHeight: 44 }}
+                          >
+                            <DeleteIcon />
+                          </IconButton>
+                        </Box>
+                      ) : null}
                     </Box>
-                  ) : null}
+                  )}
                 </Paper>
               </Box>
             </ListItem>
@@ -357,6 +388,7 @@ export default function TripFeedbackPanel({
       : count === 1
         ? formatMessage(t("trips.feedback.commentCountSingular"), { count })
         : formatMessage(t("trips.feedback.commentCountPlural"), { count });
+  const visibleCommentCount = formatMessage(t("trips.feedback.commentCountCompact"), { count });
 
   const dialogTitle = canVote
     ? contextLabel
@@ -545,6 +577,7 @@ export default function TripFeedbackPanel({
         sx={{
           width: "fit-content",
           maxWidth: "100%",
+          minHeight: 44,
           alignSelf: "flex-start",
           mt: 0.5,
           px: 1.25,
@@ -565,7 +598,7 @@ export default function TripFeedbackPanel({
         <Box display="flex" alignItems="center" gap={1} minWidth={0}>
           <CommentIcon />
           <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>
-            {commentCountLabel}
+            {visibleCommentCount}
           </Typography>
         </Box>
         {canVote ? (

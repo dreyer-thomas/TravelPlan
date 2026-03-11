@@ -67,8 +67,9 @@ describe("TripFeedbackPanel", () => {
     });
     expect(trigger).toBeInTheDocument();
     expect(screen.queryByLabelText("Add a comment")).not.toBeInTheDocument();
-    expect(within(trigger).getByText("no comments")).toBeInTheDocument();
-    expect(within(trigger).getAllByText("0").length).toBeGreaterThanOrEqual(2);
+    const triggerSections = within(trigger).getAllByText("0");
+    expect(triggerSections).toHaveLength(3);
+    expect(within(trigger).queryByText("no comments")).not.toBeInTheDocument();
   });
 
   it("renders visible comment count copy for singular and plural states", () => {
@@ -95,7 +96,9 @@ describe("TripFeedbackPanel", () => {
         />
       </I18nProvider>,
     );
-    expect(screen.getByText("1 comment")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open comments dialog for Day 1, 1 comment, Upvote 0, Downvote 0" })).toBeInTheDocument();
+    expect(within(screen.getByRole("button", { name: "Open comments dialog for Day 1, 1 comment, Upvote 0, Downvote 0" })).getByText("1")).toBeInTheDocument();
+    expect(screen.queryByText("1 comment")).not.toBeInTheDocument();
 
     rerender(
       <I18nProvider initialLanguage="en">
@@ -110,7 +113,9 @@ describe("TripFeedbackPanel", () => {
         />
       </I18nProvider>,
     );
-    expect(screen.getByText("2 comments")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open comments dialog for Day 1, 2 comments, Upvote 0, Downvote 0" })).toBeInTheDocument();
+    expect(within(screen.getByRole("button", { name: "Open comments dialog for Day 1, 2 comments, Upvote 0, Downvote 0" })).getByText("2")).toBeInTheDocument();
+    expect(screen.queryByText("2 comments")).not.toBeInTheDocument();
   });
 
   it("renders comment-only feedback targets without vote counts or vote actions", async () => {
@@ -247,7 +252,9 @@ describe("TripFeedbackPanel", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: "Post comment" }));
 
     await waitFor(() => expect(onUpdated).toHaveBeenCalled());
-    expect(screen.getByText("1 comment")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open comments dialog for Day 1, 1 comment, Upvote 0, Downvote 0", hidden: true })).toBeInTheDocument();
+    expect(within(screen.getByRole("button", { name: "Open comments dialog for Day 1, 1 comment, Upvote 0, Downvote 0", hidden: true })).getByText("1")).toBeInTheDocument();
+    expect(screen.queryByText("1 comment")).not.toBeInTheDocument();
 
     await userEvent.click(within(dialog).getByRole("button", { name: "Upvote 0" }));
 
@@ -396,7 +403,11 @@ describe("TripFeedbackPanel", () => {
 
     const dialog = await screen.findByRole("dialog", { name: "Suggestions and votes for Day 1" });
     expect(within(dialog).getByRole("button", { name: "Edit your comment: Original body" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Delete your comment: Original body" })).toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: "Edit your comment: Other comment" })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Delete your comment: Other comment" })).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("Edit comment")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("Delete comment")).not.toBeInTheDocument();
 
     await userEvent.click(within(dialog).getByRole("button", { name: "Edit your comment: Original body" }));
     const editor = within(dialog).getByLabelText("Edit comment");
@@ -454,12 +465,16 @@ describe("TripFeedbackPanel", () => {
     const messageHistory = within(dialog).getByTestId("feedback-message-history");
     const composer = within(dialog).getByTestId("feedback-composer");
     const layout = within(dialog).getByTestId("feedback-chat-layout");
+    const ownMessage = within(messageHistory).getByTestId("feedback-comment-comment-1");
+    const ownMessageBody = within(ownMessage).getByTestId("feedback-comment-body");
+    const ownMessageActions = within(ownMessage).getByTestId("feedback-comment-actions");
 
     expect(within(messageHistory).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
       expect.stringContaining("Oldest"),
       expect.stringContaining("Newest"),
     ]);
     expect(Array.from(layout.children).indexOf(messageHistory)).toBeLessThan(Array.from(layout.children).indexOf(composer));
+    expect(ownMessageBody.compareDocumentPosition(ownMessageActions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("posts and deletes comments while keeping the newest item and summary count at the bottom", async () => {
@@ -593,6 +608,7 @@ describe("TripFeedbackPanel", () => {
     expect(
       screen.getByRole("button", { name: "Open comments dialog for Day 1, 2 comments, Upvote 0, Downvote 0", hidden: true }),
     ).toBeInTheDocument();
+    expect(screen.queryByText("2 comments")).not.toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Delete your comment: Newest" })).toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: "Delete your comment: First" })).not.toBeInTheDocument();
 

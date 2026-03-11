@@ -169,6 +169,7 @@ const en: Dictionary = {
   "trips.feedback.closeDialogAria": "Close comments dialog",
   "trips.feedback.closeDialogAriaWithTarget": "Close comments dialog for {target}",
   "trips.feedback.noComments": "no comments",
+  "trips.feedback.commentCountCompact": "{count}",
   "trips.feedback.commentCountSingular": "{count} comment",
   "trips.feedback.commentCountPlural": "{count} comments",
   "trips.feedback.commentLabel": "Add a comment",

@@ -113,7 +113,7 @@ development_status:
   epic-5-retrospective: optional
 
   epic-6: in-progress
-  6-1-remove-trip-overview-header-feedback: review
+  6-1-remove-trip-overview-header-feedback: done
   6-2-feedback-as-chat: done
-  6-3-optimize-comments: ready-for-dev
+  6-3-optimize-comments: done
   epic-6-retrospective: optional

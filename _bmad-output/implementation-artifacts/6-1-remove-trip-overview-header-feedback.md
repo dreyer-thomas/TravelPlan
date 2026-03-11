@@ -1,6 +1,6 @@
 # Story 6.1: Remove Trip Overview Header Feedback
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
