@@ -303,15 +303,17 @@ export default function TripDayTravelSegmentDialog({
         return;
       }
 
-      const hasDuration = typeof route.durationSeconds === "number" && route.durationSeconds > 0;
-      const hasDistance = typeof route.distanceMeters === "number" && route.distanceMeters > 0;
+      const durationSeconds = typeof route.durationSeconds === "number" && route.durationSeconds > 0 ? route.durationSeconds : null;
+      const distanceMeters = typeof route.distanceMeters === "number" && route.distanceMeters > 0 ? route.distanceMeters : null;
+      const hasDuration = durationSeconds !== null;
+      const hasDistance = distanceMeters !== null;
       if (!hasDuration || !hasDistance) {
         setRouteHelper(t("trips.travelSegment.googleMapsFallbackActive"));
         return;
       }
 
-      setDurationInput(formatMinutesToTime(Math.max(1, Math.round(route.durationSeconds / 60))));
-      setDistanceKm(formatDistanceKmInput(route.distanceMeters));
+      setDurationInput(formatMinutesToTime(Math.max(1, Math.round(durationSeconds / 60))));
+      setDistanceKm(formatDistanceKmInput(distanceMeters));
       setLinkUrl(buildGoogleMapsRouteLink(fromItem, toItem, route.polyline) ?? mapsLink);
       setRouteHelper(t("trips.travelSegment.googleMapsPrefillSuccess"));
     } catch {
