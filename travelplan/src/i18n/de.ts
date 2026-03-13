@@ -256,8 +256,8 @@ const de: Dictionary = {
   "trips.travelSegment.linkLabel": "Link (optional)",
   "trips.travelSegment.linkHelper": "Google-Maps- oder Routenlink einfügen",
   "trips.travelSegment.linkInvalid": "Bitte einen gültigen http(s)-Link eingeben",
-  "trips.travelSegment.calculateGoogleMapsRoute": "Mit Google Maps berechnen",
-  "trips.travelSegment.refreshGoogleMapsRoute": "Von Google Maps aktualisieren",
+  "trips.travelSegment.calculateGoogleMapsRoute": "Plan with Maps",
+  "trips.travelSegment.refreshGoogleMapsRoute": "Plan with Maps",
   "trips.travelSegment.googleMapsFallbackHelper":
     "Öffne die Route in Google Maps und übertrage Dauer und Entfernung anschließend manuell in dieses Formular.",
   "trips.travelSegment.googleMapsUnavailableHelper":
@@ -268,7 +268,7 @@ const de: Dictionary = {
     "Der automatische Routenimport ist in diesem Build nicht verfügbar. Nutze Google Maps und übertrage die Werte manuell.",
   "trips.travelSegment.googleMapsPrefillSuccess":
     "Die Routendaten wurden aus den aktuellen benachbarten Orten vorausgefüllt. Du kannst sie vor dem Speichern weiter bearbeiten.",
-  "trips.travelSegment.openLink": "Google Maps öffnen",
+  "trips.travelSegment.openLink": "Open Maps",
   "trips.travelSegment.durationRequired": "Dauer ist erforderlich",
   "trips.travelSegment.distanceRequired": "Entfernung ist für Auto erforderlich",
   "trips.travelSegment.initError": "Reiseabschnitt konnte nicht geladen werden. Bitte aktualisieren.",

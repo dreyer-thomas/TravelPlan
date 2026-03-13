@@ -256,8 +256,8 @@ const en: Dictionary = {
   "trips.travelSegment.linkLabel": "Link (optional)",
   "trips.travelSegment.linkHelper": "Paste a Google Maps or other directions link",
   "trips.travelSegment.linkInvalid": "Enter a valid http(s) link",
-  "trips.travelSegment.calculateGoogleMapsRoute": "Calculate with Google Maps",
-  "trips.travelSegment.refreshGoogleMapsRoute": "Refresh from Google Maps",
+  "trips.travelSegment.calculateGoogleMapsRoute": "Plan with Maps",
+  "trips.travelSegment.refreshGoogleMapsRoute": "Plan with Maps",
   "trips.travelSegment.googleMapsFallbackHelper":
     "Open the route in Google Maps, then copy the duration and distance into this form.",
   "trips.travelSegment.googleMapsUnavailableHelper":
@@ -268,7 +268,7 @@ const en: Dictionary = {
     "Automatic route import is not available in this build. Use Google Maps and copy the values manually.",
   "trips.travelSegment.googleMapsPrefillSuccess":
     "Route details were prefilled from the current adjacent locations. You can still edit them before saving.",
-  "trips.travelSegment.openLink": "Open Google Maps",
+  "trips.travelSegment.openLink": "Open Maps",
   "trips.travelSegment.durationRequired": "Duration is required",
   "trips.travelSegment.distanceRequired": "Distance is required for car travel",
   "trips.travelSegment.initError": "Unable to initialize travel segment editor. Please refresh.",

@@ -469,17 +469,7 @@ export default function TripDayTravelSegmentDialog({
             FormHelperTextProps={{ sx: { minHeight: 0 } }}
           />
 
-          <Box display="flex" flexDirection="column" gap={1}>
-            <Button
-              variant="outlined"
-              onClick={() => void handleGoogleMapsRoute()}
-              disabled={!mapsLink || routeLoading}
-              sx={{ alignSelf: "flex-start" }}
-            >
-              {isEditing
-                ? t("trips.travelSegment.refreshGoogleMapsRoute")
-                : t("trips.travelSegment.calculateGoogleMapsRoute")}
-            </Button>
+          {!isEditing ? (
             <Typography variant="body2" color="text.secondary">
               {mapsLink
                 ? transportType === "car"
@@ -487,8 +477,8 @@ export default function TripDayTravelSegmentDialog({
                   : t("trips.travelSegment.googleMapsCarOnlyHelper")
                 : t("trips.travelSegment.googleMapsUnavailableHelper")}
             </Typography>
-            {routeHelper ? <Alert severity="info">{routeHelper}</Alert> : null}
-          </Box>
+          ) : null}
+          {routeHelper ? <Alert severity="info">{routeHelper}</Alert> : null}
 
         </Box>
       </DialogContent>
@@ -498,6 +488,15 @@ export default function TripDayTravelSegmentDialog({
             {t("trips.travelSegment.openLink")}
           </Button>
         ) : null}
+        <Button
+          variant="outlined"
+          onClick={() => void handleGoogleMapsRoute()}
+          disabled={!mapsLink || routeLoading}
+        >
+          {isEditing
+            ? t("trips.travelSegment.refreshGoogleMapsRoute")
+            : t("trips.travelSegment.calculateGoogleMapsRoute")}
+        </Button>
         <Box sx={{ flex: 1 }} />
         <Button onClick={onClose} disabled={saving}>
           {t("common.cancel")}

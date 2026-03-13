@@ -97,8 +97,8 @@ describe("TripDayTravelSegmentDialog", () => {
       </I18nProvider>,
     );
 
-    expect(await screen.findByRole("button", { name: "Calculate with Google Maps" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open Google Maps" })).toHaveAttribute(
+    expect(await screen.findByRole("button", { name: "Plan with Maps" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open Maps" })).toHaveAttribute(
       "href",
       expect.stringContaining("origin=52.52%2C13.405"),
     );
@@ -121,7 +121,7 @@ describe("TripDayTravelSegmentDialog", () => {
       </I18nProvider>,
     );
 
-    expect(await screen.findByRole("button", { name: "Calculate with Google Maps" })).toBeDisabled();
+    expect(await screen.findByRole("button", { name: "Plan with Maps" })).toBeDisabled();
     expect(screen.getByText("Add locations to both adjacent items to calculate a Google Maps route.")).toBeInTheDocument();
 
     vi.unstubAllGlobals();
@@ -186,7 +186,7 @@ describe("TripDayTravelSegmentDialog", () => {
       </I18nProvider>,
     );
 
-    const routeAction = await screen.findByRole("button", { name: "Refresh from Google Maps" });
+    const routeAction = await screen.findByRole("button", { name: "Plan with Maps" });
     fireEvent.click(routeAction);
 
     await waitFor(() => {
@@ -249,7 +249,7 @@ describe("TripDayTravelSegmentDialog", () => {
       </I18nProvider>,
     );
 
-    const routeAction = await screen.findByRole("button", { name: "Refresh from Google Maps" });
+    const routeAction = await screen.findByRole("button", { name: "Plan with Maps" });
     fireEvent.click(routeAction);
 
     await waitFor(() => {
@@ -313,7 +313,7 @@ describe("TripDayTravelSegmentDialog", () => {
       </I18nProvider>,
     );
 
-    const routeAction = await screen.findByRole("button", { name: "Refresh from Google Maps" });
+    const routeAction = await screen.findByRole("button", { name: "Plan with Maps" });
     fireEvent.click(routeAction);
 
     await waitFor(() => {
