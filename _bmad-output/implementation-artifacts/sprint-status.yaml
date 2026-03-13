@@ -117,4 +117,5 @@ development_status:
   6-2-feedback-as-chat: done
   6-3-optimize-comments: done
   6-4-fix-day-view-accommodation-cost-duplication: done
+  6-5-auto-fill-travel-segments-from-google-maps: done
   epic-6-retrospective: optional

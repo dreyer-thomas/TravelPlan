@@ -218,6 +218,8 @@ const formatMinutesToTime = (value: number) => {
 };
 
 const buildSegmentKey = (from: SegmentItem, to: SegmentItem) => `${from.type}:${from.id}::${to.type}:${to.id}`;
+const hasUsableSegmentLocation = (item: SegmentItem) =>
+  Boolean(item.location && Number.isFinite(item.location.lat) && Number.isFinite(item.location.lng));
 const buildSegmentKeyFromIds = (
   fromType: "accommodation" | "dayPlanItem",
   fromId: string,
@@ -262,6 +264,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const [activeSegment, setActiveSegment] = useState<TravelSegment | null>(null);
   const [activeSegmentFrom, setActiveSegmentFrom] = useState<SegmentItem | null>(null);
   const [activeSegmentTo, setActiveSegmentTo] = useState<SegmentItem | null>(null);
+  const [prefillSegmentRouteOnOpen, setPrefillSegmentRouteOnOpen] = useState(false);
   const [copyingStay, setCopyingStay] = useState(false);
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
   const [dayMetaOpen, setDayMetaOpen] = useState(false);
@@ -513,11 +516,12 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     return map;
   }, [travelSegments]);
 
-  const handleOpenTravelSegment = (from: SegmentItem, to: SegmentItem) => {
+  const handleOpenTravelSegment = (from: SegmentItem, to: SegmentItem, options?: { prefillRoute?: boolean }) => {
     if (!canEditPlanning) return;
     setActiveSegmentFrom(from);
     setActiveSegmentTo(to);
     setActiveSegment(segmentsByKey.get(buildSegmentKey(from, to)) ?? null);
+    setPrefillSegmentRouteOnOpen(Boolean(options?.prefillRoute));
     setSegmentDialogOpen(true);
   };
 
@@ -547,6 +551,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
         ),
       };
     });
+    setPrefillSegmentRouteOnOpen(false);
     setSegmentDialogOpen(false);
   };
 
@@ -1006,37 +1011,52 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
             {travelSegmentLabel(segment)}
           </Typography>
         </Box>
-        {!canEditPlanning ? null : segment ? (
-          <IconButton
-            size="small"
-            color="primary"
-            aria-label={t("trips.travelSegment.editAction")}
-            onClick={() => handleOpenTravelSegment(from, to)}
-          >
-            <Box
-              component="span"
-              sx={{
-                position: "absolute",
-                width: 1,
-                height: 1,
-                p: 0,
-                m: -1,
-                overflow: "hidden",
-                clip: "rect(0 0 0 0)",
-                whiteSpace: "nowrap",
-                border: 0,
-              }}
-            >
-              {t("trips.travelSegment.editAction")}
-            </Box>
-            <SvgIcon fontSize="small">
-              <path d="M3 17.25V21h3.75l11-11-3.75-3.75-11 11zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66z" />
-            </SvgIcon>
-          </IconButton>
-        ) : (
-          <Button size="small" variant="text" onClick={() => handleOpenTravelSegment(from, to)}>
-            {t("trips.travelSegment.addAction")}
-          </Button>
+        {!canEditPlanning ? null : (
+          <Box display="flex" alignItems="center" gap={0.5} flexWrap="wrap">
+            {hasUsableSegmentLocation(from) && hasUsableSegmentLocation(to) ? (
+              <Button
+                size="small"
+                variant="text"
+                onClick={() => handleOpenTravelSegment(from, to, { prefillRoute: true })}
+              >
+                {segment
+                  ? t("trips.travelSegment.refreshGoogleMapsRoute")
+                  : t("trips.travelSegment.calculateGoogleMapsRoute")}
+              </Button>
+            ) : null}
+            {segment ? (
+              <IconButton
+                size="small"
+                color="primary"
+                aria-label={t("trips.travelSegment.editAction")}
+                onClick={() => handleOpenTravelSegment(from, to)}
+              >
+                <Box
+                  component="span"
+                  sx={{
+                    position: "absolute",
+                    width: 1,
+                    height: 1,
+                    p: 0,
+                    m: -1,
+                    overflow: "hidden",
+                    clip: "rect(0 0 0 0)",
+                    whiteSpace: "nowrap",
+                    border: 0,
+                  }}
+                >
+                  {t("trips.travelSegment.editAction")}
+                </Box>
+                <SvgIcon fontSize="small">
+                  <path d="M3 17.25V21h3.75l11-11-3.75-3.75-11 11zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66z" />
+                </SvgIcon>
+              </IconButton>
+            ) : (
+              <Button size="small" variant="text" onClick={() => handleOpenTravelSegment(from, to)}>
+                {t("trips.travelSegment.addAction")}
+              </Button>
+            )}
+          </Box>
         )}
       </Box>
     );
@@ -1959,7 +1979,9 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
             fromItem={activeSegmentFrom}
             toItem={activeSegmentTo}
             segment={activeSegment}
+            prefillRouteOnOpen={prefillSegmentRouteOnOpen}
             onClose={() => {
+              setPrefillSegmentRouteOnOpen(false);
               setSegmentDialogOpen(false);
               setActiveSegment(null);
               setActiveSegmentFrom(null);
@@ -1967,6 +1989,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
             }}
             onSaved={(segment) => {
               handleTravelSegmentSaved(segment);
+              setPrefillSegmentRouteOnOpen(false);
               setActiveSegment(null);
               setActiveSegmentFrom(null);
               setActiveSegmentTo(null);

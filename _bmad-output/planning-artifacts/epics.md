@@ -1243,3 +1243,42 @@ So that the daily total is accurate and the same accommodation cost is not shown
 **Given** a day has no current-night accommodation cost and no day-plan item costs
 **When** the day-view cost area renders
 **Then** it continues to show the existing zero-cost or empty-cost behavior without errors
+
+### Story 6.5: Auto-Fill Travel Segments From Google Maps
+
+As a trip planner,
+I want the travel-segment flow between adjacent timeline items to reuse Google Maps directions automatically when possible,
+So that I do not need to manually copy duration and distance into the travel dialog for each route.
+
+**FRs covered:** FR10, FR18, FR22
+
+**Acceptance Criteria:**
+
+**Given** two adjacent timeline items in day view both have usable locations
+**When** I choose the Google Maps route action from the travel segment between them
+**Then** the system uses the previous item as origin and the next item as destination
+**And** the travel-segment dialog opens with the route result already filled in when automatic import is supported
+
+**Given** an automatic route result is successfully retrieved for a car trip
+**When** the dialog opens or refreshes from the Google Maps action
+**Then** the duration field is prefilled from that result
+**And** the distance field is prefilled from that result
+**And** the Google Maps link for that exact route remains available in the dialog
+
+**Given** the route cannot be imported automatically because required data is missing or the implementation path is not feasible
+**When** I trigger the Google Maps route action
+**Then** I still get the Google Maps directions button or link that existed previously
+**And** I can continue the manual workflow of checking Google Maps and entering the values myself
+
+**Given** one or both adjacent items do not have enough location data for directions
+**When** I open the travel segment
+**Then** the automatic Google Maps action is disabled or unavailable
+**And** the dialog does not show incorrect prefilled travel values
+
+**Given** I am editing an existing travel segment that already has saved values
+**When** I trigger the Google Maps route action again
+**Then** I can refresh the dialog values from the current adjacent locations without breaking the existing ability to manually edit and save the segment
+
+**Given** I use the travel-segment dialog on desktop or mobile
+**When** the Google Maps route action or fallback is shown
+**Then** the controls remain understandable and usable in both languages and on both screen sizes

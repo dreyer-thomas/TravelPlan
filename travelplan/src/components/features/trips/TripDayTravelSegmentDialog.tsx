@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Box,
@@ -18,7 +18,6 @@ import {
 } from "@mui/material";
 import { useI18n } from "@/i18n/provider";
 
-// eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 type ApiEnvelope<T> = {
   data: T | null;
   error: { code: string; message: string; details?: unknown } | null;
@@ -44,6 +43,12 @@ type TravelSegment = {
   linkUrl: string | null;
 };
 
+type RoutePreview = {
+  polyline: [number, number][];
+  distanceMeters: number | null;
+  durationSeconds: number | null;
+};
+
 type TripDayTravelSegmentDialogProps = {
   open: boolean;
   tripId: string;
@@ -51,17 +56,9 @@ type TripDayTravelSegmentDialogProps = {
   fromItem: SegmentItem | null;
   toItem: SegmentItem | null;
   segment: TravelSegment | null;
+  prefillRouteOnOpen?: boolean;
   onClose: () => void;
   onSaved: (segment: TravelSegment) => void;
-};
-
-const formatDuration = (minutes: number) => {
-  if (!Number.isFinite(minutes) || minutes <= 0) return "";
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  if (hours > 0 && mins > 0) return `${hours}h ${mins}m`;
-  if (hours > 0) return `${hours}h`;
-  return `${mins}m`;
 };
 
 const formatMinutesToTime = (minutes: number) => {
@@ -69,6 +66,11 @@ const formatMinutesToTime = (minutes: number) => {
   const hours = Math.floor(minutes / 60);
   const mins = minutes % 60;
   return `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
+};
+
+const formatDistanceKmInput = (distanceMeters: number) => {
+  const km = Math.round((distanceMeters / 1000) * 10) / 10;
+  return Number.isInteger(km) ? String(km) : km.toFixed(1);
 };
 
 const parseTimeToMinutes = (value: string): number | null => {
@@ -100,11 +102,63 @@ const buildLocationParam = (location: SegmentItem["location"]) => {
   return null;
 };
 
+const buildCoordinateParam = (location: SegmentItem["location"]) => {
+  if (!location) return null;
+  if (Number.isFinite(location.lat) && Number.isFinite(location.lng)) {
+    return `${location.lat},${location.lng}`;
+  }
+  return null;
+};
+
 const buildGoogleMapsLink = (from: SegmentItem | null, to: SegmentItem | null) => {
   const origin = buildLocationParam(from?.location ?? null);
   const destination = buildLocationParam(to?.location ?? null);
   if (!origin || !destination) return null;
   const params = new URLSearchParams({ api: "1", origin, destination });
+  return `https://www.google.com/maps/dir/?${params.toString()}`;
+};
+
+const sampleRouteWaypoints = (polyline: [number, number][], limit: number) => {
+  const interior = polyline.slice(1, -1);
+  if (!interior.length || limit <= 0) return [];
+
+  if (interior.length <= limit) {
+    return interior.map(([lat, lng]) => `${lat},${lng}`);
+  }
+
+  const indices = new Set<number>();
+  for (let index = 0; index < limit; index += 1) {
+    indices.add(Math.round(((index + 1) * (interior.length + 1)) / (limit + 1)) - 1);
+  }
+
+  return [...indices]
+    .sort((left, right) => left - right)
+    .map((index) => interior[index])
+    .filter((point): point is [number, number] => Array.isArray(point))
+    .map(([lat, lng]) => `${lat},${lng}`);
+};
+
+const buildGoogleMapsRouteLink = (
+  from: SegmentItem | null,
+  to: SegmentItem | null,
+  polyline: [number, number][],
+) => {
+  const origin = buildCoordinateParam(from?.location ?? null) ?? buildLocationParam(from?.location ?? null);
+  const destination = buildCoordinateParam(to?.location ?? null) ?? buildLocationParam(to?.location ?? null);
+  if (!origin || !destination) return null;
+
+  const params = new URLSearchParams({
+    api: "1",
+    origin,
+    destination,
+    travelmode: "driving",
+  });
+
+  const waypoints = sampleRouteWaypoints(polyline, 8);
+  if (waypoints.length > 0) {
+    params.set("waypoints", waypoints.join("|"));
+  }
+
   return `https://www.google.com/maps/dir/?${params.toString()}`;
 };
 
@@ -115,6 +169,7 @@ export default function TripDayTravelSegmentDialog({
   fromItem,
   toItem,
   segment,
+  prefillRouteOnOpen = false,
   onClose,
   onSaved,
 }: TripDayTravelSegmentDialogProps) {
@@ -122,19 +177,23 @@ export default function TripDayTravelSegmentDialog({
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [routeLoading, setRouteLoading] = useState(false);
   const [transportType, setTransportType] = useState<"car" | "ship" | "flight">("car");
   const [durationInput, setDurationInput] = useState<string>("00:30");
   const [distanceKm, setDistanceKm] = useState<string>("");
   const [linkUrl, setLinkUrl] = useState<string>("");
+  const [routeHelper, setRouteHelper] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<{ durationMinutes?: string; distanceKm?: string; linkUrl?: string }>({});
   const isEditing = Boolean(segment?.id);
   const mapsLink = useMemo(() => buildGoogleMapsLink(fromItem, toItem), [fromItem, toItem]);
+  const autoPrefillTriggeredRef = useRef(false);
 
   useEffect(() => {
     if (!open) return;
     setServerError(null);
     setFieldErrors({});
     setCsrfToken(null);
+    setRouteHelper(null);
 
     if (segment) {
       setTransportType(segment.transportType);
@@ -207,6 +266,74 @@ export default function TripDayTravelSegmentDialog({
     setFieldErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
   };
+
+  const handleGoogleMapsRoute = useCallback(async () => {
+    if (!mapsLink) return;
+    setLinkUrl(mapsLink);
+    setServerError(null);
+    setRouteHelper(null);
+
+    if (transportType !== "car") {
+      setRouteHelper(t("trips.travelSegment.googleMapsCarOnlyHelper"));
+      return;
+    }
+
+    if (!fromItem?.location || !toItem?.location) {
+      setRouteHelper(t("trips.travelSegment.googleMapsUnavailableHelper"));
+      return;
+    }
+
+    setRouteLoading(true);
+    try {
+      const params = new URLSearchParams({
+        originLat: String(fromItem.location.lat),
+        originLng: String(fromItem.location.lng),
+        destinationLat: String(toItem.location.lat),
+        destinationLng: String(toItem.location.lng),
+      });
+      const response = await fetch(`/api/trips/${tripId}/travel-segments/route-preview?${params.toString()}`, {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      });
+      const body = (await response.json()) as ApiEnvelope<{ route: RoutePreview }>;
+      const route = body.data?.route;
+      if (!response.ok || body.error || !route) {
+        setRouteHelper(t("trips.travelSegment.googleMapsFallbackActive"));
+        return;
+      }
+
+      const hasDuration = typeof route.durationSeconds === "number" && route.durationSeconds > 0;
+      const hasDistance = typeof route.distanceMeters === "number" && route.distanceMeters > 0;
+      if (!hasDuration || !hasDistance) {
+        setRouteHelper(t("trips.travelSegment.googleMapsFallbackActive"));
+        return;
+      }
+
+      setDurationInput(formatMinutesToTime(Math.max(1, Math.round(route.durationSeconds / 60))));
+      setDistanceKm(formatDistanceKmInput(route.distanceMeters));
+      setLinkUrl(buildGoogleMapsRouteLink(fromItem, toItem, route.polyline) ?? mapsLink);
+      setRouteHelper(t("trips.travelSegment.googleMapsPrefillSuccess"));
+    } catch {
+      setRouteHelper(t("trips.travelSegment.googleMapsFallbackActive"));
+    } finally {
+      setRouteLoading(false);
+    }
+  }, [fromItem, mapsLink, t, toItem, transportType, tripId]);
+
+  useEffect(() => {
+    if (!open) {
+      autoPrefillTriggeredRef.current = false;
+      return;
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || !prefillRouteOnOpen || routeLoading) return;
+    if (autoPrefillTriggeredRef.current) return;
+    autoPrefillTriggeredRef.current = true;
+    void handleGoogleMapsRoute();
+  }, [handleGoogleMapsRoute, open, prefillRouteOnOpen, routeLoading]);
 
   const handleSave = async () => {
     if (!tripDayId || !fromItem || !toItem) return;
@@ -339,6 +466,27 @@ export default function TripDayTravelSegmentDialog({
             helperText={fieldErrors.linkUrl ?? t("trips.travelSegment.linkHelper")}
             FormHelperTextProps={{ sx: { minHeight: 0 } }}
           />
+
+          <Box display="flex" flexDirection="column" gap={1}>
+            <Button
+              variant="outlined"
+              onClick={() => void handleGoogleMapsRoute()}
+              disabled={!mapsLink || routeLoading}
+              sx={{ alignSelf: "flex-start" }}
+            >
+              {isEditing
+                ? t("trips.travelSegment.refreshGoogleMapsRoute")
+                : t("trips.travelSegment.calculateGoogleMapsRoute")}
+            </Button>
+            <Typography variant="body2" color="text.secondary">
+              {mapsLink
+                ? transportType === "car"
+                  ? t("trips.travelSegment.googleMapsFallbackHelper")
+                  : t("trips.travelSegment.googleMapsCarOnlyHelper")
+                : t("trips.travelSegment.googleMapsUnavailableHelper")}
+            </Typography>
+            {routeHelper ? <Alert severity="info">{routeHelper}</Alert> : null}
+          </Box>
 
         </Box>
       </DialogContent>

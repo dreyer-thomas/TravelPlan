@@ -26,6 +26,25 @@ const planDialogMockState = vi.hoisted(() => ({
 const navigationMockState = vi.hoisted(() => ({
   search: "",
 }));
+const travelSegmentDialogMockState = vi.hoisted(() => ({
+  lastProps: null as null | {
+    open: boolean;
+    prefillRouteOnOpen?: boolean;
+    segment: {
+      id: string;
+      fromItemType: "accommodation" | "dayPlanItem";
+      fromItemId: string;
+      toItemType: "accommodation" | "dayPlanItem";
+      toItemId: string;
+      transportType: "car" | "ship" | "flight";
+      durationMinutes: number;
+      distanceKm: number | null;
+      linkUrl: string | null;
+    } | null;
+    fromItem: { id: string; type: "accommodation" | "dayPlanItem" } | null;
+    toItem: { id: string; type: "accommodation" | "dayPlanItem" } | null;
+  },
+}));
 
 vi.mock("@/components/features/trips/TripAccommodationDialog", () => ({
   default: () => <div data-testid="stay-dialog" />,
@@ -98,6 +117,7 @@ const withBucketList = (
 vi.mock("@/components/features/trips/TripDayTravelSegmentDialog", () => ({
   default: (props: {
     open: boolean;
+    prefillRouteOnOpen?: boolean;
     segment: {
       id: string;
       fromItemType: "accommodation" | "dayPlanItem";
@@ -123,6 +143,13 @@ vi.mock("@/components/features/trips/TripDayTravelSegmentDialog", () => ({
       linkUrl: string | null;
     }) => void;
   }) => {
+    travelSegmentDialogMockState.lastProps = {
+      open: props.open,
+      prefillRouteOnOpen: props.prefillRouteOnOpen,
+      segment: props.segment,
+      fromItem: props.fromItem,
+      toItem: props.toItem,
+    };
     if (!props.open) return null;
     const baseSegment =
       props.segment ??
@@ -210,6 +237,7 @@ vi.mock("leaflet", () => ({
 describe("TripDayView layout", () => {
   beforeEach(() => {
     bucketListItemsOverride = null;
+    travelSegmentDialogMockState.lastProps = null;
   });
   it("renders the day gantt bar in the header overview area", async () => {
     planDialogMockState.lastProps = null;
@@ -1123,6 +1151,89 @@ describe("TripDayView layout", () => {
     await waitFor(() => {
       expect(screen.getByText("Planned 10h, Unplanned 14h")).toBeInTheDocument();
     });
+
+    vi.unstubAllGlobals();
+  });
+
+  it("opens the travel segment dialog in route-prefill mode from the dedicated Google Maps action", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const fetchMock = withBucketList(async () => {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-01T00:00:00.000Z",
+              dayCount: 1,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: {
+                  id: "stay-prev",
+                  name: "Previous Hotel",
+                  notes: null,
+                  status: "booked",
+                  costCents: null,
+                  link: null,
+                  checkInTime: null,
+                  checkOutTime: "08:00",
+                  location: { lat: 52.52, lng: 13.405, label: "Berlin" },
+                },
+                dayPlanItems: [
+                  {
+                    id: "item-1",
+                    title: "Museum",
+                    fromTime: "09:00",
+                    toTime: "10:00",
+                    contentJson: JSON.stringify({
+                      type: "doc",
+                      content: [{ type: "paragraph", content: [{ type: "text", text: "Visit" }] }],
+                    }),
+                    costCents: null,
+                    linkUrl: null,
+                    location: { lat: 48.137, lng: 11.575, label: "Munich" },
+                  },
+                ],
+                travelSegments: [],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-1" />
+      </I18nProvider>,
+    );
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    fireEvent.click(screen.getByRole("button", { name: "Calculate with Google Maps" }));
+
+    await waitFor(() => {
+      expect(travelSegmentDialogMockState.lastProps?.open).toBe(true);
+    });
+    expect(travelSegmentDialogMockState.lastProps?.prefillRouteOnOpen).toBe(true);
+    expect(travelSegmentDialogMockState.lastProps?.fromItem).not.toBeNull();
+    expect(travelSegmentDialogMockState.lastProps?.toItem).not.toBeNull();
 
     vi.unstubAllGlobals();
   });
