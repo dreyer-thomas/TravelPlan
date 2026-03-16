@@ -1282,3 +1282,41 @@ So that I do not need to manually copy duration and distance into the travel dia
 **Given** I use the travel-segment dialog on desktop or mobile
 **When** the Google Maps route action or fallback is shown
 **Then** the controls remain understandable and usable in both languages and on both screen sizes
+
+### Story 6.6: Match Day Item Photo UX to Accommodations
+
+As a trip planner,
+I want day item photo management to work like the accommodation photo flow,
+So that adding and managing photos feels consistent and easier across the day view.
+
+**FRs covered:** FR17, FR18
+
+**Acceptance Criteria:**
+
+**Given** I edit a day item that already supports image galleries
+**When** I open its dialog
+**Then** the photo section uses the same interaction pattern as the accommodation dialog for selecting and uploading files
+**And** I do not have to use a more cumbersome or separate workflow than accommodations
+
+**Given** I select multiple photos for a day item
+**When** I upload them
+**Then** the system accepts the same multi-file add behavior used for accommodations
+**And** the uploaded images appear in the saved gallery for that day item
+
+**Given** a day item already has uploaded photos
+**When** the photo list is shown in the dialog
+**Then** it uses the same compact thumbnail-and-action presentation as accommodations
+**And** it remains easy to review and remove photos without extra text-heavy controls
+
+**Given** I click a photo thumbnail for a day item
+**When** I want to inspect it
+**Then** the same enlarged preview behavior used by accommodations is available
+
+**Given** day item photos already exist from earlier stories
+**When** this UX refinement is implemented
+**Then** existing image persistence, ordering, authorization, and day-view mini-strip rendering continue to work
+**And** accommodation photo behavior remains unchanged
+
+**Given** I use the day item photo flow on desktop or mobile
+**When** I add or manage photos
+**Then** the controls remain understandable and usable in both languages and on both screen sizes

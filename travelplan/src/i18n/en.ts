@@ -428,6 +428,7 @@ const en: Dictionary = {
   "trips.gallery.removeAction": "Remove",
   "trips.gallery.moveUp": "Up",
   "trips.gallery.moveDown": "Down",
+  "trips.gallery.selectedFiles": "{count} file(s) selected",
   "trips.gallery.empty": "No images yet.",
   "trips.gallery.thumbnailAlt": "Gallery thumbnail",
   "trips.location.latLabel": "Latitude",

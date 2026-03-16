@@ -237,7 +237,7 @@ export default function TripDayPlanDialog({
     {},
   );
   const [galleryImages, setGalleryImages] = useState<GalleryImage[]>([]);
-  const [galleryFile, setGalleryFile] = useState<File | null>(null);
+  const [galleryFiles, setGalleryFiles] = useState<File[]>([]);
   const [galleryBusy, setGalleryBusy] = useState(false);
   const [fullscreenImage, setFullscreenImage] = useState<{ imageUrl: string; alt: string } | null>(null);
   const deleteTouchGuard = useRef(false);
@@ -301,6 +301,8 @@ export default function TripDayPlanDialog({
     setServerError(null);
     setCsrfToken(null);
     setFieldErrors({});
+    setGalleryFiles([]);
+    setFullscreenImage(null);
     setLoadingInit(true);
 
     if (mode === "edit" && item) {
@@ -489,6 +491,19 @@ export default function TripDayPlanDialog({
     },
     [t],
   );
+
+  const ensureCsrfToken = useCallback(async () => {
+    if (csrfToken) return csrfToken;
+
+    const response = await fetch("/api/auth/csrf", { method: "GET", credentials: "include", cache: "no-store" });
+    const body = (await response.json()) as ApiEnvelope<{ csrfToken: string }>;
+    if (!response.ok || body.error || !body.data?.csrfToken) {
+      throw new Error("csrf");
+    }
+
+    setCsrfToken(body.data.csrfToken);
+    return body.data.csrfToken;
+  }, [csrfToken]);
 
   const handleSave = async () => {
     if (!day) return;
@@ -750,29 +765,46 @@ export default function TripDayPlanDialog({
     }
   };
 
-  const uploadGalleryImage = async () => {
-    if (!day || !editingItemId || !galleryFile || !csrfToken) return;
+  const uploadGalleryImages = async () => {
+    if (!day || !editingItemId || galleryFiles.length === 0) return;
+
+    let token: string;
+    try {
+      token = await ensureCsrfToken();
+    } catch {
+      setServerError(t("errors.csrfMissing"));
+      return;
+    }
 
     setGalleryBusy(true);
     setServerError(null);
     try {
-      const formData = new FormData();
-      formData.set("tripDayId", day.id);
-      formData.set("dayPlanItemId", editingItemId);
-      formData.set("file", galleryFile);
-      const response = await fetch(`/api/trips/${tripId}/day-plan-items/images`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "x-csrf-token": csrfToken },
-        body: formData,
-      });
-      const body = (await response.json()) as ApiEnvelope<{ image: GalleryImage }>;
-      if (!response.ok || body.error || !body.data?.image) {
-        setServerError(t("trips.plan.saveError"));
-        return;
+      let failedAtIndex = -1;
+      for (const [index, file] of galleryFiles.entries()) {
+        const formData = new FormData();
+        formData.set("tripDayId", day.id);
+        formData.set("dayPlanItemId", editingItemId);
+        formData.set("file", file);
+        const response = await fetch(`/api/trips/${tripId}/day-plan-items/images`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "x-csrf-token": token },
+          body: formData,
+        });
+        const body = (await response.json()) as ApiEnvelope<{ image: GalleryImage }>;
+        if (!response.ok || body.error || !body.data?.image) {
+          failedAtIndex = index;
+          setServerError(t("trips.plan.saveError"));
+          break;
+        }
+        setGalleryImages((current) => [...current, body.data.image]);
       }
-      setGalleryImages((current) => [...current, body.data!.image]);
-      setGalleryFile(null);
+
+      if (failedAtIndex === -1) {
+        setGalleryFiles([]);
+      } else {
+        setGalleryFiles(galleryFiles.slice(failedAtIndex));
+      }
     } catch {
       setServerError(t("trips.plan.saveError"));
     } finally {
@@ -781,7 +813,15 @@ export default function TripDayPlanDialog({
   };
 
   const deleteGalleryImage = async (imageId: string) => {
-    if (!day || !editingItemId || !csrfToken) return;
+    if (!day || !editingItemId) return;
+
+    let token: string;
+    try {
+      token = await ensureCsrfToken();
+    } catch {
+      setServerError(t("errors.csrfMissing"));
+      return;
+    }
 
     setGalleryBusy(true);
     setServerError(null);
@@ -791,7 +831,7 @@ export default function TripDayPlanDialog({
         credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          "x-csrf-token": csrfToken,
+          "x-csrf-token": token,
         },
         body: JSON.stringify({
           tripDayId: day.id,
@@ -805,38 +845,6 @@ export default function TripDayPlanDialog({
         return;
       }
       setGalleryImages((current) => current.filter((image) => image.id !== imageId));
-    } catch {
-      setServerError(t("trips.plan.saveError"));
-    } finally {
-      setGalleryBusy(false);
-    }
-  };
-
-  const reorderGalleryImages = async (nextImages: GalleryImage[]) => {
-    if (!day || !editingItemId || !csrfToken) return;
-
-    setGalleryBusy(true);
-    setServerError(null);
-    try {
-      const response = await fetch(`/api/trips/${tripId}/day-plan-items/images`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-          "x-csrf-token": csrfToken,
-        },
-        body: JSON.stringify({
-          tripDayId: day.id,
-          dayPlanItemId: editingItemId,
-          order: nextImages.map((image, index) => ({ imageId: image.id, sortOrder: index + 1 })),
-        }),
-      });
-      const body = (await response.json()) as ApiEnvelope<{ reordered: boolean }>;
-      if (!response.ok || body.error) {
-        setServerError(t("trips.plan.saveError"));
-        return;
-      }
-      setGalleryImages(nextImages.map((image, index) => ({ ...image, sortOrder: index + 1 })));
     } catch {
       setServerError(t("trips.plan.saveError"));
     } finally {
@@ -1116,15 +1124,24 @@ export default function TripDayPlanDialog({
                   type="file"
                   onChange={(event) => {
                     const input = event.currentTarget as HTMLInputElement;
-                    setGalleryFile(input.files?.[0] ?? null);
+                    setGalleryFiles(input.files ? Array.from(input.files) : []);
                   }}
-                  inputProps={{ accept: "image/jpeg,image/png,image/webp" }}
+                  inputProps={{ accept: "image/jpeg,image/png,image/webp", multiple: true }}
                   fullWidth
                 />
-                <Button variant="outlined" onClick={() => void uploadGalleryImage()} disabled={!galleryFile || galleryBusy}>
+                <Button
+                  variant="outlined"
+                  onClick={() => void uploadGalleryImages()}
+                  disabled={galleryFiles.length === 0 || galleryBusy}
+                >
                   {t("trips.gallery.uploadAction")}
                 </Button>
               </Box>
+              {galleryFiles.length > 0 && (
+                <Typography variant="caption" color="text.secondary">
+                  {formatMessage(t("trips.gallery.selectedFiles"), { count: galleryFiles.length })}
+                </Typography>
+              )}
               {galleryImages.length === 0 ? (
                 <Typography variant="caption" color="text.secondary">
                   {t("trips.gallery.empty")}
@@ -1134,7 +1151,7 @@ export default function TripDayPlanDialog({
                   {galleryImages
                     .slice()
                     .sort((left, right) => left.sortOrder - right.sortOrder)
-                    .map((image, index, all) => (
+                    .map((image) => (
                       <Box key={image.id} display="flex" alignItems="center" gap={1}>
                         <Box
                           component="img"
@@ -1146,30 +1163,15 @@ export default function TripDayPlanDialog({
                         />
                         <Button
                           size="small"
-                          onClick={() => {
-                            if (index === 0) return;
-                            const next = [...all];
-                            [next[index - 1], next[index]] = [next[index], next[index - 1]];
-                            void reorderGalleryImages(next);
-                          }}
-                          disabled={index === 0 || galleryBusy}
+                          color="error"
+                          aria-label={t("trips.gallery.removeAction")}
+                          onClick={() => void deleteGalleryImage(image.id)}
+                          disabled={galleryBusy}
+                          sx={{ minWidth: 36, px: 0.75 }}
                         >
-                          {t("trips.gallery.moveUp")}
-                        </Button>
-                        <Button
-                          size="small"
-                          onClick={() => {
-                            if (index === all.length - 1) return;
-                            const next = [...all];
-                            [next[index], next[index + 1]] = [next[index + 1], next[index]];
-                            void reorderGalleryImages(next);
-                          }}
-                          disabled={index === all.length - 1 || galleryBusy}
-                        >
-                          {t("trips.gallery.moveDown")}
-                        </Button>
-                        <Button size="small" color="error" onClick={() => void deleteGalleryImage(image.id)} disabled={galleryBusy}>
-                          {t("trips.gallery.removeAction")}
+                          <SvgIcon fontSize="small">
+                            <path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6zm3.5-8h1v7h-1zm4 0h1v7h-1zM15.5 4l-1-1h-5l-1 1H5v2h14V4z" />
+                          </SvgIcon>
                         </Button>
                       </Box>
                     ))}

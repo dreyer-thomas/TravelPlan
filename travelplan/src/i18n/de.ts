@@ -428,6 +428,7 @@ const de: Dictionary = {
   "trips.gallery.removeAction": "Entfernen",
   "trips.gallery.moveUp": "Hoch",
   "trips.gallery.moveDown": "Runter",
+  "trips.gallery.selectedFiles": "{count} Datei(en) ausgewahlt",
   "trips.gallery.empty": "Noch keine Bilder.",
   "trips.gallery.thumbnailAlt": "Galerie-Vorschau",
   "trips.location.latLabel": "Breitengrad",

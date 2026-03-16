@@ -118,4 +118,5 @@ development_status:
   6-3-optimize-comments: done
   6-4-fix-day-view-accommodation-cost-duplication: done
   6-5-auto-fill-travel-segments-from-google-maps: done
+  6-6-match-day-item-photo-ux-to-accommodations: done
   epic-6-retrospective: optional

@@ -128,6 +128,7 @@ vi.mock("@mui/material", () => {
       onChange,
       helperText,
       error,
+      inputProps,
       ...rest
     }: {
       label?: string;
@@ -135,6 +136,7 @@ vi.mock("@mui/material", () => {
       onChange?: (event: ChangeEvent<HTMLInputElement>) => void;
       helperText?: ReactNode;
       error?: boolean;
+      inputProps?: Record<string, unknown>;
     }) => (
       <label>
         <span>{label}</span>
@@ -143,6 +145,7 @@ vi.mock("@mui/material", () => {
           aria-invalid={error ? "true" : "false"}
           value={value ?? ""}
           onChange={onChange}
+          {...inputProps}
           {...omitLayoutProps(rest as Record<string, unknown>)}
         />
         {helperText && <span>{helperText}</span>}
@@ -463,7 +466,7 @@ describe("TripDayPlanDialog", () => {
   it("shows delete action only for existing items and closes after delete", async () => {
     const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
 
-    const fetchMock = vi.fn(async (input: RequestInfo, init?: RequestInit) => {
+    const fetchMock = vi.fn(async (input: RequestInfo) => {
       const url = typeof input === "string" ? input : input.url;
 
       if (url.includes("/api/auth/csrf")) {
@@ -800,5 +803,459 @@ describe("TripDayPlanDialog", () => {
     expect(amountInputs[1]).toHaveValue(70);
     expect(dateInputs[0]).toHaveValue("2026-11-01");
     expect(dateInputs[1]).toHaveValue("2026-11-02");
+  });
+
+  it("supports multi-file gallery selection and upload for existing day items", async () => {
+    const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
+
+    let uploadCount = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.url;
+      const method = init?.method ?? "GET";
+
+      if (url.includes("/api/auth/csrf")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
+        };
+      }
+
+      if (url.includes("/day-plan-items/images?") && method === "GET") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { images: [] }, error: null }),
+        };
+      }
+
+      if (url.includes("/day-plan-items/images") && method === "POST") {
+        uploadCount += 1;
+        const body = init?.body as FormData;
+        const file = body.get("file");
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: {
+              image: {
+                id: `image-${uploadCount}`,
+                imageUrl: `https://images.example.com/${file instanceof File ? file.name : `image-${uploadCount}.webp`}`,
+                sortOrder: uploadCount,
+              },
+            },
+            error: null,
+          }),
+        };
+      }
+
+      return {
+        ok: false,
+        status: 500,
+        json: async () => ({ data: null, error: { code: "server_error", message: "boom" } }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { container } = render(
+      <I18nProvider initialLanguage="en">
+        <TripDayPlanDialog
+          open
+          mode="edit"
+          tripId="trip-1"
+          day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
+          item={{
+            id: "item-1",
+            tripDayId: "day-1",
+            title: "Museum",
+            fromTime: "09:00",
+            toTime: "10:00",
+            contentJson: tiptapMocks.sampleDoc,
+            costCents: 1200,
+            linkUrl: null,
+            location: null,
+            createdAt: new Date().toISOString(),
+          }}
+          onClose={() => undefined}
+          onSaved={() => undefined}
+        />
+      </I18nProvider>,
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement | null;
+    expect(fileInput).not.toBeNull();
+    expect(fileInput?.multiple).toBe(true);
+
+    const fileOne = new File(["first"], "first.webp", { type: "image/webp" });
+    const fileTwo = new File(["second"], "second.webp", { type: "image/webp" });
+    fireEvent.change(fileInput!, { target: { files: [fileOne, fileTwo] } });
+
+    expect(screen.getByText("2 file(s) selected")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Upload" }));
+
+    await waitFor(() => {
+      const uploadCalls = fetchMock.mock.calls.filter(
+        (call) => String(call[0]).includes("/day-plan-items/images") && call[1]?.method === "POST",
+      );
+      expect(uploadCalls).toHaveLength(2);
+    });
+
+    expect(container.querySelectorAll('[component="img"][alt="Gallery thumbnail"]')).toHaveLength(2);
+  });
+
+  it("fetches a fresh CSRF token for gallery uploads when initialization did not provide one", async () => {
+    const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
+
+    let csrfRequests = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.url;
+      const method = init?.method ?? "GET";
+
+      if (url.includes("/api/auth/csrf")) {
+        csrfRequests += 1;
+        if (csrfRequests === 1) {
+          return {
+            ok: false,
+            status: 500,
+            json: async () => ({ data: null, error: { code: "server_error", message: "boom" } }),
+          };
+        }
+
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { csrfToken: "late-token" }, error: null }),
+        };
+      }
+
+      if (url.includes("/day-plan-items/images?") && method === "GET") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { images: [] }, error: null }),
+        };
+      }
+
+      if (url.includes("/day-plan-items/images") && method === "POST") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: {
+              image: { id: "image-1", imageUrl: "https://images.example.com/one.webp", sortOrder: 1 },
+            },
+            error: null,
+          }),
+        };
+      }
+
+      return {
+        ok: false,
+        status: 500,
+        json: async () => ({ data: null, error: { code: "server_error", message: "boom" } }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { container } = render(
+      <I18nProvider initialLanguage="en">
+        <TripDayPlanDialog
+          open
+          mode="edit"
+          tripId="trip-1"
+          day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
+          item={{
+            id: "item-1",
+            tripDayId: "day-1",
+            title: "Museum",
+            fromTime: "09:00",
+            toTime: "10:00",
+            contentJson: tiptapMocks.sampleDoc,
+            costCents: 1200,
+            linkUrl: null,
+            location: null,
+            createdAt: new Date().toISOString(),
+          }}
+          onClose={() => undefined}
+          onSaved={() => undefined}
+        />
+      </I18nProvider>,
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(fileInput, { target: { files: [new File(["first"], "first.webp", { type: "image/webp" })] } });
+    fireEvent.click(screen.getByRole("button", { name: "Upload" }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/day-plan-items/images"),
+        expect.objectContaining({
+          method: "POST",
+          headers: expect.objectContaining({ "x-csrf-token": "late-token" }),
+        }),
+      ),
+    );
+  });
+
+  it("keeps successfully uploaded images visible when a later file upload fails", async () => {
+    const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
+
+    let uploadCount = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.url;
+      const method = init?.method ?? "GET";
+
+      if (url.includes("/api/auth/csrf")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
+        };
+      }
+
+      if (url.includes("/day-plan-items/images?") && method === "GET") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { images: [] }, error: null }),
+        };
+      }
+
+      if (url.includes("/day-plan-items/images") && method === "POST") {
+        uploadCount += 1;
+        if (uploadCount === 2) {
+          return {
+            ok: false,
+            status: 500,
+            json: async () => ({ data: null, error: { code: "server_error", message: "boom" } }),
+          };
+        }
+
+        const body = init?.body as FormData;
+        const file = body.get("file");
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: {
+              image: {
+                id: "image-1",
+                imageUrl: `https://images.example.com/${file instanceof File ? file.name : "first.webp"}`,
+                sortOrder: 1,
+              },
+            },
+            error: null,
+          }),
+        };
+      }
+
+      return {
+        ok: false,
+        status: 500,
+        json: async () => ({ data: null, error: { code: "server_error", message: "boom" } }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { container } = render(
+      <I18nProvider initialLanguage="en">
+        <TripDayPlanDialog
+          open
+          mode="edit"
+          tripId="trip-1"
+          day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
+          item={{
+            id: "item-1",
+            tripDayId: "day-1",
+            title: "Museum",
+            fromTime: "09:00",
+            toTime: "10:00",
+            contentJson: tiptapMocks.sampleDoc,
+            costCents: 1200,
+            linkUrl: null,
+            location: null,
+            createdAt: new Date().toISOString(),
+          }}
+          onClose={() => undefined}
+          onSaved={() => undefined}
+        />
+      </I18nProvider>,
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const fileOne = new File(["first"], "first.webp", { type: "image/webp" });
+    const fileTwo = new File(["second"], "second.webp", { type: "image/webp" });
+    fireEvent.change(fileInput, { target: { files: [fileOne, fileTwo] } });
+    fireEvent.click(screen.getByRole("button", { name: "Upload" }));
+
+    await waitFor(() => expect(screen.getByText("Plan item update failed. Please try again.")).toBeInTheDocument());
+    expect(container.querySelectorAll('[component="img"][alt="Gallery thumbnail"]')).toHaveLength(1);
+    expect(screen.getByText("1 file(s) selected")).toBeInTheDocument();
+  });
+
+  it("localizes the selected gallery file summary", async () => {
+    const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
+
+    const fetchMock = vi.fn(async (input: RequestInfo, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.url;
+      const method = init?.method ?? "GET";
+
+      if (url.includes("/api/auth/csrf")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
+        };
+      }
+
+      if (url.includes("/day-plan-items/images?") && method === "GET") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { images: [] }, error: null }),
+        };
+      }
+
+      return {
+        ok: false,
+        status: 500,
+        json: async () => ({ data: null, error: { code: "server_error", message: "boom" } }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { container } = render(
+      <I18nProvider initialLanguage="de">
+        <TripDayPlanDialog
+          open
+          mode="edit"
+          tripId="trip-1"
+          day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
+          item={{
+            id: "item-1",
+            tripDayId: "day-1",
+            title: "Museum",
+            fromTime: "09:00",
+            toTime: "10:00",
+            contentJson: tiptapMocks.sampleDoc,
+            costCents: 1200,
+            linkUrl: null,
+            location: null,
+            createdAt: new Date().toISOString(),
+          }}
+          onClose={() => undefined}
+          onSaved={() => undefined}
+        />
+      </I18nProvider>,
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(fileInput, { target: { files: [new File(["first"], "first.webp", { type: "image/webp" })] } });
+
+    expect(screen.getByText("1 Datei(en) ausgewahlt")).toBeInTheDocument();
+  });
+
+  it("uses compact thumbnail actions for saved gallery images and keeps fullscreen preview", async () => {
+    const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
+
+    const fetchMock = vi.fn(async (input: RequestInfo, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.url;
+      const method = init?.method ?? "GET";
+
+      if (url.includes("/api/auth/csrf")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
+        };
+      }
+
+      if (url.includes("/day-plan-items/images?") && method === "GET") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: {
+              images: [
+                { id: "image-1", imageUrl: "https://images.example.com/one.webp", sortOrder: 1 },
+              ],
+            },
+            error: null,
+          }),
+        };
+      }
+
+      if (url.includes("/day-plan-items/images") && method === "DELETE") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { deleted: true }, error: null }),
+        };
+      }
+
+      return {
+        ok: false,
+        status: 500,
+        json: async () => ({ data: null, error: { code: "server_error", message: "boom" } }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { container } = render(
+      <I18nProvider initialLanguage="en">
+        <TripDayPlanDialog
+          open
+          mode="edit"
+          tripId="trip-1"
+          day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
+          item={{
+            id: "item-1",
+            tripDayId: "day-1",
+            title: "Museum",
+            fromTime: "09:00",
+            toTime: "10:00",
+            contentJson: tiptapMocks.sampleDoc,
+            costCents: 1200,
+            linkUrl: null,
+            location: null,
+            createdAt: new Date().toISOString(),
+          }}
+          onClose={() => undefined}
+          onSaved={() => undefined}
+        />
+      </I18nProvider>,
+    );
+
+    await waitFor(() =>
+      expect(container.querySelector('[component="img"][alt="Gallery thumbnail"]')).not.toBeNull(),
+    );
+    const thumbnail = container.querySelector('[component="img"][alt="Gallery thumbnail"]') as HTMLElement;
+    expect(screen.queryByRole("button", { name: "Up" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Down" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Remove" })).toBeInTheDocument();
+
+    fireEvent.click(thumbnail);
+    await waitFor(() =>
+      expect(container.querySelectorAll('[component="img"][alt="Gallery thumbnail"]')).toHaveLength(2),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/day-plan-items/images"),
+        expect.objectContaining({ method: "DELETE" }),
+      ),
+    );
   });
 });
