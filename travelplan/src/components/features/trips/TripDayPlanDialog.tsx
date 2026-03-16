@@ -797,7 +797,8 @@ export default function TripDayPlanDialog({
           setServerError(t("trips.plan.saveError"));
           break;
         }
-        setGalleryImages((current) => [...current, body.data.image]);
+        const uploadedImage = body.data.image;
+        setGalleryImages((current) => [...current, uploadedImage]);
       }
 
       if (failedAtIndex === -1) {
