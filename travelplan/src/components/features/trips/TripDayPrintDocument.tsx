@@ -1,0 +1,333 @@
+"use client";
+
+import { useCallback, useEffect, useMemo } from "react";
+import type { TripDayPrintPayload } from "@/lib/repositories/tripRepo";
+import { parsePlanText } from "@/components/features/trips/TripDayPlanItemContent";
+import type { TripDayMapPoint } from "@/lib/trips/dayMapData";
+
+const TRANSPORT_LABELS: Record<string, string> = {
+  car: "Car",
+  ship: "Ship",
+  flight: "Flight",
+};
+
+const formatDuration = (minutes: number) => {
+  if (!Number.isFinite(minutes) || minutes <= 0) return "";
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h > 0 && m > 0) return `${h}h ${m}m`;
+  if (h > 0) return `${h}h`;
+  return `${m}m`;
+};
+
+const PRINT_MAX_CHARS = 300;
+
+const truncateText = (text: string) =>
+  text.length > PRINT_MAX_CHARS ? `${text.slice(0, PRINT_MAX_CHARS).trimEnd()}…` : text;
+
+const buildStaticMapUrl = (points: TripDayMapPoint[]): string | null => {
+  if (points.length === 0) return null;
+  const lats = points.map((p) => p.position[0]);
+  const lngs = points.map((p) => p.position[1]);
+  const centerLat = ((Math.min(...lats) + Math.max(...lats)) / 2).toFixed(6);
+  const centerLng = ((Math.min(...lngs) + Math.max(...lngs)) / 2).toFixed(6);
+  const markerStr = points
+    .map((p) => `${p.position[0].toFixed(6)},${p.position[1].toFixed(6)},ol-marker`)
+    .join("|");
+  return `https://staticmap.openstreetmap.de/staticmap.php?center=${centerLat},${centerLng}&zoom=11&size=600x280&markers=${markerStr}`;
+};
+
+type TripDayPrintDocumentProps = {
+  payload: TripDayPrintPayload;
+  onReady?: () => void;
+};
+
+export default function TripDayPrintDocument({ payload, onReady }: TripDayPrintDocumentProps) {
+  const { trip, day, timeline, map } = payload;
+
+  const staticMapUrl = useMemo(() => buildStaticMapUrl(map.points), [map.points]);
+  const hasMapPoints = map.points.length > 0;
+
+  const formattedDate = new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(day.date));
+
+  const dayHeading = day.note?.trim()
+    ? `Day ${day.dayIndex}: ${day.note.trim()}`
+    : `Day ${day.dayIndex}`;
+
+  const handleMapSettled = useCallback(() => {
+    onReady?.();
+  }, [onReady]);
+
+  useEffect(() => {
+    if (!hasMapPoints) {
+      onReady?.();
+    }
+  }, [hasMapPoints, onReady]);
+
+  return (
+    <>
+      <style>{`
+        @page {
+          size: A4 portrait;
+          margin: 16mm 14mm 16mm 14mm;
+        }
+        @media print {
+          body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          .print-no-break { page-break-inside: avoid; break-inside: avoid; }
+          .print-map { page-break-inside: avoid; break-inside: avoid; }
+          .print-hide { display: none !important; }
+        }
+      `}</style>
+
+      <div
+        style={{
+          fontFamily: "Georgia, serif",
+          color: "#111",
+          maxWidth: "680px",
+          margin: "0 auto",
+          padding: "24px 0",
+          fontSize: "13px",
+          lineHeight: "1.5",
+        }}
+      >
+        {/* Header */}
+        <div
+          className="print-no-break"
+          style={{
+            borderBottom: "2px solid #111",
+            paddingBottom: "10px",
+            marginBottom: "16px",
+          }}
+        >
+          <div style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.08em", color: "#555" }}>
+            {trip.name}
+          </div>
+          <h1 style={{ margin: "4px 0 2px", fontSize: "20px", fontWeight: 700 }}>{dayHeading}</h1>
+          <div style={{ fontSize: "12px", color: "#444" }}>{formattedDate}</div>
+        </div>
+
+        {/* Map section — static snapshot, embedded in PDF on save */}
+        {hasMapPoints && staticMapUrl && (
+          <div
+            data-testid="print-map-section"
+            className="print-no-break print-map"
+            style={{ marginBottom: "16px" }}
+          >
+            <div
+              style={{
+                fontSize: "10px",
+                textTransform: "uppercase",
+                letterSpacing: "0.06em",
+                color: "#666",
+                marginBottom: "4px",
+                fontWeight: 600,
+              }}
+            >
+              Day route
+            </div>
+            <img
+              data-testid="print-map-img"
+              src={staticMapUrl}
+              alt="Day route map"
+              onLoad={handleMapSettled}
+              onError={handleMapSettled}
+              style={{
+                width: "100%",
+                height: "220px",
+                objectFit: "cover",
+                borderRadius: "4px",
+                border: "1px solid #ccc",
+                display: "block",
+              }}
+            />
+          </div>
+        )}
+
+        {/* Timeline */}
+        <div>
+          <div
+            style={{
+              fontSize: "10px",
+              textTransform: "uppercase",
+              letterSpacing: "0.06em",
+              color: "#666",
+              marginBottom: "8px",
+              fontWeight: 600,
+            }}
+          >
+            Itinerary
+          </div>
+
+          {timeline.length === 0 && (
+            <p style={{ color: "#666", fontSize: "12px" }}>No details recorded for this day.</p>
+          )}
+
+          {timeline.map((entry, index) => {
+            if (entry.kind === "travelSegment") {
+              const seg = entry.segment;
+              const transport = TRANSPORT_LABELS[seg.transportType] ?? seg.transportType;
+              const duration = formatDuration(seg.durationMinutes);
+              const distance = seg.distanceKm != null && seg.distanceKm > 0 ? `${seg.distanceKm} km` : null;
+              const label = [transport, duration, distance].filter(Boolean).join(" · ");
+              return (
+                <div
+                  key={`seg-${index}`}
+                  data-testid="print-timeline-entry"
+                  data-kind="travelSegment"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    padding: "4px 8px",
+                    color: "#555",
+                    fontSize: "11px",
+                  }}
+                >
+                  <span style={{ borderLeft: "2px dashed #aaa", height: "14px", display: "inline-block" }} />
+                  <span>{label}</span>
+                </div>
+              );
+            }
+
+            if (entry.kind === "previousStay" || entry.kind === "currentStay") {
+              const stay = entry.stay;
+              const label =
+                entry.kind === "previousStay"
+                  ? "Previous night accommodation"
+                  : "Tonight's accommodation";
+              const images = stay.images.slice(0, 2);
+              return (
+                <div
+                  key={`${entry.kind}-${index}`}
+                  data-testid="print-timeline-entry"
+                  data-kind={entry.kind}
+                  className="print-no-break"
+                  style={{
+                    border: "1px solid #ccc",
+                    borderLeft: entry.kind === "previousStay" ? "3px solid #888" : "4px solid #333",
+                    borderRadius: "4px",
+                    padding: "8px 10px",
+                    marginBottom: "6px",
+                    background: entry.kind === "previousStay" ? "#fafafa" : "#f0f4ff",
+                  }}
+                >
+                  <div
+                    style={{ fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.06em", color: "#777", marginBottom: "2px" }}
+                  >
+                    {label}
+                  </div>
+                  <div style={{ display: "flex", gap: "8px", alignItems: "flex-start" }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 700, fontSize: "13px" }}>{stay.name}</div>
+                      {stay.checkOutTime && entry.kind === "previousStay" && (
+                        <div style={{ fontSize: "11px", color: "#555" }}>Check-out: {stay.checkOutTime}</div>
+                      )}
+                      {stay.checkInTime && entry.kind === "currentStay" && (
+                        <div style={{ fontSize: "11px", color: "#555" }}>Check-in: {stay.checkInTime}</div>
+                      )}
+                      {stay.notes && (
+                        <div style={{ fontSize: "11px", color: "#444", marginTop: "2px" }}>
+                          {truncateText(stay.notes)}
+                        </div>
+                      )}
+                    </div>
+                    {images.length > 0 && (
+                      <div data-testid="print-image-strip" style={{ display: "flex", gap: "4px", flexShrink: 0 }}>
+                        {images.map((img) => (
+                          <img
+                            key={img.id}
+                            data-testid="print-thumbnail"
+                            src={img.imageUrl}
+                            alt=""
+                            style={{ width: "56px", height: "44px", objectFit: "cover", borderRadius: "3px" }}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            }
+
+            if (entry.kind === "planItem") {
+              const item = entry.item;
+              const rawLabel = item.title?.trim() || truncateText(parsePlanText(item.contentJson));
+              const label = rawLabel || `Plan item ${index + 1}`;
+              const description = item.title?.trim() ? truncateText(parsePlanText(item.contentJson)) : null;
+              const timeTag =
+                item.fromTime && item.toTime
+                  ? `${item.fromTime} – ${item.toTime}`
+                  : item.fromTime ?? item.toTime ?? null;
+              const images = item.images.slice(0, 2);
+              return (
+                <div
+                  key={`item-${index}`}
+                  data-testid="print-timeline-entry"
+                  data-kind="planItem"
+                  className="print-no-break"
+                  style={{
+                    border: "1px solid #ddd",
+                    borderRadius: "4px",
+                    padding: "8px 10px",
+                    marginBottom: "6px",
+                  }}
+                >
+                  <div style={{ display: "flex", gap: "8px", alignItems: "flex-start" }}>
+                    <div style={{ flex: 1 }}>
+                      {timeTag && (
+                        <div style={{ fontSize: "10px", color: "#555", fontWeight: 600, marginBottom: "2px" }}>
+                          {timeTag}
+                        </div>
+                      )}
+                      <div style={{ fontWeight: 600, fontSize: "13px" }}>{label}</div>
+                      {description && description !== label && (
+                        <div style={{ fontSize: "11px", color: "#444", marginTop: "2px" }}>{description}</div>
+                      )}
+                    </div>
+                    {images.length > 0 && (
+                      <div data-testid="print-image-strip" style={{ display: "flex", gap: "4px", flexShrink: 0 }}>
+                        {images.map((img) => (
+                          <img
+                            key={img.id}
+                            data-testid="print-thumbnail"
+                            src={img.imageUrl}
+                            alt=""
+                            style={{ width: "56px", height: "44px", objectFit: "cover", borderRadius: "3px" }}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            }
+
+            return null;
+          })}
+        </div>
+
+        {/* Footer */}
+        <div
+          className="print-no-break"
+          style={{
+            borderTop: "1px solid #ccc",
+            marginTop: "20px",
+            paddingTop: "8px",
+            fontSize: "10px",
+            color: "#888",
+            display: "flex",
+            justifyContent: "space-between",
+          }}
+        >
+          <span>{trip.name}</span>
+          <span>{formattedDate}</span>
+        </div>
+      </div>
+    </>
+  );
+}

@@ -3,10 +3,10 @@
 import { Alert, Box, Chip, Dialog, DialogContent, DialogTitle, List, ListItem, Paper, Skeleton, Typography } from "@mui/material";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import TripDayLeafletMap from "@/components/features/trips/TripDayLeafletMap";
-import { buildDayMapPanelData, buildTripDayMapItems } from "@/components/features/trips/TripDayMapPanel";
 import { MiniImageStrip, PlanItemRichContent, parsePlanText } from "@/components/features/trips/TripDayPlanItemContent";
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
+import { buildDayMapPanelData, buildTripDayMapItems } from "@/lib/trips/dayMapData";
 
 type ApiEnvelope<T> = {
   data: T | null;
@@ -180,14 +180,15 @@ export default function TripDayMapFullPage({ tripId, dayId }: TripDayMapFullPage
   const mapData = useMemo(() => {
     const mapItems = buildTripDayMapItems({
       previousStay: previousStay ? { id: previousStay.id, name: previousStay.name, location: previousStay.location } : null,
-      planItems: (day?.dayPlanItems ?? []).map((item) => ({
+      planItems: (day?.dayPlanItems ?? []).map((item, index) => ({
         id: item.id,
-        title: item.title,
-        contentJson: item.contentJson,
+        label:
+          item.title?.trim() ||
+          parsePlanText(item.contentJson) ||
+          formatMessage(t("trips.dayView.budgetItemPlan"), { index: index + 1 }),
         location: item.location,
       })),
       currentStay: currentStay ? { id: currentStay.id, name: currentStay.name, location: currentStay.location } : null,
-      getPlanItemFallbackLabel: (index) => formatMessage(t("trips.dayView.budgetItemPlan"), { index }),
     });
     return buildDayMapPanelData(mapItems);
   }, [currentStay, day?.dayPlanItems, previousStay, t]);

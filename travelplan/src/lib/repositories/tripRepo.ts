@@ -4,6 +4,7 @@ import { Prisma } from "@/generated/prisma/client";
 import type { TripAccessRole } from "@/lib/auth/tripAccess";
 import type { TripFeedbackSummary } from "@/lib/repositories/tripFeedbackRepo";
 import { listTripFeedbackForUser } from "@/lib/repositories/tripFeedbackRepo";
+import { buildDayMapPanelData, buildTripDayMapItems, type TripDayMapPanelData } from "@/lib/trips/dayMapData";
 import type { TripImportConflictStrategy, TripImportPayloadInput } from "@/lib/validation/tripImportSchemas";
 
 export type CreateTripParams = {
@@ -100,6 +101,61 @@ export type TripWithDays = {
   heroImageUrl: string | null;
   feedback: TripFeedbackSummary;
   days: TripDaySummary[];
+};
+
+export type TripDayPrintImage = {
+  id: string;
+  imageUrl: string;
+  sortOrder: number;
+};
+
+export type TripDayPrintStay = {
+  id: string;
+  name: string;
+  notes: string | null;
+  status: "planned" | "booked";
+  costCents: number | null;
+  link: string | null;
+  checkInTime: string | null;
+  checkOutTime: string | null;
+  location: { lat: number; lng: number; label: string | null } | null;
+  images: TripDayPrintImage[];
+};
+
+export type TripDayPrintPlanItem = {
+  id: string;
+  title: string | null;
+  fromTime: string | null;
+  toTime: string | null;
+  contentJson: string;
+  costCents: number | null;
+  linkUrl: string | null;
+  location: { lat: number; lng: number; label: string | null } | null;
+  images: TripDayPrintImage[];
+};
+
+export type TripDayPrintTravelSegment = TripDaySummary["travelSegments"][number];
+
+export type TripDayPrintTimelineEntry =
+  | { kind: "previousStay"; stay: TripDayPrintStay }
+  | { kind: "planItem"; item: TripDayPrintPlanItem }
+  | { kind: "travelSegment"; segment: TripDayPrintTravelSegment }
+  | { kind: "currentStay"; stay: TripDayPrintStay };
+
+export type TripDayPrintPayload = {
+  trip: {
+    id: string;
+    name: string;
+  };
+  day: {
+    id: string;
+    date: string;
+    dayIndex: number;
+    note: string | null;
+    imageUrl: string | null;
+  };
+  timeline: TripDayPrintTimelineEntry[];
+  map: TripDayMapPanelData;
 };
 
 export type TripExportPayload = {
@@ -246,6 +302,26 @@ const compareDayPlanItemsByStartTime = (
   const rightTime = right.createdAt.getTime();
   if (leftTime !== rightTime) return leftTime - rightTime;
   return left.id.localeCompare(right.id);
+};
+
+const parsePrintablePlanText = (value: string) => {
+  try {
+    const doc = JSON.parse(value) as { text?: string; content?: unknown[] };
+    const parts: string[] = [];
+
+    const walk = (node: { text?: string; content?: unknown[] } | null | undefined) => {
+      if (!node) return;
+      if (typeof node.text === "string") parts.push(node.text);
+      if (Array.isArray(node.content)) {
+        node.content.forEach((child) => walk(child as { text?: string; content?: unknown[] }));
+      }
+    };
+
+    walk(doc);
+    return parts.join(" ").trim();
+  } catch {
+    return "";
+  }
 };
 
 const buildLocationData = (location?: TripLocationInput) =>
@@ -735,6 +811,262 @@ export const updateTripDayImageForUser = async ({
     imageUrl: row.image_url,
     note: row.note,
     updatedAt: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at),
+  };
+};
+
+const PRINT_ACCOMMODATION_SELECT = {
+  id: true,
+  name: true,
+  notes: true,
+  status: true,
+  costCents: true,
+  link: true,
+  checkInTime: true,
+  checkOutTime: true,
+  locationLat: true,
+  locationLng: true,
+  locationLabel: true,
+} as const;
+
+const mapPrintLocation = (row: {
+  locationLat: number | null;
+  locationLng: number | null;
+  locationLabel: string | null;
+}): { lat: number; lng: number; label: string | null } | null =>
+  row.locationLat !== null && row.locationLng !== null
+    ? { lat: row.locationLat, lng: row.locationLng, label: row.locationLabel }
+    : null;
+
+export const getTripDayPrintPayloadForUser = async ({
+  userId,
+  tripId,
+  dayId,
+}: {
+  userId: string;
+  tripId: string;
+  dayId: string;
+}): Promise<TripDayPrintPayload | null> => {
+  // Round 1 (parallel): access check + target day content
+  const [tripAccess, targetDay] = await Promise.all([
+    prisma.trip.findFirst({
+      where: { id: tripId, OR: [{ userId }, { members: { some: { userId } } }] },
+      select: {
+        id: true,
+        name: true,
+        userId: true,
+        members: { where: { userId }, select: { role: true }, take: 1 },
+      },
+    }),
+    prisma.tripDay.findFirst({
+      where: { id: dayId, tripId },
+      select: {
+        id: true,
+        date: true,
+        dayIndex: true,
+        note: true,
+        imageUrl: true,
+        accommodation: { select: PRINT_ACCOMMODATION_SELECT },
+        dayPlanItems: {
+          orderBy: { createdAt: "asc" },
+          select: {
+            id: true,
+            title: true,
+            fromTime: true,
+            toTime: true,
+            createdAt: true,
+            contentJson: true,
+            costCents: true,
+            linkUrl: true,
+            locationLat: true,
+            locationLng: true,
+            locationLabel: true,
+          },
+        },
+        travelSegments: {
+          orderBy: { createdAt: "asc" },
+          select: {
+            id: true,
+            fromItemType: true,
+            fromItemId: true,
+            toItemType: true,
+            toItemId: true,
+            transportType: true,
+            durationMinutes: true,
+            distanceKm: true,
+            linkUrl: true,
+          },
+        },
+      },
+    }),
+  ]);
+
+  if (!tripAccess || !targetDay) return null;
+
+  const planItemIds = targetDay.dayPlanItems.map((item) => item.id);
+
+  // Round 2 (parallel): previous day accommodation + plan item images
+  const [prevDay, planItemImages] = await Promise.all([
+    targetDay.dayIndex > 1
+      ? prisma.tripDay.findFirst({
+          where: { tripId, dayIndex: targetDay.dayIndex - 1 },
+          select: { accommodation: { select: PRINT_ACCOMMODATION_SELECT } },
+        })
+      : Promise.resolve(null),
+    planItemIds.length
+      ? prisma.dayPlanItemImage.findMany({
+          where: { dayPlanItemId: { in: planItemIds } },
+          select: { id: true, dayPlanItemId: true, imageUrl: true, sortOrder: true },
+          orderBy: [{ dayPlanItemId: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
+        })
+      : Promise.resolve([]),
+  ]);
+
+  const previousStaySummary = prevDay?.accommodation ?? null;
+  const currentStaySummary = targetDay.accommodation;
+
+  // Round 3: accommodation images (now we have all IDs including prev day)
+  const accommodationIds = [previousStaySummary?.id, currentStaySummary?.id].filter(
+    (v): v is string => Boolean(v),
+  );
+  const accommodationImages = accommodationIds.length
+    ? await prisma.accommodationImage.findMany({
+        where: { accommodationId: { in: accommodationIds } },
+        select: { id: true, accommodationId: true, imageUrl: true, sortOrder: true },
+        orderBy: [{ accommodationId: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
+      })
+    : [];
+
+  const accommodationImagesById = new Map<string, TripDayPrintImage[]>();
+  for (const image of accommodationImages) {
+    const existing = accommodationImagesById.get(image.accommodationId) ?? [];
+    existing.push({ id: image.id, imageUrl: image.imageUrl, sortOrder: image.sortOrder });
+    accommodationImagesById.set(image.accommodationId, existing);
+  }
+
+  const planItemImagesById = new Map<string, TripDayPrintImage[]>();
+  for (const image of planItemImages) {
+    const existing = planItemImagesById.get(image.dayPlanItemId) ?? [];
+    existing.push({ id: image.id, imageUrl: image.imageUrl, sortOrder: image.sortOrder });
+    planItemImagesById.set(image.dayPlanItemId, existing);
+  }
+
+  const toPrintStay = (
+    stay: NonNullable<typeof previousStaySummary>,
+  ): TripDayPrintStay => ({
+    id: stay.id,
+    name: stay.name,
+    notes: stay.notes,
+    status: stay.status === "BOOKED" ? "booked" : "planned",
+    costCents: stay.costCents,
+    link: stay.link,
+    checkInTime: stay.checkInTime,
+    checkOutTime: stay.checkOutTime,
+    location: mapPrintLocation(stay),
+    images: accommodationImagesById.get(stay.id) ?? [],
+  });
+
+  const previousStay = previousStaySummary ? toPrintStay(previousStaySummary) : null;
+  const currentStay = currentStaySummary ? toPrintStay(currentStaySummary) : null;
+
+  const planItems: TripDayPrintPlanItem[] = [...targetDay.dayPlanItems]
+    .sort(compareDayPlanItemsByStartTime)
+    .map((item) => ({
+      id: item.id,
+      title: item.title,
+      fromTime: item.fromTime,
+      toTime: item.toTime,
+      contentJson: item.contentJson,
+      costCents: item.costCents,
+      linkUrl: item.linkUrl,
+      location: mapPrintLocation(item),
+      images: planItemImagesById.get(item.id) ?? [],
+    }));
+
+  const timeline: TripDayPrintTimelineEntry[] = [];
+  const orderedStops: Array<
+    | { kind: "previousStay"; stay: TripDayPrintStay; refType: "accommodation"; refId: string }
+    | { kind: "planItem"; item: TripDayPrintPlanItem; refType: "dayPlanItem"; refId: string }
+    | { kind: "currentStay"; stay: TripDayPrintStay; refType: "accommodation"; refId: string }
+  > = [];
+
+  if (previousStay) {
+    orderedStops.push({ kind: "previousStay", stay: previousStay, refType: "accommodation", refId: previousStay.id });
+  }
+  for (const item of planItems) {
+    orderedStops.push({ kind: "planItem", item, refType: "dayPlanItem", refId: item.id });
+  }
+  if (currentStay) {
+    orderedStops.push({ kind: "currentStay", stay: currentStay, refType: "accommodation", refId: currentStay.id });
+  }
+
+  const mapFromItemType = (t: string) => (t === "ACCOMMODATION" ? "accommodation" : "dayPlanItem");
+  const mapTransportType = (t: string) =>
+    t === "CAR" ? "car" : t === "SHIP" ? "ship" : ("flight" as const);
+
+  const segmentsByKey = new Map(
+    targetDay.travelSegments.map((segment) => [
+      `${mapFromItemType(segment.fromItemType)}:${segment.fromItemId}->${mapFromItemType(segment.toItemType)}:${segment.toItemId}`,
+      segment,
+    ]),
+  );
+
+  orderedStops.forEach((entry, index) => {
+    if (entry.kind === "previousStay") {
+      timeline.push({ kind: "previousStay", stay: entry.stay });
+    } else if (entry.kind === "planItem") {
+      timeline.push({ kind: "planItem", item: entry.item });
+    } else {
+      timeline.push({ kind: "currentStay", stay: entry.stay });
+    }
+
+    const next = orderedStops[index + 1];
+    if (!next) return;
+
+    const rawSeg = segmentsByKey.get(`${entry.refType}:${entry.refId}->${next.refType}:${next.refId}`);
+    if (rawSeg) {
+      timeline.push({
+        kind: "travelSegment",
+        segment: {
+          id: rawSeg.id,
+          fromItemType: mapFromItemType(rawSeg.fromItemType),
+          fromItemId: rawSeg.fromItemId,
+          toItemType: mapFromItemType(rawSeg.toItemType),
+          toItemId: rawSeg.toItemId,
+          transportType: mapTransportType(rawSeg.transportType),
+          durationMinutes: rawSeg.durationMinutes,
+          distanceKm: rawSeg.distanceKm,
+          linkUrl: rawSeg.linkUrl,
+        },
+      });
+    }
+  });
+
+  const map = buildDayMapPanelData(
+    buildTripDayMapItems({
+      previousStay: previousStay ? { id: previousStay.id, name: previousStay.name, location: previousStay.location } : null,
+      planItems: planItems.map((item, index) => ({
+        id: item.id,
+        label: item.title?.trim() || parsePrintablePlanText(item.contentJson) || `Activity ${index + 1}`,
+        location: item.location,
+      })),
+      currentStay: currentStay ? { id: currentStay.id, name: currentStay.name, location: currentStay.location } : null,
+    }),
+  );
+
+  return {
+    trip: {
+      id: tripAccess.id,
+      name: tripAccess.name,
+    },
+    day: {
+      id: targetDay.id,
+      date: targetDay.date.toISOString(),
+      dayIndex: targetDay.dayIndex,
+      note: targetDay.note,
+      imageUrl: targetDay.imageUrl,
+    },
+    timeline,
+    map,
   };
 };
 

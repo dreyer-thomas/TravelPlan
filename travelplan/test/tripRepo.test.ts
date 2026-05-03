@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db/prisma";
 import {
   createTripWithDays,
   deleteTripForUser,
+  getTripDayPrintPayloadForUser,
   getTripExportForUser,
   getTripWithDaysForUser,
   importTripFromExportForUser,
@@ -273,6 +274,314 @@ describe("tripRepo", () => {
     expect(exported?.days[1].dayPlanItems).toHaveLength(1);
     expect(exported?.days[1].dayPlanItems[0].payments).toEqual([]);
     expect(exported?.days[1].dayPlanItems[0].location).toBeNull();
+  });
+
+  it("builds a printable day payload with previous stay, travel segments, route points, and image metadata", async () => {
+    const owner = await prisma.user.create({
+      data: {
+        email: "trip-print-owner@example.com",
+        passwordHash: "hashed",
+        role: "OWNER",
+      },
+    });
+
+    const { trip } = await createTripWithDays({
+      userId: owner.id,
+      name: "Printable Trip",
+      startDate: "2026-11-01T00:00:00.000Z",
+      endDate: "2026-11-02T00:00:00.000Z",
+    });
+
+    const [day1, day2] = await prisma.tripDay.findMany({
+      where: { tripId: trip.id },
+      orderBy: { dayIndex: "asc" },
+    });
+
+    const previousStay = await prisma.accommodation.create({
+      data: {
+        tripDayId: day1.id,
+        name: "Airport Hotel",
+        notes: "Late arrival",
+        status: "BOOKED",
+        costCents: 12000,
+        link: "https://example.com/airport-hotel",
+        checkInTime: "22:00",
+        checkOutTime: "08:00",
+        locationLat: 48.3538,
+        locationLng: 11.7861,
+        locationLabel: "Airport",
+      },
+    });
+    await prisma.accommodationImage.create({
+      data: {
+        accommodationId: previousStay.id,
+        imageUrl: "/uploads/trips/printable/prev-stay.webp",
+        sortOrder: 0,
+      },
+    });
+
+    const breakfast = await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: day2.id,
+        title: "Breakfast stop",
+        fromTime: "08:30",
+        toTime: "09:15",
+        contentJson: JSON.stringify({
+          type: "doc",
+          content: [{ type: "paragraph", content: [{ type: "text", text: "Coffee and croissant" }] }],
+        }),
+        costCents: 1800,
+        linkUrl: "https://example.com/breakfast",
+        locationLat: 48.1372,
+        locationLng: 11.5756,
+        locationLabel: "Cafe",
+      },
+    });
+    await prisma.dayPlanItemImage.create({
+      data: {
+        dayPlanItemId: breakfast.id,
+        imageUrl: "/uploads/trips/printable/breakfast.webp",
+        sortOrder: 0,
+      },
+    });
+
+    const museum = await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: day2.id,
+        title: "Museum visit",
+        fromTime: "10:00",
+        toTime: "12:00",
+        contentJson: JSON.stringify({
+          type: "doc",
+          content: [{ type: "paragraph", content: [{ type: "text", text: "Main gallery and exhibits" }] }],
+        }),
+        costCents: 2400,
+        linkUrl: null,
+        locationLat: 48.145,
+        locationLng: 11.582,
+        locationLabel: "Museum",
+      },
+    });
+
+    const currentStay = await prisma.accommodation.create({
+      data: {
+        tripDayId: day2.id,
+        name: "City Hotel",
+        notes: "Check in before dinner",
+        status: "PLANNED",
+        costCents: 22300,
+        link: "https://example.com/city-hotel",
+        checkInTime: "16:00",
+        checkOutTime: "10:00",
+        locationLat: 48.148,
+        locationLng: 11.59,
+        locationLabel: "City Center",
+      },
+    });
+    await prisma.accommodationImage.create({
+      data: {
+        accommodationId: currentStay.id,
+        imageUrl: "/uploads/trips/printable/current-stay.webp",
+        sortOrder: 0,
+      },
+    });
+
+    await prisma.travelSegment.createMany({
+      data: [
+        {
+          tripDayId: day2.id,
+          fromItemType: "ACCOMMODATION",
+          fromItemId: previousStay.id,
+          toItemType: "DAY_PLAN_ITEM",
+          toItemId: breakfast.id,
+          transportType: "CAR",
+          durationMinutes: 20,
+          distanceKm: 15.4,
+          linkUrl: "https://example.com/segment-1",
+        },
+        {
+          tripDayId: day2.id,
+          fromItemType: "DAY_PLAN_ITEM",
+          fromItemId: breakfast.id,
+          toItemType: "DAY_PLAN_ITEM",
+          toItemId: museum.id,
+          transportType: "SHIP",
+          durationMinutes: 35,
+          distanceKm: 4.2,
+          linkUrl: null,
+        },
+        {
+          tripDayId: day2.id,
+          fromItemType: "DAY_PLAN_ITEM",
+          fromItemId: museum.id,
+          toItemType: "ACCOMMODATION",
+          toItemId: currentStay.id,
+          transportType: "FLIGHT",
+          durationMinutes: 10,
+          distanceKm: null,
+          linkUrl: null,
+        },
+      ],
+    });
+
+    const printable = await getTripDayPrintPayloadForUser({
+      userId: owner.id,
+      tripId: trip.id,
+      dayId: day2.id,
+    });
+
+    expect(printable).not.toBeNull();
+    expect(printable?.trip).toEqual(
+      expect.objectContaining({
+        id: trip.id,
+        name: "Printable Trip",
+      }),
+    );
+    expect(printable?.day).toEqual(
+      expect.objectContaining({
+        id: day2.id,
+        dayIndex: 2,
+      }),
+    );
+    expect(printable?.timeline.map((entry) => entry.kind)).toEqual([
+      "previousStay",
+      "travelSegment",
+      "planItem",
+      "travelSegment",
+      "planItem",
+      "travelSegment",
+      "currentStay",
+    ]);
+    expect(printable?.timeline[0]).toEqual(
+      expect.objectContaining({
+        kind: "previousStay",
+        stay: expect.objectContaining({
+          id: previousStay.id,
+          name: "Airport Hotel",
+          images: [{ id: expect.any(String), imageUrl: "/uploads/trips/printable/prev-stay.webp", sortOrder: 0 }],
+        }),
+      }),
+    );
+    expect(printable?.timeline[2]).toEqual(
+      expect.objectContaining({
+        kind: "planItem",
+        item: expect.objectContaining({
+          id: breakfast.id,
+          title: "Breakfast stop",
+          images: [{ id: expect.any(String), imageUrl: "/uploads/trips/printable/breakfast.webp", sortOrder: 0 }],
+        }),
+      }),
+    );
+    expect(printable?.timeline[3]).toEqual(
+      expect.objectContaining({
+        kind: "travelSegment",
+        segment: expect.objectContaining({
+          fromItemId: breakfast.id,
+          toItemId: museum.id,
+          transportType: "ship",
+          durationMinutes: 35,
+          distanceKm: 4.2,
+        }),
+      }),
+    );
+    expect(printable?.map.points.map((point) => point.kind)).toEqual(["previousStay", "planItem", "planItem", "currentStay"]);
+    expect(printable?.map.points.map((point) => point.label)).toEqual([
+      "Airport Hotel",
+      "Breakfast stop",
+      "Museum visit",
+      "City Hotel",
+    ]);
+    expect(printable?.map.missingLocations).toEqual([]);
+  });
+
+  it("allows viewer collaborators to load printable day payloads", async () => {
+    const owner = await prisma.user.create({
+      data: {
+        email: "trip-print-owner-2@example.com",
+        passwordHash: "hashed",
+        role: "OWNER",
+      },
+    });
+    const viewer = await prisma.user.create({
+      data: {
+        email: "trip-print-viewer@example.com",
+        passwordHash: "hashed",
+        role: "VIEWER",
+      },
+    });
+
+    const { trip } = await createTripWithDays({
+      userId: owner.id,
+      name: "Shared Printable Trip",
+      startDate: "2026-12-01T00:00:00.000Z",
+      endDate: "2026-12-01T00:00:00.000Z",
+    });
+    const [day] = await prisma.tripDay.findMany({
+      where: { tripId: trip.id },
+      orderBy: { dayIndex: "asc" },
+    });
+
+    await prisma.tripMember.create({
+      data: {
+        tripId: trip.id,
+        userId: viewer.id,
+        role: "VIEWER",
+      },
+    });
+
+    const printable = await getTripDayPrintPayloadForUser({
+      userId: viewer.id,
+      tripId: trip.id,
+      dayId: day.id,
+    });
+
+    expect(printable).not.toBeNull();
+    expect(printable?.trip.id).toBe(trip.id);
+    expect(printable?.day.id).toBe(day.id);
+  });
+
+  it("returns no previousStay entry for the first day of a trip", async () => {
+    const user = await prisma.user.create({
+      data: {
+        email: "trip-print-first-day@example.com",
+        passwordHash: "hashed",
+        role: "OWNER",
+      },
+    });
+
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "First Day Trip",
+      startDate: "2026-11-10T00:00:00.000Z",
+      endDate: "2026-11-10T00:00:00.000Z",
+    });
+
+    const [day1] = await prisma.tripDay.findMany({
+      where: { tripId: trip.id },
+      orderBy: { dayIndex: "asc" },
+    });
+
+    await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: day1.id,
+        title: "Morning walk",
+        fromTime: "09:00",
+        toTime: "10:00",
+        contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Walk" }] }] }),
+        linkUrl: null,
+      },
+    });
+
+    const printable = await getTripDayPrintPayloadForUser({
+      userId: user.id,
+      tripId: trip.id,
+      dayId: day1.id,
+    });
+
+    expect(printable).not.toBeNull();
+    const kinds = printable?.timeline.map((e) => e.kind) ?? [];
+    expect(kinds).not.toContain("previousStay");
+    expect(kinds).toContain("planItem");
   });
 
   it("returns export days ordered by dayIndex then date", async () => {

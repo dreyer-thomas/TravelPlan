@@ -4212,4 +4212,69 @@ describe("TripDayView layout", () => {
 
     vi.unstubAllGlobals();
   });
+
+  it("renders a print/export link that navigates to the day print page", async () => {
+    navigationMockState.search = "";
+    const fetchMock = withBucketList(async (input) => {
+      const url = String(input);
+      if (url.includes("/accommodations/images") || url.includes("/day-plan-items/images")) {
+        return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
+      }
+      if (url.includes("/days/day-1/route")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { points: [], route: { polyline: [], distanceMeters: null, durationSeconds: null } }, error: null }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              accessRole: "owner",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-01T00:00:00.000Z",
+              dayCount: 1,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: null,
+                dayPlanItems: [],
+                travelSegments: [],
+                feedback: { targetType: "tripDay", targetId: "day-1", comments: [], voteSummary: { upCount: 0, downCount: 0, userVote: null } },
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-1" />
+      </I18nProvider>,
+    );
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    const printLink = screen.getByRole("link", { name: /print|export/i });
+    expect(printLink).toHaveAttribute("href", "/trips/trip-1/days/day-1/print");
+
+    vi.unstubAllGlobals();
+  });
 });

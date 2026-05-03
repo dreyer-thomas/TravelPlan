@@ -31,8 +31,6 @@ import {
   deriveCoverageSummary,
 } from "@/components/features/trips/TripDayGanttSegments";
 import TripDayMapPanel, {
-  buildDayMapPanelData,
-  buildTripDayMapItems,
   type TripDayMapPoint,
 } from "@/components/features/trips/TripDayMapPanel";
 import TripDayBucketListPanel from "@/components/features/trips/TripDayBucketListPanel";
@@ -42,6 +40,7 @@ import TripFeedbackPanel, { type FeedbackSummary } from "@/components/features/t
 import { MiniImageStrip, PlanItemRichContent, isSafeLink, parsePlanText } from "@/components/features/trips/TripDayPlanItemContent";
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
+import { buildDayMapPanelData, buildTripDayMapItems } from "@/lib/trips/dayMapData";
 
 type ApiEnvelope<T> = {
   data: T | null;
@@ -1302,14 +1301,15 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     () => {
       const mapItems = buildTripDayMapItems({
         previousStay: previousStay ? { id: previousStay.id, name: previousStay.name, location: previousStay.location } : null,
-        planItems: planItems.map((item) => ({
+        planItems: planItems.map((item, index) => ({
           id: item.id,
-          title: item.title,
-          contentJson: item.contentJson,
+          label:
+            item.title?.trim() ||
+            parsePlanText(item.contentJson) ||
+            formatMessage(t("trips.dayView.budgetItemPlan"), { index: index + 1 }),
           location: item.location,
         })),
         currentStay: currentStay ? { id: currentStay.id, name: currentStay.name, location: currentStay.location } : null,
-        getPlanItemFallbackLabel: (index) => formatMessage(t("trips.dayView.budgetItemPlan"), { index }),
       });
       return buildDayMapPanelData(mapItems);
     },
@@ -1489,6 +1489,17 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                       {t("trips.dayView.nextAction")}
                     </Button>
                   )}
+                  <Button
+                    component={Link}
+                    href={`/trips/${tripId}/days/${day.id}/print`}
+                    variant="text"
+                    size="small"
+                    aria-label={t("trips.dayView.printAria")}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {t("trips.dayView.printAction")}
+                  </Button>
                 </Box>
                 <Box display="flex" flexDirection="column" gap={0.5}>
                   <Box display="flex" alignItems="center" gap={0.5} flexWrap="wrap">
