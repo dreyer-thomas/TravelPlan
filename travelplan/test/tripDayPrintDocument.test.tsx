@@ -142,6 +142,26 @@ describe("TripDayPrintDocument", () => {
     expect(mapImg).toHaveAttribute("src", expect.stringContaining("staticmap.openstreetmap.de"));
   });
 
+  it("renders a Google Maps navigation link when map points are present", () => {
+    const payload = basePayload({
+      map: {
+        points: [
+          { id: "stay-1", label: "Hotel", kind: "currentStay", position: [48.1, 11.5], order: 0 },
+          { id: "item-1", label: "Museum", kind: "planItem", position: [48.2, 11.6], order: 1 },
+        ],
+        missingLocations: [],
+      },
+    });
+
+    render(<TripDayPrintDocument payload={payload} />);
+
+    const mapLink = screen.getByTestId("print-map-link");
+    expect(mapLink).toBeInTheDocument();
+    const href = mapLink.getAttribute("href")!;
+    expect(href).toContain("google.com/maps/dir");
+    expect(href.indexOf("48.100000")).toBeLessThan(href.indexOf("48.200000"));
+  });
+
   it("falls back to text-only itinerary when no map points are present", () => {
     const payload = basePayload({
       timeline: [
@@ -172,6 +192,36 @@ describe("TripDayPrintDocument", () => {
     const segEntry = allEntries.find((el) => el.getAttribute("data-kind") === "travelSegment");
     expect(segEntry).toBeInTheDocument();
     expect(screen.getByText(/45/)).toBeInTheDocument();
+  });
+
+  it("shows from and to location names derived from adjacent timeline entries", () => {
+    const payload = basePayload({
+      timeline: [
+        { kind: "planItem", item: makeItem({ id: "item-a", title: "City Museum" }) },
+        { kind: "travelSegment", segment: makeSegment() },
+        { kind: "currentStay", stay: makeStay({ id: "stay-b", name: "Harbor Hotel" }) },
+      ],
+    });
+
+    render(<TripDayPrintDocument payload={payload} />);
+
+    const routeLabel = screen.getByTestId("print-segment-route");
+    expect(routeLabel).toBeInTheDocument();
+    expect(routeLabel).toHaveTextContent("City Museum");
+    expect(routeLabel).toHaveTextContent("Harbor Hotel");
+    expect(routeLabel).toHaveTextContent("→");
+  });
+
+  it("omits route label when adjacent entries have no usable names", () => {
+    const payload = basePayload({
+      timeline: [
+        { kind: "travelSegment", segment: makeSegment() },
+      ],
+    });
+
+    render(<TripDayPrintDocument payload={payload} />);
+
+    expect(screen.queryByTestId("print-segment-route")).not.toBeInTheDocument();
   });
 
   it("renders the full timeline even when all stays and items have no images or locations", () => {

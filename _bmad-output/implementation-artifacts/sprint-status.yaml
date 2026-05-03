@@ -119,4 +119,6 @@ development_status:
   6-4-fix-day-view-accommodation-cost-duplication: done
   6-5-auto-fill-travel-segments-from-google-maps: done
   6-6-match-day-item-photo-ux-to-accommodations: done
-  epic-6-retrospective: optional
+  6-7-move-or-swap-day-activities-between-dates: done
+  6-8-export-day-itinerary-pdf-for-offline-use: done
+  epic-6-retrospective: done

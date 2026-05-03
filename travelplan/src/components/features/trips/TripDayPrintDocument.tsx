@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo } from "react";
-import type { TripDayPrintPayload } from "@/lib/repositories/tripRepo";
+import type { TripDayPrintPayload, TripDayPrintTimelineEntry } from "@/lib/repositories/tripRepo";
 import { parsePlanText } from "@/components/features/trips/TripDayPlanItemContent";
 import type { TripDayMapPoint } from "@/lib/trips/dayMapData";
 
@@ -25,6 +25,30 @@ const PRINT_MAX_CHARS = 300;
 const truncateText = (text: string) =>
   text.length > PRINT_MAX_CHARS ? `${text.slice(0, PRINT_MAX_CHARS).trimEnd()}…` : text;
 
+const GOOGLE_MAPS_MAX_STOPS = 9;
+
+const buildGoogleMapsUrl = (points: TripDayMapPoint[]): string | null => {
+  if (points.length < 2) return null;
+  const ordered = [...points].sort((a, b) => a.order - b.order);
+  let sampled: typeof ordered;
+  if (ordered.length <= GOOGLE_MAPS_MAX_STOPS) {
+    sampled = ordered;
+  } else {
+    const mid = ordered.slice(1, -1);
+    const step = Math.ceil(mid.length / (GOOGLE_MAPS_MAX_STOPS - 2));
+    sampled = [ordered[0], ...mid.filter((_, i) => i % step === 0), ordered[ordered.length - 1]];
+  }
+  const stops = sampled.map((p) => `${p.position[0].toFixed(6)},${p.position[1].toFixed(6)}`);
+  return `https://www.google.com/maps/dir/${stops.join("/")}`;
+};
+
+const getEntryDisplayName = (entry: TripDayPrintTimelineEntry | undefined): string | null => {
+  if (!entry) return null;
+  if (entry.kind === "planItem") return entry.item.title?.trim() || null;
+  if (entry.kind === "previousStay" || entry.kind === "currentStay") return entry.stay.name.trim() || null;
+  return null;
+};
+
 const buildStaticMapUrl = (points: TripDayMapPoint[]): string | null => {
   if (points.length === 0) return null;
   const lats = points.map((p) => p.position[0]);
@@ -46,6 +70,7 @@ export default function TripDayPrintDocument({ payload, onReady }: TripDayPrintD
   const { trip, day, timeline, map } = payload;
 
   const staticMapUrl = useMemo(() => buildStaticMapUrl(map.points), [map.points]);
+  const googleMapsUrl = useMemo(() => buildGoogleMapsUrl(map.points), [map.points]);
   const hasMapPoints = map.points.length > 0;
 
   const formattedDate = new Intl.DateTimeFormat("en-US", {
@@ -145,6 +170,19 @@ export default function TripDayPrintDocument({ payload, onReady }: TripDayPrintD
                 display: "block",
               }}
             />
+            {googleMapsUrl && (
+              <div style={{ fontSize: "10px", marginTop: "5px", color: "#555" }}>
+                <a
+                  data-testid="print-map-link"
+                  href={googleMapsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: "#333", wordBreak: "break-all" }}
+                >
+                  Navigate in Google Maps ↗
+                </a>
+              </div>
+            )}
           </div>
         )}
 
@@ -174,6 +212,8 @@ export default function TripDayPrintDocument({ payload, onReady }: TripDayPrintD
               const duration = formatDuration(seg.durationMinutes);
               const distance = seg.distanceKm != null && seg.distanceKm > 0 ? `${seg.distanceKm} km` : null;
               const label = [transport, duration, distance].filter(Boolean).join(" · ");
+              const fromName = getEntryDisplayName(timeline[index - 1]);
+              const toName = getEntryDisplayName(timeline[index + 1]);
               return (
                 <div
                   key={`seg-${index}`}
@@ -181,15 +221,25 @@ export default function TripDayPrintDocument({ payload, onReady }: TripDayPrintD
                   data-kind="travelSegment"
                   style={{
                     display: "flex",
-                    alignItems: "center",
+                    alignItems: "flex-start",
                     gap: "8px",
                     padding: "4px 8px",
                     color: "#555",
                     fontSize: "11px",
                   }}
                 >
-                  <span style={{ borderLeft: "2px dashed #aaa", height: "14px", display: "inline-block" }} />
-                  <span>{label}</span>
+                  <span style={{ borderLeft: "2px dashed #aaa", height: "14px", display: "inline-block", marginTop: "2px", flexShrink: 0 }} />
+                  <span>
+                    <span>{label}</span>
+                    {(fromName || toName) && (
+                      <span
+                        data-testid="print-segment-route"
+                        style={{ display: "block", fontSize: "10px", color: "#888", marginTop: "1px" }}
+                      >
+                        {fromName ?? "—"} → {toName ?? "—"}
+                      </span>
+                    )}
+                  </span>
                 </div>
               );
             }
