@@ -123,7 +123,7 @@ describe("TripDayPrintDocument", () => {
     expect(screen.queryByTestId("print-image-strip")).not.toBeInTheDocument();
   });
 
-  it("renders the map section as a static image when map points are present", () => {
+  it("renders the map section with a navigation link when map points are present", () => {
     const payload = basePayload({
       map: {
         points: [
@@ -137,9 +137,7 @@ describe("TripDayPrintDocument", () => {
     render(<TripDayPrintDocument payload={payload} />);
 
     expect(screen.getByTestId("print-map-section")).toBeInTheDocument();
-    const mapImg = screen.getByTestId("print-map-img");
-    expect(mapImg).toBeInTheDocument();
-    expect(mapImg).toHaveAttribute("src", expect.stringContaining("staticmap.openstreetmap.de"));
+    expect(screen.queryByTestId("print-map-img")).not.toBeInTheDocument();
   });
 
   it("renders a Google Maps navigation link when map points are present", () => {
@@ -302,37 +300,19 @@ describe("TripDayPrintDocument", () => {
       await waitFor(() => expect(onReady).toHaveBeenCalledTimes(1));
     });
 
-    it("calls onReady when the map image fires onLoad", async () => {
+    it("calls onReady after mount when map points are present", async () => {
       const onReady = vi.fn();
       const payload = basePayload({
         map: {
-          points: [{ id: "p1", label: "A", kind: "planItem", position: [48.0, 11.0], order: 0 }],
+          points: [
+            { id: "p1", label: "A", kind: "planItem", position: [48.0, 11.0], order: 0 },
+            { id: "p2", label: "B", kind: "planItem", position: [48.1, 11.1], order: 1 },
+          ],
           missingLocations: [],
         },
       });
 
       render(<TripDayPrintDocument payload={payload} onReady={onReady} />);
-
-      const mapImg = screen.getByTestId("print-map-img") as HTMLImageElement;
-      mapImg.dispatchEvent(new Event("load"));
-
-      await waitFor(() => expect(onReady).toHaveBeenCalledTimes(1));
-    });
-
-    it("calls onReady when the map image fires onError", async () => {
-      const onReady = vi.fn();
-      const payload = basePayload({
-        map: {
-          points: [{ id: "p1", label: "A", kind: "planItem", position: [48.0, 11.0], order: 0 }],
-          missingLocations: [],
-        },
-      });
-
-      render(<TripDayPrintDocument payload={payload} onReady={onReady} />);
-
-      const mapImg = screen.getByTestId("print-map-img") as HTMLImageElement;
-      mapImg.dispatchEvent(new Event("error"));
-
       await waitFor(() => expect(onReady).toHaveBeenCalledTimes(1));
     });
   });

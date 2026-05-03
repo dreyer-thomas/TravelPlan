@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import type { TripDayPrintPayload, TripDayPrintTimelineEntry } from "@/lib/repositories/tripRepo";
 import { parsePlanText } from "@/components/features/trips/TripDayPlanItemContent";
 import type { TripDayMapPoint } from "@/lib/trips/dayMapData";
@@ -49,17 +49,6 @@ const getEntryDisplayName = (entry: TripDayPrintTimelineEntry | undefined): stri
   return null;
 };
 
-const buildStaticMapUrl = (points: TripDayMapPoint[]): string | null => {
-  if (points.length === 0) return null;
-  const lats = points.map((p) => p.position[0]);
-  const lngs = points.map((p) => p.position[1]);
-  const centerLat = ((Math.min(...lats) + Math.max(...lats)) / 2).toFixed(6);
-  const centerLng = ((Math.min(...lngs) + Math.max(...lngs)) / 2).toFixed(6);
-  const markerStr = points
-    .map((p) => `${p.position[0].toFixed(6)},${p.position[1].toFixed(6)},ol-marker`)
-    .join("|");
-  return `https://staticmap.openstreetmap.de/staticmap.php?center=${centerLat},${centerLng}&zoom=11&size=600x280&markers=${markerStr}`;
-};
 
 type TripDayPrintDocumentProps = {
   payload: TripDayPrintPayload;
@@ -69,7 +58,6 @@ type TripDayPrintDocumentProps = {
 export default function TripDayPrintDocument({ payload, onReady }: TripDayPrintDocumentProps) {
   const { trip, day, timeline, map } = payload;
 
-  const staticMapUrl = useMemo(() => buildStaticMapUrl(map.points), [map.points]);
   const googleMapsUrl = useMemo(() => buildGoogleMapsUrl(map.points), [map.points]);
   const hasMapPoints = map.points.length > 0;
 
@@ -84,15 +72,9 @@ export default function TripDayPrintDocument({ payload, onReady }: TripDayPrintD
     ? `Day ${day.dayIndex}: ${day.note.trim()}`
     : `Day ${day.dayIndex}`;
 
-  const handleMapSettled = useCallback(() => {
+  useEffect(() => {
     onReady?.();
   }, [onReady]);
-
-  useEffect(() => {
-    if (!hasMapPoints) {
-      onReady?.();
-    }
-  }, [hasMapPoints, onReady]);
 
   return (
     <>
@@ -136,8 +118,8 @@ export default function TripDayPrintDocument({ payload, onReady }: TripDayPrintD
           <div style={{ fontSize: "12px", color: "#444" }}>{formattedDate}</div>
         </div>
 
-        {/* Map section — static snapshot, embedded in PDF on save */}
-        {hasMapPoints && staticMapUrl && (
+        {/* Map section — navigation link for offline use */}
+        {hasMapPoints && googleMapsUrl && (
           <div
             data-testid="print-map-section"
             className="print-no-break print-map"
@@ -155,34 +137,17 @@ export default function TripDayPrintDocument({ payload, onReady }: TripDayPrintD
             >
               Day route
             </div>
-            <img
-              data-testid="print-map-img"
-              src={staticMapUrl}
-              alt="Day route map"
-              onLoad={handleMapSettled}
-              onError={handleMapSettled}
-              style={{
-                width: "100%",
-                height: "220px",
-                objectFit: "cover",
-                borderRadius: "4px",
-                border: "1px solid #ccc",
-                display: "block",
-              }}
-            />
-            {googleMapsUrl && (
-              <div style={{ fontSize: "10px", marginTop: "5px", color: "#555" }}>
-                <a
-                  data-testid="print-map-link"
-                  href={googleMapsUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ color: "#333", wordBreak: "break-all" }}
-                >
-                  Navigate in Google Maps ↗
-                </a>
-              </div>
-            )}
+            <div style={{ fontSize: "11px", color: "#333" }}>
+              <a
+                data-testid="print-map-link"
+                href={googleMapsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: "#333", wordBreak: "break-all" }}
+              >
+                Navigate in Google Maps ↗
+              </a>
+            </div>
           </div>
         )}
 
