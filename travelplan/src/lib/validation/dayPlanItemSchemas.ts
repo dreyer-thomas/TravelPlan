@@ -158,3 +158,22 @@ export const dayPlanItemDeleteSchema = z.object({
 });
 
 export type DayPlanItemDeleteInput = z.infer<typeof dayPlanItemDeleteSchema>;
+
+export const dayActivityTransferSchema = z
+  .object({
+    operation: z.enum(["move", "swap"]),
+    sourceTripDayId: z.string().trim().min(1, "Source day is required"),
+    targetTripDayId: z.string().trim().min(1, "Target day is required"),
+    confirmOverwrite: z.boolean().optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.sourceTripDayId === value.targetTripDayId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["targetTripDayId"],
+        message: "Source and target days must be different",
+      });
+    }
+  });
+
+export type DayActivityTransferInput = z.infer<typeof dayActivityTransferSchema>;

@@ -5,6 +5,8 @@ import {
   createDayPlanItemForTripDay,
   deleteDayPlanItemForTripDay,
   listDayPlanItemsForTripDay,
+  moveDayPlanItemsBetweenTripDays,
+  swapDayPlanItemsBetweenTripDays,
   updateDayPlanItemForTripDay,
 } from "@/lib/repositories/dayPlanItemRepo";
 
@@ -36,6 +38,35 @@ const createTripWithDay = async (userId: string) => {
   });
 
   return { trip, day };
+};
+
+const createTripWithDays = async (userId: string) => {
+  const trip = await prisma.trip.create({
+    data: {
+      userId,
+      name: "Plan Trip",
+      startDate: new Date("2026-11-05T00:00:00.000Z"),
+      endDate: new Date("2026-11-06T00:00:00.000Z"),
+    },
+  });
+
+  const firstDay = await prisma.tripDay.create({
+    data: {
+      tripId: trip.id,
+      date: new Date("2026-11-05T00:00:00.000Z"),
+      dayIndex: 1,
+    },
+  });
+
+  const secondDay = await prisma.tripDay.create({
+    data: {
+      tripId: trip.id,
+      date: new Date("2026-11-06T00:00:00.000Z"),
+      dayIndex: 2,
+    },
+  });
+
+  return { trip, firstDay, secondDay };
 };
 
 const sampleDoc = (text: string) =>
@@ -463,5 +494,270 @@ describe("dayPlanItemRepo", () => {
 
     expect(deleted.status).toBe("not_found");
     expect(await prisma.dayPlanItem.count()).toBe(1);
+  });
+
+  it("moves all activities to another day, preserves identity, keeps accommodations, and clears affected segments", async () => {
+    const user = await createUser("plan-move@example.com");
+    const { trip, firstDay, secondDay } = await createTripWithDays(user.id);
+
+    const sourceAccommodation = await prisma.accommodation.create({
+      data: {
+        tripDayId: firstDay.id,
+        name: "Source Stay",
+        status: "PLANNED",
+      },
+    });
+    const targetAccommodation = await prisma.accommodation.create({
+      data: {
+        tripDayId: secondDay.id,
+        name: "Target Stay",
+        status: "BOOKED",
+      },
+    });
+
+    const sourceItemA = await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: firstDay.id,
+        title: "Source A",
+        fromTime: "09:00",
+        toTime: "10:00",
+        contentJson: sampleDoc("Source A"),
+      },
+    });
+    const sourceItemB = await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: firstDay.id,
+        title: "Source B",
+        fromTime: "11:00",
+        toTime: "12:00",
+        contentJson: sampleDoc("Source B"),
+      },
+    });
+    const targetItem = await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: secondDay.id,
+        title: "Target Existing",
+        fromTime: "14:00",
+        toTime: "15:00",
+        contentJson: sampleDoc("Target Existing"),
+      },
+    });
+
+    await prisma.costPayment.create({
+      data: {
+        dayPlanItemId: sourceItemA.id,
+        amountCents: 1500,
+        dueDate: "2026-11-01",
+        sortOrder: 0,
+      },
+    });
+    await prisma.dayPlanItemImage.create({
+      data: {
+        dayPlanItemId: sourceItemA.id,
+        imageUrl: "https://example.com/source-a.jpg",
+        sortOrder: 1,
+      },
+    });
+    await prisma.travelSegment.createMany({
+      data: [
+        {
+          tripDayId: firstDay.id,
+          fromItemType: "ACCOMMODATION",
+          fromItemId: sourceAccommodation.id,
+          toItemType: "DAY_PLAN_ITEM",
+          toItemId: sourceItemA.id,
+          transportType: "CAR",
+          durationMinutes: 15,
+        },
+        {
+          tripDayId: secondDay.id,
+          fromItemType: "DAY_PLAN_ITEM",
+          fromItemId: targetItem.id,
+          toItemType: "ACCOMMODATION",
+          toItemId: targetAccommodation.id,
+          transportType: "CAR",
+          durationMinutes: 20,
+        },
+      ],
+    });
+
+    const result = await moveDayPlanItemsBetweenTripDays({
+      userId: user.id,
+      tripId: trip.id,
+      sourceTripDayId: firstDay.id,
+      targetTripDayId: secondDay.id,
+    });
+
+    expect(result.status).toBe("moved");
+    if (result.status !== "moved") return;
+
+    expect(result.movedItemIds).toEqual([sourceItemA.id, sourceItemB.id]);
+    expect(result.removedTargetItemIds).toEqual([targetItem.id]);
+
+    const sourceDayItems = await prisma.dayPlanItem.findMany({ where: { tripDayId: firstDay.id } });
+    const targetDayItems = await prisma.dayPlanItem.findMany({
+      where: { tripDayId: secondDay.id },
+      orderBy: { fromTime: "asc" },
+    });
+    expect(sourceDayItems).toHaveLength(0);
+    expect(targetDayItems.map((item) => item.id)).toEqual([sourceItemA.id, sourceItemB.id]);
+
+    expect(await prisma.dayPlanItem.findUnique({ where: { id: targetItem.id } })).toBeNull();
+    expect(await prisma.accommodation.findUnique({ where: { id: sourceAccommodation.id } })).not.toBeNull();
+    expect(await prisma.accommodation.findUnique({ where: { id: targetAccommodation.id } })).not.toBeNull();
+    expect(await prisma.costPayment.count({ where: { dayPlanItemId: sourceItemA.id } })).toBe(1);
+    expect(await prisma.dayPlanItemImage.count({ where: { dayPlanItemId: sourceItemA.id } })).toBe(1);
+    expect(
+      await prisma.travelSegment.count({
+        where: { tripDayId: { in: [firstDay.id, secondDay.id] } },
+      }),
+    ).toBe(0);
+  });
+
+  it("swaps activity sets between two days and keeps accommodations untouched", async () => {
+    const user = await createUser("plan-swap@example.com");
+    const { trip, firstDay, secondDay } = await createTripWithDays(user.id);
+
+    await prisma.accommodation.create({
+      data: {
+        tripDayId: firstDay.id,
+        name: "First Stay",
+        status: "PLANNED",
+      },
+    });
+    await prisma.accommodation.create({
+      data: {
+        tripDayId: secondDay.id,
+        name: "Second Stay",
+        status: "PLANNED",
+      },
+    });
+
+    const firstItem = await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: firstDay.id,
+        title: "First Item",
+        fromTime: "09:00",
+        toTime: "10:00",
+        contentJson: sampleDoc("First Item"),
+      },
+    });
+    const secondItem = await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: secondDay.id,
+        title: "Second Item",
+        fromTime: "13:00",
+        toTime: "14:00",
+        contentJson: sampleDoc("Second Item"),
+      },
+    });
+
+    const result = await swapDayPlanItemsBetweenTripDays({
+      userId: user.id,
+      tripId: trip.id,
+      firstTripDayId: firstDay.id,
+      secondTripDayId: secondDay.id,
+    });
+
+    expect(result.status).toBe("swapped");
+    if (result.status !== "swapped") return;
+
+    expect(result.firstDayItemIds).toEqual([secondItem.id]);
+    expect(result.secondDayItemIds).toEqual([firstItem.id]);
+
+    const refreshedFirst = await prisma.dayPlanItem.findUnique({ where: { id: firstItem.id } });
+    const refreshedSecond = await prisma.dayPlanItem.findUnique({ where: { id: secondItem.id } });
+    expect(refreshedFirst?.tripDayId).toBe(secondDay.id);
+    expect(refreshedSecond?.tripDayId).toBe(firstDay.id);
+    expect(await prisma.accommodation.count()).toBe(2);
+  });
+
+  it("supports swapping with an empty day", async () => {
+    const user = await createUser("plan-swap-empty@example.com");
+    const { trip, firstDay, secondDay } = await createTripWithDays(user.id);
+
+    const firstItem = await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: firstDay.id,
+        title: "Only Item",
+        fromTime: "09:00",
+        toTime: "10:00",
+        contentJson: sampleDoc("Only Item"),
+      },
+    });
+
+    const result = await swapDayPlanItemsBetweenTripDays({
+      userId: user.id,
+      tripId: trip.id,
+      firstTripDayId: firstDay.id,
+      secondTripDayId: secondDay.id,
+    });
+
+    expect(result.status).toBe("swapped");
+    expect(await prisma.dayPlanItem.count({ where: { tripDayId: firstDay.id } })).toBe(0);
+    expect(await prisma.dayPlanItem.count({ where: { tripDayId: secondDay.id } })).toBe(1);
+    expect(await prisma.dayPlanItem.findUnique({ where: { id: firstItem.id } })).toMatchObject({ tripDayId: secondDay.id });
+  });
+
+  it("rejects same-day move and swap requests without mutating data", async () => {
+    const user = await createUser("plan-same-day@example.com");
+    const { trip, day } = await createTripWithDay(user.id);
+
+    const item = await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: day.id,
+        title: "Original",
+        fromTime: "09:00",
+        toTime: "10:00",
+        contentJson: sampleDoc("Original"),
+      },
+    });
+
+    const moveResult = await moveDayPlanItemsBetweenTripDays({
+      userId: user.id,
+      tripId: trip.id,
+      sourceTripDayId: day.id,
+      targetTripDayId: day.id,
+    });
+    const swapResult = await swapDayPlanItemsBetweenTripDays({
+      userId: user.id,
+      tripId: trip.id,
+      firstTripDayId: day.id,
+      secondTripDayId: day.id,
+    });
+
+    expect(moveResult.status).toBe("validation_error");
+    expect(swapResult.status).toBe("validation_error");
+    expect(await prisma.dayPlanItem.findUnique({ where: { id: item.id } })).toMatchObject({ tripDayId: day.id });
+  });
+
+  it("rejects move and swap when the user lacks writer access", async () => {
+    const owner = await createUser("plan-owner-transfer@example.com");
+    const viewer = await createUser("plan-viewer-transfer@example.com");
+    const { trip, firstDay, secondDay } = await createTripWithDays(owner.id);
+
+    await prisma.tripMember.create({
+      data: {
+        tripId: trip.id,
+        userId: viewer.id,
+        role: "VIEWER",
+      },
+    });
+
+    const moveResult = await moveDayPlanItemsBetweenTripDays({
+      userId: viewer.id,
+      tripId: trip.id,
+      sourceTripDayId: firstDay.id,
+      targetTripDayId: secondDay.id,
+    });
+    const swapResult = await swapDayPlanItemsBetweenTripDays({
+      userId: viewer.id,
+      tripId: trip.id,
+      firstTripDayId: firstDay.id,
+      secondTripDayId: secondDay.id,
+    });
+
+    expect(moveResult.status).toBe("not_found");
+    expect(swapResult.status).toBe("not_found");
   });
 });

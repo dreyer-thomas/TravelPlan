@@ -56,6 +56,20 @@ type DayPlanItemDeleteParams = {
   itemId: string;
 };
 
+type DayPlanItemMoveParams = {
+  userId: string;
+  tripId: string;
+  sourceTripDayId: string;
+  targetTripDayId: string;
+};
+
+type DayPlanItemSwapParams = {
+  userId: string;
+  tripId: string;
+  firstTripDayId: string;
+  secondTripDayId: string;
+};
+
 type DayPlanItemConversionParams = DayPlanItemMutationParams & { bucketListItemId: string };
 
 export type DayPlanItemImageDetail = {
@@ -96,6 +110,16 @@ export type DayPlanItemImageReorderResult =
   | { status: "missing" }
   | { status: "reordered" };
 
+export type DayPlanItemMoveResult =
+  | { status: "not_found" }
+  | { status: "validation_error"; code: "same_day"; message: string }
+  | { status: "moved"; movedItemIds: string[]; removedTargetItemIds: string[] };
+
+export type DayPlanItemSwapResult =
+  | { status: "not_found" }
+  | { status: "validation_error"; code: "same_day"; message: string }
+  | { status: "swapped"; firstDayItemIds: string[]; secondDayItemIds: string[] };
+
 const findTripDayForUser = async (userId: string, tripId: string, tripDayId: string) =>
   prisma.tripDay.findFirst({
     where: {
@@ -125,6 +149,22 @@ const findTripDayForTripWriter = async (userId: string, tripId: string, tripDayI
         OR: [{ userId }, { members: { some: { userId, role: "CONTRIBUTOR" } } }],
       },
     },
+  });
+
+const findTransferTripDaysForWriter = async (
+  userId: string,
+  tripId: string,
+  tripDayIds: string[],
+) =>
+  prisma.tripDay.findMany({
+    where: {
+      id: { in: tripDayIds },
+      tripId,
+      trip: {
+        OR: [{ userId }, { members: { some: { userId, role: "CONTRIBUTOR" } } }],
+      },
+    },
+    select: { id: true },
   });
 
 const findScopedDayPlanItem = async ({ userId, tripId, tripDayId, dayPlanItemId }: DayPlanItemImageScopeParams) =>
@@ -460,6 +500,99 @@ export const deleteDayPlanItemForTripDay = async (
 
   await prisma.dayPlanItem.delete({ where: { id: existing.id } });
   return { status: "deleted" };
+};
+
+export const moveDayPlanItemsBetweenTripDays = async (
+  params: DayPlanItemMoveParams,
+): Promise<DayPlanItemMoveResult> => {
+  const { userId, tripId, sourceTripDayId, targetTripDayId } = params;
+  if (sourceTripDayId === targetTripDayId) {
+    return {
+      status: "validation_error",
+      code: "same_day",
+      message: "Source and target days must be different",
+    };
+  }
+
+  const tripDays = await findTransferTripDaysForWriter(userId, tripId, [sourceTripDayId, targetTripDayId]);
+  if (tripDays.length !== 2) {
+    return { status: "not_found" };
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const sourceItems = await tx.dayPlanItem.findMany({
+      where: { tripDayId: sourceTripDayId },
+      select: { id: true },
+    });
+    const targetItems = await tx.dayPlanItem.findMany({
+      where: { tripDayId: targetTripDayId },
+      select: { id: true },
+    });
+
+    await tx.travelSegment.deleteMany({
+      where: { tripDayId: { in: [sourceTripDayId, targetTripDayId] } },
+    });
+    await tx.dayPlanItem.deleteMany({
+      where: { id: { in: targetItems.map((item) => item.id) } },
+    });
+    await tx.dayPlanItem.updateMany({
+      where: { id: { in: sourceItems.map((item) => item.id) } },
+      data: { tripDayId: targetTripDayId },
+    });
+
+    return {
+      status: "moved" as const,
+      movedItemIds: sourceItems.map((item) => item.id),
+      removedTargetItemIds: targetItems.map((item) => item.id),
+    };
+  });
+};
+
+export const swapDayPlanItemsBetweenTripDays = async (
+  params: DayPlanItemSwapParams,
+): Promise<DayPlanItemSwapResult> => {
+  const { userId, tripId, firstTripDayId, secondTripDayId } = params;
+  if (firstTripDayId === secondTripDayId) {
+    return {
+      status: "validation_error",
+      code: "same_day",
+      message: "Source and target days must be different",
+    };
+  }
+
+  const tripDays = await findTransferTripDaysForWriter(userId, tripId, [firstTripDayId, secondTripDayId]);
+  if (tripDays.length !== 2) {
+    return { status: "not_found" };
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const firstDayItems = await tx.dayPlanItem.findMany({
+      where: { tripDayId: firstTripDayId },
+      select: { id: true },
+    });
+    const secondDayItems = await tx.dayPlanItem.findMany({
+      where: { tripDayId: secondTripDayId },
+      select: { id: true },
+    });
+
+    await tx.travelSegment.deleteMany({
+      where: { tripDayId: { in: [firstTripDayId, secondTripDayId] } },
+    });
+    await tx.dayPlanItem.updateMany({
+      where: { id: { in: firstDayItems.map((item) => item.id) } },
+      data: { tripDayId: secondTripDayId },
+    });
+    await tx.dayPlanItem.updateMany({
+      where: { id: { in: secondDayItems.map((item) => item.id) } },
+      data: { tripDayId: firstTripDayId },
+    });
+
+    return {
+      status: "swapped" as const,
+      firstDayItemIds: secondDayItems.map((item) => item.id),
+      secondDayItemIds: firstDayItems.map((item) => item.id),
+    };
+  });
 };
 
 export const listDayPlanItemImages = async (

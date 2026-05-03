@@ -2280,6 +2280,403 @@ describe("TripDayView layout", () => {
     vi.unstubAllGlobals();
   });
 
+  it("shows an overwrite warning before moving activities to a populated target day", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const transferBodies: Array<{ operation: string; confirmOverwrite?: boolean }> = [];
+
+    const tripState = {
+      trip: {
+        id: "trip-1",
+        name: "Trip",
+        accessRole: "owner" as const,
+        startDate: "2026-12-01T00:00:00.000Z",
+        endDate: "2026-12-02T00:00:00.000Z",
+        dayCount: 2,
+        accommodationCostTotalCents: null,
+        heroImageUrl: null,
+      },
+      days: [
+        {
+          id: "day-1",
+          date: "2026-12-01T00:00:00.000Z",
+          dayIndex: 1,
+          plannedCostSubtotal: 0,
+          missingAccommodation: false,
+          missingPlan: false,
+          accommodation: {
+            id: "stay-1",
+            name: "City Hotel",
+            notes: null,
+            status: "planned" as const,
+            costCents: 10000,
+            link: null,
+            checkInTime: "16:00",
+            checkOutTime: "10:00",
+            location: { lat: 48.145, lng: 11.582 },
+          },
+          dayPlanItems: [
+            {
+              id: "plan-1",
+              title: "Museum title",
+              fromTime: "09:00",
+              toTime: "10:00",
+              contentJson: JSON.stringify({
+                type: "doc",
+                content: [{ type: "paragraph", content: [{ type: "text", text: "Body details" }] }],
+              }),
+              costCents: null,
+              linkUrl: null,
+              location: { lat: 48.1372, lng: 11.5756 },
+            },
+          ],
+          travelSegments: [],
+        },
+        {
+          id: "day-2",
+          date: "2026-12-02T00:00:00.000Z",
+          dayIndex: 2,
+          plannedCostSubtotal: 0,
+          missingAccommodation: false,
+          missingPlan: false,
+          accommodation: {
+            id: "stay-2",
+            name: "Lake Hotel",
+            notes: null,
+            status: "booked" as const,
+            costCents: 20000,
+            link: null,
+            checkInTime: "16:00",
+            checkOutTime: "10:00",
+            location: { lat: 47.0, lng: 11.0 },
+          },
+          dayPlanItems: [
+            {
+              id: "plan-2",
+              title: "Target activity",
+              fromTime: "12:00",
+              toTime: "13:00",
+              contentJson: JSON.stringify({
+                type: "doc",
+                content: [{ type: "paragraph", content: [{ type: "text", text: "Target details" }] }],
+              }),
+              costCents: null,
+              linkUrl: null,
+              location: { lat: 47.1, lng: 11.1 },
+            },
+          ],
+          travelSegments: [],
+        },
+      ],
+    };
+
+    const fetchMock = withBucketList(async (input, init) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url === "/api/auth/csrf") {
+        return { ok: true, status: 200, json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }) };
+      }
+      if (url === "/api/trips/trip-1") {
+        return { ok: true, status: 200, json: async () => ({ data: tripState, error: null }) };
+      }
+      if (url === "/api/trips/trip-1/day-plan-items/images?tripDayId=day-1") {
+        return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
+      }
+      if (url.includes("/accommodations/images?tripDayId=day-1")) {
+        return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
+      }
+      if (url.includes("/accommodations/images?tripDayId=day-2")) {
+        return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
+      }
+      if (url === "/api/trips/trip-1/days/day-1/route") {
+        return { ok: true, status: 200, json: async () => ({ data: { route: { polyline: [[48.145, 11.582], [48.1372, 11.5756]] } }, error: null }) };
+      }
+      if (url === "/api/trips/trip-1/day-activity-transfer" && init?.method === "POST") {
+        transferBodies.push(JSON.parse(String(init.body)) as { operation: string; confirmOverwrite?: boolean });
+        return { ok: true, status: 200, json: async () => ({ data: { operation: "move" }, error: null }) };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-1" />
+      </I18nProvider>,
+    );
+
+    expect(await screen.findByText("Museum title")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Move activities" }));
+    expect(await screen.findByRole("heading", { name: "Move activities", level: 2 })).toBeInTheDocument();
+
+    await userEvent.selectOptions(screen.getByLabelText("Target day"), "day-2");
+
+    expect(screen.getByText("Activities already exist on the selected day. Moving will delete them before reassignment.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm move" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Confirm move" }));
+    await waitFor(() => expect(transferBodies).toHaveLength(1));
+    expect(transferBodies[0]).toMatchObject({ operation: "move", confirmOverwrite: true });
+
+    vi.unstubAllGlobals();
+  });
+
+  it("submits move without overwrite confirmation for an empty target day", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+
+    const transferBodies: Array<{ operation: string; confirmOverwrite?: boolean }> = [];
+    const tripState = {
+      trip: {
+        id: "trip-1",
+        name: "Trip",
+        accessRole: "owner" as const,
+        startDate: "2026-12-01T00:00:00.000Z",
+        endDate: "2026-12-02T00:00:00.000Z",
+        dayCount: 2,
+        accommodationCostTotalCents: null,
+        heroImageUrl: null,
+      },
+      days: [
+        {
+          id: "day-1",
+          date: "2026-12-01T00:00:00.000Z",
+          dayIndex: 1,
+          plannedCostSubtotal: 0,
+          missingAccommodation: false,
+          missingPlan: false,
+          accommodation: null,
+          dayPlanItems: [
+            {
+              id: "plan-1",
+              title: "Source activity",
+              fromTime: "09:00",
+              toTime: "10:00",
+              contentJson: JSON.stringify({
+                type: "doc",
+                content: [{ type: "paragraph", content: [{ type: "text", text: "Source details" }] }],
+              }),
+              costCents: null,
+              linkUrl: null,
+              location: null,
+            },
+          ],
+          travelSegments: [],
+        },
+        {
+          id: "day-2",
+          date: "2026-12-02T00:00:00.000Z",
+          dayIndex: 2,
+          plannedCostSubtotal: 0,
+          missingAccommodation: false,
+          missingPlan: false,
+          accommodation: null,
+          dayPlanItems: [],
+          travelSegments: [],
+        },
+      ],
+    };
+
+    const fetchMock = withBucketList(async (input, init) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url === "/api/auth/csrf") {
+        return { ok: true, status: 200, json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }) };
+      }
+      if (url === "/api/trips/trip-1") {
+        return { ok: true, status: 200, json: async () => ({ data: tripState, error: null }) };
+      }
+      if (url === "/api/trips/trip-1/day-plan-items/images?tripDayId=day-1") {
+        return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
+      }
+      if (url.includes("/accommodations/images?tripDayId=day-1")) {
+        return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
+      }
+      if (url === "/api/trips/trip-1/days/day-1/route") {
+        return { ok: true, status: 200, json: async () => ({ data: { route: { polyline: [] } }, error: null }) };
+      }
+      if (url === "/api/trips/trip-1/day-activity-transfer" && init?.method === "POST") {
+        transferBodies.push(JSON.parse(String(init.body)) as { operation: string; confirmOverwrite?: boolean });
+        return { ok: true, status: 200, json: async () => ({ data: { operation: "move" }, error: null }) };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-1" />
+      </I18nProvider>,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Move activities" }));
+    await userEvent.selectOptions(screen.getByLabelText("Target day"), "day-2");
+    await userEvent.click(screen.getByRole("button", { name: "Confirm move" }));
+
+    await waitFor(() => expect(transferBodies).toHaveLength(1));
+    expect(transferBodies[0]).toMatchObject({ operation: "move", confirmOverwrite: false });
+
+    vi.unstubAllGlobals();
+  });
+
+  it("refreshes the day view after swapping activities and keeps accommodation rendering intact", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+
+    const dayOne = {
+      id: "day-1",
+      date: "2026-12-01T00:00:00.000Z",
+      dayIndex: 1,
+      plannedCostSubtotal: 0,
+      missingAccommodation: false,
+      missingPlan: false,
+      accommodation: {
+        id: "stay-1",
+        name: "City Hotel",
+        notes: null,
+        status: "planned" as const,
+        costCents: 10000,
+        link: null,
+        checkInTime: "16:00",
+        checkOutTime: "10:00",
+        location: { lat: 48.145, lng: 11.582 },
+      },
+      dayPlanItems: [
+        {
+          id: "plan-1",
+          title: "Museum title",
+          fromTime: "09:00",
+          toTime: "10:00",
+          contentJson: JSON.stringify({
+            type: "doc",
+            content: [{ type: "paragraph", content: [{ type: "text", text: "Body details" }] }],
+          }),
+          costCents: null,
+          linkUrl: null,
+          location: { lat: 48.1372, lng: 11.5756 },
+        },
+      ],
+      travelSegments: [],
+    };
+    const dayTwo = {
+      id: "day-2",
+      date: "2026-12-02T00:00:00.000Z",
+      dayIndex: 2,
+      plannedCostSubtotal: 0,
+      missingAccommodation: false,
+      missingPlan: false,
+      accommodation: {
+        id: "stay-2",
+        name: "Lake Hotel",
+        notes: null,
+        status: "booked" as const,
+        costCents: 20000,
+        link: null,
+        checkInTime: "16:00",
+        checkOutTime: "10:00",
+        location: { lat: 47.0, lng: 11.0 },
+      },
+      dayPlanItems: [
+        {
+          id: "plan-2",
+          title: "Target activity",
+          fromTime: "12:00",
+          toTime: "13:00",
+          contentJson: JSON.stringify({
+            type: "doc",
+            content: [{ type: "paragraph", content: [{ type: "text", text: "Target details" }] }],
+          }),
+          costCents: null,
+          linkUrl: null,
+          location: { lat: 47.1, lng: 11.1 },
+        },
+      ],
+      travelSegments: [],
+    };
+
+    let tripState = {
+      trip: {
+        id: "trip-1",
+        name: "Trip",
+        accessRole: "owner" as const,
+        startDate: "2026-12-01T00:00:00.000Z",
+        endDate: "2026-12-02T00:00:00.000Z",
+        dayCount: 2,
+        accommodationCostTotalCents: null,
+        heroImageUrl: null,
+      },
+      days: [dayOne, dayTwo],
+    };
+
+    const fetchMock = withBucketList(async (input, init) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url === "/api/auth/csrf") {
+        return { ok: true, status: 200, json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }) };
+      }
+      if (url === "/api/trips/trip-1") {
+        return { ok: true, status: 200, json: async () => ({ data: tripState, error: null }) };
+      }
+      if (url === "/api/trips/trip-1/day-plan-items/images?tripDayId=day-1") {
+        return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
+      }
+      if (url.includes("/accommodations/images?tripDayId=day-1")) {
+        return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
+      }
+      if (url.includes("/accommodations/images?tripDayId=day-2")) {
+        return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
+      }
+      if (url === "/api/trips/trip-1/days/day-1/route") {
+        return { ok: true, status: 200, json: async () => ({ data: { route: { polyline: [[48.145, 11.582], [48.1372, 11.5756]] } }, error: null }) };
+      }
+      if (url === "/api/trips/trip-1/day-activity-transfer" && init?.method === "POST") {
+        tripState = {
+          ...tripState,
+          days: [
+            { ...dayOne, dayPlanItems: [dayTwo.dayPlanItems[0]] },
+            { ...dayTwo, dayPlanItems: [dayOne.dayPlanItems[0]] },
+          ],
+        };
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: {
+              operation: "swap",
+              firstDayItemIds: ["plan-2"],
+              secondDayItemIds: ["plan-1"],
+            },
+            error: null,
+          }),
+        };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayView tripId="trip-1" dayId="day-1" />
+      </I18nProvider>,
+    );
+
+    expect(await screen.findByText("Museum title")).toBeInTheDocument();
+    expect(screen.getAllByText("City Hotel").length).toBeGreaterThan(0);
+
+    await userEvent.click(screen.getByRole("button", { name: "Swap activities" }));
+    expect(await screen.findByRole("heading", { name: "Swap activities", level: 2 })).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText("Target day"), "day-2");
+    await userEvent.click(screen.getByRole("button", { name: "Confirm swap" }));
+
+    await waitFor(() => expect(screen.queryByText("Museum title")).toBeNull());
+    expect(screen.getAllByText("Target activity").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("City Hotel").length).toBeGreaterThan(0);
+
+    vi.unstubAllGlobals();
+  });
+
   it("hides copy previous night action when a current-night accommodation already exists", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";

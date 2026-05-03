@@ -155,6 +155,7 @@ type GalleryImage = {
 type TravelSegment = NonNullable<TripDay["travelSegments"]>[number];
 
 type PlanDialogMode = "add" | "edit";
+type DayActivityTransferMode = "move" | "swap";
 
 type PlanDialogPrefill = {
   title: string;
@@ -275,6 +276,9 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const [routePolyline, setRoutePolyline] = useState<[number, number][]>([]);
   const [routingUnavailable, setRoutingUnavailable] = useState(false);
   const [fullscreenImage, setFullscreenImage] = useState<{ imageUrl: string; alt: string } | null>(null);
+  const [transferMode, setTransferMode] = useState<DayActivityTransferMode | null>(null);
+  const [transferTargetDayId, setTransferTargetDayId] = useState("");
+  const [transferSubmitting, setTransferSubmitting] = useState(false);
   const planItemsRef = useRef<DayPlanItem[]>([]);
   const handledDeepLinkRef = useRef<string | null>(null);
   const scrollRestoreKey = useMemo(() => `trip-day-scroll:${tripId}:${dayId}`, [dayId, tripId]);
@@ -641,6 +645,68 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     }
   };
 
+  const handleOpenTransferDialog = (mode: DayActivityTransferMode) => {
+    if (!canEditPlanning) return;
+    setTransferMode(mode);
+    setTransferTargetDayId("");
+  };
+
+  const handleCloseTransferDialog = () => {
+    if (transferSubmitting) return;
+    setTransferMode(null);
+    setTransferTargetDayId("");
+  };
+
+  const handleSubmitTransfer = useCallback(async () => {
+    if (!day || !transferMode) return;
+    if (!transferTargetDayId || transferTargetDayId === day.id) {
+      setError(t("trips.dayTransfer.sameDayError"));
+      return;
+    }
+
+    setTransferSubmitting(true);
+    setError(null);
+
+    try {
+      const token = await ensureCsrfToken();
+      const response = await fetch(`/api/trips/${tripId}/day-activity-transfer`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "x-csrf-token": token,
+        },
+        body: JSON.stringify({
+          operation: transferMode,
+          sourceTripDayId: day.id,
+          targetTripDayId: transferTargetDayId,
+          confirmOverwrite: transferNeedsOverwriteWarning,
+        }),
+      });
+
+      const body = (await response.json()) as ApiEnvelope<Record<string, unknown>>;
+      if (!response.ok || body.error) {
+        setError(
+          resolveApiError(
+            body.error?.code,
+            transferMode === "move" ? t("trips.dayTransfer.moveError") : t("trips.dayTransfer.swapError"),
+          ),
+        );
+        return;
+      }
+
+      setTransferMode(null);
+      setTransferTargetDayId("");
+      await loadDay();
+    } catch {
+      setError(
+        resolveApiError("network_error", transferMode === "move" ? t("trips.dayTransfer.moveError") : t("trips.dayTransfer.swapError")),
+      );
+    } finally {
+      setTransferSubmitting(false);
+    }
+  }, [day, ensureCsrfToken, loadDay, resolveApiError, t, transferMode, transferTargetDayId, tripId]);
+
   useEffect(() => {
     loadDay();
   }, [loadDay]);
@@ -707,6 +773,19 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     if (currentIndex < 0 || currentIndex >= orderedDays.length - 1) return null;
     return orderedDays[currentIndex + 1] ?? null;
   }, [day, orderedDays]);
+
+  const transferTargetOptions = useMemo(() => {
+    if (!day) return [];
+    return orderedDays.filter((candidate) => candidate.id !== day.id);
+  }, [day, orderedDays]);
+
+  const selectedTransferTargetDay = useMemo(
+    () => transferTargetOptions.find((candidate) => candidate.id === transferTargetDayId) ?? null,
+    [transferTargetDayId, transferTargetOptions],
+  );
+
+  const transferNeedsOverwriteWarning =
+    transferMode === "move" && Boolean(selectedTransferTargetDay && selectedTransferTargetDay.dayPlanItems.length > 0);
 
   useEffect(() => {
     const loadImages = async () => {
@@ -1496,6 +1575,16 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                 </Typography>
                 <Box display="flex" alignItems="center" gap={1}>
                   {canEditPlanning ? (
+                    <Button size="small" variant="outlined" onClick={() => handleOpenTransferDialog("move")}>
+                      {t("trips.dayTransfer.moveAction")}
+                    </Button>
+                  ) : null}
+                  {canEditPlanning ? (
+                    <Button size="small" variant="outlined" onClick={() => handleOpenTransferDialog("swap")}>
+                      {t("trips.dayTransfer.swapAction")}
+                    </Button>
+                  ) : null}
+                  {canEditPlanning ? (
                     <Button size="small" variant="outlined" onClick={() => setStayOpen(true)}>
                       {day.accommodation ? (
                         <>
@@ -1983,6 +2072,48 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
             onClose={handlePlanDialogClose}
             onSaved={handlePlanDialogSaved}
           />
+          <Dialog open={transferMode !== null} onClose={handleCloseTransferDialog} fullWidth maxWidth="sm">
+            <DialogTitle>
+              {transferMode === "move" ? t("trips.dayTransfer.moveAction") : t("trips.dayTransfer.swapAction")}
+            </DialogTitle>
+            <DialogContent>
+              <Box mt={0.5} display="flex" flexDirection="column" gap={1.5}>
+                <Typography variant="body2" color="text.secondary">
+                  {transferMode === "move" ? t("trips.dayTransfer.moveDescription") : t("trips.dayTransfer.swapDescription")}
+                </Typography>
+                <TextField
+                  select
+                  label={t("trips.dayTransfer.targetLabel")}
+                  value={transferTargetDayId}
+                  onChange={(event) => setTransferTargetDayId(event.target.value)}
+                  fullWidth
+                  SelectProps={{ native: true }}
+                >
+                  <option value="" />
+                  {transferTargetOptions.map((candidate) => (
+                    <option key={candidate.id} value={candidate.id}>
+                      {formatMessage(t("trips.dayView.title"), { index: candidate.dayIndex })} · {formatDate(candidate.date)}
+                    </option>
+                  ))}
+                </TextField>
+                {transferNeedsOverwriteWarning ? (
+                  <Alert severity="warning">{t("trips.dayTransfer.moveOverwriteWarning")}</Alert>
+                ) : null}
+              </Box>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={handleCloseTransferDialog} color="inherit" disabled={transferSubmitting}>
+                {t("common.cancel")}
+              </Button>
+              <Button
+                onClick={() => void handleSubmitTransfer()}
+                variant="contained"
+                disabled={transferSubmitting || !transferTargetDayId}
+              >
+                {transferMode === "move" ? t("trips.dayTransfer.confirmMove") : t("trips.dayTransfer.confirmSwap")}
+              </Button>
+            </DialogActions>
+          </Dialog>
           <Dialog open={dayMetaOpen} onClose={() => setDayMetaOpen(false)} fullWidth maxWidth="sm">
             <DialogTitle>{t("trips.dayImage.dialogTitle")}</DialogTitle>
             <DialogContent>

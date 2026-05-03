@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dayPlanItemMutationSchema } from "@/lib/validation/dayPlanItemSchemas";
+import { dayActivityTransferSchema, dayPlanItemMutationSchema } from "@/lib/validation/dayPlanItemSchemas";
 
 const sampleDoc = JSON.stringify({
   type: "doc",
@@ -346,5 +346,36 @@ describe("dayPlanItemSchemas", () => {
 
     expect(equalTimes.success).toBe(false);
     expect(earlierEnd.success).toBe(false);
+  });
+
+  it("accepts a valid move transfer payload", () => {
+    const result = dayActivityTransferSchema.safeParse({
+      operation: "move",
+      sourceTripDayId: "day-1",
+      targetTripDayId: "day-2",
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects same-day transfer payloads", () => {
+    const result = dayActivityTransferSchema.safeParse({
+      operation: "swap",
+      sourceTripDayId: "day-1",
+      targetTripDayId: "day-1",
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts explicit overwrite confirmation for move payloads", () => {
+    const result = dayActivityTransferSchema.safeParse({
+      operation: "move",
+      sourceTripDayId: "day-1",
+      targetTripDayId: "day-2",
+      confirmOverwrite: true,
+    });
+
+    expect(result.success).toBe(true);
   });
 });
