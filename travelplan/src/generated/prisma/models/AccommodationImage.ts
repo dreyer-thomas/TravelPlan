@@ -199,7 +199,7 @@ export type AccommodationImageGroupByOutputType = {
   _max: AccommodationImageMaxAggregateOutputType | null
 }
 
-type GetAccommodationImageGroupByPayload<T extends AccommodationImageGroupByArgs> = Prisma.PrismaPromise<
+export type GetAccommodationImageGroupByPayload<T extends AccommodationImageGroupByArgs> = Prisma.PrismaPromise<
   Array<
     Prisma.PickEnumerable<AccommodationImageGroupByOutputType, T['by']> &
       {
@@ -1206,6 +1206,11 @@ export type AccommodationImageFindManyArgs<ExtArgs extends runtime.Types.Extensi
    * Skip the first `n` AccommodationImages.
    */
   skip?: number
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+   * 
+   * Filter by unique combinations of AccommodationImages.
+   */
   distinct?: Prisma.AccommodationImageScalarFieldEnum | Prisma.AccommodationImageScalarFieldEnum[]
 }
 

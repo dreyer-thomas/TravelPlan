@@ -263,7 +263,7 @@ export type AccommodationGroupByOutputType = {
   _max: AccommodationMaxAggregateOutputType | null
 }
 
-type GetAccommodationGroupByPayload<T extends AccommodationGroupByArgs> = Prisma.PrismaPromise<
+export type GetAccommodationGroupByPayload<T extends AccommodationGroupByArgs> = Prisma.PrismaPromise<
   Array<
     Prisma.PickEnumerable<AccommodationGroupByOutputType, T['by']> &
       {
@@ -1849,6 +1849,11 @@ export type AccommodationFindManyArgs<ExtArgs extends runtime.Types.Extensions.I
    * Skip the first `n` Accommodations.
    */
   skip?: number
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+   * 
+   * Filter by unique combinations of Accommodations.
+   */
   distinct?: Prisma.AccommodationScalarFieldEnum | Prisma.AccommodationScalarFieldEnum[]
 }
 

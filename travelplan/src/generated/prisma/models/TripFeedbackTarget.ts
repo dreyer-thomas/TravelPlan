@@ -186,7 +186,7 @@ export type TripFeedbackTargetGroupByOutputType = {
   _max: TripFeedbackTargetMaxAggregateOutputType | null
 }
 
-type GetTripFeedbackTargetGroupByPayload<T extends TripFeedbackTargetGroupByArgs> = Prisma.PrismaPromise<
+export type GetTripFeedbackTargetGroupByPayload<T extends TripFeedbackTargetGroupByArgs> = Prisma.PrismaPromise<
   Array<
     Prisma.PickEnumerable<TripFeedbackTargetGroupByOutputType, T['by']> &
       {
@@ -1957,6 +1957,11 @@ export type TripFeedbackTargetFindManyArgs<ExtArgs extends runtime.Types.Extensi
    * Skip the first `n` TripFeedbackTargets.
    */
   skip?: number
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+   * 
+   * Filter by unique combinations of TripFeedbackTargets.
+   */
   distinct?: Prisma.TripFeedbackTargetScalarFieldEnum | Prisma.TripFeedbackTargetScalarFieldEnum[]
 }
 

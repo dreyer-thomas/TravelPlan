@@ -165,7 +165,7 @@ export type TripFeedbackVoteGroupByOutputType = {
   _max: TripFeedbackVoteMaxAggregateOutputType | null
 }
 
-type GetTripFeedbackVoteGroupByPayload<T extends TripFeedbackVoteGroupByArgs> = Prisma.PrismaPromise<
+export type GetTripFeedbackVoteGroupByPayload<T extends TripFeedbackVoteGroupByArgs> = Prisma.PrismaPromise<
   Array<
     Prisma.PickEnumerable<TripFeedbackVoteGroupByOutputType, T['by']> &
       {
@@ -1291,6 +1291,11 @@ export type TripFeedbackVoteFindManyArgs<ExtArgs extends runtime.Types.Extension
    * Skip the first `n` TripFeedbackVotes.
    */
   skip?: number
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+   * 
+   * Filter by unique combinations of TripFeedbackVotes.
+   */
   distinct?: Prisma.TripFeedbackVoteScalarFieldEnum | Prisma.TripFeedbackVoteScalarFieldEnum[]
 }
 

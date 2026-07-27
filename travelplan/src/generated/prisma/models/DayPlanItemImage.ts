@@ -199,7 +199,7 @@ export type DayPlanItemImageGroupByOutputType = {
   _max: DayPlanItemImageMaxAggregateOutputType | null
 }
 
-type GetDayPlanItemImageGroupByPayload<T extends DayPlanItemImageGroupByArgs> = Prisma.PrismaPromise<
+export type GetDayPlanItemImageGroupByPayload<T extends DayPlanItemImageGroupByArgs> = Prisma.PrismaPromise<
   Array<
     Prisma.PickEnumerable<DayPlanItemImageGroupByOutputType, T['by']> &
       {
@@ -1206,6 +1206,11 @@ export type DayPlanItemImageFindManyArgs<ExtArgs extends runtime.Types.Extension
    * Skip the first `n` DayPlanItemImages.
    */
   skip?: number
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+   * 
+   * Filter by unique combinations of DayPlanItemImages.
+   */
   distinct?: Prisma.DayPlanItemImageScalarFieldEnum | Prisma.DayPlanItemImageScalarFieldEnum[]
 }
 

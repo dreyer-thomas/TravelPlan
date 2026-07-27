@@ -165,7 +165,7 @@ export type TripFeedbackCommentGroupByOutputType = {
   _max: TripFeedbackCommentMaxAggregateOutputType | null
 }
 
-type GetTripFeedbackCommentGroupByPayload<T extends TripFeedbackCommentGroupByArgs> = Prisma.PrismaPromise<
+export type GetTripFeedbackCommentGroupByPayload<T extends TripFeedbackCommentGroupByArgs> = Prisma.PrismaPromise<
   Array<
     Prisma.PickEnumerable<TripFeedbackCommentGroupByOutputType, T['by']> &
       {
@@ -1281,6 +1281,11 @@ export type TripFeedbackCommentFindManyArgs<ExtArgs extends runtime.Types.Extens
    * Skip the first `n` TripFeedbackComments.
    */
   skip?: number
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+   * 
+   * Filter by unique combinations of TripFeedbackComments.
+   */
   distinct?: Prisma.TripFeedbackCommentScalarFieldEnum | Prisma.TripFeedbackCommentScalarFieldEnum[]
 }
 

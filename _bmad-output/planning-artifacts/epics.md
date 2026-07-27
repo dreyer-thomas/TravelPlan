@@ -48,6 +48,7 @@ FR28: Owners can grant a contributor role with full edit permissions.
 FR29: Users can reset their password via email.
 FR30: Users can add, view, and delete trip-level bucket list items for unplanned places.
 FR31: Users can add a bucket list item to a day plan and remove it from the bucket list.
+FR35: Trip owners can view a list of all registered users in the system, to help decide who to invite as a collaborator and avoid duplicate-account confusion.
 
 ### NonFunctional Requirements
 
@@ -114,6 +115,7 @@ FR28: Epic 5 - Sharing & Light Contribution
 FR29: Epic 1 - Secure Access & Personal Workspace
 FR30: Epic 4 - Trip Bucket List (Idea Capture)
 FR31: Epic 4 - Trip Bucket List (Idea Capture)
+FR35: Epic 5 - Sharing & Light Contribution
 
 ## Epic List
 
@@ -135,7 +137,7 @@ Users can collect unplanned places at the trip level and add them to day plans l
 
 ### Epic 5: Sharing & Light Contribution
 Users can share trips with viewers who can comment/suggest without changing core details.
-**FRs covered:** FR22, FR23, FR24, FR28
+**FRs covered:** FR22, FR23, FR24, FR28, FR35
 
 ### Epic 6: Usability Refinements
 Users can iterate on focused UX improvements that simplify planning screens without changing the core product model.
@@ -654,6 +656,64 @@ So that I can plan the time needed to move between locations.
 **When** I open the travel segment
 **Then** I can trigger a Google Maps directions link using those locations
 
+### Story 2.31: Complete Trip Backup Export With Photos, Travel Segments, and Bucket List
+
+As a trip planner,
+I want to export a complete backup of my trip that includes travel segments, bucket list items, and the uploaded photos themselves,
+So that I have a fully self-contained backup that does not depend on the original server's file storage.
+
+**FRs covered:** FR25
+
+**Acceptance Criteria:**
+
+**Given** I export a trip
+**When** the export is generated
+**Then** it includes everything the current export includes (trip, days, accommodations, day plan items, payments) plus travel segments and bucket list items
+
+**Given** an accommodation or day plan item has uploaded photos
+**When** I export the trip
+**Then** the photo files themselves are included in the exported package, not just a reference URL
+
+**Given** an accommodation or day plan item has no photos
+**When** I export the trip
+**Then** the export succeeds without errors for that item
+
+**Given** the export completes
+**When** I download it
+**Then** I receive a single file (e.g., an archive containing a JSON manifest plus photo files) that is portable to another system without depending on the original server's `/uploads` storage
+
+**Given** I am not the trip owner
+**When** I attempt to export the trip
+**Then** I am blocked from exporting
+
+### Story 2.32: Complete Trip Backup Import With Photos, Travel Segments, and Bucket List
+
+As a trip planner,
+I want to import a complete trip backup including travel segments, bucket list items, and photos,
+So that I can fully restore a trip, including its media, on this or another system.
+
+**FRs covered:** FR34
+
+**Acceptance Criteria:**
+
+**Given** I import a complete backup produced by the export in Story 2.31
+**When** the import runs
+**Then** the trip, days, accommodations, day plan items, payments, travel segments, and bucket list items are all restored
+**And** the exported photo files are restored and linked to their accommodations/day plan items
+
+**Given** I import a backup produced by the older export format (no photos, travel segments, or bucket list)
+**When** the import runs
+**Then** the previously-supported fields are restored as before
+**And** the absence of the newer data does not cause an error
+
+**Given** the backup file is invalid, incomplete, or references photo data that cannot be read
+**When** I attempt to import
+**Then** I see a validation error and no partial data is written
+
+**Given** a trip with the same name already exists
+**When** I import a complete backup
+**Then** I am prompted to confirm overwrite or create a new trip, consistent with the existing import behavior
+
 ## Epic 3: Route & Map-Based Planning
 
 Users can visualize trips and days on maps and seed a trip from Google start + destination.
@@ -1097,6 +1157,36 @@ So that lightweight discussion remains available while voting is reserved for co
 **Then** the request is rejected as unsupported
 **And** no vote state is created or changed for that target
 
+### Story 5.8: View All Registered System Users
+
+As a trip owner,
+I want to see a list of all users registered in the system,
+So that I can decide who to invite as a collaborator and avoid confusion about whether someone already has an account.
+
+**FRs covered:** FR35
+
+**Acceptance Criteria:**
+
+**Given** I own at least one trip
+**When** I open the registered users overview
+**Then** I see a list of all user accounts registered in the system, identified by email
+
+**Given** I am signed in but do not own any trip
+**When** I attempt to access the registered users overview
+**Then** I am blocked from viewing it
+
+**Given** I am a viewer or contributor on one or more trips but not an owner of any trip
+**When** I attempt to access the registered users overview
+**Then** I am blocked from viewing it
+
+**Given** the registered users overview is open
+**When** I view the list
+**Then** it is not scoped to a single trip, but reflects every account in the system
+
+**Given** new users register after I first opened the overview
+**When** I reload or reopen the overview
+**Then** the list reflects the current set of registered accounts
+
 ## Epic 6: Usability Refinements
 
 Users can iterate on focused UX improvements that simplify planning screens without changing the core product model.
@@ -1320,3 +1410,98 @@ So that adding and managing photos feels consistent and easier across the day vi
 **Given** I use the day item photo flow on desktop or mobile
 **When** I add or manage photos
 **Then** the controls remain understandable and usable in both languages and on both screen sizes
+
+### Story 6.7: Move or Swap Day Activities Between Dates
+
+As a trip planner,
+I want to move or swap all activities between two days without affecting accommodations,
+So that I can quickly rework my itinerary when plans change or a special event changes which day should hold those activities.
+
+**FRs covered:** FR10, FR18
+
+**Acceptance Criteria:**
+
+**Given** a source day contains activities and a different target day exists
+**When** I choose the move action and confirm it
+**Then** all activities from the source day are moved to the target day
+**And** any activities previously on the target day are removed
+**And** the source day no longer contains those moved activities
+
+**Given** the source day or target day has an accommodation entry
+**When** I move activities between the two days
+**Then** accommodation remains attached to its original day
+**And** no accommodation data is moved, deleted, or overwritten by the move
+
+**Given** two different days exist
+**When** I choose the swap action and confirm it
+**Then** the full set of activities from day A is assigned to day B
+**And** the full set of activities from day B is assigned to day A
+**And** accommodation remains attached to its original day on both dates
+
+**Given** one of the selected days has no activities
+**When** I perform a swap with another day that has activities
+**Then** the empty day receives the other day's activities
+**And** the previously populated day becomes empty of activities
+**And** accommodation on both days remains unchanged
+
+**Given** I try to move or swap activities using the same day as both source and target
+**When** I attempt to continue
+**Then** the system blocks the action with a validation message
+
+**Given** the target day already contains activities for a move action
+**When** I start the move flow
+**Then** I am warned that the target day's activities will be deleted
+**And** I must confirm before the overwrite is applied
+
+### Story 6.8: Export Day Itinerary PDF for Offline Use
+
+As a trip planner,
+I want to export one trip day as a compact PDF with the full day flow,
+So that I can take the plan with me and use it without internet access.
+
+**FRs covered:** FR10, FR18, FR33
+
+**Acceptance Criteria:**
+
+**Given** I open a trip day that I am allowed to view
+**When** I choose the export or print action for that day
+**Then** the system generates a print-friendly PDF flow for that specific day only
+**And** the export is available to authorized trip participants without requiring edit permission
+
+**Given** the exported day contains a previous-night accommodation, day activities, travel segments, and a current-night accommodation
+**When** the PDF is rendered
+**Then** it shows the day in chronological order starting from the day-start accommodation context
+**And** it includes all activities in between
+**And** it shows the travel information between timeline items
+**And** it includes the end accommodation when present
+
+**Given** day activities or accommodations have saved images
+**When** the PDF is rendered
+**Then** relevant images are shown as compact thumbnails
+**And** items without images do not leave broken or oversized empty media blocks
+
+**Given** the day has enough location data for the map view
+**When** the PDF is rendered
+**Then** it includes a map section for that day's ordered route or ordered pins
+**And** the map content matches the same day sequence used in the timeline
+
+**Given** routing or map rendering is unavailable
+**When** the PDF is generated
+**Then** the export still succeeds without crashing
+**And** the PDF shows the textual itinerary details even if the map falls back to a placeholder or unavailable state
+
+**Given** the day contains a large amount of text, many images, or many stops
+**When** the PDF is laid out for print
+**Then** it is optimized for A4 output
+**And** it aims to fit on one page when practical and no more than two pages for normal usage
+**And** long content is truncated or compacted in a readable way instead of overflowing unpredictably
+
+**Given** I save the export as a PDF file
+**When** I open that PDF later without internet access
+**Then** the printed document remains usable offline
+**And** it does not depend on live application data or map requests after the PDF has been created
+
+**Given** I print the PDF in grayscale or on a standard office printer
+**When** the output is produced
+**Then** the itinerary remains readable
+**And** timing, travel, and section hierarchy are still understandable without relying only on color

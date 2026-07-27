@@ -245,7 +245,7 @@ export type TravelSegmentGroupByOutputType = {
   _max: TravelSegmentMaxAggregateOutputType | null
 }
 
-type GetTravelSegmentGroupByPayload<T extends TravelSegmentGroupByArgs> = Prisma.PrismaPromise<
+export type GetTravelSegmentGroupByPayload<T extends TravelSegmentGroupByArgs> = Prisma.PrismaPromise<
   Array<
     Prisma.PickEnumerable<TravelSegmentGroupByOutputType, T['by']> &
       {
@@ -1433,6 +1433,11 @@ export type TravelSegmentFindManyArgs<ExtArgs extends runtime.Types.Extensions.I
    * Skip the first `n` TravelSegments.
    */
   skip?: number
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+   * 
+   * Filter by unique combinations of TravelSegments.
+   */
   distinct?: Prisma.TravelSegmentScalarFieldEnum | Prisma.TravelSegmentScalarFieldEnum[]
 }
 

@@ -656,6 +656,24 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     setTransferTargetDayId("");
   };
 
+  const orderedDays = useMemo(() => {
+    if (!detail) return [];
+    return [...detail.days].sort(compareTripDaysChronologically);
+  }, [detail]);
+
+  const transferTargetOptions = useMemo(() => {
+    if (!day) return [];
+    return orderedDays.filter((candidate) => candidate.id !== day.id);
+  }, [day, orderedDays]);
+
+  const selectedTransferTargetDay = useMemo(
+    () => transferTargetOptions.find((candidate) => candidate.id === transferTargetDayId) ?? null,
+    [transferTargetDayId, transferTargetOptions],
+  );
+
+  const transferNeedsOverwriteWarning =
+    transferMode === "move" && Boolean(selectedTransferTargetDay && selectedTransferTargetDay.dayPlanItems.length > 0);
+
   const handleSubmitTransfer = useCallback(async () => {
     if (!day || !transferMode) return;
     if (!transferTargetDayId || transferTargetDayId === day.id) {
@@ -704,7 +722,17 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     } finally {
       setTransferSubmitting(false);
     }
-  }, [day, ensureCsrfToken, loadDay, resolveApiError, t, transferMode, transferTargetDayId, tripId]);
+  }, [
+    day,
+    ensureCsrfToken,
+    loadDay,
+    resolveApiError,
+    t,
+    transferMode,
+    transferNeedsOverwriteWarning,
+    transferTargetDayId,
+    tripId,
+  ]);
 
   useEffect(() => {
     loadDay();
@@ -754,11 +782,6 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     }
   }, [canEditPlanning, day, loading, planItems, searchParams]);
 
-  const orderedDays = useMemo(() => {
-    if (!detail) return [];
-    return [...detail.days].sort(compareTripDaysChronologically);
-  }, [detail]);
-
   const previousDay = useMemo(() => {
     if (!day) return null;
     const currentIndex = orderedDays.findIndex((candidate) => candidate.id === day.id);
@@ -772,19 +795,6 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     if (currentIndex < 0 || currentIndex >= orderedDays.length - 1) return null;
     return orderedDays[currentIndex + 1] ?? null;
   }, [day, orderedDays]);
-
-  const transferTargetOptions = useMemo(() => {
-    if (!day) return [];
-    return orderedDays.filter((candidate) => candidate.id !== day.id);
-  }, [day, orderedDays]);
-
-  const selectedTransferTargetDay = useMemo(
-    () => transferTargetOptions.find((candidate) => candidate.id === transferTargetDayId) ?? null,
-    [transferTargetDayId, transferTargetOptions],
-  );
-
-  const transferNeedsOverwriteWarning =
-    transferMode === "move" && Boolean(selectedTransferTargetDay && selectedTransferTargetDay.dayPlanItems.length > 0);
 
   useEffect(() => {
     const loadImages = async () => {

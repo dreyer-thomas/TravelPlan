@@ -231,7 +231,7 @@ export type TripBucketListItemGroupByOutputType = {
   _max: TripBucketListItemMaxAggregateOutputType | null
 }
 
-type GetTripBucketListItemGroupByPayload<T extends TripBucketListItemGroupByArgs> = Prisma.PrismaPromise<
+export type GetTripBucketListItemGroupByPayload<T extends TripBucketListItemGroupByArgs> = Prisma.PrismaPromise<
   Array<
     Prisma.PickEnumerable<TripBucketListItemGroupByOutputType, T['by']> &
       {
@@ -1346,6 +1346,11 @@ export type TripBucketListItemFindManyArgs<ExtArgs extends runtime.Types.Extensi
    * Skip the first `n` TripBucketListItems.
    */
   skip?: number
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+   * 
+   * Filter by unique combinations of TripBucketListItems.
+   */
   distinct?: Prisma.TripBucketListItemScalarFieldEnum | Prisma.TripBucketListItemScalarFieldEnum[]
 }
 
