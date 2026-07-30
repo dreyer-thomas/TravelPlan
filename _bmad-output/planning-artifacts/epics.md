@@ -39,7 +39,7 @@ FR20: Users can edit or clear a day plan.
 FR21: Users can see a total of planned costs entered so far.
 FR22: Users can share a trip with a viewer.
 FR23: Viewers can see the trip plan but cannot edit core details.
-FR24: Viewers can add comments/suggestions to days or items.
+~~FR24: Viewers can add comments/suggestions to days or items.~~ **(Removed 2026-07-30 — comments/voting feature discontinued, see Sprint Change Proposal 2026-07-30)**
 FR25: Users can export or back up trip data for recovery.
 FR34: Users can restore/import trip data from a backup.
 FR26: Maps integration for overall trip visualization and day-plan mapping.
@@ -106,7 +106,7 @@ FR20: Epic 2 - Core Trip Planning (Days, Stays, Plans, Budget, Export)
 FR21: Epic 2 - Core Trip Planning (Days, Stays, Plans, Budget, Export)
 FR22: Epic 5 - Sharing & Light Contribution
 FR23: Epic 5 - Sharing & Light Contribution
-FR24: Epic 5 - Sharing & Light Contribution
+~~FR24: Epic 5 - Sharing & Light Contribution~~ (Removed 2026-07-30 — comments/voting discontinued)
 FR25: Epic 2 - Core Trip Planning (Days, Stays, Plans, Budget, Export)
 FR34: Epic 2 - Core Trip Planning (Days, Stays, Plans, Budget, Export)
 FR26: Epic 3 - Route & Map-Based Planning
@@ -137,11 +137,15 @@ Users can collect unplanned places at the trip level and add them to day plans l
 
 ### Epic 5: Sharing & Light Contribution
 Users can share trips with viewers who can comment/suggest without changing core details.
-**FRs covered:** FR22, FR23, FR24, FR28, FR35
+**FRs covered:** FR22, FR23, FR28, FR35
 
 ### Epic 6: Usability Refinements
 Users can iterate on focused UX improvements that simplify planning screens without changing the core product model.
-**FRs covered:** FR6, FR9, FR23, FR24
+**FRs covered:** FR6, FR9, FR23
+
+### Epic 7: Visual Redesign — Light Cockpit System
+Users experience the approved `DESIGN.md`/`EXPERIENCE.md` visual system across every screen instead of the current inconsistent styling — no new capability, existing screens re-skinned to the new tokens/components.
+**FRs covered:** FR6, FR9, FR22 (no new FRs — implements an already-approved design spine, not new product capability)
 
 ## Epic 1: Secure Access & Personal Workspace
 
@@ -974,6 +978,8 @@ So that I can quickly see which open costs I need to pay in each month.
 
 ### Story 4.7: Comments in Dialog
 
+> **REMOVED 2026-07-30** — comments/voting feature discontinued per product decision (see Sprint Change Proposal 2026-07-30). Story text retained below for historical record only.
+
 As a trip participant,
 I want comments and pro/con feedback shown as a compact summary that opens a dialog,
 So that the main planning UI stays focused while discussion remains easy to access.
@@ -1047,13 +1053,15 @@ So that my account is secure.
 **When** I save it
 **Then** I can proceed into the app
 
-### Story 5.3: Viewer Access With Comments and Votes
+### Story 5.3: Viewer Read-Only Access
+
+> **REVISED 2026-07-30** — split from the original "Viewer Access With Comments and Votes" story; the comments/votes half is discontinued per product decision (see Sprint Change Proposal 2026-07-30). This story now covers view-only access only.
 
 As a viewer,
-I want to view the trip and add comments or votes,
-So that I can contribute suggestions without changing core details.
+I want to view the trip without being able to edit it,
+So that I can stay informed without risking changes to the plan.
 
-**FRs covered:** FR23, FR24
+**FRs covered:** FR23 (view access portion only)
 
 **Acceptance Criteria:**
 
@@ -1064,10 +1072,6 @@ So that I can contribute suggestions without changing core details.
 **Given** I have a viewer role
 **When** I attempt to edit trip data
 **Then** I am blocked from editing
-
-**Given** I have a viewer role
-**When** I add a comment or vote on a trip element
-**Then** my input is saved and visible on that element
 
 ### Story 5.4: Contributor Full Edit Permissions
 
@@ -1084,6 +1088,8 @@ So that I can help maintain the plan directly.
 **Then** my changes are saved and visible
 
 ### Story 5.5: Edit Own Comments
+
+> **REMOVED 2026-07-30** — comments/voting feature discontinued per product decision (see Sprint Change Proposal 2026-07-30). Story text retained below for historical record only.
 
 As a contributor or viewer,
 I want to edit my own comments,
@@ -1124,6 +1130,8 @@ So that the same person can collaborate across multiple trips without duplicate-
 **Then** the existing temporary-password provisioning behavior still works
 
 ### Story 5.7: Limit Voting to Day Items
+
+> **REMOVED 2026-07-30** — comments/voting feature discontinued per product decision (see Sprint Change Proposal 2026-07-30). Story text retained below for historical record only.
 
 As a trip participant,
 I want days and accommodations to stay commentable without voting,
@@ -1187,11 +1195,39 @@ So that I can decide who to invite as a collaborator and avoid confusion about w
 **When** I reload or reopen the overview
 **Then** the list reflects the current set of registered accounts
 
+### Story 5.9: Remove Comments & Voting Feature
+
+As a developer,
+I want to remove the comments/votes data model, API routes, and UI components,
+So that the discontinued feature is fully removed rather than left dormant in the codebase.
+
+**FRs covered:** N/A (removal of discontinued FR24, comments/suggestions)
+
+**Acceptance Criteria:**
+
+**Given** the comments/votes feature is discontinued
+**When** the removal is implemented
+**Then** the TripFeedbackTarget, TripFeedbackComment, and TripFeedbackVote Prisma models (or equivalently named feedback/comment/vote models — verify actual model names in travelplan/prisma/schema.prisma) are removed via a migration
+
+**Given** the data model is removed
+**When** the removal is implemented
+**Then** all API routes serving comments/votes are removed
+
+**Given** the data model and API are removed
+**When** the removal is implemented
+**Then** all UI components for comments/votes (comment dialogs, vote widgets, feedback trigger buttons/badges) are removed from every screen that previously showed them
+
+**Given** the feature is fully removed
+**When** the removal is implemented
+**Then** now-orphaned i18n strings related to comments/votes are cleaned up from the translation files
+
 ## Epic 6: Usability Refinements
 
 Users can iterate on focused UX improvements that simplify planning screens without changing the core product model.
 
 ### Story 6.1: Remove Trip Overview Header Feedback
+
+> **REMOVED/SUPERSEDED 2026-07-30** — the entire feedback system (not just the header instance this story addressed) is now discontinued per product decision (see Sprint Change Proposal 2026-07-30). Story text retained below for historical record only.
 
 As a trip participant,
 I want the trip overview header to focus on core trip context instead of comments or voting,
@@ -1219,6 +1255,8 @@ So that the overview feels cleaner and the least useful feedback surface is remo
 **Then** the remaining layout stays usable on desktop and mobile without empty gaps or broken alignment
 
 ### Story 6.2: Feedback as Chat
+
+> **REMOVED 2026-07-30** — comments/voting feature discontinued per product decision (see Sprint Change Proposal 2026-07-30). Story text retained below for historical record only.
 
 As a trip participant,
 I want comment dialogs to behave like a chat surface with comment deletion for my own messages,
@@ -1262,6 +1300,8 @@ So that conversation feels natural and I can fully manage feedback I authored.
 **And** attempts to delete another participant's comment are rejected without mutating stored data
 
 ### Story 6.3: Optimize Comments
+
+> **REMOVED 2026-07-30** — comments/voting feature discontinued per product decision (see Sprint Change Proposal 2026-07-30). Story text retained below for historical record only.
 
 As a trip participant,
 I want comment indicators and comment actions to use a more compact visual format,
@@ -1505,3 +1545,157 @@ So that I can take the plan with me and use it without internet access.
 **When** the output is produced
 **Then** the itinerary remains readable
 **And** timing, travel, and section hierarchy are still understandable without relying only on color
+
+## Epic 7: Visual Redesign — Light Cockpit System
+
+Users experience the approved `DESIGN.md`/`EXPERIENCE.md` visual system across every screen instead of the current inconsistent styling. Source of truth: `_bmad-output/planning-artifacts/ux-designs/ux-TravelPlan-2026-07-27/DESIGN.md`, `EXPERIENCE.md`, and `mockups/*.html`. This epic re-skins existing, already-shipped screens — it does not add product capability, so no new FRs are introduced.
+
+### Story 7.1: Design Token Foundation
+
+As a developer,
+I want the app's theme, global CSS, and shared primitives to use the approved design tokens,
+So that every subsequent screen restyle draws from one consistent source instead of ad hoc values.
+
+**FRs covered:** None (foundation for Epic 7; implements `DESIGN.md` tokens)
+
+**Acceptance Criteria:**
+
+**Given** `DESIGN.md`'s color, typography, spacing, radius, and elevation tokens
+**When** `theme.ts` and `globals.css` are updated
+**Then** the app's palette, font stack, spacing scale, and card/photo radius rules match `DESIGN.md` exactly, replacing the current orange/navy palette and stale `--forest-*`/`--terracotta-*` CSS variable names
+
+**Given** `DESIGN.md`'s `button`/`input`/`select`/`tab`/`checkbox` component tokens (all `minHeight: 44px`)
+**When** shared form primitives are updated
+**Then** every interactive control meets the 44×44px touch-target floor, replacing the current sub-44px buttons/inputs
+
+**Given** the old theme is replaced
+**When** any screen not yet restyled by a later story in this epic renders
+**Then** it does not visually break (falls back cleanly to the new base tokens, even if not yet pixel-matched to its specific mockup)
+
+### Story 7.2: Trip Overview Redesign
+
+As a trip planner,
+I want the trip overview to match the approved design (photo hero, day-row list with per-day photo and mini coverage bar, simplified cost summary, gap alert),
+So that the overview is visually consistent and the "what's set, what's open" signal is immediately visible.
+
+**FRs covered:** FR6, FR9, FR22
+
+**Acceptance Criteria:**
+
+**Given** `mockups/trip-overview-day-detail.html` (Screen A) and `EXPERIENCE.md`'s Trip Overview component patterns
+**When** the trip overview screen is rebuilt
+**Then** it shows the photo-hero header (title/date over a scrim, no duplicated stats), day-row list with square center-cropped day photos and mini coverage bars, a simplified "Kosten bisher" summary, the trip map preview, and the gap-alert card
+
+**Given** a day has no accommodation on record
+**When** the day-row renders
+**Then** it shows the warn-treatment gap badge and an enlarged gap segment in its mini coverage bar, per `EXPERIENCE.md`'s State Patterns
+
+**Given** existing trip data (accommodations, day plans, costs)
+**When** the redesigned overview renders
+**Then** all existing functionality (open a day, edit trip, share trip, export/import) continues to work unchanged — this story is visual only
+
+### Story 7.3: Day Detail Redesign
+
+As a trip planner,
+I want the day view to match the approved design (photo hero, full coverage bar, timeline with neutral activity markers and photo strips, day map, bucket list, simplified day cost),
+So that a single day's plan is visually consistent with the rest of the app and clearly shows what's covered vs. open.
+
+**FRs covered:** FR9, FR12, FR17, FR21
+
+**Acceptance Criteria:**
+
+**Given** `mockups/trip-overview-day-detail.html` (Screen B) and `EXPERIENCE.md`'s Day Detail component patterns
+**When** the day view is rebuilt
+**Then** it shows the day photo-hero, the full coverage bar (stay/activity/travel/gap segments in chronological order), the timeline (previous-night accommodation, activities, travel segments, current-night accommodation), the day map card, the bucket-list card, and the simplified "Kosten bisher · heute" cost card
+
+**Given** a generic day-plan-item activity node
+**When** the timeline renders
+**Then** it shows the single neutral marker defined in `EXPERIENCE.md` — never a per-activity icon, since no activity-type field exists in the data model and none should be introduced to support this pattern
+
+**Given** an accommodation or day-plan item has multiple uploaded photos
+**When** its timeline card renders
+**Then** the photos show as a uniform-size, left-aligned, square, center-cropped, sharp-cornered strip along the bottom of the card, per `DESIGN.md`'s photo-strip rule
+
+**Given** existing day-view functionality (add/edit accommodation, add/edit day-plan item, travel segments, bucket-list add-to-day)
+**When** the redesigned day view renders
+**Then** all of it continues to work unchanged — this story is visual only
+
+### Story 7.4: Trips List Redesign
+
+As a trip planner,
+I want the trips list to match the approved design (trip rows with photo, status pill, cost-so-far, a primary "Neue Reise" action),
+So that my trips overview is consistent with the rest of the app and shows each trip's planning status at a glance.
+
+**FRs covered:** FR5, FR6
+
+**Acceptance Criteria:**
+
+**Given** `mockups/trips-list-share-login.html` (Screen C) and `EXPERIENCE.md`'s Trips List component patterns
+**When** the trips list screen is rebuilt
+**Then** each trip renders as a `trip-row` with a square center-cropped trip photo, name, date range, a `trip-status` pill in one of its four states (gap/fully-planned/upcoming/past), and a cost-so-far figure
+
+**Given** a trip has no accommodation gaps and is fully within its planned range
+**When** its row renders
+**Then** it shows the "Vollständig geplant" state, not the gap state
+
+**Given** a past/completed trip
+**When** its row renders
+**Then** it renders at reduced opacity as a read-only archival row, per `DESIGN.md`'s `trip-row` spec
+
+### Story 7.5: Share Dialog Redesign
+
+As a trip owner,
+I want the "Reise teilen" dialog to match the approved design system instead of default Material UI styling,
+So that sharing feels like part of the same product as the rest of the redesigned app.
+
+**FRs covered:** FR22, FR28
+
+**Acceptance Criteria:**
+
+**Given** `mockups/trips-list-share-login.html` (Screen D) and `EXPERIENCE.md`'s Share Dialog component patterns
+**When** the share dialog is rebuilt
+**Then** it uses the established card/border/input conventions, and each collaborator's role (Contributor/Viewer/Owner) renders as a badge using the token-defined role colors
+
+**Given** I remove a collaborator
+**When** I use the "Entfernen" action
+**Then** it is sized to the 44×44px touch-target floor, not a bare unpadded text link
+
+**Given** the existing share/invite/role-change functionality
+**When** the dialog is redesigned
+**Then** all of it continues to work unchanged — this story is visual only
+
+### Story 7.6: Login, Register, and Password Reset Redesign
+
+As a user,
+I want the login, registration, and password-reset screens to match the approved design system,
+So that the first impression of the app is consistent with the rest of the redesigned product.
+
+**FRs covered:** FR1, FR2, FR29
+
+**Acceptance Criteria:**
+
+**Given** `mockups/trips-list-share-login.html` (Screen E) and `mockups/forms-authoring.html` (Screen H) and `EXPERIENCE.md`'s corresponding component patterns
+**When** login, register, and password-reset screens are rebuilt
+**Then** each uses the hero-photo side-panel treatment and the shared form-primitive tokens (44px inputs/buttons, default/focus/error states)
+
+**Given** the existing auth functionality (login, register, request reset, set new password)
+**When** these screens are redesigned
+**Then** all of it continues to work unchanged — this story is visual only
+
+### Story 7.7: Trip-Create and Add-Entry Dialog Redesign
+
+As a trip planner,
+I want the "Reise erstellen" and "Eintrag hinzufügen" dialogs to match the approved design system,
+So that creating trips and adding accommodations/day-plan items feels consistent with the rest of the redesigned app.
+
+**FRs covered:** FR4, FR12, FR17
+
+**Acceptance Criteria:**
+
+**Given** `mockups/forms-authoring.html` (Screens F, G) and `EXPERIENCE.md`'s corresponding component patterns
+**When** the trip-create dialog and the add-accommodation/add-day-item dialog are rebuilt
+**Then** each uses the shared form-primitive tokens, and the add-entry dialog's photo upload area follows the same square/sharp-cornered photo-strip pattern used elsewhere
+
+**Given** the existing create-trip and add-entry functionality
+**When** these dialogs are redesigned
+**Then** all of it continues to work unchanged — this story is visual only

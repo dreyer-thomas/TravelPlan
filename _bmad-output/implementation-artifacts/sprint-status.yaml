@@ -107,21 +107,27 @@ development_status:
   epic-5: in-progress
   5-1-invite-viewer-or-contributor-by-email-with-temp-password: done
   5-2-enforce-first-login-password-change: done
-  5-3-viewer-access-with-comments-and-votes: done
+  5-3-viewer-read-only-access: done
   5-4-contributor-full-edit-permissions: done
-  5-5-edit-own-comments: done
   5-6-add-existing-contributor: done
-  5-7-limit-voting-to-day-items: done
   5-8-view-all-registered-system-users: backlog
+  5-9-remove-comments-and-voting-feature: backlog
   epic-5-retrospective: optional
 
   epic-6: in-progress
-  6-1-remove-trip-overview-header-feedback: done
-  6-2-feedback-as-chat: done
-  6-3-optimize-comments: done
   6-4-fix-day-view-accommodation-cost-duplication: done
   6-5-auto-fill-travel-segments-from-google-maps: done
   6-6-match-day-item-photo-ux-to-accommodations: done
   6-7-move-or-swap-day-activities-between-dates: done
   6-8-export-day-itinerary-pdf-for-offline-use: done
   epic-6-retrospective: done
+
+  epic-7: in-progress
+  7-1-design-token-foundation: backlog
+  7-2-trip-overview-redesign: backlog
+  7-3-day-detail-redesign: backlog
+  7-4-trips-list-redesign: backlog
+  7-5-share-dialog-redesign: backlog
+  7-6-login-register-and-password-reset-redesign: backlog
+  7-7-trip-create-and-add-entry-dialog-redesign: backlog
+  epic-7-retrospective: optional

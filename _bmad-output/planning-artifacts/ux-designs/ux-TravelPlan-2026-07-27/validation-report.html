@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>UX Design Validation: TravelPlan</title>
+<style>
+  :root {
+    --bg: #fafaf9;
+    --surface: #ffffff;
+    --border: #e7e5e4;
+    --text: #1c1917;
+    --muted: #78716c;
+
+    --verdict-strong: #16a34a;
+    --verdict-adequate: #65a30d;
+    --verdict-thin: #d97706;
+    --verdict-broken: #dc2626;
+
+    --sev-low: #64748b;
+    --sev-medium: #ca8a04;
+    --sev-high: #ea580c;
+    --sev-critical: #dc2626;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    font-size: 15px;
+  }
+  .container { max-width: 960px; margin: 0 auto; padding: 32px 24px 64px; }
+
+  header.report-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 24px;
+  }
+  .title h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+  .title .subtitle { color: var(--muted); font-size: 13px; margin-top: 4px; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+
+  .synthesis {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--muted);
+    border-radius: 8px;
+    padding: 18px 22px;
+    margin-bottom: 24px;
+    font-size: 15.5px;
+  }
+  .synthesis p { margin: 0 0 10px; }
+  .synthesis p:last-child { margin-bottom: 0; }
+
+  .dimension-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px;
+    margin-bottom: 24px;
+  }
+  .dim-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+  }
+  .dim-card .dim-name { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  .dim-card .dim-verdict { font-size: 14px; font-weight: 600; }
+
+  section.dimension, section.reviewer-section { margin-bottom: 14px; }
+  section.dimension details, section.reviewer-section details {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  section summary {
+    padding: 14px 20px;
+    cursor: pointer;
+    user-select: none;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  section summary::-webkit-details-marker { display: none; }
+  section summary::before {
+    content: "▸";
+    display: inline-block;
+    color: var(--muted);
+    transition: transform 0.15s ease;
+  }
+  section details[open] summary::before { transform: rotate(90deg); }
+  section summary h2 {
+    display: inline;
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    flex: 1;
+  }
+  .verdict-pill {
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: white;
+  }
+  .verdict-strong { background: var(--verdict-strong); }
+  .verdict-adequate { background: var(--verdict-adequate); }
+  .verdict-thin { background: var(--verdict-thin); }
+  .verdict-broken { background: var(--verdict-broken); }
+
+  .dim-body { padding: 4px 20px 18px; }
+  .dim-judgment { color: var(--text); font-size: 14.5px; }
+  .dim-judgment p { margin: 0 0 10px; }
+
+  .findings-list { padding: 0 20px 4px; }
+  article.finding {
+    padding: 14px 0;
+    border-top: 1px solid var(--border);
+  }
+  article.finding:first-child { border-top: none; }
+  article.finding header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+  }
+  .badge {
+    font-size: 10.5px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    line-height: 1.4;
+  }
+  .badge-sev-low { background: rgba(100, 116, 139, 0.12); color: var(--sev-low); }
+  .badge-sev-medium { background: rgba(202, 138, 4, 0.14); color: var(--sev-medium); }
+  .badge-sev-high { background: rgba(234, 88, 12, 0.14); color: var(--sev-high); }
+  .badge-sev-critical { background: rgba(220, 38, 38, 0.14); color: var(--sev-critical); }
+  .finding-title { margin: 0; font-size: 15px; font-weight: 500; flex: 1; min-width: 200px; }
+  .finding-location { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; color: var(--muted); }
+  .finding-note, .finding-fix { margin-top: 6px; font-size: 14px; }
+  .finding-fix strong { color: var(--muted); font-weight: 500; }
+
+  .reviewer-source {
+    font-size: 12px;
+    color: var(--muted);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+
+  .mechanical {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-top: 24px;
+    font-size: 14px;
+  }
+  .mechanical h3 { margin: 0 0 10px; font-size: 14px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .mechanical ul { margin: 0; padding-left: 20px; }
+  .mechanical li { margin-bottom: 4px; color: var(--text); }
+
+  footer.report-footer {
+    margin-top: 40px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--muted);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  footer .meta { display: flex; gap: 24px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+  <div class="container">
+
+    <header class="report-header">
+      <div class="title">
+        <h1>TravelPlan — UX Design Validation Report</h1>
+        <div class="subtitle">_bmad-output/planning-artifacts/ux-designs/ux-TravelPlan-2026-07-27/</div>
+      </div>
+    </header>
+
+    <div class="synthesis">
+      <p>The pair is internally consistent, decision-dense, and clearly derived from a real, well-documented discovery process (<code>.memlog.md</code> corroborates every major visual call). Where it applies, it applies cleanly: token references resolve, German copy strings match verbatim across both files and both mockups, and section shapes follow the canonical order. But the spine specifies only the "read/reconnaissance" half of the product — five view-oriented surfaces built from an already-mostly-planned demo trip — while the entire authoring half (create trip, add accommodation, edit a day plan, password reset, any form/button/input primitive, loading/error/empty states) is either unmocked or unmentioned. Combined with two incorrect PRD FR citations and two unresolvable <code>{size}</code>-style token placeholders, a downstream consumer can source-extract the <em>viewing</em> surfaces with confidence but has no contract at all for the <em>editing</em> surfaces that make up most of the PRD's functional requirements.</p>
+      <p>The accessibility reviewer shifts the picture further, and specifically toward the surfaces the rubric already flagged as thin. Against the PRD's own stated pragmatic baseline (44×44px touch targets, strong contrast, no color-only signaling), the color system holds up well — but the approved mockups' actual interactive-element CSS falls well under the 44px floor almost everywhere (the bucket-list "+" affordance is roughly half the required size in both dimensions), meaning-bearing icons carry no accessible-name convention beyond one inconsistent example, and photography that both documents themselves call semantically meaningful has zero alt-text guidance anywhere. None of this is unique to the accessibility lens — it lands squarely on the same unmocked-primitives and unspecified-states gaps the rubric found — but it adds a second, independent line of evidence that the spine's thin spots (Component coverage, State coverage) are exactly where real users would be hurt first.</p>
+    </div>
+
+    <div class="dimension-summary">
+      <div class="dim-card">
+        <div class="dim-name">Flow coverage</div>
+        <div class="dim-verdict" style="color: var(--verdict-thin)">thin</div>
+      </div>
+      <div class="dim-card">
+        <div class="dim-name">Token completeness</div>
+        <div class="dim-verdict" style="color: var(--verdict-adequate)">adequate</div>
+      </div>
+      <div class="dim-card">
+        <div class="dim-name">Component coverage</div>
+        <div class="dim-verdict" style="color: var(--verdict-thin)">thin</div>
+      </div>
+      <div class="dim-card">
+        <div class="dim-name">State coverage</div>
+        <div class="dim-verdict" style="color: var(--verdict-thin)">thin</div>
+      </div>
+      <div class="dim-card">
+        <div class="dim-name">Visual reference coverage</div>
+        <div class="dim-verdict" style="color: var(--verdict-adequate)">adequate</div>
+      </div>
+      <div class="dim-card">
+        <div class="dim-name">Bloat &amp; overspecification</div>
+        <div class="dim-verdict" style="color: var(--verdict-adequate)">adequate</div>
+      </div>
+      <div class="dim-card">
+        <div class="dim-name">Inheritance discipline</div>
+        <div class="dim-verdict" style="color: var(--verdict-thin)">thin</div>
+      </div>
+      <div class="dim-card">
+        <div class="dim-name">Shape fit</div>
+        <div class="dim-verdict" style="color: var(--verdict-adequate)">adequate</div>
+      </div>
+    </div>
+
+    <!-- 1. Flow coverage -->
+    <section class="dimension">
+      <details open>
+        <summary>
+          <h2>1. Flow coverage</h2>
+          <span class="verdict-pill verdict-thin">thin</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>Checked EXPERIENCE.md's three Key Flows against the PRD's three named user journeys (Tom — Primary Success Path; Tom — Edge Case (Gaps &amp; Recovery); Konni — Viewer + Light Contributor). All three flows have a named protagonist, numbered steps, and a bolded climax beat.</p>
+          </div>
+        </div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-critical">critical</span>
+              <h3 class="finding-title">No Key Flow covers PRD's "Tom — Primary Success Path" journey</h3>
+              <span class="finding-location">EXPERIENCE.md Key Flows, lines 98–129; Foundation, lines 15–23</span>
+            </header>
+            <div class="finding-note">Flow 1 and Flow 2 both review an already-planned trip; neither demonstrates FR5, FR13–FR21, or FR25 authoring interactions (create trip → add transport → add accommodations → fill day plans), and no add/edit form is mocked or specified anywhere.</div>
+            <div class="finding-fix"><strong>Fix:</strong> add a flow (or extend Flow 1 past its current climax) that walks through actually closing the Porto gap — opening the accommodation form and saving it — or explicitly declare authoring flows out of scope for this pass in Foundation.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-critical">critical</span>
+              <h3 class="finding-title">FR4 (password reset via email) has zero representation</h3>
+              <span class="finding-location">EXPERIENCE.md IA table line 33; Interaction Primitives line 81</span>
+            </header>
+            <div class="finding-note">Login/Register (Screen E) is described only as a sign-in/register tab toggle; no "forgot password" link, screen, or state is mocked or mentioned.</div>
+            <div class="finding-fix"><strong>Fix:</strong> add a minimal password-reset flow/state, or note the omission explicitly as a scoped-out gap.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">Flow 3's climax silently diverges from the sourced PRD Konni journey's climax</h3>
+              <span class="finding-location">EXPERIENCE.md lines 121–129; DESIGN.md lines 212–213</span>
+            </header>
+            <div class="finding-note">PRD: "She adds a comment or a suggestion when she finds a good idea, or proposes an accommodation option." EXPERIENCE.md Flow 3: "Konni is fully informed... without any risk of her accidentally altering Tom's plan." The divergence is real and intentional (Tommy's comments/voting removal decision, documented in DESIGN.md Do's and Don'ts and .memlog.md), but Flow 3 itself gives no inline pointer to that decision.</div>
+            <div class="finding-fix"><strong>Fix:</strong> add one cross-reference sentence in Flow 3 to the comments/voting removal decision.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">Flow 2 and Flow 3 have no explicit failure/error path</h3>
+              <span class="finding-location">EXPERIENCE.md Key Flows</span>
+            </header>
+            <div class="finding-note">Data-load failure or permission-boundary violation isn't covered. Flow 3 does carry a closing "Note" about the unmocked reduced-permission Viewer UI, which softens this, but it isn't framed as a failure branch the way Flow 1's is.</div>
+            <div class="finding-fix"><strong>Fix:</strong> add a one-line failure note to each for consistency, or accept as scoped for these review-only flows.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <!-- 2. Token completeness -->
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>2. Token completeness</h2>
+          <span class="verdict-pill verdict-adequate">adequate</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>Extracted every <code>{path.to.token}</code> in both files' frontmatter and prose and checked resolution against the YAML frontmatter. All color tokens carry hex values — no critical misses there.</p>
+          </div>
+        </div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title"><code>{size}</code> is not a resolvable token path</h3>
+              <span class="finding-location">DESIGN.md Components line 199; EXPERIENCE.md Component Patterns line 61</span>
+            </header>
+            <div class="finding-note">There is no top-level <code>size</code> frontmatter key, and the two usages actually stand in for two different concrete values (the day-row/trip-row leading thumbnail vs. the 56px photo-strip thumb).</div>
+            <div class="finding-fix"><strong>Fix:</strong> replace with real paths, e.g. <code>{components.photo-strip.thumbSize}</code> for the strip case and a distinct token for the row-leading thumbnail.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">Malformed token reference mixes file-path prefix and backticks</h3>
+              <span class="finding-location">EXPERIENCE.md line 60</span>
+            </header>
+            <div class="finding-note"><code>{typography/DESIGN.md `components.timeline.neutralMarkerSize`}</code> is not valid <code>{path.to.token}</code> syntax.</div>
+            <div class="finding-fix"><strong>Fix:</strong> replace with <code>{components.timeline.neutralMarkerSize}</code>.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">No contrast ratio/target stated for load-bearing color combinations</h3>
+              <span class="finding-location">Accessibility Floor; .memlog.md v9</span>
+            </header>
+            <div class="finding-note">.memlog.md records real empirical contrast testing on the hero scrim ("top breadcrumb text over sunlit rock had thin contrast margin -- fixed by adding a light 4th scrim stop"), but the Accessibility Floor never turns that empirical finding into a checkable target.</div>
+            <div class="finding-fix"><strong>Fix:</strong> state even an informal threshold (e.g., "scrim's darkest stop must keep white title text ≥4.5:1; top stop ≥3:1 for kicker/breadcrumb text") so a future photo swap is verifiable.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">Several frontmatter tokens are defined but never referenced in body prose</h3>
+              <span class="finding-location">rounded.xl, spacing.unit, spacing.section-gap, components.badge-pill.*, components.stat-strip.*</span>
+            </header>
+            <div class="finding-note">Not a resolution failure (frontmatter is directly consumable without prose narration), but a consumer skimming prose only would miss that they exist / are in active use.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <!-- 3. Component coverage -->
+    <section class="dimension">
+      <details open>
+        <summary>
+          <h2>3. Component coverage</h2>
+          <span class="verdict-pill verdict-thin">thin</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>Extracted every component name mentioned in DESIGN.md Components, EXPERIENCE.md Component Patterns/State Patterns/Interaction Primitives, and the two mockup files, then cross-checked each has both a visual row (DESIGN.md) and a behavioral row (EXPERIENCE.md).</p>
+          </div>
+        </div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title"><code>trip-row</code> and <code>auth-tabs</code> have no dedicated DESIGN.md or EXPERIENCE.md rows</h3>
+              <span class="finding-location">DESIGN.md lines 190–199; EXPERIENCE.md lines 56–64, 73, 78–81</span>
+            </header>
+            <div class="finding-note">Used with real, distinct behavior but only get incidental mentions (photo-strip bullet name-drops trip-row; Elevation &amp; Depth mentions only the active auth-tab's shadow value). trip-row's states are scattered across State Patterns rather than given their own pattern row.</div>
+            <div class="finding-fix"><strong>Fix:</strong> add explicit rows for both, even if by cross-reference to the established day-row pattern.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">No DESIGN.md Components entry for any interactive form primitive</h3>
+              <span class="finding-location">button, text input, select, dialog/modal shell — Screens C/D/E</span>
+            </header>
+            <div class="finding-note">No row exists despite these appearing throughout (Neue Reise CTA, Einladen button, email input, role select, Share Dialog shell). Only the dialog's shadow value and corner radius are indirectly implied. Visual-spec side of Flow-coverage finding #1.</div>
+            <div class="finding-fix"><strong>Fix:</strong> add minimal button/input/dialog rows, or explicitly state these inherit an external library's defaults — Foundation leaves MUI-as-implementation-substrate "unconfirmed," which isn't enough for an implementer to know where to look.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title"><code>stat-strip</code> and <code>card</code> lack their own EXPERIENCE.md pattern row</h3>
+              <span class="finding-location">EXPERIENCE.md Component Patterns</span>
+            </header>
+            <div class="finding-note">Their only behavioral coverage is the adjacent "redundant-stat removal principle," a placement rule rather than a component-behavior spec. Likely fine (both are static containers) but worth one line confirming no interaction exists.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <!-- 4. State coverage -->
+    <section class="dimension">
+      <details open>
+        <summary>
+          <h2>4. State coverage</h2>
+          <span class="verdict-pill verdict-thin">thin</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>Walked all 5 IA surfaces (Trip Overview, Day Detail, Trips List, Share Dialog, Login/Register) against the applicable state set (empty, cold-load, focus, error, permission-denied; offline is out of scope per PRD's explicit "no offline requirement").</p>
+          </div>
+        </div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">No cold-load/loading state specified for any surface</h3>
+              <span class="finding-location">EXPERIENCE.md State Patterns, lines 65–74</span>
+            </header>
+            <div class="finding-note">No skeleton, spinner, or placeholder is defined, despite NFR1's explicit 15-second p95 load target making the loading experience load-bearing.</div>
+            <div class="finding-fix"><strong>Fix:</strong> add a loading-state row, even minimal.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">No error/save-failure state specified anywhere</h3>
+              <span class="finding-location">EXPERIENCE.md State Patterns</span>
+            </header>
+            <div class="finding-note">Network failure, failed save, failed export/import are all unspecified despite FR33/FR34 and general CRUD being core MVP scope. No toast/banner/inline-error convention exists in either file.</div>
+            <div class="finding-fix"><strong>Fix:</strong> add a minimal error-feedback convention consistent with the Voice and Tone table's style.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">Trips List's true zero-state isn't covered</h3>
+              <span class="finding-location">EXPERIENCE.md IA line 31; State Patterns lines 65–74</span>
+            </header>
+            <div class="finding-note">A brand-new user with zero trips landing after login — a real first-run case for the app's actual landing surface — has no defined treatment.</div>
+            <div class="finding-fix"><strong>Fix:</strong> add a "no trips yet" row.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">Login/Register has no validation/error state</h3>
+              <span class="finding-location">EXPERIENCE.md State Patterns</span>
+            </header>
+            <div class="finding-note">Wrong password, duplicate email, empty required field are unspecified despite being a security-relevant surface.</div>
+            <div class="finding-fix"><strong>Fix:</strong> add a minimal auth-error state row.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">Hover/focus/active/pressed states and reduced-permission Viewer UI remain unmocked (self-disclosed)</h3>
+              <span class="finding-location">Interaction Primitives line 83; Flow 3</span>
+            </header>
+            <div class="finding-note">Both are transparently called out rather than silently assumed — good practice — but remain real coverage gaps a downstream consumer must still resolve.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <!-- 5. Visual reference coverage -->
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>5. Visual reference coverage</h2>
+          <span class="verdict-pill verdict-adequate">adequate</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>Listed all files in mockups/, wireframes/, imports/, and .working/, and checked what the spines link to. Hex colors, gap-alert copy, status-pill copy, and the auth-tab shadow value all match between the spine text and the two mockup HTML files — cross-references that exist do resolve correctly. "Spine wins on conflict" is stated exactly once, as required.</p>
+          </div>
+        </div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">DESIGN.md never links to either .working/*.html file</h3>
+              <span class="finding-location">EXPERIENCE.md IA line 37</span>
+            </header>
+            <div class="finding-note">Only EXPERIENCE.md's Information Architecture section carries the single composition-reference line. A consumer opening only DESIGN.md, the primary visual spec, has no path back to the source visuals.</div>
+            <div class="finding-fix"><strong>Fix:</strong> add the same (or a shorter) pointer to DESIGN.md, ideally near Components.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">Approved mockups live only in .working/ alongside 14 superseded files; mockups/ sits empty</h3>
+              <span class="finding-location">.working/direction-merged-light-cockpit-v10.html; .working/additional-screens-trips-list-share-login.html</span>
+            </header>
+            <div class="finding-note">Nothing marks "final" vs. "superseded" other than the spine's citation, while a parallel mockups/ folder sits empty.</div>
+            <div class="finding-fix"><strong>Fix:</strong> consider copying/symlinking the two approved files into mockups/ so the empty folder doesn't mislead a consumer who checks there first.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <!-- 6. Bloat & overspecification -->
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>6. Bloat &amp; overspecification</h2>
+          <span class="verdict-pill verdict-adequate">adequate</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>No findings of pixel-specs duplicating tokens, bulk source restatement, or sections no downstream consumer would read — both files are unusually tight for their length.</p>
+          </div>
+        </div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">A few DESIGN.md Do's and Don'ts bullets read as mini case-studies</h3>
+              <span class="finding-location">DESIGN.md Do's and Don'ts — redundant-stat-removal, real-photography</span>
+            </header>
+            <div class="finding-note">Carry discovery-history narrative rather than crisp one-line rules — defensible under DESIGN.md's allowed editorial voice, but denser than the "hard rule" framing the rest of the section uses.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">Two EXPERIENCE.md Component Patterns rows lean toward editorial register</h3>
+              <span class="finding-location">hero-photo scrim-strengthening; activity timeline neutral-marker</span>
+            </header>
+            <div class="finding-note">Carry "this was learned empirically by..." narrative — though in both cases the rationale is load-bearing (justifies a "must keep doing this" constraint for future photos/data), so it isn't pure decoration.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <!-- 7. Inheritance discipline -->
+    <section class="dimension">
+      <details open>
+        <summary>
+          <h2>7. Inheritance discipline</h2>
+          <span class="verdict-pill verdict-thin">thin</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>Otherwise strong: sources frontmatter resolves in both files. Component names are used consistently between DESIGN.md and EXPERIENCE.md. German UI copy strings are identical across DESIGN.md, EXPERIENCE.md, and both mockup HTML files — no glossary drift found.</p>
+          </div>
+        </div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">EXPERIENCE.md's PRD FR citations are unreliable</h3>
+              <span class="finding-location">EXPERIENCE.md line 126, line 107</span>
+            </header>
+            <div class="finding-note">Line 126 cites "PRD FR23" for the Viewer read-only permission, but PRD's actual FR23 is "Users can set a total trip budget" — the correct citation is PRD FR30. The value is right, the label is wrong: it appears carried from epics.md's own, differently-numbered FR23. prd.md and epics.md use non-matching FR numbering schemes throughout and the spine blends citations from both without flagging the mismatch. Line 107's "FR10/FR11-class gap detection" is similarly imprecise — PRD FR10 is just "view as day-by-day list"; the actual gap-detection FRs are FR11 and FR12.</div>
+            <div class="finding-fix"><strong>Fix:</strong> audit every FR citation in EXPERIENCE.md against prd.md directly (not epics.md), correct FR23→FR30 and FR10/11→FR11/12, and add a caveat that prd.md and epics.md number FRs differently so future edits don't reintroduce the error.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">Key Flow titles are not verbatim from PRD's named journeys</h3>
+              <span class="finding-location">EXPERIENCE.md Key Flows</span>
+            </header>
+            <div class="finding-note">PRD: "Tom — Primary Success Path," "Tom — Edge Case (Gaps &amp; Recovery)," "Konni — Viewer + Light Contributor"; EXPERIENCE.md: "Flow 1 — Tom spots a gap on Trip Overview," etc. This compounds Flow-coverage finding #1: because the names don't map 1:1, the missing "Primary Success Path" flow isn't self-evident from a title scan.</div>
+            <div class="finding-fix"><strong>Fix:</strong> either keep the PRD names as flow subtitles or add an explicit journey→flow coverage table.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <!-- 8. Shape fit -->
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>8. Shape fit</h2>
+          <span class="verdict-pill verdict-adequate">adequate</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>DESIGN.md section order matches the canonical order exactly. EXPERIENCE.md has all 8 required-default sections present. No invented sections requiring justification; both files stick to canonical/default shapes.</p>
+          </div>
+        </div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">No "Responsive &amp; Platform" section despite PRD requiring desktop and mobile/tablet</h3>
+              <span class="finding-location">EXPERIENCE.md Foundation</span>
+            </header>
+            <div class="finding-note">Foundation transparently discloses that only desktop was mocked and frames it as "an open gap... not silently assumed" — good practice — but the section itself is still structurally absent, leaving zero breakpoint/stacking guidance.</div>
+            <div class="finding-fix"><strong>Fix:</strong> add a minimal placeholder Responsive &amp; Platform section ("no breakpoints specified yet — desktop only") so the gap is structurally visible, not just mentioned in a Foundation sentence.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <!-- Accessibility reviewer -->
+    <section class="reviewer-section">
+      <details>
+        <summary>
+          <h2>Accessibility review</h2>
+          <span class="reviewer-source">review-accessibility.md</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>Bar used: the PRD/epics.md pragmatic baseline — no WCAG AA/AAA conformance claim, but "strong contrast, visible focus, full keyboard navigation, touch targets ≥ 44×44px, map views paired with text summaries" (epics.md line 82; prd.md §Accessibility Level, edit-history 2026-02-12).</p>
+            <p>Against that baseline, the color system itself is in good shape — text-on-background contrast, warn-state contrast, and role-badge contrast all clear ~4.5–6.5:1 by calculation, and the spine is unusually disciplined about pairing color with icon+text for every gap state. The weak spots are elsewhere: the approved mockups' actual interactive-element CSS falls well short of the 44×44px floor almost everywhere (a stated requirement the spine itself repeats but never checks the mockups against), icons carry no accessible-name guidance beyond one inconsistent <code>aria-hidden</code> example, and photography — explicitly called out in both docs as semantically meaningful — has zero alt-text guidance anywhere. None of this rises to "actively harmful" for sighted mouse users, but the touch-target and icon-labeling gaps would materially hurt keyboard-only and touch users, which the baseline was meant to protect.</p>
+            <p><strong>Findings by severity:</strong> 1 critical, 4 high, 5 medium, 3 low (13 total; the source file's own summary line states 5 high/2 low, but only 4 findings are tagged high and 3 tagged low in the enumerated list below — corrected here).</p>
+          </div>
+        </div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-critical">critical</span>
+              <h3 class="finding-title">The bucket-add "+" affordance is roughly half the required touch-target size</h3>
+              <span class="finding-location">.working/direction-merged-light-cockpit-v10.html line ~589-603</span>
+            </header>
+            <div class="finding-note"><code>.bucket-add</code> (width:24px; height:24px) is the sole way to add a bucket-list idea into a day plan. This is the most-repeated, most consequential violation of the epics.md "touch targets ≥ 44×44px" floor in the whole set.</div>
+            <div class="finding-fix"><strong>Fix:</strong> keep the visual 24px glyph but expand the hit area to ≥44×44px via padding/transparent hit-slop, or wrap it in a button with min-width/min-height: 44px.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">Nearly every button, input, and select computes well under 44px tall</h3>
+              <span class="finding-location">both mockup files — .share-btn, .primary-btn, .auth-submit, .input, .select, .auth-tab, etc.</span>
+            </header>
+            <div class="finding-note">.share-btn/.back-btn (~36px), .primary-btn (~40px), .secondary-btn (~35px), .auth-submit (~40px), .input (~38px), .select (~35px), .auth-tab (~31px). EXPERIENCE.md's Accessibility Floor states the 44×44px requirement but neither DESIGN.md nor EXPERIENCE.md flags that the approved v10 mockups don't meet it — the requirement and the approved visuals silently disagree.</div>
+            <div class="finding-fix"><strong>Fix:</strong> either bump interactive-element vertical padding system-wide (e.g. min 12px 20px at current font sizes lands closer to 44px) or add an explicit note in EXPERIENCE.md that visual padding in the mockups is illustrative only and implementation must hit 44px via min-height/hit-area, not literal mockup CSS.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">Share Dialog's "Entfernen" (remove collaborator) is a bare text link with no padding</h3>
+              <span class="finding-location">additional-screens-trips-list-share-login.html line ~303-308</span>
+            </header>
+            <div class="finding-note"><code>.remove-link</code> is the smallest, least forgiving target in the set, and it performs a destructive/consequential action (revoking access).</div>
+            <div class="finding-fix"><strong>Fix:</strong> give it a padded button hit area (≥44×44px) even if it keeps a link-like visual style, same as bucket-add.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">Photography carries no alt-text guidance anywhere</h3>
+              <span class="finding-location">hero-photo, day-photo, tl-photo, trip-photo — both mockups + DESIGN.md Components §hero-photo</span>
+            </header>
+            <div class="finding-note">Despite the review brief's (and DESIGN.md's own) framing of photos as semantic content — "which trip, which day, which activity" — all photo surfaces are CSS background-image on divs, not img elements, so there's no native alt mechanism at all. DESIGN.md even anticipates future user-uploaded "trip cover photos" without addressing text alternatives.</div>
+            <div class="finding-fix"><strong>Fix:</strong> add a short "Photo alt-text" subsection to EXPERIENCE.md: hero/day/trip photos are decorative (alt="") when adjacent title text already names the same entity; tl-photos/photo-strip images inside a stay/activity card should get real, generated alt text (e.g. "Photo of {activity title}, image {n} of {total}").</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">Meaning-bearing icons have no accessible-name convention</h3>
+              <span class="finding-location">~20+ inline &lt;svg&gt; icons across both mockups</span>
+            </header>
+            <div class="finding-note">Only the neutral activity-dot is explicitly marked decorative (aria-hidden="true"). Every other meaningful icon SVG has neither aria-hidden nor a title/aria-label — noisy but not misleading, since all sit next to visible text per the "icon + text, never color alone" rule already in EXPERIENCE.md. The rule about pairing icon with text exists; the rule about marking the icon itself decorative for AT does not.</div>
+            <div class="finding-fix"><strong>Fix:</strong> add one line to EXPERIENCE.md's Accessibility Floor: all status/meaning icons are decorative (aria-hidden="true") because their meaning is always duplicated in adjacent visible text; icons that are the only carrier of information must get a real aria-label instead.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">ink-muted on paper/card falls below the ~4.5:1 body-text threshold, used for coverage-axis time labels</h3>
+              <span class="finding-location">direction-merged-light-cockpit-v10.html line 303</span>
+            </header>
+            <div class="finding-note">ink-muted (#8A8677) on paper (#F7F4EC) computes to ≈3.3:1, on card/white to ≈3.65:1 — below body-text threshold though above the large-text/UI-component floor. DESIGN.md correctly restricts ink-muted to placeholder-level text, but the mockups use it for coverage-axis time labels (08:00, 12:00, etc.) at 10px, which anchor the whole Gantt-style coverage bar and sit at the edge of "must read to act."</div>
+            <div class="finding-fix"><strong>Fix:</strong> bump coverage-axis label color to ink-soft (#6B675C, ~4.8–5.6:1) — a one-line token swap that removes the only borderline-contrast text usage in the system.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">Hero-photo header zone contrast is self-acknowledged but unverified beyond one test photo</h3>
+              <span class="finding-location">mockup rationale comment lines 662-666</span>
+            </header>
+            <div class="finding-note">Breadcrumb/kicker text (rgba(255,255,255,.82–.92)) over a scrim thinning to 10–26% opacity at the top was tested against exactly one real photo (hero-mountains.jpg), not proven safe in general — and DESIGN.md commits this treatment to future, user-uploaded trip cover photos where brightness can't be controlled. Disclosed, not hidden, but the disclosure stops short of a hard rule.</div>
+            <div class="finding-fix"><strong>Fix:</strong> add a minimum-scrim-opacity floor at the top stop (e.g. never below ~0.35), or require a client-side average-luminance check on uploaded hero photos to auto-darken the top scrim stop when needed.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">Stay vs. activity coverage-bar segments distinguished by color alone at row level, no legend</h3>
+              <span class="finding-location">.day-row / .trip-row mini bars, Screen A</span>
+            </header>
+            <div class="finding-note">--accent vs. --accent-2 contrast is only ~2:1, with no pattern/texture difference (unlike the "gap" segment, which gets a hatch). The full Screen B bar has a text legend; the mini per-row bar on Screen A has no legend, only a title-attribute tooltip not reliably exposed to touch, keyboard-only, or screen-reader users.</div>
+            <div class="finding-fix"><strong>Fix:</strong> add a compact inline legend/key once per screen for Screen A, or give travel/activity/stay segments distinct subtle patterns the way gap already gets a hatch.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">Focus-state guidance stops at "must author these," no concrete default; clipping risk on rounded containers</h3>
+              <span class="finding-location">EXPERIENCE.md Interaction Primitives; Accessibility Floor</span>
+            </header>
+            <div class="finding-note">The gap is transparently acknowledged, not silent — good. But no suggested focus-ring color/width/offset exists, and several containers (.browser, arguably .day-row/.card via border-radius clipping) can visually clip a focus ring on an edge-adjacent element.</div>
+            <div class="finding-fix"><strong>Fix:</strong> add one concrete default to the Accessibility Floor — e.g. "default focus ring: 2px solid {colors.accent} with 2px offset, tested against card/paper/hero-photo backgrounds" — and flag the clipping risk on .browser/rounded containers specifically.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">Owner role badge reuses the warn/terracotta palette otherwise hard-reserved for gap/error states</h3>
+              <span class="finding-location">additional-screens-trips-list-share-login.html lines 290-301</span>
+            </header>
+            <div class="finding-note">Owner uses #8A5A2B on #F6ECE0, the same palette as every gap/error state elsewhere (day-row gap pill, gap-alert card, trip-status.gap pill). A colorblind or quickly-scanning user could misread "Owner" as a warning/problem state, since terracotta is otherwise a hard-reserved "something's wrong" signal per DESIGN.md's own Do's and Don'ts. Not color-only (text label always present) — this is a semantic collision, not a contrast bug.</div>
+            <div class="finding-fix"><strong>Fix:</strong> give Owner a neutral/ink-toned badge instead of reusing warn, preserving warn exclusively for actual gaps as the system's own rule intends.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">Warn-pairing rule (icon + text, never color alone) verified consistent — no issue</h3>
+              <span class="finding-location">DESIGN.md Do's and Don'ts</span>
+            </header>
+            <div class="finding-note">Mockups follow the rule consistently for gap states. No fix needed; flagged for completeness since it was one of the six things explicitly asked about.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">Map previews consistently paired with text caption — no issue</h3>
+              <span class="finding-location">.map-caption, Screen A Route card and Screen B Tageskarte</span>
+            </header>
+            <div class="finding-note">Verified present per EXPERIENCE.md's Interaction Primitives and epics.md FR26. Flagged only to confirm the check was made.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">Empty-bucket-list state is explicitly marked [ASSUMPTION] with a concrete recommended treatment</h3>
+              <span class="finding-location">EXPERIENCE.md State Patterns table</span>
+            </header>
+            <div class="finding-note">"No illustration, no separate empty-state component invented" — good practice, low risk as-is, but worth confirming in the next review pass as the doc itself already requests.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <div class="mechanical">
+      <h3>Mechanical notes</h3>
+      <ul>
+        <li>Both files' YAML frontmatter parse cleanly; name, status, sources, updated present in both; DESIGN.md additionally carries description, colors, typography, rounded, spacing, components.</li>
+        <li>No Mermaid diagrams appear in either spine file (unlike ux-design-specification.md, which has three) — not required, not a defect.</li>
+        <li>FR-numbering mismatch between sources: prd.md and epics.md use entirely different FR numbering schemes for overlapping requirements (e.g., prd.md's FR23 = budget target; epics.md's FR23 = viewer read-only permission). Pre-existing source inconsistency, not created by the UX spine, but the spine's citations inherited it silently.</li>
+        <li>Broken/unresolvable token syntax: <code>{size}</code> (DESIGN.md:199, EXPERIENCE.md:61) and the malformed typography/DESIGN.md reference (EXPERIENCE.md:60).</li>
+        <li>Component names, German copy strings, and color hex values all cross-checked against both .working/*.html mockups and found consistent — no drift detected in what was specified, only in what was left unspecified.</li>
+        <li>Accessibility bar used by the extra reviewer: PRD/epics.md pragmatic baseline (no WCAG AA/AAA conformance claim) — strong contrast, visible focus, full keyboard navigation, touch targets ≥44×44px, map views paired with text summaries.</li>
+      </ul>
+    </div>
+
+    <footer class="report-footer">
+      <div class="meta">
+        <span>Rubric: review-rubric.md</span>
+        <span>Accessibility: review-accessibility.md</span>
+        <span>Generated: 2026-07-30T20:47:29Z</span>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>

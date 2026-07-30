@@ -1,0 +1,933 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TravelPlan — Erweiterung: Authoring/Formulare (Trip erstellen, Eintrag hinzufügen, Passwort zurücksetzen, Form-Bausteine)</title>
+<style>
+/*
+  DOKUMENTIERTE FARBWERTE — 1:1 übernommen aus DESIGN.md / direction-merged-light-cockpit-v10.html
+  und additional-screens-trips-list-share-login.html (beide read-only, freigegeben). Keine neuen
+  Farbtokens, keine neuen Struktur-/Bildmuster — diese Datei überträgt das bestehende System auf
+  die "Authoring"-Hälfte des Produkts (Formulare/Dialoge), die im Validierungs-Review als komplett
+  ungemockt markiert wurde.
+
+  --paper-outer:  #EFEAE0   Äußerer Seitenhintergrund
+  --paper:        #F7F4EC   App-Oberflächenhintergrund
+  --card:         #FFFFFF   Kartenflächen
+  --card-alt:     #FBF9F4   Zebra-/ruhigere Flächen (auch: Standard-Input-Hintergrund)
+  --ink:          #2B2A26   Haupttext
+  --ink-soft:     #6B675C   Sekundärtext / Labels
+  --ink-muted:    #8A8677   Tertiärtext / Platzhalter
+  --border:       #E4DFD3   Standard-Trennlinie
+  --border-strong:#D9D0BE   Kräftigerer Kartenrahmen
+  --accent:       #4B6358   Gedämpftes Waldgrün — Primärakzent
+  --accent-2:     #7C9483   Helleres Salbeigrün — Sekundärakzent
+  --accent-soft:  #E7EDE7   Akzent-Hintergrund (Badges, Zeit-Pills)
+  --warn:         #8A5A2B   Gedämpftes Terrakotta — Gap-/Fehlerfarbe
+  --warn-bg:      #F6ECE0   Gap-/Warn-Badge-Hintergrund
+  --warn-border:  #E3C7A2   Kräftigerer Warn-Kartenrahmen
+
+  Schrift: ausschließlich Systemschrift, serifenlos
+  (-apple-system, "Segoe UI", Helvetica, Arial, sans-serif). Keine Serifen.
+  Foto-/Bildflächen: konsequent ungerundet (border-radius:0); Buttons/Inputs 6px, Karten/Zeilen 8px,
+  Dialoge 10px, runde Elemente (Kreise) 9999px — unverändert aus DESIGN.md.
+
+  BARRIEREFREIHEITS-FIX (dieser Datei): Ein abgeschlossenes Accessibility-Review hat festgestellt,
+  dass ALLE interaktiven Elemente in den bisherigen Mockups (Buttons, Inputs, der 24×24px
+  "+"-Button der Bucket-Liste) unter der vom Produkt gewünschten 44×44px-Touch-Target-Grenze liegen
+  (PRD-Basisanforderung, nicht volle WCAG-AA-Prüfung). Jeder hier neu definierte Formular-Baustein
+  (.btn-primary, .btn-secondary, .field-input, .field-select, .type-tab, .photo-add-tile,
+  .checkbox-row) erzwingt deshalb min-height:44px bzw. eine Klickfläche ≥44px in der gerenderten
+  Mockup-Größe — siehe Abschnitt "Form-Bausteine" am Ende für die Einzelnachweise mit
+  Pixel-Beschriftung.
+*/
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: #EFEAE0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  color: #2B2A26;
+}
+.page { max-width: 1080px; margin: 0 auto; padding: 44px 24px 80px; }
+
+.rationale {
+  background: #FFFFFF;
+  border: 1px solid #E4DFD3;
+  border-radius: 8px;
+  padding: 20px 24px;
+  margin-bottom: 30px;
+  line-height: 1.55;
+  font-size: 14.5px;
+  color: #43413A;
+}
+.rationale strong {
+  display: block;
+  font-size: 11.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #4B6358;
+  margin-bottom: 8px;
+  font-weight: 800;
+}
+.rationale ol { margin: 8px 0 0; padding-left: 20px; }
+.rationale ol li { margin-bottom: 5px; }
+.rationale .inline-h { display:inline; font-size:inherit; letter-spacing:normal; text-transform:none; color:inherit; font-weight:700; }
+
+.screen-label {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #6B675C;
+  margin: 40px 0 12px;
+}
+.screen-label:first-of-type { margin-top: 8px; }
+
+.browser {
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 20px 50px rgba(30,28,20,0.14);
+  border: 1px solid #E4DFD3;
+}
+.browser-chrome {
+  background: #F1ECE1;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid #E4DFD3;
+}
+.dot { width: 10px; height: 10px; border-radius: 50%; background: #D8D2C4; }
+.url {
+  margin-left: 12px;
+  background: #FBF9F4;
+  border: 1px solid #E4DFD3;
+  border-radius: 5px;
+  padding: 4px 12px;
+  font-size: 12px;
+  color: #8A8677;
+  flex: 1;
+  max-width: 320px;
+}
+.app { background: #F7F4EC; }
+
+/* ---- Topbar / stat-strip / trip-row — wiederverwendet aus additional-screens-trips-list (Screen C),
+   hier nur als gedimmter Hintergrund hinter dem "Trip erstellen"-Dialog. ---- */
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 22px 32px;
+  border-bottom: 1px solid #E4DFD3;
+  gap: 20px;
+}
+.page-kicker { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #4B6358; font-weight: 800; margin-bottom: 6px; }
+.page-title { font-size: 28px; font-weight: 900; margin: 0 0 6px; letter-spacing: -0.4px; }
+.page-sub { font-size: 13px; color: #6B675C; font-weight: 600; }
+
+.stat-strip { display: grid; grid-template-columns: repeat(3,1fr); border-bottom: 1px solid #E4DFD3; background: #FFFFFF; }
+.stat-cell { padding: 16px 24px; border-right: 1px solid #E4DFD3; }
+.stat-cell:last-child { border-right: none; }
+.stat-cell .l { font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #6B675C; font-weight: 700; margin-bottom: 6px; }
+.stat-cell .v { font-size: 21px; font-weight: 900; font-variant-numeric: tabular-nums; color: #2B2A26; }
+.stat-cell .v.accent { color: #4B6358; }
+.stat-cell .v.warn { color: #8A5A2B; }
+
+.main-pad { padding: 22px 32px 32px; }
+.section-label { font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: #6B675C; margin-bottom: 12px; }
+
+.trip-row {
+  display: grid;
+  grid-template-columns: 96px 1fr 190px 150px;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid #D9D0BE;
+  border-radius: 8px;
+  margin-bottom: 10px;
+  background: #FFFFFF;
+}
+.trip-photo { width: 96px; height: 96px; background-size: cover; background-position: center; border: 1px solid rgba(0,0,0,0.06); border-radius: 0; flex-shrink: 0; }
+.trip-photo.tp-1 { background: linear-gradient(160deg, #E8C9A0, #C9824F 55%, #7A4A2E); }
+.trip-photo.tp-2 { background: linear-gradient(150deg, #AED4E0, #6FA9BE 55%, #2F5C68); }
+.trip-photo.tp-3 { background: linear-gradient(140deg, #9FCBDB, #4B6358 60%, #2B3A2E); }
+.trip-name { font-size: 16px; font-weight: 800; margin: 0 0 4px; color: #2B2A26; }
+.trip-meta { font-size: 12px; color: #6B675C; font-weight: 600; }
+.trip-status { font-size: 11.5px; font-weight: 700; color: #4B6358; background: #E7EDE7; display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 6px; white-space: nowrap; }
+.trip-status svg { width: 13px; height: 13px; flex-shrink: 0; }
+.trip-status.upcoming { color: #6B675C; background: #F1ECE1; }
+.trip-cost { text-align: right; }
+.trip-cost .l { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: #6B675C; font-weight: 700; margin-bottom: 3px; }
+.trip-cost .v { font-size: 16.5px; font-weight: 900; font-variant-numeric: tabular-nums; color: #2B2A26; }
+
+/* Dimm-Overlay hinter modalen Dialogen — neue, additive Ergänzung dieser Datei. Nutzt denselben
+   dunklen Ton wie die Foto-Scrims (rgba(20,18,14, x)), keine neue Farbe. */
+.dim-overlay {
+  position: relative;
+}
+.dim-overlay::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(20,18,14,0.40);
+  z-index: 5;
+}
+.dialog-stage {
+  position: relative;
+  z-index: 6;
+  padding: 48px 24px;
+  display: flex;
+  justify-content: center;
+}
+.dialog-stage.plain { background: #EFEAE0; }
+
+/* ---- Dialog-Grundgerüst — identisch zur Share-Dialog-Konvention (Screen D) ---- */
+.dialog {
+  width: 100%;
+  background: #FFFFFF;
+  border: 1px solid #D9D0BE;
+  border-radius: 10px;
+  box-shadow: 0 24px 60px rgba(30,28,20,0.18);
+  overflow: hidden;
+}
+.dialog.w-460 { max-width: 460px; }
+.dialog.w-520 { max-width: 520px; }
+.dialog-head { padding: 20px 24px 16px; border-bottom: 1px solid #E4DFD3; }
+.dialog-title { font-size: 17px; font-weight: 900; margin: 0 0 4px; color: #2B2A26; letter-spacing: -0.2px; }
+.dialog-sub { font-size: 12.5px; color: #6B675C; font-weight: 600; }
+.dialog-body { padding: 22px 24px; }
+.dialog-footer {
+  padding: 16px 24px;
+  border-top: 1px solid #E4DFD3;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  background: #FBF9F4;
+}
+
+/* =========================================================
+   FORM-BAUSTEINE (neu, für Authoring-Dialoge in dieser Datei)
+   Barrierefreiheits-Fix: min-height 44px auf allen Buttons/Inputs/Selects/Tabs.
+   ========================================================= */
+.field-block { margin-bottom: 18px; }
+.field-block:last-child { margin-bottom: 0; }
+.field-row { display: flex; gap: 12px; }
+.field-row .field-block { flex: 1; margin-bottom: 0; }
+
+.field-label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #6B675C;
+  margin-bottom: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.field-label .opt { text-transform: none; letter-spacing: normal; font-weight: 600; color: #8A8677; font-size: 10.5px; }
+
+.field-input {
+  width: 100%;
+  min-height: 44px;
+  box-sizing: border-box;
+  border: 1px solid #D9D0BE;
+  border-radius: 6px;
+  padding: 0 14px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #2B2A26;
+  background: #FBF9F4;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+}
+.field-input::placeholder { color: #8A8677; font-weight: 600; }
+.field-input.has-prefix { padding-left: 30px; position: relative; }
+
+.field-input-wrap { position: relative; }
+.field-input-wrap .prefix {
+  position: absolute;
+  left: 14px; top: 0; bottom: 0;
+  display: flex; align-items: center;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #6B675C;
+  pointer-events: none;
+}
+.field-input-wrap .field-input.has-prefix { padding-left: 26px; }
+.field-input-wrap .icon-suffix {
+  position: absolute;
+  right: 14px; top: 0; bottom: 0;
+  display: flex; align-items: center;
+  color: #8A8677;
+}
+.field-input-wrap .icon-suffix svg { width: 15px; height: 15px; }
+
+.field-select {
+  width: 100%;
+  min-height: 44px;
+  box-sizing: border-box;
+  border: 1px solid #D9D0BE;
+  border-radius: 6px;
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #43413A;
+  background: #FFFFFF;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.field-select svg { width: 14px; height: 14px; color: #8A8677; flex-shrink: 0; }
+
+.field-hint { font-size: 11px; color: #8A8677; font-weight: 600; margin-top: 6px; }
+.field-hint.error { color: #8A5A2B; font-weight: 700; display: flex; align-items: center; gap: 5px; }
+.field-hint.error svg { width: 12px; height: 12px; flex-shrink: 0; }
+
+/* Buttons — Radius/Farben unverändert aus v10 (.share-btn/.back-btn), Höhe auf 44px angehoben
+   (vorher effektiv ~40px bei padding:12px 20px + 13.5px Text). */
+.btn-primary {
+  background: #4B6358;
+  color: #FFFFFF;
+  border: none;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 0 22px;
+  border-radius: 6px;
+  font-size: 13.5px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: default;
+  white-space: nowrap;
+  font-family: inherit;
+}
+.btn-primary svg { width: 15px; height: 15px; }
+.btn-primary.full { width: 100%; }
+.btn-secondary {
+  border: 1px solid #D9D0BE;
+  background: #FFFFFF;
+  color: #43413A;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 0 20px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: default;
+  white-space: nowrap;
+  font-family: inherit;
+}
+
+/* Typ-Umschalter (Unterkunft / Aktivität) — gleiche Pill-Container-Technik wie .auth-tabs,
+   Tab-Höhe auf 44px angehoben (vorher padding:8px 0 ≈ 34px). */
+.type-tabs { display: flex; gap: 6px; background: #EFEAE0; border-radius: 8px; padding: 4px; margin-bottom: 20px; }
+.type-tab {
+  flex: 1;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 800;
+  border-radius: 6px;
+  color: #6B675C;
+}
+.type-tab svg { width: 15px; height: 15px; }
+.type-tab.active { background: #FFFFFF; color: #4B6358; box-shadow: 0 1px 3px rgba(30,28,20,0.12); }
+
+/* Foto-Upload — Dropzone + Vorschau-Kacheln (sharp-cornered, 56px wie .tl-photo). Die "+"-Kachel
+   ist bewusst 56×56px (>44px), NICHT die vorher bemängelten 24×24px des Bucket-List-Buttons. */
+.photo-upload-zone {
+  border: 1.5px dashed #D9D0BE;
+  border-radius: 8px;
+  background: #FBF9F4;
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.photo-upload-icon {
+  width: 44px; height: 44px;
+  border-radius: 8px;
+  background: #E7EDE7;
+  color: #4B6358;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.photo-upload-icon svg { width: 20px; height: 20px; }
+.photo-upload-text .t { font-size: 12.5px; font-weight: 700; color: #2B2A26; margin-bottom: 2px; }
+.photo-upload-text .d { font-size: 11px; color: #8A8677; font-weight: 600; }
+
+.photo-strip-preview { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+.photo-thumb {
+  flex: 0 0 56px;
+  width: 56px; height: 56px;
+  background-size: cover;
+  background-position: center;
+  border: 1px solid rgba(0,0,0,0.06);
+  border-radius: 0;
+  position: relative;
+}
+.photo-thumb .remove-x {
+  position: absolute;
+  top: -6px; right: -6px;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  background: #2B2A26;
+  color: #FFFFFF;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px;
+  line-height: 1;
+  border: 1.5px solid #FFFFFF;
+}
+.photo-thumb.pt-1 { background: linear-gradient(160deg, #E8C9A0, #C9824F 55%, #7A4A2E); }
+.photo-thumb.pt-2 { background: linear-gradient(150deg, #AED4E0, #6FA9BE 55%, #2F5C68); }
+.photo-thumb.pt-3 { background: linear-gradient(140deg, #D9B65B, #8C9A5E 50%, #4B6358); }
+/* Foto-Add-Kachel: 56×56px, gleiche Fläche wie ein Foto-Thumb, klar über der 44px-Grenze. */
+.photo-add-tile {
+  flex: 0 0 56px;
+  width: 56px; height: 56px;
+  border-radius: 0;
+  border: 1.5px dashed #D9D0BE;
+  background: #FBF9F4;
+  color: #4B6358;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+/* Checkbox — visuelles Kästchen kompakt (20px), aber die gesamte anklickbare Zeile (Kästchen +
+   Label) hat eine Klickfläche/Höhe von min. 44px, konsistent mit der 44px-Touch-Target-Vorgabe. */
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 4px 2px;
+}
+.checkbox-box {
+  width: 20px; height: 20px;
+  border-radius: 4px;
+  border: 1.5px solid #D9D0BE;
+  background: #FFFFFF;
+  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+.checkbox-box.checked { background: #4B6358; border-color: #4B6358; }
+.checkbox-box.checked svg { width: 12px; height: 12px; stroke: #FFFFFF; }
+.checkbox-label { font-size: 13px; font-weight: 600; color: #2B2A26; }
+
+/* =========================================================
+   AUTH-HERO (Passwort zurücksetzen) — 1:1 aus Screen E übernommen
+   ========================================================= */
+.auth-shell { display: grid; grid-template-columns: 1fr 1fr; min-height: 520px; }
+.auth-hero {
+  position: relative;
+  overflow: hidden;
+  background-color: #4B6358;
+  background-image: url('file:///Users/tommy/Development/TravelPlan/travelplan/public/hero-mountains.jpg');
+  background-size: cover;
+  background-position: center;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 32px;
+}
+.auth-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(20,18,14,0.88) 0%, rgba(20,18,14,0.54) 38%, rgba(20,18,14,0.10) 66%, rgba(20,18,14,0.26) 100%);
+}
+.auth-hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 84% 12%, rgba(255,255,255,0.22), transparent 45%);
+}
+.auth-hero-content { position: relative; z-index: 2; }
+.auth-brand { font-size: 13px; font-weight: 900; letter-spacing: 0.06em; color: #FFFFFF; margin-bottom: 18px; text-transform: uppercase; }
+.auth-hero-title { font-size: 26px; font-weight: 900; color: #FFFFFF; margin: 0 0 10px; letter-spacing: -0.4px; text-shadow: 0 2px 14px rgba(0,0,0,0.35); max-width: 320px; }
+.auth-hero-sub { font-size: 13px; color: rgba(255,255,255,0.88); font-weight: 600; max-width: 300px; line-height: 1.5; }
+
+.auth-form-col { background: #F7F4EC; display: flex; align-items: center; justify-content: center; padding: 40px; }
+.auth-card { width: 100%; max-width: 340px; }
+
+.step-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #4B6358;
+  background: #E7EDE7;
+  padding: 5px 10px;
+  border-radius: 5px;
+  margin-bottom: 14px;
+}
+
+.auth-card-title { font-size: 21px; font-weight: 900; margin: 0 0 6px; letter-spacing: -0.3px; color: #2B2A26; }
+.auth-card-sub { font-size: 12.5px; color: #6B675C; font-weight: 600; margin-bottom: 22px; line-height: 1.5; }
+
+.auth-foot { font-size: 12px; color: #6B675C; font-weight: 600; margin-top: 16px; text-align: center; }
+.auth-foot a { color: #4B6358; font-weight: 700; }
+
+.success-note {
+  border: 1px solid #C9D2C7;
+  background: #E7EDE7;
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-top: 18px;
+}
+.success-note svg { width: 16px; height: 16px; color: #4B6358; flex-shrink: 0; margin-top: 1px; }
+.success-note .t { font-size: 12px; font-weight: 700; color: #2B4238; line-height: 1.5; }
+
+/* =========================================================
+   FORM-BAUSTEINE REFERENZBLATT (kein echter Screen)
+   ========================================================= */
+.swatch-sheet {
+  background: #FFFFFF;
+  border: 1px solid #D9D0BE;
+  border-radius: 10px;
+  padding: 28px 32px 32px;
+}
+.swatch-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 28px 32px; margin-top: 8px; }
+.swatch-grid.wide { grid-template-columns: 1fr; }
+.swatch-block { border: 1px solid #E4DFD3; border-radius: 8px; padding: 18px; background: #FBF9F4; }
+.swatch-name { font-size: 12.5px; font-weight: 800; color: #2B2A26; margin-bottom: 3px; }
+.swatch-spec { font-size: 11px; color: #6B675C; font-weight: 700; font-variant-numeric: tabular-nums; margin-bottom: 14px; }
+.swatch-spec .ok { color: #4B6358; }
+.swatch-demo { display: flex; flex-direction: column; gap: 10px; }
+.dim-tag {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 800;
+  color: #4B6358;
+  background: #E7EDE7;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-variant-numeric: tabular-nums;
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="rationale">
+    <strong>Erweiterung · Authoring/Formulare — schließt die im Validierungs-Review festgestellte Lücke</strong>
+    Das Validierungs-Review hat festgestellt, dass die "authoring"-Hälfte des Produkts — also alle Formulare/
+    Dialoge, mit denen Nutzer:innen tatsächlich Inhalte anlegen und bearbeiten — bislang komplett ungemockt war.
+    Diese Datei ergänzt das bereits freigegebene Design-System (<code>direction-merged-light-cockpit-v10.html</code>,
+    <code>additional-screens-trips-list-share-login.html</code>, <code>DESIGN.md</code>) um vier neue Oberflächen.
+    Es werden ausschließlich bestehende Farbtokens, Karten-/Dialog-Rahmen, Foto-Techniken und die serifenlose
+    Systemschrift wiederverwendet — keine neuen Farben, keine neue Bildsprache:
+    <ol>
+      <li><strong class="inline-h">Screen F · Dialog „Trip erstellen":</strong> Modal in derselben Größenkonvention wie der Teilen-Dialog (max-width 460px, gleicher Kopf-/Fuß-Aufbau), über einer gedimmten Reiseliste, da dieser Dialog typischerweise der allererste Schritt vor jedem Inhalt ist. Reisename, Zeitraum (von/bis) als zwei nebeneinanderliegende Datumsfelder, Primäraktion „Reise erstellen" + „Abbrechen".</li>
+      <li><strong class="inline-h">Screen G · Dialog „Eintrag hinzufügen":</strong> die Bearbeitungs-Aktion hinter den Timeline-Karten aus Screen B. Typ-Umschalter (Unterkunft/Aktivität) im gleichen Pill-Stil wie die Login/Registrieren-Tabs, Titel, Zeitraum (von/bis), optionale Kosten- und Link-Felder, sowie eine Foto-Upload-Zone mit derselben scharfkantigen 56px-Vorschau-Technik wie die bestehende Fotoleiste (.tl-photo).</li>
+      <li><strong class="inline-h">Screen H · Passwort zurücksetzen:</strong> zweistufiger Flow (E-Mail anfordern → neues Passwort setzen), als unauthentifizierter Geschwister-Screen zu Login/Registrierung mit identischer Foto-Hero-Seitenpanel-Technik (hero-mountains.jpg, gleicher 4-Stop-Scrim).</li>
+      <li><strong class="inline-h">Screen I · Form-Bausteine (Referenzblatt):</strong> kein echter Screen, sondern ein Bauteil-Muster für DESIGN.md — Text-Input in Standard-/Fokus-/Fehlerzustand, Select, Primär-/Sekundärbutton und Checkbox, jeweils mit sichtbarer Maßangabe.</li>
+    </ol>
+    <strong style="margin-top:14px;">Barrierefreiheits-Fix (Pflichtvorgabe für diese Datei)</strong>
+    Ein abgeschlossenes Accessibility-Review hat ergeben, dass sämtliche interaktiven Elemente der bisherigen
+    Mockups — Buttons, Inputs, der 24×24px „+"-Button der Bucket-Liste — unter der vom Produkt gewünschten
+    44×44px-Touch-Target-Grenze liegen (PRD-Basisanforderung). Alle hier neu definierten Formular-Bausteine
+    (Buttons, Text-Inputs, Selects, Typ-Tabs, die Foto-Add-Kachel) sind auf <strong class="inline-h" style="color:#4B6358;">min-height: 44px</strong>
+    gesetzt; die Checkbox behält ein kompaktes 20px-Sichtkästchen, bekommt aber eine 44px hohe Klickzeile als
+    Treffer­fläche. Einzelnachweise mit Pixel-Beschriftung siehe Screen I am Ende dieser Datei.
+  </div>
+
+  <!-- =========================================================
+       SCREEN F — Dialog „Trip erstellen"
+       ========================================================= -->
+  <div class="screen-label">Screen F · Dialog „Trip erstellen" (über gedimmter Reiseliste)</div>
+  <div class="browser">
+    <div class="browser-chrome">
+      <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+      <div class="url">travelplan.app/trips?new=1</div>
+    </div>
+    <div class="app dim-overlay">
+
+      <div class="topbar">
+        <div>
+          <div class="page-kicker">Meine Reisen</div>
+          <h1 class="page-title">Willkommen zurück, Thomas</h1>
+          <div class="page-sub">4 Reisen · 1 mit offenen Punkten</div>
+        </div>
+        <button class="btn-primary">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Neue Reise
+        </button>
+      </div>
+
+      <div class="stat-strip">
+        <div class="stat-cell"><div class="l">Aktive Reisen</div><div class="v">2</div></div>
+        <div class="stat-cell"><div class="l">Kosten bisher (alle Reisen)</div><div class="v accent">€3.610</div></div>
+        <div class="stat-cell"><div class="l">Offene Punkte</div><div class="v warn">1</div></div>
+      </div>
+
+      <div class="main-pad">
+        <div class="section-label">Alle Reisen</div>
+        <div class="trip-row">
+          <div class="trip-photo tp-1"></div>
+          <div>
+            <p class="trip-name">Portugal Roadtrip</p>
+            <div class="trip-meta">12.–24. Sept 2026 · Lissabon → Sintra → Porto → Douro-Tal → Algarve</div>
+          </div>
+          <div class="trip-status"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Vollständig geplant</div>
+          <div class="trip-cost"><div class="l">Kosten bisher</div><div class="v">€2.340</div></div>
+        </div>
+        <div class="trip-row">
+          <div class="trip-photo tp-2"></div>
+          <div>
+            <p class="trip-name">Städtetrip Kopenhagen</p>
+            <div class="trip-meta">3.–6. Okt 2026 · Kopenhagen</div>
+          </div>
+          <div class="trip-status upcoming"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.2 2"/></svg>Bevorstehend</div>
+          <div class="trip-cost"><div class="l">Kosten bisher</div><div class="v">€890</div></div>
+        </div>
+        <div class="trip-row">
+          <div class="trip-photo tp-3"></div>
+          <div>
+            <p class="trip-name">Alpen Wanderwoche</p>
+            <div class="trip-meta">14.–21. Dez 2026 · Zermatt &amp; Saas-Fee</div>
+          </div>
+          <div class="trip-status upcoming"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.2 2"/></svg>Bevorstehend</div>
+          <div class="trip-cost"><div class="l">Kosten bisher</div><div class="v">€0</div></div>
+        </div>
+      </div>
+
+      <div class="dialog-stage">
+        <div class="dialog w-460">
+          <div class="dialog-head">
+            <p class="dialog-title">Reise erstellen</p>
+            <div class="dialog-sub">Name und Zeitraum — Details fügst du danach im Tagesplan hinzu.</div>
+          </div>
+          <div class="dialog-body">
+            <div class="field-block">
+              <div class="field-label">Reisename</div>
+              <input class="field-input" type="text" placeholder="z. B. Portugal Roadtrip" readonly>
+            </div>
+            <div class="field-block">
+              <div class="field-label">Zeitraum</div>
+              <div class="field-row">
+                <div class="field-block">
+                  <div class="field-input-wrap">
+                    <input class="field-input has-prefix" type="text" placeholder="Von — TT.MM.JJJJ" readonly style="padding-left:14px;">
+                    <span class="icon-suffix"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="3" x2="8" y2="7"/><line x1="16" y1="3" x2="16" y2="7"/></svg></span>
+                  </div>
+                </div>
+                <div class="field-block">
+                  <div class="field-input-wrap">
+                    <input class="field-input has-prefix" type="text" placeholder="Bis — TT.MM.JJJJ" readonly style="padding-left:14px;">
+                    <span class="icon-suffix"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="3" x2="8" y2="7"/><line x1="16" y1="3" x2="16" y2="7"/></svg></span>
+                  </div>
+                </div>
+              </div>
+              <div class="field-hint">Kann später jederzeit angepasst werden.</div>
+            </div>
+          </div>
+          <div class="dialog-footer">
+            <button class="btn-secondary">Abbrechen</button>
+            <button class="btn-primary">Reise erstellen</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       SCREEN G — Dialog „Eintrag hinzufügen"
+       ========================================================= -->
+  <div class="screen-label">Screen G · Dialog „Eintrag hinzufügen" (Tag 6 · Porto → Douro-Tal)</div>
+  <div class="browser">
+    <div class="browser-chrome">
+      <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+      <div class="url">travelplan.app/trips/portugal-roadtrip/tag/6?add=1</div>
+    </div>
+    <div class="app">
+      <div class="dialog-stage plain">
+        <div class="dialog w-520">
+          <div class="dialog-head">
+            <p class="dialog-title">Eintrag hinzufügen</p>
+            <div class="dialog-sub">Tag 6 · Porto → Douro-Tal · 17.9.2026</div>
+          </div>
+          <div class="dialog-body">
+
+            <div class="type-tabs">
+              <div class="type-tab active">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-7h6v7"/></svg>
+                Unterkunft
+              </div>
+              <div class="type-tab">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.2 2"/></svg>
+                Aktivität
+              </div>
+            </div>
+
+            <div class="field-block">
+              <div class="field-label">Titel</div>
+              <input class="field-input" type="text" placeholder="z. B. Quinta do Vallado" readonly>
+            </div>
+
+            <div class="field-block">
+              <div class="field-label">Zeitraum</div>
+              <div class="field-row">
+                <div class="field-block">
+                  <div class="field-input-wrap">
+                    <input class="field-input has-prefix" type="text" placeholder="Von — 15:00" readonly style="padding-left:14px;">
+                    <span class="icon-suffix"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.2 2"/></svg></span>
+                  </div>
+                </div>
+                <div class="field-block">
+                  <div class="field-input-wrap">
+                    <input class="field-input has-prefix" type="text" placeholder="Bis — Check-out 18.9" readonly style="padding-left:14px;">
+                    <span class="icon-suffix"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.2 2"/></svg></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="field-row">
+              <div class="field-block">
+                <div class="field-label">Kosten <span class="opt">optional</span></div>
+                <div class="field-input-wrap">
+                  <span class="prefix">€</span>
+                  <input class="field-input has-prefix" type="text" placeholder="0,00" readonly>
+                </div>
+              </div>
+              <div class="field-block">
+                <div class="field-label">Link <span class="opt">optional</span></div>
+                <div class="field-input-wrap">
+                  <input class="field-input has-prefix" type="text" placeholder="Buchung / Website" readonly style="padding-left:34px;">
+                  <span class="icon-suffix" style="left:14px;right:auto;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1.5 1.5"/><path d="M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1.5-1.5"/></svg></span>
+                </div>
+              </div>
+            </div>
+
+            <div class="field-block">
+              <div class="field-label">Fotos <span class="opt">optional</span></div>
+              <div class="photo-upload-zone">
+                <div class="photo-upload-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4"/><path d="M6 10l6-6 6 6"/><path d="M4 20h16"/></svg>
+                </div>
+                <div class="photo-upload-text">
+                  <div class="t">Fotos hierher ziehen oder auswählen</div>
+                  <div class="d">JPG oder PNG, bis zu 10 MB pro Foto</div>
+                </div>
+              </div>
+              <div class="photo-strip-preview">
+                <div class="photo-thumb pt-1"><span class="remove-x">×</span></div>
+                <div class="photo-thumb pt-2"><span class="remove-x">×</span></div>
+                <div class="photo-thumb pt-3"><span class="remove-x">×</span></div>
+                <div class="photo-add-tile">+</div>
+              </div>
+            </div>
+
+          </div>
+          <div class="dialog-footer">
+            <button class="btn-secondary">Abbrechen</button>
+            <button class="btn-primary">Speichern</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       SCREEN H — Passwort zurücksetzen
+       ========================================================= -->
+  <div class="screen-label">Screen H · Passwort zurücksetzen — Schritt A: E-Mail anfordern</div>
+  <div class="browser">
+    <div class="browser-chrome">
+      <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+      <div class="url">travelplan.app/passwort-vergessen</div>
+    </div>
+    <div class="app">
+      <div class="auth-shell">
+        <div class="auth-hero">
+          <div class="auth-hero-content">
+            <div class="auth-brand">TravelPlan</div>
+            <h2 class="auth-hero-title">Kein Problem — passiert den Besten.</h2>
+            <div class="auth-hero-sub">Wir schicken dir einen Link, mit dem du in unter einer Minute wieder Zugriff hast.</div>
+          </div>
+        </div>
+        <div class="auth-form-col">
+          <div class="auth-card">
+            <div class="step-pill">Schritt 1 von 2</div>
+            <h3 class="auth-card-title">Passwort zurücksetzen</h3>
+            <div class="auth-card-sub">Gib deine E-Mail-Adresse ein. Du bekommst von uns einen Link zum Zurücksetzen.</div>
+
+            <div class="field-block">
+              <div class="field-label">E-Mail</div>
+              <input class="field-input" style="width:100%;" type="text" placeholder="name@beispiel.de" readonly>
+            </div>
+            <button class="btn-primary full" style="margin-top:6px;">Link zum Zurücksetzen senden</button>
+            <div class="auth-foot">Erinnert? <a>Zurück zur Anmeldung</a></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="screen-label" style="margin-top:24px;">Screen H · Passwort zurücksetzen — Schritt B: Neues Passwort setzen</div>
+  <div class="browser">
+    <div class="browser-chrome">
+      <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+      <div class="url">travelplan.app/passwort-vergessen/neu?token=…</div>
+    </div>
+    <div class="app">
+      <div class="auth-shell">
+        <div class="auth-hero">
+          <div class="auth-hero-content">
+            <div class="auth-brand">TravelPlan</div>
+            <h2 class="auth-hero-title">Fast geschafft.</h2>
+            <div class="auth-hero-sub">Leg ein neues Passwort fest und du bist direkt wieder in deinem Reise-Cockpit.</div>
+          </div>
+        </div>
+        <div class="auth-form-col">
+          <div class="auth-card">
+            <div class="step-pill">Schritt 2 von 2</div>
+            <h3 class="auth-card-title">Neues Passwort setzen</h3>
+            <div class="auth-card-sub">Für thomas.dreyer@gmx.de — der Link ist noch 42 Minuten gültig.</div>
+
+            <div class="field-block">
+              <div class="field-label">Neues Passwort</div>
+              <input class="field-input" style="width:100%;" type="text" placeholder="Mind. 8 Zeichen" readonly>
+            </div>
+            <div class="field-block">
+              <div class="field-label">Passwort bestätigen</div>
+              <input class="field-input" style="width:100%;" type="text" placeholder="Passwort wiederholen" readonly>
+            </div>
+            <button class="btn-primary full" style="margin-top:6px;">Passwort speichern</button>
+
+            <div class="success-note">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>
+              <div class="t">Nach dem Speichern wirst du automatisch angemeldet und zu deiner Reiseliste weitergeleitet.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       SCREEN I — Form-Bausteine (Referenzblatt, kein echter Screen)
+       ========================================================= -->
+  <div class="screen-label">Screen I · Form-Bausteine — Referenzblatt für DESIGN.md „Components"</div>
+  <div class="swatch-sheet">
+    <div class="section-label" style="margin-bottom:4px;">Alle Maße in tatsächlicher Mockup-Rendergröße · Grün-Tag = Touch-Target-Nachweis ≥44px</div>
+
+    <div class="swatch-grid">
+
+      <div class="swatch-block">
+        <div class="swatch-name">Text-Input — Standard</div>
+        <div class="swatch-spec">Höhe 44px · Radius 6px · Rand #D9D0BE · BG #FBF9F4</div>
+        <div class="swatch-demo">
+          <span class="dim-tag">✓ 44px Höhe</span>
+          <input class="field-input" type="text" placeholder="name@beispiel.de" readonly>
+        </div>
+      </div>
+
+      <div class="swatch-block">
+        <div class="swatch-name">Text-Input — Fokus</div>
+        <div class="swatch-spec">Höhe 44px · Rand 2px #4B6358 · Ring rgba(75,99,88,.18)</div>
+        <div class="swatch-demo">
+          <span class="dim-tag">✓ 44px Höhe</span>
+          <input class="field-input" type="text" value="Portugal Roadtrip" readonly style="border:2px solid #4B6358; padding:0 13px; box-shadow:0 0 0 3px rgba(75,99,88,0.18); background:#FFFFFF;">
+        </div>
+      </div>
+
+      <div class="swatch-block">
+        <div class="swatch-name">Text-Input — Fehler</div>
+        <div class="swatch-spec">Höhe 44px · Rand #C97A3E · BG #F6ECE0 · Fehlertext in --warn</div>
+        <div class="swatch-demo">
+          <span class="dim-tag">✓ 44px Höhe</span>
+          <input class="field-input" type="text" value="keine-email" readonly style="border-color:#C97A3E; background:#F6ECE0; color:#7A4A2E;">
+          <div class="field-hint error"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="13"/><circle cx="12" cy="16.3" r="0.6" fill="currentColor"/></svg>Bitte eine gültige E-Mail-Adresse angeben.</div>
+        </div>
+      </div>
+
+      <div class="swatch-block">
+        <div class="swatch-name">Select / Dropdown</div>
+        <div class="swatch-spec">Höhe 44px · Radius 6px · BG #FFFFFF · Gewicht 700</div>
+        <div class="swatch-demo">
+          <span class="dim-tag">✓ 44px Höhe</span>
+          <div class="field-select">
+            <span>Contributor</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <div class="swatch-block">
+        <div class="swatch-name">Button — Primär</div>
+        <div class="swatch-spec">Höhe 44px · Radius 6px · BG #4B6358 · Gewicht 800</div>
+        <div class="swatch-demo">
+          <span class="dim-tag">✓ 44px Höhe</span>
+          <button class="btn-primary" style="align-self:flex-start;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Reise erstellen
+          </button>
+        </div>
+      </div>
+
+      <div class="swatch-block">
+        <div class="swatch-name">Button — Sekundär</div>
+        <div class="swatch-spec">Höhe 44px · Radius 6px · Rand #D9D0BE · Gewicht 700</div>
+        <div class="swatch-demo">
+          <span class="dim-tag">✓ 44px Höhe</span>
+          <button class="btn-secondary" style="align-self:flex-start;">Abbrechen</button>
+        </div>
+      </div>
+
+      <div class="swatch-block">
+        <div class="swatch-name">Checkbox</div>
+        <div class="swatch-spec">Klickzeile 44px · Sichtkästchen 20px · Radius 4px</div>
+        <div class="swatch-demo">
+          <span class="dim-tag">✓ 44px Klickzeile</span>
+          <label class="checkbox-row">
+            <span class="checkbox-box checked"><svg viewBox="0 0 24 24" fill="none" stroke-width="3"><path d="M5 13l4 4L19 7"/></svg></span>
+            <span class="checkbox-label">Auch Mitreisende per E-Mail benachrichtigen</span>
+          </label>
+          <label class="checkbox-row">
+            <span class="checkbox-box"></span>
+            <span class="checkbox-label">Als Vorlage für zukünftige Reisen speichern</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="swatch-block">
+        <div class="swatch-name">Foto-Add-Kachel</div>
+        <div class="swatch-spec">56×56px (sharp-cornered, wie .tl-photo) — ersetzt den bisherigen 24×24px-„+"-Button</div>
+        <div class="swatch-demo">
+          <span class="dim-tag">✓ 56×56px</span>
+          <div class="photo-add-tile" style="align-self:flex-start;">+</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

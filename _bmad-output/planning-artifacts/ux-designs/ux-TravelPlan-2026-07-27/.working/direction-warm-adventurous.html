@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TravelPlan — Richtung 2: Aufbruchsstimmung</title>
+<style>
+/*
+  DOKUMENTIERTE FARBWERTE — Richtung 2 "Aufbruchsstimmung"
+  ----------------------------------------------------------------
+  --sunset-1:     #FF7A59   Warmes Korallrot (Hero-Gradient Start)
+  --sunset-2:     #FFB56B   Sonnenuntergangs-Orange (Hero-Gradient Mitte)
+  --sunset-3:     #6A4C93   Gedämpftes Abendlila (Hero-Gradient Ende)
+  --cream:        #FFF8F1   Seiten-/App-Hintergrund
+  --card:         #FFFFFF   Kartenflächen
+  --ink:          #3A2E28   Haupttext (warmes Dunkelbraun statt Schwarz)
+  --ink-soft:     #8C7A6E   Sekundärtext
+  --accent:       #FF6B4A   Primärakzent (Buttons, aktive Zustände)
+  --accent-deep:  #E14F31   Hover-/Druckzustand des Akzents
+  --ok-bg:        #FFE7DC   Badge-Hintergrund "hat Unterkunft"
+  --ok-ink:       #C1502E   Badge-Text
+  --gap-bg:       #FFF0C8   Badge-Hintergrund "Lücke" (warmes Gelb, nicht Rot — freundlich statt alarmierend)
+  --gap-ink:      #8A6417   Badge-Text "Lücke"
+  Schrift: durchgehend System-UI, fett und rund wirkend über Font-Weight + große Radien, kein Serifenkontrast.
+*/
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: #F3E9E2;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  color: #3A2E28;
+}
+.page { max-width: 1000px; margin: 0 auto; padding: 48px 24px 80px; }
+.rationale {
+  background: #FFFFFF;
+  border-radius: 16px;
+  padding: 22px 28px;
+  margin-bottom: 32px;
+  line-height: 1.55;
+  font-size: 15px;
+  color: #4A3B33;
+  box-shadow: 0 8px 24px rgba(180,90,50,0.08);
+}
+.rationale strong {
+  display: block;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #E14F31;
+  margin-bottom: 8px;
+  font-weight: 800;
+}
+.browser {
+  border-radius: 22px;
+  overflow: hidden;
+  box-shadow: 0 24px 60px rgba(140,60,30,0.22);
+}
+.browser-chrome {
+  background: #FBEDE3;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.dot { width: 11px; height: 11px; border-radius: 50%; background: #F0D4C2; }
+.url {
+  margin-left: 12px;
+  background: #FFFFFF;
+  border-radius: 20px;
+  padding: 5px 14px;
+  font-size: 12px;
+  color: #B79D8C;
+  flex: 1;
+  max-width: 320px;
+}
+.app { background: #FFF8F1; padding-bottom: 40px; }
+
+.hero {
+  background: linear-gradient(120deg, #FF7A59 0%, #FFB56B 55%, #6A4C93 120%);
+  padding: 40px 48px 34px;
+  color: #fff;
+  position: relative;
+  overflow: hidden;
+}
+.hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 85% 20%, rgba(255,255,255,0.25), transparent 55%);
+}
+.hero-top { display: flex; justify-content: space-between; align-items: flex-start; position: relative; }
+.hero-kicker {
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.9;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+.hero-title { font-size: 38px; font-weight: 800; margin: 0 0 10px; letter-spacing: -0.5px; }
+.hero-dates { font-size: 14.5px; font-weight: 600; opacity: 0.95; }
+.share-btn {
+  background: rgba(255,255,255,0.22);
+  border: 1.5px solid rgba(255,255,255,0.75);
+  color: #fff;
+  padding: 10px 20px;
+  border-radius: 999px;
+  font-size: 13.5px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  backdrop-filter: blur(2px);
+  cursor: default;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+.share-btn svg { width: 15px; height: 15px; }
+/* hover hint (illustrativ): transform: translateY(-1px); background: rgba(255,255,255,0.32); */
+
+.stats-row { display: flex; gap: 14px; margin-top: 24px; position: relative; }
+.stat-pill {
+  background: rgba(255,255,255,0.2);
+  border-radius: 14px;
+  padding: 12px 18px;
+  min-width: 130px;
+}
+.stat-pill .n { font-size: 20px; font-weight: 800; }
+.stat-pill .l { font-size: 11.5px; opacity: 0.9; font-weight: 600; }
+
+.layout { display: grid; grid-template-columns: 1.6fr 1fr; gap: 28px; padding: 32px 48px 0; }
+
+.section-label { font-size: 13px; font-weight: 800; color: #3A2E28; margin-bottom: 14px; }
+
+.day-card {
+  background: #fff;
+  border-radius: 18px;
+  padding: 16px 18px;
+  margin-bottom: 12px;
+  display: grid;
+  grid-template-columns: 68px 1fr auto;
+  gap: 16px;
+  align-items: center;
+  box-shadow: 0 6px 16px rgba(180,110,70,0.08);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+/* hover hint (illustrativ): transform: translateY(-2px); box-shadow: 0 12px 24px rgba(180,110,70,0.16); */
+.day-card.gap { border: 1.5px dashed #F0C25A; }
+.day-num {
+  width: 44px; height: 44px;
+  border-radius: 12px;
+  background: linear-gradient(135deg,#FF7A59,#FFB56B);
+  color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: 15px;
+}
+.day-card.gap .day-num { background: linear-gradient(135deg,#F0C25A,#F7DC93); color: #6B4E12; }
+.day-title { font-size: 16.5px; font-weight: 700; margin: 0 0 3px; }
+.day-sub { font-size: 12.5px; color: #A6907F; font-weight: 600; }
+.stay {
+  font-size: 12px;
+  font-weight: 700;
+  color: #C1502E;
+  background: #FFE7DC;
+  padding: 7px 12px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.stay svg { width: 13px; height: 13px; }
+.stay.gap { color: #8A6417; background: #FFF0C8; }
+
+.more-days {
+  text-align: center;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #C88A6E;
+  padding: 6px 0 0;
+}
+
+.card {
+  background: #fff;
+  border-radius: 18px;
+  padding: 22px;
+  margin-bottom: 20px;
+  box-shadow: 0 6px 16px rgba(180,110,70,0.08);
+}
+.budget-total { font-size: 30px; font-weight: 800; margin: 4px 0 2px; color: #E14F31; }
+.budget-sub { font-size: 12.5px; color: #A6907F; font-weight: 600; }
+.budget-bar { margin-top: 14px; height: 10px; background: #FFE7DC; border-radius: 999px; overflow: hidden; }
+.budget-bar-fill { height: 100%; width: 78%; background: linear-gradient(90deg,#FF7A59,#FFB56B); border-radius: 999px; }
+
+.map-preview {
+  height: 160px;
+  border-radius: 14px;
+  background: linear-gradient(160deg,#FFD9A0,#FF9E7A 60%,#8B5FA8);
+  position: relative;
+  overflow: hidden;
+}
+.map-caption { font-size: 12px; color: #A6907F; font-weight: 600; margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="rationale">
+    <strong>Richtung 2 · Aufbruchsstimmung</strong>
+    Diese Variante soll Vorfreude auslösen: ein foto-artiger Sonnenuntergangs-Verlauf statt eines echten Fotos als
+    Platzhalter, runde Formen, kräftigere Farbakzente und ein herzlicher Grundton. Auch der fehlende Unterkunfts-Tag
+    in Porto wirkt hier nicht wie eine Fehlermeldung, sondern wie ein einladender "hier ist noch Platz für deine
+    Idee"-Hinweis in warmem Gelb statt Alarmrot. Ziel: Emotion und Reiselust, nicht nüchterne Verwaltung.
+  </div>
+
+  <div class="browser">
+    <div class="browser-chrome">
+      <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+      <div class="url">travelplan.app/trips/portugal-roadtrip</div>
+    </div>
+    <div class="app">
+      <div class="hero">
+        <div class="hero-top">
+          <div>
+            <div class="hero-kicker">Deine nächste Reise</div>
+            <h1 class="hero-title">Portugal Roadtrip</h1>
+            <div class="hero-dates">12.–24. Sept 2026 · Lissabon → Sintra → Porto → Douro-Tal → Algarve</div>
+          </div>
+          <button class="share-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="18" cy="5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="19" r="2.6"/><line x1="8.3" y1="10.7" x2="15.7" y2="6.3"/><line x1="8.3" y1="13.3" x2="15.7" y2="17.7"/></svg>
+            Reise teilen
+          </button>
+        </div>
+        <div class="stats-row">
+          <div class="stat-pill"><div class="n">12 Tage</div><div class="l">Reisedauer</div></div>
+          <div class="stat-pill"><div class="n">5 Stopps</div><div class="l">Stationen</div></div>
+          <div class="stat-pill"><div class="n">2 Reisende</div><div class="l">Mitreisende</div></div>
+        </div>
+      </div>
+
+      <div class="layout">
+        <div>
+          <div class="section-label">Dein Tagesplan</div>
+
+          <div class="day-card">
+            <div class="day-num">12.9</div>
+            <div><p class="day-title">Ankunft &amp; Alfama-Viertel</p><p class="day-sub">Lissabon</p></div>
+            <div class="stay">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-7h6v7"/></svg>
+              Convento do Carmo
+            </div>
+          </div>
+
+          <div class="day-card">
+            <div class="day-num">13.9</div>
+            <div><p class="day-title">Belém &amp; Tejo-Ufer</p><p class="day-sub">Lissabon</p></div>
+            <div class="stay">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-7h6v7"/></svg>
+              Convento do Carmo
+            </div>
+          </div>
+
+          <div class="day-card">
+            <div class="day-num">14.9</div>
+            <div><p class="day-title">Paläste &amp; Wanderung</p><p class="day-sub">Sintra</p></div>
+            <div class="stay">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-7h6v7"/></svg>
+              Casa da Serra B&amp;B
+            </div>
+          </div>
+
+          <div class="day-card gap">
+            <div class="day-num">15.9</div>
+            <div><p class="day-title">Anreise &amp; Ribeira-Viertel</p><p class="day-sub">Porto (Fahrt, ca. 3 Std.)</p></div>
+            <div class="stay gap">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 2.5 18a1.7 1.7 0 0 0 1.5 2.5h16a1.7 1.7 0 0 0 1.5-2.5L13.7 3.9a1.7 1.7 0 0 0-3.4 0Z"/></svg>
+              Unterkunft noch offen
+            </div>
+          </div>
+
+          <div class="day-card">
+            <div class="day-num">16.9</div>
+            <div><p class="day-title">Weinkeller &amp; Dom Luís I</p><p class="day-sub">Porto</p></div>
+            <div class="stay">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-7h6v7"/></svg>
+              Torel Avantgarde
+            </div>
+          </div>
+
+          <div class="day-card">
+            <div class="day-num">17.9</div>
+            <div><p class="day-title">Flusskreuzfahrt &amp; Terrassen</p><p class="day-sub">Douro-Tal</p></div>
+            <div class="stay">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-7h6v7"/></svg>
+              Quinta do Vallado
+            </div>
+          </div>
+
+          <div class="more-days">+ 6 weitere Tage bis zur Algarve →</div>
+        </div>
+
+        <div>
+          <div class="section-label">Budget</div>
+          <div class="card">
+            <div class="budget-total">€2.340</div>
+            <div class="budget-sub">geplant von €3.000 Budget</div>
+            <div class="budget-bar"><div class="budget-bar-fill"></div></div>
+          </div>
+
+          <div class="section-label">Route</div>
+          <div class="card">
+            <div class="map-preview"></div>
+            <div class="map-caption">5 Stationen · Kartenvorschau öffnen</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

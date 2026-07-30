@@ -1,0 +1,1100 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TravelPlan — Merged v5: Reise-Cockpit (Light) + Tages-Thumbnails</title>
+<style>
+/*
+  DOKUMENTIERTE FARBWERTE — Merged Richtung "Reise-Cockpit (Light)" v4, Foto-Verfeinerung
+  ----------------------------------------------------------------
+  Basis: 1:1 identisches Farbsystem wie v2 (direction-merged-light-cockpit-v2-photos.html),
+  welches wiederum 1:1 identisch zu v1 ist. v3 ist eine gezielte Verfeinerung von v2 auf
+  Wunsch des Product Owners (vier Punkte, siehe .rationale-Box im Body) — KEINE neuen
+  Farbtokens, KEINE Struktur-Änderungen an Karten, Budget-Balken, Gap-Alert, Stat-Streifen
+  oder Foto-Hero. v4 ist ein einzelner, gezielter Feinschliff auf v3: die Thumbnails
+  innerhalb einer Fotoleiste (.tl-photos/.tl-photo) sind jetzt einheitlich quadratisch
+  (56×56px), linksbündig und werden nicht mehr gestreckt, um die Kachelbreite zu füllen —
+  siehe Ergänzung in der .rationale-Box im Body. Alle UI-Elemente verwenden weiterhin
+  ausschließlich die dokumentierten v1/v2-Tokens:
+
+  --paper-outer:  #EFEAE0   Äußerer Seitenhintergrund
+  --paper:        #F7F4EC   App-Oberflächenhintergrund
+  --card:         #FFFFFF   Kartenflächen
+  --card-alt:     #FBF9F4   Zebra-/Reise-Segment-Hintergrund
+  --ink:          #2B2A26   Haupttext
+  --ink-soft:     #6B675C   Sekundärtext / Labels
+  --border:       #E4DFD3   Standard-Trennlinie
+  --border-strong:#D9D0BE   Kräftigerer Kartenrahmen
+  --accent:       #4B6358   Gedämpftes Waldgrün — Primärakzent
+  --accent-2:     #7C9483   Helleres Salbeigrün — Sekundärakzent
+  --accent-soft:  #E7EDE7   Akzent-Hintergrund (Badges, Zeit-Pills)
+  --warn:         #8A5A2B   Gedämpftes Terrakotta — Gap-/Hinweisfarbe
+  --warn-bg:      #F6ECE0   Gap-/Warn-Badge-Hintergrund
+  --warn-border:  #E3C7A2   Kräftigerer Warn-Kartenrahmen
+
+  --scrim: linear-gradient(to top, rgba(20,18,14,.88) 0%, rgba(20,18,14,.5) 38%, rgba(20,18,14,0) 68%)
+           Dunkel-zu-transparent-Abblendung am unteren Fotorand, damit Titeltext lesbar bleibt.
+
+  NEU in v3 (nur Feinschliff, keine neuen Tokens):
+  - Fahrt-/Transfersegmente ohne Thumbnail — reines Text/Icon-Format.
+  - Auto-Icon als Inline-SVG (currentColor / --ink-soft) statt Emoji.
+  - Aktivitäts- und Unterkunfts-Kacheln zeigen eine Fotoleiste (.tl-photos, 2–4 Bilder)
+    unterhalb des Textinhalts statt eines einzelnen seitlichen Thumbnails.
+  - Alle Foto-/Bildflächen (.tl-photo) sind ausdrücklich ungerundet (border-radius: 0) —
+    nur die umgebenden Karten (.tl-card, .card, .browser) behalten ihren Radius.
+
+  Schrift: unverändert ausschließlich Systemschrift, serifenlos
+  (-apple-system, "Segoe UI", Helvetica, Arial, sans-serif). Keine Serifen.
+*/
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: #EFEAE0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  color: #2B2A26;
+}
+.page { max-width: 1080px; margin: 0 auto; padding: 44px 24px 80px; }
+
+.rationale {
+  background: #FFFFFF;
+  border: 1px solid #E4DFD3;
+  border-radius: 8px;
+  padding: 20px 24px;
+  margin-bottom: 30px;
+  line-height: 1.55;
+  font-size: 14.5px;
+  color: #43413A;
+}
+.rationale strong {
+  display: block;
+  font-size: 11.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #4B6358;
+  margin-bottom: 8px;
+  font-weight: 800;
+}
+.rationale ol { margin: 8px 0 0; padding-left: 20px; }
+.rationale ol li { margin-bottom: 4px; }
+
+.screen-label {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #6B675C;
+  margin: 40px 0 12px;
+}
+.screen-label:first-of-type { margin-top: 8px; }
+
+.browser {
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 20px 50px rgba(30,28,20,0.14);
+  border: 1px solid #E4DFD3;
+}
+.browser-chrome {
+  background: #F1ECE1;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid #E4DFD3;
+}
+.dot { width: 10px; height: 10px; border-radius: 50%; background: #D8D2C4; }
+.url {
+  margin-left: 12px;
+  background: #FBF9F4;
+  border: 1px solid #E4DFD3;
+  border-radius: 5px;
+  padding: 4px 12px;
+  font-size: 12px;
+  color: #8A8677;
+  flex: 1;
+  max-width: 320px;
+}
+.app { background: #F7F4EC; }
+
+/* ---- Foto-Hero — NEU in v9: echtes Foto statt CSS-Gradient-Platzhalter ----
+   PO-Testauftrag v9: Ersetzt den bisherigen CSS-Gradient durch ein echtes, im Produkt bereits
+   vorhandenes Demo-Foto (hero-mountains.jpg), um Crop-Verhalten und Scrim-Technik gegen ein
+   reales Bild zu stresstesten. Bewusst dasselbe Foto auf Screen A und Screen B (Technik-Test,
+   keine Bildbeschaffung). background-size:cover / background-position:center — analog zur
+   bereits etablierten Center-Crop-Technik von .tl-photo / .day-photo. Siehe .rationale-Box im
+   Body für die Lesbarkeits-/Crop-Bewertung. */
+.hero-photo {
+  position: relative;
+  min-height: 300px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 22px 32px 24px;
+  overflow: hidden;
+  background-color: #4B6358;
+  background-image: url('file:///Users/tommy/Development/TravelPlan/travelplan/public/hero-mountains.jpg');
+  background-size: cover;
+  background-position: center;
+}
+.hero-photo.day-hero {
+  min-height: 210px;
+}
+/* v9: Scrim-Basistechnik (Dunkel-zu-transparent von unten) unverändert aus v2/v8 übernommen.
+   Ergänzt um einen vierten, leichten Stop am oberen Fotorand (statt vollständig transparent),
+   da ein echtes Foto — anders als der bisherige Gradient-Platzhalter — an dieser Stelle helle,
+   unvorhersehbare Bildbereiche (z. B. Himmel/Schnee) zeigen kann. Schützt die Kopfzeile
+   (Breadcrumb/Kicker-Text ohne eigenen Button-Hintergrund) mit einer minimalen zusätzlichen
+   Abdunkelung, ohne das Foto in der Mitte sichtbar abzudunkeln. Siehe .rationale-Box im Body. */
+.hero-photo::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(20,18,14,0.88) 0%, rgba(20,18,14,0.54) 38%, rgba(20,18,14,0.10) 66%, rgba(20,18,14,0.26) 100%);
+}
+.hero-photo::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 84% 12%, rgba(255,255,255,0.22), transparent 45%);
+}
+.hero-top {
+  position: absolute;
+  top: 20px; left: 32px; right: 32px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  z-index: 2;
+}
+.hero-bottom { position: relative; z-index: 2; }
+
+.breadcrumb.on-photo { color: rgba(255,255,255,0.82); }
+.breadcrumb.on-photo a { color: rgba(255,255,255,0.82); }
+.breadcrumb.on-photo .sep { color: rgba(255,255,255,0.45); }
+.breadcrumb.on-photo .cur { color: #FFFFFF; }
+
+.trip-kicker.on-photo { color: rgba(255,255,255,0.92); }
+.trip-title.on-photo {
+  color: #FFFFFF;
+  text-shadow: 0 2px 14px rgba(0,0,0,0.35);
+}
+.trip-dates.on-photo { color: rgba(255,255,255,0.92); }
+
+.share-btn.on-photo, .back-btn.on-photo {
+  background: rgba(255,255,255,0.18);
+  border: 1px solid rgba(255,255,255,0.55);
+  color: #FFFFFF;
+  backdrop-filter: blur(4px);
+}
+
+.hero-stats { display: flex; gap: 10px; margin-top: 16px; position: relative; z-index: 2; }
+.hero-stat-pill {
+  background: rgba(255,255,255,0.16);
+  border: 1px solid rgba(255,255,255,0.38);
+  backdrop-filter: blur(6px);
+  border-radius: 8px;
+  padding: 9px 14px;
+  min-width: 96px;
+}
+.hero-stat-pill .l { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(255,255,255,0.85); font-weight: 700; margin-bottom: 4px; }
+.hero-stat-pill .v { font-size: 17px; font-weight: 900; color: #FFFFFF; font-variant-numeric: tabular-nums; }
+.hero-stat-pill .v.accent { color: #C7E3D0; }
+.hero-stat-pill .v.warn { color: #F0C79A; }
+
+/* ---- Topbar (shared) ---- */
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 22px 32px;
+  border-bottom: 1px solid #E4DFD3;
+  gap: 20px;
+}
+.breadcrumb {
+  font-size: 12px;
+  font-weight: 700;
+  color: #6B675C;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.breadcrumb a { color: #6B675C; text-decoration: none; }
+.breadcrumb .sep { color: #B9B2A0; }
+.breadcrumb .cur { color: #4B6358; }
+.trip-kicker { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #4B6358; font-weight: 800; margin-bottom: 6px; }
+.trip-title { font-size: 28px; font-weight: 900; margin: 0 0 6px; letter-spacing: -0.4px; }
+.trip-dates { font-size: 13px; color: #6B675C; font-weight: 600; }
+.share-btn {
+  background: #4B6358;
+  color: #FFFFFF;
+  border: none;
+  padding: 10px 18px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: default;
+  white-space: nowrap;
+}
+.share-btn svg { width: 14px; height: 14px; }
+.back-btn {
+  border: 1px solid #D9D0BE;
+  background: #FFFFFF;
+  color: #43413A;
+  padding: 10px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: default;
+  white-space: nowrap;
+}
+.back-btn svg { width: 14px; height: 14px; }
+
+/* ---- Stat strip (shared cockpit motif) ---- */
+.stat-strip { display: grid; border-bottom: 1px solid #E4DFD3; background: #FFFFFF; }
+.stat-strip.cols-4 { grid-template-columns: repeat(4,1fr); }
+.stat-cell { padding: 16px 24px; border-right: 1px solid #E4DFD3; }
+.stat-cell:last-child { border-right: none; }
+.stat-cell .l { font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #6B675C; font-weight: 700; margin-bottom: 6px; }
+.stat-cell .v { font-size: 21px; font-weight: 900; font-variant-numeric: tabular-nums; color: #2B2A26; }
+.stat-cell .v.accent { color: #4B6358; }
+.stat-cell .v.warn { color: #8A5A2B; }
+
+/* ---- Tagesabdeckungsbalken "Gantt-Balken" (Screen B) — NEU in v7 ----
+   Voller Balken direkt unterhalb des Foto-Headers, vor dem Stat-Streifen. Zeigt Unterkunft/
+   Aktivität/Fahrt/offene Zeit entlang der Tageszeitachse (08:00–22:00). Nutzt ausschließlich
+   bestehende Farbtokens — --accent (Unterkunft), --accent-2 (Aktivität), das bereits im
+   Breadcrumb-Trennzeichen verwendete neutrale Grau #B9B2A0 (Fahrt) sowie --warn-bg/--warn-border
+   als Schraffur für offene/ungeplante Zeit. Keine neuen Farben. Siehe .rationale-Box im Body. */
+.coverage-panel {
+  background: #FFFFFF;
+  border-bottom: 1px solid #E4DFD3;
+  padding: 16px 32px 18px;
+}
+.coverage-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.coverage-legend { display: flex; gap: 16px; flex-wrap: wrap; }
+.coverage-legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; color: #6B675C; }
+.coverage-swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+.coverage-swatch.stay { background: #4B6358; }
+.coverage-swatch.activity { background: #7C9483; }
+.coverage-swatch.travel { background: #B9B2A0; }
+.coverage-swatch.gap { background: repeating-linear-gradient(45deg, #F6ECE0, #F6ECE0 3px, #E3C7A2 3px, #E3C7A2 6px); border: 1px solid #E3C7A2; }
+
+.coverage-bar { display: flex; height: 16px; border-radius: 4px; overflow: hidden; border: 1px solid #D9D0BE; }
+.cov-seg { height: 100%; }
+.cov-seg.stay { background: #4B6358; }
+.cov-seg.activity { background: #7C9483; }
+.cov-seg.travel { background: #B9B2A0; }
+.cov-seg.gap { background: repeating-linear-gradient(45deg, #F6ECE0, #F6ECE0 4px, #E3C7A2 4px, #E3C7A2 8px); }
+
+.coverage-axis { position: relative; height: 14px; margin-top: 6px; }
+.coverage-axis span { position: absolute; top: 0; font-size: 10px; font-weight: 600; color: #8A8677; font-variant-numeric: tabular-nums; }
+
+.layout { display: grid; grid-template-columns: 1.7fr 1fr; }
+.main-col { padding: 22px 28px; border-right: 1px solid #E4DFD3; }
+.side-col { padding: 22px 22px; }
+.section-label { font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: #6B675C; margin-bottom: 12px; }
+
+/* ---- Screen A: day rows ---- */
+.day-row {
+  display: grid;
+  grid-template-columns: 72px 1fr 190px;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid #D9D0BE;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  background: #FFFFFF;
+}
+.day-row.gap { border-color: #E3C7A2; background: #FBF6EE; }
+
+/* v5: Tages-Thumbnail übernimmt die frühere Position von Datum/Tag-Nummer (linke Spalte
+   der Zeile). Gleiche visuelle Technik wie .tl-photo auf Screen B: quadratisch, fest
+   dimensioniert, background-size:cover / background-position:center (Center-Crop),
+   scharfe Kanten (border-radius:0) — eigene Klasse, Screen B bleibt unangetastet. */
+.day-photo {
+  width: 72px;
+  height: 72px;
+  background-size: cover;
+  background-position: center;
+  border: 1px solid rgba(0,0,0,0.06);
+  border-radius: 0;
+}
+.day-photo.d-1 { background: linear-gradient(160deg, #E8C9A0, #C9824F 55%, #7A4A2E); }
+.day-photo.d-2 { background: linear-gradient(150deg, #AED4E0, #6FA9BE 55%, #2F5C68); }
+.day-photo.d-3 { background: linear-gradient(140deg, #E7B8C9, #C98F6B 50%, #6B7C4E); }
+.day-photo.d-4 { background: linear-gradient(160deg, #E3C7A2, #B98F55 55%, #6B4E30); }
+.day-photo.d-5 { background: linear-gradient(150deg, #9FCBDB, #4B6358 60%, #2B3A2E); }
+.day-photo.d-6 { background: linear-gradient(140deg, #D9B65B, #8C9A5E 50%, #4B6358); }
+
+/* v5: Datum/Tag-Nummer sind auf einen kompakten Tag oberhalb des Titels umgezogen,
+   da das Thumbnail nun ihre vorherige Spalte belegt. */
+.day-tag {
+  font-size: 10.5px;
+  font-weight: 800;
+  color: #6B675C;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.day-tag .num { color: #4B6358; }
+.day-title { font-size: 14.5px; font-weight: 700; margin: 0 0 3px; color: #2B2A26; }
+.day-sub { font-size: 11.5px; color: #6B675C; font-weight: 600; }
+.stay {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #4B6358;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: flex-end;
+  text-align: right;
+}
+.stay svg { width: 13px; height: 13px; flex-shrink: 0; }
+.stay.gap {
+  color: #8A5A2B;
+  background: #F6ECE0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  justify-content: flex-start;
+}
+.more-days { text-align: center; font-size: 11.5px; font-weight: 700; color: #6B675C; padding: 8px 0; }
+
+/* ---- Mini-Abdeckungsbalken je Tageszeile (Screen A) — NEU in v7 ----
+   Gleiche Farblogik wie .coverage-bar (Screen B), ohne Beschriftung/Achse, kompakt (5px hoch).
+   4. Kind im .day-row-Grid, spannt via grid-column über alle drei Spalten in einer eigenen
+   Zeile unterhalb von Thumbnail/Titel/Unterkunft. */
+.day-mini-cov { grid-column: 1 / -1; margin-top: 2px; }
+.mini-cov-bar { display: flex; height: 5px; border-radius: 2px; overflow: hidden; }
+.mini-cov-seg { height: 100%; }
+.mini-cov-seg.stay { background: #4B6358; }
+.mini-cov-seg.activity { background: #7C9483; }
+.mini-cov-seg.travel { background: #B9B2A0; }
+.mini-cov-seg.gap { background: repeating-linear-gradient(45deg, #F6ECE0, #F6ECE0 3px, #E3C7A2 3px, #E3C7A2 6px); }
+
+/* ---- Sidebar cards (shared) ---- */
+.card { background: #FFFFFF; border: 1px solid #D9D0BE; border-radius: 8px; padding: 18px; margin-bottom: 16px; }
+.card-label { font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #6B675C; font-weight: 800; margin-bottom: 10px; }
+
+.budget-total { font-size: 30px; font-weight: 900; letter-spacing: -0.5px; font-variant-numeric: tabular-nums; color: #2B2A26; }
+.budget-sub { font-size: 12px; color: #6B675C; font-weight: 600; margin-bottom: 12px; }
+/* v7: "Budget"-Karte mit Fortschrittsbalken/Ziel-Prozentsatz/Restbetrag wurde durch eine
+   einfache "Kosten bisher"-Kennzahl ersetzt (siehe .cost-list weiter unten sowie
+   .rationale-Box im Body) — .budget-bar/.budget-bar-fill/.budget-legend entfallen daher. */
+.cost-list { margin-top: 14px; }
+
+.map-preview {
+  height: 150px;
+  border-radius: 6px;
+  background: #F7F4EC;
+  border: 1px solid #E4DFD3;
+  position: relative;
+}
+.map-preview svg { width: 100%; height: 100%; }
+.map-caption { font-size: 11.5px; color: #6B675C; font-weight: 600; margin-top: 10px; }
+
+.gap-alert {
+  border: 1px solid #E3C7A2;
+  background: #F6ECE0;
+  border-radius: 8px;
+  padding: 14px 16px;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.gap-alert svg { width: 18px; height: 18px; color: #8A5A2B; flex-shrink: 0; margin-top: 1px; }
+.gap-alert .t { font-size: 13px; font-weight: 800; color: #8A5A2B; margin-bottom: 3px; }
+.gap-alert .d { font-size: 11.5px; color: #7A5B3C; font-weight: 500; }
+
+/* ---- Screen B: timeline ---- */
+.timeline { position: relative; padding-left: 44px; }
+.timeline::before {
+  content: "";
+  position: absolute;
+  top: 18px; bottom: 18px; left: 15px;
+  width: 2px;
+  background: #D9D0BE;
+}
+.tl-node { position: relative; margin-bottom: 12px; }
+.tl-dot {
+  position: absolute;
+  left: -44px; top: 0;
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  background: #FFFFFF;
+  border: 2px solid #4B6358;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px;
+  z-index: 1;
+}
+.tl-dot.stay { background: #E7EDE7; }
+.tl-dot.activity { border-color: #D9D0BE; color: #6B675C; }
+/* v6: einheitlicher, neutraler Marker für ALLE Aktivitäts-Dots (kein Icon pro Aktivitätsart mehr) —
+   siehe Ergänzung in der .rationale-Box im Body. */
+.tl-dot.activity::after {
+  content: "";
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: #6B675C;
+}
+
+/* tl-card: v3 — Kopfzeile (Zeit/Titel/Kosten) oben, Fotoleiste unten (statt seitlichem Thumbnail) */
+.tl-card {
+  background: #FFFFFF;
+  border: 1px solid #D9D0BE;
+  border-radius: 8px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.tl-card.stay-card { background: #FBFAF6; border-color: #C9D2C7; }
+.tl-card-top {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 14px;
+  align-items: center;
+}
+
+/* Fotoleiste: 2–4 kompakte Bilder je Kachel — Aktivitäten und Unterkünfte haben in der
+   Realität meist mehrere Fotos, daher Galerie-Streifen statt einzelnem Thumbnail (v3).
+   v4: Thumbnails einheitlich groß, linksbündig statt auf Kachelbreite gestreckt. */
+.tl-photos {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-start; /* PO-Vorgabe v4: linksbündig statt Streckung auf volle Breite */
+}
+.tl-photo {
+  flex: 0 0 56px; /* PO-Vorgabe v4: feste, einheitliche Breite statt flex:1-Streckung */
+  width: 56px;
+  height: 56px; /* quadratisch, einheitliche Größe (56×56px) */
+  background-size: cover;
+  background-position: center; /* Center-Crop-Verhalten, analog object-fit:cover/object-position:center */
+  border: 1px solid rgba(0,0,0,0.06);
+  border-radius: 0; /* PO-Vorgabe v3: Fotos immer scharfkantig, unabhängig vom Karten-Radius — unverändert in v4 */
+}
+/* Foto-Gradienten je Kachel — Platzhalter für mehrere echte Fotos pro Aktivität/Unterkunft */
+.tl-photo.t-stay-checkout-1 { background: linear-gradient(160deg, #D8C9AE, #A9895D 60%, #5C4630); }
+.tl-photo.t-stay-checkout-2 { background: linear-gradient(150deg, #C9B99C, #8F6F49 60%, #4A3826); }
+.tl-photo.t-scenic-1 { background: linear-gradient(160deg, #AED4E0, #8FAF7C 50%, #4B6358); }
+.tl-photo.t-scenic-2 { background: linear-gradient(150deg, #B9DCE6, #9CC49A 50%, #4B6358); }
+.tl-photo.t-scenic-3 { background: linear-gradient(140deg, #9FCBDB, #7FA88A 55%, #3F5C46); }
+.tl-photo.t-food-1 { background: linear-gradient(160deg, #E7C68C, #C6824C 55%, #7A4A2E); }
+.tl-photo.t-food-2 { background: linear-gradient(150deg, #EAD09B, #D08F55 55%, #7A4A2E); }
+.tl-photo.t-food-3 { background: linear-gradient(140deg, #E2BD82, #B97940 55%, #6B4022); }
+.tl-photo.t-winery-1 { background: linear-gradient(160deg, #D9B65B, #8C9A5E 50%, #4B6358); }
+.tl-photo.t-winery-2 { background: linear-gradient(150deg, #DEC373, #9AA868 50%, #4B6358); }
+.tl-photo.t-winery-3 { background: linear-gradient(140deg, #D2AD4E, #7E8C52 55%, #3E5237); }
+.tl-photo.t-stay-checkin-1 { background: linear-gradient(160deg, #E3CFA0, #B98F55 55%, #6B4E30); }
+.tl-photo.t-stay-checkin-2 { background: linear-gradient(150deg, #E8D6AC, #C39A5E 55%, #6B4E30); }
+
+.tl-time {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 800;
+  color: #4B6358;
+  background: #E7EDE7;
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 6px;
+}
+.tl-title { font-size: 14.5px; font-weight: 700; color: #2B2A26; margin: 0 0 3px; }
+.tl-sub { font-size: 11.5px; color: #6B675C; font-weight: 600; }
+.tl-cost {
+  font-size: 13px;
+  font-weight: 800;
+  color: #2B2A26;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  padding-top: 2px;
+}
+.tl-cost.muted { color: #8A9188; font-weight: 700; font-size: 11.5px; }
+
+/* Fahrt-/Transfersegmente: v3 — reines Text/Icon-Format, kein Thumbnail mehr */
+.tl-segment {
+  position: relative;
+  margin: -2px 0 12px;
+  padding: 6px 0 6px 4px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.tl-segment .tl-dot {
+  width: 22px; height: 22px; left: -39px; top: 3px;
+  background: #F7F4EC; border: none;
+  color: #6B675C; /* Auto-Icon in ink-soft, konsistent mit Segment-Label */
+}
+.tl-segment .tl-dot svg { display: block; }
+.tl-segment-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #6B675C;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.day-budget-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12.5px;
+  color: #43413A;
+  font-weight: 600;
+  padding: 7px 0;
+  border-bottom: 1px solid #E4DFD3;
+}
+.day-budget-row span:last-child { font-variant-numeric: tabular-nums; font-weight: 700; color: #2B2A26; }
+.day-budget-row.total {
+  border-bottom: none;
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px solid #D9D0BE;
+}
+.day-budget-row.total span:first-child { font-weight: 800; color: #2B2A26; font-size: 13px; }
+.day-budget-row.total span:last-child { font-size: 20px; font-weight: 900; color: #4B6358; }
+
+/* ---- Tageskarte + Bucket-Liste (Screen B, Sidebar) — NEU in v9 ----
+   Zwei in der echten App bereits vorhandene, in den bisherigen Mockups fehlende Sidebar-Karten:
+   eine kompakte Tageskarte (Orte/Route des Tages) sowie darunter die Bucket-Liste (ungeplante
+   "Idee"-Orte der Reise, die per Drag/Klick in den Tag übernommen werden können). Rein additiv,
+   ausschließlich bestehende Karten-/Farbtokens (.card, .card-label, .map-preview, .map-caption,
+   --accent/--accent-2/--border). Siehe .rationale-Box im Body. */
+.bucket-list { margin-top: 2px; }
+.bucket-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid #E4DFD3;
+}
+.bucket-item:last-child { border-bottom: none; }
+.bucket-item-name { font-size: 12.5px; font-weight: 700; color: #2B2A26; }
+.bucket-item-sub { font-size: 11px; color: #6B675C; font-weight: 600; margin-top: 1px; }
+.bucket-add {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid #D9D0BE;
+  background: #FFFFFF;
+  color: #4B6358;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 800;
+  flex-shrink: 0;
+  cursor: default;
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="rationale">
+    <strong>Merged Richtung · Reise-Cockpit (Light) — v4, Foto-Verfeinerung</strong>
+    Iteration auf Basis des freigegebenen v2 (direction-merged-light-cockpit-v2-photos.html). Feedback des
+    Product Owners: Richtung insgesamt schon sehr gut, vier gezielte Verfeinerungen gewünscht — keine neue
+    Farbrichtung, kein Strukturwechsel:
+    <ol>
+      <li>Kleine Thumbnails an Fahrt-/Transfersegmenten entfernt — diese Verbindungszeilen zeigen wieder nur Icon + Dauer als reinen Text, ohne Bildbox.</li>
+      <li>Auto-Emoji 🚗 durch ein sauberes, modernes Linien-Icon ersetzt (Inline-SVG, einfarbig via currentColor / --ink-soft).</li>
+      <li>Aktivitäts- und Unterkunfts-Kacheln zeigen jetzt eine kompakte Fotoleiste (2–4 Bilder) unterhalb von Titel/Zeit/Beschreibung statt eines einzelnen kleinen Thumbnails neben dem Text — Tagespunkte haben in der Realität meist mehrere Fotos.</li>
+      <li>Alle Foto-/Bildflächen (Foto-Gradienten als Bild-Platzhalter) sind jetzt ausdrücklich ungerundet (scharfe Kanten); die umgebenden Karten behalten ihren bestehenden Radius.</li>
+    </ol>
+    Farbwerte, Kartenrahmen, Stat-Streifen, Budget-Balken, Gap-Alert, Foto-Hero-Behandlung auf beiden Screens und
+    die serifenlose Typografie bleiben unverändert wie in v2.
+    <br><br>
+    <strong style="margin-bottom:0;">Neu in v4 (gezielter Fix, keine Redesign)</strong>
+    Die Thumbnails innerhalb einer Fotoleiste (.tl-photos) wurden zuvor gleichmäßig auf die volle Kachelbreite
+    gestreckt (flex:1). Auf Wunsch des Product Owners sind sie jetzt einheitlich groß (56×56px, quadratisch),
+    linksbündig angeordnet (kein Streckung mehr) und center-gecroppt (background-position: center). Scharfe
+    Kanten (border-radius: 0) bleiben wie in v3 unverändert.
+    <br><br>
+    <strong style="margin-bottom:0;">Neu in v5 (gezielte Ergänzung, nur Tagesliste auf Screen A)</strong>
+    Jede Tageszeile im Tagesplan (Screen A) erhält jetzt links ein eigenes, quadratisches Foto-Thumbnail
+    (72×72px, gleiche Center-Crop-Technik wie .tl-photo auf Screen B: background-size:cover,
+    background-position:center, border-radius:0), mit je eigenem Foto-Gradienten pro Tag zur besseren
+    Unterscheidbarkeit. Da das Bild nun den bisherigen Platz von Datum/Tag-Nummer einnimmt, sind Datum und
+    Tag-Nummer als kompaktes Tag-Label über den Titel gewandert. Screen B bleibt in v5 vollständig unverändert.
+    <br><br>
+    <strong style="margin-bottom:0;">Neu in v6 (gezielte Ergänzung, nur Aktivitäts-Dots auf Screen B)</strong>
+    Die Aktivitäts-Dots (.tl-dot.activity) zeigten bisher je Tagesplan-Eintrag ein individuelles Emoji
+    (🚙 Panoramafahrt, 🍽️ Mittagessen, 🍷 Weinprobe). Da es im Datenmodell kein Aktivitätstyp-Feld gibt und der
+    Product Owner ein solches Feld nicht als Pflichtangabe einführen möchte, erhalten jetzt alle Aktivitäts-Dots
+    denselben neutralen Marker (einfacher, einfarbiger Punkt statt Emoji) — ohne jede typspezifische Ikonografie.
+    Die Unterscheidung der Aktivitäten erfolgt ausschließlich über Titeltext und Fotoleiste. Unterkunfts-Dots
+    (.tl-dot.stay) und Fahrt-/Transfersegment-Dots (.tl-segment .tl-dot) sind unverändert, da sie auf echten
+    Datenfeldern (Item-Typ bzw. transportType) basieren. Screen A ist von dieser Änderung nicht betroffen.
+    <br><br>
+    <strong style="margin-bottom:0;">Neu in v7 (Tages-Abdeckungsbalken zurück + vereinfachte Kostenanzeige)</strong>
+    Zwei gezielte Ergänzungen, keine neue Farbrichtung, kein Strukturwechsel an Karten/Foto-Hero/Timeline:
+    <ol>
+      <li>Der in einer früheren Iteration entfernte Tages-Abdeckungsbalken ("Gantt-Balken") ist zurück, mit denselben Datenpunkten wie die reale App: Auf Screen B erscheint direkt unterhalb des Foto-Headers ein durchgehender, beschrifteter Balken über die Tageszeitachse (08:00–22:00), der Unterkunft (Waldgrün, --accent), Aktivitäten (Salbeigrün, --accent-2), Fahrtsegmente (bestehendes neutrales Grau #B9B2A0, bisher schon als Breadcrumb-Trennzeichen im Einsatz) und ungeplante/offene Zeit (Terrakotta-Schraffur aus --warn-bg/--warn-border) zeigt — inklusive Legende und Zeitachsen-Beschriftung. Auf Screen A erhält jede Tageszeile zusätzlich eine kompakte, unbeschriftete Mini-Version desselben Balkens (gleiche Farblogik, 5px hoch), sodass Planungslücken über die gesamte Reise hinweg auf einen Blick erkennbar sind. Tag 4 (Porto, ohne Unterkunft) zeigt dabei bewusst einen deutlich größeren offenen Abschnitt — konsistent mit dem bestehenden Lücken-Badge in dieser Zeile. Tag 6 nutzt auf beiden Screens dieselbe Segment-Aufteilung wie im Tagesdetail.</li>
+      <li>Die Budget-/Kosten-Panels auf beiden Screens wurden vereinfacht: Statt Fortschrittsbalken mit Ziel-Budget, Prozentanteil und "verbleibendem" Betrag (Budget-Planungs-Charakter) zeigen beide Screens jetzt nur noch eine einzelne, prominente Kennzahl "Kosten bisher: €X" (Screen A: gesamte Reise, Screen B: Tagesebene) mit einer kurzen, unkommentierten Auflistung der Einzelposten darunter (.cost-list, wiederverwendet .day-budget-row). Es gibt keine Zahlungsplan-, Termin- oder Monatsgruppierung mehr — ausschließlich "was ist bisher angefallen/geplant". Aus Konsistenzgründen wurde dieselbe Vereinfachung auch auf den Foto-Hero-Stat-Pill und die Stat-Streifen-Zelle "Budget genutzt XX%" auf Screen A angewendet (jetzt ebenfalls "Kosten bisher · €2.340"), da diese sonst der neuen, zielwertfreien Kosten-Darstellung im Sidebar widersprochen hätten.</li>
+    </ol>
+    <br><br>
+    <strong style="margin-bottom:0;">Neu in v8 (gezielte Bereinigung, keine Redesign)</strong>
+    Feedback des Product Owners: Die "gläsernen" Stat-Pills auf dem Foto-Hero (Screen B: Fahrzeit gesamt, Ausgaben
+    heute, Check-in Quinta) wiederholten dieselben Kennzahlen 1:1, die direkt darunter im Stat-Streifen erscheinen
+    — seit v7 zusätzlich flankiert vom Tagesabdeckungsbalken. Diese Dopplung (zweimal untereinander dieselben
+    Zahlen) wurde entfernt: Die Hero-Stat-Pills sind sowohl auf Screen B als auch auf Screen A (Dauer, Kosten
+    bisher, Offene Punkte — ebenfalls Dopplungen des darunterliegenden Stat-Streifens) vollständig vom Foto
+    entfernt. Das Foto zeigt jetzt ausschließlich Titel, Datum/Breadcrumb und die Navigations-/Aktions-Schaltfläche
+    (Zurück-Button bzw. "Reise teilen"). Stat-Streifen, Tagesabdeckungsbalken und alle übrigen Elemente bleiben
+    unverändert wie in v7.
+    <br><br>
+    <strong style="margin-bottom:0;">Neu in v9 (echter Foto-Test + zwei ergänzende Sidebar-Karten auf Screen B)</strong>
+    Zwei gezielte, additive Ergänzungen auf Wunsch des Product Owners — keine neue Farbrichtung, keine
+    Struktur-Änderung an bestehenden Karten:
+    <ol>
+      <li><strong style="display:inline;font-size:inherit;letter-spacing:normal;text-transform:none;color:inherit;font-weight:700;">Foto-Hero-Stresstest:</strong> Der CSS-Gradient-Platzhalter im Foto-Hero wurde auf beiden Screens durch ein echtes, im Produkt bereits vorhandenes Demo-Foto (hero-mountains.jpg, Berglandschaft mit Schneegipfel, Seeufer und Bootshaus) ersetzt — bewusst dasselbe Foto auf Screen A und Screen B, da es hier um den Test der Crop-/Scrim-Technik geht, nicht um Bildbeschaffung. Ergebnis der Prüfung (gegen gerendertem Screenshot verifiziert): Der Center-Crop (background-size:cover/background-position:center) behält bei der sehr breiten Hero-Proportion (~3,6:1 auf Screen A, ~5:1 auf Screen B) den Gipfel mit Schneeresten und die Baumlinie im Bild, schneidet aber den hellen, leicht bewölkten Himmelsstreifen ganz oben sowie das Bootshaus/die Boote am Wasser unten größtenteils ab — im Ergebnis unauffällig und ohne Abschneiden von Gesichtern/Kernmotiven, wirkt aber naturgemäß weniger dramatisch als das Vollbild. Die bodennahe Titelzeile (Titel/Datum) liegt vollständig im stärksten Scrim-Bereich (0,88 Deckkraft) über der dunklen Baumlinie und bleibt sehr sicher lesbar. Die Kopfzeile (Breadcrumb/Kicker ohne eigenen Button-Hintergrund) liegt dagegen über einer hellen, sonnenbeschienenen Felsflanke — im bisherigen Scrim-Verlauf war dieser Bereich (ab 70 % Bildhöhe) komplett transparent, ein Kontrastrisiko, das der bisherige synthetische Gradient so nicht hatte. Der Text bleibt im Screenshot noch lesbar, aber mit spürbar weniger Reserve als am unteren Rand. Daher wurde der Scrim-Verlauf zusätzlich um einen vierten, leichten Abdunkelungs-Stop am oberen Fotorand ergänzt (Stop bei 100 % mit ~0,26 statt 0 Deckkraft), ohne die sichtbare Bildmitte zu verändern — eine Sicherheitsmarge für Kopfzeilentext über wechselnden, nicht vorhersehbaren Fotoinhalten.</li>
+      <li><strong style="display:inline;font-size:inherit;letter-spacing:normal;text-transform:none;color:inherit;font-weight:700;">Tageskarte &amp; Bucket-Liste (Screen B):</strong> Zwei in der echten App bereits vorhandene, bislang in keinem Mockup abgebildete Panels wurden im Sidebar-Bereich von Screen B ergänzt (unterhalb der bestehenden Kosten- und Überblicks-Karten): eine kompakte "Tageskarte" mit denselben Kartenvorschau-Mitteln wie die "Route"-Karte auf Screen A (.map-preview, Pins für Unterkunft/Aktivitäten des Tages), sowie direkt darunter eine "Bucket-Liste" mit vier beispielhaften, ungeplanten "Idee"-Orten der Reise inklusive "+"-Affordance zum Übernehmen in den Tagesplan. Beide Karten nutzen ausschließlich bestehende Karten-/Farbtokens (.card, .card-label, --accent/--accent-2/--border) — keine neuen Farben, kein neues visuelles Vokabular.</li>
+    </ol>
+    <br><br>
+    <strong style="margin-bottom:0;">Neu in v10 (Streichung, keine Redesign)</strong>
+    Feedback des Product Owners: Die Sidebar-Karte "Heute im Überblick" auf Screen B (Fahrsegmente, Fahrzeit
+    gesamt, Aktivitäten) wiederholte Kennzahlen, die bereits im Foto-Hero-Titelbereich darüber sichtbar sind —
+    "Fahrzeit gesamt" erscheint 1:1 im Stat-Streifen, "Fahrsegmente" und "Aktivitäten" ergeben sich unmittelbar aus
+    dem Tagesabdeckungsbalken (inkl. Legende) sowie der Tagesablauf-Timeline direkt darunter. Die Karte wurde
+    daher ersatzlos entfernt; die verbleibenden Sidebar-Karten (Kosten bisher, Tageskarte, Bucket-Liste) rücken
+    entsprechend nach oben und behalten ihren bestehenden Kartenabstand (.card, margin-bottom: 16px)
+    unverändert bei. Keine sonstigen Änderungen gegenüber v9.
+  </div>
+
+  <div class="screen-label">Screen A · Reiseübersicht</div>
+  <div class="browser">
+    <div class="browser-chrome">
+      <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+      <div class="url">travelplan.app/trips/portugal-roadtrip</div>
+    </div>
+    <div class="app">
+
+      <div class="hero-photo">
+        <div class="hero-top">
+          <div class="trip-kicker on-photo">Aktive Reise</div>
+          <button class="share-btn on-photo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="19" r="2.6"/><line x1="8.3" y1="10.7" x2="15.7" y2="6.3"/><line x1="8.3" y1="13.3" x2="15.7" y2="17.7"/></svg>
+            Reise teilen
+          </button>
+        </div>
+        <div class="hero-bottom">
+          <h1 class="trip-title on-photo">Portugal Roadtrip</h1>
+          <div class="trip-dates on-photo">12.–24. Sept 2026 · Lissabon → Sintra → Porto → Douro-Tal → Algarve</div>
+        </div>
+      </div>
+
+      <div class="stat-strip cols-4">
+        <div class="stat-cell"><div class="l">Dauer</div><div class="v">12 Tage</div></div>
+        <div class="stat-cell"><div class="l">Stationen</div><div class="v">5</div></div>
+        <div class="stat-cell"><div class="l">Kosten bisher</div><div class="v accent">€2.340</div></div>
+        <div class="stat-cell"><div class="l">Offene Punkte</div><div class="v warn">1</div></div>
+      </div>
+
+      <div class="layout">
+        <div class="main-col">
+          <div class="section-label">Tagesplan</div>
+
+          <div class="day-row">
+            <div class="day-photo d-1"></div>
+            <div><div class="day-tag"><span class="num">Tag 01</span> · 12.9</div><p class="day-title">Ankunft &amp; Alfama-Viertel</p><p class="day-sub">Lissabon</p></div>
+            <div class="stay">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-7h6v7"/></svg>
+              Convento do Carmo
+            </div>
+            <div class="day-mini-cov"><div class="mini-cov-bar" title="Tagesabdeckung: Unterkunft, Aktivitäten, Fahrt">
+              <div class="mini-cov-seg stay" style="width:20%"></div>
+              <div class="mini-cov-seg activity" style="width:50%"></div>
+              <div class="mini-cov-seg travel" style="width:30%"></div>
+            </div></div>
+          </div>
+
+          <div class="day-row">
+            <div class="day-photo d-2"></div>
+            <div><div class="day-tag"><span class="num">Tag 02</span> · 13.9</div><p class="day-title">Belém &amp; Tejo-Ufer</p><p class="day-sub">Lissabon</p></div>
+            <div class="stay">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-7h6v7"/></svg>
+              Convento do Carmo
+            </div>
+            <div class="day-mini-cov"><div class="mini-cov-bar" title="Tagesabdeckung: Unterkunft, Aktivitäten, Fahrt">
+              <div class="mini-cov-seg stay" style="width:15%"></div>
+              <div class="mini-cov-seg activity" style="width:65%"></div>
+              <div class="mini-cov-seg travel" style="width:20%"></div>
+            </div></div>
+          </div>
+
+          <div class="day-row">
+            <div class="day-photo d-3"></div>
+            <div><div class="day-tag"><span class="num">Tag 03</span> · 14.9</div><p class="day-title">Paläste &amp; Wanderung</p><p class="day-sub">Sintra</p></div>
+            <div class="stay">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-7h6v7"/></svg>
+              Casa da Serra B&amp;B
+            </div>
+            <div class="day-mini-cov"><div class="mini-cov-bar" title="Tagesabdeckung: Unterkunft, Aktivitäten, Fahrt">
+              <div class="mini-cov-seg stay" style="width:15%"></div>
+              <div class="mini-cov-seg activity" style="width:60%"></div>
+              <div class="mini-cov-seg travel" style="width:25%"></div>
+            </div></div>
+          </div>
+
+          <div class="day-row gap">
+            <div class="day-photo d-4"></div>
+            <div><div class="day-tag"><span class="num">Tag 04</span> · 15.9</div><p class="day-title">Anreise &amp; Ribeira-Viertel</p><p class="day-sub">Porto (Fahrt, ca. 3 Std.)</p></div>
+            <div class="stay gap">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 2.5 18a1.7 1.7 0 0 0 1.5 2.5h16a1.7 1.7 0 0 0 1.5-2.5L13.7 3.9a1.7 1.7 0 0 0-3.4 0Z"/></svg>
+              Keine Unterkunft
+            </div>
+            <div class="day-mini-cov"><div class="mini-cov-bar" title="Tagesabdeckung: Fahrt, Aktivitäten, große offene/ungeplante Zeit (keine Unterkunft)">
+              <div class="mini-cov-seg travel" style="width:35%"></div>
+              <div class="mini-cov-seg activity" style="width:30%"></div>
+              <div class="mini-cov-seg gap" style="width:35%"></div>
+            </div></div>
+          </div>
+
+          <div class="day-row">
+            <div class="day-photo d-5"></div>
+            <div><div class="day-tag"><span class="num">Tag 05</span> · 16.9</div><p class="day-title">Weinkeller &amp; Dom Luís I</p><p class="day-sub">Porto</p></div>
+            <div class="stay">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-7h6v7"/></svg>
+              Torel Avantgarde
+            </div>
+            <div class="day-mini-cov"><div class="mini-cov-bar" title="Tagesabdeckung: Unterkunft, Aktivitäten, Fahrt">
+              <div class="mini-cov-seg stay" style="width:15%"></div>
+              <div class="mini-cov-seg activity" style="width:65%"></div>
+              <div class="mini-cov-seg travel" style="width:20%"></div>
+            </div></div>
+          </div>
+
+          <div class="day-row" style="border-color:#4B6358;">
+            <div class="day-photo d-6"></div>
+            <div><div class="day-tag"><span class="num">Tag 06</span> · 17.9</div><p class="day-title">Panoramafahrt &amp; Weinprobe</p><p class="day-sub">Porto → Douro-Tal · siehe Tagesdetail →</p></div>
+            <div class="stay">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-7h6v7"/></svg>
+              Quinta do Vallado
+            </div>
+            <div class="day-mini-cov"><div class="mini-cov-bar" title="Tagesabdeckung wie im Tagesdetail: Unterkunft, Fahrten, Aktivitäten — vollständig geplant">
+              <div class="mini-cov-seg stay" style="width:14.29%"></div>
+              <div class="mini-cov-seg travel" style="width:5.36%"></div>
+              <div class="mini-cov-seg activity" style="width:10.71%"></div>
+              <div class="mini-cov-seg travel" style="width:2.98%"></div>
+              <div class="mini-cov-seg activity" style="width:8.93%"></div>
+              <div class="mini-cov-seg travel" style="width:2.38%"></div>
+              <div class="mini-cov-seg activity" style="width:14.29%"></div>
+              <div class="mini-cov-seg travel" style="width:2.38%"></div>
+              <div class="mini-cov-seg stay" style="width:38.68%"></div>
+            </div></div>
+          </div>
+
+          <div class="more-days">+ 6 weitere Tage — Tag 07–12 · Douro-Tal &amp; Algarve</div>
+        </div>
+
+        <div class="side-col">
+          <div class="card">
+            <div class="card-label">Kosten bisher</div>
+            <div class="budget-total">€2.340</div>
+            <div class="budget-sub">bisher erfasste Ausgaben · gesamte Reise</div>
+            <div class="cost-list">
+              <div class="day-budget-row"><span>Unterkünfte (5 Buchungen)</span><span>€1.540</span></div>
+              <div class="day-budget-row"><span>Aktivitäten &amp; Ausflüge</span><span>€520</span></div>
+              <div class="day-budget-row" style="border-bottom:none;"><span>Fahrt &amp; Transport</span><span>€280</span></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-label">Route</div>
+            <div class="map-preview">
+              <svg viewBox="0 0 260 150">
+                <path d="M28 115 L70 60 L130 85 L165 35 L228 125" fill="none" stroke="#D9D0BE" stroke-width="2.5" stroke-dasharray="4 5"/>
+                <circle cx="28" cy="115" r="4" fill="#4B6358"/>
+                <circle cx="70" cy="60" r="4" fill="#4B6358"/>
+                <circle cx="130" cy="85" r="4" fill="#4B6358"/>
+                <circle cx="165" cy="35" r="4" fill="#4B6358"/>
+                <circle cx="228" cy="125" r="4" fill="#4B6358"/>
+              </svg>
+            </div>
+            <div class="map-caption">5 Stationen · Kartenvorschau öffnen</div>
+          </div>
+
+          <div class="gap-alert">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 2.5 18a1.7 1.7 0 0 0 1.5 2.5h16a1.7 1.7 0 0 0 1.5-2.5L13.7 3.9a1.7 1.7 0 0 0-3.4 0Z"/></svg>
+            <div>
+              <div class="t">Handlungsbedarf: Tag 4</div>
+              <div class="d">Für Porto (15.9) ist noch keine Unterkunft hinterlegt.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="screen-label">Screen B · Tagesdetail (Tag 6)</div>
+  <div class="browser">
+    <div class="browser-chrome">
+      <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+      <div class="url">travelplan.app/trips/portugal-roadtrip/tag/6</div>
+    </div>
+    <div class="app">
+
+      <div class="hero-photo day-hero">
+        <div class="hero-top">
+          <div class="breadcrumb on-photo">
+            <a>Portugal Roadtrip</a><span class="sep">/</span><span class="cur">Tag 6 · Porto → Douro-Tal</span>
+          </div>
+          <button class="back-btn on-photo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+            Zur Übersicht
+          </button>
+        </div>
+        <div class="hero-bottom">
+          <h1 class="trip-title on-photo" style="font-size:26px;">Tag 6 — Porto → Douro-Tal</h1>
+          <div class="trip-dates on-photo">Mittwoch, 17. Sept 2026</div>
+        </div>
+      </div>
+
+      <div class="coverage-panel">
+        <div class="coverage-panel-head">
+          <div class="section-label" style="margin-bottom:0;">Tagesabdeckung</div>
+          <div class="coverage-legend">
+            <div class="coverage-legend-item"><span class="coverage-swatch stay"></span>Unterkunft</div>
+            <div class="coverage-legend-item"><span class="coverage-swatch activity"></span>Aktivität</div>
+            <div class="coverage-legend-item"><span class="coverage-swatch travel"></span>Fahrt</div>
+            <div class="coverage-legend-item"><span class="coverage-swatch gap"></span>Offen</div>
+          </div>
+        </div>
+        <div class="coverage-bar">
+          <div class="cov-seg stay" style="width:14.29%" title="Vorherige Nacht · Torel Avantgarde · bis 10:00"></div>
+          <div class="cov-seg travel" style="width:5.36%" title="Fahrt · Porto → N222 · 45 Min"></div>
+          <div class="cov-seg activity" style="width:10.71%" title="Panoramafahrt entlang der N222 · 10:00–11:30"></div>
+          <div class="cov-seg travel" style="width:2.98%" title="Fahrt · Richtung Peso da Régua · 25 Min"></div>
+          <div class="cov-seg activity" style="width:8.93%" title="Mittagessen mit Flussblick · 12:00–13:15"></div>
+          <div class="cov-seg travel" style="width:2.38%" title="Fahrt · Weingut Pinhão · 20 Min"></div>
+          <div class="cov-seg activity" style="width:14.29%" title="Weinprobe &amp; Kellerführung · 14:00–16:00"></div>
+          <div class="cov-seg travel" style="width:2.38%" title="Fahrt · Ankunft Quinta · 20 Min"></div>
+          <div class="cov-seg stay" style="width:38.68%" title="Aktuelle Nacht · Quinta do Vallado · ab Check-in"></div>
+        </div>
+        <div class="coverage-axis">
+          <span style="left:0%;">08:00</span>
+          <span style="left:28.57%; transform:translateX(-50%);">12:00</span>
+          <span style="left:57.14%; transform:translateX(-50%);">16:00</span>
+          <span style="left:85.71%; transform:translateX(-50%);">20:00</span>
+          <span style="left:100%; transform:translateX(-100%);">22:00</span>
+        </div>
+      </div>
+
+      <div class="stat-strip cols-4">
+        <div class="stat-cell"><div class="l">Tag</div><div class="v">6 / 12</div></div>
+        <div class="stat-cell"><div class="l">Fahrzeit gesamt</div><div class="v">2 Std 10 Min</div></div>
+        <div class="stat-cell"><div class="l">Ausgaben heute</div><div class="v accent">€110</div></div>
+        <div class="stat-cell"><div class="l">Check-in Quinta</div><div class="v">16:00</div></div>
+      </div>
+
+      <div class="layout">
+        <div class="main-col">
+          <div class="section-label">Tagesablauf</div>
+
+          <div class="timeline">
+
+            <div class="tl-node">
+              <div class="tl-dot stay">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4B6358" stroke-width="2"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-7h6v7"/></svg>
+              </div>
+              <div class="tl-card stay-card">
+                <div class="tl-card-top">
+                  <div>
+                    <span class="tl-time">Check-out 10:00</span>
+                    <p class="tl-title">Torel Avantgarde</p>
+                    <p class="tl-sub">Vorherige Nacht · Porto</p>
+                  </div>
+                  <div class="tl-cost muted">bereits bezahlt</div>
+                </div>
+                <div class="tl-photos">
+                  <div class="tl-photo t-stay-checkout-1"></div>
+                  <div class="tl-photo t-stay-checkout-2"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="tl-node tl-segment">
+              <div class="tl-dot">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 11l1.5-4.5A2 2 0 0 1 8.4 5h7.2a2 2 0 0 1 1.9 1.5L19 11"/><path d="M3 11h18v5a1 1 0 0 1-1 1h-1a1 1 0 0 1-1-1v-1H6v1a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-5Z"/><circle cx="7.5" cy="16.5" r="1.5"/><circle cx="16.5" cy="16.5" r="1.5"/></svg>
+              </div>
+              <div class="tl-segment-label">Fahrt · 45 Min · Porto → N222</div>
+            </div>
+
+            <div class="tl-node">
+              <div class="tl-dot activity" aria-hidden="true"></div>
+              <div class="tl-card">
+                <div class="tl-card-top">
+                  <div>
+                    <span class="tl-time">10:00–11:30</span>
+                    <p class="tl-title">Panoramafahrt entlang der N222</p>
+                    <p class="tl-sub">Aussichtspunkte Douro-Tal, kurze Fotostopps</p>
+                  </div>
+                  <div class="tl-cost">€15</div>
+                </div>
+                <div class="tl-photos">
+                  <div class="tl-photo t-scenic-1"></div>
+                  <div class="tl-photo t-scenic-2"></div>
+                  <div class="tl-photo t-scenic-3"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="tl-node tl-segment">
+              <div class="tl-dot">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 11l1.5-4.5A2 2 0 0 1 8.4 5h7.2a2 2 0 0 1 1.9 1.5L19 11"/><path d="M3 11h18v5a1 1 0 0 1-1 1h-1a1 1 0 0 1-1-1v-1H6v1a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-5Z"/><circle cx="7.5" cy="16.5" r="1.5"/><circle cx="16.5" cy="16.5" r="1.5"/></svg>
+              </div>
+              <div class="tl-segment-label">Fahrt · 25 Min · Richtung Peso da Régua</div>
+            </div>
+
+            <div class="tl-node">
+              <div class="tl-dot activity" aria-hidden="true"></div>
+              <div class="tl-card">
+                <div class="tl-card-top">
+                  <div>
+                    <span class="tl-time">12:00–13:15</span>
+                    <p class="tl-title">Mittagessen mit Flussblick</p>
+                    <p class="tl-sub">Restaurant in Peso da Régua, Terrasse am Douro</p>
+                  </div>
+                  <div class="tl-cost">€38</div>
+                </div>
+                <div class="tl-photos">
+                  <div class="tl-photo t-food-1"></div>
+                  <div class="tl-photo t-food-2"></div>
+                  <div class="tl-photo t-food-3"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="tl-node tl-segment">
+              <div class="tl-dot">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 11l1.5-4.5A2 2 0 0 1 8.4 5h7.2a2 2 0 0 1 1.9 1.5L19 11"/><path d="M3 11h18v5a1 1 0 0 1-1 1h-1a1 1 0 0 1-1-1v-1H6v1a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-5Z"/><circle cx="7.5" cy="16.5" r="1.5"/><circle cx="16.5" cy="16.5" r="1.5"/></svg>
+              </div>
+              <div class="tl-segment-label">Fahrt · 20 Min · Weingut Pinhão</div>
+            </div>
+
+            <div class="tl-node">
+              <div class="tl-dot activity" aria-hidden="true"></div>
+              <div class="tl-card">
+                <div class="tl-card-top">
+                  <div>
+                    <span class="tl-time">14:00–16:00</span>
+                    <p class="tl-title">Weinprobe &amp; Kellerführung</p>
+                    <p class="tl-sub">Quinta-Weingut bei Pinhão, geführte Verkostung</p>
+                  </div>
+                  <div class="tl-cost">€45</div>
+                </div>
+                <div class="tl-photos">
+                  <div class="tl-photo t-winery-1"></div>
+                  <div class="tl-photo t-winery-2"></div>
+                  <div class="tl-photo t-winery-3"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="tl-node tl-segment">
+              <div class="tl-dot">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 11l1.5-4.5A2 2 0 0 1 8.4 5h7.2a2 2 0 0 1 1.9 1.5L19 11"/><path d="M3 11h18v5a1 1 0 0 1-1 1h-1a1 1 0 0 1-1-1v-1H6v1a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-5Z"/><circle cx="7.5" cy="16.5" r="1.5"/><circle cx="16.5" cy="16.5" r="1.5"/></svg>
+              </div>
+              <div class="tl-segment-label">Fahrt · 20 Min · Ankunft Quinta</div>
+            </div>
+
+            <div class="tl-node">
+              <div class="tl-dot stay">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4B6358" stroke-width="2"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-7h6v7"/></svg>
+              </div>
+              <div class="tl-card stay-card">
+                <div class="tl-card-top">
+                  <div>
+                    <span class="tl-time">Check-in 16:00</span>
+                    <p class="tl-title">Quinta do Vallado</p>
+                    <p class="tl-sub">Aktuelle Nacht · Douro-Tal</p>
+                  </div>
+                  <div class="tl-cost">€185</div>
+                </div>
+                <div class="tl-photos">
+                  <div class="tl-photo t-stay-checkin-1"></div>
+                  <div class="tl-photo t-stay-checkin-2"></div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <div class="side-col">
+          <div class="card">
+            <div class="card-label">Kosten bisher · heute</div>
+            <div class="budget-total">€110</div>
+            <div class="budget-sub">bisher erfasste Ausgaben, Tag 6 (ohne Unterkunft)</div>
+            <div class="cost-list">
+              <div class="day-budget-row"><span>Panoramafahrt · Maut/Parken</span><span>€15</span></div>
+              <div class="day-budget-row"><span>Mittagessen Peso da Régua</span><span>€38</span></div>
+              <div class="day-budget-row"><span>Weinprobe &amp; Kellerführung</span><span>€45</span></div>
+              <div class="day-budget-row" style="border-bottom:none;"><span>Sprit (geschätzt)</span><span>€12</span></div>
+            </div>
+          </div>
+
+          <!-- NEU in v9: Tageskarte — gleiche .map-preview-Technik wie Screen A "Route"-Karte,
+               hier mit den Stationen des Tages (Fahrt-Route + Aktivitäts-/Unterkunfts-Pins). -->
+          <div class="card">
+            <div class="card-label">Tageskarte</div>
+            <div class="map-preview">
+              <svg viewBox="0 0 260 150">
+                <path d="M20 30 L95 55 L140 40 L190 70 L235 118" fill="none" stroke="#D9D0BE" stroke-width="2.5" stroke-dasharray="4 5"/>
+                <circle cx="20" cy="30" r="4.5" fill="#4B6358"/>
+                <circle cx="95" cy="55" r="4" fill="#7C9483"/>
+                <circle cx="140" cy="40" r="4" fill="#7C9483"/>
+                <circle cx="190" cy="70" r="4" fill="#7C9483"/>
+                <circle cx="235" cy="118" r="4.5" fill="#4B6358"/>
+              </svg>
+            </div>
+            <div class="map-caption">4 Stationen · Porto → Douro-Tal · Kartenvorschau öffnen</div>
+          </div>
+
+          <!-- NEU in v9: Bucket-Liste — ungeplante "Idee"-Orte der Reise, direkt unter der
+               Tageskarte, mit "+"-Affordance zum Übernehmen in den Tagesplan. -->
+          <div class="card">
+            <div class="card-label">Bucket-Liste</div>
+            <div class="bucket-list">
+              <div class="bucket-item">
+                <div><div class="bucket-item-name">Livraria Lello</div><div class="bucket-item-sub">Porto · Buchhandlung</div></div>
+                <div class="bucket-add">+</div>
+              </div>
+              <div class="bucket-item">
+                <div><div class="bucket-item-name">Fahrt mit der Linha do Douro</div><div class="bucket-item-sub">Zugstrecke · Pinhão–Tua</div></div>
+                <div class="bucket-add">+</div>
+              </div>
+              <div class="bucket-item">
+                <div><div class="bucket-item-name">Miradouro da Boa Vista</div><div class="bucket-item-sub">Aussichtspunkt · Douro-Tal</div></div>
+                <div class="bucket-add">+</div>
+              </div>
+              <div class="bucket-item">
+                <div><div class="bucket-item-name">Fahrradverleih Régua</div><div class="bucket-item-sub">Aktivität · noch ungeplant</div></div>
+                <div class="bucket-add">+</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

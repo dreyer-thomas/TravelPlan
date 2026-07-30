@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TravelPlan — Merged: Reise-Cockpit (Light)</title>
+<style>
+/*
+  DOKUMENTIERTE FARBWERTE — Merged Richtung "Reise-Cockpit (Light)"
+  ----------------------------------------------------------------
+  Herkunft: Farbpalette komplett aus Richtung 1 "Ruhiger Reisebegleiter"
+  (direction-calm-trustworthy.html) übernommen — nur heller/weißer Hintergrund,
+  keine Serifen. Struktur/Kartenrahmen/Datendichte komplett aus Richtung 4
+  "Reise-Cockpit" (direction-bold-datarich.html) übernommen — nur auf Hell
+  umgefärbt statt Dunkelmodus.
+
+  --paper-outer:  #EFEAE0   Äußerer Seitenhintergrund (aus Richtung 1)
+  --paper:        #F7F4EC   App-Oberflächenhintergrund (aus Richtung 1)
+  --card:         #FFFFFF   Kartenflächen (Stat-Zellen, Tagesreihen, Sidebar-Karten)
+  --card-alt:     #FBF9F4   Zebra-/Reise-Segment-Hintergrund (leicht abgesetzt)
+  --ink:          #2B2A26   Haupttext (aus Richtung 1, kein reines Schwarz)
+  --ink-soft:     #6B675C   Sekundärtext / Labels
+  --border:       #E4DFD3   Standard-Trennlinie (aus Richtung 1 "hairline")
+  --border-strong:#D9D0BE   Kräftigerer Kartenrahmen (Cockpit-Struktur, dichter als hairline)
+  --accent:       #4B6358   Gedämpftes Waldgrün — Primärakzent (aus Richtung 1)
+  --accent-2:     #7C9483   Helleres Salbeigrün — Sekundärakzent für Gradient/Datenviz
+  --accent-soft:  #E7EDE7   Akzent-Hintergrund (Badges, Zeit-Pills) (aus Richtung 1)
+  --warn:         #8A5A2B   Gedämpftes Terrakotta — Gap-/Hinweisfarbe (aus Richtung 1)
+  --warn-bg:      #F6ECE0   Gap-/Warn-Badge-Hintergrund (aus Richtung 1)
+  --warn-border:  #E3C7A2   Kräftigerer Warn-Kartenrahmen (Cockpit-Struktur, hell statt dunkel)
+
+  Schrift: ausschließlich Systemschrift, serifenlos, auf allen Ebenen
+  (-apple-system, "Segoe UI", Helvetica, Arial, sans-serif). Keine Serifen,
+  keine Web-/Netzwerkfonts. Kennzahlen fett (800/900) mit tabellarischen
+  Ziffern, wie im Cockpit-Vorbild — aber auf hellem Papierhintergrund statt
+  Schwarz, mit den gedämpften Grün-/Terrakotta-Tönen statt Amber/Türkis/Rot.
+*/
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: #EFEAE0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  color: #2B2A26;
+}
+.page { max-width: 1080px; margin: 0 auto; padding: 44px 24px 80px; }
+
+.rationale {
+  background: #FFFFFF;
+  border: 1px solid #E4DFD3;
+  border-radius: 8px;
+  padding: 20px 24px;
+  margin-bottom: 30px;
+  line-height: 1.55;
+  font-size: 14.5px;
+  color: #43413A;
+}
+.rationale strong {
+  display: block;
+  font-size: 11.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #4B6358;
+  margin-bottom: 8px;
+  font-weight: 800;
+}
+
+.screen-label {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #6B675C;
+  margin: 40px 0 12px;
+}
+.screen-label:first-of-type { margin-top: 8px; }
+
+.browser {
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 20px 50px rgba(30,28,20,0.14);
+  border: 1px solid #E4DFD3;
+}
+.browser-chrome {
+  background: #F1ECE1;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid #E4DFD3;
+}
+.dot { width: 10px; height: 10px; border-radius: 50%; background: #D8D2C4; }
+.url {
+  margin-left: 12px;
+  background: #FBF9F4;
+  border: 1px solid #E4DFD3;
+  border-radius: 5px;
+  padding: 4px 12px;
+  font-size: 12px;
+  color: #8A8677;
+  flex: 1;
+  max-width: 320px;
+}
+.app { background: #F7F4EC; }
+
+/* ---- Topbar (shared) ---- */
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 22px 32px;
+  border-bottom: 1px solid #E4DFD3;
+  gap: 20px;
+}
+.breadcrumb {
+  font-size: 12px;
+  font-weight: 700;
+  color: #6B675C;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.breadcrumb a { color: #6B675C; text-decoration: none; }
+.breadcrumb .sep { color: #B9B2A0; }
+.breadcrumb .cur { color: #4B6358; }
+.trip-kicker { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #4B6358; font-weight: 800; margin-bottom: 6px; }
+.trip-title { font-size: 28px; font-weight: 900; margin: 0 0 6px; letter-spacing: -0.4px; }
+.trip-dates { font-size: 13px; color: #6B675C; font-weight: 600; }
+.share-btn {
+  background: #4B6358;
+  color: #FFFFFF;
+  border: none;
+  padding: 10px 18px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: default;
+  white-space: nowrap;
+}
+.share-btn svg { width: 14px; height: 14px; }
+.back-btn {
+  border: 1px solid #D9D0BE;
+  background: #FFFFFF;
+  color: #43413A;
+  padding: 10px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: default;
+  white-space: nowrap;
+}
+.back-btn svg { width: 14px; height: 14px; }
+
+/* ---- Stat strip (shared cockpit motif) ---- */
+.stat-strip { display: grid; border-bottom: 1px solid #E4DFD3; background: #FFFFFF; }
+.stat-strip.cols-4 { grid-template-columns: repeat(4,1fr); }
+.stat-cell { padding: 16px 24px; border-right: 1px solid #E4DFD3; }
+.stat-cell:last-child { border-right: none; }
+.stat-cell .l { font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #6B675C; font-weight: 700; margin-bottom: 6px; }
+.stat-cell .v { font-size: 21px; font-weight: 900; font-variant-numeric: tabular-nums; color: #2B2A26; }
+.stat-cell .v.accent { color: #4B6358; }
+.stat-cell .v.warn { color: #8A5A2B; }
+
+.layout { display: grid; grid-template-columns: 1.7fr 1fr; }
+.main-col { padding: 22px 28px; border-right: 1px solid #E4DFD3; }
+.side-col { padding: 22px 22px; }
+.section-label { font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: #6B675C; margin-bottom: 12px; }
+
+/* ---- Screen A: day rows ---- */
+.day-row {
+  display: grid;
+  grid-template-columns: 84px 1fr 190px;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid #D9D0BE;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  background: #FFFFFF;
+}
+.day-row.gap { border-color: #E3C7A2; background: #FBF6EE; }
+.day-date { font-size: 12px; font-weight: 800; color: #2B2A26; font-variant-numeric: tabular-nums; }
+.day-date span { display: block; font-size: 10px; font-weight: 700; color: #6B675C; margin-top: 2px; text-transform: uppercase; letter-spacing: 0.05em; }
+.day-title { font-size: 14.5px; font-weight: 700; margin: 0 0 3px; color: #2B2A26; }
+.day-sub { font-size: 11.5px; color: #6B675C; font-weight: 600; }
+.stay {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #4B6358;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: flex-end;
+  text-align: right;
+}
+.stay svg { width: 13px; height: 13px; flex-shrink: 0; }
+.stay.gap {
+  color: #8A5A2B;
+  background: #F6ECE0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  justify-content: flex-start;
+}
+.more-days { text-align: center; font-size: 11.5px; font-weight: 700; color: #6B675C; padding: 8px 0; }
+
+/* ---- Sidebar cards (shared) ---- */
+.card { background: #FFFFFF; border: 1px solid #D9D0BE; border-radius: 8px; padding: 18px; margin-bottom: 16px; }
+.card-label { font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #6B675C; font-weight: 800; margin-bottom: 10px; }
+
+.budget-total { font-size: 30px; font-weight: 900; letter-spacing: -0.5px; font-variant-numeric: tabular-nums; color: #2B2A26; }
+.budget-sub { font-size: 12px; color: #6B675C; font-weight: 600; margin-bottom: 12px; }
+.budget-bar { height: 8px; background: #E7EDE7; border-radius: 4px; overflow: hidden; display: flex; }
+.budget-bar-fill { height: 100%; background: linear-gradient(90deg,#4B6358,#7C9483); }
+.budget-legend { display: flex; justify-content: space-between; font-size: 11px; color: #6B675C; font-weight: 700; margin-top: 8px; }
+.budget-legend .accent { color: #4B6358; }
+
+.map-preview {
+  height: 150px;
+  border-radius: 6px;
+  background: #F7F4EC;
+  border: 1px solid #E4DFD3;
+  position: relative;
+}
+.map-preview svg { width: 100%; height: 100%; }
+.map-caption { font-size: 11.5px; color: #6B675C; font-weight: 600; margin-top: 10px; }
+
+.gap-alert {
+  border: 1px solid #E3C7A2;
+  background: #F6ECE0;
+  border-radius: 8px;
+  padding: 14px 16px;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.gap-alert svg { width: 18px; height: 18px; color: #8A5A2B; flex-shrink: 0; margin-top: 1px; }
+.gap-alert .t { font-size: 13px; font-weight: 800; color: #8A5A2B; margin-bottom: 3px; }
+.gap-alert .d { font-size: 11.5px; color: #7A5B3C; font-weight: 500; }
+
+/* ---- Screen B: timeline ---- */
+.timeline { position: relative; padding-left: 44px; }
+.timeline::before {
+  content: "";
+  position: absolute;
+  top: 18px; bottom: 18px; left: 15px;
+  width: 2px;
+  background: #D9D0BE;
+}
+.tl-node { position: relative; margin-bottom: 12px; }
+.tl-dot {
+  position: absolute;
+  left: -44px; top: 0;
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  background: #FFFFFF;
+  border: 2px solid #4B6358;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px;
+  z-index: 1;
+}
+.tl-dot.stay { background: #E7EDE7; }
+.tl-dot.activity { border-color: #D9D0BE; color: #6B675C; }
+
+.tl-card {
+  background: #FFFFFF;
+  border: 1px solid #D9D0BE;
+  border-radius: 8px;
+  padding: 14px 16px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: start;
+}
+.tl-card.stay-card { background: #FBFAF6; border-color: #C9D2C7; }
+.tl-time {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 800;
+  color: #4B6358;
+  background: #E7EDE7;
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 6px;
+}
+.tl-title { font-size: 14.5px; font-weight: 700; color: #2B2A26; margin: 0 0 3px; }
+.tl-sub { font-size: 11.5px; color: #6B675C; font-weight: 600; }
+.tl-cost {
+  font-size: 13px;
+  font-weight: 800;
+  color: #2B2A26;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  padding-top: 2px;
+}
+.tl-cost.muted { color: #8A9188; font-weight: 700; font-size: 11.5px; }
+
+.tl-segment {
+  position: relative;
+  margin: -2px 0 12px;
+  padding: 6px 0 6px 4px;
+}
+.tl-segment .tl-dot {
+  width: 22px; height: 22px; left: -39px; top: 3px;
+  background: #F7F4EC; border: none; font-size: 12px;
+}
+.tl-segment-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #6B675C;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.day-budget-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12.5px;
+  color: #43413A;
+  font-weight: 600;
+  padding: 7px 0;
+  border-bottom: 1px solid #E4DFD3;
+}
+.day-budget-row span:last-child { font-variant-numeric: tabular-nums; font-weight: 700; color: #2B2A26; }
+.day-budget-row.total {
+  border-bottom: none;
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px solid #D9D0BE;
+}
+.day-budget-row.total span:first-child { font-weight: 800; color: #2B2A26; font-size: 13px; }
+.day-budget-row.total span:last-child { font-size: 20px; font-weight: 900; color: #4B6358; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="rationale">
+    <strong>Merged Richtung · Reise-Cockpit (Light)</strong>
+    Diese Variante kombiniert die Struktur und Datendichte des "Reise-Cockpit" (Richtung 4) — kräftige
+    Kartenrahmen, Stat-Streifen, Budget-Balken, dichte Informationsdarstellung — mit der Farbpalette des
+    "Ruhigen Reisebegleiters" (Richtung 1): warmes Papierweiß statt Dunkelmodus, gedämpftes Waldgrün statt
+    Amber/Türkis, Terrakotta statt Signalrot für Hinweise. Durchgehend serifenlose Systemschrift, keine
+    Georgia-Überschriften. Feedback des Product Owners: Struktur/Dichte von "Reise-Cockpit" behalten, aber im
+    Hellmodus mit den beruhigten Farben von "Ruhiger Reisebegleiter" — als konsistentes Designsystem über
+    zwei Screens hinweg: Reiseübersicht und Tagesdetail.
+  </div>
+
+  <div class="screen-label">Screen A · Reiseübersicht</div>
+  <div class="browser">
+    <div class="browser-chrome">
+      <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+      <div class="url">travelplan.app/trips/portugal-roadtrip</div>
+    </div>
+    <div class="app">
+      <div class="topbar">
+        <div>
+          <div class="trip-kicker">Aktive Reise</div>
+          <h1 class="trip-title">Portugal Roadtrip</h1>
+          <div class="trip-dates">12.–24. Sept 2026 · Lissabon → Sintra → Porto → Douro-Tal → Algarve</div>
+        </div>
+        <button class="share-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="19" r="2.6"/><line x1="8.3" y1="10.7" x2="15.7" y2="6.3"/><line x1="8.3" y1="13.3" x2="15.7" y2="17.7"/></svg>
+          Reise teilen
+        </button>
+      </div>
+
+      <div class="stat-strip cols-4">
+        <div class="stat-cell"><div class="l">Dauer</div><div class="v">12 Tage</div></div>
+        <div class="stat-cell"><div class="l">Stationen</div><div class="v">5</div></div>
+        <div class="stat-cell"><div class="l">Budget genutzt</div><div class="v accent">78%</div></div>
+        <div class="stat-cell"><div class="l">Offene Punkte</div><div class="v warn">1</div></div>
+      </div>
+
+      <div class="layout">
+        <div class="main-col">
+          <div class="section-label">Tagesplan</div>
+
+          <div class="day-row">
+            <div class="day-date">12.9<span>Tag 01</span></div>
+            <div><p class="day-title">Ankunft &amp; Alfama-Viertel</p><p class="day-sub">Lissabon</p></div>
+            <div class="stay">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-7h6v7"/></svg>
+              Convento do Carmo
+            </div>
+          </div>
+
+          <div class="day-row">
+            <div class="day-date">13.9<span>Tag 02</span></div>
+            <div><p class="day-title">Belém &amp; Tejo-Ufer</p><p class="day-sub">Lissabon</p></div>
+            <div class="stay">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-7h6v7"/></svg>
+              Convento do Carmo
+            </div>
+          </div>
+
+          <div class="day-row">
+            <div class="day-date">14.9<span>Tag 03</span></div>
+            <div><p class="day-title">Paläste &amp; Wanderung</p><p class="day-sub">Sintra</p></div>
+            <div class="stay">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-7h6v7"/></svg>
+              Casa da Serra B&amp;B
+            </div>
+          </div>
+
+          <div class="day-row gap">
+            <div class="day-date">15.9<span>Tag 04</span></div>
+            <div><p class="day-title">Anreise &amp; Ribeira-Viertel</p><p class="day-sub">Porto (Fahrt, ca. 3 Std.)</p></div>
+            <div class="stay gap">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 2.5 18a1.7 1.7 0 0 0 1.5 2.5h16a1.7 1.7 0 0 0 1.5-2.5L13.7 3.9a1.7 1.7 0 0 0-3.4 0Z"/></svg>
+              Keine Unterkunft
+            </div>
+          </div>
+
+          <div class="day-row">
+            <div class="day-date">16.9<span>Tag 05</span></div>
+            <div><p class="day-title">Weinkeller &amp; Dom Luís I</p><p class="day-sub">Porto</p></div>
+            <div class="stay">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-7h6v7"/></svg>
+              Torel Avantgarde
+            </div>
+          </div>
+
+          <div class="day-row" style="border-color:#4B6358;">
+            <div class="day-date">17.9<span>Tag 06</span></div>
+            <div><p class="day-title">Panoramafahrt &amp; Weinprobe</p><p class="day-sub">Porto → Douro-Tal · siehe Tagesdetail →</p></div>
+            <div class="stay">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-7h6v7"/></svg>
+              Quinta do Vallado
+            </div>
+          </div>
+
+          <div class="more-days">+ 6 weitere Tage — Tag 07–12 · Douro-Tal &amp; Algarve</div>
+        </div>
+
+        <div class="side-col">
+          <div class="card">
+            <div class="card-label">Budget</div>
+            <div class="budget-total">€2.340</div>
+            <div class="budget-sub">von €3.000 geplant</div>
+            <div class="budget-bar"><div class="budget-bar-fill" style="width:78%;"></div></div>
+            <div class="budget-legend"><span class="accent">78% verplant</span><span>€660 verbleibend</span></div>
+          </div>
+
+          <div class="card">
+            <div class="card-label">Route</div>
+            <div class="map-preview">
+              <svg viewBox="0 0 260 150">
+                <path d="M28 115 L70 60 L130 85 L165 35 L228 125" fill="none" stroke="#D9D0BE" stroke-width="2.5" stroke-dasharray="4 5"/>
+                <circle cx="28" cy="115" r="4" fill="#4B6358"/>
+                <circle cx="70" cy="60" r="4" fill="#4B6358"/>
+                <circle cx="130" cy="85" r="4" fill="#4B6358"/>
+                <circle cx="165" cy="35" r="4" fill="#4B6358"/>
+                <circle cx="228" cy="125" r="4" fill="#4B6358"/>
+              </svg>
+            </div>
+            <div class="map-caption">5 Stationen · Kartenvorschau öffnen</div>
+          </div>
+
+          <div class="gap-alert">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 2.5 18a1.7 1.7 0 0 0 1.5 2.5h16a1.7 1.7 0 0 0 1.5-2.5L13.7 3.9a1.7 1.7 0 0 0-3.4 0Z"/></svg>
+            <div>
+              <div class="t">Handlungsbedarf: Tag 4</div>
+              <div class="d">Für Porto (15.9) ist noch keine Unterkunft hinterlegt.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="screen-label">Screen B · Tagesdetail (Tag 6)</div>
+  <div class="browser">
+    <div class="browser-chrome">
+      <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+      <div class="url">travelplan.app/trips/portugal-roadtrip/tag/6</div>
+    </div>
+    <div class="app">
+      <div class="topbar">
+        <div>
+          <div class="breadcrumb">
+            <a>Portugal Roadtrip</a><span class="sep">/</span><span class="cur">Tag 6 · Porto → Douro-Tal</span>
+          </div>
+          <h1 class="trip-title" style="font-size:24px;">Tag 6 — Porto → Douro-Tal</h1>
+          <div class="trip-dates">Mittwoch, 17. Sept 2026</div>
+        </div>
+        <button class="back-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+          Zur Übersicht
+        </button>
+      </div>
+
+      <div class="stat-strip cols-4">
+        <div class="stat-cell"><div class="l">Tag</div><div class="v">6 / 12</div></div>
+        <div class="stat-cell"><div class="l">Fahrzeit gesamt</div><div class="v">2 Std 10 Min</div></div>
+        <div class="stat-cell"><div class="l">Ausgaben heute</div><div class="v accent">€110</div></div>
+        <div class="stat-cell"><div class="l">Check-in Quinta</div><div class="v">16:00</div></div>
+      </div>
+
+      <div class="layout">
+        <div class="main-col">
+          <div class="section-label">Tagesablauf</div>
+
+          <div class="timeline">
+
+            <div class="tl-node">
+              <div class="tl-dot stay">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4B6358" stroke-width="2"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-7h6v7"/></svg>
+              </div>
+              <div class="tl-card stay-card">
+                <div>
+                  <span class="tl-time">Check-out 10:00</span>
+                  <p class="tl-title">Torel Avantgarde</p>
+                  <p class="tl-sub">Vorherige Nacht · Porto</p>
+                </div>
+                <div class="tl-cost muted">bereits bezahlt</div>
+              </div>
+            </div>
+
+            <div class="tl-node tl-segment">
+              <div class="tl-dot">🚗</div>
+              <div class="tl-segment-label">Fahrt · 45 Min · Porto → N222</div>
+            </div>
+
+            <div class="tl-node">
+              <div class="tl-dot activity">🚙</div>
+              <div class="tl-card">
+                <div>
+                  <span class="tl-time">10:00–11:30</span>
+                  <p class="tl-title">Panoramafahrt entlang der N222</p>
+                  <p class="tl-sub">Aussichtspunkte Douro-Tal, kurze Fotostopps</p>
+                </div>
+                <div class="tl-cost">€15</div>
+              </div>
+            </div>
+
+            <div class="tl-node tl-segment">
+              <div class="tl-dot">🚗</div>
+              <div class="tl-segment-label">Fahrt · 25 Min · Richtung Peso da Régua</div>
+            </div>
+
+            <div class="tl-node">
+              <div class="tl-dot activity">🍽️</div>
+              <div class="tl-card">
+                <div>
+                  <span class="tl-time">12:00–13:15</span>
+                  <p class="tl-title">Mittagessen mit Flussblick</p>
+                  <p class="tl-sub">Restaurant in Peso da Régua, Terrasse am Douro</p>
+                </div>
+                <div class="tl-cost">€38</div>
+              </div>
+            </div>
+
+            <div class="tl-node tl-segment">
+              <div class="tl-dot">🚗</div>
+              <div class="tl-segment-label">Fahrt · 20 Min · Weingut Pinhão</div>
+            </div>
+
+            <div class="tl-node">
+              <div class="tl-dot activity">🍷</div>
+              <div class="tl-card">
+                <div>
+                  <span class="tl-time">14:00–16:00</span>
+                  <p class="tl-title">Weinprobe &amp; Kellerführung</p>
+                  <p class="tl-sub">Quinta-Weingut bei Pinhão, geführte Verkostung</p>
+                </div>
+                <div class="tl-cost">€45</div>
+              </div>
+            </div>
+
+            <div class="tl-node tl-segment">
+              <div class="tl-dot">🚗</div>
+              <div class="tl-segment-label">Fahrt · 20 Min · Ankunft Quinta</div>
+            </div>
+
+            <div class="tl-node">
+              <div class="tl-dot stay">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4B6358" stroke-width="2"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-7h6v7"/></svg>
+              </div>
+              <div class="tl-card stay-card">
+                <div>
+                  <span class="tl-time">Check-in 16:00</span>
+                  <p class="tl-title">Quinta do Vallado</p>
+                  <p class="tl-sub">Aktuelle Nacht · Douro-Tal</p>
+                </div>
+                <div class="tl-cost">€185</div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <div class="side-col">
+          <div class="card">
+            <div class="card-label">Tagesbudget</div>
+            <div class="budget-total">€110</div>
+            <div class="budget-sub">Ausgaben ohne Unterkunft, Tag 6</div>
+            <div class="budget-bar"><div class="budget-bar-fill" style="width:73%;"></div></div>
+            <div class="budget-legend"><span class="accent">73% vom Tagesrichtwert (€150)</span><span>€40 übrig</span></div>
+
+            <div style="margin-top:16px;">
+              <div class="day-budget-row"><span>Panoramafahrt · Maut/Parken</span><span>€15</span></div>
+              <div class="day-budget-row"><span>Mittagessen Peso da Régua</span><span>€38</span></div>
+              <div class="day-budget-row"><span>Weinprobe &amp; Kellerführung</span><span>€45</span></div>
+              <div class="day-budget-row"><span>Sprit (geschätzt)</span><span>€12</span></div>
+              <div class="day-budget-row total"><span>Gesamt Tag 6</span><span>€110</span></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-label">Heute im Überblick</div>
+            <div class="day-budget-row"><span>Fahrsegmente</span><span>4</span></div>
+            <div class="day-budget-row"><span>Fahrzeit gesamt</span><span>2 Std 10 Min</span></div>
+            <div class="day-budget-row" style="border-bottom:none;"><span>Aktivitäten</span><span>3</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

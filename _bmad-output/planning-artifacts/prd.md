@@ -43,6 +43,8 @@ editHistory:
     changes: 'Aligned PRD to BMAD structure, resolved performance target conflict, added transport/maps MVP scope, added restore/import, contributor role, and password reset, clarified GDPR and accessibility requirements.'
   - date: '2026-02-12'
     changes: 'Removed WCAG AA target; clarified no formal accessibility standard required.'
+  - date: '2026-07-30'
+    changes: 'Removed FR31 (comments/suggestions) — comments and voting feature discontinued per product decision.'
 ---
 
 # Product Requirements Document - TravelPlan
@@ -125,7 +127,7 @@ TravelPlan is a free, private, day-by-day travel planning web app that makes gap
 
 **Opening Scene:** Konni is traveling with Tom and wants to see the plan clearly without managing all details.
 **Rising Action:** She opens the trip, reviews accommodation, transport, and day plans, and checks what’s still open.
-**Climax:** She adds a comment or a suggestion when she finds a good idea, or proposes an accommodation option.
+**Climax:** [OPEN — comments/suggestions removed 2026-07-30; Konni's engagement moment needs rework once a replacement (or none) is decided.]
 **Resolution:** Konni feels included and informed without needing to manage the whole plan.
 
 ### Journey Requirements Summary
@@ -138,7 +140,7 @@ TravelPlan is a free, private, day-by-day travel planning web app that makes gap
 - Map overview of the trip route
 - Idea capture inbox and later placement into day plans
 - Budget runway visibility based on planned costs
-- Viewer and contributor access with optional comments/suggestions
+- Viewer and contributor access (view-only vs. full-edit contributor role)
 
 ## Domain Requirements
 
@@ -262,7 +264,7 @@ TravelPlan is a web SPA targeting Chrome/Safari on desktop and mobile/tablet.
 
 - FR29: Users can share a trip with a viewer.
 - FR30: Viewers can see the trip plan but cannot edit core details.
-- FR31: Viewers can add comments or suggestions to days or items.
+- ~~FR31: Viewers can add comments or suggestions to days or items.~~ **(Removed 2026-07-30 — comments/voting feature discontinued, see Sprint Change Proposal 2026-07-30)**
 - FR32: Owners can grant a contributor role with full edit permissions.
 
 ### Data Safety

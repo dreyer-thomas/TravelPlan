@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TravelPlan — Erweiterung v10: Reiseliste, Teilen-Dialog, Login/Registrierung</title>
+<style>
+/*
+  DOKUMENTIERTE FARBWERTE — 1:1 übernommen aus dem freigegebenen
+  direction-merged-light-cockpit-v10.html (Referenz, read-only). Keine neuen Tokens,
+  keine neuen Strukturmuster — diese Datei überträgt das bestehende System auf drei
+  weitere Screens (Reiseliste, Teilen-Dialog, Login/Registrierung).
+
+  --paper-outer:  #EFEAE0   Äußerer Seitenhintergrund
+  --paper:        #F7F4EC   App-Oberflächenhintergrund
+  --card:         #FFFFFF   Kartenflächen
+  --card-alt:     #FBF9F4   Zebra-/Reise-Segment-Hintergrund
+  --ink:          #2B2A26   Haupttext
+  --ink-soft:     #6B675C   Sekundärtext / Labels
+  --border:       #E4DFD3   Standard-Trennlinie
+  --border-strong:#D9D0BE   Kräftigerer Kartenrahmen
+  --accent:       #4B6358   Gedämpftes Waldgrün — Primärakzent
+  --accent-2:     #7C9483   Helleres Salbeigrün — Sekundärakzent
+  --accent-soft:  #E7EDE7   Akzent-Hintergrund (Badges, Zeit-Pills)
+  --warn:         #8A5A2B   Gedämpftes Terrakotta — Gap-/Hinweisfarbe
+  --warn-bg:      #F6ECE0   Gap-/Warn-Badge-Hintergrund
+  --warn-border:  #E3C7A2   Kräftigerer Warn-Kartenrahmen
+
+  Schrift: ausschließlich Systemschrift, serifenlos
+  (-apple-system, "Segoe UI", Helvetica, Arial, sans-serif). Keine Serifen.
+  Foto-/Bildflächen: konsequent ungerundet (border-radius:0); Karten behalten 8px-Radius.
+*/
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: #EFEAE0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  color: #2B2A26;
+}
+.page { max-width: 1080px; margin: 0 auto; padding: 44px 24px 80px; }
+
+.rationale {
+  background: #FFFFFF;
+  border: 1px solid #E4DFD3;
+  border-radius: 8px;
+  padding: 20px 24px;
+  margin-bottom: 30px;
+  line-height: 1.55;
+  font-size: 14.5px;
+  color: #43413A;
+}
+.rationale strong {
+  display: block;
+  font-size: 11.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #4B6358;
+  margin-bottom: 8px;
+  font-weight: 800;
+}
+.rationale ol { margin: 8px 0 0; padding-left: 20px; }
+.rationale ol li { margin-bottom: 4px; }
+
+.screen-label {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #6B675C;
+  margin: 40px 0 12px;
+}
+.screen-label:first-of-type { margin-top: 8px; }
+
+.browser {
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 20px 50px rgba(30,28,20,0.14);
+  border: 1px solid #E4DFD3;
+}
+.browser-chrome {
+  background: #F1ECE1;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid #E4DFD3;
+}
+.dot { width: 10px; height: 10px; border-radius: 50%; background: #D8D2C4; }
+.url {
+  margin-left: 12px;
+  background: #FBF9F4;
+  border: 1px solid #E4DFD3;
+  border-radius: 5px;
+  padding: 4px 12px;
+  font-size: 12px;
+  color: #8A8677;
+  flex: 1;
+  max-width: 320px;
+}
+.app { background: #F7F4EC; }
+
+/* ---- Topbar (shared, aus v10 übernommen) ---- */
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 22px 32px;
+  border-bottom: 1px solid #E4DFD3;
+  gap: 20px;
+}
+.page-kicker { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #4B6358; font-weight: 800; margin-bottom: 6px; }
+.page-title { font-size: 28px; font-weight: 900; margin: 0 0 6px; letter-spacing: -0.4px; }
+.page-sub { font-size: 13px; color: #6B675C; font-weight: 600; }
+
+.primary-btn {
+  background: #4B6358;
+  color: #FFFFFF;
+  border: none;
+  padding: 12px 20px;
+  border-radius: 6px;
+  font-size: 13.5px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: default;
+  white-space: nowrap;
+}
+.primary-btn svg { width: 15px; height: 15px; }
+.secondary-btn {
+  border: 1px solid #D9D0BE;
+  background: #FFFFFF;
+  color: #43413A;
+  padding: 10px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: default;
+  white-space: nowrap;
+}
+.secondary-btn svg { width: 14px; height: 14px; }
+
+/* ---- Stat strip (shared cockpit motif, aus v10) ---- */
+.stat-strip { display: grid; border-bottom: 1px solid #E4DFD3; background: #FFFFFF; }
+.stat-strip.cols-3 { grid-template-columns: repeat(3,1fr); }
+.stat-cell { padding: 16px 24px; border-right: 1px solid #E4DFD3; }
+.stat-cell:last-child { border-right: none; }
+.stat-cell .l { font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #6B675C; font-weight: 700; margin-bottom: 6px; }
+.stat-cell .v { font-size: 21px; font-weight: 900; font-variant-numeric: tabular-nums; color: #2B2A26; }
+.stat-cell .v.accent { color: #4B6358; }
+.stat-cell .v.warn { color: #8A5A2B; }
+
+.main-pad { padding: 22px 32px 32px; }
+.section-label { font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: #6B675C; margin-bottom: 12px; }
+
+/* =========================================================
+   SCREEN C — Reiseliste (Trips-Liste)
+   ========================================================= */
+.trip-row {
+  display: grid;
+  grid-template-columns: 96px 1fr 190px 150px;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid #D9D0BE;
+  border-radius: 8px;
+  margin-bottom: 10px;
+  background: #FFFFFF;
+}
+.trip-row.gap { border-color: #E3C7A2; background: #FBF6EE; }
+.trip-row.past { opacity: 0.78; }
+
+/* Quadratisches Thumbnail — gleiche Center-Crop-Technik wie .day-photo/.tl-photo (v10),
+   hier 96×96px für die höhere Prominenz auf der Landing-Seite. border-radius:0 wie alle
+   Fotoflächen im System. */
+.trip-photo {
+  width: 96px;
+  height: 96px;
+  background-size: cover;
+  background-position: center;
+  border: 1px solid rgba(0,0,0,0.06);
+  border-radius: 0;
+  flex-shrink: 0;
+}
+.trip-photo.tp-1 { background: linear-gradient(160deg, #E8C9A0, #C9824F 55%, #7A4A2E); }
+.trip-photo.tp-2 { background: linear-gradient(150deg, #AED4E0, #6FA9BE 55%, #2F5C68); }
+.trip-photo.tp-3 { background: linear-gradient(140deg, #9FCBDB, #4B6358 60%, #2B3A2E); }
+.trip-photo.tp-4 { background: linear-gradient(150deg, #D9B65B, #8C9A5E 50%, #4B6358); }
+
+.trip-name { font-size: 16px; font-weight: 800; margin: 0 0 4px; color: #2B2A26; }
+.trip-meta { font-size: 12px; color: #6B675C; font-weight: 600; }
+
+.trip-status {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #4B6358;
+  background: #E7EDE7;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+.trip-status svg { width: 13px; height: 13px; flex-shrink: 0; }
+.trip-status.gap { color: #8A5A2B; background: #F6ECE0; }
+.trip-status.upcoming { color: #6B675C; background: #F1ECE1; }
+.trip-status.past { color: #6B675C; background: #F1ECE1; }
+
+.trip-cost { text-align: right; }
+.trip-cost .l { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: #6B675C; font-weight: 700; margin-bottom: 3px; }
+.trip-cost .v { font-size: 16.5px; font-weight: 900; font-variant-numeric: tabular-nums; color: #2B2A26; }
+
+.empty-hint { text-align: center; font-size: 11.5px; font-weight: 700; color: #6B675C; padding: 10px 0 2px; }
+
+/* =========================================================
+   SCREEN D — Share-Dialog ("Reise teilen")
+   ========================================================= */
+.dialog-stage {
+  background: #EFEAE0;
+  padding: 60px 24px;
+  display: flex;
+  justify-content: center;
+}
+.dialog {
+  width: 100%;
+  max-width: 460px;
+  background: #FFFFFF;
+  border: 1px solid #D9D0BE;
+  border-radius: 10px;
+  box-shadow: 0 24px 60px rgba(30,28,20,0.18);
+  overflow: hidden;
+}
+.dialog-head {
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid #E4DFD3;
+}
+.dialog-title { font-size: 17px; font-weight: 900; margin: 0 0 4px; color: #2B2A26; letter-spacing: -0.2px; }
+.dialog-sub { font-size: 12.5px; color: #6B675C; font-weight: 600; }
+.dialog-body { padding: 20px 24px; }
+.dialog-footer {
+  padding: 16px 24px;
+  border-top: 1px solid #E4DFD3;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  background: #FBF9F4;
+}
+
+.field-label { font-size: 11px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: #6B675C; margin-bottom: 7px; }
+.invite-row { display: flex; gap: 10px; margin-bottom: 22px; }
+.input {
+  flex: 1;
+  border: 1px solid #D9D0BE;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 13.5px;
+  color: #2B2A26;
+  background: #FBF9F4;
+  font-family: inherit;
+}
+.input::placeholder { color: #8A8677; }
+.select {
+  border: 1px solid #D9D0BE;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #43413A;
+  background: #FFFFFF;
+  font-family: inherit;
+  min-width: 118px;
+}
+
+.collab-list { border-top: 1px solid #E4DFD3; margin-top: 4px; }
+.collab-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid #E4DFD3;
+}
+.collab-email { font-size: 13px; font-weight: 700; color: #2B2A26; }
+.collab-actions { display: flex; align-items: center; gap: 10px; }
+
+.role-badge {
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 5px 10px;
+  border-radius: 5px;
+  white-space: nowrap;
+}
+.role-badge.contributor { color: #FFFFFF; background: #4B6358; }
+.role-badge.viewer { color: #4B6358; background: #E7EDE7; }
+.role-badge.owner { color: #8A5A2B; background: #F6ECE0; }
+
+.remove-link {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #8A5A2B;
+  cursor: default;
+}
+
+/* =========================================================
+   SCREEN E — Login / Registrierung
+   ========================================================= */
+.auth-shell {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-height: 560px;
+}
+.auth-hero {
+  position: relative;
+  overflow: hidden;
+  background-color: #4B6358;
+  background-image: url('file:///Users/tommy/Development/TravelPlan/travelplan/public/hero-mountains.jpg');
+  background-size: cover;
+  background-position: center;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 32px;
+}
+.auth-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(20,18,14,0.88) 0%, rgba(20,18,14,0.54) 38%, rgba(20,18,14,0.10) 66%, rgba(20,18,14,0.26) 100%);
+}
+.auth-hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 84% 12%, rgba(255,255,255,0.22), transparent 45%);
+}
+.auth-hero-content { position: relative; z-index: 2; }
+.auth-brand { font-size: 13px; font-weight: 900; letter-spacing: 0.06em; color: #FFFFFF; margin-bottom: 18px; text-transform: uppercase; }
+.auth-hero-title {
+  font-size: 26px;
+  font-weight: 900;
+  color: #FFFFFF;
+  margin: 0 0 10px;
+  letter-spacing: -0.4px;
+  text-shadow: 0 2px 14px rgba(0,0,0,0.35);
+  max-width: 320px;
+}
+.auth-hero-sub { font-size: 13px; color: rgba(255,255,255,0.88); font-weight: 600; max-width: 300px; line-height: 1.5; }
+
+.auth-form-col {
+  background: #F7F4EC;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+}
+.auth-card {
+  width: 100%;
+  max-width: 340px;
+}
+.auth-tabs { display: flex; gap: 6px; margin-bottom: 22px; background: #EFEAE0; border-radius: 7px; padding: 4px; }
+.auth-tab {
+  flex: 1;
+  text-align: center;
+  padding: 8px 0;
+  font-size: 12.5px;
+  font-weight: 800;
+  border-radius: 5px;
+  color: #6B675C;
+}
+.auth-tab.active { background: #FFFFFF; color: #2B2A26; box-shadow: 0 1px 3px rgba(30,28,20,0.12); }
+
+.auth-card-title { font-size: 21px; font-weight: 900; margin: 0 0 6px; letter-spacing: -0.3px; color: #2B2A26; }
+.auth-card-sub { font-size: 12.5px; color: #6B675C; font-weight: 600; margin-bottom: 22px; }
+
+.field-block { margin-bottom: 14px; }
+.field-block .input { width: 100%; padding: 11px 13px; font-size: 13.5px; }
+
+.auth-submit {
+  width: 100%;
+  background: #4B6358;
+  color: #FFFFFF;
+  border: none;
+  padding: 12px 18px;
+  border-radius: 6px;
+  font-size: 13.5px;
+  font-weight: 800;
+  margin-top: 6px;
+  cursor: default;
+}
+.auth-foot {
+  font-size: 12px;
+  color: #6B675C;
+  font-weight: 600;
+  margin-top: 16px;
+  text-align: center;
+}
+.auth-foot a { color: #4B6358; font-weight: 700; }
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 18px 0;
+  font-size: 11px;
+  color: #8A8677;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.auth-divider::before, .auth-divider::after { content: ""; flex: 1; height: 1px; background: #E4DFD3; }
+
+.register-note {
+  font-size: 11.5px;
+  color: #6B675C;
+  font-weight: 600;
+  margin-top: 4px;
+  line-height: 1.5;
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="rationale">
+    <strong>Erweiterung auf 3 weitere Screens — Basis: freigegebenes v10 (Reise-Cockpit, Light)</strong>
+    Diese Datei fügt drei zusätzliche Oberflächen zum bereits freigegebenen Design-System aus
+    <code>direction-merged-light-cockpit-v10.html</code> hinzu. Es werden ausschließlich bestehende
+    Farbtokens, Kartenrahmen, Foto-Techniken und Typografie wiederverwendet — keine neuen Farben,
+    keine neue Bildsprache, keine strukturellen Abweichungen von der freigegebenen Richtung:
+    <ol>
+      <li><strong style="display:inline;font-size:inherit;letter-spacing:normal;text-transform:none;color:inherit;font-weight:700;">Screen C · Reiseliste:</strong> natürliche Erweiterung des Tagesplan-Zeilenmusters (.day-row) aus Screen A — jede Reise als Zeile mit quadratischem, ungerundetem Foto-Thumbnail (gleiche Center-Crop-Technik wie .day-photo/.tl-photo), Statuspill in derselben Waldgrün-/Terrakotta-Sprache wie der Lücken-Badge ("3 Tage offen" vs. "Vollständig geplant"), sowie "Kosten bisher" im bestehenden tabellarischen Zahlenstil. Primäraktion "+ Neue Reise" nutzt den bestehenden .share-btn-Button-Stil (Waldgrün, gefüllt).</li>
+      <li><strong style="display:inline;font-size:inherit;letter-spacing:normal;text-transform:none;color:inherit;font-weight:700;">Screen D · Reise teilen (Dialog):</strong> Reskin des bisherigen generischen MUI-Dialogs auf die etablierten Karten-/Rahmen-/Abstandskonventionen. Rollen-Badges nutzen ausschließlich bestehende Akzenttokens: Contributor = gefülltes Waldgrün (--accent), Viewer = helles Salbeigrün-Badge (--accent-soft/--accent), Owner = Terrakotta-Badge (--warn-bg/--warn), analog zur bestehenden Gap-Badge-Logik. Liste zeigt ausschließlich E-Mail + Rolle, entsprechend dem realen Datenmodell ohne Namen/Avatare für Collaborator. Dialog bewusst kompakt (max-width 460px), wie ein echter MUI-Dialog, nicht als Vollseite.</li>
+      <li><strong style="display:inline;font-size:inherit;letter-spacing:normal;text-transform:none;color:inherit;font-weight:700;">Screen E · Login/Registrierung:</strong> übernimmt unverändert die Foto-Hero-Technik (hero-mountains.jpg, identischer 4-Stop-Scrim-Verlauf wie in v9/v10) als seitliches Panel, um den ersten Eindruck der App mit derselben Wärme wie die Cockpit-Screens zu tragen. Formularfelder bewusst minimal (E-Mail, Passwort, Submit) im bestehenden Input-/Button-Stil; Login- und Registrierungszustand nebeneinander als zwei beschriftete Varianten derselben Karte.</li>
+    </ol>
+    Farbwerte, Kartenrahmen, Foto-Radius (0 bei Fotos, 8px bei Karten), Stat-Streifen-Optik und die
+    serifenlose Systemschrift bleiben zu 100 % identisch zu v10.
+  </div>
+
+  <!-- =========================================================
+       SCREEN C — Reiseliste
+       ========================================================= -->
+  <div class="screen-label">Screen C · Reiseliste (Landing nach Login)</div>
+  <div class="browser">
+    <div class="browser-chrome">
+      <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+      <div class="url">travelplan.app/trips</div>
+    </div>
+    <div class="app">
+
+      <div class="topbar">
+        <div>
+          <div class="page-kicker">Meine Reisen</div>
+          <h1 class="page-title">Willkommen zurück, Thomas</h1>
+          <div class="page-sub">4 Reisen · 1 mit offenen Punkten</div>
+        </div>
+        <button class="primary-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Neue Reise
+        </button>
+      </div>
+
+      <div class="stat-strip cols-3">
+        <div class="stat-cell"><div class="l">Aktive Reisen</div><div class="v">2</div></div>
+        <div class="stat-cell"><div class="l">Kosten bisher (alle Reisen)</div><div class="v accent">€3.610</div></div>
+        <div class="stat-cell"><div class="l">Offene Punkte</div><div class="v warn">1</div></div>
+      </div>
+
+      <div class="main-pad">
+        <div class="section-label">Alle Reisen</div>
+
+        <div class="trip-row">
+          <div class="trip-photo tp-1"></div>
+          <div>
+            <p class="trip-name">Portugal Roadtrip</p>
+            <div class="trip-meta">12.–24. Sept 2026 · Lissabon → Sintra → Porto → Douro-Tal → Algarve</div>
+          </div>
+          <div class="trip-status gap">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 2.5 18a1.7 1.7 0 0 0 1.5 2.5h16a1.7 1.7 0 0 0 1.5-2.5L13.7 3.9a1.7 1.7 0 0 0-3.4 0Z"/></svg>
+            1 Tag offen
+          </div>
+          <div class="trip-cost"><div class="l">Kosten bisher</div><div class="v">€2.340</div></div>
+        </div>
+
+        <div class="trip-row">
+          <div class="trip-photo tp-2"></div>
+          <div>
+            <p class="trip-name">Städtetrip Kopenhagen</p>
+            <div class="trip-meta">3.–6. Okt 2026 · Kopenhagen</div>
+          </div>
+          <div class="trip-status">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>
+            Vollständig geplant
+          </div>
+          <div class="trip-cost"><div class="l">Kosten bisher</div><div class="v">€890</div></div>
+        </div>
+
+        <div class="trip-row">
+          <div class="trip-photo tp-3"></div>
+          <div>
+            <p class="trip-name">Alpen Wanderwoche</p>
+            <div class="trip-meta">14.–21. Dez 2026 · Zermatt &amp; Saas-Fee</div>
+          </div>
+          <div class="trip-status upcoming">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.2 2"/></svg>
+            Bevorstehend · Planung offen
+          </div>
+          <div class="trip-cost"><div class="l">Kosten bisher</div><div class="v">€0</div></div>
+        </div>
+
+        <div class="trip-row past">
+          <div class="trip-photo tp-4"></div>
+          <div>
+            <p class="trip-name">Toskana Weinreise</p>
+            <div class="trip-meta">2.–9. Mai 2026 · Florenz → Siena → Chianti</div>
+          </div>
+          <div class="trip-status past">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="16" y1="2" x2="16" y2="6"/></svg>
+            Abgeschlossen
+          </div>
+          <div class="trip-cost"><div class="l">Kosten gesamt</div><div class="v">€1.480</div></div>
+        </div>
+
+        <div class="empty-hint">4 von 4 Reisen angezeigt</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       SCREEN D — Share-Dialog
+       ========================================================= -->
+  <div class="screen-label">Screen D · Dialog „Reise teilen“ (Portugal Roadtrip)</div>
+  <div class="browser">
+    <div class="browser-chrome">
+      <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+      <div class="url">travelplan.app/trips/portugal-roadtrip</div>
+    </div>
+    <div class="app">
+      <div class="dialog-stage">
+        <div class="dialog">
+          <div class="dialog-head">
+            <p class="dialog-title">Reise teilen</p>
+            <div class="dialog-sub">Portugal Roadtrip · Zugriff per E-Mail einladen</div>
+          </div>
+
+          <div class="dialog-body">
+            <div class="field-label">Person einladen</div>
+            <div class="invite-row">
+              <input class="input" type="text" value="" placeholder="name@beispiel.de" readonly>
+              <select class="select"><option>Viewer</option><option>Contributor</option></select>
+              <button class="primary-btn" style="padding:10px 16px;">Einladen</button>
+            </div>
+
+            <div class="field-label">Zugriff (3)</div>
+            <div class="collab-list">
+              <div class="collab-item">
+                <div class="collab-email">thomas.dreyer@gmx.de</div>
+                <div class="collab-actions">
+                  <span class="role-badge owner">Eigentümer</span>
+                </div>
+              </div>
+              <div class="collab-item">
+                <div class="collab-email">nina.holzer@web.de</div>
+                <div class="collab-actions">
+                  <span class="role-badge contributor">Contributor</span>
+                  <span class="remove-link">Entfernen</span>
+                </div>
+              </div>
+              <div class="collab-item" style="border-bottom:none;">
+                <div class="collab-email">m.pereira@outlook.com</div>
+                <div class="collab-actions">
+                  <span class="role-badge viewer">Viewer</span>
+                  <span class="remove-link">Entfernen</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="dialog-footer">
+            <button class="secondary-btn">Schließen</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       SCREEN E — Login / Registrierung
+       ========================================================= -->
+  <div class="screen-label">Screen E · Login &amp; Registrierung</div>
+  <div class="browser">
+    <div class="browser-chrome">
+      <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+      <div class="url">travelplan.app/login</div>
+    </div>
+    <div class="app">
+      <div class="auth-shell">
+        <div class="auth-hero">
+          <div class="auth-hero-content">
+            <div class="auth-brand">TravelPlan</div>
+            <h2 class="auth-hero-title">Reisen planen, die sich nicht wie Arbeit anfühlen.</h2>
+            <div class="auth-hero-sub">Tagespläne, Unterkünfte und Budget an einem Ort — gemeinsam mit deinen Mitreisenden.</div>
+          </div>
+        </div>
+        <div class="auth-form-col">
+          <div class="auth-card">
+            <div class="auth-tabs">
+              <div class="auth-tab active">Anmelden</div>
+              <div class="auth-tab">Registrieren</div>
+            </div>
+            <h3 class="auth-card-title">Willkommen zurück</h3>
+            <div class="auth-card-sub">Melde dich an, um deine Reisen zu sehen.</div>
+
+            <div class="field-block">
+              <div class="field-label">E-Mail</div>
+              <input class="input" type="text" value="" placeholder="name@beispiel.de" readonly>
+            </div>
+            <div class="field-block">
+              <div class="field-label">Passwort</div>
+              <input class="input" type="text" value="••••••••••" readonly>
+            </div>
+            <button class="auth-submit">Anmelden</button>
+            <div class="auth-foot">Noch kein Konto? <a>Jetzt registrieren</a></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="auth-shell">
+        <div class="auth-hero">
+          <div class="auth-hero-content">
+            <div class="auth-brand">TravelPlan</div>
+            <h2 class="auth-hero-title">Dein erstes Reise-Cockpit wartet.</h2>
+            <div class="auth-hero-sub">Kostenlos registrieren und in wenigen Minuten deine erste Reise anlegen.</div>
+          </div>
+        </div>
+        <div class="auth-form-col">
+          <div class="auth-card">
+            <div class="auth-tabs">
+              <div class="auth-tab">Anmelden</div>
+              <div class="auth-tab active">Registrieren</div>
+            </div>
+            <h3 class="auth-card-title">Konto erstellen</h3>
+            <div class="auth-card-sub">In wenigen Sekunden startklar.</div>
+
+            <div class="field-block">
+              <div class="field-label">E-Mail</div>
+              <input class="input" type="text" value="" placeholder="name@beispiel.de" readonly>
+            </div>
+            <div class="field-block">
+              <div class="field-label">Passwort</div>
+              <input class="input" type="text" value="" placeholder="Mind. 8 Zeichen" readonly>
+            </div>
+            <button class="auth-submit">Konto erstellen</button>
+            <div class="register-note">Mit der Registrierung stimmst du den Nutzungsbedingungen zu.</div>
+            <div class="auth-foot">Bereits registriert? <a>Jetzt anmelden</a></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
