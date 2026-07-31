@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TripDayView from "@/components/features/trips/TripDayView";
-import { I18nProvider } from "@/i18n/provider";
 import type { ReactNode } from "react";
+import { Providers, renderWithProviders } from "./helpers/renderWithProviders";
 
 const planDialogMockState = vi.hoisted(() => ({
   lastProps: null as null | {
@@ -249,11 +249,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
     expect(await screen.findByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
     expect(screen.getByTestId("trip-day-gantt-bar")).toBeInTheDocument();
@@ -341,11 +337,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
     expect(await screen.findByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add stay" })).not.toBeInTheDocument();
@@ -449,11 +441,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
     expect(await screen.findByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
     expect(
@@ -551,11 +539,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
     expect(await screen.findByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit stay" })).toBeInTheDocument();
@@ -680,11 +664,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
     expect(await screen.findByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add stay" })).not.toBeInTheDocument();
@@ -808,11 +788,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
     expect(await screen.findByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
 
@@ -897,11 +873,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
     expect(await screen.findByText("Bucket list")).toBeInTheDocument();
     expect(screen.getByText("Bucket stop")).toBeInTheDocument();
@@ -955,11 +927,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
     expect(await screen.findByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
     expect(screen.getByText("Planned 0m, Unplanned 24h")).toBeInTheDocument();
@@ -1034,11 +1002,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-2" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-2" />);
 
     expect(await screen.findByRole("heading", { name: "Day 2", level: 5 })).toBeInTheDocument();
     expect(screen.getByText("Fully planned day")).toBeInTheDocument();
@@ -1108,11 +1072,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
     await screen.findByRole("heading", { name: "Day 1", level: 5 });
     expect(screen.getByText("Planned 9h, Unplanned 15h")).toBeInTheDocument();
@@ -1199,11 +1159,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-2" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-2" />);
 
     await screen.findByRole("heading", { name: "Day 2", level: 5 });
     const segments = screen.getAllByTestId("trip-day-gantt-segment");
@@ -1287,11 +1243,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-2" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-2" />);
 
     await screen.findByRole("heading", { name: "Day 1", level: 5 });
     const segments = screen.getAllByTestId("trip-day-gantt-segment");
@@ -1351,11 +1303,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
     expect(await screen.findByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
     expect(screen.getByText("09:00 - 10:15")).toBeInTheDocument();
@@ -1414,11 +1362,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
     expect(await screen.findByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
     expect(screen.getAllByText("Legacy walk").length).toBeGreaterThan(0);
@@ -1494,11 +1438,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-2" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-2" />);
 
     await screen.findByRole("heading", { name: "Day 2", level: 5 });
     expect(screen.getByText("00:00 - 09:30")).toBeInTheDocument();
@@ -1564,11 +1504,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-middle" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-middle" />);
 
     expect(await screen.findByRole("heading", { name: "Day 2", level: 5 })).toBeInTheDocument();
 
@@ -1638,11 +1574,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="de">
-        <TripDayView tripId="trip-1" dayId="day-middle" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-middle" />, { language: "de" });
 
     expect(await screen.findByRole("heading", { name: "Tag 2", level: 5 })).toBeInTheDocument();
 
@@ -1714,21 +1646,13 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    const { rerender } = render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-prev" />
-      </I18nProvider>,
-    );
+    const { rerender } = renderWithProviders(<TripDayView tripId="trip-1" dayId="day-prev" />);
 
     expect(await screen.findByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Go to previous day" })).toBeDisabled();
     expect(screen.getByRole("link", { name: "Go to next day" })).toHaveAttribute("href", "/trips/trip-1/days/day-middle");
 
-    rerender(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-next" />
-      </I18nProvider>,
-    );
+    rerender(<Providers><TripDayView tripId="trip-1" dayId="day-next" /></Providers>);
 
     expect(await screen.findByRole("heading", { name: "Day 3", level: 5 })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Go to previous day" })).toHaveAttribute("href", "/trips/trip-1/days/day-middle");
@@ -1814,19 +1738,11 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    const { rerender } = render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-middle" />
-      </I18nProvider>,
-    );
+    const { rerender } = renderWithProviders(<TripDayView tripId="trip-1" dayId="day-middle" />);
 
     expect((await screen.findAllByText("Middle day activity")).length).toBeGreaterThan(0);
 
-    rerender(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-next" />
-      </I18nProvider>,
-    );
+    rerender(<Providers><TripDayView tripId="trip-1" dayId="day-next" /></Providers>);
 
     expect((await screen.findAllByText("Next day activity")).length).toBeGreaterThan(0);
     expect(screen.queryAllByText("Middle day activity")).toHaveLength(0);
@@ -1905,11 +1821,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
     await screen.findByRole("heading", { name: "Day 1", level: 5 });
     expect(screen.getAllByText("Italic activity").some((element) => element.tagName === "EM")).toBe(true);
@@ -1981,11 +1893,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
     await screen.findByRole("heading", { name: "Day 1", level: 5 });
     expect(screen.queryByRole("link", { name: "Open link" })).not.toBeInTheDocument();
@@ -2069,11 +1977,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-1" />
-      </I18nProvider>
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
     await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(0));
 
@@ -2191,11 +2095,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
     expect(await screen.findByTestId("trip-day-view-page")).toBeInTheDocument();
     expect(screen.getByText("Previous night accommodation")).toBeInTheDocument();
@@ -2268,11 +2168,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
     await screen.findByRole("heading", { name: "Day 1", level: 5 });
     expect(screen.getByRole("button", { name: "Copy previous night" })).toBeInTheDocument();
@@ -2399,11 +2295,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
     expect(await screen.findByText("Museum title")).toBeInTheDocument();
 
@@ -2503,11 +2395,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
     expect(await screen.findByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
 
@@ -2656,11 +2544,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
     expect(await screen.findByText("Museum title")).toBeInTheDocument();
     expect(screen.getAllByText("City Hotel").length).toBeGreaterThan(0);
@@ -2745,11 +2629,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
     await screen.findByRole("heading", { name: "Day 1", level: 5 });
     expect(screen.queryByRole("button", { name: "Copy previous night" })).not.toBeInTheDocument();
@@ -2805,11 +2685,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
     await screen.findByRole("heading", { name: "Day 1", level: 5 });
     expect(screen.queryByRole("button", { name: "Copy previous night" })).not.toBeInTheDocument();
@@ -2921,11 +2797,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
     await screen.findByRole("heading", { name: "Day 1", level: 5 });
     fireEvent.click(screen.getByRole("button", { name: "Copy previous night" }));
@@ -3021,11 +2893,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
     await screen.findByRole("heading", { name: "Day 1", level: 5 });
     await waitFor(() => {
@@ -3137,11 +3005,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-2" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-2" />);
 
     await screen.findByRole("heading", { name: "Day 2", level: 5 });
     await waitFor(() => {
@@ -3239,11 +3103,7 @@ describe("TripDayView layout", () => {
     vi.stubGlobal("fetch", fetchMock);
     vi.stubGlobal("confirm", vi.fn(() => true));
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
     expect((await screen.findAllByText("Museum visit")).length).toBeGreaterThan(0);
     expect(screen.queryAllByRole("button", { name: "Delete plan item" })).toHaveLength(0);
@@ -3322,11 +3182,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
     await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(0));
     await waitFor(() => expect(planDialogMockState.lastProps?.open).toBe(true));
@@ -3438,11 +3294,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
     const initialImage = await screen.findByRole("img", { name: "Day image" });
     expect(initialImage).toHaveAttribute("src", "https://example.com/day-initial.webp");
@@ -3571,11 +3423,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
     await screen.findByRole("heading", { name: "Day 1", level: 5 });
     await waitFor(() =>
@@ -3681,11 +3529,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
     await screen.findByRole("heading", { name: "Day 1", level: 5 });
     expect(await screen.findByText("Routing unavailable")).toBeInTheDocument();
@@ -3779,11 +3623,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
     await screen.findByRole("heading", { name: "Day 1", level: 5 });
     const markers = await screen.findAllByTestId("day-map-marker");
@@ -3939,11 +3779,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-2" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-2" />);
 
     await screen.findByRole("heading", { name: "Day 2", level: 5 });
     expect(screen.getAllByTestId("travel-segment")).toHaveLength(3);
@@ -4089,11 +3925,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-2" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-2" />);
 
     await screen.findByRole("heading", { name: "Day 2", level: 5 });
     expect(screen.getByText("10:00 - 10:30")).toBeInTheDocument();
@@ -4200,11 +4032,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
     await screen.findByRole("heading", { name: "Day 1", level: 5 });
     expect(screen.getAllByTestId("travel-segment")).toHaveLength(1);
@@ -4264,11 +4092,7 @@ describe("TripDayView layout", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayView tripId="trip-1" dayId="day-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
     await screen.findByRole("heading", { name: "Day 1", level: 5 });
 

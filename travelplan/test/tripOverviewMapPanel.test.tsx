@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import TripOverviewMapPanel from "@/components/features/trips/TripOverviewMapPanel";
-import { I18nProvider } from "@/i18n/provider";
 import type { ReactNode } from "react";
+import { renderWithProviders } from "./helpers/renderWithProviders";
 
 vi.mock("react-leaflet", () => ({
   MapContainer: ({ children }: { children: ReactNode }) => <div data-testid="overview-map-container">{children}</div>,
@@ -24,19 +24,9 @@ vi.mock("leaflet", () => ({
 
 describe("TripOverviewMapPanel", () => {
   it("renders map markers and missing-location items", () => {
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripOverviewMapPanel
-          points={[
-            { id: "p1", label: "Hotel", position: [48.1372, 11.5756] },
-            { id: "p2", label: "Museum", position: [48.145, 11.582] },
-          ]}
-          missingLocations={[{ id: "m1", label: "Unlocated activity", href: "/trips/trip-1/days/day-1?open=plan&itemId=m1" }]}
-        />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripOverviewMapPanel points={[ { id: "p1", label: "Hotel", position: [48.1372, 11.5756] }, { id: "p2", label: "Museum", position: [48.145, 11.582] }, ]} missingLocations={[{ id: "m1", label: "Unlocated activity", href: "/trips/trip-1/days/day-1?open=plan&itemId=m1" }]} />);
 
-    expect(screen.getByText("Trip overview map")).toBeInTheDocument();
+    expect(screen.getByText("Route")).toBeInTheDocument();
     expect(screen.getByText("Missing locations")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Unlocated activity" })).toHaveAttribute(
       "href",
@@ -45,15 +35,7 @@ describe("TripOverviewMapPanel", () => {
   });
 
   it("renders an icon-only expand control that links to the full-page trip map", () => {
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripOverviewMapPanel
-          points={[{ id: "p1", label: "Hotel", position: [48.1372, 11.5756] }]}
-          missingLocations={[]}
-          expandHref="/trips/trip-1/map"
-        />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripOverviewMapPanel points={[{ id: "p1", label: "Hotel", position: [48.1372, 11.5756] }]} missingLocations={[]} expandHref="/trips/trip-1/map" />);
 
     expect(screen.getByRole("link", { name: "Expand map" })).toHaveAttribute("href", "/trips/trip-1/map");
   });

@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import TripTimeline from "@/components/features/trips/TripTimeline";
-import { I18nProvider } from "@/i18n/provider";
+import { renderWithProviders } from "./helpers/renderWithProviders";
 
 vi.mock("@/components/features/trips/TripEditDialog", () => ({ default: () => <div data-testid="edit-dialog" /> }));
 vi.mock("@/components/features/trips/TripDeleteDialog", () => ({ default: () => <div data-testid="delete-dialog" /> }));
@@ -103,11 +103,7 @@ describe("TripTimeline feedback", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripTimeline tripId="trip-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/trips/trip-1", expect.anything()));
 
@@ -134,15 +130,15 @@ describe("TripTimeline feedback", () => {
       ).getByText("0"),
     ).toBeInTheDocument();
     expect(screen.queryByText("no comments")).not.toBeInTheDocument();
-    const metaRow = screen.getByTestId("timeline-day-meta-row");
-    expect(metaRow).toContainElement(
+    const dayCard = screen.getByTestId("timeline-day-card");
+    expect(dayCard).toContainElement(
       screen.getByRole("button", {
         name: "Open comments dialog for Day 1, no comments",
       }),
     );
-    expect(metaRow).toHaveTextContent("Planned 0m, Unplanned 24h");
-    expect(metaRow).not.toHaveTextContent("Accommodation missing");
-    expect(metaRow).not.toHaveTextContent("Plan missing");
+    expect(dayCard).toHaveTextContent("Planned 0m, Unplanned 24h");
+    expect(dayCard).not.toHaveTextContent("Accommodation missing");
+    expect(dayCard).not.toHaveTextContent("Plan missing");
 
     await userEvent.click(
       screen.getByRole("button", {
@@ -223,11 +219,7 @@ describe("TripTimeline feedback", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripTimeline tripId="trip-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/trips/trip-1", expect.anything()));
 
@@ -318,18 +310,23 @@ describe("TripTimeline feedback", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripTimeline tripId="trip-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/trips/trip-1", expect.anything()));
 
-    const metaRow = screen.getByTestId("timeline-day-meta-row");
-    expect(metaRow).toHaveTextContent("booked");
-    expect(metaRow).toHaveTextContent("Planned 8h, Unplanned 16h");
-    expect(metaRow).toContainElement(
+    const dayCard = screen.getByTestId("timeline-day-card");
+    // The day-row's stay indicator shows the accommodation's own name ("Booked stay" is this
+    // fixture's name, not a status string) and only distinguishes "has a stay" vs. "gap" per the
+    // redesign. Booked/planned status is deliberately no longer surfaced here - it remains visible
+    // in the accommodation's own edit dialog - so assert its absence explicitly rather than letting
+    // a name that happens to contain "Booked" imply status coverage that no longer exists.
+    const stayIndicator = within(dayCard).getByTestId("day-row-stay");
+    expect(stayIndicator).toHaveTextContent("Booked stay");
+    expect(within(dayCard).queryByText("booked")).toBeNull();
+    expect(within(dayCard).queryByText("planned")).toBeNull();
+    expect(within(dayCard).queryByTestId("day-row-gap-pill")).toBeNull();
+    expect(dayCard).toHaveTextContent("Planned 8h, Unplanned 16h");
+    expect(dayCard).toContainElement(
       screen.getByRole("button", {
         name: "Open comments dialog for Day 1, no comments",
       }),
@@ -342,7 +339,7 @@ describe("TripTimeline feedback", () => {
       ).getByText("0"),
     ).toBeInTheDocument();
     expect(screen.queryByText("no comments")).not.toBeInTheDocument();
-    expect(metaRow).toContainElement(screen.getByTestId("timeline-accommodation-surface"));
+    expect(dayCard).toContainElement(screen.getByTestId("day-row-stay"));
 
     vi.unstubAllGlobals();
   });

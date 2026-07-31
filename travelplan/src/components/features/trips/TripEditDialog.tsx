@@ -15,6 +15,7 @@ import {
   Typography,
 } from "@mui/material";
 import { useI18n } from "@/i18n/provider";
+import { IMAGE_UPLOAD_ACCEPT } from "@/lib/trips/imageUploads";
 
 type ApiEnvelope<T> = {
   data: T | null;
@@ -331,7 +332,7 @@ export default function TripEditDialog({ open, trip, onClose, onUpdated }: TripE
                 label={t("trips.form.heroImage")}
                 type="file"
                 InputLabelProps={{ shrink: true }}
-                inputProps={{ accept: "image/jpeg,image/png,image/webp" }}
+                inputProps={{ accept: IMAGE_UPLOAD_ACCEPT }}
                 helperText={t("trips.form.heroImageHelper")}
                 {...register("heroImage")}
                 fullWidth

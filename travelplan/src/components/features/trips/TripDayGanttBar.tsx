@@ -1,4 +1,4 @@
-import { Box } from "@mui/material";
+import { Box, useTheme } from "@mui/material";
 import type { TripDayGanttSegment } from "@/components/features/trips/TripDayGanttSegments";
 
 type TripDayGanttBarProps = {
@@ -8,14 +8,21 @@ type TripDayGanttBarProps = {
 };
 
 const clampMinute = (value: number) => Math.max(0, Math.min(value, 24 * 60));
-const ganttColors = {
-  accommodation: "#1b3d73",
-  travel: "#f08a24",
-  planItem: "#1f5e3b",
-} as const;
-const kindOrder: TripDayGanttSegment["kind"][] = ["accommodation", "planItem", "travel"];
+// Segments are absolutely-positioned siblings, so DOM order is paint order: later siblings occlude
+// earlier ones where they overlap. Order by semantic layer, not by start time - a stay checking in at
+// 18:00 must not paint over an activity that started at 17:00 and runs to 20:00.
+const paintOrder: TripDayGanttSegment["kind"][] = ["gap", "accommodation", "travel", "planItem"];
 
 export default function TripDayGanttBar({ segments = [], ariaLabel, variant = "default" }: TripDayGanttBarProps) {
+  const theme = useTheme();
+  const ganttColors = {
+    accommodation: theme.palette.primary.main,
+    planItem: theme.palette.secondary.main,
+    travel: theme.palette.tokens.travelNeutral,
+  } as const;
+  const gapHatchPitch = variant === "compact" ? 3 : 4;
+  const gapHatch = `repeating-linear-gradient(45deg, ${theme.palette.tokens.warnBg}, ${theme.palette.tokens.warnBg} ${gapHatchPitch}px, ${theme.palette.tokens.warnBorder} ${gapHatchPitch}px, ${theme.palette.tokens.warnBorder} ${gapHatchPitch * 2}px)`;
+
   const ordered = [...segments]
     .map((segment) => ({
       ...segment,
@@ -23,7 +30,7 @@ export default function TripDayGanttBar({ segments = [], ariaLabel, variant = "d
       endMinute: clampMinute(segment.endMinute),
     }))
     .filter((segment) => segment.endMinute > segment.startMinute)
-    .sort((a, b) => a.startMinute - b.startMinute || kindOrder.indexOf(a.kind) - kindOrder.indexOf(b.kind));
+    .sort((a, b) => paintOrder.indexOf(a.kind) - paintOrder.indexOf(b.kind) || a.startMinute - b.startMinute);
 
   return (
     <Box
@@ -33,11 +40,12 @@ export default function TripDayGanttBar({ segments = [], ariaLabel, variant = "d
       sx={{
         position: "relative",
         width: "100%",
-        height: variant === "compact" ? 10 : 16,
-        borderRadius: 999,
-        border: "1px solid",
-        borderColor: "divider",
-        bgcolor: "#ffffff",
+        height: variant === "compact" ? 5 : 16,
+        borderRadius: variant === "compact" ? "2px" : 999,
+        // The mini bar has no border in the mockup, and with border-box a 1px frame would eat 40% of
+        // its 5px height - leaving too little fill for the gap hatch to read at all.
+        ...(variant === "compact" ? {} : { border: "1px solid", borderColor: theme.palette.tokens.border }),
+        bgcolor: theme.palette.tokens.card,
         overflow: "hidden",
       }}
     >
@@ -58,7 +66,7 @@ export default function TripDayGanttBar({ segments = [], ariaLabel, variant = "d
               width: `${width}%`,
               top: 0,
               bottom: 0,
-              bgcolor: ganttColors[segment.kind],
+              background: segment.kind === "gap" ? gapHatch : ganttColors[segment.kind],
             }}
           />
         );

@@ -1,6 +1,6 @@
 "use client";
 
-import { Box, Chip, IconButton, List, ListItem, Paper, SvgIcon, Tooltip, Typography } from "@mui/material";
+import { Box, Chip, IconButton, List, ListItem, SvgIcon, Tooltip, Typography, useTheme } from "@mui/material";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useI18n } from "@/i18n/provider";
@@ -22,13 +22,23 @@ export default function TripOverviewMapPanel({
   expandHref,
 }: TripOverviewMapPanelProps) {
   const { t } = useI18n();
+  const theme = useTheme();
+  const tokens = theme.palette.tokens;
   const expandLabel = t("trips.overviewMap.expand");
 
   return (
-    <Paper elevation={1} sx={{ p: 3, borderRadius: 3, background: "#ffffff" }}>
-      <Box display="flex" flexDirection="column" gap={2}>
+    <Box
+      sx={{
+        backgroundColor: tokens.card,
+        border: "1px solid",
+        borderColor: tokens.borderStrong,
+        borderRadius: "8px",
+        padding: "18px",
+      }}
+    >
+      <Box display="flex" flexDirection="column" gap={1.5}>
         <Box display="flex" alignItems="center" justifyContent="space-between" gap={1}>
-          <Typography variant="h6" fontWeight={600}>
+          <Typography variant="labelCaps" component="h5" sx={{ color: tokens.inkSoft }}>
             {t("trips.overviewMap.title")}
           </Typography>
           {expandHref ? (
@@ -53,14 +63,14 @@ export default function TripOverviewMapPanel({
         {points.length === 0 ? (
           <Box
             sx={{
-              minHeight: 240,
+              height: 150,
               display: "flex",
               flexDirection: "column",
               justifyContent: "center",
               alignItems: "center",
-              borderRadius: 2,
+              borderRadius: "6px",
               border: "1px dashed",
-              borderColor: "divider",
+              borderColor: tokens.border,
               px: 2,
               textAlign: "center",
               gap: 1,
@@ -74,8 +84,10 @@ export default function TripOverviewMapPanel({
             </Typography>
           </Box>
         ) : (
-          <Box sx={{ borderRadius: 2, overflow: "hidden" }}>
-            <TripOverviewLeafletMap points={points} polylinePositions={polylinePositions} />
+          <Box sx={{ height: 150, borderRadius: "6px", overflow: "hidden" }}>
+            {/* The map must be told its height: left at its 280px default it renders full-size and is
+                simply clipped, hiding the lower half of the route behind overflow: hidden. */}
+            <TripOverviewLeafletMap points={points} polylinePositions={polylinePositions} height={150} />
           </Box>
         )}
 
@@ -107,6 +119,6 @@ export default function TripOverviewMapPanel({
           </Box>
         )}
       </Box>
-    </Paper>
+    </Box>
   );
 }

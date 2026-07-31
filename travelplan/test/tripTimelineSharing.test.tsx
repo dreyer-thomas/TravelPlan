@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import TripTimeline from "@/components/features/trips/TripTimeline";
-import { I18nProvider } from "@/i18n/provider";
+import { renderWithProviders } from "./helpers/renderWithProviders";
 
 vi.mock("@/components/features/trips/TripAccommodationDialog", () => ({
   default: () => <div data-testid="stay-dialog" />,
@@ -139,11 +139,7 @@ describe("TripTimeline sharing", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripTimeline tripId="trip-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/trips/trip-1", expect.anything()));
 
@@ -261,11 +257,7 @@ describe("TripTimeline sharing", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripTimeline tripId="trip-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/trips/trip-1", expect.anything()));
 
@@ -372,11 +364,7 @@ describe("TripTimeline sharing", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripTimeline tripId="trip-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/trips/trip-1", expect.anything()));
 

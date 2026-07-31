@@ -1,7 +1,7 @@
 export type TripDayGanttSegment = {
   startMinute: number;
   endMinute: number;
-  kind: "accommodation" | "planItem" | "travel";
+  kind: "accommodation" | "planItem" | "travel" | "gap";
 };
 
 export type TripDayGapSegment = {

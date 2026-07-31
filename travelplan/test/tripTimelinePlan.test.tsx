@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import TripTimeline from "@/components/features/trips/TripTimeline";
-import { I18nProvider } from "@/i18n/provider";
+import theme from "@/theme";
+import { Providers, renderWithProviders } from "./helpers/renderWithProviders";
 
 vi.mock("@/components/features/trips/TripAccommodationDialog", () => ({
   default: () => <div data-testid="stay-dialog" />,
@@ -111,11 +112,7 @@ describe("TripTimeline plan action", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripTimeline tripId="trip-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(screen.getAllByTestId("trip-day-gantt-bar")).toHaveLength(2);
@@ -166,11 +163,7 @@ describe("TripTimeline plan action", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripTimeline tripId="trip-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(screen.getByText("Planned 0m, Unplanned 24h")).toBeInTheDocument();
@@ -215,17 +208,13 @@ describe("TripTimeline plan action", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripTimeline tripId="trip-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
     const costLink = screen.getByRole("link", { name: "Open cost overview" });
     expect(costLink).toHaveAttribute("href", "/trips/trip-1/costs");
-    expect(screen.getByText("Cost: 99.00")).toBeInTheDocument();
+    expect(within(costLink).getByText("€99.00")).toBeInTheDocument();
 
     vi.unstubAllGlobals();
   });
@@ -284,11 +273,7 @@ describe("TripTimeline plan action", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripTimeline tripId="trip-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(screen.getByTestId("overview-map-expand-link")).toHaveAttribute("href", "/trips/trip-1/map");
@@ -296,7 +281,7 @@ describe("TripTimeline plan action", () => {
     vi.unstubAllGlobals();
   });
 
-  it("merges overlapping planned segments into a single overview span", async () => {
+  it("renders raw per-kind segments plus a synthesized gap segment for the mini coverage bar", async () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,
       status: 200,
@@ -369,18 +354,19 @@ describe("TripTimeline plan action", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripTimeline tripId="trip-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     const dayCards = screen.getAllByTestId("timeline-day-card");
-    const dayTwoCard = dayCards.find((card) => within(card).queryByText("Day 2"));
+    const dayTwoCard = dayCards.find((card) => within(card).queryAllByText("Day 2").length > 0);
     expect(dayTwoCard).toBeTruthy();
     const segments = within(dayTwoCard as HTMLElement).getAllByTestId("trip-day-gantt-segment");
-    expect(segments).toHaveLength(1);
+    // Day 2 carries over the previous night's accommodation (checkout 10:00), has its own
+    // Museum plan item (09:00-11:00, overlapping the carried-over stay), and the remaining
+    // uncovered time renders as a synthesized "gap" segment - three raw, unmerged segments.
+    const kinds = segments.map((segment) => segment.getAttribute("data-kind"));
+    expect(kinds).toEqual(expect.arrayContaining(["accommodation", "planItem", "gap"]));
+    expect(segments).toHaveLength(3);
 
     vi.unstubAllGlobals();
   });
@@ -421,26 +407,25 @@ describe("TripTimeline plan action", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripTimeline tripId="trip-1" />
-      </I18nProvider>
-    );
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
-    expect(screen.getByRole("img", { name: /trip/i })).toHaveAttribute("src", "/images/world-map-placeholder.svg");
+    expect(screen.getByTestId("trip-hero")).toHaveStyle({
+      backgroundImage: "url(/images/world-map-placeholder.svg)",
+    });
     expect(screen.getByTestId("overview-map-panel")).toBeInTheDocument();
     expect(screen.queryByText("Planned total")).toBeNull();
-    expect(screen.getByText("Cost: 99.00")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open day view" })).toHaveAttribute("href", "/trips/trip-1/days/day-1");
+    expect(screen.getByRole("link", { name: "Open cost overview" })).toHaveTextContent("€99.00");
+    expect(screen.getByRole("link", { name: /^Open day view: / })).toHaveAttribute("href", "/trips/trip-1/days/day-1");
     expect(screen.getByText("Day 1: Flight from FRA to SIN")).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "Day image" })).toHaveAttribute(
+    expect(screen.getByTestId("day-row-photo")).toHaveAttribute(
       "src",
       "/uploads/trips/trip-1/days/day-1/day.webp",
     );
+    expect(screen.getByTestId("day-row-photo")).toHaveAttribute("alt", "");
     expect(screen.queryByRole("button", { name: "Add plan" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Edit plan" })).toBeNull();
 
@@ -482,11 +467,7 @@ describe("TripTimeline plan action", () => {
     vi.stubGlobal("fetch", fetchMock);
     vi.stubGlobal("URL", { createObjectURL, revokeObjectURL });
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripTimeline tripId="trip-1" />
-      </I18nProvider>
-    );
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
 
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith("/api/trips/trip-1", {
@@ -536,11 +517,7 @@ describe("TripTimeline plan action", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripTimeline tripId="trip-1" />
-      </I18nProvider>
-    );
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
 
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith("/api/trips/trip-1", {
@@ -622,27 +599,171 @@ describe("TripTimeline plan action", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripTimeline tripId="trip-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
     const dayCards = screen.getAllByTestId("timeline-day-card");
     expect(dayCards).toHaveLength(2);
-    expect(dayCards[0]).toHaveStyle({ backgroundColor: "#e8ecf2" });
-    expect(dayCards[1]).toHaveStyle({ backgroundColor: "#e8ecf2" });
 
-    const accommodationSurfaces = screen.getAllByTestId("timeline-accommodation-surface");
-    expect(accommodationSurfaces).toHaveLength(2);
-    expect(accommodationSurfaces[0]).toHaveStyle({ backgroundColor: "#4a525f" });
-    expect(accommodationSurfaces[1]).toHaveStyle({ backgroundColor: "#4a525f" });
+    // Day 1 has an accommodation on record and is not flagged as a gap.
+    expect(within(dayCards[0]).getByTestId("day-row-stay")).toHaveTextContent("Hotel One");
+    expect(within(dayCards[0]).queryByTestId("day-row-gap-pill")).toBeNull();
 
-    expect(screen.getAllByText("Missing stay")).toHaveLength(1);
+    // Day 2 is flagged missingAccommodation, so it renders the gap pill instead of the
+    // (stray) planned accommodation record - the day-row only distinguishes has-a-stay vs. gap.
+    expect(within(dayCards[1]).getByTestId("day-row-gap-pill")).toHaveTextContent("No accommodation");
+    expect(within(dayCards[1]).queryByTestId("day-row-stay")).toBeNull();
 
-    expect(screen.queryByText(/accommodation/i)).toBeNull();
+    expect(screen.getAllByText("No accommodation")).toHaveLength(1);
+
+    // AC2's warn treatment: the gap row switches border and background, the non-gap row stays plain.
+    // These replace the pre-redesign #e8ecf2/#4a525f assertions rather than dropping the coverage.
+    expect(dayCards[0]).toHaveStyle({
+      backgroundColor: theme.palette.tokens.card,
+      borderColor: theme.palette.tokens.borderStrong,
+    });
+    expect(dayCards[1]).toHaveStyle({ backgroundColor: "#FBF6EE", borderColor: theme.palette.tokens.warnBorder });
+
+    vi.unstubAllGlobals();
+  });
+
+  it("renders the stat strip, cost breakdown and gap-alert card from trip data", async () => {
+    const tripDetailResponse = {
+      data: {
+        trip: {
+          id: "trip-1",
+          name: "Trip",
+          startDate: "2026-12-01T00:00:00.000Z",
+          endDate: "2026-12-02T00:00:00.000Z",
+          dayCount: 2,
+          plannedCostTotal: 25000,
+          accommodationCostTotalCents: 10000,
+          heroImageUrl: null,
+        },
+        days: [
+          {
+            id: "day-1",
+            date: "2026-12-01T00:00:00.000Z",
+            dayIndex: 1,
+            imageUrl: null,
+            note: null,
+            missingAccommodation: false,
+            missingPlan: false,
+            accommodation: {
+              id: "stay-1",
+              name: "Hotel One",
+              notes: null,
+              status: "booked",
+              costCents: 10000,
+              link: null,
+              checkInTime: "15:00",
+              checkOutTime: "10:00",
+              location: { lat: 53.55, lng: 10, label: "Hamburg" },
+            },
+            dayPlanItems: [],
+          },
+          {
+            id: "day-2",
+            date: "2026-12-02T00:00:00.000Z",
+            dayIndex: 2,
+            imageUrl: null,
+            note: null,
+            missingAccommodation: true,
+            missingPlan: false,
+            accommodation: null,
+            dayPlanItems: [],
+          },
+        ],
+      },
+      error: null,
+    };
+
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => tripDetailResponse,
+    })) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+    // Stat strip: duration, station count, cost link and open-item count.
+    expect(screen.getByText("Duration")).toBeInTheDocument();
+    expect(screen.getByText("2 days")).toBeInTheDocument();
+    expect(screen.getByText("Stations")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open cost overview" })).toHaveTextContent("€250.00");
+    const openItemsValue = screen.getByText("Open items").parentElement;
+    expect(openItemsValue).toHaveTextContent("1");
+
+    // Cost breakdown: accommodation comes straight from the API, activities are the remainder.
+    expect(screen.getByText("Accommodation")).toBeInTheDocument();
+    expect(screen.getByText("€100.00")).toBeInTheDocument();
+    expect(screen.getByText("Activities & excursions")).toBeInTheDocument();
+    expect(screen.getByText("€150.00")).toBeInTheDocument();
+
+    // Gap-alert card names the first gap day, and its body no longer interpolates a place name.
+    expect(screen.getByText("Action needed: Day 2")).toBeInTheDocument();
+    expect(screen.getByText("No accommodation has been recorded yet for day 2 (Dec 2, 2026).")).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("omits the gap-alert card when every day has an accommodation", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-01T00:00:00.000Z",
+            dayCount: 1,
+            plannedCostTotal: 0,
+            accommodationCostTotalCents: 0,
+            heroImageUrl: null,
+          },
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              imageUrl: null,
+              note: null,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: {
+                id: "stay-1",
+                name: "Hotel One",
+                notes: null,
+                status: "booked",
+                costCents: 0,
+                link: null,
+                checkInTime: "15:00",
+                checkOutTime: "10:00",
+                location: null,
+              },
+              dayPlanItems: [],
+            },
+          ],
+        },
+        error: null,
+      }),
+    })) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+    expect(screen.queryByText(/Action needed/)).toBeNull();
+    expect(screen.getByText("Open items").parentElement).toHaveTextContent("0");
 
     vi.unstubAllGlobals();
   });
@@ -700,34 +821,26 @@ describe("TripTimeline plan action", () => {
     };
 
     setViewport(375);
-    const { rerender } = render(
-      <I18nProvider initialLanguage="en">
-        <TripTimeline tripId="trip-1" />
-      </I18nProvider>,
-    );
+    const { rerender } = renderWithProviders(<TripTimeline tripId="trip-1" />);
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(screen.getAllByTestId("timeline-day-card")).toHaveLength(2);
     expect(screen.getByText("Day 1: Arrival")).toBeInTheDocument();
     expect(screen.getByText("Day 2: City walk")).toBeInTheDocument();
-    expect(screen.getAllByRole("link", { name: "Open day view" })).toHaveLength(2);
+    expect(screen.getAllByRole("link", { name: /^Open day view: / })).toHaveLength(2);
     expect(screen.getAllByTestId("trip-day-gantt-bar")).toHaveLength(2);
-    expect(screen.getAllByTestId("timeline-day-card")[0].querySelector('[data-layout="stacked"]')).toBeTruthy();
+    expect(screen.getAllByTestId("timeline-day-card")[0]).toHaveAttribute("data-layout", "stacked");
 
     setViewport(1280);
-    rerender(
-      <I18nProvider initialLanguage="en">
-        <TripTimeline tripId="trip-1" />
-      </I18nProvider>,
-    );
+    rerender(<Providers><TripTimeline tripId="trip-1" /></Providers>);
 
     expect(screen.getAllByTestId("timeline-day-card")).toHaveLength(2);
     expect(screen.getByText("Day 1: Arrival")).toBeInTheDocument();
     expect(screen.getByText("Day 2: City walk")).toBeInTheDocument();
-    expect(screen.getAllByRole("link", { name: "Open day view" })).toHaveLength(2);
+    expect(screen.getAllByRole("link", { name: /^Open day view: / })).toHaveLength(2);
     expect(screen.getAllByText("Missing plan")).toHaveLength(1);
     expect(screen.getAllByTestId("trip-day-gantt-bar")).toHaveLength(2);
-    expect(screen.getAllByTestId("timeline-day-card")[0].querySelector('[data-layout="inline"]')).toBeTruthy();
+    expect(screen.getAllByTestId("timeline-day-card")[0]).toHaveAttribute("data-layout", "inline");
 
     vi.unstubAllGlobals();
   });

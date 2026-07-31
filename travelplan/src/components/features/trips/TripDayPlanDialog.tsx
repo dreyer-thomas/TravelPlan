@@ -26,6 +26,7 @@ import Link from "@tiptap/extension-link";
 import { Node } from "@tiptap/core";
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
+import { IMAGE_UPLOAD_ACCEPT, isSupportedImageUpload } from "@/lib/trips/imageUploads";
 
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
@@ -768,6 +769,14 @@ export default function TripDayPlanDialog({
   const uploadGalleryImages = async () => {
     if (!day || !editingItemId || galleryFiles.length === 0) return;
 
+    // The picker accepts any image/* so Safari can select at all; reject unsupported formats
+    // here with a specific reason rather than a generic server-side upload failure.
+    const unsupported = galleryFiles.find((file) => !isSupportedImageUpload(file));
+    if (unsupported) {
+      setServerError(t("trips.image.unsupportedFormat"));
+      return;
+    }
+
     let token: string;
     try {
       token = await ensureCsrfToken();
@@ -1124,10 +1133,12 @@ export default function TripDayPlanDialog({
                   size="small"
                   type="file"
                   onChange={(event) => {
-                    const input = event.currentTarget as HTMLInputElement;
+                    // See TripDayView's day-image field: `target` is the <input>, `currentTarget`
+                    // may be a MUI wrapper without `.files`, which silently clears the selection.
+                    const input = event.target as HTMLInputElement;
                     setGalleryFiles(input.files ? Array.from(input.files) : []);
                   }}
-                  inputProps={{ accept: "image/jpeg,image/png,image/webp", multiple: true }}
+                  inputProps={{ accept: IMAGE_UPLOAD_ACCEPT, multiple: true }}
                   fullWidth
                 />
                 <Button

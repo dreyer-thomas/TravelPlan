@@ -41,6 +41,7 @@ import { MiniImageStrip, PlanItemRichContent, isSafeLink, parsePlanText } from "
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
 import { buildDayMapPanelData, buildTripDayMapItems } from "@/lib/trips/dayMapData";
+import { IMAGE_UPLOAD_ACCEPT, isSupportedImageUpload } from "@/lib/trips/imageUploads";
 
 type ApiEnvelope<T> = {
   data: T | null;
@@ -1165,6 +1166,13 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     if (!day) return;
     const normalizedNote = dayNoteDraft.trim();
 
+    // The picker accepts any image/* so Safari lets the file be selected at all; reject unsupported
+    // formats here with a specific reason instead of a generic upload failure from the server.
+    if (dayImageFile && !isSupportedImageUpload(dayImageFile)) {
+      setError(t("trips.image.unsupportedFormat"));
+      return;
+    }
+
     setDayImageSaving(true);
     setError(null);
 
@@ -2146,13 +2154,17 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                   size="small"
                   type="file"
                   onChange={(event) => {
-                    const input = event.currentTarget as HTMLInputElement;
+                    // Read from `target`, not `currentTarget`: `target` is always the <input> that
+                    // dispatched the change, whereas `currentTarget` depends on which element the
+                    // listener ends up attached to inside MUI's InputBase - and a wrapper element
+                    // has no `.files`, which silently yields an empty selection.
+                    const input = event.target as HTMLInputElement;
                     const file = input.files?.[0] ?? null;
                     setDayImageFile(file);
                   }}
                   fullWidth
                   inputProps={{
-                    accept: "image/jpeg,image/jpg,image/pjpeg,image/png,image/webp",
+                    accept: IMAGE_UPLOAD_ACCEPT,
                     "aria-label": t("trips.dayImage.fileLabel"),
                   }}
                 />
