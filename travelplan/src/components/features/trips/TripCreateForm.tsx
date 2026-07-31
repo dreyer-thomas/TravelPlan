@@ -19,6 +19,10 @@ type TripCreateFormValues = {
   heroImage?: FileList;
 };
 
+type HeroUploadResult = {
+  trip: { id: string; heroImageUrl: string | null; updatedAt?: string };
+};
+
 export type TripCreateResponse = {
   trip: {
     id: string;
@@ -26,6 +30,8 @@ export type TripCreateResponse = {
     startDate: string;
     endDate: string;
     heroImageUrl?: string | null;
+    /** Versions the hero URL for the consumer; see `withImageCacheBuster`. */
+    updatedAt?: string;
     startLocation?: { lat: number; lng: number; label: string | null } | null;
     destinationLocation?: { lat: number; lng: number; label: string | null } | null;
   };
@@ -230,6 +236,8 @@ export default function TripCreateForm({
 
     if (body.data) {
       let heroImageUrl = body.data.trip.heroImageUrl ?? null;
+      // Carried through so the consumer can version the hero URL; the upload bumps `updatedAt`.
+      let heroUpdatedAt = body.data.trip.updatedAt;
       const file = values.heroImage?.item(0);
       let uploadFailed = false;
 
@@ -245,9 +253,9 @@ export default function TripCreateForm({
           body: formData,
         });
 
-        let uploadBody: ApiEnvelope<{ trip: { id: string; heroImageUrl: string | null } }> | null = null;
+        let uploadBody: ApiEnvelope<HeroUploadResult> | null = null;
         try {
-          uploadBody = (await uploadResponse.json()) as ApiEnvelope<{ trip: { id: string; heroImageUrl: string | null } }>;
+          uploadBody = (await uploadResponse.json()) as ApiEnvelope<HeroUploadResult>;
         } catch {
           uploadBody = null;
         }
@@ -256,7 +264,10 @@ export default function TripCreateForm({
           uploadFailed = true;
           setServerError(t("trips.create.uploadError"));
         } else {
+          // Raw URL plus version, not a pre-stamped URL - the read paths stamp it themselves, so
+          // stamping here too would double-stamp into `?v=A&v=B`.
           heroImageUrl = uploadBody.data?.trip.heroImageUrl ?? null;
+          heroUpdatedAt = uploadBody.data?.trip.updatedAt ?? heroUpdatedAt;
         }
       }
 
@@ -275,6 +286,7 @@ export default function TripCreateForm({
         trip: {
           ...body.data.trip,
           heroImageUrl,
+          updatedAt: heroUpdatedAt,
         },
       });
       if (!uploadFailed) {

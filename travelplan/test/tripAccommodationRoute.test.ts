@@ -119,6 +119,59 @@ describe("/api/trips/[id]/accommodations", () => {
     expect(payload.data?.accommodation.location).toEqual({ lat: 48.1372, lng: 11.5756, label: "Old Town" });
   });
 
+  // Rescued from `tripFeedbackRoute.test.ts`, deleted by Story 5.9 as "feedback-only". It was not:
+  // this was the only assertion that a VIEWER *member* is refused a stay write. The contributor
+  // case below covers the allowed role and "returns 404 when trip day does not belong to user"
+  // covers a non-member - neither covers a real member whose role is too low.
+  it("keeps a viewer member blocked from creating accommodation data", async () => {
+    const owner = await prisma.user.create({
+      data: { email: "route-stay-viewer-owner@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const viewer = await prisma.user.create({
+      data: { email: "route-stay-viewer@example.com", passwordHash: "hashed", role: "VIEWER" },
+    });
+    const token = await createSessionJwt({ sub: viewer.id, role: viewer.role });
+
+    const trip = await prisma.trip.create({
+      data: {
+        userId: owner.id,
+        name: "Viewer Stay Trip",
+        startDate: new Date("2026-09-10T00:00:00.000Z"),
+        endDate: new Date("2026-09-11T00:00:00.000Z"),
+      },
+    });
+
+    await prisma.tripMember.create({
+      data: { tripId: trip.id, userId: viewer.id, role: "VIEWER" },
+    });
+
+    const day = await prisma.tripDay.create({
+      data: { tripId: trip.id, date: new Date("2026-09-10T00:00:00.000Z"), dayIndex: 1 },
+    });
+
+    const response = await POST(
+      buildRequest(trip.id, {
+        session: token,
+        csrf: "csrf-token",
+        method: "POST",
+        body: JSON.stringify({
+          tripDayId: day.id,
+          name: "Blocked Stay",
+          status: "planned",
+          costCents: null,
+          link: null,
+          notes: null,
+        }),
+      }),
+      { params: Promise.resolve({ id: trip.id }) },
+    );
+
+    expect(response.status).toBe(404);
+
+    // The refusal must be real, not just a status code.
+    expect(await prisma.accommodation.count({ where: { tripDayId: day.id } })).toBe(0);
+  });
+
   it("allows a contributor to create, update, and delete accommodation data", async () => {
     const owner = await prisma.user.create({
       data: {

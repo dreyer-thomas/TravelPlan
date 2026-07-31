@@ -6,6 +6,7 @@ import { POST } from "@/app/api/trips/[id]/hero-image/route";
 import { prisma } from "@/lib/db/prisma";
 import { createSessionJwt } from "@/lib/auth/jwt";
 import { createTripWithDays } from "@/lib/repositories/tripRepo";
+import { getTripsUploadRoot } from "@/lib/trips/uploadPaths";
 
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 type ApiEnvelope<T> = {
@@ -38,7 +39,7 @@ const buildRequest = async (
   });
 };
 
-const uploadsRoot = path.resolve(process.cwd(), "public", "uploads", "trips");
+const uploadsRoot = getTripsUploadRoot();
 
 describe("POST /api/trips/[id]/hero-image", () => {
   beforeEach(async () => {

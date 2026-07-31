@@ -1,5 +1,4 @@
 import type { NextRequest } from "next/server";
-import path from "node:path";
 import fs from "node:fs/promises";
 import { apiError } from "@/lib/errors/apiError";
 import { fail, ok } from "@/lib/http/response";
@@ -8,6 +7,7 @@ import { CSRF_COOKIE_NAME, validateCsrf } from "@/lib/security/csrf";
 import { deleteTripForUser, getTripWithDaysForUser, updateTripWithDays } from "@/lib/repositories/tripRepo";
 import { updateTripSchema } from "@/lib/validation/tripSchemas";
 import { requireSession } from "@/lib/auth/sessionGuard";
+import { getTripUploadDir } from "@/lib/trips/uploadPaths";
 
 export const runtime = "nodejs";
 
@@ -18,8 +18,7 @@ type RouteContext = {
 };
 
 const removeTripUploads = async (tripId: string) => {
-  const uploadDir = path.join(process.cwd(), "public", "uploads", "trips", tripId);
-  await fs.rm(uploadDir, { recursive: true, force: true });
+  await fs.rm(getTripUploadDir(tripId), { recursive: true, force: true });
 };
 
 export const GET = async (request: NextRequest, context: RouteContext) => {
@@ -52,18 +51,9 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
         plannedCostTotal: trip.plannedCostTotal,
         accommodationCostTotalCents: trip.accommodationCostTotalCents,
         heroImageUrl: trip.heroImageUrl,
-        feedback: {
-          targetType: trip.feedback.targetType,
-          targetId: trip.feedback.targetId,
-          comments: trip.feedback.comments.map((comment) => ({
-            id: comment.id,
-            body: comment.body,
-            createdAt: comment.createdAt.toISOString(),
-            updatedAt: comment.updatedAt.toISOString(),
-            author: comment.author,
-          })),
-          voteSummary: trip.feedback.voteSummary,
-        },
+        // The hero always lands on `hero.<ext>`, so its URL is byte-identical across replacements.
+        // Clients stamp this onto the URL to version it, exactly as they already do for day images.
+        updatedAt: trip.updatedAt.toISOString(),
       },
       days: trip.days.map((day) => {
         const dayUpdatedAt = (day as { updatedAt?: Date }).updatedAt ?? day.date;
@@ -90,18 +80,6 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
                 checkInTime: day.accommodation.checkInTime ?? null,
                 checkOutTime: day.accommodation.checkOutTime ?? null,
                 location: day.accommodation.location,
-                feedback: {
-                  targetType: day.accommodation.feedback.targetType,
-                  targetId: day.accommodation.feedback.targetId,
-                  comments: day.accommodation.feedback.comments.map((comment) => ({
-                    id: comment.id,
-                    body: comment.body,
-                    createdAt: comment.createdAt.toISOString(),
-                    updatedAt: comment.updatedAt.toISOString(),
-                    author: comment.author,
-                  })),
-                  voteSummary: day.accommodation.feedback.voteSummary,
-                },
               }
             : null,
           dayPlanItems: day.dayPlanItems.map((item) => ({
@@ -114,18 +92,6 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
             payments: item.payments ?? [],
             linkUrl: item.linkUrl,
             location: item.location,
-            feedback: {
-              targetType: item.feedback.targetType,
-              targetId: item.feedback.targetId,
-              comments: item.feedback.comments.map((comment) => ({
-                id: comment.id,
-                body: comment.body,
-                createdAt: comment.createdAt.toISOString(),
-                updatedAt: comment.updatedAt.toISOString(),
-                author: comment.author,
-              })),
-              voteSummary: item.feedback.voteSummary,
-            },
           })),
           travelSegments: day.travelSegments.map((segment) => ({
             id: segment.id,
@@ -138,18 +104,6 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
             distanceKm: segment.distanceKm,
             linkUrl: segment.linkUrl,
           })),
-          feedback: {
-            targetType: day.feedback.targetType,
-            targetId: day.feedback.targetId,
-            comments: day.feedback.comments.map((comment) => ({
-              id: comment.id,
-              body: comment.body,
-              createdAt: comment.createdAt.toISOString(),
-              updatedAt: comment.updatedAt.toISOString(),
-              author: comment.author,
-            })),
-            voteSummary: day.feedback.voteSummary,
-          },
         };
       }),
     });
@@ -222,18 +176,8 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
         plannedCostTotal: detail.plannedCostTotal,
         accommodationCostTotalCents: detail.accommodationCostTotalCents,
         heroImageUrl: detail.heroImageUrl,
-        feedback: {
-          targetType: detail.feedback.targetType,
-          targetId: detail.feedback.targetId,
-          comments: detail.feedback.comments.map((comment) => ({
-            id: comment.id,
-            body: comment.body,
-            createdAt: comment.createdAt.toISOString(),
-            updatedAt: comment.updatedAt.toISOString(),
-            author: comment.author,
-          })),
-          voteSummary: detail.feedback.voteSummary,
-        },
+        // Kept in step with the GET handler above - the client uses the same versioning path for both.
+        updatedAt: detail.updatedAt.toISOString(),
       },
       days: detail.days.map((day) => {
         const dayUpdatedAt = (day as { updatedAt?: Date }).updatedAt ?? day.date;
@@ -260,18 +204,6 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
                 checkInTime: day.accommodation.checkInTime ?? null,
                 checkOutTime: day.accommodation.checkOutTime ?? null,
                 location: day.accommodation.location,
-                feedback: {
-                  targetType: day.accommodation.feedback.targetType,
-                  targetId: day.accommodation.feedback.targetId,
-                  comments: day.accommodation.feedback.comments.map((comment) => ({
-                    id: comment.id,
-                    body: comment.body,
-                    createdAt: comment.createdAt.toISOString(),
-                    updatedAt: comment.updatedAt.toISOString(),
-                    author: comment.author,
-                  })),
-                  voteSummary: day.accommodation.feedback.voteSummary,
-                },
               }
             : null,
           dayPlanItems: day.dayPlanItems.map((item) => ({
@@ -284,18 +216,6 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
             payments: item.payments ?? [],
             linkUrl: item.linkUrl,
             location: item.location,
-            feedback: {
-              targetType: item.feedback.targetType,
-              targetId: item.feedback.targetId,
-              comments: item.feedback.comments.map((comment) => ({
-                id: comment.id,
-                body: comment.body,
-                createdAt: comment.createdAt.toISOString(),
-                updatedAt: comment.updatedAt.toISOString(),
-                author: comment.author,
-              })),
-              voteSummary: item.feedback.voteSummary,
-            },
           })),
           travelSegments: day.travelSegments.map((segment) => ({
             id: segment.id,
@@ -308,18 +228,6 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
             distanceKm: segment.distanceKm,
             linkUrl: segment.linkUrl,
           })),
-          feedback: {
-            targetType: day.feedback.targetType,
-            targetId: day.feedback.targetId,
-            comments: day.feedback.comments.map((comment) => ({
-              id: comment.id,
-              body: comment.body,
-              createdAt: comment.createdAt.toISOString(),
-              updatedAt: comment.updatedAt.toISOString(),
-              author: comment.author,
-            })),
-            voteSummary: day.feedback.voteSummary,
-          },
         };
       }),
     });

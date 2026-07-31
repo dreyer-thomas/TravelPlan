@@ -17,6 +17,7 @@ import {
   accommodationImageUploadSchema,
 } from "@/lib/validation/imageGallerySchemas";
 import { requireSession } from "@/lib/auth/sessionGuard";
+import { getAccommodationImageUploadDir, resolvePublicFilePath } from "@/lib/trips/uploadPaths";
 
 export const runtime = "nodejs";
 
@@ -50,7 +51,7 @@ const removeManagedFile = async (tripId: string, imageUrl: string) => {
   if (!imageUrl.startsWith(prefix)) {
     return;
   }
-  const filePath = path.join(process.cwd(), "public", imageUrl);
+  const filePath = resolvePublicFilePath(imageUrl);
   try {
     await fs.unlink(filePath);
   } catch (error) {
@@ -147,17 +148,7 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
   }
 
   const fileName = `img-${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${extension}`;
-  const uploadDir = path.join(
-    process.cwd(),
-    "public",
-    "uploads",
-    "trips",
-    tripId,
-    "days",
-    parsed.data.tripDayId,
-    "accommodations",
-    parsed.data.accommodationId,
-  );
+  const uploadDir = getAccommodationImageUploadDir(tripId, parsed.data.tripDayId, parsed.data.accommodationId);
   await fs.mkdir(uploadDir, { recursive: true });
   const filePath = path.join(uploadDir, fileName);
   await fs.writeFile(filePath, Buffer.from(await file.arrayBuffer()));

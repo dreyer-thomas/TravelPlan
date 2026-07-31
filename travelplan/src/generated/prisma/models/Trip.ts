@@ -304,7 +304,6 @@ export type TripWhereInput = {
   members?: Prisma.TripMemberListRelationFilter
   days?: Prisma.TripDayListRelationFilter
   bucketListItems?: Prisma.TripBucketListItemListRelationFilter
-  feedbackTargets?: Prisma.TripFeedbackTargetListRelationFilter
 }
 
 export type TripOrderByWithRelationInput = {
@@ -326,7 +325,6 @@ export type TripOrderByWithRelationInput = {
   members?: Prisma.TripMemberOrderByRelationAggregateInput
   days?: Prisma.TripDayOrderByRelationAggregateInput
   bucketListItems?: Prisma.TripBucketListItemOrderByRelationAggregateInput
-  feedbackTargets?: Prisma.TripFeedbackTargetOrderByRelationAggregateInput
 }
 
 export type TripWhereUniqueInput = Prisma.AtLeast<{
@@ -351,7 +349,6 @@ export type TripWhereUniqueInput = Prisma.AtLeast<{
   members?: Prisma.TripMemberListRelationFilter
   days?: Prisma.TripDayListRelationFilter
   bucketListItems?: Prisma.TripBucketListItemListRelationFilter
-  feedbackTargets?: Prisma.TripFeedbackTargetListRelationFilter
 }, "id">
 
 export type TripOrderByWithAggregationInput = {
@@ -414,7 +411,6 @@ export type TripCreateInput = {
   members?: Prisma.TripMemberCreateNestedManyWithoutTripInput
   days?: Prisma.TripDayCreateNestedManyWithoutTripInput
   bucketListItems?: Prisma.TripBucketListItemCreateNestedManyWithoutTripInput
-  feedbackTargets?: Prisma.TripFeedbackTargetCreateNestedManyWithoutTripInput
 }
 
 export type TripUncheckedCreateInput = {
@@ -435,7 +431,6 @@ export type TripUncheckedCreateInput = {
   members?: Prisma.TripMemberUncheckedCreateNestedManyWithoutTripInput
   days?: Prisma.TripDayUncheckedCreateNestedManyWithoutTripInput
   bucketListItems?: Prisma.TripBucketListItemUncheckedCreateNestedManyWithoutTripInput
-  feedbackTargets?: Prisma.TripFeedbackTargetUncheckedCreateNestedManyWithoutTripInput
 }
 
 export type TripUpdateInput = {
@@ -456,7 +451,6 @@ export type TripUpdateInput = {
   members?: Prisma.TripMemberUpdateManyWithoutTripNestedInput
   days?: Prisma.TripDayUpdateManyWithoutTripNestedInput
   bucketListItems?: Prisma.TripBucketListItemUpdateManyWithoutTripNestedInput
-  feedbackTargets?: Prisma.TripFeedbackTargetUpdateManyWithoutTripNestedInput
 }
 
 export type TripUncheckedUpdateInput = {
@@ -477,7 +471,6 @@ export type TripUncheckedUpdateInput = {
   members?: Prisma.TripMemberUncheckedUpdateManyWithoutTripNestedInput
   days?: Prisma.TripDayUncheckedUpdateManyWithoutTripNestedInput
   bucketListItems?: Prisma.TripBucketListItemUncheckedUpdateManyWithoutTripNestedInput
-  feedbackTargets?: Prisma.TripFeedbackTargetUncheckedUpdateManyWithoutTripNestedInput
 }
 
 export type TripCreateManyInput = {
@@ -706,20 +699,6 @@ export type TripUpdateOneRequiredWithoutBucketListItemsNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.TripUpdateToOneWithWhereWithoutBucketListItemsInput, Prisma.TripUpdateWithoutBucketListItemsInput>, Prisma.TripUncheckedUpdateWithoutBucketListItemsInput>
 }
 
-export type TripCreateNestedOneWithoutFeedbackTargetsInput = {
-  create?: Prisma.XOR<Prisma.TripCreateWithoutFeedbackTargetsInput, Prisma.TripUncheckedCreateWithoutFeedbackTargetsInput>
-  connectOrCreate?: Prisma.TripCreateOrConnectWithoutFeedbackTargetsInput
-  connect?: Prisma.TripWhereUniqueInput
-}
-
-export type TripUpdateOneRequiredWithoutFeedbackTargetsNestedInput = {
-  create?: Prisma.XOR<Prisma.TripCreateWithoutFeedbackTargetsInput, Prisma.TripUncheckedCreateWithoutFeedbackTargetsInput>
-  connectOrCreate?: Prisma.TripCreateOrConnectWithoutFeedbackTargetsInput
-  upsert?: Prisma.TripUpsertWithoutFeedbackTargetsInput
-  connect?: Prisma.TripWhereUniqueInput
-  update?: Prisma.XOR<Prisma.XOR<Prisma.TripUpdateToOneWithWhereWithoutFeedbackTargetsInput, Prisma.TripUpdateWithoutFeedbackTargetsInput>, Prisma.TripUncheckedUpdateWithoutFeedbackTargetsInput>
-}
-
 export type TripCreateWithoutUserInput = {
   id?: string
   name: string
@@ -737,7 +716,6 @@ export type TripCreateWithoutUserInput = {
   members?: Prisma.TripMemberCreateNestedManyWithoutTripInput
   days?: Prisma.TripDayCreateNestedManyWithoutTripInput
   bucketListItems?: Prisma.TripBucketListItemCreateNestedManyWithoutTripInput
-  feedbackTargets?: Prisma.TripFeedbackTargetCreateNestedManyWithoutTripInput
 }
 
 export type TripUncheckedCreateWithoutUserInput = {
@@ -757,7 +735,6 @@ export type TripUncheckedCreateWithoutUserInput = {
   members?: Prisma.TripMemberUncheckedCreateNestedManyWithoutTripInput
   days?: Prisma.TripDayUncheckedCreateNestedManyWithoutTripInput
   bucketListItems?: Prisma.TripBucketListItemUncheckedCreateNestedManyWithoutTripInput
-  feedbackTargets?: Prisma.TripFeedbackTargetUncheckedCreateNestedManyWithoutTripInput
 }
 
 export type TripCreateOrConnectWithoutUserInput = {
@@ -822,7 +799,6 @@ export type TripCreateWithoutMembersInput = {
   user: Prisma.UserCreateNestedOneWithoutTripsInput
   days?: Prisma.TripDayCreateNestedManyWithoutTripInput
   bucketListItems?: Prisma.TripBucketListItemCreateNestedManyWithoutTripInput
-  feedbackTargets?: Prisma.TripFeedbackTargetCreateNestedManyWithoutTripInput
 }
 
 export type TripUncheckedCreateWithoutMembersInput = {
@@ -842,7 +818,6 @@ export type TripUncheckedCreateWithoutMembersInput = {
   updatedAt?: Date | string
   days?: Prisma.TripDayUncheckedCreateNestedManyWithoutTripInput
   bucketListItems?: Prisma.TripBucketListItemUncheckedCreateNestedManyWithoutTripInput
-  feedbackTargets?: Prisma.TripFeedbackTargetUncheckedCreateNestedManyWithoutTripInput
 }
 
 export type TripCreateOrConnectWithoutMembersInput = {
@@ -878,7 +853,6 @@ export type TripUpdateWithoutMembersInput = {
   user?: Prisma.UserUpdateOneRequiredWithoutTripsNestedInput
   days?: Prisma.TripDayUpdateManyWithoutTripNestedInput
   bucketListItems?: Prisma.TripBucketListItemUpdateManyWithoutTripNestedInput
-  feedbackTargets?: Prisma.TripFeedbackTargetUpdateManyWithoutTripNestedInput
 }
 
 export type TripUncheckedUpdateWithoutMembersInput = {
@@ -898,7 +872,6 @@ export type TripUncheckedUpdateWithoutMembersInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   days?: Prisma.TripDayUncheckedUpdateManyWithoutTripNestedInput
   bucketListItems?: Prisma.TripBucketListItemUncheckedUpdateManyWithoutTripNestedInput
-  feedbackTargets?: Prisma.TripFeedbackTargetUncheckedUpdateManyWithoutTripNestedInput
 }
 
 export type TripCreateWithoutDaysInput = {
@@ -918,7 +891,6 @@ export type TripCreateWithoutDaysInput = {
   user: Prisma.UserCreateNestedOneWithoutTripsInput
   members?: Prisma.TripMemberCreateNestedManyWithoutTripInput
   bucketListItems?: Prisma.TripBucketListItemCreateNestedManyWithoutTripInput
-  feedbackTargets?: Prisma.TripFeedbackTargetCreateNestedManyWithoutTripInput
 }
 
 export type TripUncheckedCreateWithoutDaysInput = {
@@ -938,7 +910,6 @@ export type TripUncheckedCreateWithoutDaysInput = {
   updatedAt?: Date | string
   members?: Prisma.TripMemberUncheckedCreateNestedManyWithoutTripInput
   bucketListItems?: Prisma.TripBucketListItemUncheckedCreateNestedManyWithoutTripInput
-  feedbackTargets?: Prisma.TripFeedbackTargetUncheckedCreateNestedManyWithoutTripInput
 }
 
 export type TripCreateOrConnectWithoutDaysInput = {
@@ -974,7 +945,6 @@ export type TripUpdateWithoutDaysInput = {
   user?: Prisma.UserUpdateOneRequiredWithoutTripsNestedInput
   members?: Prisma.TripMemberUpdateManyWithoutTripNestedInput
   bucketListItems?: Prisma.TripBucketListItemUpdateManyWithoutTripNestedInput
-  feedbackTargets?: Prisma.TripFeedbackTargetUpdateManyWithoutTripNestedInput
 }
 
 export type TripUncheckedUpdateWithoutDaysInput = {
@@ -994,7 +964,6 @@ export type TripUncheckedUpdateWithoutDaysInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   members?: Prisma.TripMemberUncheckedUpdateManyWithoutTripNestedInput
   bucketListItems?: Prisma.TripBucketListItemUncheckedUpdateManyWithoutTripNestedInput
-  feedbackTargets?: Prisma.TripFeedbackTargetUncheckedUpdateManyWithoutTripNestedInput
 }
 
 export type TripCreateWithoutBucketListItemsInput = {
@@ -1014,7 +983,6 @@ export type TripCreateWithoutBucketListItemsInput = {
   user: Prisma.UserCreateNestedOneWithoutTripsInput
   members?: Prisma.TripMemberCreateNestedManyWithoutTripInput
   days?: Prisma.TripDayCreateNestedManyWithoutTripInput
-  feedbackTargets?: Prisma.TripFeedbackTargetCreateNestedManyWithoutTripInput
 }
 
 export type TripUncheckedCreateWithoutBucketListItemsInput = {
@@ -1034,7 +1002,6 @@ export type TripUncheckedCreateWithoutBucketListItemsInput = {
   updatedAt?: Date | string
   members?: Prisma.TripMemberUncheckedCreateNestedManyWithoutTripInput
   days?: Prisma.TripDayUncheckedCreateNestedManyWithoutTripInput
-  feedbackTargets?: Prisma.TripFeedbackTargetUncheckedCreateNestedManyWithoutTripInput
 }
 
 export type TripCreateOrConnectWithoutBucketListItemsInput = {
@@ -1070,7 +1037,6 @@ export type TripUpdateWithoutBucketListItemsInput = {
   user?: Prisma.UserUpdateOneRequiredWithoutTripsNestedInput
   members?: Prisma.TripMemberUpdateManyWithoutTripNestedInput
   days?: Prisma.TripDayUpdateManyWithoutTripNestedInput
-  feedbackTargets?: Prisma.TripFeedbackTargetUpdateManyWithoutTripNestedInput
 }
 
 export type TripUncheckedUpdateWithoutBucketListItemsInput = {
@@ -1090,103 +1056,6 @@ export type TripUncheckedUpdateWithoutBucketListItemsInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   members?: Prisma.TripMemberUncheckedUpdateManyWithoutTripNestedInput
   days?: Prisma.TripDayUncheckedUpdateManyWithoutTripNestedInput
-  feedbackTargets?: Prisma.TripFeedbackTargetUncheckedUpdateManyWithoutTripNestedInput
-}
-
-export type TripCreateWithoutFeedbackTargetsInput = {
-  id?: string
-  name: string
-  startDate: Date | string
-  endDate: Date | string
-  heroImageUrl?: string | null
-  startLocationLat?: number | null
-  startLocationLng?: number | null
-  startLocationLabel?: string | null
-  destinationLocationLat?: number | null
-  destinationLocationLng?: number | null
-  destinationLocationLabel?: string | null
-  createdAt?: Date | string
-  updatedAt?: Date | string
-  user: Prisma.UserCreateNestedOneWithoutTripsInput
-  members?: Prisma.TripMemberCreateNestedManyWithoutTripInput
-  days?: Prisma.TripDayCreateNestedManyWithoutTripInput
-  bucketListItems?: Prisma.TripBucketListItemCreateNestedManyWithoutTripInput
-}
-
-export type TripUncheckedCreateWithoutFeedbackTargetsInput = {
-  id?: string
-  userId: string
-  name: string
-  startDate: Date | string
-  endDate: Date | string
-  heroImageUrl?: string | null
-  startLocationLat?: number | null
-  startLocationLng?: number | null
-  startLocationLabel?: string | null
-  destinationLocationLat?: number | null
-  destinationLocationLng?: number | null
-  destinationLocationLabel?: string | null
-  createdAt?: Date | string
-  updatedAt?: Date | string
-  members?: Prisma.TripMemberUncheckedCreateNestedManyWithoutTripInput
-  days?: Prisma.TripDayUncheckedCreateNestedManyWithoutTripInput
-  bucketListItems?: Prisma.TripBucketListItemUncheckedCreateNestedManyWithoutTripInput
-}
-
-export type TripCreateOrConnectWithoutFeedbackTargetsInput = {
-  where: Prisma.TripWhereUniqueInput
-  create: Prisma.XOR<Prisma.TripCreateWithoutFeedbackTargetsInput, Prisma.TripUncheckedCreateWithoutFeedbackTargetsInput>
-}
-
-export type TripUpsertWithoutFeedbackTargetsInput = {
-  update: Prisma.XOR<Prisma.TripUpdateWithoutFeedbackTargetsInput, Prisma.TripUncheckedUpdateWithoutFeedbackTargetsInput>
-  create: Prisma.XOR<Prisma.TripCreateWithoutFeedbackTargetsInput, Prisma.TripUncheckedCreateWithoutFeedbackTargetsInput>
-  where?: Prisma.TripWhereInput
-}
-
-export type TripUpdateToOneWithWhereWithoutFeedbackTargetsInput = {
-  where?: Prisma.TripWhereInput
-  data: Prisma.XOR<Prisma.TripUpdateWithoutFeedbackTargetsInput, Prisma.TripUncheckedUpdateWithoutFeedbackTargetsInput>
-}
-
-export type TripUpdateWithoutFeedbackTargetsInput = {
-  id?: Prisma.StringFieldUpdateOperationsInput | string
-  name?: Prisma.StringFieldUpdateOperationsInput | string
-  startDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  endDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  heroImageUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  startLocationLat?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
-  startLocationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
-  startLocationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  destinationLocationLat?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
-  destinationLocationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
-  destinationLocationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  user?: Prisma.UserUpdateOneRequiredWithoutTripsNestedInput
-  members?: Prisma.TripMemberUpdateManyWithoutTripNestedInput
-  days?: Prisma.TripDayUpdateManyWithoutTripNestedInput
-  bucketListItems?: Prisma.TripBucketListItemUpdateManyWithoutTripNestedInput
-}
-
-export type TripUncheckedUpdateWithoutFeedbackTargetsInput = {
-  id?: Prisma.StringFieldUpdateOperationsInput | string
-  userId?: Prisma.StringFieldUpdateOperationsInput | string
-  name?: Prisma.StringFieldUpdateOperationsInput | string
-  startDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  endDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  heroImageUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  startLocationLat?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
-  startLocationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
-  startLocationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  destinationLocationLat?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
-  destinationLocationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
-  destinationLocationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  members?: Prisma.TripMemberUncheckedUpdateManyWithoutTripNestedInput
-  days?: Prisma.TripDayUncheckedUpdateManyWithoutTripNestedInput
-  bucketListItems?: Prisma.TripBucketListItemUncheckedUpdateManyWithoutTripNestedInput
 }
 
 export type TripCreateManyUserInput = {
@@ -1222,7 +1091,6 @@ export type TripUpdateWithoutUserInput = {
   members?: Prisma.TripMemberUpdateManyWithoutTripNestedInput
   days?: Prisma.TripDayUpdateManyWithoutTripNestedInput
   bucketListItems?: Prisma.TripBucketListItemUpdateManyWithoutTripNestedInput
-  feedbackTargets?: Prisma.TripFeedbackTargetUpdateManyWithoutTripNestedInput
 }
 
 export type TripUncheckedUpdateWithoutUserInput = {
@@ -1242,7 +1110,6 @@ export type TripUncheckedUpdateWithoutUserInput = {
   members?: Prisma.TripMemberUncheckedUpdateManyWithoutTripNestedInput
   days?: Prisma.TripDayUncheckedUpdateManyWithoutTripNestedInput
   bucketListItems?: Prisma.TripBucketListItemUncheckedUpdateManyWithoutTripNestedInput
-  feedbackTargets?: Prisma.TripFeedbackTargetUncheckedUpdateManyWithoutTripNestedInput
 }
 
 export type TripUncheckedUpdateManyWithoutUserInput = {
@@ -1270,14 +1137,12 @@ export type TripCountOutputType = {
   members: number
   days: number
   bucketListItems: number
-  feedbackTargets: number
 }
 
 export type TripCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   members?: boolean | TripCountOutputTypeCountMembersArgs
   days?: boolean | TripCountOutputTypeCountDaysArgs
   bucketListItems?: boolean | TripCountOutputTypeCountBucketListItemsArgs
-  feedbackTargets?: boolean | TripCountOutputTypeCountFeedbackTargetsArgs
 }
 
 /**
@@ -1311,13 +1176,6 @@ export type TripCountOutputTypeCountBucketListItemsArgs<ExtArgs extends runtime.
   where?: Prisma.TripBucketListItemWhereInput
 }
 
-/**
- * TripCountOutputType without action
- */
-export type TripCountOutputTypeCountFeedbackTargetsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
-  where?: Prisma.TripFeedbackTargetWhereInput
-}
-
 
 export type TripSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
@@ -1338,7 +1196,6 @@ export type TripSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = r
   members?: boolean | Prisma.Trip$membersArgs<ExtArgs>
   days?: boolean | Prisma.Trip$daysArgs<ExtArgs>
   bucketListItems?: boolean | Prisma.Trip$bucketListItemsArgs<ExtArgs>
-  feedbackTargets?: boolean | Prisma.Trip$feedbackTargetsArgs<ExtArgs>
   _count?: boolean | Prisma.TripCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["trip"]>
 
@@ -1401,7 +1258,6 @@ export type TripInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = 
   members?: boolean | Prisma.Trip$membersArgs<ExtArgs>
   days?: boolean | Prisma.Trip$daysArgs<ExtArgs>
   bucketListItems?: boolean | Prisma.Trip$bucketListItemsArgs<ExtArgs>
-  feedbackTargets?: boolean | Prisma.Trip$feedbackTargetsArgs<ExtArgs>
   _count?: boolean | Prisma.TripCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type TripIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1418,7 +1274,6 @@ export type $TripPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
     members: Prisma.$TripMemberPayload<ExtArgs>[]
     days: Prisma.$TripDayPayload<ExtArgs>[]
     bucketListItems: Prisma.$TripBucketListItemPayload<ExtArgs>[]
-    feedbackTargets: Prisma.$TripFeedbackTargetPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
@@ -1833,7 +1688,6 @@ export interface Prisma__TripClient<T, Null = never, ExtArgs extends runtime.Typ
   members<T extends Prisma.Trip$membersArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Trip$membersArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$TripMemberPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   days<T extends Prisma.Trip$daysArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Trip$daysArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$TripDayPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   bucketListItems<T extends Prisma.Trip$bucketListItemsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Trip$bucketListItemsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$TripBucketListItemPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
-  feedbackTargets<T extends Prisma.Trip$feedbackTargetsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Trip$feedbackTargetsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$TripFeedbackTargetPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -2345,30 +2199,6 @@ export type Trip$bucketListItemsArgs<ExtArgs extends runtime.Types.Extensions.In
   take?: number
   skip?: number
   distinct?: Prisma.TripBucketListItemScalarFieldEnum | Prisma.TripBucketListItemScalarFieldEnum[]
-}
-
-/**
- * Trip.feedbackTargets
- */
-export type Trip$feedbackTargetsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
-  /**
-   * Select specific fields to fetch from the TripFeedbackTarget
-   */
-  select?: Prisma.TripFeedbackTargetSelect<ExtArgs> | null
-  /**
-   * Omit specific fields from the TripFeedbackTarget
-   */
-  omit?: Prisma.TripFeedbackTargetOmit<ExtArgs> | null
-  /**
-   * Choose, which related nodes to fetch as well
-   */
-  include?: Prisma.TripFeedbackTargetInclude<ExtArgs> | null
-  where?: Prisma.TripFeedbackTargetWhereInput
-  orderBy?: Prisma.TripFeedbackTargetOrderByWithRelationInput | Prisma.TripFeedbackTargetOrderByWithRelationInput[]
-  cursor?: Prisma.TripFeedbackTargetWhereUniqueInput
-  take?: number
-  skip?: number
-  distinct?: Prisma.TripFeedbackTargetScalarFieldEnum | Prisma.TripFeedbackTargetScalarFieldEnum[]
 }
 
 /**

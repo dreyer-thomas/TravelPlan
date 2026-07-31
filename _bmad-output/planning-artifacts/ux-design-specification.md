@@ -279,15 +279,18 @@ flowchart TD
 ```
 
 ### Konni - Viewer + Light Contributor
-Description: Konni accesses via invite or viewer role, sees the overview, votes on options, and adds suggestions.
+
+> **Partially removed 2026-07-30 — comments/voting discontinued, see Sprint Change Proposal 2026-07-30 (implemented by Story 5.9).** The viewer/contributor *access* half of this journey is live and unchanged (invite, viewer role, trip overview, reviewing days and stays). The ~~voting and commenting~~ half below is gone: the data model, API routes, and UI were removed. The PRD deliberately leaves Konni's post-removal engagement moment as an open `[OPEN]` marker — do not treat the struck-through steps as a spec to build.
+
+Description: Konni accesses via invite or viewer role, sees the overview, ~~votes on options, and adds suggestions~~.
 
 ```mermaid
 flowchart TD
   A[Entry: Invite link or viewer access] --> B[Trip overview + status]
   B --> C[Review days, stays, and open items]
   C --> D{Action?}
-  D -- Vote --> E[Vote on hotel/day item]
-  D -- Comment --> F[Add comment on item]
+  D -- "Vote (REMOVED 2026-07-30)" --> E["Vote on hotel/day item (REMOVED)"]
+  D -- "Comment (REMOVED 2026-07-30)" --> F["Add comment on item (REMOVED)"]
   D -- Suggest --> G[Add proposal: place or stay]
   E --> H[Input visible in plan]
   F --> H
@@ -361,11 +364,14 @@ Usage: Budget view and overview strip.
 States: On track, over budget, missing costs.
 Accessibility: Numeric summary + clear labels.
 
-#### Suggestion / Voting Widget
-Purpose: Allow Konni to vote or suggest options.
-Usage: Item detail cards.
-States: Voted, pending, closed.
-Accessibility: Clear action labels, feedback after voting.
+#### ~~Suggestion / Voting Widget~~ (Removed 2026-07-30)
+
+> **Removed 2026-07-30 — comments/voting discontinued, see Sprint Change Proposal 2026-07-30 (implemented by Story 5.9).** `TripFeedbackPanel.tsx` and its five render sites, the three feedback API routes, the three Prisma models, and all 29 `trips.feedback.*` strings were deleted. No replacement engagement surface was specified — the PRD leaves it as an open `[OPEN]` marker. Retained here struck through so the component inventory stays historically complete; do not build from it.
+
+~~Purpose: Allow Konni to vote or suggest options.~~
+~~Usage: Item detail cards.~~
+~~States: Voted, pending, closed.~~
+~~Accessibility: Clear action labels, feedback after voting.~~
 
 ### Component Implementation Strategy
 - Build custom components on top of Material UI tokens.

@@ -42,7 +42,6 @@ import TripDayMapPanel, {
 import TripDayBucketListPanel from "@/components/features/trips/TripDayBucketListPanel";
 import TripDayPlanDialog from "@/components/features/trips/TripDayPlanDialog";
 import TripDayTravelSegmentDialog from "@/components/features/trips/TripDayTravelSegmentDialog";
-import TripFeedbackPanel, { type FeedbackSummary } from "@/components/features/trips/TripFeedbackPanel";
 import { MiniImageStrip, PlanItemRichContent, isSafeLink, parsePlanText } from "@/components/features/trips/TripDayPlanItemContent";
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
@@ -57,7 +56,6 @@ type ApiEnvelope<T> = {
 type TripSummary = {
   id: string;
   name: string;
-  currentUserId?: string;
   accessRole?: "owner" | "viewer" | "contributor";
   startDate: string;
   endDate: string;
@@ -65,7 +63,6 @@ type TripSummary = {
   plannedCostTotal: number;
   accommodationCostTotalCents: number | null;
   heroImageUrl: string | null;
-  feedback?: FeedbackSummary;
 };
 
 type TripDay = {
@@ -89,7 +86,6 @@ type TripDay = {
     checkInTime: string | null;
     checkOutTime: string | null;
     location?: { lat: number; lng: number; label?: string | null } | null;
-    feedback?: FeedbackSummary;
   } | null;
   dayPlanItems: {
     id: string;
@@ -101,7 +97,6 @@ type TripDay = {
     payments?: { amountCents: number; dueDate: string }[];
     linkUrl: string | null;
     location: { lat: number; lng: number; label?: string | null } | null;
-    feedback?: FeedbackSummary;
   }[];
   travelSegments?: {
     id: string;
@@ -114,7 +109,6 @@ type TripDay = {
     distanceKm: number | null;
     linkUrl: string | null;
   }[];
-  feedback?: FeedbackSummary;
 };
 
 type DayPlanItem = {
@@ -129,7 +123,6 @@ type DayPlanItem = {
   linkUrl: string | null;
   location: { lat: number; lng: number; label?: string | null } | null;
   createdAt: string;
-  feedback?: FeedbackSummary;
 };
 
 type BucketListItem = {
@@ -338,11 +331,6 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     [language],
   );
 
-  const buildFeedbackContextLabel = useCallback(
-    (value: string) => value.trim(),
-    [],
-  );
-
   // style: "currency" places the symbol per locale - German needs "1.234,50 €", not "€1.234,50".
   const formatCost = useMemo(
     () => (value: number) =>
@@ -468,7 +456,6 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
           linkUrl: item.linkUrl,
           location: item.location,
           createdAt: "",
-          feedback: item.feedback,
         })),
       );
       setTravelSegments(Array.isArray(resolvedDay.travelSegments) ? resolvedDay.travelSegments : []);
@@ -2009,31 +1996,6 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
             >
               {t("trips.dayView.printAction")}
             </Button>
-            <Box sx={{ ml: "auto" }}>
-              <TripFeedbackPanel
-                tripId={tripId}
-                feedback={day.feedback}
-                targetType="tripDay"
-                targetId={day.id}
-                currentUserId={detail?.trip.currentUserId}
-                contextLabel={buildFeedbackContextLabel(
-                  day.note && day.note.trim().length > 0
-                    ? formatMessage(t("trips.dayView.titleWithNote"), { index: day.dayIndex, note: day.note.trim() })
-                    : formatMessage(t("trips.dayView.title"), { index: day.dayIndex }),
-                )}
-                onUpdated={(feedback) => {
-                  setDay((current) => (current ? { ...current, feedback } : current));
-                  setDetail((current) =>
-                    current
-                      ? {
-                          ...current,
-                          days: current.days.map((entry) => (entry.id === day.id ? { ...entry, feedback } : entry)),
-                        }
-                      : current,
-                  );
-                }}
-              />
-            </Box>
           </Box>
 
           <Box
@@ -2127,31 +2089,6 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                           variant="outlined"
                         />
                       </Box>
-                      <TripFeedbackPanel
-                        tripId={tripId}
-                        feedback={previousStay.feedback}
-                        targetType="accommodation"
-                        targetId={previousStay.id}
-                        currentUserId={detail?.trip.currentUserId}
-                        contextLabel={buildFeedbackContextLabel(
-                          `${t("trips.dayView.previousNightTitle")}: ${previousStay.name}`,
-                        )}
-                        tripDayId={previousDay?.id}
-                        onUpdated={(feedback) =>
-                          setDetail((current) =>
-                            current
-                              ? {
-                                  ...current,
-                                  days: current.days.map((entry) =>
-                                    entry.id === previousDay?.id && entry.accommodation
-                                      ? { ...entry, accommodation: { ...entry.accommodation, feedback } }
-                                      : entry,
-                                  ),
-                                }
-                              : current,
-                          )
-                        }
-                      />
                       {/* Last child: DESIGN.md's photo-strip runs along the bottom of the card. */}
                       <MiniImageStrip
                         variant="strip"
@@ -2239,47 +2176,6 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                                   {t("trips.plan.noLink")}
                                 </Typography>
                               )}
-                              <TripFeedbackPanel
-                                tripId={tripId}
-                                feedback={item.feedback}
-                                targetType="dayPlanItem"
-                                targetId={item.id}
-                                currentUserId={detail?.trip.currentUserId}
-                                contextLabel={buildFeedbackContextLabel(title)}
-                                tripDayId={day.id}
-                                onUpdated={(feedback) => {
-                                  setPlanItems((current) =>
-                                    current.map((entry) => (entry.id === item.id ? { ...entry, feedback } : entry)),
-                                  );
-                                  setDay((current) =>
-                                    current
-                                      ? {
-                                          ...current,
-                                          dayPlanItems: current.dayPlanItems.map((entry) =>
-                                            entry.id === item.id ? { ...entry, feedback } : entry,
-                                          ),
-                                        }
-                                      : current,
-                                  );
-                                  setDetail((current) =>
-                                    current
-                                      ? {
-                                          ...current,
-                                          days: current.days.map((entry) =>
-                                            entry.id === day.id
-                                              ? {
-                                                  ...entry,
-                                                  dayPlanItems: entry.dayPlanItems.map((planItem) =>
-                                                    planItem.id === item.id ? { ...planItem, feedback } : planItem,
-                                                  ),
-                                                }
-                                              : entry,
-                                          ),
-                                        }
-                                      : current,
-                                  );
-                                }}
-                              />
                               {/* Last child: DESIGN.md's photo-strip runs along the bottom of the card. */}
                               <MiniImageStrip
                                 variant="strip"
@@ -2397,36 +2293,6 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                           <Typography sx={tlCostSx}>{formatCost(currentStay.costCents)}</Typography>
                         ) : null}
                       </Box>
-                      <TripFeedbackPanel
-                        tripId={tripId}
-                        feedback={currentStay.feedback}
-                        targetType="accommodation"
-                        targetId={currentStay.id}
-                        currentUserId={detail?.trip.currentUserId}
-                        contextLabel={buildFeedbackContextLabel(
-                          `${t("trips.dayView.currentNightTitle")}: ${currentStay.name}`,
-                        )}
-                        tripDayId={day.id}
-                        onUpdated={(feedback) => {
-                          setDay((current) =>
-                            current && current.accommodation
-                              ? { ...current, accommodation: { ...current.accommodation, feedback } }
-                              : current,
-                          );
-                          setDetail((current) =>
-                            current
-                              ? {
-                                  ...current,
-                                  days: current.days.map((entry) =>
-                                    entry.id === day.id && entry.accommodation
-                                      ? { ...entry, accommodation: { ...entry.accommodation, feedback } }
-                                      : entry,
-                                  ),
-                                }
-                              : current,
-                          );
-                        }}
-                      />
                       {/* Last child: DESIGN.md's photo-strip runs along the bottom of the card. */}
                       <MiniImageStrip
                         variant="strip"

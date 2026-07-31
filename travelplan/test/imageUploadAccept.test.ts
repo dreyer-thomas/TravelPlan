@@ -1,7 +1,7 @@
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { IMAGE_UPLOAD_ACCEPT, isSupportedImageUpload } from "@/lib/trips/imageUploads";
+import { IMAGE_UPLOAD_ACCEPT, isSupportedImageUpload, withImageCacheBuster } from "@/lib/trips/imageUploads";
 
 // `image/jpg` and `image/pjpeg` are not registered MIME types. They previously appeared in the
 // day-image field's accept filter, where macOS translated the list into the native file panel's
@@ -75,5 +75,39 @@ describe("isSupportedImageUpload", () => {
     expect(isSupportedImageUpload({ type: "image/gif", name: "a.gif" })).toBe(false);
     expect(isSupportedImageUpload({ type: "", name: "notes.pdf" })).toBe(false);
     expect(isSupportedImageUpload({ type: "", name: "noextension" })).toBe(false);
+  });
+});
+
+describe("withImageCacheBuster", () => {
+  it("stamps the upload's version onto the url", () => {
+    expect(withImageCacheBuster("/uploads/trips/t1/hero.png", "2026-08-01T00:16:05.000Z")).toBe(
+      "/uploads/trips/t1/hero.png?v=20260801T001605000Z",
+    );
+  });
+
+  it("appends rather than replaces when the url already carries a query", () => {
+    expect(withImageCacheBuster("/uploads/trips/t1/hero.png?a=b", "7")).toBe("/uploads/trips/t1/hero.png?a=b&v=7");
+  });
+
+  it("gives two writes a second apart two different urls", () => {
+    expect(withImageCacheBuster("/h.png", "2026-08-01T00:16:05.000Z")).not.toBe(
+      withImageCacheBuster("/h.png", "2026-08-01T00:16:06.000Z"),
+    );
+  });
+
+  it("leaves the url untouched when the server sent no version", () => {
+    // Better an unstamped url than a stamp that cannot tell one upload from the next - the latter
+    // would look like cache-busting while pinning the browser to whichever image it fetched first.
+    expect(withImageCacheBuster("/uploads/trips/t1/hero.png", undefined)).toBe("/uploads/trips/t1/hero.png");
+    expect(withImageCacheBuster("/uploads/trips/t1/hero.png", "::..")).toBe("/uploads/trips/t1/hero.png");
+  });
+
+  it("survives the css url() escaping the hero background applies to it", () => {
+    // The hero background runs the finished url through toCssUrl's encodeURI. A percent-encoded stamp
+    // would come back out double-encoded (%3A -> %253A) and the browser would request a path that
+    // does not exist - the hero would paint nothing at all, which is the bug this stamp exists to fix.
+    const stamped = withImageCacheBuster("/uploads/trips/t1/hero.png", "2026-08-01T00:16:05.000Z");
+    expect(encodeURI(stamped)).toBe(stamped);
+    expect(encodeURIComponent(stamped.split("?v=")[1])).toBe(stamped.split("?v=")[1]);
   });
 });

@@ -8,6 +8,7 @@ import { getTripDayByIdForUser, updateTripDayImageForUser } from "@/lib/reposito
 import { CSRF_COOKIE_NAME, validateCsrf } from "@/lib/security/csrf";
 import { dayImageUpdateSchema } from "@/lib/validation/dayImageSchemas";
 import { requireSession } from "@/lib/auth/sessionGuard";
+import { getTripDayUploadDir } from "@/lib/trips/uploadPaths";
 
 export const runtime = "nodejs";
 
@@ -126,7 +127,7 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
     return fail(apiError("validation_error", "Day image exceeds size limit"), 400);
   }
 
-  const uploadDir = path.join(process.cwd(), "public", "uploads", "trips", tripId, "days", dayId);
+  const uploadDir = getTripDayUploadDir(tripId, dayId);
   await fs.mkdir(uploadDir, { recursive: true });
   await removeExistingDayImageFiles(uploadDir);
 
@@ -207,7 +208,7 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
     const nextImageUrl = parsed.data.imageUrl;
     const dayUploadPathPrefix = `/uploads/trips/${tripId}/days/${dayId}/`;
     if (nextImageUrl === null || (typeof nextImageUrl === "string" && !nextImageUrl.startsWith(dayUploadPathPrefix))) {
-      const uploadDir = path.join(process.cwd(), "public", "uploads", "trips", tripId, "days", dayId);
+      const uploadDir = getTripDayUploadDir(tripId, dayId);
       await fs.rm(uploadDir, { recursive: true, force: true });
     }
 

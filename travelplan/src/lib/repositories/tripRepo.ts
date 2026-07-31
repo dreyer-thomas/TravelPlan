@@ -2,8 +2,6 @@ import { prisma } from "@/lib/db/prisma";
 import { hashPassword } from "@/lib/auth/bcrypt";
 import { Prisma } from "@/generated/prisma/client";
 import type { TripAccessRole } from "@/lib/auth/tripAccess";
-import type { TripFeedbackSummary } from "@/lib/repositories/tripFeedbackRepo";
-import { listTripFeedbackForUser } from "@/lib/repositories/tripFeedbackRepo";
 import { buildDayMapPanelData, buildTripDayMapItems, type TripDayMapPanelData } from "@/lib/trips/dayMapData";
 import type { TripImportConflictStrategy, TripImportPayloadInput } from "@/lib/validation/tripImportSchemas";
 
@@ -29,6 +27,15 @@ export type TripSummary = {
   endDate: Date;
   dayCount: number;
   heroImageUrl: string | null;
+  /**
+   * Bumped by the hero write, so readers can version the otherwise-stable hero URL.
+   *
+   * The hero always lands on `hero.<ext>` (the upload route replaces the file in place), so the URL
+   * alone is byte-identical before and after a replacement and a cached copy - or a cached 404 -
+   * wins forever. Callers stamp this onto the URL, exactly as day images already do with
+   * `TripDaySummary.updatedAt`. See `withImageCacheBuster`.
+   */
+  updatedAt: Date;
 };
 
 export type TripHeroSummary = {
@@ -38,6 +45,8 @@ export type TripHeroSummary = {
   endDate: Date;
   dayCount: number;
   heroImageUrl: string | null;
+  /** Bumped by the hero write itself, so callers can version the otherwise-stable hero URL. */
+  updatedAt: Date;
 };
 
 export type TripDaySummary = {
@@ -61,7 +70,6 @@ export type TripDaySummary = {
     checkInTime: string | null;
     checkOutTime: string | null;
     location: { lat: number; lng: number; label: string | null } | null;
-    feedback: TripFeedbackSummary;
   } | null;
   dayPlanItems: {
     id: string;
@@ -73,7 +81,6 @@ export type TripDaySummary = {
     payments: { amountCents: number; dueDate: string }[];
     linkUrl: string | null;
     location: { lat: number; lng: number; label: string | null } | null;
-    feedback: TripFeedbackSummary;
   }[];
   travelSegments: {
     id: string;
@@ -86,7 +93,6 @@ export type TripDaySummary = {
     distanceKm: number | null;
     linkUrl: string | null;
   }[];
-  feedback: TripFeedbackSummary;
 };
 
 export type TripWithDays = {
@@ -99,7 +105,8 @@ export type TripWithDays = {
   plannedCostTotal: number;
   accommodationCostTotalCents: number;
   heroImageUrl: string | null;
-  feedback: TripFeedbackSummary;
+  /** Bumped by the hero write; see `TripSummary.updatedAt` for why readers need it. */
+  updatedAt: Date;
   days: TripDaySummary[];
 };
 
@@ -421,6 +428,7 @@ export const listTripsForUser = async (userId: string): Promise<TripSummary[]> =
     endDate: trip.endDate,
     dayCount: trip._count.days,
     heroImageUrl: trip.heroImageUrl,
+    updatedAt: trip.updatedAt,
   }));
 };
 
@@ -545,6 +553,7 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
       startDate: true,
       endDate: true,
       heroImageUrl: true,
+      updatedAt: true,
       members: {
         where: { userId },
         select: { role: true },
@@ -619,17 +628,6 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
 
   const accessRole: TripAccessRole =
     trip.userId === userId ? "owner" : mapTripMemberRole(trip.members[0]?.role ?? "VIEWER");
-  const feedbackByKey = (await listTripFeedbackForUser(userId, trip.id)) ?? {};
-  const emptyFeedback = (targetType: TripFeedbackSummary["targetType"], targetId: string): TripFeedbackSummary => ({
-    targetType,
-    targetId,
-    comments: [],
-    voteSummary: {
-      upCount: 0,
-      downCount: 0,
-      userVote: null,
-    },
-  });
 
   const dayMetaRows = await prisma.$queryRawUnsafe<
     {
@@ -665,7 +663,7 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
     plannedCostTotal,
     accommodationCostTotalCents,
     heroImageUrl: trip.heroImageUrl,
-    feedback: feedbackByKey[`trip:${trip.id}`] ?? emptyFeedback("trip", trip.id),
+    updatedAt: trip.updatedAt,
     days: trip.days.map((day) => {
       const accommodationName = day.accommodation?.name?.trim() ?? "";
       const hasAccommodation = accommodationName.length > 0;
@@ -702,9 +700,6 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
                       label: day.accommodation!.locationLabel,
                     }
                   : null,
-              feedback:
-                feedbackByKey[`accommodation:${day.accommodation!.id}`] ??
-                emptyFeedback("accommodation", day.accommodation!.id),
             }
           : null,
         dayPlanItems: [...day.dayPlanItems].sort(compareDayPlanItemsByStartTime).map((item) => ({
@@ -724,7 +719,6 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
                   label: item.locationLabel,
                 }
               : null,
-          feedback: feedbackByKey[`dayPlanItem:${item.id}`] ?? emptyFeedback("dayPlanItem", item.id),
         })),
         travelSegments: day.travelSegments.map((segment) => ({
           id: segment.id,
@@ -737,7 +731,6 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
           distanceKm: segment.distanceKm,
           linkUrl: segment.linkUrl,
         })),
-        feedback: feedbackByKey[`tripDay:${day.id}`] ?? emptyFeedback("tripDay", day.id),
       };
     }),
   };
@@ -1792,5 +1785,6 @@ export const updateTripHeroImageForUser = async ({
       endDate: updated.endDate,
       dayCount: trip._count.days,
       heroImageUrl: updated.heroImageUrl,
+      updatedAt: updated.updatedAt,
     };
   });

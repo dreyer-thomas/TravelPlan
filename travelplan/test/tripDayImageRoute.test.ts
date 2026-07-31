@@ -6,6 +6,7 @@ import { PATCH, POST } from "@/app/api/trips/[id]/days/[dayId]/image/route";
 import { prisma } from "@/lib/db/prisma";
 import { createSessionJwt } from "@/lib/auth/jwt";
 import { createTripWithDays } from "@/lib/repositories/tripRepo";
+import { getTripsUploadRoot } from "@/lib/trips/uploadPaths";
 
 type ApiEnvelope<T> = {
   data: T | null;
@@ -80,7 +81,7 @@ const buildUploadRequest = async ({
 };
 
 describe("PATCH /api/trips/[id]/days/[dayId]/image", () => {
-  const uploadsRoot = path.resolve(process.cwd(), "public", "uploads", "trips");
+  const uploadsRoot = getTripsUploadRoot();
 
   beforeEach(async () => {
     await prisma.dayPlanItem.deleteMany();

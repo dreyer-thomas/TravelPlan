@@ -89,6 +89,8 @@ export const GET = async (request: NextRequest) => {
         endDate: trip.endDate.toISOString(),
         dayCount: trip.dayCount,
         heroImageUrl: trip.heroImageUrl,
+        // Versions the otherwise-stable `hero.<ext>` URL on the dashboard cards.
+        updatedAt: trip.updatedAt.toISOString(),
       })),
     });
   } catch {

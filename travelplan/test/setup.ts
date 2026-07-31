@@ -1,11 +1,29 @@
 import { execSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { afterAll, vi } from "vitest";
 
 const workerId = process.env.VITEST_WORKER_ID ?? process.env.VITEST_POOL_ID ?? "0";
 const testDbPath = path.resolve(process.cwd(), "prisma", `test-${workerId}.db`);
 const migrateLockPath = path.resolve(process.cwd(), "prisma", `test-migrate-${workerId}.lock`);
+
+/**
+ * Redirect every image write away from the real `public/` directory.
+ *
+ * Four image-route suites clean up with `fs.rm(<uploadsRoot>, { recursive: true, force: true })`. While
+ * `uploadsRoot` resolved to `<cwd>/public/uploads/trips` that cleanup deleted the developer's actual
+ * uploaded images on every `npm test` - a real hero image and two day images were lost this way. The
+ * routes now resolve their write path through `UPLOADS_PUBLIC_ROOT` (see `src/lib/trips/uploadPaths.ts`),
+ * so pointing it at a per-worker temp directory puts real files permanently out of reach, regardless of
+ * what any individual test removes.
+ *
+ * Set before any route module is imported, because the routes read the variable per call and the
+ * suites resolve their own `uploadsRoot` at module scope.
+ */
+const testUploadsRoot = path.join(os.tmpdir(), "travelplan-test-uploads", `worker-${workerId}`);
+process.env.UPLOADS_PUBLIC_ROOT = testUploadsRoot;
+fs.mkdirSync(path.join(testUploadsRoot, "uploads", "trips"), { recursive: true });
 
 const wait = (ms: number) => {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);

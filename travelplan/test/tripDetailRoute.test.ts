@@ -6,6 +6,7 @@ import { DELETE, GET, PATCH } from "@/app/api/trips/[id]/route";
 import { prisma } from "@/lib/db/prisma";
 import { createSessionJwt } from "@/lib/auth/jwt";
 import { createTripWithDays } from "@/lib/repositories/tripRepo";
+import { getTripsUploadRoot } from "@/lib/trips/uploadPaths";
 
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 type ApiEnvelope<T> = {
@@ -178,6 +179,139 @@ describe("GET /api/trips/[id]", () => {
     expect(payload.data?.days[0].accommodation?.location).toEqual({ lat: 48.1372, lng: 11.5756, label: "Harbor" });
     expect(payload.data?.days[1].dayPlanItems[0].costCents).toBe(1400);
     expect(payload.data?.days[1].dayPlanItems[0].location).toEqual({ lat: 48.145, lng: 11.582, label: "Museum" });
+  });
+
+  // Story 5.9 removed an embedded `feedback` object from all four payload levels and asserted
+  // "every other field byte-for-byte unchanged" - but the only test that pinned the embedded shape
+  // was deleted with the feature, leaving both halves of that claim verified by hand against a
+  // running build and nothing at all in CI. These exact key-set assertions pin both directions:
+  // `feedback` (or any other field) cannot come back unnoticed, and no sibling field can silently
+  // disappear. Update the expected arrays deliberately when the contract really changes.
+  it("returns an exact payload key set at every nesting level", async () => {
+    const user = await prisma.user.create({
+      data: { email: "trip-shape@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const token = await createSessionJwt({ sub: user.id, role: user.role });
+
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Shape Trip",
+      startDate: "2026-05-01T00:00:00.000Z",
+      endDate: "2026-05-02T00:00:00.000Z",
+    });
+
+    const day = await prisma.tripDay.findFirstOrThrow({
+      where: { tripId: trip.id },
+      orderBy: { dayIndex: "asc" },
+    });
+
+    await prisma.accommodation.create({
+      data: { tripDayId: day.id, name: "Shape Hotel", status: "PLANNED" },
+    });
+    const planItem = await prisma.dayPlanItem.create({
+      data: { tripDayId: day.id, title: "Shape Item", contentJson: "{}" },
+    });
+    const otherItem = await prisma.dayPlanItem.create({
+      data: { tripDayId: day.id, title: "Second Item", contentJson: "{}" },
+    });
+    await prisma.travelSegment.create({
+      data: {
+        tripDayId: day.id,
+        fromItemType: "DAY_PLAN_ITEM",
+        fromItemId: planItem.id,
+        toItemType: "DAY_PLAN_ITEM",
+        toItemId: otherItem.id,
+        transportType: "CAR",
+        durationMinutes: 15,
+      },
+    });
+
+    const response = await GET(buildRequest(trip.id, { session: token }), {
+      params: Promise.resolve({ id: trip.id }),
+    });
+    expect(response.status).toBe(200);
+
+    const payload = (await response.json()) as ApiEnvelope<{
+      trip: Record<string, unknown>;
+      days: Record<string, unknown>[];
+    }>;
+
+    expect(Object.keys(payload.data!).sort()).toEqual(["days", "trip"]);
+
+    expect(Object.keys(payload.data!.trip).sort()).toEqual([
+      "accessRole",
+      "accommodationCostTotalCents",
+      "currentUserId",
+      "dayCount",
+      "endDate",
+      "heroImageUrl",
+      "id",
+      "name",
+      "plannedCostTotal",
+      "startDate",
+      // Added deliberately so clients can version the otherwise-stable hero image URL.
+      "updatedAt",
+    ]);
+
+    const dayPayload = payload.data!.days[0]!;
+    expect(Object.keys(dayPayload).sort()).toEqual([
+      "accommodation",
+      "date",
+      "dayIndex",
+      "dayPlanItems",
+      "id",
+      "imageUrl",
+      "missingAccommodation",
+      "missingPlan",
+      "note",
+      "plannedCostSubtotal",
+      "travelSegments",
+      "updatedAt",
+    ]);
+
+    expect(Object.keys(dayPayload.accommodation as Record<string, unknown>).sort()).toEqual([
+      "checkInTime",
+      "checkOutTime",
+      "costCents",
+      "id",
+      "link",
+      "location",
+      "name",
+      "notes",
+      "payments",
+      "status",
+    ]);
+
+    const items = dayPayload.dayPlanItems as Record<string, unknown>[];
+    expect(items).toHaveLength(2);
+    expect(Object.keys(items[0]!).sort()).toEqual([
+      "contentJson",
+      "costCents",
+      "fromTime",
+      "id",
+      "linkUrl",
+      "location",
+      "payments",
+      "title",
+      "toTime",
+    ]);
+
+    const segments = dayPayload.travelSegments as Record<string, unknown>[];
+    expect(segments).toHaveLength(1);
+    expect(Object.keys(segments[0]!).sort()).toEqual([
+      "distanceKm",
+      "durationMinutes",
+      "fromItemId",
+      "fromItemType",
+      "id",
+      "linkUrl",
+      "toItemId",
+      "toItemType",
+      "transportType",
+    ]);
+
+    // Belt and braces: the removed feature must not reappear at any depth.
+    expect(JSON.stringify(payload)).not.toMatch(/feedback|voteSummary/i);
   });
 
   it("returns trip and days for collaborator memberships", async () => {
@@ -515,6 +649,51 @@ describe("PATCH /api/trips/[id]", () => {
     expect(payload.data).toBeNull();
     expect(payload.error?.code).toBe("unauthorized");
   });
+
+  // Rescued from `tripFeedbackRoute.test.ts`, deleted by Story 5.9 as "feedback-only". It was not:
+  // this was the only assertion anywhere that a VIEWER *member* - authenticated, and genuinely on
+  // the trip - is still refused a core mutation. The case above only covers the unauthenticated
+  // 401 path, which a viewer never takes.
+  it("keeps a viewer member blocked from updating the trip", async () => {
+    const owner = await prisma.user.create({
+      data: { email: "owner@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const viewer = await prisma.user.create({
+      data: { email: "viewer-member@example.com", passwordHash: "hashed", role: "VIEWER" },
+    });
+    const trip = await prisma.trip.create({
+      data: {
+        userId: owner.id,
+        name: "Protected Trip",
+        startDate: new Date("2026-09-10T00:00:00.000Z"),
+        endDate: new Date("2026-09-11T00:00:00.000Z"),
+      },
+    });
+    await prisma.tripMember.create({
+      data: { tripId: trip.id, userId: viewer.id, role: "VIEWER" },
+    });
+    const session = await createSessionJwt({ sub: viewer.id, role: viewer.role });
+
+    const response = await PATCH(
+      buildRequest(trip.id, {
+        method: "PATCH",
+        session,
+        csrf: "csrf-token",
+        body: JSON.stringify({
+          name: "Changed",
+          startDate: "2026-09-10T00:00:00.000Z",
+          endDate: "2026-09-11T00:00:00.000Z",
+        }),
+      }),
+      { params: Promise.resolve({ id: trip.id }) },
+    );
+
+    expect(response.status).toBe(404);
+
+    // The refusal must be real, not just a status code.
+    const unchanged = await prisma.trip.findUniqueOrThrow({ where: { id: trip.id } });
+    expect(unchanged.name).toBe("Protected Trip");
+  });
 });
 
 describe("DELETE /api/trips/[id]", () => {
@@ -572,7 +751,7 @@ describe("DELETE /api/trips/[id]", () => {
       endDate: "2026-08-11T00:00:00.000Z",
     });
 
-    const uploadDir = path.join(process.cwd(), "public", "uploads", "trips", trip.id);
+    const uploadDir = path.join(getTripsUploadRoot(), trip.id);
     await fs.mkdir(uploadDir, { recursive: true });
     await fs.writeFile(path.join(uploadDir, "hero.png"), Buffer.from("hero"));
 

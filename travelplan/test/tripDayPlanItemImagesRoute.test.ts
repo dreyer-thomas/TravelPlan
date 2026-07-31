@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
 import fs from "node:fs/promises";
-import path from "node:path";
 import { DELETE, GET, PATCH, POST } from "@/app/api/trips/[id]/day-plan-items/images/route";
 import { createSessionJwt } from "@/lib/auth/jwt";
 import { prisma } from "@/lib/db/prisma";
+import { getTripsUploadRoot } from "@/lib/trips/uploadPaths";
 
 type ApiEnvelope<T> = {
   data: T | null;
@@ -12,7 +12,7 @@ type ApiEnvelope<T> = {
 };
 
 describe("/api/trips/[id]/day-plan-items/images", () => {
-  const uploadsRoot = path.resolve(process.cwd(), "public", "uploads", "trips");
+  const uploadsRoot = getTripsUploadRoot();
 
   beforeEach(async () => {
     await prisma.accommodationImage.deleteMany();

@@ -7,6 +7,7 @@ import { hasTripOwnerAccess } from "@/lib/auth/tripAccess";
 import { CSRF_COOKIE_NAME, validateCsrf } from "@/lib/security/csrf";
 import { getTripByIdForUser, updateTripHeroImageForUser } from "@/lib/repositories/tripRepo";
 import { requireSession } from "@/lib/auth/sessionGuard";
+import { getTripUploadDir } from "@/lib/trips/uploadPaths";
 
 export const runtime = "nodejs";
 
@@ -91,7 +92,7 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
     return fail(apiError("validation_error", "Hero image exceeds size limit"), 400);
   }
 
-  const uploadDir = path.join(process.cwd(), "public", "uploads", "trips", tripId);
+  const uploadDir = getTripUploadDir(tripId);
   await fs.mkdir(uploadDir, { recursive: true });
   await removeExistingHeroFiles(uploadDir);
 
@@ -116,6 +117,9 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
       endDate: updated.endDate.toISOString(),
       dayCount: updated.dayCount,
       heroImageUrl: updated.heroImageUrl,
+      // The hero always lands on `hero.<ext>`, so the URL alone cannot tell a replacement apart from
+      // the image the page already fetched. Clients stamp this onto the URL to force a fresh request.
+      updatedAt: updated.updatedAt.toISOString(),
     },
   });
 };

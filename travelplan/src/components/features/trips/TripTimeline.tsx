@@ -9,7 +9,6 @@ import TripEditDialog, { type TripDetail as EditableTripDetail } from "@/compone
 import TripImportDialog from "@/components/features/trips/TripImportDialog";
 import TripShareDialog from "@/components/features/trips/TripShareDialog";
 import TripDayGanttBar from "@/components/features/trips/TripDayGanttBar";
-import TripFeedbackPanel, { type FeedbackSummary } from "@/components/features/trips/TripFeedbackPanel";
 import { buildOverviewGanttSegments } from "@/components/features/trips/TripDayGanttOverviewData";
 import { deriveCoverageSummary, type TripDayGanttSegment } from "@/components/features/trips/TripDayGanttSegments";
 import TripOverviewMapPanel from "@/components/features/trips/TripOverviewMapPanel";
@@ -24,6 +23,7 @@ import {
   WarningTriangleIcon,
   toCssUrl,
 } from "@/components/features/trips/TripIcons";
+import { withImageCacheBuster } from "@/lib/trips/imageUploads";
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
 
@@ -35,7 +35,6 @@ type ApiEnvelope<T> = {
 type TripSummary = {
   id: string;
   name: string;
-  currentUserId?: string;
   accessRole?: "owner" | "viewer" | "contributor";
   startDate: string;
   endDate: string;
@@ -43,7 +42,8 @@ type TripSummary = {
   plannedCostTotal: number;
   accommodationCostTotalCents: number | null;
   heroImageUrl: string | null;
-  feedback: FeedbackSummary;
+  /** Versions the hero URL; see `withImageCacheBuster`. Optional so an older cached payload still renders. */
+  updatedAt?: string;
 };
 
 type TripDay = {
@@ -65,7 +65,6 @@ type TripDay = {
     checkInTime?: string | null;
     checkOutTime?: string | null;
     location: { lat: number; lng: number; label: string | null } | null;
-    feedback: FeedbackSummary;
   } | null;
   dayPlanItems: {
     id: string;
@@ -75,7 +74,6 @@ type TripDay = {
     contentJson: string;
     linkUrl: string | null;
     location: { lat: number; lng: number; label: string | null } | null;
-    feedback: FeedbackSummary;
   }[];
   travelSegments?: {
     id: string;
@@ -88,7 +86,6 @@ type TripDay = {
     distanceKm: number | null;
     linkUrl: string | null;
   }[];
-  feedback: FeedbackSummary;
 };
 
 type TripDetail = {
@@ -373,8 +370,17 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
     }
   };
 
+  // The hero is versioned at *read* time, not just at upload time. The upload route replaces
+  // `hero.<ext>` in place, so without a version the URL is byte-identical before and after and the
+  // browser keeps serving whatever it already cached for that key - which is why a freshly uploaded
+  // hero appeared, then vanished again the moment this component refetched on the next navigation.
+  // The placeholder is a static asset and needs no version.
   const heroImageCss = detail
-    ? toCssUrl(detail.trip.heroImageUrl ?? "/images/world-map-placeholder.svg")
+    ? toCssUrl(
+        detail.trip.heroImageUrl
+          ? withImageCacheBuster(detail.trip.heroImageUrl, detail.trip.updatedAt)
+          : "/images/world-map-placeholder.svg",
+      )
     : "none";
   const openDaysCount = detail?.days.filter((day) => day.missingAccommodation).length ?? 0;
   const firstGapDay = detail?.days.find((day) => day.missingAccommodation) ?? null;
@@ -610,7 +616,7 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                         },
                         alignItems: "center",
                         gap: "14px",
-                        padding: "30px 14px 12px 14px",
+                        padding: "12px 14px",
                         border: "1px solid",
                         borderColor: isGap ? tokens.warnBorder : tokens.borderStrong,
                         borderRadius: "8px",
@@ -748,27 +754,6 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                         <Typography variant="caption" sx={{ color: tokens.inkSoft }}>
                           {ganttSummary}
                         </Typography>
-                      </Box>
-
-                      <Box sx={{ position: "absolute", top: 6, right: 8, zIndex: 3 }}>
-                        <TripFeedbackPanel
-                          tripId={detail.trip.id}
-                          feedback={day.feedback}
-                          targetType="tripDay"
-                          targetId={day.id}
-                          currentUserId={detail.trip.currentUserId}
-                          contextLabel={titleText}
-                          onUpdated={(feedback) =>
-                            setDetail((current) =>
-                              current
-                                ? {
-                                    ...current,
-                                    days: current.days.map((entry) => (entry.id === day.id ? { ...entry, feedback } : entry)),
-                                  }
-                                : current,
-                            )
-                          }
-                        />
                       </Box>
                     </Box>
                   );

@@ -15,7 +15,7 @@ const eslintConfig = defineConfig([
   ]),
   {
     // react-hooks/set-state-in-effect was newly enforced as "error" by
-    // eslint-config-next 16.2.x. These 13 pre-existing files need real
+    // eslint-config-next 16.2.x. These 21 sites across 12 pre-existing files need real
     // refactors (see deferred-work.md) — downgraded to warn *only here* so
     // lint stays green without masking the rule for new code elsewhere.
     files: [
@@ -26,7 +26,6 @@ const eslintConfig = defineConfig([
       "src/components/features/trips/TripDayPrintPage.tsx",
       "src/components/features/trips/TripDayTravelSegmentDialog.tsx",
       "src/components/features/trips/TripDayView.tsx",
-      "src/components/features/trips/TripFeedbackPanel.tsx",
       "src/components/features/trips/TripImportDialog.tsx",
       "src/components/features/trips/TripOverviewMapFullPage.tsx",
       "src/components/features/trips/TripShareDialog.tsx",

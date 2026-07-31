@@ -62,10 +62,7 @@ export const ModelName = {
   CostPayment: 'CostPayment',
   AccommodationImage: 'AccommodationImage',
   DayPlanItemImage: 'DayPlanItemImage',
-  TripBucketListItem: 'TripBucketListItem',
-  TripFeedbackTarget: 'TripFeedbackTarget',
-  TripFeedbackComment: 'TripFeedbackComment',
-  TripFeedbackVote: 'TripFeedbackVote'
+  TripBucketListItem: 'TripBucketListItem'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -263,45 +260,6 @@ export const TripBucketListItemScalarFieldEnum = {
 } as const
 
 export type TripBucketListItemScalarFieldEnum = (typeof TripBucketListItemScalarFieldEnum)[keyof typeof TripBucketListItemScalarFieldEnum]
-
-
-export const TripFeedbackTargetScalarFieldEnum = {
-  id: 'id',
-  tripId: 'tripId',
-  targetType: 'targetType',
-  targetKey: 'targetKey',
-  tripDayId: 'tripDayId',
-  accommodationId: 'accommodationId',
-  dayPlanItemId: 'dayPlanItemId',
-  createdAt: 'createdAt',
-  updatedAt: 'updatedAt'
-} as const
-
-export type TripFeedbackTargetScalarFieldEnum = (typeof TripFeedbackTargetScalarFieldEnum)[keyof typeof TripFeedbackTargetScalarFieldEnum]
-
-
-export const TripFeedbackCommentScalarFieldEnum = {
-  id: 'id',
-  targetId: 'targetId',
-  authorId: 'authorId',
-  body: 'body',
-  createdAt: 'createdAt',
-  updatedAt: 'updatedAt'
-} as const
-
-export type TripFeedbackCommentScalarFieldEnum = (typeof TripFeedbackCommentScalarFieldEnum)[keyof typeof TripFeedbackCommentScalarFieldEnum]
-
-
-export const TripFeedbackVoteScalarFieldEnum = {
-  id: 'id',
-  targetId: 'targetId',
-  userId: 'userId',
-  value: 'value',
-  createdAt: 'createdAt',
-  updatedAt: 'updatedAt'
-} as const
-
-export type TripFeedbackVoteScalarFieldEnum = (typeof TripFeedbackVoteScalarFieldEnum)[keyof typeof TripFeedbackVoteScalarFieldEnum]
 
 
 export const SortOrder = {

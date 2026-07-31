@@ -22,6 +22,10 @@ type ApiEnvelope<T> = {
   error: { code: string; message: string; details?: unknown } | null;
 };
 
+type HeroUploadResult = {
+  trip: { id: string; heroImageUrl: string | null; updatedAt?: string };
+};
+
 type TripSummary = {
   id: string;
   name: string;
@@ -30,6 +34,8 @@ type TripSummary = {
   dayCount: number;
   accommodationCostTotalCents: number | null;
   heroImageUrl?: string | null;
+  /** Versions the hero URL for the consumer; see `withImageCacheBuster`. */
+  updatedAt?: string;
 };
 
 type TripDay = {
@@ -220,6 +226,9 @@ export default function TripEditDialog({ open, trip, onClose, onUpdated }: TripE
     }
 
     let heroImageUrl = body.data.trip.heroImageUrl ?? null;
+    // Carried through so the consumer can version the hero URL. The upload bumps the trip's
+    // `updatedAt`, so the value from the upload response is newer than the one on the PATCH body.
+    let heroUpdatedAt = body.data.trip.updatedAt;
     const file = values.heroImage?.item(0);
     let uploadFailed = false;
 
@@ -234,9 +243,9 @@ export default function TripEditDialog({ open, trip, onClose, onUpdated }: TripE
         },
         body: formData,
       });
-      let uploadBody: ApiEnvelope<{ trip: { id: string; heroImageUrl: string | null } }> | null = null;
+      let uploadBody: ApiEnvelope<HeroUploadResult> | null = null;
       try {
-        uploadBody = (await uploadResponse.json()) as ApiEnvelope<{ trip: { id: string; heroImageUrl: string | null } }>;
+        uploadBody = (await uploadResponse.json()) as ApiEnvelope<HeroUploadResult>;
       } catch {
         uploadBody = null;
       }
@@ -245,7 +254,11 @@ export default function TripEditDialog({ open, trip, onClose, onUpdated }: TripE
         uploadFailed = true;
         setServerError(t("trips.edit.uploadError"));
       } else {
+        // Hand the consumer the raw URL plus its version rather than a pre-stamped URL: every read
+        // path now versions the hero itself (see `TripTimeline`/`TripsDashboard`), so stamping here
+        // too would double-stamp it into `?v=A&v=B`.
         heroImageUrl = uploadBody.data?.trip.heroImageUrl ?? null;
+        heroUpdatedAt = uploadBody.data?.trip.updatedAt ?? heroUpdatedAt;
       }
     }
 
@@ -254,6 +267,7 @@ export default function TripEditDialog({ open, trip, onClose, onUpdated }: TripE
       trip: {
         ...body.data.trip,
         heroImageUrl,
+        updatedAt: heroUpdatedAt,
       },
     });
     if (!uploadFailed) {

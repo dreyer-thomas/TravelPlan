@@ -291,7 +291,6 @@ export type DayPlanItemWhereInput = {
   tripDay?: Prisma.XOR<Prisma.TripDayScalarRelationFilter, Prisma.TripDayWhereInput>
   images?: Prisma.DayPlanItemImageListRelationFilter
   payments?: Prisma.CostPaymentListRelationFilter
-  feedbackTargets?: Prisma.TripFeedbackTargetListRelationFilter
 }
 
 export type DayPlanItemOrderByWithRelationInput = {
@@ -311,7 +310,6 @@ export type DayPlanItemOrderByWithRelationInput = {
   tripDay?: Prisma.TripDayOrderByWithRelationInput
   images?: Prisma.DayPlanItemImageOrderByRelationAggregateInput
   payments?: Prisma.CostPaymentOrderByRelationAggregateInput
-  feedbackTargets?: Prisma.TripFeedbackTargetOrderByRelationAggregateInput
 }
 
 export type DayPlanItemWhereUniqueInput = Prisma.AtLeast<{
@@ -334,7 +332,6 @@ export type DayPlanItemWhereUniqueInput = Prisma.AtLeast<{
   tripDay?: Prisma.XOR<Prisma.TripDayScalarRelationFilter, Prisma.TripDayWhereInput>
   images?: Prisma.DayPlanItemImageListRelationFilter
   payments?: Prisma.CostPaymentListRelationFilter
-  feedbackTargets?: Prisma.TripFeedbackTargetListRelationFilter
 }, "id">
 
 export type DayPlanItemOrderByWithAggregationInput = {
@@ -393,7 +390,6 @@ export type DayPlanItemCreateInput = {
   tripDay: Prisma.TripDayCreateNestedOneWithoutDayPlanItemsInput
   images?: Prisma.DayPlanItemImageCreateNestedManyWithoutDayPlanItemInput
   payments?: Prisma.CostPaymentCreateNestedManyWithoutDayPlanItemInput
-  feedbackTargets?: Prisma.TripFeedbackTargetCreateNestedManyWithoutDayPlanItemInput
 }
 
 export type DayPlanItemUncheckedCreateInput = {
@@ -412,7 +408,6 @@ export type DayPlanItemUncheckedCreateInput = {
   updatedAt?: Date | string
   images?: Prisma.DayPlanItemImageUncheckedCreateNestedManyWithoutDayPlanItemInput
   payments?: Prisma.CostPaymentUncheckedCreateNestedManyWithoutDayPlanItemInput
-  feedbackTargets?: Prisma.TripFeedbackTargetUncheckedCreateNestedManyWithoutDayPlanItemInput
 }
 
 export type DayPlanItemUpdateInput = {
@@ -431,7 +426,6 @@ export type DayPlanItemUpdateInput = {
   tripDay?: Prisma.TripDayUpdateOneRequiredWithoutDayPlanItemsNestedInput
   images?: Prisma.DayPlanItemImageUpdateManyWithoutDayPlanItemNestedInput
   payments?: Prisma.CostPaymentUpdateManyWithoutDayPlanItemNestedInput
-  feedbackTargets?: Prisma.TripFeedbackTargetUpdateManyWithoutDayPlanItemNestedInput
 }
 
 export type DayPlanItemUncheckedUpdateInput = {
@@ -450,7 +444,6 @@ export type DayPlanItemUncheckedUpdateInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   images?: Prisma.DayPlanItemImageUncheckedUpdateManyWithoutDayPlanItemNestedInput
   payments?: Prisma.CostPaymentUncheckedUpdateManyWithoutDayPlanItemNestedInput
-  feedbackTargets?: Prisma.TripFeedbackTargetUncheckedUpdateManyWithoutDayPlanItemNestedInput
 }
 
 export type DayPlanItemCreateManyInput = {
@@ -652,22 +645,6 @@ export type DayPlanItemUpdateOneRequiredWithoutImagesNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.DayPlanItemUpdateToOneWithWhereWithoutImagesInput, Prisma.DayPlanItemUpdateWithoutImagesInput>, Prisma.DayPlanItemUncheckedUpdateWithoutImagesInput>
 }
 
-export type DayPlanItemCreateNestedOneWithoutFeedbackTargetsInput = {
-  create?: Prisma.XOR<Prisma.DayPlanItemCreateWithoutFeedbackTargetsInput, Prisma.DayPlanItemUncheckedCreateWithoutFeedbackTargetsInput>
-  connectOrCreate?: Prisma.DayPlanItemCreateOrConnectWithoutFeedbackTargetsInput
-  connect?: Prisma.DayPlanItemWhereUniqueInput
-}
-
-export type DayPlanItemUpdateOneWithoutFeedbackTargetsNestedInput = {
-  create?: Prisma.XOR<Prisma.DayPlanItemCreateWithoutFeedbackTargetsInput, Prisma.DayPlanItemUncheckedCreateWithoutFeedbackTargetsInput>
-  connectOrCreate?: Prisma.DayPlanItemCreateOrConnectWithoutFeedbackTargetsInput
-  upsert?: Prisma.DayPlanItemUpsertWithoutFeedbackTargetsInput
-  disconnect?: Prisma.DayPlanItemWhereInput | boolean
-  delete?: Prisma.DayPlanItemWhereInput | boolean
-  connect?: Prisma.DayPlanItemWhereUniqueInput
-  update?: Prisma.XOR<Prisma.XOR<Prisma.DayPlanItemUpdateToOneWithWhereWithoutFeedbackTargetsInput, Prisma.DayPlanItemUpdateWithoutFeedbackTargetsInput>, Prisma.DayPlanItemUncheckedUpdateWithoutFeedbackTargetsInput>
-}
-
 export type DayPlanItemCreateWithoutTripDayInput = {
   id?: string
   title?: string | null
@@ -683,7 +660,6 @@ export type DayPlanItemCreateWithoutTripDayInput = {
   updatedAt?: Date | string
   images?: Prisma.DayPlanItemImageCreateNestedManyWithoutDayPlanItemInput
   payments?: Prisma.CostPaymentCreateNestedManyWithoutDayPlanItemInput
-  feedbackTargets?: Prisma.TripFeedbackTargetCreateNestedManyWithoutDayPlanItemInput
 }
 
 export type DayPlanItemUncheckedCreateWithoutTripDayInput = {
@@ -701,7 +677,6 @@ export type DayPlanItemUncheckedCreateWithoutTripDayInput = {
   updatedAt?: Date | string
   images?: Prisma.DayPlanItemImageUncheckedCreateNestedManyWithoutDayPlanItemInput
   payments?: Prisma.CostPaymentUncheckedCreateNestedManyWithoutDayPlanItemInput
-  feedbackTargets?: Prisma.TripFeedbackTargetUncheckedCreateNestedManyWithoutDayPlanItemInput
 }
 
 export type DayPlanItemCreateOrConnectWithoutTripDayInput = {
@@ -763,7 +738,6 @@ export type DayPlanItemCreateWithoutPaymentsInput = {
   updatedAt?: Date | string
   tripDay: Prisma.TripDayCreateNestedOneWithoutDayPlanItemsInput
   images?: Prisma.DayPlanItemImageCreateNestedManyWithoutDayPlanItemInput
-  feedbackTargets?: Prisma.TripFeedbackTargetCreateNestedManyWithoutDayPlanItemInput
 }
 
 export type DayPlanItemUncheckedCreateWithoutPaymentsInput = {
@@ -781,7 +755,6 @@ export type DayPlanItemUncheckedCreateWithoutPaymentsInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   images?: Prisma.DayPlanItemImageUncheckedCreateNestedManyWithoutDayPlanItemInput
-  feedbackTargets?: Prisma.TripFeedbackTargetUncheckedCreateNestedManyWithoutDayPlanItemInput
 }
 
 export type DayPlanItemCreateOrConnectWithoutPaymentsInput = {
@@ -815,7 +788,6 @@ export type DayPlanItemUpdateWithoutPaymentsInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   tripDay?: Prisma.TripDayUpdateOneRequiredWithoutDayPlanItemsNestedInput
   images?: Prisma.DayPlanItemImageUpdateManyWithoutDayPlanItemNestedInput
-  feedbackTargets?: Prisma.TripFeedbackTargetUpdateManyWithoutDayPlanItemNestedInput
 }
 
 export type DayPlanItemUncheckedUpdateWithoutPaymentsInput = {
@@ -833,7 +805,6 @@ export type DayPlanItemUncheckedUpdateWithoutPaymentsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   images?: Prisma.DayPlanItemImageUncheckedUpdateManyWithoutDayPlanItemNestedInput
-  feedbackTargets?: Prisma.TripFeedbackTargetUncheckedUpdateManyWithoutDayPlanItemNestedInput
 }
 
 export type DayPlanItemCreateWithoutImagesInput = {
@@ -851,7 +822,6 @@ export type DayPlanItemCreateWithoutImagesInput = {
   updatedAt?: Date | string
   tripDay: Prisma.TripDayCreateNestedOneWithoutDayPlanItemsInput
   payments?: Prisma.CostPaymentCreateNestedManyWithoutDayPlanItemInput
-  feedbackTargets?: Prisma.TripFeedbackTargetCreateNestedManyWithoutDayPlanItemInput
 }
 
 export type DayPlanItemUncheckedCreateWithoutImagesInput = {
@@ -869,7 +839,6 @@ export type DayPlanItemUncheckedCreateWithoutImagesInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   payments?: Prisma.CostPaymentUncheckedCreateNestedManyWithoutDayPlanItemInput
-  feedbackTargets?: Prisma.TripFeedbackTargetUncheckedCreateNestedManyWithoutDayPlanItemInput
 }
 
 export type DayPlanItemCreateOrConnectWithoutImagesInput = {
@@ -903,7 +872,6 @@ export type DayPlanItemUpdateWithoutImagesInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   tripDay?: Prisma.TripDayUpdateOneRequiredWithoutDayPlanItemsNestedInput
   payments?: Prisma.CostPaymentUpdateManyWithoutDayPlanItemNestedInput
-  feedbackTargets?: Prisma.TripFeedbackTargetUpdateManyWithoutDayPlanItemNestedInput
 }
 
 export type DayPlanItemUncheckedUpdateWithoutImagesInput = {
@@ -920,95 +888,6 @@ export type DayPlanItemUncheckedUpdateWithoutImagesInput = {
   locationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  payments?: Prisma.CostPaymentUncheckedUpdateManyWithoutDayPlanItemNestedInput
-  feedbackTargets?: Prisma.TripFeedbackTargetUncheckedUpdateManyWithoutDayPlanItemNestedInput
-}
-
-export type DayPlanItemCreateWithoutFeedbackTargetsInput = {
-  id?: string
-  title?: string | null
-  fromTime?: string | null
-  toTime?: string | null
-  contentJson: string
-  costCents?: number | null
-  linkUrl?: string | null
-  locationLat?: number | null
-  locationLng?: number | null
-  locationLabel?: string | null
-  createdAt?: Date | string
-  updatedAt?: Date | string
-  tripDay: Prisma.TripDayCreateNestedOneWithoutDayPlanItemsInput
-  images?: Prisma.DayPlanItemImageCreateNestedManyWithoutDayPlanItemInput
-  payments?: Prisma.CostPaymentCreateNestedManyWithoutDayPlanItemInput
-}
-
-export type DayPlanItemUncheckedCreateWithoutFeedbackTargetsInput = {
-  id?: string
-  tripDayId: string
-  title?: string | null
-  fromTime?: string | null
-  toTime?: string | null
-  contentJson: string
-  costCents?: number | null
-  linkUrl?: string | null
-  locationLat?: number | null
-  locationLng?: number | null
-  locationLabel?: string | null
-  createdAt?: Date | string
-  updatedAt?: Date | string
-  images?: Prisma.DayPlanItemImageUncheckedCreateNestedManyWithoutDayPlanItemInput
-  payments?: Prisma.CostPaymentUncheckedCreateNestedManyWithoutDayPlanItemInput
-}
-
-export type DayPlanItemCreateOrConnectWithoutFeedbackTargetsInput = {
-  where: Prisma.DayPlanItemWhereUniqueInput
-  create: Prisma.XOR<Prisma.DayPlanItemCreateWithoutFeedbackTargetsInput, Prisma.DayPlanItemUncheckedCreateWithoutFeedbackTargetsInput>
-}
-
-export type DayPlanItemUpsertWithoutFeedbackTargetsInput = {
-  update: Prisma.XOR<Prisma.DayPlanItemUpdateWithoutFeedbackTargetsInput, Prisma.DayPlanItemUncheckedUpdateWithoutFeedbackTargetsInput>
-  create: Prisma.XOR<Prisma.DayPlanItemCreateWithoutFeedbackTargetsInput, Prisma.DayPlanItemUncheckedCreateWithoutFeedbackTargetsInput>
-  where?: Prisma.DayPlanItemWhereInput
-}
-
-export type DayPlanItemUpdateToOneWithWhereWithoutFeedbackTargetsInput = {
-  where?: Prisma.DayPlanItemWhereInput
-  data: Prisma.XOR<Prisma.DayPlanItemUpdateWithoutFeedbackTargetsInput, Prisma.DayPlanItemUncheckedUpdateWithoutFeedbackTargetsInput>
-}
-
-export type DayPlanItemUpdateWithoutFeedbackTargetsInput = {
-  id?: Prisma.StringFieldUpdateOperationsInput | string
-  title?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  fromTime?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  toTime?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  contentJson?: Prisma.StringFieldUpdateOperationsInput | string
-  costCents?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
-  linkUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  locationLat?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
-  locationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
-  locationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  tripDay?: Prisma.TripDayUpdateOneRequiredWithoutDayPlanItemsNestedInput
-  images?: Prisma.DayPlanItemImageUpdateManyWithoutDayPlanItemNestedInput
-  payments?: Prisma.CostPaymentUpdateManyWithoutDayPlanItemNestedInput
-}
-
-export type DayPlanItemUncheckedUpdateWithoutFeedbackTargetsInput = {
-  id?: Prisma.StringFieldUpdateOperationsInput | string
-  tripDayId?: Prisma.StringFieldUpdateOperationsInput | string
-  title?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  fromTime?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  toTime?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  contentJson?: Prisma.StringFieldUpdateOperationsInput | string
-  costCents?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
-  linkUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  locationLat?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
-  locationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
-  locationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  images?: Prisma.DayPlanItemImageUncheckedUpdateManyWithoutDayPlanItemNestedInput
   payments?: Prisma.CostPaymentUncheckedUpdateManyWithoutDayPlanItemNestedInput
 }
 
@@ -1042,7 +921,6 @@ export type DayPlanItemUpdateWithoutTripDayInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   images?: Prisma.DayPlanItemImageUpdateManyWithoutDayPlanItemNestedInput
   payments?: Prisma.CostPaymentUpdateManyWithoutDayPlanItemNestedInput
-  feedbackTargets?: Prisma.TripFeedbackTargetUpdateManyWithoutDayPlanItemNestedInput
 }
 
 export type DayPlanItemUncheckedUpdateWithoutTripDayInput = {
@@ -1060,7 +938,6 @@ export type DayPlanItemUncheckedUpdateWithoutTripDayInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   images?: Prisma.DayPlanItemImageUncheckedUpdateManyWithoutDayPlanItemNestedInput
   payments?: Prisma.CostPaymentUncheckedUpdateManyWithoutDayPlanItemNestedInput
-  feedbackTargets?: Prisma.TripFeedbackTargetUncheckedUpdateManyWithoutDayPlanItemNestedInput
 }
 
 export type DayPlanItemUncheckedUpdateManyWithoutTripDayInput = {
@@ -1086,13 +963,11 @@ export type DayPlanItemUncheckedUpdateManyWithoutTripDayInput = {
 export type DayPlanItemCountOutputType = {
   images: number
   payments: number
-  feedbackTargets: number
 }
 
 export type DayPlanItemCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   images?: boolean | DayPlanItemCountOutputTypeCountImagesArgs
   payments?: boolean | DayPlanItemCountOutputTypeCountPaymentsArgs
-  feedbackTargets?: boolean | DayPlanItemCountOutputTypeCountFeedbackTargetsArgs
 }
 
 /**
@@ -1119,13 +994,6 @@ export type DayPlanItemCountOutputTypeCountPaymentsArgs<ExtArgs extends runtime.
   where?: Prisma.CostPaymentWhereInput
 }
 
-/**
- * DayPlanItemCountOutputType without action
- */
-export type DayPlanItemCountOutputTypeCountFeedbackTargetsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
-  where?: Prisma.TripFeedbackTargetWhereInput
-}
-
 
 export type DayPlanItemSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
@@ -1144,7 +1012,6 @@ export type DayPlanItemSelect<ExtArgs extends runtime.Types.Extensions.InternalA
   tripDay?: boolean | Prisma.TripDayDefaultArgs<ExtArgs>
   images?: boolean | Prisma.DayPlanItem$imagesArgs<ExtArgs>
   payments?: boolean | Prisma.DayPlanItem$paymentsArgs<ExtArgs>
-  feedbackTargets?: boolean | Prisma.DayPlanItem$feedbackTargetsArgs<ExtArgs>
   _count?: boolean | Prisma.DayPlanItemCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["dayPlanItem"]>
 
@@ -1203,7 +1070,6 @@ export type DayPlanItemInclude<ExtArgs extends runtime.Types.Extensions.Internal
   tripDay?: boolean | Prisma.TripDayDefaultArgs<ExtArgs>
   images?: boolean | Prisma.DayPlanItem$imagesArgs<ExtArgs>
   payments?: boolean | Prisma.DayPlanItem$paymentsArgs<ExtArgs>
-  feedbackTargets?: boolean | Prisma.DayPlanItem$feedbackTargetsArgs<ExtArgs>
   _count?: boolean | Prisma.DayPlanItemCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type DayPlanItemIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1219,7 +1085,6 @@ export type $DayPlanItemPayload<ExtArgs extends runtime.Types.Extensions.Interna
     tripDay: Prisma.$TripDayPayload<ExtArgs>
     images: Prisma.$DayPlanItemImagePayload<ExtArgs>[]
     payments: Prisma.$CostPaymentPayload<ExtArgs>[]
-    feedbackTargets: Prisma.$TripFeedbackTargetPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
@@ -1632,7 +1497,6 @@ export interface Prisma__DayPlanItemClient<T, Null = never, ExtArgs extends runt
   tripDay<T extends Prisma.TripDayDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.TripDayDefaultArgs<ExtArgs>>): Prisma.Prisma__TripDayClient<runtime.Types.Result.GetResult<Prisma.$TripDayPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
   images<T extends Prisma.DayPlanItem$imagesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.DayPlanItem$imagesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$DayPlanItemImagePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   payments<T extends Prisma.DayPlanItem$paymentsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.DayPlanItem$paymentsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$CostPaymentPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
-  feedbackTargets<T extends Prisma.DayPlanItem$feedbackTargetsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.DayPlanItem$feedbackTargetsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$TripFeedbackTargetPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -2119,30 +1983,6 @@ export type DayPlanItem$paymentsArgs<ExtArgs extends runtime.Types.Extensions.In
   take?: number
   skip?: number
   distinct?: Prisma.CostPaymentScalarFieldEnum | Prisma.CostPaymentScalarFieldEnum[]
-}
-
-/**
- * DayPlanItem.feedbackTargets
- */
-export type DayPlanItem$feedbackTargetsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
-  /**
-   * Select specific fields to fetch from the TripFeedbackTarget
-   */
-  select?: Prisma.TripFeedbackTargetSelect<ExtArgs> | null
-  /**
-   * Omit specific fields from the TripFeedbackTarget
-   */
-  omit?: Prisma.TripFeedbackTargetOmit<ExtArgs> | null
-  /**
-   * Choose, which related nodes to fetch as well
-   */
-  include?: Prisma.TripFeedbackTargetInclude<ExtArgs> | null
-  where?: Prisma.TripFeedbackTargetWhereInput
-  orderBy?: Prisma.TripFeedbackTargetOrderByWithRelationInput | Prisma.TripFeedbackTargetOrderByWithRelationInput[]
-  cursor?: Prisma.TripFeedbackTargetWhereUniqueInput
-  take?: number
-  skip?: number
-  distinct?: Prisma.TripFeedbackTargetScalarFieldEnum | Prisma.TripFeedbackTargetScalarFieldEnum[]
 }
 
 /**

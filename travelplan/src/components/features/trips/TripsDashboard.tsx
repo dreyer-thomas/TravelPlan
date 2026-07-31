@@ -16,6 +16,7 @@ import {
 import Link from "next/link";
 import TripCreateDialog from "@/components/features/trips/TripCreateDialog";
 import { type TripCreateResponse } from "@/components/features/trips/TripCreateForm";
+import { withImageCacheBuster } from "@/lib/trips/imageUploads";
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
 
@@ -31,6 +32,8 @@ type TripSummary = {
   endDate: string;
   dayCount: number;
   heroImageUrl: string | null;
+  /** Versions the hero URL; see `withImageCacheBuster`. Optional so an older cached payload still renders. */
+  updatedAt?: string;
 };
 
 export default function TripsDashboard() {
@@ -93,6 +96,7 @@ export default function TripsDashboard() {
       endDate: response.trip.endDate,
       dayCount: response.dayCount,
       heroImageUrl: response.trip.heroImageUrl ?? null,
+      updatedAt: response.trip.updatedAt,
     };
     setTrips((current) => {
       const merged = [summary, ...current.filter((trip) => trip.id !== summary.id)];
@@ -171,7 +175,14 @@ export default function TripsDashboard() {
                     >
                       <Box
                         component="img"
-                        src={trip.heroImageUrl ?? "/images/world-map-placeholder.svg"}
+                        src={
+                          // Versioned at read time - `hero.<ext>` is replaced in place, so an
+                          // unversioned URL keeps serving the browser's stale copy. Placeholder is
+                          // a static asset and needs none.
+                          trip.heroImageUrl
+                            ? withImageCacheBuster(trip.heroImageUrl, trip.updatedAt)
+                            : "/images/world-map-placeholder.svg"
+                        }
                         alt={trip.name}
                         sx={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
                       />

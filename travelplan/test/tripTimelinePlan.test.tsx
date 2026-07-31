@@ -135,12 +135,6 @@ describe("TripTimeline plan action", () => {
             plannedCostTotal: 0,
             accommodationCostTotalCents: null,
             heroImageUrl: null,
-            feedback: {
-              targetType: "trip",
-              targetId: "trip-1",
-              comments: [],
-              voteSummary: { upCount: 0, downCount: 0, userVote: null },
-            },
           },
           days: [
             {
@@ -254,16 +248,9 @@ describe("TripTimeline plan action", () => {
                 checkInTime: null,
                 checkOutTime: null,
                 location: { lat: 53.55, lng: 10, label: "Hamburg" },
-                feedback: { targetType: "tripAccommodation", targetId: "stay-1", comments: [], voteSummary: { upCount: 0, downCount: 0, userVote: null } },
               },
               dayPlanItems: [],
               travelSegments: [],
-              feedback: {
-                targetType: "tripDay",
-                targetId: "day-1",
-                comments: [],
-                voteSummary: { upCount: 0, downCount: 0, userVote: null },
-              },
             },
           ],
         },
