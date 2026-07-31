@@ -10,7 +10,8 @@ const themePath = resolve(repoRoot, "src/theme.ts");
 const read = (path: string) => readFileSync(path, "utf-8");
 
 const expectSansStack = (content: string, label: string) => {
-  expect(content, `${label} should include Calibri`).toContain("Calibri");
+  expect(content, `${label} should include -apple-system`).toContain("-apple-system");
+  expect(content, `${label} should include Segoe UI`).toContain("Segoe UI");
   expect(content, `${label} should include Arial`).toContain("Arial");
   expect(content, `${label} should include sans-serif`).toContain("sans-serif");
 };
@@ -26,7 +27,7 @@ describe("typography sans-serif stack", () => {
     expect(theme).not.toContain("Fraunces");
   });
 
-  it("defines Calibri/Arial sans-serif stacks in globals and theme", () => {
+  it("defines the DESIGN.md system sans-serif stack in globals and theme", () => {
     const globalsCss = read(globalsCssPath);
     const theme = read(themePath);
 
