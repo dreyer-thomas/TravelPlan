@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, Box, Button, Divider, Paper, Skeleton, SvgIcon, Typography, useMediaQuery, useTheme } from "@mui/material";
+import { Alert, Box, Button, Divider, Paper, Skeleton, Typography, useMediaQuery, useTheme } from "@mui/material";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import TripDeleteDialog from "@/components/features/trips/TripDeleteDialog";
@@ -15,6 +15,15 @@ import { deriveCoverageSummary, type TripDayGanttSegment } from "@/components/fe
 import TripOverviewMapPanel from "@/components/features/trips/TripOverviewMapPanel";
 import TripBucketListPanel from "@/components/features/trips/TripBucketListPanel";
 import { buildTripOverviewMapData } from "@/components/features/trips/TripOverviewMapData";
+import {
+  ChevronRightIcon,
+  HERO_SCRIM,
+  HouseIcon,
+  ON_PHOTO_CHROME,
+  ShareGlyphIcon,
+  WarningTriangleIcon,
+  toCssUrl,
+} from "@/components/features/trips/TripIcons";
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
 
@@ -91,67 +100,6 @@ type TripTimelineProps = {
   tripId: string;
 };
 
-function HouseIcon({ sx }: { sx?: object }) {
-  return (
-    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={{ fontSize: 15, ...sx }}>
-      <path
-        d="M3 21V8l9-5 9 5v13"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={2}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M9 21v-7h6v7"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={2}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </SvgIcon>
-  );
-}
-
-function WarningTriangleIcon({ sx }: { sx?: object }) {
-  return (
-    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={{ fontSize: 15, ...sx }}>
-      <path d="M12 9v4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
-      <path d="M12 17h.01" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
-      <path
-        d="M10.3 3.9 2.5 18a1.7 1.7 0 0 0 1.5 2.5h16a1.7 1.7 0 0 0 1.5-2.5L13.7 3.9a1.7 1.7 0 0 0-3.4 0Z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={2}
-        strokeLinejoin="round"
-      />
-    </SvgIcon>
-  );
-}
-
-function ChevronRightIcon({ sx }: { sx?: object }) {
-  return (
-    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={{ fontSize: 18, ...sx }}>
-      <path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-    </SvgIcon>
-  );
-}
-
-function ShareGlyphIcon({ sx }: { sx?: object }) {
-  return (
-    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={{ fontSize: 15, ...sx }}>
-      <circle cx="18" cy="5" r="2.6" fill="none" stroke="currentColor" strokeWidth={2} />
-      <circle cx="6" cy="12" r="2.6" fill="none" stroke="currentColor" strokeWidth={2} />
-      <circle cx="18" cy="19" r="2.6" fill="none" stroke="currentColor" strokeWidth={2} />
-      <line x1="8.3" y1="10.7" x2="15.7" y2="6.3" stroke="currentColor" strokeWidth={2} />
-      <line x1="8.3" y1="13.3" x2="15.7" y2="17.7" stroke="currentColor" strokeWidth={2} />
-    </SvgIcon>
-  );
-}
-
-const HERO_SCRIM =
-  "linear-gradient(to top, rgba(20,18,14,.88) 0%, rgba(20,18,14,.54) 38%, rgba(20,18,14,.10) 66%, rgba(20,18,14,.26) 100%)";
 const DAY_ROW_GAP_BG = "#FBF6EE";
 
 export default function TripTimeline({ tripId }: TripTimelineProps) {
@@ -425,11 +373,8 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
     }
   };
 
-  // Quoted and percent-escaped: an unquoted url() breaks on any path containing a space or ")", and
-  // trip import accepts heroImageUrl as a free-form string, which would otherwise let imported data
-  // close the url() and inject arbitrary CSS declarations into this page.
   const heroImageCss = detail
-    ? `url("${encodeURI(detail.trip.heroImageUrl ?? "/images/world-map-placeholder.svg").replace(/"/g, "%22")}")`
+    ? toCssUrl(detail.trip.heroImageUrl ?? "/images/world-map-placeholder.svg")
     : "none";
   const openDaysCount = detail?.days.filter((day) => day.missingAccommodation).length ?? 0;
   const firstGapDay = detail?.days.find((day) => day.missingAccommodation) ?? null;
@@ -482,13 +427,7 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                     variant="text"
                     onClick={() => setShareOpen(true)}
                     startIcon={<ShareGlyphIcon />}
-                    sx={{
-                      backgroundColor: "rgba(255,255,255,.18)",
-                      border: "1px solid rgba(255,255,255,.55)",
-                      color: "#FFFFFF",
-                      whiteSpace: "nowrap",
-                      "&:hover": { backgroundColor: "rgba(255,255,255,.28)" },
-                    }}
+                    sx={{ ...ON_PHOTO_CHROME, whiteSpace: "nowrap" }}
                   >
                     {t("trips.share.open")}
                   </Button>

@@ -1,6 +1,6 @@
 "use client";
 
-import { Alert, Box, Divider, IconButton, List, ListItem, Paper, SvgIcon, Typography } from "@mui/material";
+import { Alert, Box, IconButton, SvgIcon, Typography, useTheme } from "@mui/material";
 import { useI18n } from "@/i18n/provider";
 
 type BucketListItem = {
@@ -23,14 +23,24 @@ type TripDayBucketListPanelProps = {
 
 export default function TripDayBucketListPanel({ items, loading, error, onAddToDay }: TripDayBucketListPanelProps) {
   const { t } = useI18n();
+  const theme = useTheme();
+  const tokens = theme.palette.tokens;
 
   return (
-    <Paper elevation={0} sx={{ p: 2, borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
-      <Typography variant="subtitle1" fontWeight={600}>
+    <Box
+      sx={{
+        backgroundColor: tokens.card,
+        border: "1px solid",
+        borderColor: tokens.borderStrong,
+        borderRadius: "8px",
+        padding: "18px",
+      }}
+    >
+      <Typography variant="labelCaps" component="h6" sx={{ color: tokens.inkSoft, display: "block", mb: 1.25 }}>
         {t("trips.bucketList.title")}
       </Typography>
       {loading ? (
-        <Typography variant="body2" color="text.secondary" mt={1}>
+        <Typography variant="body2" sx={{ color: tokens.inkSoft }}>
           {t("trips.bucketList.loading")}
         </Typography>
       ) : null}
@@ -40,59 +50,89 @@ export default function TripDayBucketListPanel({ items, loading, error, onAddToD
         </Alert>
       ) : null}
       {!loading && !error && items.length === 0 ? (
-        <Typography variant="body2" color="text.secondary" mt={1}>
+        <Typography variant="body2" sx={{ color: tokens.inkSoft }}>
           {t("trips.bucketList.empty")}
         </Typography>
       ) : null}
       {items.length > 0 ? (
-        <List dense sx={{ mt: 1, p: 0 }}>
-          {items.map((item, index) => {
+        // A real ul/li: the bordered-row treatment is presentational, so it must not cost the list its
+        // semantics - screen readers still need to announce "list, N items". Divider via :last-child so
+        // the list stays correct as items are added and removed.
+        <Box component="ul" sx={{ listStyle: "none", m: 0, p: 0, "& > li:last-child": { borderBottom: "none" } }}>
+          {items.map((item) => {
             const locationLabel = item.positionText?.trim() || item.location?.label || "";
             return (
-              <Box key={item.id}>
-                <ListItem sx={{ px: 0, py: 1, alignItems: "flex-start" }}>
-                  <Box
-                    sx={{
-                      display: "grid",
-                      gridTemplateColumns: "minmax(0, 1fr) auto",
-                      alignItems: "start",
-                      columnGap: 1.5,
-                      width: "100%",
-                    }}
+              <Box
+                component="li"
+                key={item.id}
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 1.25,
+                  padding: "9px 0",
+                  borderBottom: "1px solid",
+                  borderColor: tokens.border,
+                }}
+              >
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography
+                    sx={{ fontSize: "12.5px", fontWeight: 700, color: tokens.ink, overflowWrap: "anywhere" }}
                   >
-                    <Box display="flex" flexDirection="column" gap={0.5}>
-                      <Typography variant="body2" fontWeight={600} sx={{ overflowWrap: "anywhere" }}>
-                        {item.title}
-                      </Typography>
-                      {item.description ? (
-                        <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: "anywhere" }}>
-                          {item.description}
-                        </Typography>
-                      ) : null}
-                      {locationLabel ? (
-                        <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: "anywhere" }}>
-                          {locationLabel}
-                        </Typography>
-                      ) : null}
-                    </Box>
-                    <IconButton
-                      color="primary"
-                      aria-label={t("trips.bucketList.addToDayAction")}
-                      onClick={() => onAddToDay(item)}
+                    {item.title}
+                  </Typography>
+                  {item.description ? (
+                    <Typography
+                      sx={{ fontSize: 11, fontWeight: 600, color: tokens.inkSoft, mt: "1px", overflowWrap: "anywhere" }}
                     >
-                      <SvgIcon fontSize="small" viewBox="0 0 24 24">
-                        <path d="M11 5h2v14h-2z" />
-                        <path d="M5 11h14v2H5z" />
-                      </SvgIcon>
-                    </IconButton>
+                      {item.description}
+                    </Typography>
+                  ) : null}
+                  {locationLabel ? (
+                    <Typography
+                      sx={{ fontSize: 11, fontWeight: 600, color: tokens.inkSoft, mt: "1px", overflowWrap: "anywhere" }}
+                    >
+                      {locationLabel}
+                    </Typography>
+                  ) : null}
+                </Box>
+                {/* The visible circle stays the mockup's 24px, but the hit area is padded out to the
+                    44px floor - EXPERIENCE.md names this affordance specifically as one that was
+                    previously undersized. */}
+                <IconButton
+                  aria-label={t("trips.bucketList.addToDayAction")}
+                  onClick={() => onAddToDay(item)}
+                  sx={{
+                    flexShrink: 0,
+                    width: 44,
+                    height: 44,
+                    padding: 0,
+                    color: theme.palette.primary.main,
+                    "& .bucket-add-circle": {
+                      width: 24,
+                      height: 24,
+                      borderRadius: "50%",
+                      border: "1px solid",
+                      borderColor: tokens.borderStrong,
+                      backgroundColor: tokens.card,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    },
+                  }}
+                >
+                  <Box className="bucket-add-circle">
+                    <SvgIcon fontSize="inherit" viewBox="0 0 24 24" sx={{ fontSize: 15 }}>
+                      <path d="M11 5h2v14h-2z" />
+                      <path d="M5 11h14v2H5z" />
+                    </SvgIcon>
                   </Box>
-                </ListItem>
-                {index < items.length - 1 ? <Divider /> : null}
+                </IconButton>
               </Box>
             );
           })}
-        </List>
+        </Box>
       ) : null}
-    </Paper>
+    </Box>
   );
 }

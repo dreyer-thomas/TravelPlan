@@ -1,5 +1,5 @@
 # generated: 2026-03-01 13:08:00 CET
-# last_updated: 2026-07-31
+# last_updated: 2026-08-01
 # project: TravelPlan
 # project_key: NOKEY
 # tracking_system: file-system
@@ -126,7 +126,7 @@ development_status:
   epic-7: in-progress
   7-1-design-token-foundation: done
   7-2-trip-overview-redesign: done
-  7-3-day-detail-redesign: backlog
+  7-3-day-detail-redesign: done
   7-4-trips-list-redesign: backlog
   7-5-share-dialog-redesign: backlog
   7-6-login-register-and-password-reset-redesign: backlog

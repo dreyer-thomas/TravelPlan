@@ -1074,14 +1074,22 @@ describe("TripDayView layout", () => {
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
+    // This day's stay has no checkInTime, so its 16:00 block is assumed and the gaps are suppressed -
+    // the caption therefore reports the planned figure and declines to put a number on the open time
+    // rather than claiming 15h of hatch that the bar does not draw. The planned figure still moves,
+    // which is what this test is about.
     await screen.findByRole("heading", { name: "Day 1", level: 5 });
-    expect(screen.getByText("Planned 9h, Unplanned 15h")).toBeInTheDocument();
+    expect(
+      screen.getByText("Planned 9h, Unplanned unknown until a check-in time is set"),
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Add travel" }));
     fireEvent.click(await screen.findByTestId("segment-save"));
 
     await waitFor(() => {
-      expect(screen.getByText("Planned 10h, Unplanned 14h")).toBeInTheDocument();
+      expect(
+        screen.getByText("Planned 10h, Unplanned unknown until a check-in time is set"),
+      ).toBeInTheDocument();
     });
 
     vi.unstubAllGlobals();
@@ -1993,8 +2001,8 @@ describe("TripDayView layout", () => {
     expect(screen.getByRole("link", { name: "Open link" })).toHaveAttribute("href", "https://example.com/museum");
     expect(screen.getByText("Current night accommodation")).toBeInTheDocument();
     expect(screen.getAllByText("City Hotel").length).toBeGreaterThan(0);
-    expect(screen.getByText("Day total")).toBeInTheDocument();
-    expect(screen.getAllByText("Cost: 160.00").length).toBeGreaterThan(0);
+    expect(screen.getByText("Cost so far · today")).toBeInTheDocument();
+    expect(screen.getByTestId("day-cost-total")).toHaveTextContent("€160.00");
     expect(screen.getAllByRole("button", { name: "Edit stay" }).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Add plan item" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit plan item" })).toBeInTheDocument();
@@ -2104,8 +2112,8 @@ describe("TripDayView layout", () => {
     expect(screen.queryByText("Previous night: Airport Hotel")).toBeNull();
     expect(screen.getByText("Current night: City Hotel")).toBeInTheDocument();
     expect(screen.getAllByText("Museum title").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("Cost: 205.00")).toBeInTheDocument();
-    expect(screen.queryByText("Cost: 120.00")).toBeNull();
+    expect(screen.getByTestId("day-cost-total")).toHaveTextContent("€205.00");
+    expect(screen.queryByText("€120.00")).toBeNull();
 
     vi.unstubAllGlobals();
   });
@@ -3120,7 +3128,7 @@ describe("TripDayView layout", () => {
 
     await waitFor(() => expect(screen.queryAllByText("Museum visit")).toHaveLength(0));
     expect(await screen.findByText("No day details yet. Add a stay or day plan item to begin.")).toBeInTheDocument();
-    expect(screen.getByText("Cost: 0.00")).toBeInTheDocument();
+    expect(screen.getByTestId("day-cost-total")).toHaveTextContent("€0.00");
     vi.unstubAllGlobals();
   });
 
@@ -3296,8 +3304,10 @@ describe("TripDayView layout", () => {
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
-    const initialImage = await screen.findByRole("img", { name: "Day image" });
-    expect(initialImage).toHaveAttribute("src", "https://example.com/day-initial.webp");
+    // The day photo is the hero background now, not an <img>: DESIGN.md treats it as decorative
+    // (the adjacent title already names the day), so it carries no alt to query by.
+    const hero = await screen.findByTestId("day-hero");
+    expect(getComputedStyle(hero).backgroundImage).toContain("https://example.com/day-initial.webp");
     expect(screen.getByRole("heading", { name: "Day 1: Flight from FRA to SIN", level: 5 })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Edit day details" }));
@@ -3316,16 +3326,21 @@ describe("TripDayView layout", () => {
     );
 
     await waitFor(() =>
-      expect(screen.getByRole("img", { name: "Day image" }).getAttribute("src") ?? "").toContain(
+      expect(getComputedStyle(screen.getByTestId("day-hero")).backgroundImage).toContain(
         "/uploads/trips/trip-1/days/day-1/day.webp",
       ),
     );
-    expect(screen.getByRole("heading", { name: "Day 1: Flight from MUC to SIN", level: 5 })).toBeInTheDocument();
+    // findBy, not getBy: the day-details dialog aria-hides the rest of the app while it is open, and
+    // the hero background settles before the dialog unmounts.
+    expect(await screen.findByRole("heading", { name: "Day 1: Flight from MUC to SIN", level: 5 })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Edit day details" }));
     fireEvent.click(screen.getByRole("button", { name: "Remove image" }));
 
-    await waitFor(() => expect(screen.queryByRole("img", { name: "Day image" })).not.toBeInTheDocument());
+    // Removing the image falls the hero back to the placeholder rather than removing an element.
+    await waitFor(() =>
+      expect(getComputedStyle(screen.getByTestId("day-hero")).backgroundImage).toContain("world-map-placeholder.svg"),
+    );
     expect(screen.getByText("No day image selected yet.")).toBeInTheDocument();
 
     vi.unstubAllGlobals();
@@ -4098,6 +4113,525 @@ describe("TripDayView layout", () => {
 
     const printLink = screen.getByRole("link", { name: /print|export/i });
     expect(printLink).toHaveAttribute("href", "/trips/trip-1/days/day-1/print");
+
+    vi.unstubAllGlobals();
+  });
+
+  // --- Story 7.3: coverage panel, stat strip and gap state -------------------------------------
+
+  const buildDayResponse = (day: Record<string, unknown>, trip: Record<string, unknown> = {}) =>
+    withBucketList(async (input) => {
+      const url = String(input);
+      if (url.includes("/accommodations/images") || url.includes("/day-plan-items/images")) {
+        return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-04T00:00:00.000Z",
+              dayCount: 4,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+              ...trip,
+            },
+            days: [
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: null,
+                dayPlanItems: [],
+                travelSegments: [],
+                ...day,
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+  it("renders the four coverage legend entries and a 24-hour axis", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal("fetch", buildDayResponse({}));
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+    expect(screen.getByRole("heading", { name: "Day coverage" })).toBeInTheDocument();
+    for (const label of ["Accommodation", "Activity", "Travel", "Open"]) {
+      expect(screen.getByText(label)).toBeInTheDocument();
+    }
+
+    // The swatches are the point of a legend, so assert the fills - not just that four labels exist.
+    // They are read from the bar's own palette, so a colour change on the bar moves both together.
+    expect(getComputedStyle(screen.getByTestId("coverage-legend-swatch-stay")).backgroundColor).toBe(
+      "rgb(75, 99, 88)",
+    );
+    expect(getComputedStyle(screen.getByTestId("coverage-legend-swatch-activity")).backgroundColor).toBe(
+      "rgb(124, 148, 131)",
+    );
+    expect(getComputedStyle(screen.getByTestId("coverage-legend-swatch-travel")).backgroundColor).toBe(
+      "rgb(185, 178, 160)",
+    );
+    // The hatch must use the same 4px pitch as the default bar, not a hand-copied 3px.
+    const gapSwatch = getComputedStyle(screen.getByTestId("coverage-legend-swatch-gap"));
+    expect(`${gapSwatch.background}${gapSwatch.backgroundImage}`).toContain("repeating-linear-gradient");
+    expect(`${gapSwatch.background}${gapSwatch.backgroundImage}`).toContain("4px");
+
+    // The axis spans a real day, not the mockup's 08:00-22:00 sample window: stay segments run
+    // 00:00 -> check-out and check-in -> 24:00, so a clamped axis would truncate them.
+    const axis = screen.getByTestId("coverage-axis");
+    expect(axis.textContent).toBe("00:0006:0012:0018:0024:00");
+
+    // The tick row is aria-hidden (five bare numbers are noise read in sequence), so the domain it
+    // conveys has to reach assistive tech as text.
+    expect(screen.getByText("The coverage bar spans the full day, from 00:00 to 24:00.")).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("drops the Open legend entry when the bar renders no gap segment", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal(
+      "fetch",
+      buildDayResponse({
+        accommodation: {
+          id: "stay-1",
+          name: "Quinta",
+          notes: null,
+          status: "booked",
+          costCents: null,
+          link: null,
+          checkInTime: null,
+          checkOutTime: null,
+          location: null,
+        },
+      }),
+    );
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+    // Gaps are suppressed for a stay with no times, so a legend key for the hatch would send the
+    // reader hunting for a fill that is nowhere on the bar.
+    expect(screen.queryAllByTestId("trip-day-gantt-segment").filter((s) => s.dataset.kind === "gap")).toHaveLength(0);
+    expect(screen.queryByTestId("coverage-legend-swatch-gap")).not.toBeInTheDocument();
+    expect(screen.queryByText("Open")).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("renders the four stat-strip cells for a populated day", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal(
+      "fetch",
+      buildDayResponse({
+        accommodation: {
+          id: "stay-1",
+          name: "Quinta",
+          notes: null,
+          status: "booked",
+          costCents: 18500,
+          link: null,
+          checkInTime: "16:00",
+          checkOutTime: null,
+          location: null,
+        },
+        dayPlanItems: [
+          {
+            id: "item-1",
+            title: "Wine tasting",
+            fromTime: "14:00",
+            toTime: "16:00",
+            contentJson: JSON.stringify({ type: "doc", content: [] }),
+            costCents: 4500,
+            linkUrl: null,
+            location: null,
+          },
+        ],
+        travelSegments: [
+          {
+            id: "segment-1",
+            fromItemType: "dayPlanItem",
+            fromItemId: "item-1",
+            toItemType: "accommodation",
+            toItemId: "stay-1",
+            transportType: "car",
+            durationMinutes: 130,
+            distanceKm: null,
+            linkUrl: null,
+          },
+        ],
+      }),
+    );
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    // All four labels, and each value asserted against its own cell - not against whichever element in
+    // the document happens to carry the same text. Cell 3 in particular is the stat strip's "Spend
+    // today", which is a different element from the sidebar cost card's total.
+    expect(screen.getByText("Day")).toBeInTheDocument();
+    expect(screen.getByText("Total travel time")).toBeInTheDocument();
+    expect(screen.getByText("Spend today")).toBeInTheDocument();
+    expect(screen.getByTestId("day-stat-day")).toHaveTextContent("1 / 4");
+    expect(screen.getByTestId("day-stat-travel-time")).toHaveTextContent("2h 10m");
+    expect(screen.getByTestId("day-stat-spend-today")).toHaveTextContent("€230.00");
+    expect(screen.getByText("Check-in Quinta")).toBeInTheDocument();
+    expect(screen.getByTestId("day-stat-check-in")).toHaveTextContent("16:00");
+    expect(screen.getByTestId("day-cost-total")).toHaveTextContent("€230.00");
+
+    // An activity with a recorded cost shows it on its own card, not only in the sidebar breakdown.
+    expect(screen.getByTestId("day-plan-item-cost")).toHaveTextContent("€45.00");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("renders one uniform neutral marker per activity and never a per-activity icon (AC2)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal(
+      "fetch",
+      buildDayResponse({
+        dayPlanItems: [
+          {
+            id: "item-1",
+            title: "Museum",
+            fromTime: "09:00",
+            toTime: "10:00",
+            contentJson: JSON.stringify({ type: "doc", content: [] }),
+            costCents: null,
+            linkUrl: null,
+            location: null,
+          },
+          {
+            id: "item-2",
+            title: "Wine tasting",
+            fromTime: "14:00",
+            toTime: "16:00",
+            contentJson: JSON.stringify({ type: "doc", content: [] }),
+            costCents: null,
+            linkUrl: null,
+            location: null,
+          },
+        ],
+      }),
+    );
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    // The data model has no activity-type field and EXPERIENCE.md forbids adding one for iconography,
+    // so every activity dot must be the same 8px neutral circle - no svg, no variation by cost or
+    // duration or title. Asserted structurally so an icon picker cannot be slipped in later.
+    const markers = screen.getAllByTestId("activity-neutral-marker");
+    expect(markers).toHaveLength(2);
+    for (const marker of markers) {
+      const style = getComputedStyle(marker);
+      expect(style.width).toBe("8px");
+      expect(style.height).toBe("8px");
+      expect(style.borderRadius).toBe("50%");
+      expect(style.backgroundColor).toBe("rgb(107, 103, 92)");
+      expect(marker.parentElement?.querySelector("svg")).toBeNull();
+    }
+
+    vi.unstubAllGlobals();
+  });
+
+  it("shows an em dash for a stay whose check-in time is unset, not the assumed default", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal(
+      "fetch",
+      buildDayResponse({
+        accommodation: {
+          id: "stay-1",
+          name: "Quinta",
+          notes: null,
+          status: "planned",
+          costCents: null,
+          link: null,
+          checkInTime: null,
+          checkOutTime: null,
+          location: null,
+        },
+      }),
+    );
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+    // 16:00 is the coverage bar's drawing fallback, never a claim about the booking.
+    expect(screen.getByTestId("day-stat-check-in")).toHaveTextContent("—");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("flags a day with no accommodation in the stat strip and on the current-night node", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal("fetch", buildDayResponse({ missingAccommodation: true }));
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+    expect(screen.getByTestId("day-stat-check-in")).toHaveTextContent("No accommodation");
+    expect(screen.getByTestId("day-detail-gap-pill")).toHaveTextContent("No accommodation");
+
+    // The pill is only half of the State Pattern: the node itself takes the warn treatment. Without
+    // this, the card could silently lose its warn tones and the test would still pass.
+    const currentStayCard = screen.getByTestId("timeline-current-stay");
+    const warnCard = currentStayCard.querySelector<HTMLElement>('[data-testid="day-detail-gap-pill"]')
+      ?.parentElement;
+    expect(warnCard).toBeTruthy();
+    const cardStyle = getComputedStyle(warnCard as HTMLElement);
+    expect(cardStyle.backgroundColor).toBe("rgb(246, 236, 224)");
+    expect(cardStyle.borderColor).toBe("rgb(227, 199, 162)");
+
+    // Colour is never the sole carrier: the warn dot swaps the house glyph for the warning triangle.
+    expect(currentStayCard.querySelectorAll("svg").length).toBeGreaterThan(0);
+
+    vi.unstubAllGlobals();
+  });
+
+  it("collapses gaps into a single oversized segment when the day has no accommodation", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal(
+      "fetch",
+      buildDayResponse({
+        missingAccommodation: true,
+        dayPlanItems: [
+          {
+            id: "item-1",
+            title: "Museum",
+            fromTime: "10:00",
+            toTime: "11:00",
+            contentJson: JSON.stringify({ type: "doc", content: [] }),
+            costCents: null,
+            linkUrl: null,
+            location: null,
+          },
+        ],
+      }),
+    );
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+    // One oversized gap, not two slivers either side of the activity: the bar has to say "this day is
+    // structurally incomplete", not "some minutes are free".
+    const gaps = screen
+      .getAllByTestId("trip-day-gantt-segment")
+      .filter((segment) => segment.getAttribute("data-kind") === "gap");
+    expect(gaps).toHaveLength(1);
+
+    vi.unstubAllGlobals();
+  });
+
+  it("renders one gap segment per open interval when the day has an accommodation", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal(
+      "fetch",
+      buildDayResponse({
+        accommodation: {
+          id: "stay-1",
+          name: "Quinta",
+          notes: null,
+          status: "booked",
+          costCents: null,
+          link: null,
+          checkInTime: "20:00",
+          checkOutTime: null,
+          location: null,
+        },
+        dayPlanItems: [
+          {
+            id: "item-1",
+            title: "Museum",
+            fromTime: "10:00",
+            toTime: "11:00",
+            contentJson: JSON.stringify({ type: "doc", content: [] }),
+            costCents: null,
+            linkUrl: null,
+            location: null,
+          },
+        ],
+      }),
+    );
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+    const gaps = screen
+      .getAllByTestId("trip-day-gantt-segment")
+      .filter((segment) => segment.getAttribute("data-kind") === "gap");
+    // 00:00-10:00 and 11:00-20:00, proportional to the real open time.
+    expect(gaps).toHaveLength(2);
+
+    vi.unstubAllGlobals();
+  });
+
+  it("never hatches a stay that is on record but has no check-in or check-out time", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal(
+      "fetch",
+      buildDayResponse({
+        accommodation: {
+          id: "stay-1",
+          name: "Quinta",
+          notes: null,
+          status: "booked",
+          costCents: null,
+          link: null,
+          checkInTime: null,
+          checkOutTime: null,
+          location: null,
+        },
+      }),
+    );
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+    // Trip Overview shows no accommodation segment at all for such a stay; hatching it here would
+    // have the two bars telling contradictory stories about the same day.
+    const gaps = screen
+      .getAllByTestId("trip-day-gantt-segment")
+      .filter((segment) => segment.getAttribute("data-kind") === "gap");
+    expect(gaps).toHaveLength(0);
+
+    vi.unstubAllGlobals();
+  });
+
+  it("suppresses hatching when only the check-out time is recorded, and says the open time is unknown", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal(
+      "fetch",
+      buildDayResponse({
+        accommodation: {
+          id: "stay-1",
+          name: "Quinta",
+          notes: null,
+          status: "booked",
+          costCents: null,
+          link: null,
+          checkInTime: null,
+          checkOutTime: "10:00",
+          location: null,
+        },
+      }),
+    );
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    // The two time fields are independently nullable, and only checkInTime bears on this day's bar -
+    // the current stay's checkOutTime feeds the *next* day's previous-night segment. Guarding on both
+    // being null let this case draw an assumed 16:00 block AND hatch the morning around it.
+    const gaps = screen
+      .getAllByTestId("trip-day-gantt-segment")
+      .filter((segment) => segment.getAttribute("data-kind") === "gap");
+    expect(gaps).toHaveLength(0);
+
+    // The caption declines to put a figure on the open time rather than reporting hours of hatch that
+    // the bar does not draw - and the "fully planned" chip stays off, since a blank bar has not earned it.
+    expect(
+      screen.getByText(/Unplanned unknown until a check-in time is set/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Fully planned day")).not.toBeInTheDocument();
+
+    // The pill marks the range as approximate instead of presenting the 16:00 fallback as a booking fact.
+    expect(screen.getByText("approx. 16:00 - 24:00")).toBeInTheDocument();
+    expect(screen.getByTestId("day-stat-check-in")).toHaveTextContent("—");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("renders timeline photos as sharp-cornered 56px squares", async () => {
+    navigationMockState.search = "";
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/bucket-list-items")) {
+        return { ok: true, status: 200, json: async () => ({ data: { items: [] }, error: null }) };
+      }
+      if (url.includes("/day-plan-items/images")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: { images: [{ id: "img-1", dayPlanItemId: "item-1", imageUrl: "/uploads/a.webp", sortOrder: 0 }] },
+            error: null,
+          }),
+        };
+      }
+      if (url.includes("/accommodations/images")) {
+        return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-01T00:00:00.000Z",
+              dayCount: 1,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: null,
+                dayPlanItems: [
+                  {
+                    id: "item-1",
+                    title: "Museum visit",
+                    fromTime: "09:00",
+                    toTime: "10:00",
+                    contentJson: JSON.stringify({ type: "doc", content: [] }),
+                    costCents: null,
+                    linkUrl: null,
+                    location: null,
+                  },
+                ],
+                travelSegments: [],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    // Meaning-bearing, so it keeps a real alt - nothing else on screen says which photo this is.
+    const photo = await screen.findByRole("img", { name: "Day timeline 1" });
+    const style = getComputedStyle(photo);
+    expect(style.width).toBe("56px");
+    expect(style.height).toBe("56px");
+    // Photography is always sharp, independent of the radius of the card containing it.
+    expect(style.borderRadius).toBe("0px");
 
     vi.unstubAllGlobals();
   });

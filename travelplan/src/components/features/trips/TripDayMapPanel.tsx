@@ -1,8 +1,9 @@
 "use client";
 
-import { Box, Chip, IconButton, List, ListItem, Paper, Skeleton, SvgIcon, Tooltip, Typography } from "@mui/material";
+import { Box, Chip, IconButton, List, ListItem, Skeleton, SvgIcon, Tooltip, Typography, useTheme } from "@mui/material";
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { formatMessage } from "@/i18n";
 import { useI18n } from "@/i18n/provider";
 import {
   buildDayMapPanelData,
@@ -16,7 +17,10 @@ export type { TripDayMapItem, TripDayMapPanelData, TripDayMapPoint } from "@/lib
 
 const TripDayLeafletMap = dynamic(() => import("./TripDayLeafletMap"), { ssr: false });
 
-const DAY_MAP_PANEL_HEIGHT = "clamp(240px, 35vh, 360px)";
+// DESIGN.md's compact `.map-preview` footprint. This value is passed down to Leaflet, not just used
+// to clip: left at its own default the map renders full-size and the lower half of the route is
+// simply hidden behind overflow: hidden.
+const DAY_MAP_PANEL_HEIGHT = 150;
 
 type TripDayMapPanelProps = {
   points: TripDayMapPoint[];
@@ -40,13 +44,23 @@ export default function TripDayMapPanel({
   onMarkerClick,
 }: TripDayMapPanelProps) {
   const { t } = useI18n();
+  const theme = useTheme();
+  const tokens = theme.palette.tokens;
   const expandLabel = t("trips.dayView.mapExpand");
 
   return (
-    <Paper elevation={0} sx={{ p: 2, borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
-      <Box display="flex" flexDirection="column" gap={2}>
+    <Box
+      sx={{
+        backgroundColor: tokens.card,
+        border: "1px solid",
+        borderColor: tokens.borderStrong,
+        borderRadius: "8px",
+        padding: "18px",
+      }}
+    >
+      <Box display="flex" flexDirection="column" gap={1.5}>
         <Box display="flex" alignItems="center" justifyContent="space-between" gap={1}>
-          <Typography variant="subtitle1" fontWeight={600}>
+          <Typography variant="labelCaps" component="h6" sx={{ color: tokens.inkSoft }}>
             {t("trips.dayView.mapTitle")}
           </Typography>
           <Tooltip title={expandLabel} enterDelay={0}>
@@ -69,18 +83,18 @@ export default function TripDayMapPanel({
         </Box>
 
         {loading ? (
-          <Skeleton variant="rectangular" height={DAY_MAP_PANEL_HEIGHT} sx={{ borderRadius: 2 }} />
+          <Skeleton variant="rectangular" height={DAY_MAP_PANEL_HEIGHT} sx={{ borderRadius: "6px" }} />
         ) : points.length === 0 ? (
           <Box
             sx={{
-              minHeight: DAY_MAP_PANEL_HEIGHT,
+              height: DAY_MAP_PANEL_HEIGHT,
               display: "flex",
               flexDirection: "column",
               justifyContent: "center",
               alignItems: "center",
-              borderRadius: 2,
+              borderRadius: "6px",
               border: "1px dashed",
-              borderColor: "divider",
+              borderColor: tokens.border,
               px: 2,
               textAlign: "center",
               gap: 1,
@@ -94,7 +108,7 @@ export default function TripDayMapPanel({
             </Typography>
           </Box>
         ) : (
-          <Box sx={{ borderRadius: 2, overflow: "hidden" }}>
+          <Box sx={{ height: DAY_MAP_PANEL_HEIGHT, borderRadius: "6px", overflow: "hidden" }}>
             <TripDayLeafletMap
               points={points}
               polylinePositions={polylinePositions}
@@ -103,6 +117,30 @@ export default function TripDayMapPanel({
             />
           </Box>
         )}
+
+        {/* EXPERIENCE.md's accessibility floor: a map is never the sole carrier of information, so a
+            populated preview is always paired with a text summary and a real link to the full map.
+            Gated on points as well as expandHref - a caption reading "0 stops" beside the "no
+            locations" placeholder, linking to a map with nothing on it, is worse than no caption. */}
+        {expandHref && !loading && points.length > 0 ? (
+          <Typography
+            component={Link}
+            href={expandHref}
+            onClick={onExpandClick}
+            data-testid="day-map-caption"
+            sx={{
+              fontSize: "11.5px",
+              fontWeight: 600,
+              color: tokens.inkSoft,
+              textDecoration: "none",
+              "&:hover": { textDecoration: "underline" },
+            }}
+          >
+            {points.length === 1
+              ? t("trips.dayView.mapCaptionOne")
+              : formatMessage(t("trips.dayView.mapCaption"), { count: points.length })}
+          </Typography>
+        ) : null}
 
         {routingUnavailable && (
           <Box display="flex" flexDirection="column" gap={0.5} data-testid="day-map-routing-unavailable">
@@ -131,6 +169,6 @@ export default function TripDayMapPanel({
           </Box>
         )}
       </Box>
-    </Paper>
+    </Box>
   );
 }

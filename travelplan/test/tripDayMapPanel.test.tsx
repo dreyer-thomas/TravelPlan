@@ -4,8 +4,8 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import TripDayMapPanel, { buildDayMapPanelData } from "@/components/features/trips/TripDayMapPanel";
-import { I18nProvider } from "@/i18n/provider";
 import type { ReactNode } from "react";
+import { Providers } from "./helpers/renderWithProviders";
 
 vi.mock("next/dynamic", () => ({
   default: () =>
@@ -74,14 +74,14 @@ describe("TripDayMapPanel", () => {
     });
 
     render(
-      <I18nProvider initialLanguage="en">
+      <Providers>
         <TripDayMapPanel
           points={points}
           missingLocations={missingLocations}
           loading={false}
           expandHref="/trips/trip-1/days/day-1/map"
         />
-      </I18nProvider>,
+      </Providers>,
     );
 
     const expandButton = screen.getByRole("link", { name: "Expand map" });
@@ -122,9 +122,9 @@ describe("TripDayMapPanel", () => {
     });
 
     render(
-      <I18nProvider initialLanguage="en">
+      <Providers>
         <TripDayMapPanel points={points} missingLocations={missingLocations} loading={false} />
-      </I18nProvider>
+      </Providers>
     );
 
     const markers = screen.getAllByTestId(/day-map-marker-/);
@@ -173,9 +173,9 @@ describe("TripDayMapPanel", () => {
     });
 
     render(
-      <I18nProvider initialLanguage="en">
+      <Providers>
         <TripDayMapPanel points={points} missingLocations={missingLocations} loading={false} />
-      </I18nProvider>
+      </Providers>
     );
 
     expect(screen.getByText("No locations to map yet")).toBeInTheDocument();
@@ -201,7 +201,7 @@ describe("TripDayMapPanel", () => {
     });
 
     render(
-      <I18nProvider initialLanguage="en">
+      <Providers>
         <TripDayMapPanel
           points={points}
           missingLocations={missingLocations}
@@ -213,7 +213,7 @@ describe("TripDayMapPanel", () => {
           routingUnavailable
           loading={false}
         />
-      </I18nProvider>,
+      </Providers>,
     );
 
     expect(screen.getByTestId("day-map-polyline")).toHaveAttribute(
@@ -226,5 +226,69 @@ describe("TripDayMapPanel", () => {
     );
     expect(screen.getByText("Routing unavailable")).toBeInTheDocument();
     expect(screen.getByText("Showing direct line order. Check your connection and try again.")).toBeInTheDocument();
+  });
+
+  it("pairs the preview with a text caption linking to the full map", () => {
+    const { points, missingLocations } = buildDayMapPanelData({
+      previousStay: { id: "stay-prev", label: "Previous Stay", kind: "previousStay", location: { lat: 40.7, lng: -73.9 } },
+      planItems: [{ id: "item-1", label: "Museum", kind: "planItem", location: { lat: 40.75, lng: -73.98 } }],
+      currentStay: { id: "stay-cur", label: "Current Stay", kind: "currentStay", location: { lat: 40.8, lng: -73.95 } },
+    });
+
+    render(
+      <Providers>
+        <TripDayMapPanel
+          points={points}
+          missingLocations={missingLocations}
+          loading={false}
+          expandHref="/trips/trip-1/days/day-1/map"
+        />
+      </Providers>,
+    );
+
+    // A map is never the sole carrier of information: the station count is available as text, and the
+    // caption is a real link to the full map rather than decoration beside the icon button.
+    const caption = screen.getByTestId("day-map-caption");
+    expect(caption).toHaveTextContent("3 stops · open the full map");
+    expect(caption).toHaveAttribute("href", "/trips/trip-1/days/day-1/map");
+  });
+
+  it("uses the singular caption for a single stop", () => {
+    const { points, missingLocations } = buildDayMapPanelData({
+      planItems: [{ id: "item-1", label: "Museum", kind: "planItem", location: { lat: 40.75, lng: -73.98 } }],
+    });
+
+    render(
+      <Providers>
+        <TripDayMapPanel
+          points={points}
+          missingLocations={missingLocations}
+          loading={false}
+          expandHref="/trips/trip-1/days/day-1/map"
+        />
+      </Providers>,
+    );
+
+    // formatMessage is plain {key} substitution with no plural handling, so the singular needs its own
+    // key rather than rendering "1 stops".
+    expect(screen.getByTestId("day-map-caption")).toHaveTextContent("1 stop · open the full map");
+  });
+
+  it("omits the caption entirely when there is nothing to map", () => {
+    render(
+      <Providers>
+        <TripDayMapPanel
+          points={[]}
+          missingLocations={[]}
+          loading={false}
+          expandHref="/trips/trip-1/days/day-1/map"
+        />
+      </Providers>,
+    );
+
+    // "0 stops · open the full map", linking to a map with nothing on it, is worse than no caption -
+    // the empty-state placeholder already says what is going on.
+    expect(screen.getByText("No locations to map yet")).toBeInTheDocument();
+    expect(screen.queryByTestId("day-map-caption")).not.toBeInTheDocument();
   });
 });

@@ -10,26 +10,32 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  Divider,
   IconButton,
-  List,
-  ListItem,
-  Paper,
   Skeleton,
   SvgIcon,
   TextField,
   Typography,
+  useTheme,
 } from "@mui/material";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import TripAccommodationDialog from "@/components/features/trips/TripAccommodationDialog";
-import TripDayGanttBar from "@/components/features/trips/TripDayGanttBar";
+import TripDayGanttBar, { buildGanttPalette } from "@/components/features/trips/TripDayGanttBar";
 import {
   buildPlanItemSegments,
   buildStaySegments,
   buildTravelSegments,
   deriveCoverageSummary,
+  type TripDayGanttSegment,
 } from "@/components/features/trips/TripDayGanttSegments";
+import {
+  HERO_SCRIM,
+  HouseIcon,
+  ON_PHOTO_CHROME,
+  WarningTriangleIcon,
+  toCssUrl,
+  transportIconFor,
+} from "@/components/features/trips/TripIcons";
 import TripDayMapPanel, {
   type TripDayMapPoint,
 } from "@/components/features/trips/TripDayMapPanel";
@@ -218,6 +224,17 @@ const formatMinutesToTime = (value: number) => {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 };
 
+// The bar spans a real 24h day, not the mockup's 08:00-22:00 sample window: stay segments run 00:00 ->
+// check-out and check-in -> 24:00 by construction, and the planned/unplanned caption beside the bar is
+// computed against 1440 minutes. Clamping the axis would truncate both stays and desync the two.
+const COVERAGE_AXIS_TICKS = [
+  { label: "00:00", percent: 0 },
+  { label: "06:00", percent: 25 },
+  { label: "12:00", percent: 50 },
+  { label: "18:00", percent: 75 },
+  { label: "24:00", percent: 100 },
+];
+
 const buildSegmentKey = (from: SegmentItem, to: SegmentItem) => `${from.type}:${from.id}::${to.type}:${to.id}`;
 const buildSegmentKeyFromIds = (
   fromType: "accommodation" | "dayPlanItem",
@@ -243,6 +260,8 @@ const parsePolyline = (value: unknown): [number, number][] => {
 
 export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const { language, t } = useI18n();
+  const theme = useTheme();
+  const tokens = theme.palette.tokens;
   const searchParams = useSearchParams();
   const [detail, setDetail] = useState<TripDetail | null>(null);
   const [day, setDay] = useState<TripDay | null>(null);
@@ -324,9 +343,12 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     [],
   );
 
+  // style: "currency" places the symbol per locale - German needs "1.234,50 €", not "€1.234,50".
   const formatCost = useMemo(
     () => (value: number) =>
       new Intl.NumberFormat(language === "de" ? "de-DE" : "en-US", {
+        style: "currency",
+        currency: "EUR",
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }).format(value / 100),
@@ -1008,20 +1030,60 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     },
     [t],
   );
+  // A stay on record with no check-in time is deliberately never hatched. This screen defaults such a
+  // stay to 16:00 so the bar still draws a segment, but Trip Overview - which passes the raw nulls -
+  // shows no accommodation segment at all for it. Branching on the raw field (not on whether segments
+  // came out empty) keeps the two bars telling the same story about the same day.
+  //
+  // Only checkInTime is tested: on this day the current stay's checkOutTime feeds the *next* day's
+  // previous-night segment, so it has no bearing on whether this bar was drawn from an assumption.
+  // Requiring both to be null (the story's original wording) let a stay with a check-out but no
+  // check-in draw an assumed 16:00 block *and* hatch the morning - the exact mixture this guards.
+  const coverageIsAssumed = Boolean(currentStay && !currentStay.checkInTime);
+  // When the bar declines to draw the open time, the caption must not assert a figure for it. Reporting
+  // "Unplanned 16h" beside a bar with no hatch had three elements describing the same day three ways;
+  // reporting 0 would be worse still, claiming a coverage the bar plainly does not show. The honest
+  // answer is that the open time is unknown until a check-in exists.
   const plannedSummary = formatDurationSummary(ganttCoverage.plannedMinutes);
-  const unplannedSummary = formatDurationSummary(ganttCoverage.unplannedMinutes);
-  const ganttSummary = formatMessage(t("trips.dayView.ganttSummary"), {
-    planned: plannedSummary,
-    unplanned: unplannedSummary,
-  });
-  const isFullyPlanned = ganttCoverage.unplannedMinutes <= 0;
+  const ganttSummary = coverageIsAssumed
+    ? formatMessage(t("trips.dayView.ganttSummaryAssumed"), { planned: plannedSummary })
+    : formatMessage(t("trips.dayView.ganttSummary"), {
+        planned: plannedSummary,
+        unplanned: formatDurationSummary(ganttCoverage.unplannedMinutes),
+      });
+  // Gated on the same flag: a bar with nothing hatched because the times are unknown has not earned a
+  // "fully planned" badge either.
+  const isFullyPlanned = !coverageIsAssumed && ganttCoverage.unplannedMinutes <= 0;
+  const coverageSegments = useMemo<TripDayGanttSegment[]>(() => {
+    const gaps = ganttCoverage.gaps;
+    if (coverageIsAssumed || gaps.length === 0) return ganttSegments;
+    // EXPERIENCE.md: a day with no accommodation shows a single oversized gap rather than many small
+    // ones - the bar has to say "this day is structurally incomplete", not "some minutes are free".
+    const gapSegments: TripDayGanttSegment[] = day?.missingAccommodation
+      ? [{ startMinute: gaps[0].startMinute, endMinute: gaps[gaps.length - 1].endMinute, kind: "gap" }]
+      : gaps.map((gap) => ({ startMinute: gap.startMinute, endMinute: gap.endMinute, kind: "gap" as const }));
+    return [...ganttSegments, ...gapSegments];
+  }, [coverageIsAssumed, day?.missingAccommodation, ganttCoverage.gaps, ganttSegments]);
+  const totalTravelMinutes = useMemo(
+    () =>
+      travelSegments.reduce(
+        (sum, segment) => sum + (Number.isFinite(segment.durationMinutes) ? Math.max(0, segment.durationMinutes) : 0),
+        0,
+      ),
+    [travelSegments],
+  );
   const dayHasTimelineContent = Boolean(previousStay || currentStay || planItems.length > 0);
+  // The range strings stay byte-identical when the underlying times are real. When they are not, the
+  // pill says so rather than presenting resolveStayTime's 16:00/10:00 fallback as a recorded fact -
+  // the stat strip already refuses to, and the two must not contradict each other two cards apart.
   const previousStayRange = previousStay
     ? `00:00 - ${resolveStayTime(previousStay.checkOutTime, defaultCheckOutTime)}`
     : null;
+  const previousStayRangeIsAssumed = Boolean(previousStay && !previousStay.checkOutTime?.trim());
   const currentStayRange = currentStay
     ? `${resolveStayTime(currentStay.checkInTime, defaultCheckInTime)} - 24:00`
     : null;
+  const currentStayRangeIsAssumed = Boolean(currentStay && !currentStay.checkInTime?.trim());
   const hasDayImage = Boolean(day?.imageUrl && day.imageUrl.trim().length > 0);
   const travelSegmentLabel = useCallback(
     (segment: TravelSegment | null) => {
@@ -1061,9 +1123,147 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
         }
       : null;
   const previousSegmentTarget = firstPlanSegment ?? (planItems.length === 0 ? currentStaySegment : null);
+  // Shared DESIGN.md shells, declared once so the timeline, sidebar and stat strip cannot drift apart.
+  const cardSx = {
+    backgroundColor: tokens.card,
+    border: "1px solid",
+    borderColor: tokens.borderStrong,
+    borderRadius: "8px",
+    padding: "18px",
+  } as const;
+  // badge-pill / tl-time: accent text on accent-soft, 4px radius, tabular figures.
+  const timePillSx = {
+    display: "inline-block",
+    fontSize: "11px",
+    fontWeight: 800,
+    color: theme.palette.primary.main,
+    backgroundColor: tokens.accentSoft,
+    borderRadius: "4px",
+    padding: "3px 8px",
+    fontVariantNumeric: "tabular-nums",
+  } as const;
+  // Same pill, drained of accent, for a range derived from a default rather than a stored time. Uses
+  // inkSoft rather than inkMuted: inkMuted is 3.65:1 on card white and already carries a deferred
+  // contrast finding, so new text should not add another instance of it.
+  const timePillAssumedSx = {
+    ...timePillSx,
+    color: tokens.inkSoft,
+    backgroundColor: tokens.border,
+  } as const;
+  const renderTimePill = (range: string | null, isAssumed: boolean) => {
+    if (!range) return null;
+    return (
+      <Box sx={{ ...(isAssumed ? timePillAssumedSx : timePillSx), mb: 0.75 }}>
+        {isAssumed ? formatMessage(t("trips.dayView.approxTimeRange"), { range }) : range}
+      </Box>
+    );
+  };
+  const statValueSx = {
+    fontSize: 21,
+    fontWeight: 900,
+    fontVariantNumeric: "tabular-nums",
+    color: tokens.ink,
+    // Cell 4 can hold an accommodation name in its label and the "No accommodation" sentence as its
+    // value; without this the overflow is clipped by the hero wrapper's overflow: hidden.
+    overflowWrap: "anywhere",
+  } as const;
+  const statLabelSx = { color: tokens.inkSoft, display: "block", mb: 0.75, overflowWrap: "anywhere" } as const;
+  const statCellSx = { p: "16px 24px", minWidth: 0 } as const;
+  const tlCardSx = {
+    backgroundColor: tokens.card,
+    border: "1px solid",
+    borderColor: tokens.borderStrong,
+    borderRadius: "8px",
+    padding: "14px 16px",
+    display: "flex",
+    flexDirection: "column",
+    gap: 1.5,
+    minWidth: 0,
+  } as const;
+  // tl-card-top: the spec's grid, not a flex row - "1fr auto" pins the trailing block (cost, edit
+  // affordance) to its content width and centres it against the title block.
+  const tlCardTopSx = {
+    display: "grid",
+    gridTemplateColumns: "1fr auto",
+    gap: "14px",
+    alignItems: "center",
+  } as const;
+  const tlCostSx = {
+    fontSize: 13,
+    fontWeight: 800,
+    color: tokens.ink,
+    fontVariantNumeric: "tabular-nums",
+    whiteSpace: "nowrap",
+  } as const;
+  // The continuous rail: a 2px rule the dots sit on top of, inset so it stops short of both ends.
+  //
+  // The rule's centre is fixed at x=16 (left 15 + half of 2px) at every breakpoint, because that is
+  // where a 32px dot lands at both paddings: xs pulls the dot back 34px from a 34px inset and md 44
+  // from 44, so the dot spans 0..32 either way. Moving this to 11px at xs put the rule 4px left of
+  // every dot on the timeline.
+  const timelineRailSx = {
+    position: "relative",
+    pl: { xs: "34px", md: "44px" },
+    "&::before": {
+      content: '""',
+      position: "absolute",
+      top: 18,
+      bottom: 18,
+      left: "15px",
+      width: "2px",
+      backgroundColor: tokens.borderStrong,
+    },
+  } as const;
+  const dotBaseSx = {
+    position: "absolute",
+    left: { xs: -34, md: -44 },
+    top: 0,
+    width: 32,
+    height: 32,
+    borderRadius: "50%",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 1,
+  } as const;
+  const stayDotSx = {
+    ...dotBaseSx,
+    backgroundColor: tokens.accentSoft,
+    border: "2px solid",
+    borderColor: theme.palette.primary.main,
+  } as const;
+  const activityDotSx = {
+    ...dotBaseSx,
+    backgroundColor: tokens.card,
+    border: "2px solid",
+    borderColor: tokens.borderStrong,
+  } as const;
+  const neutralMarkerSx = { width: 8, height: 8, borderRadius: "50%", backgroundColor: tokens.inkSoft } as const;
+  // Read from the bar's own palette rather than restating it: a legend that re-derives the fills is
+  // correct on the day it is written and wrong the first time the bar changes. The 3px hatch pitch
+  // this used to hardcode already disagreed with the default bar's 4px.
+  const ganttPalette = buildGanttPalette(theme, "default");
+  // The hatch entry appears only when the bar actually renders a gap segment. A legend key for a fill
+  // that is nowhere on the bar sends the reader looking for something that does not exist - which is
+  // what happened on a day whose stay has no check-in, where the gaps are deliberately suppressed.
+  const coverageHasGap = coverageSegments.some((segment) => segment.kind === "gap");
+  const coverageLegend = [
+    { key: "stay", label: t("trips.dayView.coverageLegendStay"), background: ganttPalette.accommodation },
+    { key: "activity", label: t("trips.dayView.coverageLegendActivity"), background: ganttPalette.planItem },
+    { key: "travel", label: t("trips.dayView.coverageLegendTravel"), background: ganttPalette.travel },
+    ...(coverageHasGap
+      ? [{ key: "gap", label: t("trips.dayView.coverageLegendGap"), background: ganttPalette.gap }]
+      : []),
+  ];
+
+  // tl-segment: a plain icon + text connector row - no card, no photo, per DESIGN.md's timeline spec.
   const renderTravelSegment = (from: SegmentItem, to: SegmentItem) => {
     const segment = segmentsByKey.get(buildSegmentKey(from, to)) ?? null;
     const travelTimeRange = segment ? buildTravelTimeRange(from.endTime, segment.durationMinutes) : null;
+    // Only a recorded transportType earns a transport glyph. With no segment saved the row is a prompt
+    // to enter one, so a car icon there would assert a mode the user has not chosen - the same reason
+    // activity nodes get a neutral marker instead of an inferred icon.
+    const TransportIcon = segment ? transportIconFor(segment.transportType) : null;
     return (
       <Box
         key={`segment-${from.id}-${to.id}`}
@@ -1071,27 +1271,39 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
         data-from-id={from.id}
         data-to-id={to.id}
         sx={{
+          position: "relative",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          px: 1.5,
-          py: 0.25,
-          color: "text.secondary",
+          gap: 1.5,
+          margin: "-2px 0 12px",
+          padding: "6px 0 6px 4px",
+          color: tokens.inkSoft,
         }}
       >
+        <Box
+          aria-hidden
+          sx={{
+            position: "absolute",
+            // Centres the 22px dot on the rail's x=16 at both paddings (34 - 29 + 11 = 16, 44 - 39 + 11 = 16).
+            left: { xs: -29, md: -39 },
+            top: 3,
+            width: 22,
+            height: 22,
+            borderRadius: "50%",
+            backgroundColor: theme.palette.background.default,
+            color: tokens.inkSoft,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1,
+          }}
+        >
+          {TransportIcon ? <TransportIcon /> : <Box sx={neutralMarkerSx} />}
+        </Box>
         <Box display="flex" alignItems="center" gap={0.75} flexWrap="wrap">
-          {travelTimeRange ? (
-            <Chip
-              label={travelTimeRange}
-              size="small"
-              sx={{
-                bgcolor: "#1b3d73",
-                color: "#ffffff",
-                borderColor: "#1b3d73",
-              }}
-            />
-          ) : null}
-          <Typography variant="caption" sx={{ fontWeight: 600 }}>
+          {travelTimeRange ? <Box sx={timePillSx}>{travelTimeRange}</Box> : null}
+          <Typography sx={{ fontSize: "11.5px", fontWeight: 700, color: tokens.inkSoft }}>
             {travelSegmentLabel(segment)}
           </Typography>
         </Box>
@@ -1417,23 +1629,25 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   }, [day, mapData.points, tripId]);
 
   if (loading) {
+    // A skeleton silhouette of this screen's own layout - hero, coverage panel, stat strip, columns -
+    // rather than a spinner, per EXPERIENCE.md's cold-load convention for a full route load.
     return (
-      <Paper elevation={1} sx={{ p: 3, borderRadius: 3 }}>
+      <Box sx={cardSx} data-testid="trip-day-view-loading">
         <Box display="flex" flexDirection="column" gap={2}>
+          <Skeleton variant="rectangular" height={210} sx={{ borderRadius: "8px" }} />
+          <Skeleton variant="rectangular" height={16} sx={{ borderRadius: "4px" }} />
           <Skeleton variant="text" width="40%" height={34} />
-          <Skeleton variant="text" width="30%" height={22} />
-          <Divider />
           <Skeleton variant="rectangular" height={220} />
         </Box>
-      </Paper>
+      </Box>
     );
   }
 
   if (notFound) {
     return (
-      <Paper elevation={1} sx={{ p: 3, borderRadius: 3 }}>
+      <Box sx={cardSx}>
         <Box display="flex" flexDirection="column" gap={2}>
-          <Typography variant="h6" fontWeight={600}>
+          <Typography variant="heading" component="h5" sx={{ color: tokens.ink }}>
             {t("trips.dayView.notFoundTitle")}
           </Typography>
           <Typography variant="body2" color="text.secondary">
@@ -1443,7 +1657,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
             {t("trips.dayView.back")}
           </Button>
         </Box>
-      </Paper>
+      </Box>
     );
   }
 
@@ -1454,155 +1668,387 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
         ? formatMessage(t("trips.dayView.title"), { index: day.dayIndex })
         : "";
 
+  const isDayGap = Boolean(day?.missingAccommodation);
+  const dayHeroImageCss = toCssUrl(
+    resolveDayImageSrc(day?.imageUrl, day?.updatedAt) ?? "/images/world-map-placeholder.svg",
+  );
+  // One predicate for "this day has somewhere to sleep", shared with the timeline's warn treatment.
+  // Both derive from the same server field (missingAccommodation is !hasAccommodation in tripRepo), so
+  // the screen's two gap signals must not be computed from two different expressions.
+  const statStay = isDayGap ? null : currentStay;
+  const checkInStatValue = !statStay
+    ? t("trips.timeline.noAccommodation")
+    : // The gantt falls back to 16:00 so it has a segment to draw; a stat cell is read as a fact about
+      // the booking, so an unset check-in stays an em dash rather than surfacing the assumption.
+      statStay.checkInTime?.trim() || "—";
+
   return (
-    <Box
-      display="flex"
-      flexDirection="column"
-      gap={2}
-      data-testid="trip-day-view-page"
-      sx={{
-        backgroundColor: "#2f343d",
-        borderRadius: 3,
-        p: { xs: 1.5, md: 2 },
-      }}
-    >
+    <Box display="flex" flexDirection="column" gap={2} data-testid="trip-day-view-page">
       {error && <Alert severity="error">{error}</Alert>}
 
       {detail && day && (
         <>
-          <Paper elevation={1} sx={{ p: 3, borderRadius: 3 }}>
-            <Box display="flex" flexDirection={{ xs: "column", sm: "row" }} alignItems="stretch" gap={2}>
-              <Box display="flex" flexDirection="column" gap={2} flex={1}>
-                <Button component={Link} href={`/trips/${tripId}`} variant="text" sx={{ alignSelf: "flex-start" }}>
-                  {t("trips.dayView.back")}
-                </Button>
-                <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
-                  {previousDay ? (
-                    <Button
-                      component={Link}
-                      href={`/trips/${tripId}/days/${previousDay.id}`}
-                      variant="outlined"
+          <Box sx={{ borderRadius: "8px", overflow: "hidden", border: "1px solid", borderColor: tokens.border }}>
+            <Box
+              data-testid="day-hero"
+              sx={{
+                position: "relative",
+                minHeight: 210,
+                display: "flex",
+                flexDirection: "column",
+                padding: "22px 32px 24px",
+                overflow: "hidden",
+                backgroundColor: theme.palette.primary.main,
+                backgroundImage: dayHeroImageCss,
+                backgroundSize: "cover",
+                backgroundPosition: "center",
+              }}
+            >
+              <Box aria-hidden sx={{ position: "absolute", inset: 0, background: HERO_SCRIM }} />
+              {/* In normal flow, not absolutely positioned. Out of flow it reserved no height, so a day
+                  with a note - the title is "Day N: {note}" at 28px/900, and notes run to 280 chars -
+                  grew the title block upward until its first line ran under the breadcrumb. */}
+              <Box
+                sx={{
+                  position: "relative",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "flex-start",
+                  zIndex: 2,
+                  gap: 2,
+                  mb: 2,
+                }}
+              >
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 0.75,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    minWidth: 0,
+                    // The breadcrumb sits at the scrim's weakest stop (.26) over arbitrary user
+                    // photography, so it needs the same shadow the title already carries.
+                    textShadow: "0 2px 14px rgba(0,0,0,.35)",
+                  }}
+                >
+                  <Box
+                    component={Link}
+                    href={`/trips/${tripId}`}
+                    sx={{
+                      color: "rgba(255,255,255,.82)",
+                      textDecoration: "none",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      "&:hover": { textDecoration: "underline" },
+                    }}
+                  >
+                    {detail.trip.name}
+                  </Box>
+                  <Box component="span" aria-hidden sx={{ color: "rgba(255,255,255,.45)" }}>
+                    /
+                  </Box>
+                  <Box
+                    component="span"
+                    sx={{ color: "#FFFFFF", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                  >
+                    {formatMessage(t("trips.dayView.title"), { index: day.dayIndex })}
+                  </Box>
+                </Box>
+                <Box display="flex" alignItems="center" gap={1} sx={{ flexShrink: 0 }}>
+                  {isOwner ? (
+                    <IconButton
                       size="small"
-                      aria-label={t("trips.dayView.previousAria")}
+                      aria-label={t("trips.dayImage.editAction")}
+                      title={t("trips.dayImage.editAction")}
+                      onClick={() => setDayMetaOpen(true)}
+                      // 44px hit area: the theme sets minHeight on MuiButton but has no MuiIconButton
+                      // override, so size="small" alone renders ~28px - under the accessibility floor
+                      // this same story enforces on the bucket-list "+".
+                      sx={{ ...ON_PHOTO_CHROME, width: 44, height: 44 }}
                     >
-                      {t("trips.dayView.previousAction")}
-                    </Button>
-                  ) : (
-                    <Button variant="outlined" size="small" disabled aria-label={t("trips.dayView.previousAria")}>
-                      {t("trips.dayView.previousAction")}
-                    </Button>
-                  )}
-                  {nextDay ? (
-                    <Button
-                      component={Link}
-                      href={`/trips/${tripId}/days/${nextDay.id}`}
-                      variant="outlined"
-                      size="small"
-                      aria-label={t("trips.dayView.nextAria")}
-                    >
-                      {t("trips.dayView.nextAction")}
-                    </Button>
-                  ) : (
-                    <Button variant="outlined" size="small" disabled aria-label={t("trips.dayView.nextAria")}>
-                      {t("trips.dayView.nextAction")}
-                    </Button>
-                  )}
+                      <SvgIcon fontSize="inherit">
+                        <path d="M3 17.25V21h3.75l11-11-3.75-3.75-11 11zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66z" />
+                      </SvgIcon>
+                    </IconButton>
+                  ) : null}
+                  {/* No leading icon: trips.dayView.back already opens with an arrow glyph, and an
+                      existing test pins that exact accessible name. */}
                   <Button
                     component={Link}
-                    href={`/trips/${tripId}/days/${day.id}/print`}
+                    href={`/trips/${tripId}`}
                     variant="text"
-                    size="small"
-                    aria-label={t("trips.dayView.printAria")}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                    sx={{ ...ON_PHOTO_CHROME, whiteSpace: "nowrap" }}
                   >
-                    {t("trips.dayView.printAction")}
+                    {t("trips.dayView.back")}
                   </Button>
                 </Box>
-                <Box display="flex" flexDirection="column" gap={0.5}>
-                  <Box display="flex" alignItems="center" gap={0.5} flexWrap="wrap">
-                    <Typography variant="h5" fontWeight={700}>
-                      {dayTitle}
-                    </Typography>
-                    {isOwner ? (
-                      <IconButton
-                        size="small"
-                        aria-label={t("trips.dayImage.editAction")}
-                        title={t("trips.dayImage.editAction")}
-                        onClick={() => setDayMetaOpen(true)}
-                      >
-                        <SvgIcon fontSize="inherit">
-                          <path d="M3 17.25V21h3.75l11-11-3.75-3.75-11 11zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66z" />
-                        </SvgIcon>
-                      </IconButton>
-                    ) : null}
-                  </Box>
-                  <Typography variant="body2" color="text.secondary">
-                    {formatDate(day.date)}
-                  </Typography>
-                  <Box pt={0.5} pr={{ xs: 0, sm: 2 }}>
-                    <TripDayGanttBar segments={ganttSegments} ariaLabel={t("trips.dayView.ganttAriaLabel")} />
-                  </Box>
-                  <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
-                    <Typography variant="caption" color="text.secondary" aria-live="polite">
-                      {ganttSummary}
-                    </Typography>
-                    {isFullyPlanned ? (
-                      <Chip size="small" color="success" label={t("trips.dayView.ganttFullyPlanned")} />
-                    ) : null}
-                  </Box>
-                  <TripFeedbackPanel
-                    tripId={tripId}
-                    feedback={day.feedback}
-                    targetType="tripDay"
-                    targetId={day.id}
-                    currentUserId={detail?.trip.currentUserId}
-                    contextLabel={buildFeedbackContextLabel(
-                      day.note && day.note.trim().length > 0
-                        ? formatMessage(t("trips.dayView.titleWithNote"), { index: day.dayIndex, note: day.note.trim() })
-                        : formatMessage(t("trips.dayView.title"), { index: day.dayIndex }),
-                    )}
-                    onUpdated={(feedback) => {
-                      setDay((current) => (current ? { ...current, feedback } : current));
-                      setDetail((current) =>
-                        current
-                          ? {
-                              ...current,
-                              days: current.days.map((entry) => (entry.id === day.id ? { ...entry, feedback } : entry)),
-                            }
-                          : current,
-                      );
-                    }}
-                  />
+              </Box>
+              {/* mt: auto keeps the title bottom-anchored now that the hero is no longer
+                  justify-content: flex-end (the top row is in flow and must stay at the top). */}
+              <Box sx={{ position: "relative", zIndex: 2, mt: "auto" }}>
+                {/* component="h5" is not optional: custom typography variants carry no variantMapping,
+                    so without it this renders as a <span> and the page loses its only heading. */}
+                <Typography
+                  variant="display"
+                  component="h5"
+                  sx={{ color: "#FFFFFF", textShadow: "0 2px 14px rgba(0,0,0,.35)", overflowWrap: "anywhere" }}
+                >
+                  {dayTitle}
+                </Typography>
+                <Typography sx={{ color: "rgba(255,255,255,.92)", fontSize: 13, fontWeight: 600, mt: 0.75 }}>
+                  {formatDate(day.date)}
+                </Typography>
+              </Box>
+            </Box>
+
+            <Box
+              sx={{
+                backgroundColor: tokens.card,
+                borderBottom: "1px solid",
+                borderColor: tokens.border,
+                padding: { xs: "16px 16px 18px", md: "16px 32px 18px" },
+              }}
+            >
+              <Box
+                sx={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                  gap: 1,
+                  mb: 1.25,
+                }}
+              >
+                <Typography variant="labelCaps" component="h6" sx={{ color: tokens.inkSoft }}>
+                  {t("trips.dayView.coverageTitle")}
+                </Typography>
+                <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
+                  {coverageLegend.map((entry) => (
+                    <Box key={entry.key} sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                      <Box
+                        aria-hidden
+                        data-testid={`coverage-legend-swatch-${entry.key}`}
+                        sx={{
+                          width: 10,
+                          height: 10,
+                          borderRadius: "2px",
+                          flexShrink: 0,
+                          background: entry.background,
+                          ...(entry.key === "gap" ? { border: "1px solid", borderColor: tokens.warnBorder } : {}),
+                        }}
+                      />
+                      <Typography sx={{ fontSize: 11, fontWeight: 700, color: tokens.inkSoft }}>
+                        {entry.label}
+                      </Typography>
+                    </Box>
+                  ))}
                 </Box>
               </Box>
-              {hasDayImage && (
-                <Box
-                  component="img"
-                  src={resolveDayImageSrc(day.imageUrl, day.updatedAt) ?? undefined}
-                  alt={t("trips.dayImage.previewAlt")}
-                  sx={{
-                    width: { xs: "100%", sm: 320 },
-                    height: { xs: "auto", sm: 220 },
-                    objectFit: "cover",
-                    borderRadius: 1.5,
-                    border: "1px solid",
-                    borderColor: "divider",
-                    flexShrink: 0,
-                    alignSelf: { xs: "stretch", sm: "flex-start" },
-                  }}
-                />
-              )}
-            </Box>
-          </Paper>
 
-          <Box display="flex" flexDirection={{ xs: "column", lg: "row" }} gap={2}>
-            <Paper elevation={0} sx={{ flex: 2, p: 2, borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
-              <Box display="flex" alignItems="center" justifyContent="space-between" gap={1} flexWrap="wrap">
-                <Typography variant="subtitle1" fontWeight={600}>
+              <TripDayGanttBar segments={coverageSegments} ariaLabel={t("trips.dayView.ganttAriaLabel")} />
+
+              <Box aria-hidden sx={{ position: "relative", height: 14, mt: 0.75 }} data-testid="coverage-axis">
+                {COVERAGE_AXIS_TICKS.map((tick) => (
+                  <Typography
+                    key={tick.label}
+                    sx={{
+                      position: "absolute",
+                      top: 0,
+                      left: `${tick.percent}%`,
+                      transform: tick.percent === 0 ? "none" : tick.percent === 100 ? "translateX(-100%)" : "translateX(-50%)",
+                      fontSize: 10,
+                      fontWeight: 600,
+                      color: tokens.inkMuted,
+                      fontVariantNumeric: "tabular-nums",
+                    }}
+                  >
+                    {tick.label}
+                  </Typography>
+                ))}
+              </Box>
+              {/* The tick row stays aria-hidden - five bare numbers read in sequence are noise - but the
+                  domain it conveys is real information that appears nowhere else, so it is carried in
+                  text for assistive tech instead of being dropped. */}
+              <Box
+                component="span"
+                sx={{
+                  position: "absolute",
+                  width: 1,
+                  height: 1,
+                  p: 0,
+                  m: -1,
+                  overflow: "hidden",
+                  clip: "rect(0 0 0 0)",
+                  whiteSpace: "nowrap",
+                  border: 0,
+                }}
+              >
+                {t("trips.dayView.coverageAxisDescription")}
+              </Box>
+
+              <Box display="flex" alignItems="center" gap={1} flexWrap="wrap" mt={1}>
+                <Typography variant="body2" sx={{ color: tokens.inkSoft }} aria-live="polite">
+                  {ganttSummary}
+                </Typography>
+                {isFullyPlanned ? (
+                  <Chip size="small" color="success" label={t("trips.dayView.ganttFullyPlanned")} />
+                ) : null}
+              </Box>
+            </Box>
+
+            <Box
+              sx={{
+                display: "grid",
+                gridTemplateColumns: { xs: "repeat(2, 1fr)", sm: "repeat(4, 1fr)" },
+                backgroundColor: tokens.card,
+              }}
+            >
+              <Box
+                sx={{
+                  ...statCellSx,
+                  borderRight: "1px solid",
+                  borderBottom: { xs: "1px solid", sm: "none" },
+                  borderColor: tokens.border,
+                }}
+                data-testid="day-stat-day"
+              >
+                <Typography variant="labelCaps" sx={statLabelSx}>
+                  {t("trips.dayView.statDay")}
+                </Typography>
+                <Typography sx={statValueSx}>
+                  {formatMessage(t("trips.dayView.statDayValue"), {
+                    index: day.dayIndex,
+                    total: detail.trip.dayCount,
+                  })}
+                </Typography>
+              </Box>
+              <Box
+                sx={{
+                  ...statCellSx,
+                  borderRight: { xs: "none", sm: "1px solid" },
+                  borderBottom: { xs: "1px solid", sm: "none" },
+                  borderColor: tokens.border,
+                }}
+                data-testid="day-stat-travel-time"
+              >
+                <Typography variant="labelCaps" sx={statLabelSx}>
+                  {t("trips.dayView.statTravelTime")}
+                </Typography>
+                <Typography sx={statValueSx}>{formatDurationSummary(totalTravelMinutes)}</Typography>
+              </Box>
+              <Box
+                sx={{ ...statCellSx, borderRight: "1px solid", borderColor: tokens.border }}
+                data-testid="day-stat-spend-today"
+              >
+                <Typography variant="labelCaps" sx={statLabelSx}>
+                  {t("trips.dayView.statSpendToday")}
+                </Typography>
+                <Typography sx={{ ...statValueSx, color: theme.palette.primary.main }}>
+                  {formatCost(dayTotalCents)}
+                </Typography>
+              </Box>
+              <Box sx={statCellSx}>
+                <Typography variant="labelCaps" sx={statLabelSx}>
+                  {statStay
+                    ? formatMessage(t("trips.dayView.statCheckIn"), { name: statStay.name })
+                    : t("trips.dayView.statCheckInGeneric")}
+                </Typography>
+                <Typography
+                  data-testid="day-stat-check-in"
+                  sx={{ ...statValueSx, color: statStay ? tokens.ink : theme.palette.warning.main }}
+                >
+                  {checkInStatValue}
+                </Typography>
+              </Box>
+            </Box>
+          </Box>
+
+          {/* Day-to-day navigation and print. Undepicted by the mockup, which shows only the
+              breadcrumb and back button - kept as its own slim toolbar rather than dropped. */}
+          <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+            {previousDay ? (
+              <Button
+                component={Link}
+                href={`/trips/${tripId}/days/${previousDay.id}`}
+                variant="outlined"
+                size="small"
+                aria-label={t("trips.dayView.previousAria")}
+              >
+                {t("trips.dayView.previousAction")}
+              </Button>
+            ) : (
+              <Button variant="outlined" size="small" disabled aria-label={t("trips.dayView.previousAria")}>
+                {t("trips.dayView.previousAction")}
+              </Button>
+            )}
+            {nextDay ? (
+              <Button
+                component={Link}
+                href={`/trips/${tripId}/days/${nextDay.id}`}
+                variant="outlined"
+                size="small"
+                aria-label={t("trips.dayView.nextAria")}
+              >
+                {t("trips.dayView.nextAction")}
+              </Button>
+            ) : (
+              <Button variant="outlined" size="small" disabled aria-label={t("trips.dayView.nextAria")}>
+                {t("trips.dayView.nextAction")}
+              </Button>
+            )}
+            <Button
+              component={Link}
+              href={`/trips/${tripId}/days/${day.id}/print`}
+              variant="text"
+              size="small"
+              aria-label={t("trips.dayView.printAria")}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {t("trips.dayView.printAction")}
+            </Button>
+            <Box sx={{ ml: "auto" }}>
+              <TripFeedbackPanel
+                tripId={tripId}
+                feedback={day.feedback}
+                targetType="tripDay"
+                targetId={day.id}
+                currentUserId={detail?.trip.currentUserId}
+                contextLabel={buildFeedbackContextLabel(
+                  day.note && day.note.trim().length > 0
+                    ? formatMessage(t("trips.dayView.titleWithNote"), { index: day.dayIndex, note: day.note.trim() })
+                    : formatMessage(t("trips.dayView.title"), { index: day.dayIndex }),
+                )}
+                onUpdated={(feedback) => {
+                  setDay((current) => (current ? { ...current, feedback } : current));
+                  setDetail((current) =>
+                    current
+                      ? {
+                          ...current,
+                          days: current.days.map((entry) => (entry.id === day.id ? { ...entry, feedback } : entry)),
+                        }
+                      : current,
+                  );
+                }}
+              />
+            </Box>
+          </Box>
+
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: { xs: "1fr", md: "1.7fr 1fr" },
+              gap: { xs: 2, md: 0 },
+            }}
+          >
+            <Box sx={{ p: { xs: 0, md: "22px 28px 22px 0" }, minWidth: 0 }}>
+              <Box display="flex" alignItems="center" justifyContent="space-between" gap={1} flexWrap="wrap" mb={1.5}>
+                <Typography variant="labelCaps" component="h6" sx={{ color: tokens.inkSoft }}>
                   {t("trips.dayView.timelineTitle")}
                 </Typography>
-                <Box display="flex" alignItems="center" gap={1}>
+                <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
                   {canEditPlanning ? (
                     <Button size="small" variant="outlined" onClick={() => handleOpenTransferDialog("move")}>
                       {t("trips.dayTransfer.moveAction")}
@@ -1634,29 +2080,28 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                   ) : null}
                 </Box>
               </Box>
-              <Divider sx={{ my: 1.5 }} />
               {!dayHasTimelineContent && (
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 1.25 }}>
                   {t("trips.dayView.timelineEmpty")}
                 </Typography>
               )}
 
-              <Box display="flex" flexDirection="column" gap={1.25}>
-                <Paper
-                  elevation={0}
-                  sx={{
-                    p: 1.5,
-                    borderRadius: 1.5,
-                    border: "1px solid",
-                    borderColor: "#aeb7c6",
-                    bgcolor: "#cfd6e2",
-                    color: "#1f2a2e",
-                  }}
-                >
-                  <Box display="flex" alignItems="center" justifyContent="space-between" gap={1}>
-                    <Typography variant="body1" fontWeight={600}>
-                      {t("trips.dayView.previousNightTitle")}
-                    </Typography>
+              <Box sx={timelineRailSx}>
+                <Box sx={{ position: "relative", mb: "12px" }} data-testid="timeline-previous-stay">
+                  <Box aria-hidden sx={stayDotSx}>
+                    <HouseIcon sx={{ color: theme.palette.primary.main }} />
+                  </Box>
+                  <Box sx={{ ...tlCardSx, backgroundColor: tokens.cardAlt }}>
+                  <Box sx={tlCardTopSx}>
+                    <Box sx={{ minWidth: 0 }}>
+                      {renderTimePill(previousStayRange, previousStayRangeIsAssumed)}
+                      <Typography variant="cardTitle" component="p" sx={{ color: tokens.ink, m: 0 }}>
+                        {previousStay ? previousStay.name : t("trips.dayView.previousNightEmpty")}
+                      </Typography>
+                      <Typography variant="body2" sx={{ color: tokens.inkSoft }}>
+                        {t("trips.dayView.previousNightTitle")}
+                      </Typography>
+                    </Box>
                     {previousDay && canEditPlanning ? (
                       previousStay ? (
                         <Button size="small" variant="text" onClick={() => setPreviousStayOpen(true)}>
@@ -1675,18 +2120,6 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                   {previousStay ? (
                     <Box display="flex" flexDirection="column" gap={0.75}>
                       <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
-                        {previousStayRange ? (
-                          <Chip
-                            label={previousStayRange}
-                            size="small"
-                            sx={{
-                              bgcolor: "#1b3d73",
-                              color: "#ffffff",
-                              borderColor: "#1b3d73",
-                            }}
-                          />
-                        ) : null}
-                        <Typography variant="body2">{previousStay.name}</Typography>
                         <Chip
                           label={previousStay.status === "booked" ? t("trips.stay.statusBooked") : t("trips.stay.statusPlanned")}
                           size="small"
@@ -1694,11 +2127,6 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                           variant="outlined"
                         />
                       </Box>
-                      <MiniImageStrip
-                        images={previousAccommodationImages}
-                        altPrefix={previousStay.name}
-                        onImageClick={(imageUrl, alt) => setFullscreenImage({ imageUrl, alt })}
-                      />
                       <TripFeedbackPanel
                         tripId={tripId}
                         feedback={previousStay.feedback}
@@ -1724,33 +2152,33 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                           )
                         }
                       />
+                      {/* Last child: DESIGN.md's photo-strip runs along the bottom of the card. */}
+                      <MiniImageStrip
+                        variant="strip"
+                        images={previousAccommodationImages}
+                        altPrefix={previousStay.name}
+                        onImageClick={(imageUrl, alt) => setFullscreenImage({ imageUrl, alt })}
+                      />
                     </Box>
-                  ) : (
-                    <Typography variant="body2" sx={{ color: "rgba(31, 42, 46, 0.72)" }}>
-                      {t("trips.dayView.previousNightEmpty")}
-                    </Typography>
-                  )}
-                </Paper>
+                  ) : null}
+                  </Box>
+                </Box>
 
-                {previousStaySegment && previousSegmentTarget ? (
-                  <Box mt={-0.25}>{renderTravelSegment(previousStaySegment, previousSegmentTarget)}</Box>
-                ) : null}
+                {previousStaySegment && previousSegmentTarget
+                  ? renderTravelSegment(previousStaySegment, previousSegmentTarget)
+                  : null}
 
                 {planItems.length === 0 ? (
-                  <Paper
-                    elevation={0}
-                    sx={{
-                      p: 1.5,
-                      borderRadius: 1.5,
-                      border: "1px solid",
-                      borderColor: "#c6ced9",
-                      backgroundColor: "#e8ecf2",
-                    }}
-                  >
-                    <Typography variant="body2" color="text.secondary">
-                      {t("trips.dayView.activitiesEmpty")}
-                    </Typography>
-                  </Paper>
+                  <Box sx={{ position: "relative", mb: "12px" }}>
+                    <Box aria-hidden sx={activityDotSx}>
+                      <Box sx={neutralMarkerSx} />
+                    </Box>
+                    <Box sx={tlCardSx}>
+                      <Typography variant="body2" sx={{ color: tokens.inkSoft }}>
+                        {t("trips.dayView.activitiesEmpty")}
+                      </Typography>
+                    </Box>
+                  </Box>
                 ) : (
                   planItems.map((item, index) => {
                     const preview =
@@ -1775,32 +2203,21 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                       : currentStaySegment;
 
                     return (
-                      <Box key={item.id} display="flex" flexDirection="column" gap={0.75}>
-                        <Paper
-                          elevation={0}
-                          sx={{
-                            p: 1.5,
-                            borderRadius: 1.5,
-                            border: "1px solid",
-                            borderColor: "#c6ced9",
-                            backgroundColor: "#e8ecf2",
-                          }}
-                        >
-                          <Box display="flex" alignItems="flex-start" justifyContent="space-between" gap={1}>
-                            <Box display="flex" flexDirection="column" gap={0.75}>
-                              <Box display="flex" alignItems="center" gap={0.75} flexWrap="wrap">
+                      <Box key={item.id}>
+                        <Box sx={{ position: "relative", mb: "12px" }}>
+                          {/* AC2: one uniform neutral marker for every activity. The data model has no
+                              activity-type field and EXPERIENCE.md forbids adding one for iconography. */}
+                          <Box aria-hidden sx={activityDotSx}>
+                            <Box sx={neutralMarkerSx} data-testid="activity-neutral-marker" />
+                          </Box>
+                          <Box sx={tlCardSx}>
+                          <Box sx={tlCardTopSx}>
+                            <Box display="flex" flexDirection="column" gap={0.75} sx={{ minWidth: 0 }}>
+                              <Box>
                                 {item.fromTime && item.toTime ? (
-                                  <Chip
-                                    label={`${item.fromTime} - ${item.toTime}`}
-                                    size="small"
-                                    sx={{
-                                      bgcolor: "#1b3d73",
-                                      color: "#ffffff",
-                                      borderColor: "#1b3d73",
-                                    }}
-                                  />
+                                  <Box sx={{ ...timePillSx, mb: 0.75 }}>{`${item.fromTime} - ${item.toTime}`}</Box>
                                 ) : null}
-                                <Typography variant="body2" fontWeight={700}>
+                                <Typography variant="cardTitle" component="p" sx={{ color: tokens.ink, m: 0 }}>
                                   {title}
                                 </Typography>
                               </Box>
@@ -1822,11 +2239,6 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                                   {t("trips.plan.noLink")}
                                 </Typography>
                               )}
-                              <MiniImageStrip
-                                images={planItemImagesById[item.id] ?? []}
-                                altPrefix={t("trips.dayView.timelineTitle")}
-                                onImageClick={(imageUrl, alt) => setFullscreenImage({ imageUrl, alt })}
-                              />
                               <TripFeedbackPanel
                                 tripId={tripId}
                                 feedback={item.feedback}
@@ -1868,78 +2280,123 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                                   );
                                 }}
                               />
+                              {/* Last child: DESIGN.md's photo-strip runs along the bottom of the card. */}
+                              <MiniImageStrip
+                                variant="strip"
+                                images={planItemImagesById[item.id] ?? []}
+                                altPrefix={t("trips.dayView.timelineTitle")}
+                                onImageClick={(imageUrl, alt) => setFullscreenImage({ imageUrl, alt })}
+                              />
                             </Box>
-                            {canEditPlanning ? (
-                              <Box display="flex" alignItems="center" gap={0.5} data-testid="day-plan-item-actions">
-                                <IconButton
-                                  size="small"
-                                  aria-label={t("trips.plan.editItemAria")}
-                                  title={t("trips.plan.editItemAria")}
-                                  onClick={() => handleOpenEditPlan(item)}
-                                  data-testid="day-plan-item-edit"
-                                >
-                                  <SvgIcon fontSize="inherit">
-                                    <path d="M3 17.25V21h3.75l11-11-3.75-3.75-11 11zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66z" />
-                                  </SvgIcon>
-                                </IconButton>
-                              </Box>
-                            ) : null}
+                            {/* tl-card-top's trailing block: the cost this activity actually recorded,
+                                then the edit affordance. An activity cost was previously reachable only
+                                by cross-referencing the sidebar breakdown, while the stay card beside it
+                                showed money - the mockup puts tl-cost on every card that has one. */}
+                            <Box display="flex" alignItems="center" gap={0.5}>
+                              {typeof item.costCents === "number" ? (
+                                <Typography sx={tlCostSx} data-testid="day-plan-item-cost">
+                                  {formatCost(item.costCents)}
+                                </Typography>
+                              ) : null}
+                              {canEditPlanning ? (
+                                <Box display="flex" alignItems="center" gap={0.5} data-testid="day-plan-item-actions">
+                                  <IconButton
+                                    size="small"
+                                    aria-label={t("trips.plan.editItemAria")}
+                                    title={t("trips.plan.editItemAria")}
+                                    onClick={() => handleOpenEditPlan(item)}
+                                    data-testid="day-plan-item-edit"
+                                  >
+                                    <SvgIcon fontSize="inherit">
+                                      <path d="M3 17.25V21h3.75l11-11-3.75-3.75-11 11zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66z" />
+                                    </SvgIcon>
+                                  </IconButton>
+                                </Box>
+                              ) : null}
+                            </Box>
                           </Box>
-                        </Paper>
+                          </Box>
+                        </Box>
                         {nextSegmentItem ? renderTravelSegment(segmentItem, nextSegmentItem) : null}
                       </Box>
                     );
                   })
                 )}
 
-                <Paper
-                  elevation={0}
-                  sx={{
-                    p: 1.5,
-                    borderRadius: 1.5,
-                    border: "1px solid",
-                    borderColor: "#aeb7c6",
-                    bgcolor: "#cfd6e2",
-                    color: "#1f2a2e",
-                  }}
-                >
-                  <Box display="flex" alignItems="center" justifyContent="space-between" gap={1} flexWrap="wrap">
-                    <Typography variant="body1" fontWeight={600}>
-                      {t("trips.dayView.currentNightTitle")}
-                    </Typography>
+                <Box sx={{ position: "relative", mb: "12px" }} data-testid="timeline-current-stay">
+                  <Box
+                    aria-hidden
+                    sx={
+                      isDayGap
+                        ? { ...stayDotSx, backgroundColor: tokens.warnBg, borderColor: tokens.warnBorder }
+                        : stayDotSx
+                    }
+                  >
+                    {isDayGap ? (
+                      <WarningTriangleIcon sx={{ color: theme.palette.warning.main }} />
+                    ) : (
+                      <HouseIcon sx={{ color: theme.palette.primary.main }} />
+                    )}
+                  </Box>
+                  <Box
+                    sx={
+                      isDayGap
+                        ? { ...tlCardSx, backgroundColor: tokens.warnBg, borderColor: tokens.warnBorder }
+                        : { ...tlCardSx, backgroundColor: tokens.cardAlt }
+                    }
+                  >
+                  <Box sx={tlCardTopSx}>
+                    <Box sx={{ minWidth: 0 }}>
+                      {renderTimePill(currentStayRange, currentStayRangeIsAssumed)}
+                      <Typography variant="cardTitle" component="p" sx={{ color: tokens.ink, m: 0 }}>
+                        {currentStay ? currentStay.name : t("trips.dayView.currentNightEmpty")}
+                      </Typography>
+                      <Typography variant="body2" sx={{ color: tokens.inkSoft }}>
+                        {t("trips.dayView.currentNightTitle")}
+                      </Typography>
+                    </Box>
                     {canCopyPreviousStay && canEditPlanning ? (
                       <Button size="small" variant="text" disabled={copyingStay} onClick={() => void handleCopyPreviousStay()}>
                         {t("trips.stay.copyPreviousAction")}
                       </Button>
                     ) : null}
                   </Box>
+                  {/* State Patterns: on a flagged day the accommodation slot names what is missing, in
+                      warn colour paired with an icon and real text - never colour alone. */}
+                  {isDayGap ? (
+                    <Box
+                      data-testid="day-detail-gap-pill"
+                      sx={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        alignSelf: "flex-start",
+                        gap: 0.75,
+                        backgroundColor: tokens.warnBg,
+                        color: theme.palette.warning.main,
+                        px: 1.25,
+                        py: 0.75,
+                        borderRadius: "6px",
+                        fontSize: "11.5px",
+                        fontWeight: 700,
+                      }}
+                    >
+                      <WarningTriangleIcon />
+                      {t("trips.timeline.noAccommodation")}
+                    </Box>
+                  ) : null}
                   {currentStay ? (
                     <Box display="flex" flexDirection="column" gap={0.75}>
                       <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
-                        {currentStayRange ? (
-                          <Chip
-                            label={currentStayRange}
-                            size="small"
-                            sx={{
-                              bgcolor: "#1b3d73",
-                              color: "#ffffff",
-                              borderColor: "#1b3d73",
-                            }}
-                          />
-                        ) : null}
-                        <Typography variant="body2">{currentStay.name}</Typography>
                         <Chip
                           label={currentStay.status === "booked" ? t("trips.stay.statusBooked") : t("trips.stay.statusPlanned")}
                           size="small"
                           color={currentStay.status === "booked" ? "success" : "default"}
                           variant="outlined"
                         />
+                        {typeof currentStay.costCents === "number" ? (
+                          <Typography sx={tlCostSx}>{formatCost(currentStay.costCents)}</Typography>
+                        ) : null}
                       </Box>
-                      <MiniImageStrip
-                        images={accommodationImages}
-                        altPrefix={currentStay.name}
-                        onImageClick={(imageUrl, alt) => setFullscreenImage({ imageUrl, alt })}
-                      />
                       <TripFeedbackPanel
                         tripId={tripId}
                         feedback={currentStay.feedback}
@@ -1970,62 +2427,92 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                           );
                         }}
                       />
+                      {/* Last child: DESIGN.md's photo-strip runs along the bottom of the card. */}
+                      <MiniImageStrip
+                        variant="strip"
+                        images={accommodationImages}
+                        altPrefix={currentStay.name}
+                        onImageClick={(imageUrl, alt) => setFullscreenImage({ imageUrl, alt })}
+                      />
                     </Box>
-                  ) : (
-                    <Typography variant="body2" sx={{ color: "rgba(31, 42, 46, 0.72)" }}>
-                      {t("trips.dayView.currentNightEmpty")}
-                    </Typography>
-                  )}
-                </Paper>
-              </Box>
-            </Paper>
-
-            <Box sx={{ flex: 1, display: "flex", flexDirection: "column", gap: 2 }}>
-              <Paper elevation={0} sx={{ p: 2, borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
-                <Typography variant="subtitle1" fontWeight={600}>
-                  {t("trips.dayView.summaryTitle")}
-                </Typography>
-                <Box display="flex" justifyContent="space-between" alignItems="center" mt={1.5}>
-                  <Typography variant="body2" color="text.secondary">
-                    {t("trips.dayView.budgetTotal")}
-                  </Typography>
-                  <Typography variant="body1" fontWeight={700}>
-                    {formatMessage(t("trips.stay.costSummary"), { amount: formatCost(dayTotalCents) })}
-                  </Typography>
+                  ) : null}
+                  </Box>
                 </Box>
-                <Divider sx={{ my: 1.5 }} />
+              </Box>
+            </Box>
 
-                {knownBudgetEntries.length === 0 && (
-                  <Typography variant="body2" color="text.secondary">
+            <Box
+              sx={{
+                p: { xs: 0, md: "22px 0 22px 22px" },
+                borderLeft: { xs: "none", md: "1px solid" },
+                borderColor: tokens.border,
+                display: "flex",
+                flexDirection: "column",
+                gap: 2,
+                minWidth: 0,
+              }}
+            >
+              <Box sx={cardSx}>
+                <Typography variant="labelCaps" component="h6" sx={{ color: tokens.inkSoft, display: "block", mb: 1.25 }}>
+                  {t("trips.dayView.costCardTitle")}
+                </Typography>
+                <Typography
+                  variant="metricLg"
+                  data-testid="day-cost-total"
+                  sx={{ color: tokens.ink, fontVariantNumeric: "tabular-nums" }}
+                >
+                  {formatCost(dayTotalCents)}
+                </Typography>
+                {/* 12px/600 per Task 6; body2 is 11.5px, which quietly undershot every other prescribed
+                    size on this card. */}
+                <Typography sx={{ fontSize: 12, fontWeight: 600, color: tokens.inkSoft, mb: 1.5, display: "block" }}>
+                  {formatMessage(t("trips.dayView.costCardSubtitle"), { index: day.dayIndex })}
+                </Typography>
+
+                {knownBudgetEntries.length === 0 ? (
+                  <Typography variant="body2" sx={{ color: tokens.inkSoft }}>
                     {t("trips.dayView.budgetEmpty")}
                   </Typography>
-                )}
-
-                {knownBudgetEntries.length > 0 && (
-                  <List dense sx={{ p: 0 }}>
+                ) : (
+                  // A real ul/li - the bordered rows are presentational and must not cost the breakdown
+                  // its list semantics. :last-child rather than a per-row hardcode, since this list is
+                  // dynamic and a hardcode would break the moment an entry is added or removed.
+                  <Box
+                    component="ul"
+                    sx={{ listStyle: "none", m: 0, p: 0, "& > li:last-child": { borderBottom: "none" } }}
+                  >
                     {knownBudgetEntries.map((entry) => (
-                      <ListItem key={entry.id} sx={{ px: 0, py: 0.5 }}>
-                        <Box
+                      <Box
+                        component="li"
+                        key={entry.id}
+                        sx={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          gap: 1.5,
+                          py: "7px",
+                          borderBottom: "1px solid",
+                          borderColor: tokens.border,
+                        }}
+                      >
+                        <Typography sx={{ fontSize: "12.5px", fontWeight: 600, color: tokens.ink, overflowWrap: "anywhere" }}>
+                          {entry.label}
+                        </Typography>
+                        <Typography
                           sx={{
-                            display: "grid",
-                            gridTemplateColumns: "minmax(0, 1fr) auto",
-                            alignItems: "center",
-                            columnGap: 1.5,
-                            width: "100%",
+                            fontSize: "12.5px",
+                            fontWeight: 700,
+                            color: tokens.ink,
+                            fontVariantNumeric: "tabular-nums",
+                            whiteSpace: "nowrap",
                           }}
                         >
-                          <Typography variant="body2" sx={{ overflowWrap: "anywhere" }}>
-                            {entry.label}
-                          </Typography>
-                          <Typography variant="body2" textAlign="right">
-                            {formatMessage(t("trips.stay.costSummary"), { amount: formatCost(entry.amountCents) })}
-                          </Typography>
-                        </Box>
-                      </ListItem>
+                          {formatCost(entry.amountCents)}
+                        </Typography>
+                      </Box>
                     ))}
-                  </List>
+                  </Box>
                 )}
-              </Paper>
+              </Box>
 
               <TripDayMapPanel
                 loading={loading}

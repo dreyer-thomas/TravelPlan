@@ -90,4 +90,13 @@ describe("TripDayGanttBar", () => {
     renderBar([], "compact");
     expect(getComputedStyle(screen.getByTestId("trip-day-gantt-bar")).borderStyle).not.toBe("solid");
   });
+
+  it("gives the full-size bar the rounded.sm radius and a border-strong frame", () => {
+    renderBar([], "default");
+    const bar = screen.getByTestId("trip-day-gantt-bar");
+    const style = getComputedStyle(bar);
+    expect(bar).toHaveAttribute("data-variant", "default");
+    expect(style.borderRadius).toBe("4px");
+    expect(style.borderColor).toBe(asRgb(theme.palette.tokens.borderStrong));
+  });
 });

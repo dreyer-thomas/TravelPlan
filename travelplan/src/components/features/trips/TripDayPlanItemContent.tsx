@@ -141,14 +141,21 @@ export const PlanItemRichContent = ({ contentJson, fallbackText }: { contentJson
   return <Box display="flex" flexDirection="column" gap={0.75}>{rendered}</Box>;
 };
 
+/**
+ * `variant="strip"` is DESIGN.md's `photo-strip`: uniform, fixed-width, left-aligned, centre-cropped,
+ * sharp-cornered 56px squares along the bottom of a timeline card. `variant="gallery"` keeps the
+ * larger rounded treatment used by the full-page map dialog, which is not part of the Epic 7 redesign.
+ */
 export const MiniImageStrip = ({
   images,
   altPrefix,
   onImageClick,
+  variant = "gallery",
 }: {
   images: ImageStripItem[];
   altPrefix: string;
   onImageClick: (imageUrl: string, alt: string) => void;
+  variant?: "strip" | "gallery";
 }) => {
   if (images.length === 0) {
     return null;
@@ -156,9 +163,10 @@ export const MiniImageStrip = ({
 
   const visible = images.slice(0, 3);
   const remaining = images.length - visible.length;
+  const isStrip = variant === "strip";
 
   return (
-    <Box display="flex" alignItems="center" gap={0.75} mt={0.75}>
+    <Box display="flex" alignItems="center" gap={isStrip ? "6px" : 0.75} justifyContent="flex-start" mt={0.75}>
       {visible.map((image, index) => (
         <Box
           key={image.id}
@@ -166,12 +174,16 @@ export const MiniImageStrip = ({
           src={image.imageUrl}
           alt={`${altPrefix} ${index + 1}`}
           sx={{
-            width: 96,
-            height: 96,
+            // Fixed basis, never flex: 1 - thumbnails are uniform, not stretched to fill the card.
+            flex: isStrip ? "0 0 56px" : undefined,
+            width: isStrip ? 56 : 96,
+            height: isStrip ? 56 : 96,
             objectFit: "cover",
-            borderRadius: 1,
+            objectPosition: "center",
+            // Photography is always sharp, independent of the radius of the card containing it.
+            borderRadius: isStrip ? 0 : 1,
             border: "1px solid",
-            borderColor: "divider",
+            borderColor: isStrip ? "rgba(0,0,0,0.06)" : "divider",
             cursor: "pointer",
           }}
           loading="lazy"
