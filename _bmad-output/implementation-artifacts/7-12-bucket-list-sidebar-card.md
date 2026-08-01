@@ -1,7 +1,7 @@
 ---
 baseline_revision: e66c8e4
 final_revision: f2702b7
-status: awaiting-operator
+status: done
 followup_review_recommended: true
 operator_actions:
   - "Seed an isolated SQLite DB on a non-default port (never travelplan/prisma/dev.db - it holds real trip data; follow the worktree isolation precedent from Stories 7.2, 7.3, 7.8, 7.9 and 7.11) and start the dev server against it. Note the login route is rate-limited: repeated logins return 429."
@@ -268,3 +268,22 @@ The trip-level bucket list moved from a full-width block below the trip-overview
 3. **The extra tab stop exists at every width**, including below `md` where nothing scrolls.
 4. **The gap alert now sits below the bucket list.** Task 1 prescribed the position, so it was followed, but it does place an actionable warning beneath a reference panel.
 5. **`aria-label` duplicates the card heading**, so a screen reader says "Bucket list" twice in succession. Judged better than an unnamed tab stop; one line to revert.
+
+## Operator Confirmation
+
+Confirmed 2026-08-01: the external actions this story owed were carried out.
+
+- Seed an isolated SQLite DB on a non-default port (never travelplan/prisma/dev.db - it holds real trip data; follow the worktree isolation precedent from Stories 7.2, 7.3, 7.8, 7.9 and 7.11) and start the dev server against it. Note the login route is rate-limited: repeated logins return 429.
+- Add at least 8 bucket-list items to a trip you own, and give most of them BOTH a description and a position/location so the rows are the fully populated three-line shape the height cap was derived from. Include one item with a long title (60+ characters) so you can see what wrapping does in the narrow sidebar column.
+- Open that trip's overview at a desktop width and confirm the bucket list is now the third card in the right-hand sidebar, below 'Route' - not a full-width block at the bottom of the page - and that it has exactly ONE border, no doubled edge.
+- Expand the card and count how many rows are visible before the cut. The cap is 400.125px, derived as 72.75px per fully populated row x 5.5, and the acceptance criterion asks for roughly 5-6 rows with a half row visible at the cut. If wrapping makes it show noticeably fewer (3-4) or more (7+), change ONLY the BUCKET_LIST_VISIBLE_ROWS constant in travelplan/src/components/features/trips/TripBucketListPanel.tsx, update the expected value in the tripBucketListPanel.test.tsx drift pin, and record the measured row height and the new value in the Dev Agent Record.
+- With the card expanded, confirm the card header, the entry-count line and the round + add button all stay visible and stationary while the rows scroll underneath them. If the whole card scrolls instead, the cap landed on the card Box rather than on the List.
+- Tab to the row list and confirm the arrow keys and Page Up/Page Down scroll it, that Tab continues onward into the row edit/delete buttons rather than cycling inside the list, and that Shift+Tab leaves it cleanly. Then judge whether the extra tab stop the list introduces is acceptable - it is present at every viewport width, including below md where nothing actually scrolls.
+- Narrow the window below 900px and confirm the overview collapses to one column and the bucket list is NO LONGER capped or internally scrollable there - the card should grow to its full content height with only the page scrolling. A scrollbar inside the card at phone width is the exact failure AC5 forbids.
+- Delete every bucket-list item and confirm the empty card is compact: the label, the count line and one short empty message, with no reserved blank space, no filler and no illustration. It should be visibly the shortest card in the sidebar.
+- Decide the sidebar ordering. The bucket list is now inserted between 'Route' and the amber 'Handlungsbedarf' gap alert, because the story prescribed 'directly after the map panel' - which puts a reference panel above an actionable warning. If you want the gap alert to stay adjacent to the map, move the bucket-list block in TripTimeline.tsx below the firstGapDay block; the containment test asserts ancestry rather than sibling index, so nothing breaks.
+- With a screen reader (VoiceOver: Cmd+F5), tab onto the expanded row list and confirm the duplicated announcement is tolerable - the card heading says 'Bucket list', then the list announces itself as 'Bucket list, list, N items'. If it grates, delete the aria-label line on the List in TripBucketListPanel.tsx and the toHaveAccessibleName assertion in tripBucketListPanel.test.tsx; the tab stop then has no name, which is the trade-off.
+- Share the trip with a second account as a viewer and again as a contributor, sign in as each, and confirm neither sees a bucket-list card anywhere on the trip overview. Automated tests cover this, but the mount moved, so confirm it once for real.
+- If every check above passes, edit _bmad-output/implementation-artifacts/7-12-bucket-list-sidebar-card.md: tick both of Task 6's subtasks to [x], set status: done in BOTH the frontmatter and the body's 'Status:' line, change the '## Auto Run Result' Status line to done, set 7-12-bucket-list-sidebar-card to done in sprint-status.yaml, and append a Change Log entry dated with the verification date. (DW-66 tracks why this bookkeeping is manual; 7-9 and 7-11 both drifted on exactly this step, so please do not add a third.)
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
