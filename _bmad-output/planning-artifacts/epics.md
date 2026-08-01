@@ -1820,9 +1820,10 @@ Two of its criteria were design-system decisions rather than implementation choi
 **Then** it uses the existing `colors.errorBorder` `#C97A3E` already used for input error borders, and an `MuiAlert` treatment applies it, so alerts in every dialog draw from tokens
 **And** no component-local `sx` override is introduced to achieve this
 
-**Given** `HouseIcon`, `WarningTriangleIcon`, `ChevronRightIcon` and `ShareGlyphIcon` are private to `TripTimeline.tsx` (`:92-151`) while other screens need the same glyphs
-**When** they are extracted to the shared icon module
-**Then** they live alongside the existing glyph set in `TripIcons.tsx` and type their style prop as `SxProps<Theme>` rather than `sx?: object`, so style-key typos are caught
+**Given** `TripIcons.tsx`'s `IconProps` (`:12`) types `sx` as bare `object`, so a style-key typo passes the compiler at every call site
+**When** the type is tightened
+**Then** it uses `SxProps<Theme>`, covering all 13 icons in the module rather than only the four the original finding named
+**And** no glyph is moved: the extraction half of that finding — `HouseIcon`, `WarningTriangleIcon`, `ChevronRightIcon` and `ShareGlyphIcon` out of `TripTimeline.tsx` — was already completed incidentally by Stories 7.4 through 7.7, and all four now live in `TripIcons.tsx` with `TripTimeline` importing them
 
 **Given** the seven deferred-work entries this story closes
 **When** the story's spec is written

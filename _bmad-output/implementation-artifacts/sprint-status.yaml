@@ -1,5 +1,5 @@
 # generated: 2026-03-01 13:08:00 CET
-# last_updated: 2026-08-01 (7-7-trip-create-and-add-entry-dialog-redesign → done, code-review; prior: correct-course: 7-10 → 8-1 in new epic-8, 7-11 added to epic-7 — see planning-artifacts/sprint-change-proposal-2026-08-01.md)
+# last_updated: 2026-08-01 (7-11-design-token-reconciliation → ready-for-dev, create-story; prior: 7-7 → done; correct-course: 7-10 → 8-1 in new epic-8 — see planning-artifacts/sprint-change-proposal-2026-08-01.md)
 # project: TravelPlan
 # project_key: NOKEY
 # tracking_system: file-system
@@ -133,7 +133,7 @@ development_status:
   7-7-trip-create-and-add-entry-dialog-redesign: done
   7-8-trip-overview-lower-sections-redesign: ready-for-dev
   7-9-full-page-map-screens-redesign: ready-for-dev
-  7-11-design-token-reconciliation: backlog
+  7-11-design-token-reconciliation: ready-for-dev
   epic-7-retrospective: optional
 
   epic-8: backlog
