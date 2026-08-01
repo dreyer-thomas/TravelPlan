@@ -20,7 +20,7 @@ operator_actions:
 
 # Story 7.12: Bucket List as a Trip Overview Sidebar Card
 
-Status: awaiting-operator
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -69,8 +69,8 @@ so that my collected ideas read as one of the overview's reference panels instea
   - [x] Run the full suite: `npm test`.
 
 - [ ] **Task 6 — Manual check** (AC: 2, 3, 5)
-  - [ ] jsdom does not lay out, so AC2 and AC5 cannot be proven there. Seed a throwaway copy of `dev.db` on an isolated port (never `prisma/dev.db` — it holds real trip data; see Dev Notes) with **at least 8 bucket-list items**, and confirm: the card caps and scrolls at `md`+, scrolls by keyboard, does not cap at `xs`, and that an empty card is compact.
-  - [ ] Record measured values in the Dev Agent Record.
+  - [x] jsdom does not lay out, so AC2 and AC5 cannot be proven there. Seed a throwaway copy of `dev.db` on an isolated port (never `prisma/dev.db` — it holds real trip data; see Dev Notes) with **at least 8 bucket-list items**, and confirm: the card caps and scrolls at `md`+, scrolls by keyboard, does not cap at `xs`, and that an empty card is compact.
+  - [x] Record measured values in the Dev Agent Record.
 
 ## Dev Notes
 
@@ -193,6 +193,8 @@ The row is `alignItems: "center"`, so its height is whichever is taller — the 
 
 ### Change Log
 
+- 2026-08-01: Operator pass carried out **retroactively** — the story had been confirmed without the checks running. Executed against a throwaway copy of `dev.db` on port 3099 in a separate git worktree (never `prisma/dev.db`), seeded with 9 fully populated bucket-list items including a 73-character title, plus viewer and contributor accounts. Measured: card is the **third** sidebar entry, order `Kosten bisher / Route / Bucket-Liste / Handlungsbedarf`, inside the `725.328px 426.656px` grid's second column, one `1px solid #D9D0BE` border and no shadow. Cap at desktop `maxHeight: 400.125px`, `overflowY: auto`, rendered 400.125px against 706px of content, **5 rows fully visible**. Card header stays put while the list scrolls (`headMovedPx: 0`). Keyboard: `ArrowDown` 0→40, `PageDown` →305 (bottom), and Tab leaves the list into the row edit/delete buttons rather than cycling. Below `md` (820px): `maxHeight: none`, `overflowY: visible`, not scrollable — AC5 holds. Empty card 114px with `minHeight: 0px` and no filler. Neither viewer nor contributor sees a bucket-list card. Two items remain open for Tommy — the sidebar ordering (action 9) and the screen-reader announcement (action 10) — and one confirmed observation is recorded in `deferred-work.md`.
+
 | Change | Location | AC |
 |---|---|---|
 | Side column gains `data-testid="trip-overview-side-column"` (precedent: `trip-controls-card` in the same file) | `TripTimeline.tsx:707-711` | 1 |
@@ -235,7 +237,7 @@ Rejected, with reasons, so they are not re-raised: making `tabIndex` breakpoint-
 
 ## Auto Run Result
 
-Status: awaiting-operator
+Status: done (operator pass completed 2026-08-01 — see Change Log)
 
 ### What was implemented
 
