@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Box, Button, CircularProgress } from "@mui/material";
-import AuthField from "@/components/features/auth/AuthField";
+import FormField from "@/components/forms/FormField";
 import AuthScreenShell from "@/components/features/auth/AuthScreenShell";
 import { AUTH_SUBMIT_SX } from "@/components/features/auth/authSubmitSx";
 import AuthTabs from "@/components/features/auth/AuthTabs";
@@ -178,7 +178,7 @@ export default function LoginPage() {
         onSubmit={handleSubmit(onSubmit)}
         sx={{ display: "flex", flexDirection: "column", gap: "18px" }}
       >
-        <AuthField
+        <FormField
           id="login-email"
           autoComplete="username"
           label={t("auth.emailLabel")}
@@ -187,7 +187,7 @@ export default function LoginPage() {
           error={errors.email?.message}
           {...register("email", emailRules)}
         />
-        <AuthField
+        <FormField
           id="login-password"
           autoComplete="current-password"
           label={t("auth.passwordLabel")}

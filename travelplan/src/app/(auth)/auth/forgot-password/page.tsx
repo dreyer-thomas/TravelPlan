@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import Link from "next/link";
 import { Box, Button, CircularProgress } from "@mui/material";
-import AuthField from "@/components/features/auth/AuthField";
+import FormField from "@/components/forms/FormField";
 import AuthScreenShell from "@/components/features/auth/AuthScreenShell";
 import { AUTH_SUBMIT_SX } from "@/components/features/auth/authSubmitSx";
 import { useI18n } from "@/i18n/provider";
@@ -152,7 +152,7 @@ export default function ForgotPasswordPage() {
         onSubmit={handleSubmit(onSubmit)}
         sx={{ display: "flex", flexDirection: "column", gap: "18px" }}
       >
-        <AuthField
+        <FormField
           id="forgot-email"
           autoComplete="email"
           label={t("auth.emailLabel")}

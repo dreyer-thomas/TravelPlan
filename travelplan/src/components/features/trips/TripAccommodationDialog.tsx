@@ -1,29 +1,29 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { Controller, useFieldArray, useForm, useWatch } from "react-hook-form";
 import {
-  Alert,
   Box,
   Button,
   CircularProgress,
   Dialog,
-  DialogActions,
   DialogContent,
-  DialogTitle,
   FormControl,
   FormControlLabel,
   FormHelperText,
   FormLabel,
-  InputLabel,
   MenuItem,
   Radio,
   RadioGroup,
-  SvgIcon,
   Select,
-  TextField,
   Typography,
 } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
+import FormField from "@/components/forms/FormField";
+import FormNotice from "@/components/forms/FormNotice";
+import PhotoUploadField from "@/components/forms/PhotoUploadField";
+import DialogShell from "@/components/ui/DialogShell";
+import { formatMessage } from "@/i18n";
 import { useI18n } from "@/i18n/provider";
 import { IMAGE_UPLOAD_ACCEPT, isSupportedImageUpload } from "@/lib/trips/imageUploads";
 
@@ -139,7 +139,14 @@ export default function TripAccommodationDialog({
   onClose,
   onSaved,
 }: TripAccommodationDialogProps) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
+  // Unique `htmlFor`/`id` prefix: this dialog is mounted twice on the day view (current night and
+  // previous night), so a fixed id string would collide between the two instances. The `<form>`'s
+  // own id has to come from here too — the footer's Save reaches it by `form={formId}`, and with a
+  // fixed string that attribute resolves to whichever instance is first in document order.
+  const fieldIdPrefix = useId();
+  const formId = `${fieldIdPrefix}-form`;
+  const { tokens } = useTheme().palette;
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -687,6 +694,28 @@ export default function TripAccommodationDialog({
 
   const title = day?.accommodation ? t("trips.stay.editTitle") : t("trips.stay.addTitle");
 
+  /**
+   * Screen G's `.dialog-sub`: which day this stay belongs to. The `day` prop already carries both
+   * halves. The `Intl` call is inlined rather than shared because the only existing short-date
+   * formatter lives inside `TripTimeline.tsx`, which Story 7.8 owns and this story must not touch —
+   * extracting it is a follow-up once 7.8 lands.
+   */
+  const daySubtitle = useMemo(() => {
+    if (!day) return null;
+    const dayLabel = formatMessage(t("trips.timeline.dayLabel"), { index: day.dayIndex });
+    const date = new Intl.DateTimeFormat(language === "de" ? "de-DE" : "en-US", {
+      month: "numeric",
+      day: "numeric",
+      timeZone: "UTC",
+    }).format(new Date(day.date));
+    return `${dayLabel} · ${date}`;
+  }, [day, language, t]);
+
+  const sortedGalleryImages = useMemo(
+    () => galleryImages.slice().sort((left, right) => left.sortOrder - right.sortOrder),
+    [galleryImages],
+  );
+
   const nameRules = useMemo(
     () => ({
       required: t("trips.stay.nameRequired"),
@@ -744,59 +773,162 @@ export default function TripAccommodationDialog({
   );
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle>
-        <Typography variant="h6" fontWeight={600} component="div">
-          {title}
-        </Typography>
-      </DialogTitle>
-      <DialogContent dividers>
-        <Box display="flex" flexDirection="column" gap={2.5}>
-          {(serverError || initError) && <Alert severity="error">{serverError ?? initError}</Alert>}
+    <>
+    <DialogShell
+      open={open}
+      onClose={onClose}
+      title={title}
+      subtitle={daySubtitle ?? undefined}
+      // Screen G's `.dialog.w-520`. This dialog carries the payment rows, whose minWidth floors are
+      // preserved rather than compressed — see the browser check in the story record.
+      width={520}
+      // Cancel is disabled while a save or delete is in flight; without this the backdrop and
+      // Escape would walk straight past that guard and discard the user's edits mid-request.
+      disableDismiss={isSubmitting || isDeleting}
+      footer={
+        <>
+          <Box>
+            {day?.accommodation && (
+              /*
+                No `color="error"`: theme.ts defines no `error` palette entry, so MUI falls back to
+                #d32f2f, a colour DESIGN.md does not have. Destructive actions use the text variant,
+                exactly as 7.8's AC states for "Reise löschen".
+              */
+              <Button variant="text" onClick={handleDelete} disabled={isSubmitting || isDeleting} sx={{ color: tokens.ink }}>
+                {isDeleting ? <CircularProgress size={22} /> : t("trips.stay.delete")}
+              </Button>
+            )}
+          </Box>
+          <Box sx={{ display: "flex", flexDirection: { xs: "column-reverse", sm: "row" }, gap: "10px" }}>
+            <Button variant="outlined" onClick={onClose} disabled={isSubmitting || isDeleting}>
+              {t("common.cancel")}
+            </Button>
+            <Button type="submit" form={formId} variant="contained" disabled={isSubmitting || isDeleting}>
+              {isSubmitting ? <CircularProgress size={22} /> : t("trips.stay.save")}
+            </Button>
+          </Box>
+        </>
+      }
+      footerSx={{ justifyContent: "space-between" }}
+    >
+        <Box display="flex" flexDirection="column" gap="18px">
+          {(serverError || initError) && <FormNotice tone="warn" message={serverError ?? initError ?? ""} />}
           <Box
             component="form"
-            id="trip-accommodation-form"
+            id={formId}
             onSubmit={handleSubmit(onSubmit)}
             display="flex"
             flexDirection="column"
-            gap={2}
+            gap="18px"
           >
-            <TextField
+            <FormField
+              id={`${fieldIdPrefix}-name`}
               label={t("trips.stay.nameLabel")}
-              error={Boolean(errors.name)}
+              // `nameRules` carries a message the floating-label version never rendered. DESIGN.md:244
+              // — colour is never the sole signal — so the restyle shows it.
+              error={errors.name?.message}
               {...register("name", nameRules)}
-              fullWidth
             />
+            {/*
+              The status select keeps its own caps label rather than an `InputLabel`: a floating
+              label is the pattern this restyle removes, and MUI's `Select` renders a div, so a
+              `<label htmlFor>` would associate with nothing. `aria-labelledby` names it instead.
+              Preserved because Screen G does not draw it — that is the mockup showing a smaller
+              form, not a decision to drop FR13.
+            */}
             <FormControl fullWidth error={Boolean(errors.status)}>
-              <InputLabel id="trip-accommodation-status-label">{t("trips.stay.statusLabel")}</InputLabel>
+              <Typography
+                id={`${fieldIdPrefix}-status-label`}
+                variant="labelCaps"
+                component="div"
+                sx={{ fontSize: 11, letterSpacing: "0.06em", color: tokens.inkSoft, mb: "7px" }}
+              >
+                {t("trips.stay.statusLabel")}
+              </Typography>
               <Controller
                 control={control}
                 name="status"
+                /*
+                  `labelId`, not a bare `aria-labelledby`. MUI forwards unrecognised props through
+                  `...other` onto the OutlinedInput *wrapper div*, leaving the inner
+                  `role="combobox"` — the element AT actually reads — unnamed. `labelId` is the one
+                  prop `Select` routes down to it.
+                */
                 render={({ field }) => (
-                  <Select
-                    labelId="trip-accommodation-status-label"
-                    label={t("trips.stay.statusLabel")}
-                    {...field}
-                  >
+                  <Select labelId={`${fieldIdPrefix}-status-label`} {...field}>
                     <MenuItem value="planned">{t("trips.stay.statusPlanned")}</MenuItem>
                     <MenuItem value="booked">{t("trips.stay.statusBooked")}</MenuItem>
                   </Select>
                 )}
               />
             </FormControl>
-            <TextField
-              label={t("trips.stay.costLabel")}
-              error={Boolean(errors.costCents)}
-              helperText={errors.costCents?.message}
-              {...register("costCents", costRules)}
-              fullWidth
-              type="number"
-              inputMode="decimal"
-              inputProps={{ min: 0, step: 0.01 }}
-              placeholder="0.00"
+            {/*
+              Screen G pairs check-in and check-out in one `.field-row`. This dialog renders exactly
+              one of the two — `stayType` decides which — so the row holds the time field and the
+              cost field instead of leaving a hole. The `Link` field follows on its own line because
+              a URL at 250px wraps badly.
+            */}
+            <Box
+              sx={{
+                display: "flex",
+                flexDirection: { xs: "column", sm: "row" },
+                gap: "12px",
+                "& > *": { flex: 1, minWidth: 0 },
+              }}
+            >
+              {stayType === "current" ? (
+                <FormField
+                  id={`${fieldIdPrefix}-check-in`}
+                  label={t("trips.stay.checkInLabel")}
+                  error={errors.checkInTime?.message}
+                  {...register("checkInTime", timeRules)}
+                  placeholder={DEFAULT_CHECK_IN}
+                  slotProps={{ htmlInput: { inputMode: "numeric" } }}
+                />
+              ) : (
+                <FormField
+                  id={`${fieldIdPrefix}-check-out`}
+                  label={t("trips.stay.checkOutLabel")}
+                  error={errors.checkOutTime?.message}
+                  {...register("checkOutTime", timeRules)}
+                  placeholder={DEFAULT_CHECK_OUT}
+                  slotProps={{ htmlInput: { inputMode: "numeric" } }}
+                />
+              )}
+              <FormField
+                id={`${fieldIdPrefix}-cost`}
+                label={t("trips.stay.costLabel")}
+                error={errors.costCents?.message}
+                {...register("costCents", costRules)}
+                type="number"
+                slotProps={{ htmlInput: { min: 0, step: 0.01, inputMode: "decimal" } }}
+                placeholder="0.00"
+              />
+            </Box>
+            <FormField
+              id={`${fieldIdPrefix}-link`}
+              label={t("trips.stay.linkLabel")}
+              error={errors.link?.message}
+              {...register("link", linkRules)}
+              type="url"
+              slotProps={{ htmlInput: { inputMode: "url" } }}
+              placeholder="https://"
+              hint={t("trips.stay.linkHelper")}
             />
             <FormControl component="fieldset" error={Boolean(errors.payments)} variant="standard">
-              <FormLabel>{t("trips.payments.title")}</FormLabel>
+              <FormLabel
+                sx={{
+                  fontSize: 11,
+                  fontWeight: 800,
+                  letterSpacing: "0.06em",
+                  textTransform: "uppercase",
+                  color: tokens.inkSoft,
+                  mb: "7px",
+                  "&.Mui-focused, &.Mui-error": { color: tokens.inkSoft },
+                }}
+              >
+                {t("trips.payments.title")}
+              </FormLabel>
               <RadioGroup
                 row
                 value={paymentMode ?? "single"}
@@ -808,36 +940,38 @@ export default function TripAccommodationDialog({
                 <FormControlLabel value="split" control={<Radio />} label={t("trips.payments.split")} />
               </RadioGroup>
               <input type="hidden" {...register("paymentMode")} />
+              {/* flexWrap and the minWidth floors are preserved — the rows wrap rather than being
+                  compressed below the 44px control floor to make 520px fit. */}
               <Box display="flex" flexDirection="column" gap={1.25} mt={0.5}>
                 {paymentFields.map((field, index) => (
-                  <Box key={field.id} display="flex" gap={1} alignItems="center" flexWrap="wrap">
-                    <TextField
-                      label={t("trips.payments.amountLabel")}
-                      error={Boolean(errors.payments?.[index]?.amount)}
-                      helperText={errors.payments?.[index]?.amount?.message}
-                      {...register(`payments.${index}.amount` as const)}
-                      size="small"
-                      type="number"
-                      inputMode="decimal"
-                      inputProps={{ min: 0, step: 0.01, readOnly: paymentMode !== "split" }}
-                      sx={{ flex: 1, minWidth: 140 }}
-                    />
-                    <TextField
-                      label={t("trips.payments.dateLabel")}
-                      error={Boolean(errors.payments?.[index]?.dueDate)}
-                      helperText={errors.payments?.[index]?.dueDate?.message}
-                      {...register(`payments.${index}.dueDate` as const)}
-                      size="small"
-                      type="date"
-                      InputLabelProps={{ shrink: true }}
-                      sx={{ flex: 1, minWidth: 170 }}
-                    />
+                  <Box key={field.id} display="flex" gap={1} alignItems="flex-start" flexWrap="wrap">
+                    <Box sx={{ flex: 1, minWidth: 140 }}>
+                      <FormField
+                        id={`${fieldIdPrefix}-payment-amount-${index}`}
+                        label={t("trips.payments.amountLabel")}
+                        error={errors.payments?.[index]?.amount?.message}
+                        {...register(`payments.${index}.amount` as const)}
+                        type="number"
+                        slotProps={{
+                          htmlInput: { min: 0, step: 0.01, readOnly: paymentMode !== "split", inputMode: "decimal" },
+                        }}
+                      />
+                    </Box>
+                    <Box sx={{ flex: 1, minWidth: 170 }}>
+                      <FormField
+                        id={`${fieldIdPrefix}-payment-date-${index}`}
+                        label={t("trips.payments.dateLabel")}
+                        error={errors.payments?.[index]?.dueDate?.message}
+                        {...register(`payments.${index}.dueDate` as const)}
+                        type="date"
+                      />
+                    </Box>
                     {paymentMode === "split" && (
                       <Button
-                        size="small"
-                        color="inherit"
+                        variant="text"
                         onClick={() => remove(index)}
                         disabled={paymentFields.length <= 2}
+                        sx={{ color: tokens.ink, mt: "24px" }}
                       >
                         {t("trips.payments.removeAction")}
                       </Button>
@@ -852,92 +986,78 @@ export default function TripAccommodationDialog({
               </Box>
               <FormHelperText>{errors.payments?.message}</FormHelperText>
             </FormControl>
-            <TextField
-              label={t("trips.stay.linkLabel")}
-              error={Boolean(errors.link)}
-              helperText={errors.link?.message}
-              {...register("link", linkRules)}
-              fullWidth
-              type="url"
-              inputMode="url"
-              placeholder="https://"
-            />
-            {stayType === "current" ? (
-              <TextField
-                label={t("trips.stay.checkInLabel")}
-                error={Boolean(errors.checkInTime)}
-                helperText={errors.checkInTime?.message}
-                {...register("checkInTime", timeRules)}
-                fullWidth
-                placeholder={DEFAULT_CHECK_IN}
-                inputProps={{ inputMode: "numeric" }}
-              />
-            ) : (
-              <TextField
-                label={t("trips.stay.checkOutLabel")}
-                error={Boolean(errors.checkOutTime)}
-                helperText={errors.checkOutTime?.message}
-                {...register("checkOutTime", timeRules)}
-                fullWidth
-                placeholder={DEFAULT_CHECK_OUT}
-                inputProps={{ inputMode: "numeric" }}
-              />
-            )}
-            <Box display="flex" gap={1} alignItems="flex-start">
-              <TextField
-                label={t("trips.location.searchLabel")}
-                value={locationQuery}
-                onChange={(event) => setLocationQuery(event.target.value)}
-                fullWidth
-              />
-              <Button
-                variant="outlined"
-                onClick={() => void handleLookupLocation()}
-                disabled={isSubmitting || isDeleting || isGeocoding}
-                sx={{ mt: 1 }}
+            <Box display="flex" flexDirection="column" gap={1}>
+              <Box
+                sx={{
+                  display: "flex",
+                  flexDirection: { xs: "column", sm: "row" },
+                  alignItems: { xs: "stretch", sm: "flex-end" },
+                  gap: "8px",
+                }}
               >
-                {isGeocoding ? <CircularProgress size={18} /> : t("trips.location.searchAction")}
-              </Button>
-              <Button
-                variant="text"
-                onClick={() => setResolvedLocation(null)}
-                disabled={isSubmitting || isDeleting || isGeocoding || !resolvedLocation}
-                sx={{ mt: 1 }}
-              >
-                {t("trips.location.clearAction")}
-              </Button>
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <FormField
+                    id={`${fieldIdPrefix}-place`}
+                    label={t("trips.location.searchLabel")}
+                    value={locationQuery}
+                    onChange={(event) => setLocationQuery(event.target.value)}
+                  />
+                </Box>
+                <Button
+                  variant="outlined"
+                  onClick={() => void handleLookupLocation()}
+                  disabled={isSubmitting || isDeleting || isGeocoding}
+                >
+                  {isGeocoding ? <CircularProgress size={18} /> : t("trips.location.searchAction")}
+                </Button>
+                <Button
+                  variant="text"
+                  onClick={() => setResolvedLocation(null)}
+                  disabled={isSubmitting || isDeleting || isGeocoding || !resolvedLocation}
+                  sx={{ color: tokens.ink }}
+                >
+                  {t("trips.location.clearAction")}
+                </Button>
+              </Box>
+              <Typography sx={{ fontSize: 11, fontWeight: 600, color: tokens.inkSoft }}>
+                {resolvedLocation
+                  ? `${t("trips.location.latLabel")}: ${resolvedLocation.lat.toFixed(6)} · ${t("trips.location.lngLabel")}: ${resolvedLocation.lng.toFixed(6)}`
+                  : t("trips.location.noCoordinates")}
+              </Typography>
             </Box>
-            <Typography variant="body2" color="text.secondary">
-              {resolvedLocation
-                ? `${t("trips.location.latLabel")}: ${resolvedLocation.lat.toFixed(6)} · ${t("trips.location.lngLabel")}: ${resolvedLocation.lng.toFixed(6)}`
-                : t("trips.location.noCoordinates")}
-            </Typography>
-            <TextField
+            <FormField
+              id={`${fieldIdPrefix}-notes`}
               label={t("trips.stay.notesLabel")}
-              error={Boolean(errors.notes)}
+              error={errors.notes?.message}
               {...register("notes")}
-              fullWidth
               multiline
               minRows={3}
             />
             {day?.accommodation && (
-              <Box display="flex" flexDirection="column" gap={1}>
-                <Typography variant="body2" fontWeight={600}>
-                  {t("trips.gallery.title")}
-                </Typography>
-                <Box display="flex" gap={1} alignItems="center">
-                  <TextField
-                    size="small"
-                    type="file"
-                    onChange={(event) => {
-                      // See TripDayView's day-image field: `target` is the <input>, `currentTarget`
-                      // may be a MUI wrapper without `.files`, which silently clears the selection.
-                      const input = event.target as HTMLInputElement;
-                      setGalleryFiles(input.files ? Array.from(input.files) : []);
-                    }}
-                    inputProps={{ accept: IMAGE_UPLOAD_ACCEPT, multiple: true }}
-                    fullWidth
-                  />
+              /*
+                AC5 rebuild: dashed dropzone + a 56px sharp preview strip, replacing the bare file
+                TextField and the vertical list of 42px rounded thumbs each paired with a red 36px
+                delete button. The explicit Upload action is KEPT — `uploadGalleryImages` is a real
+                network step with its own error path and busy state, so the select-then-upload flow
+                stays two-step rather than firing on selection.
+              */
+              <PhotoUploadField
+                id={`${fieldIdPrefix}-gallery`}
+                label={t("trips.gallery.title")}
+                zoneTitle={t("trips.gallery.uploadZoneTitle")}
+                accept={IMAGE_UPLOAD_ACCEPT}
+                multiple
+                disabled={galleryBusy}
+                onFilesSelected={setGalleryFiles}
+                selectionLabel={
+                  galleryFiles.length > 0
+                    ? // Was hardcoded English (`{n} file(s) selected`) while the day-plan dialog used
+                      // this key for the same string. Uses the key now.
+                      formatMessage(t("trips.gallery.selectedFiles"), { count: galleryFiles.length })
+                    : undefined
+                }
+                emptyLabel={t("trips.gallery.empty")}
+                action={
                   <Button
                     variant="outlined"
                     onClick={() => void uploadGalleryImages()}
@@ -945,69 +1065,25 @@ export default function TripAccommodationDialog({
                   >
                     {t("trips.gallery.uploadAction")}
                   </Button>
-                </Box>
-                {galleryFiles.length > 0 && (
-                  <Typography variant="caption" color="text.secondary">
-                    {galleryFiles.length} file(s) selected
-                  </Typography>
-                )}
-                {galleryImages.length === 0 ? (
-                  <Typography variant="caption" color="text.secondary">
-                    {t("trips.gallery.empty")}
-                  </Typography>
-                ) : (
-                  <Box display="flex" flexDirection="column" gap={0.75}>
-                    {galleryImages
-                      .slice()
-                      .sort((left, right) => left.sortOrder - right.sortOrder)
-                      .map((image) => (
-                        <Box key={image.id} display="flex" alignItems="center" gap={1}>
-                          <Box
-                            component="img"
-                            src={image.imageUrl}
-                            alt={t("trips.gallery.thumbnailAlt")}
-                            sx={{ width: 42, height: 42, objectFit: "cover", borderRadius: 1, cursor: "pointer" }}
-                            loading="lazy"
-                            onClick={() => setFullscreenImage({ imageUrl: image.imageUrl, alt: t("trips.gallery.thumbnailAlt") })}
-                          />
-                          <Button
-                            size="small"
-                            color="error"
-                            aria-label={t("trips.gallery.removeAction")}
-                            onClick={() => void deleteGalleryImage(image.id)}
-                            disabled={galleryBusy}
-                            sx={{ minWidth: 36, px: 0.75 }}
-                          >
-                            <SvgIcon fontSize="small">
-                              <path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6zm3.5-8h1v7h-1zm4 0h1v7h-1zM15.5 4l-1-1h-5l-1 1H5v2h14V4z" />
-                            </SvgIcon>
-                          </Button>
-                        </Box>
-                      ))}
-                  </Box>
-                )}
-              </Box>
+                }
+                images={sortedGalleryImages.map((image, index) => ({
+                  key: image.id,
+                  imageUrl: image.imageUrl,
+                  onRemove: () => void deleteGalleryImage(image.id),
+                  onOpen: () =>
+                    setFullscreenImage({
+                      imageUrl: image.imageUrl,
+                      alt: formatMessage(t("trips.gallery.imageAlt"), {
+                        index: index + 1,
+                        total: sortedGalleryImages.length,
+                      }),
+                    }),
+                }))}
+              />
             )}
           </Box>
         </Box>
-      </DialogContent>
-      <DialogActions sx={{ justifyContent: "space-between" }}>
-        <Box>
-          {day?.accommodation && (
-            <Button color="error" onClick={handleDelete} disabled={isSubmitting || isDeleting}>
-              {isDeleting ? <CircularProgress size={22} /> : t("trips.stay.delete")}
-            </Button>
-          )}
-        </Box>
-        <Box display="flex" gap={1}>
-          <Button onClick={onClose} disabled={isSubmitting || isDeleting}>
-            {t("common.cancel")}
-          </Button>
-          <Button type="submit" form="trip-accommodation-form" variant="contained" disabled={isSubmitting || isDeleting}>
-            {isSubmitting ? <CircularProgress size={22} /> : t("trips.stay.save")}
-          </Button>
-        </Box>
-      </DialogActions>
+    </DialogShell>
       <Dialog
         open={Boolean(fullscreenImage)}
         onClose={() => setFullscreenImage(null)}
@@ -1048,6 +1124,6 @@ export default function TripAccommodationDialog({
           </DialogContent>
         ) : null}
       </Dialog>
-    </Dialog>
+    </>
   );
 }

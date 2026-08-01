@@ -3,7 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import TripAccommodationDialog from "@/components/features/trips/TripAccommodationDialog";
-import { I18nProvider } from "@/i18n/provider";
+import { Providers } from "./helpers/renderWithProviders";
 
 describe("TripAccommodationDialog", () => {
   afterEach(() => {
@@ -20,7 +20,7 @@ describe("TripAccommodationDialog", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(
-      <I18nProvider initialLanguage="en">
+      <Providers language="en">
         <TripAccommodationDialog
           open
           tripId="trip-1"
@@ -44,7 +44,7 @@ describe("TripAccommodationDialog", () => {
           onClose={() => undefined}
           onSaved={() => undefined}
         />
-      </I18nProvider>,
+      </Providers>,
     );
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
@@ -54,6 +54,18 @@ describe("TripAccommodationDialog", () => {
     expect(screen.queryByLabelText("Longitude")).toBeNull();
     expect(screen.queryByLabelText("Location label (optional)")).toBeNull();
     expect(screen.getByText("No coordinates selected")).toBeInTheDocument();
+
+    // AC8: "Remove stay" used color="error", which resolves to MUI's default #d32f2f because
+    // theme.ts defines no `error` palette entry. Destructive actions use the text variant now.
+    expect(screen.getByRole("button", { name: "Remove stay" })).toBeInTheDocument();
+    expect(document.querySelectorAll(".MuiButton-colorError")).toHaveLength(0);
+    expect(document.querySelectorAll(".MuiAlert-standardError")).toHaveLength(0);
+
+    // AC6: the label move must not drift a single accessible name, and the uppercase must come from
+    // CSS rather than from uppercasing the i18n value.
+    const stayNameLabel = document.querySelector(`label[for="${screen.getByLabelText("Stay name").id}"]`) as HTMLElement;
+    expect(stayNameLabel.textContent).toBe("Stay name");
+    expect(getComputedStyle(stayNameLabel).textTransform).toBe("uppercase");
   });
 
   it("submits with a fallback CSRF fetch when save is clicked before init token resolves", async () => {
@@ -97,7 +109,7 @@ describe("TripAccommodationDialog", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(
-      <I18nProvider initialLanguage="en">
+      <Providers language="en">
         <TripAccommodationDialog
           open
           tripId="trip-1"
@@ -121,7 +133,7 @@ describe("TripAccommodationDialog", () => {
           onClose={() => undefined}
           onSaved={onSaved}
         />
-      </I18nProvider>,
+      </Providers>,
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
@@ -140,7 +152,7 @@ describe("TripAccommodationDialog", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(
-      <I18nProvider initialLanguage="en">
+      <Providers language="en">
         <TripAccommodationDialog
           open
           tripId="trip-1"
@@ -164,7 +176,7 @@ describe("TripAccommodationDialog", () => {
           onClose={() => undefined}
           onSaved={() => undefined}
         />
-      </I18nProvider>,
+      </Providers>,
     );
 
     const input = await screen.findByLabelText("Check-in time");
@@ -181,7 +193,7 @@ describe("TripAccommodationDialog", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(
-      <I18nProvider initialLanguage="en">
+      <Providers language="en">
         <TripAccommodationDialog
           open
           tripId="trip-1"
@@ -205,7 +217,7 @@ describe("TripAccommodationDialog", () => {
           onClose={() => undefined}
           onSaved={() => undefined}
         />
-      </I18nProvider>,
+      </Providers>,
     );
 
     const input = await screen.findByLabelText("Check-out time");
@@ -232,7 +244,7 @@ describe("TripAccommodationDialog", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(
-      <I18nProvider initialLanguage="en">
+      <Providers language="en">
         <TripAccommodationDialog
           open
           tripId="trip-1"
@@ -246,7 +258,7 @@ describe("TripAccommodationDialog", () => {
           onClose={() => undefined}
           onSaved={() => undefined}
         />
-      </I18nProvider>,
+      </Providers>,
     );
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
@@ -278,7 +290,7 @@ describe("TripAccommodationDialog", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(
-      <I18nProvider initialLanguage="en">
+      <Providers language="en">
         <TripAccommodationDialog
           open
           tripId="trip-1"
@@ -306,7 +318,7 @@ describe("TripAccommodationDialog", () => {
           onClose={() => undefined}
           onSaved={() => undefined}
         />
-      </I18nProvider>,
+      </Providers>,
     );
 
     const splitOption = await screen.findByLabelText("Split into multiple payments");

@@ -2,7 +2,7 @@
 baseline_commit: b18997c
 ---
 
-# Story 7.10: Node 24 LTS Runtime Upgrade (CI, Local, Server)
+# Story 8.1: Node 24 LTS Runtime Upgrade (CI, Local, Server)
 
 Status: backlog
 

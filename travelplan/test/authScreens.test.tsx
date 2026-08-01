@@ -375,7 +375,7 @@ describe("code-review patches", () => {
     await user.type(screen.getByLabelText(/^password$/i), "brandnewpassword");
     await user.click(screen.getByRole("button", { name: /create account/i }));
 
-    // Same pairing AuthField gets free from MUI's id/helperText wiring: the message must be
+    // Same pairing FormField gets free from MUI's id/helperText wiring: the message must be
     // reachable from the control, not merely visible next to it.
     await waitFor(() => {
       expect(consent).toHaveAttribute("aria-invalid", "true");

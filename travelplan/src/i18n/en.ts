@@ -332,6 +332,9 @@ const en: Dictionary = {
   "trips.dayImage.dialogTitle": "Edit day details",
   "trips.dayImage.fileLabel": "Day image",
   "trips.dayImage.fileHelper": "Upload JPEG, PNG, or WebP up to 15MB.",
+  // Re-added by 7.7 (AC7). 7.3 dropped it when the day *hero* became decorative; the editing dialog's
+  // preview is not — it is the only confirmation a non-sighted owner gets that an upload landed.
+  "trips.dayImage.previewAlt": "Current day image",
   "trips.dayImage.noteLabel": "Day note",
   "trips.dayImage.noteHelper": "Optional short note for this day (max 280 characters)",
   "trips.dayImage.saveAction": "Save day details",
@@ -484,12 +487,15 @@ const en: Dictionary = {
   "trips.stay.nameRequired": "Stay name is required",
   "trips.gallery.title": "Image gallery",
   "trips.gallery.uploadAction": "Upload",
-  "trips.gallery.removeAction": "Remove",
   "trips.gallery.moveUp": "Up",
   "trips.gallery.moveDown": "Down",
   "trips.gallery.selectedFiles": "{count} file(s) selected",
   "trips.gallery.empty": "No images yet.",
-  "trips.gallery.thumbnailAlt": "Gallery thumbnail",
+  // Dialog photo previews are meaning-bearing, not decorative (DESIGN.md.Photo Alt-Text), and each
+  // remove button needs a name unique within its dialog — hence the index rather than a shared string.
+  "trips.gallery.imageAlt": "Image {index} of {total}",
+  "trips.gallery.removeImage": "Remove image {index} of {total}",
+  "trips.gallery.uploadZoneTitle": "Choose photos",
   "trips.location.latLabel": "Latitude",
   "trips.location.lngLabel": "Longitude",
   "trips.location.labelLabel": "Location label (optional)",

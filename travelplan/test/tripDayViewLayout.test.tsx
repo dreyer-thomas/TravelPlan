@@ -2923,6 +2923,12 @@ describe("TripDayView layout", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Edit day details" }));
 
+    // AC7: the dialog previews the CURRENT day image. Before Story 7.7 it rendered only the selected
+    // file's name, so a non-sighted owner had no way to confirm an upload had landed. The hero is
+    // decorative; this editing surface is not, so the preview carries a real alt string.
+    const currentPreview = await screen.findByAltText("Current day image");
+    expect(currentPreview).toHaveAttribute("src", expect.stringContaining("day-initial.webp"));
+
     const fileInput = await screen.findByLabelText("Day image");
     const file = new File([new Uint8Array([1, 2, 3])], "day.webp", { type: "image/webp" });
     fireEvent.change(fileInput, { target: { files: [file] } });
@@ -2953,6 +2959,8 @@ describe("TripDayView layout", () => {
       expect(getComputedStyle(screen.getByTestId("day-hero")).backgroundImage).toContain("world-map-placeholder.svg"),
     );
     expect(screen.getByText("No day image selected yet.")).toBeInTheDocument();
+    // ...and the preview goes with it (AC7's other half).
+    expect(screen.queryByAltText("Current day image")).toBeNull();
 
     vi.unstubAllGlobals();
   });

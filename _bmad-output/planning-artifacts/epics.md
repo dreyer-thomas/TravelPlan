@@ -147,6 +147,10 @@ Users can iterate on focused UX improvements that simplify planning screens with
 Users experience the approved `DESIGN.md`/`EXPERIENCE.md` visual system across every screen instead of the current inconsistent styling — no new capability, existing screens re-skinned to the new tokens/components.
 **FRs covered:** FR6, FR9, FR22 (no new FRs — implements an already-approved design spine, not new product capability)
 
+### Epic 8: Maintenance & Infrastructure
+The maintainer can keep the runtime, toolchain, and accumulated technical debt current without threading infrastructure work through feature or redesign epics.
+**FRs covered:** None (infrastructure and maintenance; no new product capability)
+
 ## Epic 1: Secure Access & Personal Workspace
 
 Users can create accounts and safely access their private trips.
@@ -1775,7 +1779,62 @@ So that enlarging a map keeps me inside the same product instead of dropping me 
 **When** the screens are redesigned
 **Then** all of it continues to work unchanged — this story is visual only
 
-### Story 7.10: Node 24 LTS Runtime Upgrade — CI, Local, and Server
+### Story 7.11: Design Token Reconciliation — Contrast, Focus, and Literal Cleanup
+
+As a developer and as a keyboard or low-vision user,
+I want the design tokens established in Story 7.1 to be the single source of truth for color, contrast, and focus across every screen,
+So that retheming does not require editing component bodies, and so that the accessibility floor `EXPERIENCE.md` promises is actually met.
+
+**FRs covered:** None (completes Story 7.1's token foundation; closes 7 deferred-work entries from Stories 7.2–7.6)
+
+**Context:** Story 7.1 established the token foundation. Stories 7.2 through 7.6 each encountered a case whose correct fix lived in `theme.ts`, and each was scoped to exclude it — deliberately, to stop visual stories from becoming system-wide changes. Seven deferred-work entries resulted, each deferring to a "standing design-token reconciliation pass." This is that pass. It is the last story in Epic 7 because it needs every screen's literals visible before it can decide which are tokens; it therefore runs after 7.9.
+
+Two of its criteria were design-system decisions rather than implementation choices. Both were settled by Tommy on 2026-08-01 and are written below as decided requirements: the gap background gains a second token rather than collapsing to one value, and the past-row archival treatment moves off the text. Note that this story's scope was measured against the code as of 2026-08-01, when several literals named in the original deferred-work entries had already been consolidated into `TripIcons.tsx` by Stories 7.4 and 7.6 — `DAY_ROW_GAP_BG` no longer exists, and `HERO_SCRIM` is now one shared export serving four components rather than a per-file literal.
+
+**Acceptance Criteria:**
+
+**Given** `DESIGN.md` contradicts itself on the gap-row background — `day-row.bg-gap` (`:104`) resolves to `{colors.warn-bg}` `#F6ECE0` while `trip-row.bg-gap` (`:152`) hardcodes `#FBF6EE`, and both mockups paint both rows `#FBF6EE` (`trip-overview-day-detail.html:322`, `trips-list-share-login.html:173`) while reserving `#F6ECE0` for pills, badges, error inputs and coverage segments
+**When** the design system is corrected to match the mockups
+**Then** `theme.ts` and `DESIGN.md` gain a distinct token for the whole-row gap fill (`#FBF6EE`), leaving `warn-bg` `#F6ECE0` to the small-element treatments it already serves, and both `day-row.bg-gap` and `trip-row.bg-gap` reference it
+**And** `#F1ECE1` — used consistently across all three mockups for the `upcoming` and `past` status pills but absent from `DESIGN.md` entirely — gains a token of its own
+**And** `ROW_GAP_BG` (`TripIcons.tsx:230`) and `NEUTRAL_PILL_BG` (`TripIcons.tsx:239`) are replaced by those token references, so that no background color is exported from an icon module
+**And** the rendered result is pixel-identical to today — this criterion corrects the specification to describe the shipped design, it does not restyle anything
+
+**Given** `tokens.inkMuted` is `#8A8677`, which measures 3.65:1 against `tokens.card` `#FFFFFF` and is rendered at 10px on the Day Detail coverage axis
+**When** the token is corrected
+**Then** it meets the 4.5:1 WCAG AA floor for normal text at every size it is used, and the change is applied at the token level rather than per screen
+
+**Given** `DESIGN.md:153` prescribes `trip-row.opacity-past: 0.78` as the *entire* archival treatment, and both affected elements pass AA at full opacity but fail under that multiplier — the 12px `inkSoft` sub-line drops from 5.65:1 to roughly 3.5:1, and the 11.5px bold "Completed" pill on `#F1ECE1` from 4.79:1 to roughly 3.3:1
+**When** the archival treatment is applied at `TripsDashboard.tsx:454`
+**Then** the opacity is confined to the trip photo and the row border, and the row's text and status pill render at full opacity, so both clear the 4.5:1 floor without any color changing
+**And** `DESIGN.md`'s `trip-row` entry records this split — opacity carries the archival signal through the 96px photo, which is the row's visual mass — so the treatment is defined once and no future surface re-derives it
+**And** `tokens.inkSoft` is left unchanged: darkening it to survive a 0.78 multiplier would repaint every secondary-text surface in the app to fix an artifact on one row
+
+**Given** `theme.ts` replaces the entire MUI `shadows` array with `"none"` except index 24, and MUI's contained-button focus indicator is `shadows[6]`
+**When** the focus treatment is added
+**Then** every `variant="contained"` button in the app shows a visible keyboard focus indicator via an explicit `MuiButton` `&.Mui-focusVisible` treatment, satisfying `EXPERIENCE.md`'s Accessibility Floor
+**And** the auth-local workaround `src/components/features/auth/authSubmitSx.ts` (`AUTH_SUBMIT_SX`) is deleted rather than left as a second source of truth
+
+**Given** `theme.ts` defines `primary`, `secondary` and `warning` but no `error` palette entry, so `<Alert severity="error">` renders MUI's default `#d32f2f` and `severity="success"` its default green — two colors absent from the token set
+**When** the palette gains an `error` entry
+**Then** it uses the existing `colors.errorBorder` `#C97A3E` already used for input error borders, and an `MuiAlert` treatment applies it, so alerts in every dialog draw from tokens
+**And** no component-local `sx` override is introduced to achieve this
+
+**Given** `HouseIcon`, `WarningTriangleIcon`, `ChevronRightIcon` and `ShareGlyphIcon` are private to `TripTimeline.tsx` (`:92-151`) while other screens need the same glyphs
+**When** they are extracted to the shared icon module
+**Then** they live alongside the existing glyph set in `TripIcons.tsx` and type their style prop as `SxProps<Theme>` rather than `sx?: object`, so style-key typos are caught
+
+**Given** the seven deferred-work entries this story closes
+**When** the story's spec is written
+**Then** its frontmatter declares `closes_deferred:` with their DW ids, so the ledger is annotated at commit rather than left stale
+
+**Note:** the `closes_deferred` declaration requires the deferred-work ledger to have been migrated to the canonical `DW-<n>` format first. If the migration has not run when this story is specced, the final criterion is dropped and the entries are closed by a later sweep instead.
+
+## Epic 8: Maintenance & Infrastructure
+
+The maintainer can keep the runtime, toolchain, and accumulated technical debt current without threading infrastructure work through feature or redesign epics. This epic is the standing home for work that is neither a feature nor a redesign — runtime and toolchain upgrades, and the deferred-work bundles that earn a story number after a `bmad-loop sweep` has verified them against the code.
+
+### Story 8.1: Node 24 LTS Runtime Upgrade — CI, Local, and Server
 
 As the maintainer of TravelPlan,
 I want CI, my development machine, and the deployment server moved from end-of-life Node 20 to Node 24 LTS in one coordinated change,
@@ -1783,7 +1842,7 @@ So that the runtime under the app keeps receiving security patches — a gap the
 
 **FRs covered:** None (infrastructure; closes a security exposure the CI gate cannot detect)
 
-**Context:** The only non-visual story in Epic 7, sequenced last on purpose. Node 20 reached end-of-life around Apr 2026 and no longer receives security patches, but `npm audit` scans *packages* and not the runtime beneath them — so the 0-vulnerability gate added in `a27f8f5` reports green while sitting on an unpatched runtime. Compatibility was verified statically at baseline `b18997c`: of 405 `engines.node` declarations in the installed tree, **zero** are incompatible with Node 24 (Node 20 has one — `@prisma/streams-local@0.1.11` requires `>=22.0.0`), and `better-sqlite3@12.6.2` publishes `node-v137` ABI prebuilds for both `linux-x64` and `darwin-arm64`. Node 24 rather than 22 because 22 left Active LTS in Oct 2025 and would need repeating in spring 2027. A bump landed mid-epic would put a variable underneath in-flight UI work, which is why this waits for 7.9. Separate from and downstream of `b18997c`, which fixed the audit gate's `npm ci` failure and cleared the GitHub Actions node20 action-runtime deprecation without changing `node-version`.
+**Context:** Node 20 reached end-of-life around Apr 2026 and no longer receives security patches, but `npm audit` scans *packages* and not the runtime beneath them — so the 0-vulnerability gate added in `a27f8f5` reports green while sitting on an unpatched runtime. Compatibility was verified statically at baseline `b18997c`: of 405 `engines.node` declarations in the installed tree, **zero** are incompatible with Node 24 (Node 20 has one — `@prisma/streams-local@0.1.11` requires `>=22.0.0`), and `better-sqlite3@12.6.2` publishes `node-v137` ABI prebuilds for both `linux-x64` and `darwin-arm64`. Node 24 rather than 22 because 22 left Active LTS in Oct 2025 and would need repeating in spring 2027. A bump landed while Epic 7 is still in flight would put a variable underneath in-flight UI work, which is why this waits for Epic 7 to complete — originally expressed as a dependency on Story 7.9, now on Story 7.11, Epic 7's last story. Separate from and downstream of `b18997c`, which fixed the audit gate's `npm ci` failure and cleared the GitHub Actions node20 action-runtime deprecation without changing `node-version`.
 
 **Acceptance Criteria:**
 

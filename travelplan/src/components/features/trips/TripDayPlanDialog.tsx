@@ -1,15 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
-  Alert,
   Box,
   Button,
   CircularProgress,
   Dialog,
-  DialogActions,
   DialogContent,
-  DialogTitle,
   FormControl,
   FormControlLabel,
   FormHelperText,
@@ -17,9 +14,13 @@ import {
   Radio,
   RadioGroup,
   SvgIcon,
-  TextField,
   Typography,
 } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
+import FormField from "@/components/forms/FormField";
+import FormNotice from "@/components/forms/FormNotice";
+import PhotoUploadField from "@/components/forms/PhotoUploadField";
+import DialogShell from "@/components/ui/DialogShell";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
@@ -172,6 +173,15 @@ const toDateOnly = (value?: string | null) => {
   return parsed.toISOString().slice(0, 10);
 };
 
+/**
+ * The TipTap toolbar's five buttons.
+ *
+ * `minWidth: 36` measured 36x44 in the browser — below the 44x44 floor DESIGN.md:266 sets and the
+ * one place in these four dialogs that was under it. The height already came from theme.ts's
+ * `MuiButton` override; only the width needed raising.
+ */
+const TOOLBAR_BUTTON_SX = { minWidth: 44, width: 44, px: 0 } as const;
+
 const buildDefaultPayments = ({
   payments,
   costCents,
@@ -205,6 +215,9 @@ export default function TripDayPlanDialog({
   onSaved,
 }: TripDayPlanDialogProps) {
   const { t } = useI18n();
+  // Unique `htmlFor`/`id` prefix for the above-field labels this restyle introduces.
+  const fieldIdPrefix = useId();
+  const { tokens } = useTheme().palette;
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -244,6 +257,10 @@ export default function TripDayPlanDialog({
   const deleteTouchGuard = useRef(false);
   const editingItemId = mode === "edit" ? (item?.id ?? null) : null;
   const defaultDueDate = useMemo(() => toDateOnly(day?.date), [day?.date]);
+  const sortedGalleryImages = useMemo(
+    () => galleryImages.slice().sort((left, right) => left.sortOrder - right.sortOrder),
+    [galleryImages],
+  );
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -261,6 +278,9 @@ export default function TripDayPlanDialog({
       attributes: {
         class: "tiptap-editor",
         style: "min-height: 160px; outline: none;",
+        // The block's caps label is above the editor, not on it — a contenteditable is a textbox in
+        // the a11y tree and would otherwise be the one unnamed control on the surface.
+        "aria-labelledby": `${fieldIdPrefix}-content-label`,
       },
     },
     onUpdate: ({ editor: instance }) => {
@@ -863,38 +883,88 @@ export default function TripDayPlanDialog({
   };
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
-      <DialogTitle>
-        <Typography variant="h6" fontWeight={600} component="div" gutterBottom>
-          {title}
-        </Typography>
-        {subtitle && (
-          <Typography variant="body2" color="text.secondary">
-            {subtitle}
-          </Typography>
-        )}
-      </DialogTitle>
-      <DialogContent dividers>
-        <Box display="flex" flexDirection="column" gap={2.5}>
-          {serverError && <Alert severity="error">{serverError}</Alert>}
+    <>
+    <DialogShell
+      open={open}
+      onClose={onClose}
+      title={title}
+      subtitle={subtitle ?? undefined}
+      // Screen G's `.dialog.w-520`, down from MUI's `maxWidth="md"` (900px). The TipTap toolbar and
+      // the payment rows are the two blocks that have to survive the narrowing — both wrap rather
+      // than compress, and both are measured in the browser check.
+      width={520}
+      // Same guard as the accommodation dialog: Cancel is disabled while `isBusy`, so the two
+      // dismissal gestures must be too.
+      disableDismiss={isBusy}
+      footer={
+        <>
+          {/* No `alignItems` override: DialogShell stretches footer children to full width at xs and
+              centres them from sm up, and this group opts into that rather than out of it. */}
+          <Box sx={{ display: "flex", flexDirection: { xs: "column-reverse", sm: "row" }, gap: "10px" }}>
+            <Button variant="outlined" onClick={onClose} disabled={isBusy}>
+              {t("common.cancel")}
+            </Button>
+            {canDelete ? (
+              /*
+                No `color="error"` (AC8). `handleDeleteClick` + `onTouchEnd`'s two-tap confirm is kept
+                verbatim — it is the only delete confirmation this dialog has.
+              */
+              <Button
+                variant="text"
+                onClick={handleDeleteClick}
+                onTouchEnd={handleDeleteTouchEnd}
+                disabled={isBusy}
+                sx={{ color: tokens.ink }}
+              >
+                {t("trips.plan.deleteItem")}
+              </Button>
+            ) : null}
+          </Box>
+          <Button variant="contained" onClick={handleSave} disabled={isBusy || !day}>
+            {saving ? <CircularProgress size={22} /> : saveLabel}
+          </Button>
+        </>
+      }
+      footerSx={{ justifyContent: "space-between" }}
+    >
+        <Box display="flex" flexDirection="column" gap="18px">
+          {serverError && <FormNotice tone="warn" message={serverError} />}
 
-          <TextField
+          <FormField
+            id={`${fieldIdPrefix}-title`}
             label={t("trips.plan.titleLabel")}
             value={titleInput}
             onChange={(event) => setTitleInput(event.target.value)}
-            error={Boolean(fieldErrors.title)}
-            helperText={fieldErrors.title ?? undefined}
-            fullWidth
-            inputProps={{ maxLength: 120 }}
+            error={fieldErrors.title ?? undefined}
+            slotProps={{ htmlInput: { maxLength: 120 } }}
           />
-          <Box display="flex" flexDirection="column" gap={1.5}>
+          {/*
+            The editor is preserved whole (FR18): same TipTap instance, same extensions, same button
+            roles and the same pinned `aria-label`s. Only the container and the toolbar chrome are
+            restyled to the token idiom — Screen G draws no rich-text field, which is the mockup
+            showing a smaller form, not a decision to drop it.
+          */}
+          {/*
+            No container `gap`: this block mirrors `FormField`'s own spacing exactly (label `mb: 7px`,
+            helper `mt: 6px`) so the editor's label sits at the same distance from its control as
+            every other field on the surface, rather than at a `gap` minus a negative margin.
+          */}
+          <Box display="flex" flexDirection="column">
+            <Typography
+              id={`${fieldIdPrefix}-content-label`}
+              variant="labelCaps"
+              component="div"
+              sx={{ fontSize: 11, letterSpacing: "0.06em", color: tokens.inkSoft, mb: "7px" }}
+            >
+              {t("trips.plan.contentLabel")}
+            </Typography>
             <Box
               sx={{
                 border: "1px solid",
-                borderColor: fieldErrors.contentJson ? "error.main" : "divider",
-                borderRadius: 2,
-                p: 2,
-                backgroundColor: "#fff",
+                borderColor: fieldErrors.contentJson ? tokens.warnBorder : tokens.borderStrong,
+                borderRadius: "6px",
+                p: "14px",
+                backgroundColor: fieldErrors.contentJson ? tokens.warnBg : tokens.card,
                 minHeight: 180,
               }}
             >
@@ -906,7 +976,7 @@ export default function TripDayPlanDialog({
                   disabled={isBusy || !editor}
                   aria-label={t("trips.plan.toolbarBold")}
                   title={t("trips.plan.toolbarBold")}
-                  sx={{ minWidth: 36, px: 0.5 }}
+                  sx={TOOLBAR_BUTTON_SX}
                 >
                   <Typography component="span" sx={{ fontWeight: 800, fontSize: "0.95rem", lineHeight: 1 }}>
                     B
@@ -919,7 +989,7 @@ export default function TripDayPlanDialog({
                   disabled={isBusy || !editor}
                   aria-label={t("trips.plan.toolbarItalic")}
                   title={t("trips.plan.toolbarItalic")}
-                  sx={{ minWidth: 36, px: 0.5 }}
+                  sx={TOOLBAR_BUTTON_SX}
                 >
                   <Typography component="span" sx={{ fontStyle: "italic", fontSize: "0.95rem", lineHeight: 1 }}>
                     I
@@ -932,7 +1002,7 @@ export default function TripDayPlanDialog({
                   disabled={isBusy || !editor}
                   aria-label={t("trips.plan.toolbarBulletList")}
                   title={t("trips.plan.toolbarBulletList")}
-                  sx={{ minWidth: 36, px: 0.5 }}
+                  sx={TOOLBAR_BUTTON_SX}
                 >
                   <SvgIcon fontSize="small">
                     <path d="M4 7a1 1 0 1 0 0.001 0zM7 6h13v2H7zM4 12a1 1 0 1 0 0.001 0zM7 11h13v2H7zM4 17a1 1 0 1 0 0.001 0zM7 16h13v2H7z" />
@@ -945,7 +1015,7 @@ export default function TripDayPlanDialog({
                   disabled={isBusy || !editor}
                   aria-label={t("trips.plan.toolbarLink")}
                   title={t("trips.plan.toolbarLink")}
-                  sx={{ minWidth: 36, px: 0.5 }}
+                  sx={TOOLBAR_BUTTON_SX}
                 >
                   <SvgIcon fontSize="small">
                     <path d="M10.59 13.41a1.996 1.996 0 0 1 0-2.82l2.18-2.18a2 2 0 1 1 2.83 2.83l-1.06 1.06 1.41 1.41 1.06-1.06a4 4 0 0 0-5.66-5.66L9.17 9.17a4 4 0 0 0 0 5.66l.12.12 1.41-1.41-.11-.13zm2.82-2.82-2.82 2.82-1.41-1.41L12 9.17l1.41 1.42zm-6.18 1.11L6.17 12.76a4 4 0 1 0 5.66 5.66l2.18-2.18a4 4 0 0 0 0-5.66l-.12-.12-1.41 1.41.12.12a2 2 0 0 1 0 2.83l-2.18 2.18a2 2 0 1 1-2.83-2.83l1.06-1.06-1.4-1.4z" />
@@ -958,7 +1028,7 @@ export default function TripDayPlanDialog({
                   disabled={isBusy || !editor}
                   aria-label={t("trips.plan.toolbarImage")}
                   title={t("trips.plan.toolbarImage")}
-                  sx={{ minWidth: 36, px: 0.5 }}
+                  sx={TOOLBAR_BUTTON_SX}
                 >
                   <SvgIcon fontSize="small">
                     <path d="M21 19V5a2 2 0 0 0-2-2H5C3.9 3 3 3.9 3 5v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2zM8.5 11.5 11 15l3.5-4.5L19 17H5l3.5-5.5zM8 8a1.5 1.5 0 1 0 0.001 0z" />
@@ -968,53 +1038,73 @@ export default function TripDayPlanDialog({
               {editor ? <EditorContent editor={editor} /> : <Typography>{t("trips.plan.editorLoading")}</Typography>}
             </Box>
             {fieldErrors.contentJson && (
-              <Typography variant="caption" color="error">
+              // `warning.main`, not `color="error"`: theme.ts defines no `error` palette entry, so
+              // MUI falls back to #d32f2f — the same colour AC8 removed from the buttons and the
+              // reason the container's error border above uses `warnBorder`.
+              <Typography variant="caption" sx={{ color: "warning.main", fontWeight: 700, mt: "6px" }}>
                 {fieldErrors.contentJson}
               </Typography>
             )}
           </Box>
-          <Box display="flex" gap={1}>
-            <TextField
+          {/* Screen G's `.field-row`; stacks to a column at xs. Native `type="time"` is kept — it is
+              what the tests drive and it draws its own clock affordance. */}
+          <Box
+            sx={{
+              display: "flex",
+              flexDirection: { xs: "column", sm: "row" },
+              gap: "12px",
+              "& > *": { flex: 1, minWidth: 0 },
+            }}
+          >
+            <FormField
+              id={`${fieldIdPrefix}-from-time`}
               label={t("trips.plan.fromTimeLabel")}
               value={fromTimeInput}
               onChange={(event) => {
                 setFromTimeInput(event.target.value);
                 setFieldErrors((previous) => ({ ...previous, fromTime: undefined, toTime: undefined }));
               }}
-              error={Boolean(fieldErrors.fromTime)}
-              helperText={fieldErrors.fromTime ?? undefined}
-              fullWidth
+              error={fieldErrors.fromTime ?? undefined}
               type="time"
-              InputLabelProps={{ shrink: true }}
             />
-            <TextField
+            <FormField
+              id={`${fieldIdPrefix}-to-time`}
               label={t("trips.plan.toTimeLabel")}
               value={toTimeInput}
               onChange={(event) => {
                 setToTimeInput(event.target.value);
                 setFieldErrors((previous) => ({ ...previous, fromTime: undefined, toTime: undefined }));
               }}
-              error={Boolean(fieldErrors.toTime)}
-              helperText={fieldErrors.toTime ?? undefined}
-              fullWidth
+              error={fieldErrors.toTime ?? undefined}
               type="time"
-              InputLabelProps={{ shrink: true }}
             />
           </Box>
 
-          <TextField
+          <FormField
+            id={`${fieldIdPrefix}-cost`}
             label={t("trips.plan.costLabel")}
             value={costCentsInput}
             onChange={(event) => setCostCentsInput(event.target.value)}
-            error={Boolean(fieldErrors.costCents)}
-            helperText={fieldErrors.costCents ?? undefined}
-            fullWidth
+            error={fieldErrors.costCents ?? undefined}
+            hint={t("trips.plan.costHelper")}
             type="text"
-            inputMode="decimal"
+            slotProps={{ htmlInput: { inputMode: "decimal" } }}
             placeholder="0.00"
           />
           <FormControl component="fieldset" error={Boolean(paymentError)} variant="standard">
-            <FormLabel>{t("trips.payments.title")}</FormLabel>
+            <FormLabel
+              sx={{
+                fontSize: 11,
+                fontWeight: 800,
+                letterSpacing: "0.06em",
+                textTransform: "uppercase",
+                color: tokens.inkSoft,
+                mb: "7px",
+                "&.Mui-focused, &.Mui-error": { color: tokens.inkSoft },
+              }}
+            >
+              {t("trips.payments.title")}
+            </FormLabel>
             <RadioGroup
               row
               value={paymentMode}
@@ -1025,47 +1115,47 @@ export default function TripDayPlanDialog({
             </RadioGroup>
             <Box display="flex" flexDirection="column" gap={1.25} mt={0.5}>
               {payments.map((payment, index) => (
-                <Box key={`payment-${index}`} display="flex" gap={1} alignItems="center" flexWrap="wrap">
-                  <TextField
-                    label={t("trips.payments.amountLabel")}
-                    value={payment.amount}
-                    onChange={(event) => {
-                      const next = [...payments];
-                      next[index] = { ...next[index], amount: event.target.value };
-                      setPayments(next);
-                    }}
-                    error={Boolean(paymentRowErrors[index]?.amount)}
-                    helperText={paymentRowErrors[index]?.amount}
-                    size="small"
-                    type="number"
-                    inputMode="decimal"
-                    inputProps={{ min: 0, step: 0.01, readOnly: paymentMode !== "split" }}
-                    sx={{ flex: 1, minWidth: 140 }}
-                  />
-                  <TextField
-                    label={t("trips.payments.dateLabel")}
-                    value={payment.dueDate}
-                    onChange={(event) => {
-                      const next = [...payments];
-                      next[index] = { ...next[index], dueDate: event.target.value };
-                      setPayments(next);
-                    }}
-                    error={Boolean(paymentRowErrors[index]?.dueDate)}
-                    helperText={paymentRowErrors[index]?.dueDate}
-                    size="small"
-                    type="date"
-                    InputLabelProps={{ shrink: true }}
-                    sx={{ flex: 1, minWidth: 170 }}
-                  />
+                <Box key={`payment-${index}`} display="flex" gap={1} alignItems="flex-start" flexWrap="wrap">
+                  <Box sx={{ flex: 1, minWidth: 140 }}>
+                    <FormField
+                      id={`${fieldIdPrefix}-payment-amount-${index}`}
+                      label={t("trips.payments.amountLabel")}
+                      value={payment.amount}
+                      onChange={(event) => {
+                        const next = [...payments];
+                        next[index] = { ...next[index], amount: event.target.value };
+                        setPayments(next);
+                      }}
+                      error={paymentRowErrors[index]?.amount}
+                      type="number"
+                      slotProps={{
+                        htmlInput: { min: 0, step: 0.01, readOnly: paymentMode !== "split", inputMode: "decimal" },
+                      }}
+                    />
+                  </Box>
+                  <Box sx={{ flex: 1, minWidth: 170 }}>
+                    <FormField
+                      id={`${fieldIdPrefix}-payment-date-${index}`}
+                      label={t("trips.payments.dateLabel")}
+                      value={payment.dueDate}
+                      onChange={(event) => {
+                        const next = [...payments];
+                        next[index] = { ...next[index], dueDate: event.target.value };
+                        setPayments(next);
+                      }}
+                      error={paymentRowErrors[index]?.dueDate}
+                      type="date"
+                    />
+                  </Box>
                   {paymentMode === "split" && (
                     <Button
-                      size="small"
-                      color="inherit"
+                      variant="text"
                       onClick={() => {
                         const next = payments.filter((_, idx) => idx !== index);
                         setPayments(next);
                       }}
                       disabled={payments.length <= 2}
+                      sx={{ color: tokens.ink, mt: "24px" }}
                     >
                       {t("trips.payments.removeAction")}
                     </Button>
@@ -1074,8 +1164,9 @@ export default function TripDayPlanDialog({
               ))}
               {paymentMode === "split" && (
                 <Button
-                  size="small"
+                  variant="outlined"
                   onClick={() => setPayments((current) => [...current, { amount: "", dueDate: defaultDueDate }])}
+                  sx={{ alignSelf: "flex-start" }}
                 >
                   {t("trips.payments.addAction")}
                 </Button>
@@ -1083,64 +1174,70 @@ export default function TripDayPlanDialog({
             </Box>
             <FormHelperText>{paymentError ?? undefined}</FormHelperText>
           </FormControl>
-          <TextField
+          <FormField
+            id={`${fieldIdPrefix}-link`}
             label={t("trips.plan.linkLabel")}
             value={linkUrl}
             onChange={(event) => setLinkUrl(event.target.value)}
-            error={Boolean(fieldErrors.linkUrl)}
-            helperText={fieldErrors.linkUrl ?? undefined}
-            fullWidth
+            error={fieldErrors.linkUrl ?? undefined}
+            hint={t("trips.plan.linkHelper")}
             type="url"
-            inputMode="url"
+            slotProps={{ htmlInput: { inputMode: "url" } }}
             placeholder="https://"
           />
-          <Box display="flex" gap={1} alignItems="flex-start">
-            <TextField
-              label={t("trips.location.searchLabel")}
-              value={locationQuery}
-              onChange={(event) => setLocationQuery(event.target.value)}
-              fullWidth
-            />
-            <Button
-              variant="outlined"
-              onClick={() => void handleLookupLocation()}
-              disabled={isBusy || lookupLoading}
-              sx={{ mt: 1 }}
+          <Box display="flex" flexDirection="column" gap={1}>
+            <Box
+              sx={{
+                display: "flex",
+                flexDirection: { xs: "column", sm: "row" },
+                alignItems: { xs: "stretch", sm: "flex-end" },
+                gap: "8px",
+              }}
             >
-              {lookupLoading ? <CircularProgress size={18} /> : t("trips.location.searchAction")}
-            </Button>
-            <Button
-              variant="text"
-              onClick={() => setResolvedLocation(null)}
-              disabled={isBusy || lookupLoading || !resolvedLocation}
-              sx={{ mt: 1 }}
-            >
-              {t("trips.location.clearAction")}
-            </Button>
-          </Box>
-          <Typography variant="body2" color="text.secondary">
-            {resolvedLocation
-              ? `${t("trips.location.latLabel")}: ${resolvedLocation.lat.toFixed(6)} · ${t("trips.location.lngLabel")}: ${resolvedLocation.lng.toFixed(6)}`
-              : t("trips.location.noCoordinates")}
-          </Typography>
-          {editingItemId && (
-            <Box display="flex" flexDirection="column" gap={1}>
-              <Typography variant="body2" fontWeight={600}>
-                {t("trips.gallery.title")}
-              </Typography>
-              <Box display="flex" gap={1} alignItems="center">
-                <TextField
-                  size="small"
-                  type="file"
-                  onChange={(event) => {
-                    // See TripDayView's day-image field: `target` is the <input>, `currentTarget`
-                    // may be a MUI wrapper without `.files`, which silently clears the selection.
-                    const input = event.target as HTMLInputElement;
-                    setGalleryFiles(input.files ? Array.from(input.files) : []);
-                  }}
-                  inputProps={{ accept: IMAGE_UPLOAD_ACCEPT, multiple: true }}
-                  fullWidth
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <FormField
+                  id={`${fieldIdPrefix}-place`}
+                  label={t("trips.location.searchLabel")}
+                  value={locationQuery}
+                  onChange={(event) => setLocationQuery(event.target.value)}
                 />
+              </Box>
+              <Button variant="outlined" onClick={() => void handleLookupLocation()} disabled={isBusy || lookupLoading}>
+                {lookupLoading ? <CircularProgress size={18} /> : t("trips.location.searchAction")}
+              </Button>
+              <Button
+                variant="text"
+                onClick={() => setResolvedLocation(null)}
+                disabled={isBusy || lookupLoading || !resolvedLocation}
+                sx={{ color: tokens.ink }}
+              >
+                {t("trips.location.clearAction")}
+              </Button>
+            </Box>
+            <Typography sx={{ fontSize: 11, fontWeight: 600, color: tokens.inkSoft }}>
+              {resolvedLocation
+                ? `${t("trips.location.latLabel")}: ${resolvedLocation.lat.toFixed(6)} · ${t("trips.location.lngLabel")}: ${resolvedLocation.lng.toFixed(6)}`
+                : t("trips.location.noCoordinates")}
+            </Typography>
+          </Box>
+          {editingItemId && (
+            /* Same AC5 rebuild as the accommodation gallery; the explicit Upload action is kept for
+               the same reason (a real network step with its own error path and busy state). */
+            <PhotoUploadField
+              id={`${fieldIdPrefix}-gallery`}
+              label={t("trips.gallery.title")}
+              zoneTitle={t("trips.gallery.uploadZoneTitle")}
+              accept={IMAGE_UPLOAD_ACCEPT}
+              multiple
+              disabled={galleryBusy}
+              onFilesSelected={setGalleryFiles}
+              selectionLabel={
+                galleryFiles.length > 0
+                  ? formatMessage(t("trips.gallery.selectedFiles"), { count: galleryFiles.length })
+                  : undefined
+              }
+              emptyLabel={t("trips.gallery.empty")}
+              action={
                 <Button
                   variant="outlined"
                   onClick={() => void uploadGalleryImages()}
@@ -1148,68 +1245,24 @@ export default function TripDayPlanDialog({
                 >
                   {t("trips.gallery.uploadAction")}
                 </Button>
-              </Box>
-              {galleryFiles.length > 0 && (
-                <Typography variant="caption" color="text.secondary">
-                  {formatMessage(t("trips.gallery.selectedFiles"), { count: galleryFiles.length })}
-                </Typography>
-              )}
-              {galleryImages.length === 0 ? (
-                <Typography variant="caption" color="text.secondary">
-                  {t("trips.gallery.empty")}
-                </Typography>
-              ) : (
-                <Box display="flex" flexDirection="column" gap={0.75}>
-                  {galleryImages
-                    .slice()
-                    .sort((left, right) => left.sortOrder - right.sortOrder)
-                    .map((image) => (
-                      <Box key={image.id} display="flex" alignItems="center" gap={1}>
-                        <Box
-                          component="img"
-                          src={image.imageUrl}
-                          alt={t("trips.gallery.thumbnailAlt")}
-                          sx={{ width: 42, height: 42, objectFit: "cover", borderRadius: 1, cursor: "pointer" }}
-                          loading="lazy"
-                          onClick={() => setFullscreenImage({ imageUrl: image.imageUrl, alt: t("trips.gallery.thumbnailAlt") })}
-                        />
-                        <Button
-                          size="small"
-                          color="error"
-                          aria-label={t("trips.gallery.removeAction")}
-                          onClick={() => void deleteGalleryImage(image.id)}
-                          disabled={galleryBusy}
-                          sx={{ minWidth: 36, px: 0.75 }}
-                        >
-                          <SvgIcon fontSize="small">
-                            <path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6zm3.5-8h1v7h-1zm4 0h1v7h-1zM15.5 4l-1-1h-5l-1 1H5v2h14V4z" />
-                          </SvgIcon>
-                        </Button>
-                      </Box>
-                    ))}
-                </Box>
-              )}
-            </Box>
+              }
+              images={sortedGalleryImages.map((image, index) => ({
+                key: image.id,
+                imageUrl: image.imageUrl,
+                onRemove: () => void deleteGalleryImage(image.id),
+                onOpen: () =>
+                  setFullscreenImage({
+                    imageUrl: image.imageUrl,
+                    alt: formatMessage(t("trips.gallery.imageAlt"), {
+                      index: index + 1,
+                      total: sortedGalleryImages.length,
+                    }),
+                  }),
+              }))}
+            />
           )}
         </Box>
-      </DialogContent>
-      <DialogActions sx={{ justifyContent: "space-between" }}>
-        <Box display="flex" alignItems="center" gap={1}>
-          <Button onClick={onClose} disabled={isBusy}>
-            {t("common.cancel")}
-          </Button>
-          {canDelete ? (
-            <Button color="error" onClick={handleDeleteClick} onTouchEnd={handleDeleteTouchEnd} disabled={isBusy}>
-              {t("trips.plan.deleteItem")}
-            </Button>
-          ) : null}
-        </Box>
-        <Box display="flex" alignItems="center" gap={1}>
-          <Button variant="contained" onClick={handleSave} disabled={isBusy || !day}>
-            {saving ? <CircularProgress size={22} /> : saveLabel}
-          </Button>
-        </Box>
-      </DialogActions>
+    </DialogShell>
       <Dialog
         open={Boolean(fullscreenImage)}
         onClose={() => setFullscreenImage(null)}
@@ -1250,6 +1303,6 @@ export default function TripDayPlanDialog({
           </DialogContent>
         ) : null}
       </Dialog>
-    </Dialog>
+    </>
   );
 }

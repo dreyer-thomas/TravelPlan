@@ -231,7 +231,7 @@ Actionable signals:
 
 ### Latest Tech Information
 
-Versions are pinned locally in `travelplan/package.json` and are the implementation target — do not bundle upgrades into this story (a Node 24 runtime upgrade is separately tracked as story `7-10-node-24-runtime-upgrade`).
+Versions are pinned locally in `travelplan/package.json` and are the implementation target — do not bundle upgrades into this story (a Node 24 runtime upgrade is separately tracked as story `8-1-node-24-runtime-upgrade`).
 
 - App Router `GET` route handlers are uncached by default in Next 15+/16, so AC5 needs no explicit opt-out server-side; the client's `cache: "no-store"` covers the browser side: [Next.js Route Handlers](https://nextjs.org/docs/app/getting-started/route-handlers)
 - Middleware `matcher` entries are compiled at build time and must be static string literals — `"/users/:path*"` matches `/users` itself as well as any subpath: [Next.js Middleware matcher](https://nextjs.org/docs/app/api-reference/file-conventions/middleware#matcher)

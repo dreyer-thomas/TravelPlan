@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Box,
@@ -19,6 +19,9 @@ import {
 } from "@mui/material";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import FormField from "@/components/forms/FormField";
+import PhotoUploadField from "@/components/forms/PhotoUploadField";
+import DialogShell from "@/components/ui/DialogShell";
 import TripAccommodationDialog from "@/components/features/trips/TripAccommodationDialog";
 import TripDayGanttBar, { buildGanttPalette } from "@/components/features/trips/TripDayGanttBar";
 import {
@@ -255,6 +258,8 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const { language, t } = useI18n();
   const theme = useTheme();
   const tokens = theme.palette.tokens;
+  // Story 7.7 owns exactly one block of this file — the day-details dialog. This is its id prefix.
+  const dayMetaIdPrefix = useId();
   const searchParams = useSearchParams();
   const [detail, setDetail] = useState<TripDetail | null>(null);
   const [day, setDay] = useState<TripDay | null>(null);
@@ -1336,6 +1341,12 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     const version = encodeURIComponent(updatedAt);
     return imageUrl.includes("?") ? `${imageUrl}&v=${version}` : `${imageUrl}?v=${version}`;
   }, []);
+
+  /** AC7 — the day-details dialog's preview source, cache-busted the same way the hero is. */
+  const dayImagePreviewSrc = useMemo(
+    () => resolveDayImageSrc(day?.imageUrl, day?.updatedAt),
+    [day?.imageUrl, day?.updatedAt, resolveDayImageSrc],
+  );
 
   const updateLocalDayMeta = useCallback(
     (payload: { imageUrl: string | null; note: string | null; updatedAt?: string }) => {
@@ -2496,69 +2507,85 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
               </Button>
             </DialogActions>
           </Dialog>
-          <Dialog open={dayMetaOpen} onClose={() => setDayMetaOpen(false)} fullWidth maxWidth="sm">
-            <DialogTitle>{t("trips.dayImage.dialogTitle")}</DialogTitle>
-            <DialogContent>
-              <Box mt={0.5} display="flex" flexDirection="column" gap={1.5}>
-                <Typography variant="body2" fontWeight={600}>
-                  {t("trips.dayImage.fileLabel")}
-                </Typography>
-                <TextField
-                  size="small"
-                  type="file"
-                  onChange={(event) => {
-                    // Read from `target`, not `currentTarget`: `target` is always the <input> that
-                    // dispatched the change, whereas `currentTarget` depends on which element the
-                    // listener ends up attached to inside MUI's InputBase - and a wrapper element
-                    // has no `.files`, which silently yields an empty selection.
-                    const input = event.target as HTMLInputElement;
-                    const file = input.files?.[0] ?? null;
-                    setDayImageFile(file);
-                  }}
-                  fullWidth
-                  inputProps={{
-                    accept: IMAGE_UPLOAD_ACCEPT,
-                    "aria-label": t("trips.dayImage.fileLabel"),
-                  }}
-                />
-                <Typography variant="caption" color="text.secondary">
-                  {t("trips.dayImage.fileHelper")}
-                </Typography>
-                {dayImageFile && (
-                  <Typography variant="body2" color="text.secondary">
-                    {dayImageFile.name}
-                  </Typography>
-                )}
-                <TextField
-                  size="small"
-                  value={dayNoteDraft}
-                  onChange={(event) => setDayNoteDraft(event.target.value)}
-                  label={t("trips.dayImage.noteLabel")}
-                  helperText={t("trips.dayImage.noteHelper")}
-                  fullWidth
-                  multiline
-                  minRows={2}
-                  inputProps={{ maxLength: 280 }}
-                />
-                {!hasDayImage && (
-                  <Typography variant="body2" color="text.secondary">
-                    {t("trips.dayImage.empty")}
-                  </Typography>
-                )}
-              </Box>
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={() => setDayMetaOpen(false)} color="inherit">
-                {t("common.cancel")}
-              </Button>
-              <Button onClick={() => void handleRemoveDayImage()} color="inherit" disabled={dayImageSaving || !hasDayImage}>
-                {t("trips.dayImage.removeAction")}
-              </Button>
-              <Button onClick={() => void handleSaveDayImage()} variant="contained" disabled={dayImageSaving}>
-                {t("trips.dayImage.saveAction")}
-              </Button>
-            </DialogActions>
-          </Dialog>
+          <DialogShell
+            open={dayMetaOpen}
+            onClose={() => setDayMetaOpen(false)}
+            title={t("trips.dayImage.dialogTitle")}
+            width={460}
+            // Save and Remove are disabled while `dayImageSaving`; the dismissal gestures follow.
+            disableDismiss={dayImageSaving}
+            footer={
+              <>
+                {/* No `color="error"` on the destructive action (AC8) — and none was there to begin
+                    with; this keeps the text variant explicit so a later edit does not add one. */}
+                <Button
+                  variant="text"
+                  onClick={() => void handleRemoveDayImage()}
+                  disabled={dayImageSaving || !hasDayImage}
+                  sx={{ color: tokens.ink }}
+                >
+                  {t("trips.dayImage.removeAction")}
+                </Button>
+                <Box sx={{ display: "flex", flexDirection: { xs: "column-reverse", sm: "row" }, gap: "10px" }}>
+                  <Button variant="outlined" onClick={() => setDayMetaOpen(false)}>
+                    {t("common.cancel")}
+                  </Button>
+                  <Button onClick={() => void handleSaveDayImage()} variant="contained" disabled={dayImageSaving}>
+                    {t("trips.dayImage.saveAction")}
+                  </Button>
+                </Box>
+              </>
+            }
+            footerSx={{ justifyContent: "space-between" }}
+          >
+            <Box display="flex" flexDirection="column" gap="18px">
+              <PhotoUploadField
+                id={`${dayMetaIdPrefix}-image`}
+                label={t("trips.dayImage.fileLabel")}
+                zoneTitle={t("trips.gallery.uploadZoneTitle")}
+                // The size limit is this surface's own (15MB) — deliberately not a shared key: the
+                // hero field says 5MB and the galleries say nothing. Reconciling the three is a
+                // validation question, not a visual one.
+                zoneHint={t("trips.dayImage.fileHelper")}
+                accept={IMAGE_UPLOAD_ACCEPT}
+                // Locked while a save is in flight, matching the Remove and Save buttons below and
+                // the two galleries' `disabled={galleryBusy}` — otherwise a file picked mid-request
+                // lands in `dayImageFile` behind the response that is about to arrive.
+                disabled={dayImageSaving}
+                onFilesSelected={(files) => setDayImageFile(files[0] ?? null)}
+                selectionLabel={dayImageFile?.name}
+                emptyLabel={hasDayImage ? undefined : t("trips.dayImage.empty")}
+                /*
+                  AC7: before this, the dialog rendered only the selected file's *name*, so a
+                  non-sighted owner had no way to confirm an upload had landed. The current image is
+                  meaning-bearing here (DESIGN.md.Photo Alt-Text), so it gets a real alt string and
+                  no remove affordance — removal is the footer's explicit action, which also clears
+                  the note-side state.
+                */
+                images={
+                  hasDayImage && dayImagePreviewSrc
+                    ? [
+                        {
+                          key: "current-day-image",
+                          imageUrl: dayImagePreviewSrc,
+                          alt: t("trips.dayImage.previewAlt"),
+                        },
+                      ]
+                    : []
+                }
+              />
+              <FormField
+                id={`${dayMetaIdPrefix}-note`}
+                label={t("trips.dayImage.noteLabel")}
+                value={dayNoteDraft}
+                onChange={(event) => setDayNoteDraft(event.target.value)}
+                hint={t("trips.dayImage.noteHelper")}
+                multiline
+                minRows={2}
+                slotProps={{ htmlInput: { maxLength: 280 } }}
+              />
+            </Box>
+          </DialogShell>
           <Dialog
             open={Boolean(fullscreenImage)}
             onClose={() => setFullscreenImage(null)}

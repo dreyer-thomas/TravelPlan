@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Box, Button, CircularProgress } from "@mui/material";
-import AuthField from "@/components/features/auth/AuthField";
+import FormField from "@/components/forms/FormField";
 import AuthScreenShell from "@/components/features/auth/AuthScreenShell";
 import { AUTH_SUBMIT_SX } from "@/components/features/auth/authSubmitSx";
 import { useI18n } from "@/i18n/provider";
@@ -216,7 +216,7 @@ export default function ResetPasswordPage() {
         {initialToken ? (
           <input type="hidden" {...register("token", tokenRules)} />
         ) : (
-          <AuthField
+          <FormField
             id="reset-token"
             autoComplete="off"
             label={t("auth.reset.tokenLabel")}
@@ -224,7 +224,7 @@ export default function ResetPasswordPage() {
             {...register("token", tokenRules)}
           />
         )}
-        <AuthField
+        <FormField
           id="reset-password"
           autoComplete="new-password"
           label={t("auth.reset.newPassword")}
@@ -233,7 +233,7 @@ export default function ResetPasswordPage() {
           error={errors.password?.message}
           {...register("password", passwordRules)}
         />
-        <AuthField
+        <FormField
           id="reset-confirm-password"
           autoComplete="new-password"
           label={t("auth.reset.confirmPassword")}

@@ -2,8 +2,9 @@
 
 import type { ReactNode } from "react";
 import { Box, Typography } from "@mui/material";
-import { alpha, useTheme } from "@mui/material/styles";
-import { CheckIcon, HERO_SCRIM, toCssUrl, WarningTriangleIcon } from "@/components/features/trips/TripIcons";
+import { useTheme } from "@mui/material/styles";
+import FormNotice from "@/components/forms/FormNotice";
+import { HERO_SCRIM, toCssUrl } from "@/components/features/trips/TripIcons";
 import type { Language } from "@/i18n";
 import { useI18n } from "@/i18n/provider";
 
@@ -16,48 +17,6 @@ import { useI18n } from "@/i18n/provider";
  */
 
 const HERO_IMAGE = "/hero-mountains.jpg";
-
-type AuthNoticeProps = {
-  tone: "warn" | "success";
-  message: string;
-};
-
-/**
- * Non-field messages sit at the top of the surface (EXPERIENCE.md:86) and never auto-dismiss.
- *
- * Deliberately NOT a MUI `<Alert severity="error">`: `theme.ts` defines no `error` palette entry, so
- * MUI would fall back to its default #d32f2f red — a colour absent from DESIGN.md. The warn family is
- * what the design system has. `role="alert"` is the semantics the previous `<Alert>` carried and is
- * preserved here, so a server error is still announced when it appears.
- */
-function AuthNotice({ tone, message }: AuthNoticeProps) {
-  const theme = useTheme();
-  const isWarn = tone === "warn";
-
-  return (
-    <Box
-      role="alert"
-      sx={{
-        display: "flex",
-        alignItems: "flex-start",
-        gap: "10px",
-        padding: "12px 14px",
-        borderRadius: "8px",
-        mb: "18px",
-        backgroundColor: isWarn ? theme.palette.tokens.warnBg : theme.palette.tokens.accentSoft,
-        border: `1px solid ${isWarn ? theme.palette.tokens.warnBorder : alpha(theme.palette.primary.main, 0.24)}`,
-        color: isWarn ? theme.palette.warning.main : theme.palette.primary.main,
-      }}
-    >
-      {isWarn ? (
-        <WarningTriangleIcon sx={{ fontSize: 16, flexShrink: 0, mt: "1px" }} />
-      ) : (
-        <CheckIcon sx={{ fontSize: 16, flexShrink: 0, mt: "1px" }} />
-      )}
-      <Typography sx={{ fontSize: 12, fontWeight: 700, lineHeight: 1.5, color: "inherit" }}>{message}</Typography>
-    </Box>
-  );
-}
 
 const LANGUAGES: Language[] = ["en", "de"];
 
@@ -315,8 +274,8 @@ export default function AuthScreenShell({
             {subtitle}
           </Typography>
 
-          {error ? <AuthNotice tone="warn" message={error} /> : null}
-          {success ? <AuthNotice tone="success" message={success} /> : null}
+          {error ? <FormNotice tone="warn" message={error} /> : null}
+          {success ? <FormNotice tone="success" message={success} /> : null}
 
           {children}
 

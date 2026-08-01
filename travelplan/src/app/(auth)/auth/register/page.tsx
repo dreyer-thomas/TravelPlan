@@ -6,7 +6,7 @@ import { useForm } from "react-hook-form";
 import Link from "next/link";
 import { Box, Button, Checkbox, CircularProgress, FormControlLabel } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
-import AuthField from "@/components/features/auth/AuthField";
+import FormField from "@/components/forms/FormField";
 import AuthScreenShell from "@/components/features/auth/AuthScreenShell";
 import { AUTH_SUBMIT_SX } from "@/components/features/auth/authSubmitSx";
 import AuthTabs from "@/components/features/auth/AuthTabs";
@@ -24,7 +24,7 @@ type ApiEnvelope<T> = {
   error: { code: string; message: string; details?: unknown } | null;
 };
 
-/** Ties the consent error to the checkbox the way `AuthField`'s `id`/`helperText` pair does. */
+/** Ties the consent error to the checkbox the way `FormField`'s `id`/`helperText` pair does. */
 const CONSENT_ERROR_ID = "register-consent-error";
 
 export default function RegisterPage() {
@@ -164,7 +164,7 @@ export default function RegisterPage() {
         onSubmit={handleSubmit(onSubmit)}
         sx={{ display: "flex", flexDirection: "column", gap: "18px" }}
       >
-        <AuthField
+        <FormField
           id="register-email"
           autoComplete="email"
           label={t("auth.emailLabel")}
@@ -173,7 +173,7 @@ export default function RegisterPage() {
           error={errors.email?.message}
           {...register("email", emailRules)}
         />
-        <AuthField
+        <FormField
           id="register-password"
           autoComplete="new-password"
           label={t("auth.passwordLabel")}
@@ -194,7 +194,7 @@ export default function RegisterPage() {
             control={
               <Checkbox
                 {...register("consent", { required: t("auth.consentRequired") })}
-                // AuthField gets this pairing free from MUI's `helperText`/`id` wiring; a hand-rolled
+                // FormField gets this pairing free from MUI's `helperText`/`id` wiring; a hand-rolled
                 // error Box does not. Without it the one hard blocker on the screen is the one error
                 // a screen-reader user is never told about.
                 slotProps={{
@@ -222,7 +222,7 @@ export default function RegisterPage() {
             }}
           />
           {errors.consent && (
-            // Same warn-toned error-hint treatment AuthField uses — not MUI's `color="error"` red.
+            // Same warn-toned error-hint treatment FormField uses — not MUI's `color="error"` red.
             <Box
               id={CONSENT_ERROR_ID}
               sx={{

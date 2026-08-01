@@ -1,8 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FocusEvent } from "react";
+import { useEffect, useId, useMemo, useState, type FocusEvent } from "react";
 import { useForm } from "react-hook-form";
-import { Alert, Box, Button, CircularProgress, TextField, Typography } from "@mui/material";
+import { Box, Button, CircularProgress, Typography } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
+import FormField from "@/components/forms/FormField";
+import FormNotice from "@/components/forms/FormNotice";
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
 import { IMAGE_UPLOAD_ACCEPT } from "@/lib/trips/imageUploads";
@@ -88,6 +91,11 @@ export default function TripCreateForm({
   showSubmit = true,
 }: TripCreateFormProps) {
   const { t } = useI18n();
+  // The only two additions above the return: the label/input `htmlFor`/`id` pairing needs a stable
+  // unique prefix (this form is mounted both standalone and inside the create dialog), and the
+  // coordinate read-out needs a token. No behaviour above this point changed.
+  const fieldIdPrefix = useId();
+  const { tokens } = useTheme().palette;
   const {
     register,
     handleSubmit,
@@ -396,8 +404,12 @@ export default function TripCreateForm({
 
   return (
     <Box display="flex" flexDirection="column" gap={3}>
-      {serverError && <Alert severity="error">{serverError}</Alert>}
-      {success && <Alert severity="success">{success}</Alert>}
+      {/*
+        Not MUI's `Alert`: theme.ts defines no `error` palette entry, so `severity="error"` falls back
+        to #d32f2f, a colour DESIGN.md does not have. `FormNotice` keeps the `role="alert"` semantics.
+      */}
+      {serverError && <FormNotice tone="warn" message={serverError} />}
+      {success && <FormNotice tone="success" message={success} />}
 
       <Box
         component="form"
@@ -405,55 +417,75 @@ export default function TripCreateForm({
         onSubmit={handleSubmit(onSubmit)}
         display="flex"
         flexDirection="column"
-        gap={2}
+        gap="18px"
       >
-        <TextField
+        <FormField
+          id={`${fieldIdPrefix}-name`}
           label={t("trips.form.name")}
           placeholder={t("trips.form.namePlaceholder")}
-          error={Boolean(errors.name)}
-          helperText={errors.name?.message}
+          error={errors.name?.message}
           {...register("name", nameRules)}
-          fullWidth
         />
-        <TextField
-          label={t("trips.form.startDate")}
-          type="date"
-          error={Boolean(errors.startDate)}
-          helperText={errors.startDate?.message}
-          InputLabelProps={{ shrink: true }}
-          {...register("startDate", dateRules)}
-          onBlur={handleDateBlur("startDate")}
-          fullWidth
-        />
-        <TextField
-          label={t("trips.form.endDate")}
-          type="date"
-          error={Boolean(errors.endDate)}
-          helperText={errors.endDate?.message}
-          InputLabelProps={{ shrink: true }}
-          {...register("endDate", dateRules)}
-          onBlur={handleDateBlur("endDate")}
-          fullWidth
-        />
+        {/*
+          Screen F's `.field-row` — the two dates read as one "Zeitraum" pair. Stacks at xs; pure sx
+          breakpoints, never useMediaQuery. `type="date"` stays: the tests type "2026-02-10" and
+          `handleDateBlur` normalizes DD.MM.YYYY. The native control draws its own calendar affordance,
+          so the mockup's `.icon-suffix` glyph is not added on top of it.
+        */}
+        <Box
+          sx={{
+            display: "flex",
+            flexDirection: { xs: "column", sm: "row" },
+            gap: "12px",
+            "& > *": { flex: 1, minWidth: 0 },
+          }}
+        >
+          <FormField
+            id={`${fieldIdPrefix}-start-date`}
+            label={t("trips.form.startDate")}
+            type="date"
+            error={errors.startDate?.message}
+            {...register("startDate", dateRules)}
+            onBlur={handleDateBlur("startDate")}
+          />
+          <FormField
+            id={`${fieldIdPrefix}-end-date`}
+            label={t("trips.form.endDate")}
+            type="date"
+            error={errors.endDate?.message}
+            {...register("endDate", dateRules)}
+            onBlur={handleDateBlur("endDate")}
+          />
+        </Box>
         <Box display="flex" flexDirection="column" gap={1}>
-          <Box display="flex" gap={1} alignItems="flex-start">
-            <TextField
-              label={t("trips.form.startLocation")}
-              value={startLocationQuery}
-              onChange={(event) => {
-                setStartLocationQuery(event.target.value);
-                setStartLocation(null);
-                setStartLocationError(null);
-              }}
-              error={Boolean(startLocationError)}
-              helperText={startLocationError ?? t("trips.form.locationHelper")}
-              fullWidth
-            />
+          <Box
+            sx={{
+              display: "flex",
+              flexDirection: { xs: "column", sm: "row" },
+              alignItems: { xs: "stretch", sm: "flex-end" },
+              gap: "8px",
+            }}
+          >
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <FormField
+                id={`${fieldIdPrefix}-start-location`}
+                label={t("trips.form.startLocation")}
+                value={startLocationQuery}
+                onChange={(event) => {
+                  setStartLocationQuery(event.target.value);
+                  setStartLocation(null);
+                  setStartLocationError(null);
+                }}
+                error={startLocationError ?? undefined}
+                hint={startLocationError ? undefined : t("trips.form.locationHelper")}
+              />
+            </Box>
+            {/* Both buttons are already ≥44px from theme.ts's MuiButton override. */}
             <Button
               variant="outlined"
               onClick={() => void handleLookupLocation("start")}
               disabled={isSubmitting || startLookupLoading}
-              sx={{ mt: 1 }}
+              sx={{ mb: "23px" }}
             >
               {startLookupLoading ? <CircularProgress size={18} /> : t("trips.location.searchAction")}
             </Button>
@@ -465,36 +497,45 @@ export default function TripCreateForm({
                 setStartLocationError(null);
               }}
               disabled={isSubmitting || startLookupLoading || (!startLocation && !startLocationQuery)}
-              sx={{ mt: 1 }}
+              sx={{ mb: "23px" }}
             >
               {t("trips.location.clearAction")}
             </Button>
           </Box>
-          <Typography variant="body2" color="text.secondary">
+          <Typography sx={{ fontSize: 11, fontWeight: 600, color: tokens.inkSoft }}>
             {startLocation
               ? `${t("trips.location.latLabel")}: ${startLocation.lat.toFixed(6)} · ${t("trips.location.lngLabel")}: ${startLocation.lng.toFixed(6)}`
               : t("trips.location.noCoordinates")}
           </Typography>
         </Box>
         <Box display="flex" flexDirection="column" gap={1}>
-          <Box display="flex" gap={1} alignItems="flex-start">
-            <TextField
-              label={t("trips.form.destinationLocation")}
-              value={destinationLocationQuery}
-              onChange={(event) => {
-                setDestinationLocationQuery(event.target.value);
-                setDestinationLocation(null);
-                setDestinationLocationError(null);
-              }}
-              error={Boolean(destinationLocationError)}
-              helperText={destinationLocationError ?? t("trips.form.locationHelper")}
-              fullWidth
-            />
+          <Box
+            sx={{
+              display: "flex",
+              flexDirection: { xs: "column", sm: "row" },
+              alignItems: { xs: "stretch", sm: "flex-end" },
+              gap: "8px",
+            }}
+          >
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <FormField
+                id={`${fieldIdPrefix}-destination-location`}
+                label={t("trips.form.destinationLocation")}
+                value={destinationLocationQuery}
+                onChange={(event) => {
+                  setDestinationLocationQuery(event.target.value);
+                  setDestinationLocation(null);
+                  setDestinationLocationError(null);
+                }}
+                error={destinationLocationError ?? undefined}
+                hint={destinationLocationError ? undefined : t("trips.form.locationHelper")}
+              />
+            </Box>
             <Button
               variant="outlined"
               onClick={() => void handleLookupLocation("destination")}
               disabled={isSubmitting || destinationLookupLoading}
-              sx={{ mt: 1 }}
+              sx={{ mb: "23px" }}
             >
               {destinationLookupLoading ? <CircularProgress size={18} /> : t("trips.location.searchAction")}
             </Button>
@@ -506,25 +547,31 @@ export default function TripCreateForm({
                 setDestinationLocationError(null);
               }}
               disabled={isSubmitting || destinationLookupLoading || (!destinationLocation && !destinationLocationQuery)}
-              sx={{ mt: 1 }}
+              sx={{ mb: "23px" }}
             >
               {t("trips.location.clearAction")}
             </Button>
           </Box>
-          <Typography variant="body2" color="text.secondary">
+          <Typography sx={{ fontSize: 11, fontWeight: 600, color: tokens.inkSoft }}>
             {destinationLocation
               ? `${t("trips.location.latLabel")}: ${destinationLocation.lat.toFixed(6)} · ${t("trips.location.lngLabel")}: ${destinationLocation.lng.toFixed(6)}`
               : t("trips.location.noCoordinates")}
           </Typography>
         </Box>
-        <TextField
+        {/*
+          Kept as a FormField rather than converted to PhotoUploadField: `register("heroImage")`
+          returns the ref/name/onChange triple react-hook-form needs on the *input itself*, and
+          `onSubmit` reads `values.heroImage` as a FileList. A dropzone wrapper would have to re-derive
+          that plumbing for a surface that has no existing preview to show — a functional change AC2
+          forbids. The galleries and the day-image field, which do preview, use the dropzone.
+        */}
+        <FormField
+          id={`${fieldIdPrefix}-hero-image`}
           label={t("trips.form.heroImage")}
           type="file"
-          InputLabelProps={{ shrink: true }}
-          inputProps={{ accept: IMAGE_UPLOAD_ACCEPT }}
-          helperText={t("trips.form.heroImageHelper")}
+          slotProps={{ htmlInput: { accept: IMAGE_UPLOAD_ACCEPT } }}
+          hint={t("trips.form.heroImageHelper")}
           {...register("heroImage")}
-          fullWidth
         />
         {showSubmit && (
           <Button type="submit" variant="contained" size="large" disabled={isSubmitting}>

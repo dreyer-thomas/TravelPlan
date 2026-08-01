@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { I18nProvider } from "@/i18n/provider";
+import { Providers } from "./helpers/renderWithProviders";
 import * as React from "react";
 import type { ChangeEvent, ReactNode } from "react";
 
@@ -31,35 +31,45 @@ const tiptapMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@mui/material", () => {
-  const omitLayoutProps = (props: Record<string, unknown>) => {
-    const {
-      alignItems,
-      justifyContent,
-      flexWrap,
-      flexDirection,
-      fullWidth,
-      maxWidth,
-      divider,
-      dividers,
-      disablePadding,
-      gutterBottom,
-      ...rest
-    } = props;
-    void alignItems;
-    void justifyContent;
-    void flexWrap;
-    void flexDirection;
-    void fullWidth;
-    void maxWidth;
-    void divider;
-    void dividers;
-    void disablePadding;
-    void gutterBottom;
-    return rest;
-  };
-  const Simple = ({ children, ...rest }: { children?: ReactNode }) => (
-    <div {...omitLayoutProps(rest as Record<string, unknown>)}>{children}</div>
-  );
+  // MUI-only props that must not reach the DOM. `component` is handled separately — Story 7.7's
+  // primitives use `Box component="input"|"img"|"button"`, so the mock has to render the real
+  // element rather than leaking `component` onto a <div>.
+  const MUI_ONLY_PROPS = new Set([
+    "alignItems",
+    "justifyContent",
+    "flexWrap",
+    "flexDirection",
+    "fullWidth",
+    "maxWidth",
+    "divider",
+    "dividers",
+    "disablePadding",
+    "gutterBottom",
+    "sx",
+    "slotProps",
+    "open",
+    "onClose",
+    "display",
+    "gap",
+    "mt",
+    "mb",
+    "flex",
+    "minWidth",
+    "minRows",
+    "multiline",
+    "variant",
+    "size",
+    "elevation",
+  ]);
+  const omitLayoutProps = (props: Record<string, unknown>) =>
+    Object.fromEntries(Object.entries(props).filter(([key]) => !MUI_ONLY_PROPS.has(key)));
+  const Simple = ({ children, component, ...rest }: { children?: ReactNode; component?: string }) =>
+    React.createElement(
+      component ?? "div",
+      omitLayoutProps(rest as Record<string, unknown>),
+      // Void elements reject a children argument even when it is undefined.
+      ...(component === "input" || component === "img" ? [] : [children]),
+    );
   return {
     __esModule: true,
     Alert: Simple,
@@ -129,6 +139,7 @@ vi.mock("@mui/material", () => {
       helperText,
       error,
       inputProps,
+      slotProps,
       ...rest
     }: {
       label?: string;
@@ -137,20 +148,32 @@ vi.mock("@mui/material", () => {
       helperText?: ReactNode;
       error?: boolean;
       inputProps?: Record<string, unknown>;
+      // MUI 7 deprecates `inputProps` in favour of `slotProps.htmlInput`; FormField uses the latter.
+      slotProps?: { htmlInput?: Record<string, unknown> };
     }) => (
-      <label>
-        <span>{label}</span>
-        <input
-          aria-label={label}
-          aria-invalid={error ? "true" : "false"}
-          value={value ?? ""}
-          onChange={onChange}
-          {...inputProps}
-          {...omitLayoutProps(rest as Record<string, unknown>)}
-        />
+      <>
+        <label>
+          <span>{label}</span>
+          <input
+            aria-label={label}
+            aria-invalid={error ? "true" : "false"}
+            value={value ?? ""}
+            onChange={onChange}
+            {...inputProps}
+            {...slotProps?.htmlInput}
+            {...omitLayoutProps(rest as Record<string, unknown>)}
+          />
+        </label>
+        {/*
+          Outside the <label>, as real MUI renders it. Inside, the helper line joins the input's
+          accessible name — which is exactly the drift AC6 pins against ("Link" must stay "Link",
+          not "Link Optional external link").
+        */}
         {helperText && <span>{helperText}</span>}
-      </label>
+      </>
     ),
+    // `component` matters here: FormField's caps label is a `Typography component="label" htmlFor`,
+    // and a <div htmlFor> associates with nothing — every getByLabelText in this file depends on it.
     Typography: Simple,
   };
 });
@@ -292,7 +315,7 @@ describe("TripDayPlanDialog", () => {
     const onSaved = vi.fn();
 
     render(
-      <I18nProvider initialLanguage="en">
+      <Providers language="en">
         <TripDayPlanDialog
           open
           mode="add"
@@ -302,7 +325,7 @@ describe("TripDayPlanDialog", () => {
           onClose={() => undefined}
           onSaved={onSaved}
         />
-      </I18nProvider>,
+      </Providers>,
     );
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
@@ -404,7 +427,7 @@ describe("TripDayPlanDialog", () => {
     const onSaved = vi.fn();
 
     render(
-      <I18nProvider initialLanguage="en">
+      <Providers language="en">
         <TripDayPlanDialog
           open
           mode="edit"
@@ -425,7 +448,7 @@ describe("TripDayPlanDialog", () => {
           onClose={() => undefined}
           onSaved={onSaved}
         />
-      </I18nProvider>,
+      </Providers>,
     );
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
@@ -489,7 +512,7 @@ describe("TripDayPlanDialog", () => {
     const onClose = vi.fn();
 
     render(
-      <I18nProvider initialLanguage="en">
+      <Providers language="en">
         <TripDayPlanDialog
           open
           mode="edit"
@@ -511,7 +534,7 @@ describe("TripDayPlanDialog", () => {
           onClose={onClose}
           onSaved={() => undefined}
         />
-      </I18nProvider>,
+      </Providers>,
     );
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
@@ -545,7 +568,7 @@ describe("TripDayPlanDialog", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(
-      <I18nProvider initialLanguage="en">
+      <Providers language="en">
         <TripDayPlanDialog
           open
           mode="add"
@@ -555,7 +578,7 @@ describe("TripDayPlanDialog", () => {
           onClose={() => undefined}
           onSaved={() => undefined}
         />
-      </I18nProvider>,
+      </Providers>,
     );
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
@@ -603,7 +626,7 @@ describe("TripDayPlanDialog", () => {
     const onSaved = vi.fn();
 
     render(
-      <I18nProvider initialLanguage="en">
+      <Providers language="en">
         <TripDayPlanDialog
           open
           mode="add"
@@ -613,7 +636,7 @@ describe("TripDayPlanDialog", () => {
           onClose={() => undefined}
           onSaved={onSaved}
         />
-      </I18nProvider>,
+      </Providers>,
     );
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
@@ -672,7 +695,7 @@ describe("TripDayPlanDialog", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(
-      <I18nProvider initialLanguage="en">
+      <Providers language="en">
         <TripDayPlanDialog
           open
           mode="add"
@@ -682,7 +705,7 @@ describe("TripDayPlanDialog", () => {
           onClose={() => undefined}
           onSaved={() => undefined}
         />
-      </I18nProvider>,
+      </Providers>,
     );
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
@@ -722,7 +745,7 @@ describe("TripDayPlanDialog", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(
-      <I18nProvider initialLanguage="en">
+      <Providers language="en">
         <TripDayPlanDialog
           open
           mode="add"
@@ -732,7 +755,7 @@ describe("TripDayPlanDialog", () => {
           onClose={() => undefined}
           onSaved={() => undefined}
         />
-      </I18nProvider>,
+      </Providers>,
     );
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
@@ -767,7 +790,7 @@ describe("TripDayPlanDialog", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(
-      <I18nProvider initialLanguage="en">
+      <Providers language="en">
         <TripDayPlanDialog
           open
           mode="edit"
@@ -792,7 +815,7 @@ describe("TripDayPlanDialog", () => {
           onClose={() => undefined}
           onSaved={() => undefined}
         />
-      </I18nProvider>,
+      </Providers>,
     );
 
     const splitOption = await screen.findByLabelText("Split into multiple payments");
@@ -859,7 +882,7 @@ describe("TripDayPlanDialog", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const { container } = render(
-      <I18nProvider initialLanguage="en">
+      <Providers language="en">
         <TripDayPlanDialog
           open
           mode="edit"
@@ -880,7 +903,7 @@ describe("TripDayPlanDialog", () => {
           onClose={() => undefined}
           onSaved={() => undefined}
         />
-      </I18nProvider>,
+      </Providers>,
     );
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
@@ -903,7 +926,11 @@ describe("TripDayPlanDialog", () => {
       expect(uploadCalls).toHaveLength(2);
     });
 
-    expect(container.querySelectorAll('[component="img"][alt="Gallery thumbnail"]')).toHaveLength(2);
+    // AC5: the preview strip renders one thumbnail per image, each with an indexed, meaning-bearing
+    // alt string rather than the single shared `trips.gallery.thumbnailAlt` value.
+    expect(container.querySelectorAll("img")).toHaveLength(2);
+    expect(container.querySelector('img[alt="Image 1 of 2"]')).not.toBeNull();
+    expect(container.querySelector('img[alt="Image 2 of 2"]')).not.toBeNull();
   });
 
   it("fetches a fresh CSRF token for gallery uploads when initialization did not provide one", async () => {
@@ -962,7 +989,7 @@ describe("TripDayPlanDialog", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const { container } = render(
-      <I18nProvider initialLanguage="en">
+      <Providers language="en">
         <TripDayPlanDialog
           open
           mode="edit"
@@ -983,7 +1010,7 @@ describe("TripDayPlanDialog", () => {
           onClose={() => undefined}
           onSaved={() => undefined}
         />
-      </I18nProvider>,
+      </Providers>,
     );
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
@@ -1064,7 +1091,7 @@ describe("TripDayPlanDialog", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const { container } = render(
-      <I18nProvider initialLanguage="en">
+      <Providers language="en">
         <TripDayPlanDialog
           open
           mode="edit"
@@ -1085,7 +1112,7 @@ describe("TripDayPlanDialog", () => {
           onClose={() => undefined}
           onSaved={() => undefined}
         />
-      </I18nProvider>,
+      </Providers>,
     );
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
@@ -1096,7 +1123,10 @@ describe("TripDayPlanDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Upload" }));
 
     await waitFor(() => expect(screen.getByText("Plan item update failed. Please try again.")).toBeInTheDocument());
-    expect(container.querySelectorAll('[component="img"][alt="Gallery thumbnail"]')).toHaveLength(1);
+    // Pinned on the indexed alt, not on a bare <img> count: the failed upload must leave the one
+    // pre-existing thumbnail and add nothing.
+    expect(container.querySelectorAll('img[alt="Image 1 of 1"]')).toHaveLength(1);
+    expect(container.querySelectorAll("img")).toHaveLength(1);
     expect(screen.getByText("1 file(s) selected")).toBeInTheDocument();
   });
 
@@ -1133,7 +1163,7 @@ describe("TripDayPlanDialog", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const { container } = render(
-      <I18nProvider initialLanguage="de">
+      <Providers language="de">
         <TripDayPlanDialog
           open
           mode="edit"
@@ -1154,14 +1184,14 @@ describe("TripDayPlanDialog", () => {
           onClose={() => undefined}
           onSaved={() => undefined}
         />
-      </I18nProvider>,
+      </Providers>,
     );
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
     fireEvent.change(fileInput, { target: { files: [new File(["first"], "first.webp", { type: "image/webp" })] } });
 
-    expect(screen.getByText("1 Datei(en) ausgewahlt")).toBeInTheDocument();
+    expect(screen.getByText("1 Datei(en) ausgewählt")).toBeInTheDocument();
   });
 
   it("uses compact thumbnail actions for saved gallery images and keeps fullscreen preview", async () => {
@@ -1212,7 +1242,7 @@ describe("TripDayPlanDialog", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const { container } = render(
-      <I18nProvider initialLanguage="en">
+      <Providers language="en">
         <TripDayPlanDialog
           open
           mode="edit"
@@ -1233,23 +1263,28 @@ describe("TripDayPlanDialog", () => {
           onClose={() => undefined}
           onSaved={() => undefined}
         />
-      </I18nProvider>,
+      </Providers>,
     );
 
     await waitFor(() =>
-      expect(container.querySelector('[component="img"][alt="Gallery thumbnail"]')).not.toBeNull(),
+      expect(container.querySelector('img[alt="Image 1 of 1"]')).not.toBeNull(),
     );
-    const thumbnail = container.querySelector('[component="img"][alt="Gallery thumbnail"]') as HTMLElement;
+    const thumbnail = container.querySelector('img[alt="Image 1 of 1"]') as HTMLElement;
     expect(screen.queryByRole("button", { name: "Up" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Down" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Remove" })).toBeInTheDocument();
+    // AC5: the remove affordance names the image it removes. The old shared "Remove" name gave every
+    // thumbnail in a multi-image gallery the same accessible name.
+    expect(screen.getByRole("button", { name: "Remove image 1 of 1" })).toBeInTheDocument();
 
     fireEvent.click(thumbnail);
-    await waitFor(() =>
-      expect(container.querySelectorAll('[component="img"][alt="Gallery thumbnail"]')).toHaveLength(2),
-    );
+    // The strip thumbnail carries `loading="lazy"`; the fullscreen preview does not. Asserting on
+    // that distinguishes "the viewer opened" from "some second <img> appeared".
+    await waitFor(() => {
+      expect(container.querySelectorAll('img[alt="Image 1 of 1"]')).toHaveLength(2);
+      expect(container.querySelectorAll('img[alt="Image 1 of 1"]:not([loading])')).toHaveLength(1);
+    });
 
-    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove image 1 of 1" }));
 
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(

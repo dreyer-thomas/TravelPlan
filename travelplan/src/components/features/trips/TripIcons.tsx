@@ -95,6 +95,26 @@ export function PlusIcon({ sx }: IconProps) {
   );
 }
 
+/** `.photo-upload-icon`'s glyph (`mockups/forms-authoring.html:731`). Used by `PhotoUploadField`. */
+export function UploadIcon({ sx }: IconProps) {
+  return (
+    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={{ fontSize: 20, ...sx }}>
+      <path d="M12 16V4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
+      <path d="M6 10l6-6 6 6" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M4 20h16" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
+    </SvgIcon>
+  );
+}
+
+/** The `×` inside `.photo-thumb .remove-x`. Decorative — the button around it carries the name. */
+export function CloseXIcon({ sx }: IconProps) {
+  return (
+    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={{ fontSize: 11, ...sx }}>
+      <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" strokeWidth={2.6} strokeLinecap="round" />
+    </SvgIcon>
+  );
+}
+
 export function ShareGlyphIcon({ sx }: IconProps) {
   return (
     <SvgIcon aria-hidden viewBox="0 0 24 24" sx={{ fontSize: 15, ...sx }}>

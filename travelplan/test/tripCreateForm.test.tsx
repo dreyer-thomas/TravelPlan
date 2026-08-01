@@ -4,7 +4,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TripCreateForm from "@/components/features/trips/TripCreateForm";
-import { I18nProvider } from "@/i18n/provider";
+import { Providers } from "./helpers/renderWithProviders";
 
 const mockCsrfResponse = {
   data: { csrfToken: "test-token" },
@@ -71,9 +71,9 @@ describe("TripCreateForm", () => {
   it("uploads the hero image after trip creation when a file is selected", async () => {
     const user = userEvent.setup();
     render(
-      <I18nProvider initialLanguage="en">
+      <Providers language="en">
         <TripCreateForm />
-      </I18nProvider>
+      </Providers>
     );
 
     await user.type(screen.getByLabelText(/trip name/i), "Hero Trip");
@@ -145,9 +145,9 @@ describe("TripCreateForm", () => {
     global.fetch = fetchMock as unknown as typeof fetch;
 
     render(
-      <I18nProvider initialLanguage="en">
+      <Providers language="en">
         <TripCreateForm />
-      </I18nProvider>
+      </Providers>
     );
 
     await user.type(screen.getByLabelText(/trip name/i), "Geo Trip");
