@@ -3,8 +3,12 @@ import { apiError } from "@/lib/errors/apiError";
 import { fail, ok } from "@/lib/http/response";
 import { hasTripOwnerAccess } from "@/lib/auth/tripAccess";
 import { CSRF_COOKIE_NAME, validateCsrf } from "@/lib/security/csrf";
-import { createTripCollaboratorForOwner, listTripCollaboratorsForOwner } from "@/lib/repositories/tripRepo";
-import { createTripMemberSchema } from "@/lib/validation/tripMemberSchemas";
+import {
+  createTripCollaboratorForOwner,
+  deleteTripCollaboratorForOwner,
+  getTripSharingForOwner,
+} from "@/lib/repositories/tripRepo";
+import { createTripMemberSchema, deleteTripMemberSchema } from "@/lib/validation/tripMemberSchemas";
 import { requireSession } from "@/lib/auth/sessionGuard";
 
 export const runtime = "nodejs";
@@ -31,12 +35,12 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
   }
 
   try {
-    const collaborators = await listTripCollaboratorsForOwner(userId, tripId);
-    if (!collaborators) {
+    const sharing = await getTripSharingForOwner(userId, tripId);
+    if (!sharing) {
       return fail(apiError("not_found", "Trip not found"), 404);
     }
 
-    return ok({ collaborators });
+    return ok({ owner: sharing.owner, collaborators: sharing.collaborators });
   } catch {
     return fail(apiError("server_error", "Unable to load collaborators"), 500);
   }
@@ -112,5 +116,59 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
     });
   } catch {
     return fail(apiError("server_error", "Unable to create collaborator"), 500);
+  }
+};
+
+export const DELETE = async (request: NextRequest, context: RouteContext) => {
+  const csrfCookie = request.cookies.get(CSRF_COOKIE_NAME)?.value;
+  const csrfHeader = request.headers.get("x-csrf-token") ?? undefined;
+  if (!validateCsrf(csrfCookie, csrfHeader)) {
+    return fail(apiError("csrf_invalid", "Invalid CSRF token"), 403);
+  }
+
+  const auth = await requireSession(request);
+  if (auth.response) {
+    return auth.response;
+  }
+  const userId = auth.session.sub;
+
+  const { id: tripId } = await context.params;
+  if (!tripId) {
+    return fail(apiError("not_found", "Trip not found"), 404);
+  }
+  if (!(await hasTripOwnerAccess(userId, tripId))) {
+    return fail(apiError("not_found", "Trip not found"), 404);
+  }
+
+  let rawPayload: unknown;
+  try {
+    rawPayload = await request.json();
+  } catch {
+    return fail(apiError("invalid_json", "Request body must be valid JSON"), 400);
+  }
+
+  const parsed = deleteTripMemberSchema.safeParse(rawPayload);
+  if (!parsed.success) {
+    return fail(apiError("validation_error", "Invalid collaborator details", parsed.error.flatten()), 400);
+  }
+
+  try {
+    const result = await deleteTripCollaboratorForOwner({
+      ownerUserId: userId,
+      tripId,
+      memberId: parsed.data.memberId,
+    });
+
+    if (result.outcome === "not_found") {
+      return fail(apiError("not_found", "Trip not found"), 404);
+    }
+
+    if (result.outcome === "missing") {
+      return fail(apiError("not_found", "Collaborator not found"), 404);
+    }
+
+    return ok({ deleted: true, collaborators: result.collaborators });
+  } catch {
+    return fail(apiError("server_error", "Unable to remove collaborator"), 500);
   }
 };

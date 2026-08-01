@@ -4,7 +4,7 @@ import { getTripAccessForUser } from "@/lib/auth/tripAccess";
 import { prisma } from "@/lib/db/prisma";
 import {
   createTripCollaboratorForOwner,
-  listTripCollaboratorsForOwner,
+  deleteTripCollaboratorForOwner,
 } from "@/lib/repositories/tripRepo";
 
 describe("trip collaboration repository", () => {
@@ -65,14 +65,6 @@ describe("trip collaboration repository", () => {
       },
     });
     expect(membership?.role).toBe("VIEWER");
-
-    const collaborators = await listTripCollaboratorsForOwner(owner.id, trip.id);
-    expect(collaborators).toEqual([
-      expect.objectContaining({
-        email: "viewer@example.com",
-        role: "viewer",
-      }),
-    ]);
   });
 
   it("reuses an existing account for a new trip without overwriting credentials", async () => {
@@ -217,6 +209,184 @@ describe("trip collaboration repository", () => {
       },
     });
     expect(membershipCount).toBe(1);
+  });
+
+  it("removes only the trip membership, leaving the account and other memberships intact", async () => {
+    const owner = await prisma.user.create({
+      data: {
+        email: "owner@example.com",
+        passwordHash: "hashed",
+        role: "OWNER",
+      },
+    });
+    const collaborator = await prisma.user.create({
+      data: {
+        email: "collaborator@example.com",
+        passwordHash: "hashed",
+        role: "VIEWER",
+      },
+    });
+    const trip = await prisma.trip.create({
+      data: {
+        userId: owner.id,
+        name: "Removal Trip",
+        startDate: new Date("2026-10-01T00:00:00.000Z"),
+        endDate: new Date("2026-10-02T00:00:00.000Z"),
+      },
+    });
+    const otherTrip = await prisma.trip.create({
+      data: {
+        userId: owner.id,
+        name: "Untouched Trip",
+        startDate: new Date("2026-11-01T00:00:00.000Z"),
+        endDate: new Date("2026-11-02T00:00:00.000Z"),
+      },
+    });
+    const membership = await prisma.tripMember.create({
+      data: {
+        tripId: trip.id,
+        userId: collaborator.id,
+        role: "CONTRIBUTOR",
+      },
+    });
+    const otherMembership = await prisma.tripMember.create({
+      data: {
+        tripId: otherTrip.id,
+        userId: collaborator.id,
+        role: "VIEWER",
+      },
+    });
+
+    const result = await deleteTripCollaboratorForOwner({
+      ownerUserId: owner.id,
+      tripId: trip.id,
+      memberId: membership.id,
+    });
+
+    expect(result.outcome).toBe("deleted");
+    expect(result.outcome === "deleted" && result.collaborators).toEqual([]);
+
+    expect(await prisma.tripMember.findUnique({ where: { id: membership.id } })).toBeNull();
+
+    // Removing a membership must never remove the person: the account and its other trips survive.
+    const account = await prisma.user.findUnique({ where: { id: collaborator.id } });
+    expect(account?.email).toBe("collaborator@example.com");
+    expect(await prisma.tripMember.findUnique({ where: { id: otherMembership.id } })).not.toBeNull();
+    await expect(getTripAccessForUser(collaborator.id, otherTrip.id)).resolves.toEqual(
+      expect.objectContaining({
+        tripId: otherTrip.id,
+        accessRole: "viewer",
+      }),
+    );
+  });
+
+  it("refuses to remove a membership on a trip owned by somebody else", async () => {
+    // The tenancy guard lives in the `where` of the delete itself. Both prior "other trip" cases build
+    // that trip under the *same* owner, so this is the only case that puts a foreign owner behind the
+    // membership id an attacker would have to guess.
+    const owner = await prisma.user.create({
+      data: {
+        email: "owner@example.com",
+        passwordHash: "hashed",
+        role: "OWNER",
+      },
+    });
+    const foreignOwner = await prisma.user.create({
+      data: {
+        email: "foreign-owner@example.com",
+        passwordHash: "hashed",
+        role: "OWNER",
+      },
+    });
+    const collaborator = await prisma.user.create({
+      data: {
+        email: "collaborator@example.com",
+        passwordHash: "hashed",
+        role: "VIEWER",
+      },
+    });
+    const ownTrip = await prisma.trip.create({
+      data: {
+        userId: owner.id,
+        name: "Own Trip",
+        startDate: new Date("2026-10-01T00:00:00.000Z"),
+        endDate: new Date("2026-10-02T00:00:00.000Z"),
+      },
+    });
+    const foreignTrip = await prisma.trip.create({
+      data: {
+        userId: foreignOwner.id,
+        name: "Foreign Trip",
+        startDate: new Date("2026-11-01T00:00:00.000Z"),
+        endDate: new Date("2026-11-02T00:00:00.000Z"),
+      },
+    });
+    const foreignMembership = await prisma.tripMember.create({
+      data: {
+        tripId: foreignTrip.id,
+        userId: collaborator.id,
+        role: "CONTRIBUTOR",
+      },
+    });
+
+    // Guessing a membership id from another owner's trip, through a trip you do own.
+    await expect(
+      deleteTripCollaboratorForOwner({
+        ownerUserId: owner.id,
+        tripId: ownTrip.id,
+        memberId: foreignMembership.id,
+      }),
+    ).resolves.toEqual({ outcome: "missing" });
+
+    // ...and naming the foreign trip directly is not a way in either.
+    await expect(
+      deleteTripCollaboratorForOwner({
+        ownerUserId: owner.id,
+        tripId: foreignTrip.id,
+        memberId: foreignMembership.id,
+      }),
+    ).resolves.toEqual({ outcome: "not_found" });
+
+    expect(await prisma.tripMember.findUnique({ where: { id: foreignMembership.id } })).not.toBeNull();
+  });
+
+  it("reports a repeated removal as missing rather than throwing", async () => {
+    // Two removals of the same member can overlap (the dialog open in two tabs). The second must land
+    // on the 404 path, not escape as a Prisma P2025 into the route's 500 branch.
+    const owner = await prisma.user.create({
+      data: {
+        email: "owner@example.com",
+        passwordHash: "hashed",
+        role: "OWNER",
+      },
+    });
+    const collaborator = await prisma.user.create({
+      data: {
+        email: "collaborator@example.com",
+        passwordHash: "hashed",
+        role: "VIEWER",
+      },
+    });
+    const trip = await prisma.trip.create({
+      data: {
+        userId: owner.id,
+        name: "Repeat Removal Trip",
+        startDate: new Date("2026-10-01T00:00:00.000Z"),
+        endDate: new Date("2026-10-02T00:00:00.000Z"),
+      },
+    });
+    const membership = await prisma.tripMember.create({
+      data: {
+        tripId: trip.id,
+        userId: collaborator.id,
+        role: "CONTRIBUTOR",
+      },
+    });
+
+    const params = { ownerUserId: owner.id, tripId: trip.id, memberId: membership.id };
+
+    expect((await deleteTripCollaboratorForOwner(params)).outcome).toBe("deleted");
+    await expect(deleteTripCollaboratorForOwner(params)).resolves.toEqual({ outcome: "missing" });
   });
 
   it("resolves owner and collaborator trip access without regressing owner reads", async () => {

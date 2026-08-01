@@ -1,6 +1,10 @@
+---
+baseline_commit: 161a58e2dd1c2defcfa5784a1e8352afcf9405d7
+---
+
 # Story 7.5: Share Dialog Redesign
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -57,42 +61,42 @@ The reason is not ambition, it is that the epic's own ACs are unbuildable as wri
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Owner email and delete on the data layer (AC4, AC5, AC6)**
-  - [ ] `src/lib/repositories/tripRepo.ts`: add `getTripSharingForOwner(ownerUserId, tripId): Promise<{ owner: { email: string }; collaborators: TripCollaborator[] } | null>`. One `prisma.trip.findFirst({ where: { id: tripId, userId: ownerUserId }, select: { id: true, user: { select: { email: true } } } })`, then reuse the existing private `listTripCollaborators(prisma, tripId, ownerUserId)` helper (`tripRepo.ts:360-386`). Return `null` when the trip is missing or not owned — same contract as `listTripCollaboratorsForOwner` (`:1521`).
-  - [ ] Leave `listTripCollaboratorsForOwner` in place if anything else still calls it; delete it only if `getTripSharingForOwner` becomes its sole replacement and no other caller exists (grep first).
-  - [ ] `src/lib/repositories/tripRepo.ts`: add `deleteTripCollaboratorForOwner({ ownerUserId, tripId, memberId }): Promise<{ outcome: "not_found" } | { outcome: "missing" } | { outcome: "deleted"; collaborators: TripCollaborator[] }>`. Inside a `prisma.$transaction`: verify trip ownership → `tx.tripMember.findFirst({ where: { id: memberId, tripId, trip: { userId: ownerUserId } } })` → `tx.tripMember.delete({ where: { id: memberId } })` → return the refreshed list via `listTripCollaborators(tx, tripId, ownerUserId)`. Model the three-outcome shape on `deleteBucketListItemForTrip`.
-  - [ ] **`tx.user.delete` must never appear in this function.** Removing a collaborator revokes access to one trip. A user provisioned by an earlier invite may hold memberships on other trips and owns their own login; deleting the account would silently destroy unrelated data.
-  - [ ] The `memberId`-plus-`tripId`-plus-owner triple in the `where` is the tenancy guard — do not simplify it to `delete({ where: { id: memberId } })` on its own, or one owner can delete another trip's membership by guessing an id.
-  - [ ] `src/lib/validation/tripMemberSchemas.ts`: add `deleteTripMemberSchema = z.object({ memberId: z.string().min(1) })` next to `createTripMemberSchema`.
-  - [ ] `src/app/api/trips/[id]/members/route.ts`: `GET` now returns `ok({ owner: sharing.owner, collaborators: sharing.collaborators })`. `POST` is unchanged — it keeps returning `{ accountAction, collaborator, collaborators }` and the client merges into the list it already holds.
-  - [ ] `src/app/api/trips/[id]/members/route.ts`: add `DELETE`, copying the guard order from the file's own `POST` (`:45-64`) — CSRF (`validateCsrf`, `403 csrf_invalid`) → `requireSession` → `params` → `hasTripOwnerAccess` (`404 not_found`) → `request.json()` in a try (`400 invalid_json`) → `deleteTripMemberSchema.safeParse` (`400 validation_error`) → repo. Map `not_found` and `missing` to `404`, wrap in `try/catch` → `500 server_error`. Respond `ok({ deleted: true, collaborators })`.
-  - [ ] No Prisma migration, no schema change: `TripMember` already has the `id` this keys on, and `TripCollaborator` (`:255-259`) already carries `id` out of the repo.
+- [x] **Task 1 — Owner email and delete on the data layer (AC4, AC5, AC6)**
+  - [x] `src/lib/repositories/tripRepo.ts`: add `getTripSharingForOwner(ownerUserId, tripId): Promise<{ owner: { email: string }; collaborators: TripCollaborator[] } | null>`. One `prisma.trip.findFirst({ where: { id: tripId, userId: ownerUserId }, select: { id: true, user: { select: { email: true } } } })`, then reuse the existing private `listTripCollaborators(prisma, tripId, ownerUserId)` helper (`tripRepo.ts:360-386`). Return `null` when the trip is missing or not owned — same contract as `listTripCollaboratorsForOwner` (`:1521`).
+  - [x] Leave `listTripCollaboratorsForOwner` in place if anything else still calls it; delete it only if `getTripSharingForOwner` becomes its sole replacement and no other caller exists (grep first).
+  - [x] `src/lib/repositories/tripRepo.ts`: add `deleteTripCollaboratorForOwner({ ownerUserId, tripId, memberId }): Promise<{ outcome: "not_found" } | { outcome: "missing" } | { outcome: "deleted"; collaborators: TripCollaborator[] }>`. Inside a `prisma.$transaction`: verify trip ownership → `tx.tripMember.findFirst({ where: { id: memberId, tripId, trip: { userId: ownerUserId } } })` → `tx.tripMember.delete({ where: { id: memberId } })` → return the refreshed list via `listTripCollaborators(tx, tripId, ownerUserId)`. Model the three-outcome shape on `deleteBucketListItemForTrip`.
+  - [x] **`tx.user.delete` must never appear in this function.** Removing a collaborator revokes access to one trip. A user provisioned by an earlier invite may hold memberships on other trips and owns their own login; deleting the account would silently destroy unrelated data.
+  - [x] The `memberId`-plus-`tripId`-plus-owner triple in the `where` is the tenancy guard — do not simplify it to `delete({ where: { id: memberId } })` on its own, or one owner can delete another trip's membership by guessing an id.
+  - [x] `src/lib/validation/tripMemberSchemas.ts`: add `deleteTripMemberSchema = z.object({ memberId: z.string().min(1) })` next to `createTripMemberSchema`.
+  - [x] `src/app/api/trips/[id]/members/route.ts`: `GET` now returns `ok({ owner: sharing.owner, collaborators: sharing.collaborators })`. `POST` is unchanged — it keeps returning `{ accountAction, collaborator, collaborators }` and the client merges into the list it already holds.
+  - [x] `src/app/api/trips/[id]/members/route.ts`: add `DELETE`, copying the guard order from the file's own `POST` (`:45-64`) — CSRF (`validateCsrf`, `403 csrf_invalid`) → `requireSession` → `params` → `hasTripOwnerAccess` (`404 not_found`) → `request.json()` in a try (`400 invalid_json`) → `deleteTripMemberSchema.safeParse` (`400 validation_error`) → repo. Map `not_found` and `missing` to `404`, wrap in `try/catch` → `500 server_error`. Respond `ok({ deleted: true, collaborators })`.
+  - [x] No Prisma migration, no schema change: `TripMember` already has the `id` this keys on, and `TripCollaborator` (`:255-259`) already carries `id` out of the repo.
 
-- [ ] **Task 2 — Dialog chrome (AC1)**
-  - [ ] `TripShareDialog.tsx` gains a `tripName: string` prop; `TripTimeline.tsx:888` passes `detail.trip.name`. The mockup's sub-line is trip-specific ("Portugal Roadtrip · Zugriff per E-Mail einladen") and the dialog has no other route to the name.
-  - [ ] `<Dialog maxWidth={false} PaperProps={{ sx: { width: "100%", maxWidth: 460 } }}>` — the mockup's `.dialog` is `max-width: 460px` (`:230`); the current `maxWidth="sm"` is 600px. Radius 10 and the modal shadow already come from `theme.ts`'s `MuiDialog` override (`:357-364`) — do not restate them.
-  - [ ] **Keep `<DialogTitle>` as the head container.** MUI derives the dialog's `aria-labelledby` from it; three tests resolve the dialog by `findByRole("dialog", { name: "Share trip" })`. Style the `DialogTitle` (`p: "20px 24px 16px"`, `borderBottom: 1px solid tokens.border`) and put the title + sub-line inside it. Do not replace it with a `Box`.
-  - [ ] Head: title at 17px/900/`-0.2px`/`tokens.ink` (mockup `:241`); sub-line `${tripName} · ${t("trips.share.subtitle")}` at 12.5px/600/`tokens.inkSoft` (`:242`).
-  - [ ] `<DialogContent>` — `p: "20px 24px"`, and **drop `dividers`** (the head/footer borders now do that job; `dividers` would double the rule).
-  - [ ] `<DialogActions>` — `p: "16px 24px"`, `borderTop: 1px solid tokens.border`, `backgroundColor: tokens.cardAlt`, `justifyContent: "flex-end"` (mockup `:244-251`). One secondary "Schließen" button (`variant="outlined"`), which the theme already renders at 44px on the `tokens.borderStrong`/`tokens.card` treatment.
-  - [ ] Alerts (`loadError`/`serverError`/`success`) stay where they are, at the top of the content region — that is `EXPERIENCE.md:86`'s not-attributable-error convention.
-  - [ ] **Do not add `MuiDialogTitle`/`MuiDialogContent`/`MuiDialogActions` overrides to `theme.ts`.** Seven other dialogs mount that chrome (`TripEditDialog`, `TripDeleteDialog`, `TripAccommodationDialog`, `TripDayPlanDialog`, `TripImportDialog`, `TripDayTravelSegmentDialog`, `TripCreateDialog`), and four of them belong to Story 7.7 or to no redesign story at all. Keep the treatment local to this file; 7.7 can lift it out when it has a second consumer.
+- [x] **Task 2 — Dialog chrome (AC1)**
+  - [x] `TripShareDialog.tsx` gains a `tripName: string` prop; `TripTimeline.tsx:888` passes `detail.trip.name`. The mockup's sub-line is trip-specific ("Portugal Roadtrip · Zugriff per E-Mail einladen") and the dialog has no other route to the name.
+  - [x] `<Dialog maxWidth={false} PaperProps={{ sx: { width: "100%", maxWidth: 460 } }}>` — the mockup's `.dialog` is `max-width: 460px` (`:230`); the current `maxWidth="sm"` is 600px. Radius 10 and the modal shadow already come from `theme.ts`'s `MuiDialog` override (`:357-364`) — do not restate them.
+  - [x] **Keep `<DialogTitle>` as the head container.** MUI derives the dialog's `aria-labelledby` from it; three tests resolve the dialog by `findByRole("dialog", { name: "Share trip" })`. Style the `DialogTitle` (`p: "20px 24px 16px"`, `borderBottom: 1px solid tokens.border`) and put the title + sub-line inside it. Do not replace it with a `Box`.
+  - [x] Head: title at 17px/900/`-0.2px`/`tokens.ink` (mockup `:241`); sub-line `${tripName} · ${t("trips.share.subtitle")}` at 12.5px/600/`tokens.inkSoft` (`:242`).
+  - [x] `<DialogContent>` — `p: "20px 24px"`, and **drop `dividers`** (the head/footer borders now do that job; `dividers` would double the rule).
+  - [x] `<DialogActions>` — `p: "16px 24px"`, `borderTop: 1px solid tokens.border`, `backgroundColor: tokens.cardAlt`, `justifyContent: "flex-end"` (mockup `:244-251`). One secondary "Schließen" button (`variant="outlined"`), which the theme already renders at 44px on the `tokens.borderStrong`/`tokens.card` treatment.
+  - [x] Alerts (`loadError`/`serverError`/`success`) stay where they are, at the top of the content region — that is `EXPERIENCE.md:86`'s not-attributable-error convention.
+  - [x] **Do not add `MuiDialogTitle`/`MuiDialogContent`/`MuiDialogActions` overrides to `theme.ts`.** Seven other dialogs mount that chrome (`TripEditDialog`, `TripDeleteDialog`, `TripAccommodationDialog`, `TripDayPlanDialog`, `TripImportDialog`, `TripDayTravelSegmentDialog`, `TripCreateDialog`), and four of them belong to Story 7.7 or to no redesign story at all. Keep the treatment local to this file; 7.7 can lift it out when it has a second consumer.
 
-- [ ] **Task 3 — Invite row (AC1, AC3)**
-  - [ ] Section label "Person einladen" above the row: 11px/800/`0.06em`/uppercase/`tokens.inkSoft`, `mb: "7px"` (mockup `:253`). Render it as a real `<label htmlFor>` bound to the email input, or as a `Typography` plus an explicit `aria-label` on the field — see the accessible-name contract below.
-  - [ ] Single-line compose row (`EXPERIENCE.md:92`): email `TextField` (`flex: 1`) + role `TextField select` (`minWidth: 118`) + primary "Einladen" `Button` — `display: flex; gap: 10px`, `alignItems: "flex-start"` so a field error message does not shove the button downward. All three are already 44px from `theme.ts` (`MuiOutlinedInput` `:279`, `MuiButton` `:253`); verify the computed box rather than assuming.
-  - [ ] Collapse to a stacked column at `xs` via an `sx` breakpoint object (`{ xs: "column", sm: "row" }`). **No `useMediaQuery`** — `data-layout` JS breakpoint re-derivation is a deferred finding from 7.2, do not replicate it.
-  - [ ] **Keep the temporary-password field.** The mockup omits it because Screen D was drawn against the design system, not against the real invite flow; it is required whenever the invite creates a brand-new account (`createTripCollaboratorForOwner` returns `validation_error` on `temporaryPassword` without it, and `test/tripMembersRoute.test.ts:413` pins that). Render it as a full-width field block below the invite row, keeping `trips.share.temporaryPasswordHelp` as its hint in `tokens.inkMuted` at 11px (mockup `.field-hint`, `forms-authoring.html:286`).
-  - [ ] Keep the native `<select>` (`SelectProps={{ native: true }}`) — `userEvent.selectOptions` in three existing tests depends on it, and the mockup's control is a plain `select`.
-  - [ ] Keep `react-hook-form` registration, `resolveApiError`, and the field-level `setError` mapping exactly as they are. This story restyles the form; it does not re-plumb it.
+- [x] **Task 3 — Invite row (AC1, AC3)**
+  - [x] Section label "Person einladen" above the row: 11px/800/`0.06em`/uppercase/`tokens.inkSoft`, `mb: "7px"` (mockup `:253`). Render it as a real `<label htmlFor>` bound to the email input, or as a `Typography` plus an explicit `aria-label` on the field — see the accessible-name contract below.
+  - [x] Single-line compose row (`EXPERIENCE.md:92`): email `TextField` (`flex: 1`) + role `TextField select` (`minWidth: 118`) + primary "Einladen" `Button` — `display: flex; gap: 10px`, `alignItems: "flex-start"` so a field error message does not shove the button downward. All three are already 44px from `theme.ts` (`MuiOutlinedInput` `:279`, `MuiButton` `:253`); verify the computed box rather than assuming.
+  - [x] Collapse to a stacked column at `xs` via an `sx` breakpoint object (`{ xs: "column", sm: "row" }`). **No `useMediaQuery`** — `data-layout` JS breakpoint re-derivation is a deferred finding from 7.2, do not replicate it.
+  - [x] **Keep the temporary-password field.** The mockup omits it because Screen D was drawn against the design system, not against the real invite flow; it is required whenever the invite creates a brand-new account (`createTripCollaboratorForOwner` returns `validation_error` on `temporaryPassword` without it, and `test/tripMembersRoute.test.ts:413` pins that). Render it as a full-width field block below the invite row, keeping `trips.share.temporaryPasswordHelp` as its hint in `tokens.inkMuted` at 11px (mockup `.field-hint`, `forms-authoring.html:286`).
+  - [x] Keep the native `<select>` (`SelectProps={{ native: true }}`) — `userEvent.selectOptions` in three existing tests depends on it, and the mockup's control is a plain `select`.
+  - [x] Keep `react-hook-form` registration, `resolveApiError`, and the field-level `setError` mapping exactly as they are. This story restyles the form; it does not re-plumb it.
 
-- [ ] **Task 4 — Access list, role badges, and the owner row (AC1, AC2, AC4)**
-  - [ ] Section label `formatMessage(t("trips.share.accessLabel"), { count })` → "Zugriff (3)", where **count includes the owner**. Same 11px caps treatment as Task 3.
-  - [ ] **Keep `<List>` / `<ListItem>`.** Two existing assertions call `.closest("li")` on a collaborator email, and a list of people is genuinely a list for assistive tech. Style them (`disablePadding` on the `List`, `disableGutters` + `py: "12px"` on each `ListItem`); do not swap to `Box`.
-  - [ ] `List` gets `borderTop: 1px solid tokens.border`; each `ListItem` gets `borderBottom: 1px solid tokens.border` with `"&:last-child": { borderBottom: "none" }` (mockup `:278-285`). Use the `:last-child` selector, **not** MUI's `divider` prop on all-but-the-last item — 7.8 calls this out as the established idiom.
-  - [ ] Row layout: email left (13px/700/`tokens.ink`), a right-aligned actions cluster (`display: flex; gap: 10px; alignItems: center`) holding the role badge and, for non-owners, the remove button.
-  - [ ] Owner row renders **first**, before every collaborator, from the new `owner.email`. It has the Owner badge and no remove button.
-  - [ ] Role badge — one small component in this file, driven by `"owner" | "viewer" | "contributor"`. Shared spec: `borderRadius: "5px"`, `padding: "5px 10px"`, `fontSize: 10.5`, `fontWeight: 800`, `letterSpacing: "0.04em"`, `textTransform: "uppercase"`, `whiteSpace: "nowrap"` (mockup `:290-298`). Variants, all from theme tokens — **no new hex literals**:
+- [x] **Task 4 — Access list, role badges, and the owner row (AC1, AC2, AC4)**
+  - [x] Section label `formatMessage(t("trips.share.accessLabel"), { count })` → "Zugriff (3)", where **count includes the owner**. Same 11px caps treatment as Task 3.
+  - [x] **Keep `<List>` / `<ListItem>`.** Two existing assertions call `.closest("li")` on a collaborator email, and a list of people is genuinely a list for assistive tech. Style them (`disablePadding` on the `List`, `disableGutters` + `py: "12px"` on each `ListItem`); do not swap to `Box`.
+  - [x] `List` gets `borderTop: 1px solid tokens.border`; each `ListItem` gets `borderBottom: 1px solid tokens.border` with `"&:last-child": { borderBottom: "none" }` (mockup `:278-285`). Use the `:last-child` selector, **not** MUI's `divider` prop on all-but-the-last item — 7.8 calls this out as the established idiom.
+  - [x] Row layout: email left (13px/700/`tokens.ink`), a right-aligned actions cluster (`display: flex; gap: 10px; alignItems: center`) holding the role badge and, for non-owners, the remove button.
+  - [x] Owner row renders **first**, before every collaborator, from the new `owner.email`. It has the Owner badge and no remove button.
+  - [x] Role badge — one small component in this file, driven by `"owner" | "viewer" | "contributor"`. Shared spec: `borderRadius: "5px"`, `padding: "5px 10px"`, `fontSize: 10.5`, `fontWeight: 800`, `letterSpacing: "0.04em"`, `textTransform: "uppercase"`, `whiteSpace: "nowrap"` (mockup `:290-298`). Variants, all from theme tokens — **no new hex literals**:
 
     | Variant | Background | Text |
     |---|---|---|
@@ -100,21 +104,21 @@ The reason is not ambition, it is that the epic's own ACs are unbuildable as wri
     | viewer | `tokens.accentSoft` (`#E7EDE7`) | `theme.palette.primary.main` |
     | owner | `tokens.warnBg` (`#F6ECE0`) | `theme.palette.warning.main` (`#8A5A2B`) |
 
-  - [ ] The owner badge is the **one sanctioned non-gap use of the warn family in this system** — it is specified verbatim at `DESIGN.md:239` and mocked at `:301`. Do not "correct" it to a neutral token, and do not treat it as licence to use warn decoratively anywhere else.
-  - [ ] Empty state: with the owner row always present the list is never truly empty, so render `trips.share.empty` as a caption **below** the owner row when `collaborators.length === 0`, not in place of the whole list.
-  - [ ] Loading: keep the existing centred `CircularProgress` while the open-fetch is in flight. `EXPERIENCE.md:85` reserves skeletons for full route loads and explicitly permits a small inline spinner inside a dialog.
+  - [x] The owner badge is the **one sanctioned non-gap use of the warn family in this system** — it is specified verbatim at `DESIGN.md:239` and mocked at `:301`. Do not "correct" it to a neutral token, and do not treat it as licence to use warn decoratively anywhere else.
+  - [x] Empty state: with the owner row always present the list is never truly empty, so render `trips.share.empty` as a caption **below** the owner row when `collaborators.length === 0`, not in place of the whole list.
+  - [x] Loading: keep the existing centred `CircularProgress` while the open-fetch is in flight. `EXPERIENCE.md:85` reserves skeletons for full route loads and explicitly permits a small inline spinner inside a dialog.
 
-- [ ] **Task 5 — The Entfernen action (AC2, AC5)**
-  - [ ] Add `id: string` to the component-local `TripCollaborator` type (`TripShareDialog.tsx:27-30`). The repo and both API responses already carry it; only this local type omits it.
-  - [ ] Render `<Button variant="text">` with `minHeight: 44, minWidth: 44, px: 1.5, color: theme.palette.warning.main, fontSize: 11.5, fontWeight: 700`. `DESIGN.md:243` and `EXPERIENCE.md:70` are explicit that this keeps its link-like look (text, no fill, no border) while carrying a real ≥44×44px hit area. The theme's `MuiButton` root already sets `minHeight: 44`; restate `minWidth` because a short word like "Entfernen" would otherwise render narrower than 44px at `xs`.
-  - [ ] `aria-label` = `formatMessage(t("trips.share.removeAria"), { email })` — "Entfernen" alone repeated three times is not a distinguishing accessible name.
-  - [ ] Handler: `DELETE /api/trips/{tripId}/members` with `credentials: "include"`, `Content-Type: application/json`, the `x-csrf-token` header from the token already fetched on open, and `body: JSON.stringify({ memberId })`. On success, replace state from `body.data.collaborators`; on failure, `setServerError(resolveApiError(body.error?.code))` with a new `trips.share.removeError` default.
-  - [ ] Track the in-flight member id in local state and disable that one row's button while the request is open. Do not disable the whole dialog.
-  - [ ] **No confirmation dialog.** The mockup shows none, revoking access is reversible by re-inviting, and the codebase reserves confirm-dialogs for destructive-and-irreversible actions (`TripDeleteDialog`). If you disagree, record it in Dev Agent Record — do not add one silently.
-  - [ ] If `csrfToken` is null (the open-fetch failed), the remove button must not fire a tokenless request — surface `errors.csrfMissing` the same way `onSubmit` already does at `:161-164`.
+- [x] **Task 5 — The Entfernen action (AC2, AC5)**
+  - [x] Add `id: string` to the component-local `TripCollaborator` type (`TripShareDialog.tsx:27-30`). The repo and both API responses already carry it; only this local type omits it.
+  - [x] Render `<Button variant="text">` with `minHeight: 44, minWidth: 44, px: 1.5, color: theme.palette.warning.main, fontSize: 11.5, fontWeight: 700`. `DESIGN.md:243` and `EXPERIENCE.md:70` are explicit that this keeps its link-like look (text, no fill, no border) while carrying a real ≥44×44px hit area. The theme's `MuiButton` root already sets `minHeight: 44`; restate `minWidth` because a short word like "Entfernen" would otherwise render narrower than 44px at `xs`.
+  - [x] `aria-label` = `formatMessage(t("trips.share.removeAria"), { email })` — "Entfernen" alone repeated three times is not a distinguishing accessible name.
+  - [x] Handler: `DELETE /api/trips/{tripId}/members` with `credentials: "include"`, `Content-Type: application/json`, the `x-csrf-token` header from the token already fetched on open, and `body: JSON.stringify({ memberId })`. On success, replace state from `body.data.collaborators`; on failure, `setServerError(resolveApiError(body.error?.code))` with a new `trips.share.removeError` default.
+  - [x] Track the in-flight member id in local state and disable that one row's button while the request is open. Do not disable the whole dialog.
+  - [x] **No confirmation dialog.** The mockup shows none, revoking access is reversible by re-inviting, and the codebase reserves confirm-dialogs for destructive-and-irreversible actions (`TripDeleteDialog`). If you disagree, record it in Dev Agent Record — do not add one silently.
+  - [x] If `csrfToken` is null (the open-fetch failed), the remove button must not fire a tokenless request — surface `errors.csrfMissing` the same way `onSubmit` already does at `:161-164`.
 
-- [ ] **Task 6 — i18n (AC1, AC2, AC4)**
-  - [ ] New keys in **both** `src/i18n/en.ts` and `src/i18n/de.ts`, placed with the existing `trips.share.*` block (`en.ts:157-175`, `de.ts:156-174`):
+- [x] **Task 6 — i18n (AC1, AC2, AC4)**
+  - [x] New keys in **both** `src/i18n/en.ts` and `src/i18n/de.ts`, placed with the existing `trips.share.*` block (`en.ts:157-175`, `de.ts:156-174`):
 
     | Key | en | de |
     |---|---|---|
@@ -127,19 +131,44 @@ The reason is not ambition, it is that the epic's own ACs are unbuildable as wri
     | `trips.share.removeError` | `Unable to remove collaborator. Please try again.` | `Person konnte nicht entfernt werden. Bitte erneut versuchen.` |
     | `common.close` | `Close` | `Schließen` |
 
-  - [ ] Change `trips.share.submit` from "Add collaborator"/"Person hinzufügen" to **"Invite"/"Einladen"**. `DESIGN.md:243` enumerates the system's primary-button labels and names this one "Einladen". Keep the key; change only the values. This breaks five assertions — Task 7 owns them.
-  - [ ] Interpolate with `formatMessage` from `@/i18n` (`src/i18n/index.ts:23`) — `t()` takes a key only and does no substitution.
-  - [ ] Do **not** rename `roleViewer`/`roleContributor`. The mockup prints the English words "Viewer"/"Contributor" in its German composition, but the app has shipped "Betrachter"/"Mitwirkender" since Story 5.1 and they appear in the role `<select>` as well as the badges. `EXPERIENCE.md:47` mandates German UI copy; the mockup's untranslated labels are a mockup shortcut, not a copy decision.
-  - [ ] Check for orphans before finishing: `trips.share.temporaryPasswordLabel` and `trips.share.existingAccountError` may already be unreferenced. Grep; delete only what has no call site, and say which in Dev Agent Record.
+  - [x] Change `trips.share.submit` from "Add collaborator"/"Person hinzufügen" to **"Invite"/"Einladen"**. `DESIGN.md:243` enumerates the system's primary-button labels and names this one "Einladen". Keep the key; change only the values. This breaks five assertions — Task 7 owns them.
+  - [x] Interpolate with `formatMessage` from `@/i18n` (`src/i18n/index.ts:23`) — `t()` takes a key only and does no substitution.
+  - [x] Do **not** rename `roleViewer`/`roleContributor`. The mockup prints the English words "Viewer"/"Contributor" in its German composition, but the app has shipped "Betrachter"/"Mitwirkender" since Story 5.1 and they appear in the role `<select>` as well as the badges. `EXPERIENCE.md:47` mandates German UI copy; the mockup's untranslated labels are a mockup shortcut, not a copy decision.
+  - [x] Check for orphans before finishing: `trips.share.temporaryPasswordLabel` and `trips.share.existingAccountError` may already be unreferenced. Grep; delete only what has no call site, and say which in Dev Agent Record.
 
-- [ ] **Task 7 — Tests (all ACs)**
-  - [ ] `test/tripTimelineSharing.test.tsx` — update all five `{ name: "Add collaborator" }` button queries to `"Invite"` (`:153, :272, :281, :376, :382`). Add `owner: { email: "owner@example.com" }` to each of the three `GET /members` mock responses; the dialog will read it. Everything else in this file must keep passing unchanged, including the two `closest("li")` assertions.
-  - [ ] **New `test/tripShareDialog.test.tsx`** — the dialog has never had a direct test; it is only reached through `TripTimeline`, which now costs three fetch mocks per case. Render `TripShareDialog` directly under `renderWithProviders` (`test/helpers/renderWithProviders.tsx` — the theme wrapper is mandatory the moment this file reads `theme.palette.tokens.*`; this is the trap 7.3 and 7.4 both hit). Cover: (a) the owner row renders first with the Owner badge and **no** remove button; (b) a contributor and a viewer row each render their badge text; (c) the access-label count includes the owner; (d) clicking Entfernen issues `DELETE` with the right `memberId` and `x-csrf-token`, and the row disappears from the re-rendered list; (e) a failed `DELETE` surfaces `trips.share.removeError` and leaves the row in place; (f) the remove button's accessible name names the collaborator; (g) the temporary-password field is still present and labelled.
-  - [ ] `test/tripMembersRoute.test.ts` — extend the existing `GET` test (`:455`) to assert the **full response key set** (`["collaborators", "owner"]`, sorted) plus `owner.email`. A payload key-set assertion is what caught a missing field last time (deferred-work, 2026-08-01). Then add `DELETE` cases: owner removes a member and the response carries the shortened list; **`prisma.user.findUnique` still finds the removed collaborator's account afterwards**; a contributor gets `404`; an unauthenticated caller gets `401`; a missing CSRF header gets `403`; an unknown `memberId` gets `404`; a `memberId` belonging to a *different* trip gets `404` and that membership survives. Use the file's existing `buildRequest` helper (`:14`) — it already threads session and CSRF cookies.
-  - [ ] `test/tripCollaborationRepo.test.ts` — one repo-level test that `deleteTripCollaboratorForOwner` removes the `TripMember` row, leaves the `User` row intact, and leaves that user's membership on a second trip intact.
-  - [ ] Run `npm test`, `npx tsc --noEmit -p .`, and `eslint` on the touched files, all from `travelplan/`. Establish the baseline with `git stash` rather than assuming: 7.4 recorded 551 tests / 152 tsc errors / 3 eslint warnings at its own baseline, and 7.4 itself has landed since. Triage each failure as a stale assertion (fix it, say so) or a real regression (fix the code). Do not delete assertions in bulk.
-  - [ ] `TripShareDialog.tsx` is one of the 12 files where `react-hooks/set-state-in-effect` is downgraded to `warn` (`eslint.config.mjs:31`). Existing warnings in this file are expected and deferred; do not attempt the effect refactor here, and do not add new sites.
-  - [ ] Manual browser check on a real dev server against a **throwaway** database — never `prisma/dev.db`, which holds Tommy's real trip data (the suite destroyed real uploads once already; see deferred-work 2026-08-01). Seed one trip with an owner plus one contributor plus one viewer, then verify: the 460px dialog, head/body/footer chrome, the three badges, the invite row on one line at desktop and stacked at 390px, a successful invite, a successful removal, the removed user's account still able to log in, keyboard focus reaching and firing Entfernen, and the computed height of every interactive element ≥44px.
+- [x] **Task 7 — Tests (all ACs)**
+  - [x] `test/tripTimelineSharing.test.tsx` — update all five `{ name: "Add collaborator" }` button queries to `"Invite"` (`:153, :272, :281, :376, :382`). Add `owner: { email: "owner@example.com" }` to each of the three `GET /members` mock responses; the dialog will read it. Everything else in this file must keep passing unchanged, including the two `closest("li")` assertions.
+  - [x] **New `test/tripShareDialog.test.tsx`** — the dialog has never had a direct test; it is only reached through `TripTimeline`, which now costs three fetch mocks per case. Render `TripShareDialog` directly under `renderWithProviders` (`test/helpers/renderWithProviders.tsx` — the theme wrapper is mandatory the moment this file reads `theme.palette.tokens.*`; this is the trap 7.3 and 7.4 both hit). Cover: (a) the owner row renders first with the Owner badge and **no** remove button; (b) a contributor and a viewer row each render their badge text; (c) the access-label count includes the owner; (d) clicking Entfernen issues `DELETE` with the right `memberId` and `x-csrf-token`, and the row disappears from the re-rendered list; (e) a failed `DELETE` surfaces `trips.share.removeError` and leaves the row in place; (f) the remove button's accessible name names the collaborator; (g) the temporary-password field is still present and labelled.
+  - [x] `test/tripMembersRoute.test.ts` — extend the existing `GET` test (`:455`) to assert the **full response key set** (`["collaborators", "owner"]`, sorted) plus `owner.email`. A payload key-set assertion is what caught a missing field last time (deferred-work, 2026-08-01). Then add `DELETE` cases: owner removes a member and the response carries the shortened list; **`prisma.user.findUnique` still finds the removed collaborator's account afterwards**; a contributor gets `404`; an unauthenticated caller gets `401`; a missing CSRF header gets `403`; an unknown `memberId` gets `404`; a `memberId` belonging to a *different* trip gets `404` and that membership survives. Use the file's existing `buildRequest` helper (`:14`) — it already threads session and CSRF cookies.
+  - [x] `test/tripCollaborationRepo.test.ts` — one repo-level test that `deleteTripCollaboratorForOwner` removes the `TripMember` row, leaves the `User` row intact, and leaves that user's membership on a second trip intact.
+  - [x] Run `npm test`, `npx tsc --noEmit -p .`, and `eslint` on the touched files, all from `travelplan/`. Establish the baseline with `git stash` rather than assuming: 7.4 recorded 551 tests / 152 tsc errors / 3 eslint warnings at its own baseline, and 7.4 itself has landed since. Triage each failure as a stale assertion (fix it, say so) or a real regression (fix the code). Do not delete assertions in bulk.
+  - [x] `TripShareDialog.tsx` is one of the 12 files where `react-hooks/set-state-in-effect` is downgraded to `warn` (`eslint.config.mjs:31`). Existing warnings in this file are expected and deferred; do not attempt the effect refactor here, and do not add new sites.
+  - [x] Manual browser check on a real dev server against a **throwaway** database — never `prisma/dev.db`, which holds Tommy's real trip data (the suite destroyed real uploads once already; see deferred-work 2026-08-01). Seed one trip with an owner plus one contributor plus one viewer, then verify: the 460px dialog, head/body/footer chrome, the three badges, the invite row on one line at desktop and stacked at 390px, a successful invite, a successful removal, the removed user's account still able to log in, keyboard focus reaching and firing Entfernen, and the computed height of every interactive element ≥44px.
+
+### Review Findings
+
+Code review 2026-08-01 (Blind Hunter + Edge Case Hunter + Acceptance Auditor, all three layers returned).
+
+- [x] [Review][Decision] **RESOLVED — deleted both.** `listTripCollaboratorsForOwner` was removed from `tripRepo.ts`, along with its import and its one tail assertion in `test/tripCollaborationRepo.test.ts` (which duplicated the `result.collaborators` check already made earlier in the same test). `getTripSharingForOwner` carries the read path and is covered by the route tests and the GET key-set assertion. Original finding: `listTripCollaboratorsForOwner` is now dead production code kept alive only by its own test — `getTripSharingForOwner` replaced its sole production caller (`route.ts:38`); the only surviving reference is `test/tripCollaborationRepo.test.ts:8,70`. Task 1 said "delete it only if `getTripSharingForOwner` becomes its sole replacement and no other caller exists (grep first)". All three review layers read "caller" as excluding the function's own test, making the retention circular: a green test on a dead function is a false signal that the read path is covered, and the two implementations can drift. Options: (a) delete the function and its test, relying on `getTripSharingForOwner`'s coverage; (b) keep both and note why. [`travelplan/src/lib/repositories/tripRepo.ts:1545-1559`]
+
+- [x] [Review][Patch] Concurrent removals: single-slot tracking plus last-response-wins list overwrite can resurrect a removed collaborator [`travelplan/src/components/features/trips/TripShareDialog.tsx:307,330,334,503`]
+- [x] [Review][Patch] A 404 from `DELETE` leaves the phantom row on screen, and a concurrent duplicate delete throws Prisma `P2025` out of the repo into a bare `catch` → 500 instead of 404 [`travelplan/src/components/features/trips/TripShareDialog.tsx:325-328`, `travelplan/src/lib/repositories/tripRepo.ts:1627`]
+- [x] [Review][Patch] After a failed load the access section affirmatively claims the trip is empty — error alert plus "Zugriff (0)" plus "No collaborators added yet." plus a bordered empty `<ul>`; the same label also flashes "Zugriff (0)" above the spinner on every open [`travelplan/src/components/features/trips/TripShareDialog.tsx:341,442-464,521`]
+- [x] [Review][Patch] A failed *load* reports "Unable to add collaborator" — `resolveApiError` is called with no fallback two lines below a call that correctly uses `trips.share.initError` [`travelplan/src/components/features/trips/TripShareDialog.tsx:213`]
+- [x] [Review][Patch] No focus restoration or screen-reader announcement after a row is removed; `onRemove` also clears the invite success alert and never replaces it [`travelplan/src/components/features/trips/TripShareDialog.tsx:299-300,500-515`]
+- [x] [Review][Patch] The repo's tenancy clause `trip: { userId: ownerUserId }` is exercised by no test — both "different trip" cases create the other trip with `userId: owner.id`, so only the `tripId` half of the `where` is covered [`travelplan/src/lib/repositories/tripRepo.ts:1618`, `travelplan/test/tripMembersRoute.test.ts:649-651`, `travelplan/test/tripCollaborationRepo.test.ts:246-248`]
+- [x] [Review][Patch] `POST /members` test mocks return collaborators without `id`, so a freshly-invited row's remove button is wired to `onRemove(undefined)` in tests and the POST payload key-set is unpinned [`travelplan/test/tripTimelineSharing.test.tsx:126-131,232-238`, `travelplan/test/tripMembersRoute.test.ts:85,91,166`]
+- [x] [Review][Patch] No test for `DELETE`'s two 400 paths (`invalid_json`, `validation_error`), though `POST` pins both in the same file [`travelplan/test/tripMembersRoute.test.ts:507-680`]
+- [x] [Review][Patch] `resolveApiError`'s new `fallback` is consulted only in the `default` branch, so a mapped code from `DELETE` yields invite-form copy [`travelplan/src/components/features/trips/TripShareDialog.tsx:146-168,326`]
+- [x] [Review][Patch] `data.collaborators` is not validated while `owner` is — a payload missing it sets state to `undefined` and the next render throws [`travelplan/src/components/features/trips/TripShareDialog.tsx:223,330`]
+- [x] [Review][Patch] An unknown role falls into the `contributor` branch: unstyled badge, labelled "Contributor" — an unknown role defaults to the *more* privileged label [`travelplan/src/components/features/trips/TripShareDialog.tsx:99,338-339`]
+- [x] [Review][Patch] `deleteTripMemberSchema` has no `.max()` and no trim, unlike every sibling schema in the file [`travelplan/src/lib/validation/tripMemberSchemas.ts:23-25`]
+- [x] [Review][Patch] Row key concatenates the primary key with the mutable email [`travelplan/src/components/features/trips/TripShareDialog.tsx:485`]
+
+- [x] [Review][Defer] Alerts are the one surface left on stock MUI red/green [`travelplan/src/components/features/trips/TripShareDialog.tsx:369-371`] — deferred, pre-existing
+- [x] [Review][Defer] The CSRF preamble is copy-pasted an 11th time [`travelplan/src/app/api/trips/[id]/members/route.ts:123-127`] — deferred, pre-existing
+
+Dismissed as noise (4): the `not_found` branch being unreachable on `DELETE` and the repeated ownership assertions (intentional defence-in-depth mirroring `POST`, which the story mandated); `headId` being "unreferenced" (it *is* the `DialogTitle` id, and the dialog's accessible name is pinned three times in `tripTimelineSharing.test.tsx`); the owner row desyncing on an empty `owner.email` (non-nullable in the schema, and `POST` guards the owner-email case); a remove and an invite in flight together (subsumed by the concurrent-removal fix).
 
 ## Dev Notes
 
@@ -308,14 +337,89 @@ This matches `architecture.md`'s boundaries: data access only via `lib/repositor
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+claude-opus-5[1m] (Claude Opus 5, 1M context) — dev-story workflow
 
 ### Debug Log References
 
+**Baseline (established by `git stash push -u -- travelplan/` at `161a58e`, not assumed):**
+
+| Gate | Baseline | After story | Delta |
+|---|---|---|---|
+| `npm test` | 556 tests / 91 files, all passing | 570 tests / 92 files, all passing | +14 tests, 0 failures |
+| `npx tsc --noEmit -p .` | 152 errors | 152 errors | 0 new |
+| `npx eslint src test` | 87 problems (2 errors, 85 warnings) | 87 problems (2 errors, 85 warnings) | 0 new |
+
+7.4's recorded baseline was 551 tests / 152 tsc / 3 eslint warnings; the true baseline at this story's start is the table above (7.4 has landed since). No pre-existing failure was inherited — the first baseline attempt reported one `tripMembersRoute` failure, but that run raced my in-flight edits; a clean re-measure showed 556/556 green.
+
+**Three defects found and fixed during development, each caught by a gate rather than by reading:**
+
+1. **Dialog accessible name broke the three pinned `findByRole("dialog", { name: "Share trip" })` queries.** Putting the trip-specific sub-line inside `DialogTitle` (as Task 2 directs) makes MUI's derived `aria-labelledby` cover title *and* sub-line, so the name became "Share trip Portugal Roadtrip · …". Fixed by giving the inner title `Box` its own `useId` and passing that as an explicit `aria-labelledby` on `Dialog`, with a separate id on `DialogTitle` so MUI's context does not reassign it. The sub-line stays visually in the head; the dialog is named by the title alone.
+2. **`DialogContent`'s top padding was 0, not 20px.** MUI ships `.MuiDialogTitle-root + .MuiDialogContent-root { padding-top: 0 }` at a specificity the `p: "20px 24px"` shorthand cannot beat. Only the browser check caught this — jsdom does no cascade resolution of that kind. Fixed with an explicit `".MuiDialogTitle-root + &": { pt: "20px" }` sibling selector.
+3. **Two new `tsc` errors from the fetch-mock cast in the new test file.** `as unknown as typeof fetch` applied to the `vi.fn(...)` result erased the mock's call-argument types, so `fetchMock.mock` and the destructured `init` went untyped. Fixed by casting only at the `vi.stubGlobal` boundary.
+
+**Browser check — 20/20 automated assertions passed.** Run against a **throwaway** database (`prisma/manual-check-7-5.db`, created by `prisma migrate deploy` + a raw-SQL seed, deleted afterwards). `prisma/dev.db` was never opened; its mtime is unchanged. Tommy's own `next dev` (PID 30005, port 3000) was already running and holds a single-instance lock on this directory, so the check used `next build` + `next start -p 3458` instead — that server was killed and his was verified still serving 200 afterwards.
+
+Seeded one trip (`Portugal Roadtrip`) with an owner, one contributor and one viewer, then measured in Chromium via Playwright 1.62.1 (run through the npx cache — **no project dependency added**):
+
+- Paper width exactly **460px**; head padding `20px 24px 16px` + `1px` `tokens.border` rule; body padding `20px 24px`; footer `16px 24px`, `rgb(251,249,244)` = `tokens.cardAlt`, `1px` top rule, `flex-end`.
+- Badges resolve to the exact token values: Eigentümer `rgb(246,236,224)` (`warnBg`), Mitwirkender `rgb(75,99,88)` (`primary.main`), Betrachter `rgb(231,237,231)` (`accentSoft`); all `border-radius: 5px`.
+- Owner row renders first and contains **0** buttons.
+- **Computed** box of every interactive element ≥44×44 (measured, not inferred): inputs 52px, select 52px, Einladen 45×100, both Entfernen 44×81, Schließen 47×111.
+- Invite row on one line at 1280px (three children share `top: 275`); stacks at 390px (`185/247/310`); `scrollWidth === clientWidth === 390`, so no horizontal overflow.
+- List `border-top` 1px; rows 1–2 `border-bottom: 1px`, last row `0px` — `:last-child` suppression confirmed.
+- Entfernen is keyboard-focusable and its accessible name is `nina75@example.com entfernen`.
+- Functional: invite succeeded (3→4 rows), removal succeeded (4→3 rows), access count re-rendered to `Zugriff (3)`, and **the removed collaborator still logged in afterwards** — the account survived the membership delete.
+
 ### Completion Notes List
 
+**AC coverage**
+
+- **AC1** — Dialog rebuilt on the token card/border/input conventions; all three role badges render from theme tokens with no new hex literal. Verified in-browser against the mockup's computed values.
+- **AC2** — Entfernen is a real `Button variant="text"` measuring 44×81 computed, keeping its link-like look (no fill, no border) per `DESIGN.md:243`.
+- **AC3** — Invite, list, and every error/conflict path still work: all three pre-existing `tripTimelineSharing` cases pass with only the sanctioned button-label update. Role-change was **not** built (it has never existed — `EXPERIENCE.md:92`).
+- **AC4** — `GET` now returns `{ owner, collaborators }`; owner renders first with the warn-toned badge and no remove action. Pinned by a payload key-set assertion.
+- **AC5** — `DELETE` removes exactly one `TripMember`; a repo test proves the `User` row and that user's membership on a second trip both survive, and the browser check proves the removed account still logs in.
+- **AC6** — `DELETE` copies `POST`'s guard order verbatim. Route tests cover contributor→404, unauthenticated→401, missing CSRF→403, unknown `memberId`→404, and a `memberId` from a *different* trip→404 with that membership intact.
+
+**Three deliberate deviations from the task text — each preserves the story's stated intent where the literal instruction would have broken a pinned contract:**
+
+1. **Section labels use `aria-labelledby` on a group, not `<label htmlFor>` and not an explicit `aria-label`.** Task 3 offered those two options, but both damage the accessible-name contract the story's own table pins: a second `<label>` makes the email field's accessible name "Invite person Email", and an explicit `aria-label` overrides the visible "Email". Instead the caps label is a `Typography component="div"` with an id, referenced by `aria-labelledby` on the invite `<form>` and on the access `<List>`. That is the correct semantic for a heading over a *group* of controls, and every pinned name stays exact.
+2. **`slotProps={{ paper: … }}` instead of `PaperProps`.** Task 2 specifies `PaperProps`, which MUI 7 marks `@deprecated` ("will be removed in a future major release"). `slotProps.paper` is the same 460px result without adopting a deprecated API. Confirmed 460px in-browser.
+3. **`resolveApiError` gained an optional `fallback` argument.** Task 5 asks for `setServerError(resolveApiError(code))` "with a new `trips.share.removeError` default", but the existing default branch returns `trips.share.error` ("Unable to **add** collaborator"), which is wrong copy for a failed removal. The switch is unchanged; only the default branch now honours a caller-supplied fallback.
+
+**Confirming the story's judgement calls, as asked:**
+
+- **No confirmation dialog before removal** — agreed and implemented as specified. Revoking access is reversible by re-inviting, and `TripDeleteDialog` remains the only confirm-gated action. Recording the agreement here because Task 5 asked for a note either way.
+- **Orphan keys deleted (3, one more than the story predicted).** `trips.share.temporaryPasswordLabel` and `trips.share.existingAccountError` were already unreferenced and are gone from both dictionaries. `trips.share.collaboratorsTitle` became an orphan *because of* this story (the "Collaborators" heading is replaced by `accessLabel`), so it was removed too. Grep confirms zero call sites for all three.
+- **`listTripCollaboratorsForOwner` kept.** `getTripSharingForOwner` replaced its only production caller, but `test/tripCollaborationRepo.test.ts:69` still exercises it, so per Task 1 it stays.
+
+**Notes for review**
+
+- `TripShareDialog.tsx` still emits its one expected `react-hooks/set-state-in-effect` warning. The new resets (`setOwnerEmail`, `setRemovingMemberId`) sit inside the *existing* effect block, so no new warning site was added — the file's warning count is unchanged.
+- `TripTimeline.tsx` was touched on exactly one line-range: the `tripName` prop on the `TripShareDialog` mount. Nothing else on that page was altered, keeping clear of 7.2 (`done`) and 7.8 (`ready-for-dev`).
+- No migration, no schema change, no new dependency, no `theme.ts` edit, no new hex literal.
+- The browser check ran `next build`, which rewrote the gitignored `.next/` production output. Tommy's dev server was verified healthy afterwards; a later `npm run dev` regenerates its own artifacts.
+
 ### File List
+
+| Status | Path |
+|---|---|
+| M | `travelplan/src/lib/repositories/tripRepo.ts` |
+| M | `travelplan/src/lib/validation/tripMemberSchemas.ts` |
+| M | `travelplan/src/app/api/trips/[id]/members/route.ts` |
+| M | `travelplan/src/components/features/trips/TripShareDialog.tsx` |
+| M | `travelplan/src/components/features/trips/TripTimeline.tsx` |
+| M | `travelplan/src/i18n/en.ts` |
+| M | `travelplan/src/i18n/de.ts` |
+| M | `travelplan/test/tripTimelineSharing.test.tsx` |
+| M | `travelplan/test/tripMembersRoute.test.ts` |
+| M | `travelplan/test/tripCollaborationRepo.test.ts` |
+| A | `travelplan/test/tripShareDialog.test.tsx` |
+| M | `_bmad-output/implementation-artifacts/7-5-share-dialog-redesign.md` |
+| M | `_bmad-output/implementation-artifacts/sprint-status.yaml` |
 
 ### Change Log
 
 - 2026-08-01: Story created (create-story). Status: ready-for-dev. AC1–AC3 copied verbatim from `epics.md`; AC4–AC6 added because AC1's Owner badge and AC2's Entfernen action both require data and an endpoint that do not exist — see the Scope note.
+- 2026-08-01: Code review (3 adversarial layers). 1 decision resolved (deleted the dead `listTripCollaboratorsForOwner`), 13 patches applied, 2 items deferred, 4 dismissed. Substantive fixes: per-row removal tracking plus a removed-id filter so a slower response cannot resurrect a deleted collaborator; `deleteMany`-with-count in the repo so a repeated removal reports `missing` (404) instead of escaping as Prisma `P2025` → 500; a 404 now reconciles the row away instead of leaving a phantom that errors on every retry; the access count and empty state no longer render during load or after a failed load; the load path's error copy now falls back to `initError`; focus restoration and a success message on removal; a tenancy regression test with a genuinely foreign owner (both prior "other trip" cases used the same owner); `DELETE` 400-path tests; `id` pinned in the POST payload key-set and added to the timeline mocks. Tests 570 → 579, all passing; tsc 152 and eslint 87 unchanged from baseline. Status: done.
+- 2026-08-01: Implemented Tasks 1–7 (dev-story). Added `getTripSharingForOwner` and `deleteTripCollaboratorForOwner` to `tripRepo`, `deleteTripMemberSchema`, and an owner-gated CSRF-protected `DELETE` on the members route; `GET` now carries the owner email. Rebuilt `TripShareDialog` on the Screen D chrome with token-driven role badges, an owner-first access list, and a 44px Entfernen action. Added 8 i18n keys to both dictionaries, changed `trips.share.submit` to "Invite"/"Einladen", and removed 3 orphaned keys. Tests 556 → 570, all passing; tsc and eslint unchanged from baseline. Verified in Chromium against a throwaway database (20/20 checks). Status: review.

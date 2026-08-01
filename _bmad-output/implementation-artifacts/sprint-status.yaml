@@ -1,5 +1,5 @@
 # generated: 2026-03-01 13:08:00 CET
-# last_updated: 2026-08-01
+# last_updated: 2026-08-01 (7-5-share-dialog-redesign done — code review applied)
 # project: TravelPlan
 # project_key: NOKEY
 # tracking_system: file-system
@@ -111,7 +111,7 @@ development_status:
   5-3-viewer-read-only-access: done
   5-4-contributor-full-edit-permissions: done
   5-6-add-existing-contributor: done
-  5-8-view-all-registered-system-users: backlog
+  5-8-view-all-registered-system-users: ready-for-dev
   5-9-remove-comments-and-voting-feature: done
   epic-5-retrospective: optional
 
@@ -128,8 +128,10 @@ development_status:
   7-2-trip-overview-redesign: done
   7-3-day-detail-redesign: done
   7-4-trips-list-redesign: done
-  7-5-share-dialog-redesign: ready-for-dev
-  7-6-login-register-and-password-reset-redesign: backlog
-  7-7-trip-create-and-add-entry-dialog-redesign: backlog
+  7-5-share-dialog-redesign: done
+  7-6-login-register-and-password-reset-redesign: ready-for-dev
+  7-7-trip-create-and-add-entry-dialog-redesign: ready-for-dev
   7-8-trip-overview-lower-sections-redesign: ready-for-dev
+  7-9-full-page-map-screens-redesign: ready-for-dev
+  7-10-node-24-runtime-upgrade: backlog
   epic-7-retrospective: optional

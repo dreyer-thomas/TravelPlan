@@ -258,6 +258,11 @@ export type TripCollaborator = {
   role: "viewer" | "contributor";
 };
 
+export type TripSharing = {
+  owner: { email: string };
+  collaborators: TripCollaborator[];
+};
+
 export type CreateTripCollaboratorParams = {
   ownerUserId: string;
   tripId: string;
@@ -265,6 +270,24 @@ export type CreateTripCollaboratorParams = {
   role: "viewer" | "contributor";
   temporaryPassword?: string;
 };
+
+export type DeleteTripCollaboratorParams = {
+  ownerUserId: string;
+  tripId: string;
+  memberId: string;
+};
+
+export type DeleteTripCollaboratorResult =
+  | {
+      outcome: "not_found";
+    }
+  | {
+      outcome: "missing";
+    }
+  | {
+      outcome: "deleted";
+      collaborators: TripCollaborator[];
+    };
 
 export type CreateTripCollaboratorResult =
   | {
@@ -1519,21 +1542,78 @@ export const deleteTripForUser = async (userId: string, tripId: string) => {
   return result.count > 0;
 };
 
-export const listTripCollaboratorsForOwner = async (
+export const getTripSharingForOwner = async (
   ownerUserId: string,
   tripId: string,
-): Promise<TripCollaborator[] | null> => {
+): Promise<TripSharing | null> => {
   const trip = await prisma.trip.findFirst({
     where: { id: tripId, userId: ownerUserId },
-    select: { id: true },
+    select: {
+      id: true,
+      user: {
+        select: {
+          email: true,
+        },
+      },
+    },
   });
 
   if (!trip) {
     return null;
   }
 
-  return listTripCollaborators(prisma, tripId, ownerUserId);
+  const collaborators = await listTripCollaborators(prisma, tripId, ownerUserId);
+
+  return {
+    owner: { email: trip.user.email },
+    collaborators,
+  };
 };
+
+/**
+ * Removes a single collaborator's membership from one trip.
+ *
+ * Deliberately deletes the `TripMember` row only: the `User` account is a separate model with its own
+ * lifecycle (Story 5.1 provisions accounts on invite), may own trips, and may hold memberships on other
+ * trips. Deleting the account here would silently destroy unrelated data.
+ *
+ * Tenancy lives in the `where` clause rather than a preceding `if`, so the lookup that finds the row is
+ * the same query that proves the caller owns it.
+ */
+export const deleteTripCollaboratorForOwner = async ({
+  ownerUserId,
+  tripId,
+  memberId,
+}: DeleteTripCollaboratorParams): Promise<DeleteTripCollaboratorResult> =>
+  prisma.$transaction(async (tx) => {
+    const trip = await tx.trip.findFirst({
+      where: { id: tripId, userId: ownerUserId },
+      select: { id: true },
+    });
+
+    if (!trip) {
+      return { outcome: "not_found" } satisfies DeleteTripCollaboratorResult;
+    }
+
+    // A single guarded `deleteMany` rather than `findFirst` then `delete`: the same statement both
+    // finds the row and proves the caller owns it, and a concurrent duplicate removal reports
+    // `missing` (→ 404) instead of throwing Prisma `P2025` out into the route's 500 branch.
+    const removed = await tx.tripMember.deleteMany({
+      where: {
+        id: memberId,
+        tripId,
+        trip: { userId: ownerUserId },
+      },
+    });
+
+    if (removed.count === 0) {
+      return { outcome: "missing" } satisfies DeleteTripCollaboratorResult;
+    }
+
+    const collaborators = await listTripCollaborators(tx, tripId, ownerUserId);
+
+    return { outcome: "deleted", collaborators } satisfies DeleteTripCollaboratorResult;
+  });
 
 export const createTripCollaboratorForOwner = async ({
   ownerUserId,

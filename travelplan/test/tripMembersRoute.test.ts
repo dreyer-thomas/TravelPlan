@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
-import { GET, POST } from "@/app/api/trips/[id]/members/route";
+import { DELETE, GET, POST } from "@/app/api/trips/[id]/members/route";
 import { createSessionJwt } from "@/lib/auth/jwt";
 import { verifyPassword } from "@/lib/auth/bcrypt";
 import { getTripAccessForUser } from "@/lib/auth/tripAccess";
@@ -13,7 +13,14 @@ type ApiEnvelope<T> = {
 
 const buildRequest = (
   tripId: string,
-  options?: { method?: string; session?: string; csrf?: string; body?: Record<string, unknown> },
+  options?: {
+    method?: string;
+    session?: string;
+    csrf?: string;
+    body?: Record<string, unknown>;
+    /** Bypasses JSON serialization, so a handler's `invalid_json` branch can be reached. */
+    rawBody?: string;
+  },
 ) => {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -31,7 +38,7 @@ const buildRequest = (
   return new NextRequest(`http://localhost/api/trips/${tripId}/members`, {
     method: options?.method ?? "GET",
     headers,
-    body: options?.body ? JSON.stringify(options.body) : undefined,
+    body: options?.rawBody ?? (options?.body ? JSON.stringify(options.body) : undefined),
   });
 };
 
@@ -94,6 +101,8 @@ describe("/api/trips/[id]/members", () => {
       }),
     ]);
     expect(payload.data?.collaborator.id).toBe(payload.data?.collaborators[0]?.id);
+    // The dialog renders a remove button on the row it just added, keyed on `id` from this payload.
+    expect(Object.keys(payload.data?.collaborators[0] ?? {}).sort()).toEqual(["email", "id", "role"]);
 
     const user = await prisma.user.findUnique({ where: { email: "viewer@example.com" } });
     expect(user?.mustChangePassword).toBe(true);
@@ -488,15 +497,307 @@ describe("/api/trips/[id]/members", () => {
       params: Promise.resolve({ id: trip.id }),
     });
     const payload = (await response.json()) as ApiEnvelope<{
+      owner: { email: string };
       collaborators: { email: string; role: string }[];
     }>;
 
     expect(response.status).toBe(200);
+    // Key-set assertion: the owner row the dialog renders is only possible if `owner` ships with the list.
+    expect(Object.keys(payload.data ?? {}).sort()).toEqual(["collaborators", "owner"]);
+    expect(payload.data?.owner.email).toBe("owner@example.com");
     expect(payload.data?.collaborators).toEqual([
       expect.objectContaining({
         email: "viewer@example.com",
         role: "contributor",
       }),
     ]);
+    // The remove action keys on `id`, so a collaborator without one is a broken row, not a cosmetic gap.
+    expect(Object.keys(payload.data?.collaborators[0] ?? {}).sort()).toEqual(["email", "id", "role"]);
+  });
+
+  describe("DELETE", () => {
+    const seedOwnerWithCollaborator = async (options?: { collaboratorEmail?: string }) => {
+      const owner = await prisma.user.create({
+        data: {
+          email: "owner@example.com",
+          passwordHash: "hashed",
+          role: "OWNER",
+        },
+      });
+      const collaborator = await prisma.user.create({
+        data: {
+          email: options?.collaboratorEmail ?? "viewer@example.com",
+          passwordHash: "hashed",
+          role: "VIEWER",
+        },
+      });
+      const trip = await prisma.trip.create({
+        data: {
+          userId: owner.id,
+          name: "Removal Trip",
+          startDate: new Date("2026-12-01T00:00:00.000Z"),
+          endDate: new Date("2026-12-02T00:00:00.000Z"),
+        },
+      });
+      const membership = await prisma.tripMember.create({
+        data: {
+          tripId: trip.id,
+          userId: collaborator.id,
+          role: "CONTRIBUTOR",
+        },
+      });
+
+      return { owner, collaborator, trip, membership };
+    };
+
+    it("lets the owner remove a collaborator and returns the shortened list", async () => {
+      const { owner, collaborator, trip, membership } = await seedOwnerWithCollaborator();
+      const session = await createSessionJwt({ sub: owner.id, role: owner.role });
+
+      const response = await DELETE(
+        buildRequest(trip.id, {
+          method: "DELETE",
+          session,
+          csrf: "test-csrf-token",
+          body: { memberId: membership.id },
+        }),
+        { params: Promise.resolve({ id: trip.id }) },
+      );
+      const payload = (await response.json()) as ApiEnvelope<{
+        deleted: boolean;
+        collaborators: { id: string; email: string; role: string }[];
+      }>;
+
+      expect(response.status).toBe(200);
+      expect(payload.error).toBeNull();
+      expect(payload.data?.deleted).toBe(true);
+      expect(payload.data?.collaborators).toEqual([]);
+      expect(await prisma.tripMember.findUnique({ where: { id: membership.id } })).toBeNull();
+
+      // Revoking trip access must not delete the person's account.
+      const account = await prisma.user.findUnique({ where: { id: collaborator.id } });
+      expect(account?.email).toBe("viewer@example.com");
+    });
+
+    it("keeps removal owner-only for contributors", async () => {
+      const { collaborator, trip, membership } = await seedOwnerWithCollaborator();
+      const session = await createSessionJwt({ sub: collaborator.id, role: collaborator.role });
+
+      const response = await DELETE(
+        buildRequest(trip.id, {
+          method: "DELETE",
+          session,
+          csrf: "test-csrf-token",
+          body: { memberId: membership.id },
+        }),
+        { params: Promise.resolve({ id: trip.id }) },
+      );
+      const payload = (await response.json()) as ApiEnvelope<null>;
+
+      expect(response.status).toBe(404);
+      expect(payload.error?.code).toBe("not_found");
+      expect(await prisma.tripMember.findUnique({ where: { id: membership.id } })).not.toBeNull();
+    });
+
+    it("rejects unauthenticated removal attempts", async () => {
+      const { trip, membership } = await seedOwnerWithCollaborator();
+
+      const response = await DELETE(
+        buildRequest(trip.id, {
+          method: "DELETE",
+          csrf: "test-csrf-token",
+          body: { memberId: membership.id },
+        }),
+        { params: Promise.resolve({ id: trip.id }) },
+      );
+      const payload = (await response.json()) as ApiEnvelope<null>;
+
+      expect(response.status).toBe(401);
+      expect(payload.error?.code).toBe("unauthorized");
+      expect(await prisma.tripMember.findUnique({ where: { id: membership.id } })).not.toBeNull();
+    });
+
+    it("rejects removal without a CSRF token", async () => {
+      const { owner, trip, membership } = await seedOwnerWithCollaborator();
+      const session = await createSessionJwt({ sub: owner.id, role: owner.role });
+
+      const response = await DELETE(
+        buildRequest(trip.id, {
+          method: "DELETE",
+          session,
+          body: { memberId: membership.id },
+        }),
+        { params: Promise.resolve({ id: trip.id }) },
+      );
+      const payload = (await response.json()) as ApiEnvelope<null>;
+
+      expect(response.status).toBe(403);
+      expect(payload.error?.code).toBe("csrf_invalid");
+      expect(await prisma.tripMember.findUnique({ where: { id: membership.id } })).not.toBeNull();
+    });
+
+    it("returns not found for an unknown member id", async () => {
+      const { owner, trip } = await seedOwnerWithCollaborator();
+      const session = await createSessionJwt({ sub: owner.id, role: owner.role });
+
+      const response = await DELETE(
+        buildRequest(trip.id, {
+          method: "DELETE",
+          session,
+          csrf: "test-csrf-token",
+          body: { memberId: "does-not-exist" },
+        }),
+        { params: Promise.resolve({ id: trip.id }) },
+      );
+      const payload = (await response.json()) as ApiEnvelope<null>;
+
+      expect(response.status).toBe(404);
+      expect(payload.error?.code).toBe("not_found");
+    });
+
+    it("refuses to remove a membership that belongs to a different trip", async () => {
+      const { owner, collaborator, trip } = await seedOwnerWithCollaborator();
+      const otherTrip = await prisma.trip.create({
+        data: {
+          userId: owner.id,
+          name: "Other Trip",
+          startDate: new Date("2026-12-10T00:00:00.000Z"),
+          endDate: new Date("2026-12-11T00:00:00.000Z"),
+        },
+      });
+      const otherMembership = await prisma.tripMember.create({
+        data: {
+          tripId: otherTrip.id,
+          userId: collaborator.id,
+          role: "VIEWER",
+        },
+      });
+      const session = await createSessionJwt({ sub: owner.id, role: owner.role });
+
+      const response = await DELETE(
+        buildRequest(trip.id, {
+          method: "DELETE",
+          session,
+          csrf: "test-csrf-token",
+          body: { memberId: otherMembership.id },
+        }),
+        { params: Promise.resolve({ id: trip.id }) },
+      );
+      const payload = (await response.json()) as ApiEnvelope<null>;
+
+      expect(response.status).toBe(404);
+      expect(payload.error?.code).toBe("not_found");
+      expect(await prisma.tripMember.findUnique({ where: { id: otherMembership.id } })).not.toBeNull();
+    });
+
+    it("refuses to remove a membership on a trip owned by somebody else", async () => {
+      // The case above builds `otherTrip` under the same owner, so it only exercises the `tripId` half
+      // of the delete's `where`. This one puts a different owner behind the membership id.
+      const { owner, collaborator, trip } = await seedOwnerWithCollaborator();
+      const foreignOwner = await prisma.user.create({
+        data: {
+          email: "foreign-owner@example.com",
+          passwordHash: "hashed",
+          role: "OWNER",
+        },
+      });
+      const foreignTrip = await prisma.trip.create({
+        data: {
+          userId: foreignOwner.id,
+          name: "Foreign Trip",
+          startDate: new Date("2026-12-20T00:00:00.000Z"),
+          endDate: new Date("2026-12-21T00:00:00.000Z"),
+        },
+      });
+      const foreignMembership = await prisma.tripMember.create({
+        data: {
+          tripId: foreignTrip.id,
+          userId: collaborator.id,
+          role: "VIEWER",
+        },
+      });
+      const session = await createSessionJwt({ sub: owner.id, role: owner.role });
+
+      const response = await DELETE(
+        buildRequest(trip.id, {
+          method: "DELETE",
+          session,
+          csrf: "test-csrf-token",
+          body: { memberId: foreignMembership.id },
+        }),
+        { params: Promise.resolve({ id: trip.id }) },
+      );
+      const payload = (await response.json()) as ApiEnvelope<null>;
+
+      expect(response.status).toBe(404);
+      expect(payload.error?.code).toBe("not_found");
+      expect(await prisma.tripMember.findUnique({ where: { id: foreignMembership.id } })).not.toBeNull();
+    });
+
+    it("reports a repeated removal as not found rather than a server error", async () => {
+      const { owner, trip, membership } = await seedOwnerWithCollaborator();
+      const session = await createSessionJwt({ sub: owner.id, role: owner.role });
+      const send = async () =>
+        DELETE(
+          buildRequest(trip.id, {
+            method: "DELETE",
+            session,
+            csrf: "test-csrf-token",
+            body: { memberId: membership.id },
+          }),
+          { params: Promise.resolve({ id: trip.id }) },
+        );
+
+      expect((await send()).status).toBe(200);
+
+      const repeat = await send();
+      const payload = (await repeat.json()) as ApiEnvelope<null>;
+
+      expect(repeat.status).toBe(404);
+      expect(payload.error?.code).toBe("not_found");
+    });
+
+    it("rejects a malformed removal body", async () => {
+      const { owner, trip, membership } = await seedOwnerWithCollaborator();
+      const session = await createSessionJwt({ sub: owner.id, role: owner.role });
+
+      const response = await DELETE(
+        buildRequest(trip.id, {
+          method: "DELETE",
+          session,
+          csrf: "test-csrf-token",
+          rawBody: "{ not json",
+        }),
+        { params: Promise.resolve({ id: trip.id }) },
+      );
+      const payload = (await response.json()) as ApiEnvelope<null>;
+
+      expect(response.status).toBe(400);
+      expect(payload.error?.code).toBe("invalid_json");
+      expect(await prisma.tripMember.findUnique({ where: { id: membership.id } })).not.toBeNull();
+    });
+
+    it("rejects a removal with a missing or empty member id", async () => {
+      const { owner, trip, membership } = await seedOwnerWithCollaborator();
+      const session = await createSessionJwt({ sub: owner.id, role: owner.role });
+
+      for (const body of [{}, { memberId: "" }, { memberId: "x".repeat(65) }]) {
+        const response = await DELETE(
+          buildRequest(trip.id, {
+            method: "DELETE",
+            session,
+            csrf: "test-csrf-token",
+            body,
+          }),
+          { params: Promise.resolve({ id: trip.id }) },
+        );
+        const payload = (await response.json()) as ApiEnvelope<null>;
+
+        expect(response.status).toBe(400);
+        expect(payload.error?.code).toBe("validation_error");
+      }
+
+      expect(await prisma.tripMember.findUnique({ where: { id: membership.id } })).not.toBeNull();
+    });
   });
 });

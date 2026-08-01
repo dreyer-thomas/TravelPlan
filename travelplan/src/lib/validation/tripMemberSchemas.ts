@@ -19,3 +19,11 @@ export const createTripMemberSchema = z.object({
 });
 
 export type CreateTripMemberInput = z.infer<typeof createTripMemberSchema>;
+
+export const deleteTripMemberSchema = z.object({
+  // Bounded like its siblings: member ids are fixed-length cuids, so an unbounded string only ever
+  // reaches Prisma as an oversized query parameter.
+  memberId: z.string().trim().min(1).max(64),
+});
+
+export type DeleteTripMemberInput = z.infer<typeof deleteTripMemberSchema>;

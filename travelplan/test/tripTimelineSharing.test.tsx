@@ -105,6 +105,7 @@ describe("TripTimeline sharing", () => {
           status: 200,
           json: async () => ({
             data: {
+              owner: { email: "owner@example.com" },
               collaborators: [],
             },
             error: null,
@@ -119,11 +120,13 @@ describe("TripTimeline sharing", () => {
           json: async () => ({
             data: {
               collaborator: {
+                id: "member-1",
                 email: "viewer@example.com",
                 role: "viewer",
               },
               collaborators: [
                 {
+                  id: "member-1",
                   email: "viewer@example.com",
                   role: "viewer",
                 },
@@ -150,7 +153,7 @@ describe("TripTimeline sharing", () => {
     await userEvent.type(screen.getByLabelText("Email"), "viewer@example.com");
     await userEvent.selectOptions(screen.getByLabelText("Role"), "viewer");
     await userEvent.type(screen.getByLabelText("Temporary password (new accounts only)"), "TempPass123");
-    await userEvent.click(screen.getByRole("button", { name: "Add collaborator" }));
+    await userEvent.click(screen.getByRole("button", { name: "Invite" }));
 
     const collaboratorEmail = await screen.findByText("viewer@example.com");
     expect(collaboratorEmail).toBeInTheDocument();
@@ -207,6 +210,7 @@ describe("TripTimeline sharing", () => {
           status: 200,
           json: async () => ({
             data: {
+              owner: { email: "owner@example.com" },
               collaborators: [],
             },
             error: null,
@@ -224,11 +228,13 @@ describe("TripTimeline sharing", () => {
               data: {
                 accountAction: "linked_existing_account",
                 collaborator: {
+                  id: "member-2",
                   email: "existing@example.com",
                   role: "contributor",
                 },
                 collaborators: [
                   {
+                    id: "member-2",
                     email: "existing@example.com",
                     role: "contributor",
                   },
@@ -269,7 +275,7 @@ describe("TripTimeline sharing", () => {
 
     await userEvent.type(within(dialog).getByLabelText("Email"), "existing@example.com");
     await userEvent.selectOptions(within(dialog).getByLabelText("Role"), "contributor");
-    await userEvent.click(within(dialog).getByRole("button", { name: "Add collaborator" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Invite" }));
 
     expect(await within(dialog).findByText("Collaborator linked successfully.")).toBeInTheDocument();
     const existingCollaborator = within(dialog).getByText("existing@example.com");
@@ -278,7 +284,7 @@ describe("TripTimeline sharing", () => {
 
     await userEvent.type(within(dialog).getByLabelText("Email"), "existing@example.com");
     await userEvent.selectOptions(within(dialog).getByLabelText("Role"), "contributor");
-    await userEvent.click(within(dialog).getByRole("button", { name: "Add collaborator" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Invite" }));
 
     expect(await within(dialog).findByText("This person is already linked to the trip.")).toBeInTheDocument();
 
@@ -333,6 +339,7 @@ describe("TripTimeline sharing", () => {
           status: 200,
           json: async () => ({
             data: {
+              owner: { email: "owner@example.com" },
               collaborators: [],
             },
             error: null,
@@ -373,13 +380,13 @@ describe("TripTimeline sharing", () => {
     const dialog = await screen.findByRole("dialog", { name: "Share trip" });
 
     await userEvent.type(within(dialog).getByLabelText("Email"), "owner@example.com");
-    await userEvent.click(within(dialog).getByRole("button", { name: "Add collaborator" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Invite" }));
 
     expect(await within(dialog).findByText("You cannot add the trip owner's email as a collaborator.")).toBeInTheDocument();
 
     await userEvent.clear(within(dialog).getByLabelText("Email"));
     await userEvent.type(within(dialog).getByLabelText("Email"), "viewer@example.com");
-    await userEvent.click(within(dialog).getByRole("button", { name: "Add collaborator" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Invite" }));
 
     expect(await within(dialog).findByText("Unable to add collaborator. Please try again.")).toBeInTheDocument();
 

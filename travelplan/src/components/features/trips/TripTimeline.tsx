@@ -881,7 +881,12 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
             onClose={handleDeleteClose}
             onDeleted={handleDeleted}
           />
-          <TripShareDialog open={shareOpen} tripId={detail.trip.id} onClose={() => setShareOpen(false)} />
+          <TripShareDialog
+            open={shareOpen}
+            tripId={detail.trip.id}
+            tripName={detail.trip.name}
+            onClose={() => setShareOpen(false)}
+          />
           <TripImportDialog open={importOpen} tripId={detail.trip.id} onClose={() => setImportOpen(false)} onImported={handleImported} />
         </>
       )}

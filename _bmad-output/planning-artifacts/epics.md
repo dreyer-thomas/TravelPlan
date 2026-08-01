@@ -1736,3 +1736,74 @@ So that the overview reads as one consistent surface end-to-end instead of trail
 **Given** existing bucket-list functionality (add, edit, delete, add-to-day-plan) and trip controls (edit, delete)
 **When** the redesigned sections render
 **Then** all of it continues to work unchanged, including owner/contributor/viewer gating — apart from the import/export removal, this story is visual only
+
+### Story 7.9: Full-Page Map Screens Redesign — Day Route Map and Trip Route Map
+
+As a trip planner,
+I want the two full-page map screens — the day route map and the whole-trip route map — to match the approved design,
+So that enlarging a map keeps me inside the same product instead of dropping me onto a dark, pre-redesign screen.
+
+**FRs covered:** FR26 (the day-map screen traces to Story 3.5/2.28 and carries no dedicated FR of its own)
+
+**Context:** These are the last two unredesigned screens in the app. Neither has a mockup — `DESIGN.md`'s source-mockup list covers Screens A–H only, and `EXPERIENCE.md`'s Information Architecture states the day map is "an embedded panel inside Day Detail's sidebar, **not** a separate surface or route", because both full-map routes (Stories 2.28 and 3.6) predate the design pass. This story therefore derives both screens from patterns already shipped — the `card` shell, the `label-caps` card-label, the token page shell, and the redesigned preview panels (`TripDayMapPanel.tsx`, `TripOverviewMapPanel.tsx`) that these screens are the enlargement of — and introduces no new visual language. The two screens are one story rather than two because they share `TripDayMapBackButton.tsx`, whose hardcoded light text (`#f3f6fb`) is readable only against the hardcoded dark page shell; restyling either screen alone leaves the other with invisible back-navigation.
+
+**Acceptance Criteria:**
+
+**Given** both map pages hardcode `backgroundColor: "#2f343d"` — a dark slate absent from the token palette, so enlarging a map inverts the app's entire value scheme mid-flow
+**When** each page shell is restyled
+**Then** both use the same token page shell as the screen they were opened from (`trips/[id]/page.tsx` and `trips/[id]/days/[dayId]/page.tsx`), and no hardcoded hex value remains in either page component
+
+**Given** `TripDayMapBackButton.tsx` is shared by both pages and hardcodes `color: "#f3f6fb"` on a bare unpadded text `Button`
+**When** it is restyled
+**Then** it uses token colors and meets the 44×44px touch-target floor, and continues to preserve its existing `history.length` back-vs-push behavior
+**And** the day-map page's label is corrected: it currently renders `trips.dayView.back` ("← Back to trip") while actually navigating to the day, not the trip — the copy must name where the button goes
+
+**Given** each screen wraps its map in `Paper elevation={1} sx={{ p: 3, borderRadius: 3 }}`, a 24px-radius elevated surface against the 8px flat-bordered `card` idiom used everywhere else
+**When** each is restyled
+**Then** the container matches the `card` treatment (`tokens.card`, `tokens.borderStrong`, 8px radius, `card-padding`) using a `Box` rather than a `Paper`, per the `MuiPaper` border-override constraint established in Stories 7.3 and 7.8
+**And** the map title moves from `Typography variant="h6"` to the `label-caps` card-label in `tokens.inkSoft` — each screen renders the same i18n string as the preview panel it enlarges (`trips.dayView.mapTitle`, `trips.overviewMap.title`), so the two must not render it in two different type styles
+
+**Given** the missing-location list, the routing-unavailable notice, and the no-locations empty state on each screen
+**When** they are restyled
+**Then** each matches the treatment already shipped in its corresponding preview panel rather than introducing a second one, and the raw `borderColor: "divider"` in the empty state is replaced with `tokens.border`
+
+**Given** the marker-detail dialog and the fullscreen photo viewer rendered by both screens
+**When** the screens are redesigned
+**Then** they are left to inherit Story 7.1's theme-level `MuiDialog` overrides and are **not** restyled here — dialog surfaces belong to Story 7.7, and the `MiniImageStrip` keyboard-access defect recorded in `deferred-work.md` stays deferred rather than being folded into a visual story
+
+**Given** existing functionality on both screens (route polyline with Google-routing fallback, clickable place markers, missing-location reporting, accommodation and plan-item image loading)
+**When** the screens are redesigned
+**Then** all of it continues to work unchanged — this story is visual only
+
+### Story 7.10: Node 24 LTS Runtime Upgrade — CI, Local, and Server
+
+As the maintainer of TravelPlan,
+I want CI, my development machine, and the deployment server moved from end-of-life Node 20 to Node 24 LTS in one coordinated change,
+So that the runtime under the app keeps receiving security patches — a gap the 0-vulnerability `npm audit` gate is structurally unable to see.
+
+**FRs covered:** None (infrastructure; closes a security exposure the CI gate cannot detect)
+
+**Context:** The only non-visual story in Epic 7, sequenced last on purpose. Node 20 reached end-of-life around Apr 2026 and no longer receives security patches, but `npm audit` scans *packages* and not the runtime beneath them — so the 0-vulnerability gate added in `a27f8f5` reports green while sitting on an unpatched runtime. Compatibility was verified statically at baseline `b18997c`: of 405 `engines.node` declarations in the installed tree, **zero** are incompatible with Node 24 (Node 20 has one — `@prisma/streams-local@0.1.11` requires `>=22.0.0`), and `better-sqlite3@12.6.2` publishes `node-v137` ABI prebuilds for both `linux-x64` and `darwin-arm64`. Node 24 rather than 22 because 22 left Active LTS in Oct 2025 and would need repeating in spring 2027. A bump landed mid-epic would put a variable underneath in-flight UI work, which is why this waits for 7.9. Separate from and downstream of `b18997c`, which fixed the audit gate's `npm ci` failure and cleared the GitHub Actions node20 action-runtime deprecation without changing `node-version`.
+
+**Acceptance Criteria:**
+
+**Given** both workflow files pin `node-version: 20`
+**When** the upgrade lands
+**Then** `.github/workflows/security-audit.yml` and `.github/workflows/migration-guard.yml` both specify `node-version: 24` and both pass on `main`
+**And** the `--ignore-scripts` flag on the audit job's `npm ci` is left in place — it is unrelated to the Node version and exists because `postinstall` → `prisma generate` needs a `DATABASE_URL` that CI does not have
+
+**Given** the test suite and `next build` both succeed on Node 20 at baseline
+**When** each is run on Node 24 against a `node_modules` tree reinstalled from the lockfile
+**Then** the suite passes with the same test count and the build succeeds, including the `prisma generate` postinstall hook and Next.js 16 SWC binary resolution
+
+**Given** `better-sqlite3` is a native module compiled against Node's ABI
+**When** dependencies are installed on Node 24 on both `darwin-arm64` and `linux-x64`
+**Then** the prebuilt binary is downloaded rather than compiled from source, and SQLite-backed Prisma queries work at runtime — verified by loading a trip and a day view, not by a successful install alone
+
+**Given** the deployment server also hosts a second application that runs on Node 20
+**When** TravelPlan is moved to Node 24
+**Then** Node 24 is installed alongside Node 20 and only TravelPlan's service is repointed at it, the system-wide default `node` is unchanged, and the second application continues running
+
+**Given** `docs/deployment-guide.md` and `docs/deployment-configuration.md` are both 9-line TBD placeholders, and no `Dockerfile`, `docker-compose`, `.nvmrc`, or `.node-version` exists anywhere in the repo
+**When** the server work requires discovering the actual process manager, service names, and install paths
+**Then** both documents are filled in with what was found, including which application runs on which Node version — this is the first task in the project's history that requires knowing any of it
