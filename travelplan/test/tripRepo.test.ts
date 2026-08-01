@@ -1,5 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import fs from "node:fs/promises";
+import path from "node:path";
 import { prisma } from "@/lib/db/prisma";
+import {
+  getAccommodationImageUploadDir,
+  getDayPlanItemImageUploadDir,
+  getTripUploadDir,
+  getTripsUploadRoot,
+} from "@/lib/trips/uploadPaths";
 import {
   createTripWithDays,
   deleteTripForUser,
@@ -11,6 +19,7 @@ import {
   updateTripWithDays,
 } from "@/lib/repositories/tripRepo";
 import type { TripImportPayloadInput } from "@/lib/validation/tripImportSchemas";
+import { writeUploadFile } from "./helpers/uploadFixtures";
 
 const VALID_RANGE = {
   startDate: "2026-04-01T00:00:00.000Z",
@@ -81,10 +90,13 @@ const IMPORT_PAYLOAD: TripImportPayloadInput = {
 };
 
 describe("tripRepo", () => {
+  const uploadsRoot = getTripsUploadRoot();
+
   beforeEach(async () => {
     await prisma.tripDay.deleteMany();
     await prisma.trip.deleteMany();
     await prisma.user.deleteMany();
+    await fs.rm(uploadsRoot, { recursive: true, force: true });
   });
 
   it("does not create days when trip creation fails", async () => {
@@ -199,7 +211,7 @@ describe("tripRepo", () => {
       },
     });
 
-    await prisma.accommodation.create({
+    const stay = await prisma.accommodation.create({
       data: {
         tripDayId: day1.id,
         name: "Dockside Hotel",
@@ -214,7 +226,7 @@ describe("tripRepo", () => {
         locationLabel: "Dockside",
       },
     });
-    await prisma.dayPlanItem.create({
+    const planItem = await prisma.dayPlanItem.create({
       data: {
         tripDayId: day1.id,
         contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Museum" }] }] }),
@@ -234,7 +246,59 @@ describe("tripRepo", () => {
       },
     });
 
-    const exported = await getTripExportForUser(user.id, trip.id);
+    await prisma.travelSegment.create({
+      data: {
+        tripDayId: day1.id,
+        fromItemType: "ACCOMMODATION",
+        fromItemId: stay.id,
+        toItemType: "DAY_PLAN_ITEM",
+        toItemId: planItem.id,
+        transportType: "CAR",
+        durationMinutes: 20,
+        distanceKm: 4.2,
+        linkUrl: null,
+      },
+    });
+    // Inserted out of alphabetical order to pin `title asc, createdAt asc, id asc`.
+    await prisma.tripBucketListItem.create({
+      data: { tripId: trip.id, title: "Rooftop bar", description: "Sunset", positionText: "Centre" },
+    });
+    await prisma.tripBucketListItem.create({
+      data: {
+        tripId: trip.id,
+        title: "Botanical garden",
+        locationLat: 48.15,
+        locationLng: 11.5,
+        locationLabel: "North park",
+      },
+    });
+
+    // Real files, so the pool and `photoFiles` are exercised end to end. The day image URL above is
+    // deliberately left pointing at a foreign trip directory - it must stay unpooled and warn.
+    await writeUploadFile(getTripUploadDir(trip.id), "hero.jpg", "hero-bytes");
+    await writeUploadFile(getAccommodationImageUploadDir(trip.id, day1.id, stay.id), "stay.webp", "stay-bytes");
+    await writeUploadFile(getDayPlanItemImageUploadDir(trip.id, day1.id, planItem.id), "plan.png", "plan-bytes");
+    await prisma.trip.update({
+      where: { id: trip.id },
+      data: { heroImageUrl: `/uploads/trips/${trip.id}/hero.jpg` },
+    });
+    await prisma.accommodationImage.create({
+      data: {
+        accommodationId: stay.id,
+        imageUrl: `/uploads/trips/${trip.id}/days/${day1.id}/accommodations/${stay.id}/stay.webp`,
+        sortOrder: 0,
+      },
+    });
+    await prisma.dayPlanItemImage.create({
+      data: {
+        dayPlanItemId: planItem.id,
+        imageUrl: `/uploads/trips/${trip.id}/days/${day1.id}/day-plan-items/${planItem.id}/plan.png`,
+        sortOrder: 0,
+      },
+    });
+
+    const exportResult = await getTripExportForUser(user.id, trip.id);
+    const exported = exportResult?.payload ?? null;
 
     expect(exported).not.toBeNull();
     expect(exported?.trip.id).toBe(trip.id);
@@ -274,6 +338,382 @@ describe("tripRepo", () => {
     expect(exported?.days[1].dayPlanItems).toHaveLength(1);
     expect(exported?.days[1].dayPlanItems[0].payments).toEqual([]);
     expect(exported?.days[1].dayPlanItems[0].location).toBeNull();
+
+    // --- v2 additions -------------------------------------------------------------------------
+
+    // Pool keys follow the traversal: hero, then day by day (day image, accommodation gallery, plan
+    // item galleries). The day image points at a foreign trip directory, so it never earns a key.
+    expect(exported?.photos).toEqual({
+      p1: { contentType: "image/jpeg", archivePath: "photos/p1.jpg" },
+      p2: { contentType: "image/webp", archivePath: "photos/p2.webp" },
+      p3: { contentType: "image/png", archivePath: "photos/p3.png" },
+    });
+    expect(exportResult?.photoFiles.map((photo) => photo.archivePath)).toEqual([
+      "photos/p1.jpg",
+      "photos/p2.webp",
+      "photos/p3.png",
+    ]);
+    // `filePath` is a realpath - it is what the pool dedupes aliases on - so compare it in the same
+    // terms rather than against the lexical path (macOS resolves `/var` to `/private/var`).
+    expect(exportResult?.photoFiles[0].filePath).toBe(
+      await fs.realpath(path.join(getTripUploadDir(trip.id), "hero.jpg")),
+    );
+
+    expect(exported?.trip.heroPhotoId).toBe("p1");
+    expect(exported?.trip.heroImageUrl).toBe(`/uploads/trips/${trip.id}/hero.jpg`);
+    expect(exported?.days[0].imagePhotoId).toBeNull();
+    expect(exported?.days[1].imagePhotoId).toBeNull();
+    expect(exported?.days[0].accommodation?.images).toEqual([{ sortOrder: 0, photoId: "p2" }]);
+    expect(exported?.days[0].dayPlanItems[0].images).toEqual([{ sortOrder: 0, photoId: "p3" }]);
+    expect(exported?.days[1].dayPlanItems[0].images).toEqual([]);
+
+    expect(exported?.warnings).toHaveLength(1);
+    expect(exported?.warnings[0]).toContain("/uploads/trips/export-trip/days/day-1/day.webp");
+
+    expect(exported?.trip.bucketListItems.map((item) => item.title)).toEqual([
+      "Botanical garden",
+      "Rooftop bar",
+    ]);
+    expect(exported?.trip.bucketListItems[0]).toEqual(
+      expect.objectContaining({
+        description: null,
+        positionText: null,
+        location: { lat: 48.15, lng: 11.5, label: "North park" },
+      })
+    );
+    expect(exported?.trip.bucketListItems[1]).toEqual(
+      expect.objectContaining({ description: "Sunset", positionText: "Centre", location: null })
+    );
+
+    expect(exported?.days[1].travelSegments).toEqual([]);
+    expect(exported?.days[0].travelSegments).toHaveLength(1);
+    expect(exported?.days[0].travelSegments[0]).toEqual(
+      expect.objectContaining({
+        fromItemType: "accommodation",
+        // Endpoint ids are the exported record ids - Story 2.32 remaps against exactly these.
+        fromItemId: exported?.days[0].accommodation?.id,
+        toItemType: "dayPlanItem",
+        toItemId: exported?.days[0].dayPlanItems[0].id,
+        transportType: "car",
+        durationMinutes: 20,
+        distanceKm: 4.2,
+        linkUrl: null,
+      })
+    );
+  });
+
+  it("pools one entry per distinct file when the same photo is referenced twice", async () => {
+    const user = await prisma.user.create({
+      data: {
+        email: "trip-export-dedupe@example.com",
+        passwordHash: "hashed",
+        role: "OWNER",
+      },
+    });
+
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Dedupe Export",
+      startDate: "2026-11-01T00:00:00.000Z",
+      endDate: "2026-11-01T00:00:00.000Z",
+    });
+    const [day] = await prisma.tripDay.findMany({ where: { tripId: trip.id } });
+    const stay = await prisma.accommodation.create({
+      data: { tripDayId: day.id, name: "Shared Photo Hotel" },
+    });
+
+    await writeUploadFile(getAccommodationImageUploadDir(trip.id, day.id, stay.id), "shared.jpg", "shared");
+    const sharedUrl = `/uploads/trips/${trip.id}/days/${day.id}/accommodations/${stay.id}/shared.jpg`;
+    await prisma.accommodationImage.createMany({
+      data: [
+        { accommodationId: stay.id, imageUrl: sharedUrl, sortOrder: 0 },
+        { accommodationId: stay.id, imageUrl: sharedUrl, sortOrder: 1 },
+      ],
+    });
+
+    const exportResult = await getTripExportForUser(user.id, trip.id);
+
+    expect(Object.keys(exportResult?.payload.photos ?? {})).toEqual(["p1"]);
+    expect(exportResult?.photoFiles).toHaveLength(1);
+    expect(exportResult?.payload.days[0].accommodation?.images).toEqual([
+      { sortOrder: 0, photoId: "p1" },
+      { sortOrder: 1, photoId: "p1" },
+    ]);
+  });
+
+  it("refuses to pool a stored path that resolves outside the trip's own upload directory", async () => {
+    const user = await prisma.user.create({
+      data: {
+        email: "trip-export-containment@example.com",
+        passwordHash: "hashed",
+        role: "OWNER",
+      },
+    });
+
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Containment Export",
+      startDate: "2026-11-01T00:00:00.000Z",
+      endDate: "2026-11-01T00:00:00.000Z",
+    });
+    const [day] = await prisma.tripDay.findMany({ where: { tripId: trip.id } });
+
+    // A sibling directory whose name merely starts with this trip's id must not pass the prefix test.
+    await writeUploadFile(`${getTripUploadDir(trip.id)}-evil`, "evil.jpg", "evil");
+    await writeUploadFile(uploadsRoot, "escape.png", "escaped");
+
+    await prisma.trip.update({
+      where: { id: trip.id },
+      data: { heroImageUrl: `/uploads/trips/${trip.id}-evil/evil.jpg` },
+    });
+    await prisma.tripDay.update({
+      where: { id: day.id },
+      data: { imageUrl: `/uploads/trips/${trip.id}/../../escape.png` },
+    });
+
+    const exportResult = await getTripExportForUser(user.id, trip.id);
+
+    expect(exportResult?.payload.photos).toEqual({});
+    expect(exportResult?.photoFiles).toEqual([]);
+    expect(exportResult?.payload.trip.heroPhotoId).toBeNull();
+    expect(exportResult?.payload.days[0].imagePhotoId).toBeNull();
+    // The v1 fields keep their stored value regardless.
+    expect(exportResult?.payload.trip.heroImageUrl).toBe(`/uploads/trips/${trip.id}-evil/evil.jpg`);
+    expect(exportResult?.payload.days[0].imageUrl).toBe(`/uploads/trips/${trip.id}/../../escape.png`);
+    expect(exportResult?.payload.warnings).toHaveLength(2);
+  });
+
+  it("refuses to pool a symlink inside the trip directory that points outside it", async () => {
+    const user = await prisma.user.create({
+      data: {
+        email: "trip-export-symlink@example.com",
+        passwordHash: "hashed",
+        role: "OWNER",
+      },
+    });
+
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Symlink Export",
+      startDate: "2026-11-01T00:00:00.000Z",
+      endDate: "2026-11-01T00:00:00.000Z",
+    });
+
+    // The lexical containment check passes for this URL - the link itself lives inside the trip's
+    // own directory. Only realpath sees that reading it would hand the caller a file it does not own.
+    await writeUploadFile(uploadsRoot, "outside-secret.jpg", "secret-bytes");
+    const tripDir = getTripUploadDir(trip.id);
+    await fs.mkdir(tripDir, { recursive: true });
+    await fs.symlink(path.join(uploadsRoot, "outside-secret.jpg"), path.join(tripDir, "hero.jpg"));
+
+    await prisma.trip.update({
+      where: { id: trip.id },
+      data: { heroImageUrl: `/uploads/trips/${trip.id}/hero.jpg` },
+    });
+
+    const exportResult = await getTripExportForUser(user.id, trip.id);
+
+    expect(exportResult?.payload.photos).toEqual({});
+    expect(exportResult?.photoFiles).toEqual([]);
+    expect(exportResult?.payload.trip.heroPhotoId).toBeNull();
+    expect(exportResult?.payload.warnings).toHaveLength(1);
+  });
+
+  it("warns when a gallery entry is dropped, because a gallery ref carries no fallback URL", async () => {
+    const user = await prisma.user.create({
+      data: {
+        email: "trip-export-gallery-warn@example.com",
+        passwordHash: "hashed",
+        role: "OWNER",
+      },
+    });
+
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Gallery Warning Export",
+      startDate: "2026-11-01T00:00:00.000Z",
+      endDate: "2026-11-01T00:00:00.000Z",
+    });
+    const [day] = await prisma.tripDay.findMany({ where: { tripId: trip.id } });
+    const stay = await prisma.accommodation.create({
+      data: { tripDayId: day.id, name: "External Photo Hotel" },
+    });
+
+    // An external URL is legal in this schema, is never fetched, and - unlike a hero or day image -
+    // has no surviving v1 field on a gallery ref. Without a warning it would vanish without trace.
+    await prisma.accommodationImage.create({
+      data: { accommodationId: stay.id, imageUrl: "https://cdn.example.com/lobby.jpg", sortOrder: 3 },
+    });
+
+    const exportResult = await getTripExportForUser(user.id, trip.id);
+
+    expect(exportResult?.payload.photos).toEqual({});
+    expect(exportResult?.payload.days[0].accommodation?.images).toEqual([]);
+    expect(exportResult?.payload.warnings).toEqual([
+      "Dropped gallery image at sortOrder 3 that could not be archived: https://cdn.example.com/lobby.jpg",
+    ]);
+  });
+
+  it("reports every gallery slot lost to one bad url, not just the first", async () => {
+    const user = await prisma.user.create({
+      data: {
+        email: "trip-export-gallery-repeat@example.com",
+        passwordHash: "hashed",
+        role: "OWNER",
+      },
+    });
+
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Repeated Bad Gallery Export",
+      startDate: "2026-11-01T00:00:00.000Z",
+      endDate: "2026-11-01T00:00:00.000Z",
+    });
+    const [day] = await prisma.tripDay.findMany({ where: { tripId: trip.id } });
+    const stay = await prisma.accommodation.create({
+      data: { tripDayId: day.id, name: "Repeated Photo Hotel" },
+    });
+
+    // Nothing forbids one url occupying several slots - `AccommodationImage` is unique on
+    // `(accommodationId, sortOrder)`. Warnings deduped per url alone would name slot 0 and let
+    // slot 1 disappear silently, which is the one thing a gallery ref cannot afford: it carries no
+    // fallback url of its own.
+    for (const sortOrder of [0, 1]) {
+      await prisma.accommodationImage.create({
+        data: { accommodationId: stay.id, imageUrl: "https://cdn.example.com/lobby.jpg", sortOrder },
+      });
+    }
+    // A missing local file is reported once by the pool resolver for the row that discovered it,
+    // then per slot for every later row - one line per lost slot either way, never zero.
+    const missingUrl = `/uploads/trips/${trip.id}/gone.jpg`;
+    for (const sortOrder of [2, 3]) {
+      await prisma.accommodationImage.create({
+        data: { accommodationId: stay.id, imageUrl: missingUrl, sortOrder },
+      });
+    }
+
+    const exportResult = await getTripExportForUser(user.id, trip.id);
+
+    expect(exportResult?.payload.days[0].accommodation?.images).toEqual([]);
+    expect(exportResult?.payload.warnings).toEqual([
+      "Dropped gallery image at sortOrder 0 that could not be archived: https://cdn.example.com/lobby.jpg",
+      "Dropped gallery image at sortOrder 1 that could not be archived: https://cdn.example.com/lobby.jpg",
+      `Skipped image whose file is missing on disk: ${missingUrl}`,
+      `Dropped gallery image at sortOrder 3 that could not be archived: ${missingUrl}`,
+    ]);
+  });
+
+  it("pools one entry when two urls alias the same file through a symlink inside the trip", async () => {
+    const user = await prisma.user.create({
+      data: {
+        email: "trip-export-alias@example.com",
+        passwordHash: "hashed",
+        role: "OWNER",
+      },
+    });
+
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Alias Export",
+      startDate: "2026-11-01T00:00:00.000Z",
+      endDate: "2026-11-01T00:00:00.000Z",
+    });
+    const [day] = await prisma.tripDay.findMany({ where: { tripId: trip.id } });
+
+    // Both urls resolve inside the trip's directory, so both are legitimately archivable - but they
+    // are the same bytes. Deduping on the lexical path would write the file into the archive twice
+    // under two pool ids; the pool dedupes on the realpath so the aliases collapse.
+    const tripDir = getTripUploadDir(trip.id);
+    await writeUploadFile(tripDir, "hero.jpg", "hero-bytes");
+    await fs.symlink(path.join(tripDir, "hero.jpg"), path.join(tripDir, "alias.jpg"));
+
+    await prisma.trip.update({
+      where: { id: trip.id },
+      data: { heroImageUrl: `/uploads/trips/${trip.id}/hero.jpg` },
+    });
+    await prisma.tripDay.update({
+      where: { id: day.id },
+      data: { imageUrl: `/uploads/trips/${trip.id}/alias.jpg` },
+    });
+
+    const exportResult = await getTripExportForUser(user.id, trip.id);
+
+    expect(Object.keys(exportResult?.payload.photos ?? {})).toEqual(["p1"]);
+    expect(exportResult?.photoFiles).toHaveLength(1);
+    expect(exportResult?.payload.trip.heroPhotoId).toBe("p1");
+    expect(exportResult?.payload.days[0].imagePhotoId).toBe("p1");
+    expect(exportResult?.payload.warnings).toEqual([]);
+  });
+
+  it("falls back to a binary content type for an extension outside the upload allow-list", async () => {
+    const user = await prisma.user.create({
+      data: {
+        email: "trip-export-extension@example.com",
+        passwordHash: "hashed",
+        role: "OWNER",
+      },
+    });
+
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Extension Export",
+      startDate: "2026-11-01T00:00:00.000Z",
+      endDate: "2026-11-01T00:00:00.000Z",
+    });
+    const [day] = await prisma.tripDay.findMany({ where: { tripId: trip.id } });
+
+    await writeUploadFile(getTripUploadDir(trip.id), "hero.gif", "gif-bytes");
+    await writeUploadFile(getTripUploadDir(trip.id), "plain", "no-extension-bytes");
+
+    await prisma.trip.update({
+      where: { id: trip.id },
+      data: { heroImageUrl: `/uploads/trips/${trip.id}/hero.gif` },
+    });
+    await prisma.tripDay.update({
+      where: { id: day.id },
+      data: { imageUrl: `/uploads/trips/${trip.id}/plain` },
+    });
+
+    const exportResult = await getTripExportForUser(user.id, trip.id);
+
+    expect(exportResult?.payload.photos).toEqual({
+      p1: { contentType: "application/octet-stream", archivePath: "photos/p1.bin" },
+      p2: { contentType: "application/octet-stream", archivePath: "photos/p2.bin" },
+    });
+    expect(exportResult?.payload.trip.heroPhotoId).toBe("p1");
+    expect(exportResult?.payload.days[0].imagePhotoId).toBe("p2");
+    expect(exportResult?.payload.warnings).toEqual([]);
+  });
+
+  it("skips a stored path that resolves to a directory rather than a regular file", async () => {
+    const user = await prisma.user.create({
+      data: {
+        email: "trip-export-directory@example.com",
+        passwordHash: "hashed",
+        role: "OWNER",
+      },
+    });
+
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Directory Export",
+      startDate: "2026-11-01T00:00:00.000Z",
+      endDate: "2026-11-01T00:00:00.000Z",
+    });
+
+    await fs.mkdir(path.join(getTripUploadDir(trip.id), "hero.jpg"), { recursive: true });
+    await prisma.trip.update({
+      where: { id: trip.id },
+      data: { heroImageUrl: `/uploads/trips/${trip.id}/hero.jpg` },
+    });
+
+    const exportResult = await getTripExportForUser(user.id, trip.id);
+
+    expect(exportResult?.payload.photos).toEqual({});
+    expect(exportResult?.payload.trip.heroPhotoId).toBeNull();
+    expect(exportResult?.payload.warnings).toEqual([
+      `Skipped image that is not a regular file: /uploads/trips/${trip.id}/hero.jpg`,
+    ]);
   });
 
   it("builds a printable day payload with previous stay, travel segments, route points, and image metadata", async () => {
@@ -610,7 +1050,8 @@ describe("tripRepo", () => {
       ],
     });
 
-    const exported = await getTripExportForUser(user.id, trip.id);
+    const exportResult = await getTripExportForUser(user.id, trip.id);
+    const exported = exportResult?.payload ?? null;
 
     expect(exported).not.toBeNull();
     expect(exported?.days.map((day) => `${day.dayIndex}-${day.date}`)).toEqual([
@@ -665,7 +1106,8 @@ describe("tripRepo", () => {
       ],
     });
 
-    const exported = await getTripExportForUser(user.id, trip.id);
+    const exportResult = await getTripExportForUser(user.id, trip.id);
+    const exported = exportResult?.payload ?? null;
 
     expect(exported?.days[0].dayPlanItems[0].payments).toEqual([
       { amountCents: 2000, dueDate: "2026-12-01" },

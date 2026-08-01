@@ -1,10 +1,15 @@
 ---
 authored_against: 1ac8c5f
+baseline_revision: 4dfef44f7cf5cffb84142ee86dd08bf64e62a608
+review_loop_iteration: 0
+followup_review_recommended: false
+final_revision: ab871d592272af75adb7d85f712b8c5a2a6327c6
+status: done
 ---
 
 # Story 2.31: Complete Trip Backup Export With Photos, Travel Segments, and Bucket List
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -27,62 +32,62 @@ so that I have a fully self-contained backup that does not depend on the origina
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Write the ZIP writer** (AC: 1, 7)
-  - [ ] New file `src/lib/trips/zipArchive.ts`. Export `createZipStream(entries: ZipEntry[], modifiedAt: Date): ReadableStream<Uint8Array>` where `ZipEntry = { name: string; source: { kind: "buffer"; data: Buffer } | { kind: "file"; path: string } }`.
-  - [ ] Compression method **0 (STORE) only**. Photos are already-compressed JPEG/PNG/WebP; deflating them buys nothing and adds a failure mode. `compressedSize === uncompressedSize` for every entry.
-  - [ ] CRC-32 comes from `zlib.crc32(buffer)` (`node:zlib`). It is present and typed on the pinned toolchain — verified against Node 20.19.2 / `@types/node` 20.19.43, and it survives the Node 24 bump in Story 8.1. **Do not hand-roll a CRC table.**
-  - [ ] Byte layout — get these exact, a wrong offset produces an archive that some tools open and others reject:
+- [x] **Task 1 — Write the ZIP writer** (AC: 1, 7)
+  - [x] New file `src/lib/trips/zipArchive.ts`. Export `createZipStream(entries: ZipEntry[], modifiedAt: Date): ReadableStream<Uint8Array>` where `ZipEntry = { name: string; source: { kind: "buffer"; data: Buffer } | { kind: "file"; path: string } }`.
+  - [x] Compression method **0 (STORE) only**. Photos are already-compressed JPEG/PNG/WebP; deflating them buys nothing and adds a failure mode. `compressedSize === uncompressedSize` for every entry.
+  - [x] CRC-32 comes from `zlib.crc32(buffer)` (`node:zlib`). It is present and typed on the pinned toolchain — verified against Node 20.19.2 / `@types/node` 20.19.43, and it survives the Node 24 bump in Story 8.1. **Do not hand-roll a CRC table.**
+  - [x] Byte layout — get these exact, a wrong offset produces an archive that some tools open and others reject:
     - Local file header, 30 bytes + name: `0` sig `0x04034b50`; `4` versionNeeded `20`; `6` flags `0x0800`; `8` method `0`; `10` dosTime; `12` dosDate; `14` crc32; `18` compressedSize; `22` uncompressedSize; `26` nameLength; `28` extraLength `0`; then the UTF-8 name bytes, then the file bytes.
     - Central directory header, 46 bytes + name: `0` sig `0x02014b50`; `4` versionMadeBy `20`; `6` versionNeeded `20`; `8` flags `0x0800`; `10` method `0`; `12` dosTime; `14` dosDate; `16` crc32; `20` compressedSize; `24` uncompressedSize; `28` nameLength; `30` extraLength `0`; `32` commentLength `0`; `34` diskStart `0`; `36` internalAttrs `0`; `38` externalAttrs `0`; `42` localHeaderOffset; then the name bytes.
     - End of central directory, 22 bytes: `0` sig `0x06054b50`; `4` diskNumber `0`; `6` cdStartDisk `0`; `8` entriesThisDisk; `10` entriesTotal; `12` cdSize; `16` cdOffset; `20` commentLength `0`.
     - All multi-byte integers little-endian (`Buffer#writeUInt16LE` / `writeUInt32LE`).
-  - [ ] DOS timestamp from `modifiedAt`, read in **UTC** so the output does not shift with the server's timezone: `dosTime = (h << 11) | (min << 5) | (sec >> 1)`, `dosDate = ((year - 1980) << 9) | (month << 5) | day` with `month` 1-12. Clamp `year` to `>= 1980` — the DOS epoch cannot represent anything earlier.
-  - [ ] Entry names use forward slashes, no leading slash, no `.` or `..` segments. Flag bit 11 (`0x0800`) declares the names UTF-8.
-  - [ ] **Stream, one file buffered at a time.** For a `file` source, `fs.readFile` it, compute its CRC, emit local header + bytes, then drop the buffer before starting the next entry. STORE requires the CRC and size *before* the header, so each file must be fully read — but never more than one at a time. Buffering the whole archive would put a 5 MB × image-count spike on a self-hosted box.
-  - [ ] **No ZIP64.** Guard before streaming: throw if any entry is `>= 0xFFFFFFFF` bytes, if the running local-header offset would reach `0xFFFFFFFF`, or if there are more than `0xFFFF` entries. Unreachable in practice under the 5 MB per-image cap, but a silent overflow writes a corrupt archive.
-  - [ ] Omit `Content-Length` at the route (Task 4). Sizes are knowable from `fs.stat` up front, but a file that changes between stat and read would make the declared length a lie; chunked transfer is correct and costs nothing here.
+  - [x] DOS timestamp from `modifiedAt`, read in **UTC** so the output does not shift with the server's timezone: `dosTime = (h << 11) | (min << 5) | (sec >> 1)`, `dosDate = ((year - 1980) << 9) | (month << 5) | day` with `month` 1-12. Clamp `year` to `>= 1980` — the DOS epoch cannot represent anything earlier.
+  - [x] Entry names use forward slashes, no leading slash, no `.` or `..` segments. Flag bit 11 (`0x0800`) declares the names UTF-8.
+  - [x] **Stream, one file buffered at a time.** For a `file` source, `fs.readFile` it, compute its CRC, emit local header + bytes, then drop the buffer before starting the next entry. STORE requires the CRC and size *before* the header, so each file must be fully read — but never more than one at a time. Buffering the whole archive would put a 5 MB × image-count spike on a self-hosted box.
+  - [x] **No ZIP64.** Guard before streaming: throw if any entry is `>= 0xFFFFFFFF` bytes, if the running local-header offset would reach `0xFFFFFFFF`, or if there are more than `0xFFFF` entries. Unreachable in practice under the 5 MB per-image cap, but a silent overflow writes a corrupt archive.
+  - [x] Omit `Content-Length` at the route (Task 4). Sizes are knowable from `fs.stat` up front, but a file that changes between stat and read would make the declared length a lie; chunked transfer is correct and costs nothing here.
 
-- [ ] **Task 2 — Extend the export payload builder** (AC: 2, 3, 5)
-  - [ ] `getTripExportForUser` (`src/lib/repositories/tripRepo.ts:1135-1292`) and its `TripExportPayload` type (`:180-228`). Keep every existing field and its ordering; this is additive.
-  - [ ] Add per-day `travelSegments[]`. Include them in the same Prisma `include` as `dayPlanItems`, `orderBy: [{ createdAt: "asc" }, { id: "asc" }]`, and map the enums to the wire vocabulary the rest of the app already uses: `ACCOMMODATION`→`accommodation`, `DAY_PLAN_ITEM`→`dayPlanItem`, `CAR`/`SHIP`/`FLIGHT`→`car`/`ship`/`flight`. Copy the mapping helpers' shape from `travelSegmentRepo.ts:80-91`; do not invent a second spelling.
-  - [ ] Each segment emits `{ id, fromItemType, fromItemId, toItemType, toItemId, transportType, durationMinutes, distanceKm, linkUrl, createdAt, updatedAt }`. **`fromItemId`/`toItemId` are the `id` values of the exported `accommodation` / `dayPlanItems` records.** Say so in a code comment: Story 2.32 regenerates every cuid on import and can only rewire segments by matching these against the exported record ids. Dropping them, or emitting positional indexes instead, silently breaks the import half.
-  - [ ] Add `trip.bucketListItems[]` — **inside `trip`**, not at the top level (that is where 2.32's schema expects it), because `TripBucketListItem` is trip-scoped, not day-scoped (`prisma/schema.prisma`, `trip_bucket_list_items.trip_id`). Fields `{ id, title, description, positionText, location, createdAt, updatedAt }` with `location` shaped like every other location in this payload (`{ lat, lng, label } | null`, null when either coordinate is null). Order **`title asc, createdAt asc, id asc`** — identical to `listBucketListItemsForTrip` (`bucketListRepo.ts:99-102`) so the export matches what the UI shows.
-  - [ ] Add gallery metadata: `accommodation.images[]` and `dayPlanItems[].images[]`, each entry exactly `{ sortOrder, photoId }`, from a nested `images` include ordered `sortOrder asc, createdAt asc` (the ordering `tripRepo.ts:993-999` already uses). No `id`, no `imageUrl` — see Dev Notes → "Manifest shape".
-  - [ ] Add `trip.heroPhotoId` and `days[].imagePhotoId`, each a pool id or `null`. **Leave `trip.heroImageUrl` and `days[].imageUrl` exactly where they are** — a v1 reader and the existing import schema (`tripImportSchemas.ts:55-65`, `:200`) both still read them.
-  - [ ] Build the top-level `photos` pool here, in the repository, not in the route — it is part of the payload contract. Assign keys `p1`, `p2`, … in **deterministic traversal order**: hero, then day by day (day image, then accommodation gallery in `sortOrder`, then each plan item's gallery in `sortOrder`). Dedupe on the resolved absolute file path so one file referenced twice yields one pool entry and one archive member.
-  - [ ] Pool value is `{ contentType, archivePath }` with `archivePath = \`photos/${poolId}.${ext}\``. `ext` is the lowercased extension of the stored URL restricted to `jpg`, `jpeg`, `png`, `webp` — the set the upload routes accept (`accommodations/images/route.ts:25-29`); anything else → `bin`. `contentType` is that extension mapped back through the same table (`jpg`/`jpeg`→`image/jpeg`, `png`→`image/png`, `webp`→`image/webp`, `bin`→`application/octet-stream`).
-  - [ ] Return the resolved on-disk path for each pooled photo alongside the payload, so the route can stream it without re-deriving anything: `getTripExportForUser` returns `{ payload, photoFiles: { archivePath: string; filePath: string }[] }`, in pool-key order. **This changes the function's return type** — it has three call sites in tests (`test/tripRepo.test.ts:237`, `:613`, `:668`) plus the route; update all of them.
+- [x] **Task 2 — Extend the export payload builder** (AC: 2, 3, 5)
+  - [x] `getTripExportForUser` (`src/lib/repositories/tripRepo.ts:1135-1292`) and its `TripExportPayload` type (`:180-228`). Keep every existing field and its ordering; this is additive.
+  - [x] Add per-day `travelSegments[]`. Include them in the same Prisma `include` as `dayPlanItems`, `orderBy: [{ createdAt: "asc" }, { id: "asc" }]`, and map the enums to the wire vocabulary the rest of the app already uses: `ACCOMMODATION`→`accommodation`, `DAY_PLAN_ITEM`→`dayPlanItem`, `CAR`/`SHIP`/`FLIGHT`→`car`/`ship`/`flight`. Copy the mapping helpers' shape from `travelSegmentRepo.ts:80-91`; do not invent a second spelling.
+  - [x] Each segment emits `{ id, fromItemType, fromItemId, toItemType, toItemId, transportType, durationMinutes, distanceKm, linkUrl, createdAt, updatedAt }`. **`fromItemId`/`toItemId` are the `id` values of the exported `accommodation` / `dayPlanItems` records.** Say so in a code comment: Story 2.32 regenerates every cuid on import and can only rewire segments by matching these against the exported record ids. Dropping them, or emitting positional indexes instead, silently breaks the import half.
+  - [x] Add `trip.bucketListItems[]` — **inside `trip`**, not at the top level (that is where 2.32's schema expects it), because `TripBucketListItem` is trip-scoped, not day-scoped (`prisma/schema.prisma`, `trip_bucket_list_items.trip_id`). Fields `{ id, title, description, positionText, location, createdAt, updatedAt }` with `location` shaped like every other location in this payload (`{ lat, lng, label } | null`, null when either coordinate is null). Order **`title asc, createdAt asc, id asc`** — identical to `listBucketListItemsForTrip` (`bucketListRepo.ts:99-102`) so the export matches what the UI shows.
+  - [x] Add gallery metadata: `accommodation.images[]` and `dayPlanItems[].images[]`, each entry exactly `{ sortOrder, photoId }`, from a nested `images` include ordered `sortOrder asc, createdAt asc` (the ordering `tripRepo.ts:993-999` already uses). No `id`, no `imageUrl` — see Dev Notes → "Manifest shape".
+  - [x] Add `trip.heroPhotoId` and `days[].imagePhotoId`, each a pool id or `null`. **Leave `trip.heroImageUrl` and `days[].imageUrl` exactly where they are** — a v1 reader and the existing import schema (`tripImportSchemas.ts:55-65`, `:200`) both still read them.
+  - [x] Build the top-level `photos` pool here, in the repository, not in the route — it is part of the payload contract. Assign keys `p1`, `p2`, … in **deterministic traversal order**: hero, then day by day (day image, then accommodation gallery in `sortOrder`, then each plan item's gallery in `sortOrder`). Dedupe on the resolved absolute file path so one file referenced twice yields one pool entry and one archive member.
+  - [x] Pool value is `{ contentType, archivePath }` with `archivePath = \`photos/${poolId}.${ext}\``. `ext` is the lowercased extension of the stored URL restricted to `jpg`, `jpeg`, `png`, `webp` — the set the upload routes accept (`accommodations/images/route.ts:25-29`); anything else → `bin`. `contentType` is that extension mapped back through the same table (`jpg`/`jpeg`→`image/jpeg`, `png`→`image/png`, `webp`→`image/webp`, `bin`→`application/octet-stream`).
+  - [x] Return the resolved on-disk path for each pooled photo alongside the payload, so the route can stream it without re-deriving anything: `getTripExportForUser` returns `{ payload, photoFiles: { archivePath: string; filePath: string }[] }`, in pool-key order. **This changes the function's return type** — it has three call sites in tests (`test/tripRepo.test.ts:237`, `:613`, `:668`) plus the route; update all of them.
 
-- [ ] **Task 3 — Gate every disk read on the trip's own upload directory** (AC: 5)
-  - [ ] Before a stored `imageUrl` earns a pool entry it must pass, in this order: it starts with `/uploads/trips/<tripId>/`; `resolvePublicFilePath` (`src/lib/trips/uploadPaths.ts:42-43`) resolves it; and `path.resolve` of the result is inside `path.resolve(getTripUploadDir(tripId))` — compare with a trailing-separator prefix check so `.../trips/abc-evil` cannot pass as `.../trips/abc`. Failing any check → no pool entry, the reference is `null` (or the `images[]` entry is dropped), the URL stays in its surviving v1 field, and nothing is read.
-  - [ ] The prefix check alone is the pattern `removeManagedFile` already uses (`accommodations/images/route.ts:49-52`), and it is **not sufficient here**. That function only unlinks; this one reads bytes into a file the user downloads. `/uploads/trips/<tripId>/../../../etc/passwd` satisfies the prefix and escapes the directory, so the resolved-path containment check is the control that matters. Today every `imageUrl` is server-constructed and no route accepts a caller-supplied one, so this is defense in depth — but the export is the first code that reads arbitrary DB-stored paths off disk on request, and it hands the result to the caller.
-  - [ ] External `http(s)` image URLs are legal in this schema (`dayImageUrlOrNull`, `tripImportSchemas.ts:55-65`, accepts either a `/uploads/` path or a URL). They are not fetched — no pool entry, URL preserved. A backup does not go out to the network.
-  - [ ] A row that passes every check but whose file is gone (`ENOENT`) gets no pool entry and no `photoFiles` row, and appends a string to `meta.warnings`. Stat once during payload assembly rather than discovering it mid-stream; a header already on the wire cannot be retracted. AC4's invariant — every pool entry has a member, every reference has a pool entry — is what makes 2.32's validation a set comparison, so it must hold here too.
+- [x] **Task 3 — Gate every disk read on the trip's own upload directory** (AC: 5)
+  - [x] Before a stored `imageUrl` earns a pool entry it must pass, in this order: it starts with `/uploads/trips/<tripId>/`; `resolvePublicFilePath` (`src/lib/trips/uploadPaths.ts:42-43`) resolves it; and `path.resolve` of the result is inside `path.resolve(getTripUploadDir(tripId))` — compare with a trailing-separator prefix check so `.../trips/abc-evil` cannot pass as `.../trips/abc`. Failing any check → no pool entry, the reference is `null` (or the `images[]` entry is dropped), the URL stays in its surviving v1 field, and nothing is read.
+  - [x] The prefix check alone is the pattern `removeManagedFile` already uses (`accommodations/images/route.ts:49-52`), and it is **not sufficient here**. That function only unlinks; this one reads bytes into a file the user downloads. `/uploads/trips/<tripId>/../../../etc/passwd` satisfies the prefix and escapes the directory, so the resolved-path containment check is the control that matters. Today every `imageUrl` is server-constructed and no route accepts a caller-supplied one, so this is defense in depth — but the export is the first code that reads arbitrary DB-stored paths off disk on request, and it hands the result to the caller.
+  - [x] External `http(s)` image URLs are legal in this schema (`dayImageUrlOrNull`, `tripImportSchemas.ts:55-65`, accepts either a `/uploads/` path or a URL). They are not fetched — no pool entry, URL preserved. A backup does not go out to the network.
+  - [x] A row that passes every check but whose file is gone (`ENOENT`) gets no pool entry and no `photoFiles` row, and appends a string to `meta.warnings`. Stat once during payload assembly rather than discovering it mid-stream; a header already on the wire cannot be retracted. AC4's invariant — every pool entry has a member, every reference has a pool entry — is what makes 2.32's validation a set comparison, so it must hold here too.
 
-- [ ] **Task 4 — Convert the route to emit the archive** (AC: 1, 4, 6, 7, 8)
-  - [ ] `src/app/api/trips/[id]/export/route.ts`. Bump `FORMAT_VERSION` `1` → `2` (`:17`). Keep `APP_VERSION` (`:16`), `toSafeSlug` (`:19-27`), the `requireSession` → `hasTripOwnerAccess` → `404` order (`:30-42`), and the `try`/`catch` → `500 server_error` wrapper (`:73-75`) as they are.
-  - [ ] Keep `meta.exportedAt = <trip>.updatedAt` (`:53`) and its comment — the expression becomes `exported.payload.trip.updatedAt` under Task 2's return shape, but the value must not change. It is what makes AC7 possible and `tripExportRoute.test.ts:77` pins it.
-  - [ ] Build the manifest buffer with `JSON.stringify(...)` and no indentation (matching today, and byte-stable), then assemble entries in fixed order: `trip.json` first, then `photoFiles` in pool-key order (`p1`, `p2`, …), which the repository already returns sorted.
-  - [ ] Pass `new Date(exported.payload.trip.updatedAt)` as the writer's `modifiedAt`. Using `new Date()` here reintroduces exactly the non-determinism Story 2.9's review removed.
-  - [ ] Response: `new Response(stream, { status: 200, headers: { "content-type": "application/zip", "content-disposition": \`attachment; filename="${fileName}"\` } })` with `fileName = \`trip-${toSafeSlug(name)}-${datePart}.zip\``. `runtime = "nodejs"` (`:8`) stays — `fs` and `zlib` need it.
-  - [ ] `datePart` keeps deriving from a fresh `new Date().toISOString().slice(0, 10)` (`:50-51`). The filename is not archive content, so it does not affect AC7's byte-identity, and the existing filename regex tests assume a current date.
-  - [ ] **This replaces the JSON response; it does not add a second format.** No `?format=` switch, no dual code path. One export shape is the whole point of the story, and Story 2.32 is specified against v2 while separately accepting a v1 file on import.
+- [x] **Task 4 — Convert the route to emit the archive** (AC: 1, 4, 6, 7, 8)
+  - [x] `src/app/api/trips/[id]/export/route.ts`. Bump `FORMAT_VERSION` `1` → `2` (`:17`). Keep `APP_VERSION` (`:16`), `toSafeSlug` (`:19-27`), the `requireSession` → `hasTripOwnerAccess` → `404` order (`:30-42`), and the `try`/`catch` → `500 server_error` wrapper (`:73-75`) as they are.
+  - [x] Keep `meta.exportedAt = <trip>.updatedAt` (`:53`) and its comment — the expression becomes `exported.payload.trip.updatedAt` under Task 2's return shape, but the value must not change. It is what makes AC7 possible and `tripExportRoute.test.ts:77` pins it.
+  - [x] Build the manifest buffer with `JSON.stringify(...)` and no indentation (matching today, and byte-stable), then assemble entries in fixed order: `trip.json` first, then `photoFiles` in pool-key order (`p1`, `p2`, …), which the repository already returns sorted.
+  - [x] Pass `new Date(exported.payload.trip.updatedAt)` as the writer's `modifiedAt`. Using `new Date()` here reintroduces exactly the non-determinism Story 2.9's review removed.
+  - [x] Response: `new Response(stream, { status: 200, headers: { "content-type": "application/zip", "content-disposition": \`attachment; filename="${fileName}"\` } })` with `fileName = \`trip-${toSafeSlug(name)}-${datePart}.zip\``. `runtime = "nodejs"` (`:8`) stays — `fs` and `zlib` need it.
+  - [x] `datePart` keeps deriving from a fresh `new Date().toISOString().slice(0, 10)` (`:50-51`). The filename is not archive content, so it does not affect AC7's byte-identity, and the existing filename regex tests assume a current date.
+  - [x] **This replaces the JSON response; it does not add a second format.** No `?format=` switch, no dual code path. One export shape is the whole point of the story, and Story 2.32 is specified against v2 while separately accepting a v1 file on import.
 
-- [ ] **Task 5 — Tests** (AC: 1-7)
-  - [ ] New `test/helpers/zipReader.ts` — a minimal in-process reader: locate the EOCD, walk the central directory, and return `{ name, crc32, compressedSize, uncompressedSize, flags, localHeaderOffset, data }` per entry. Both suites below import it; do not let a second copy grow inside a test file.
-  - [ ] New `test/tripZipArchive.test.ts`, unit-level, no HTTP: build an archive from two buffer entries and one file entry; parse it back with `zipReader`; assert every signature, that each central-directory `localHeaderOffset` lands on a `0x04034b50`, that each stored CRC equals `zlib.crc32` of the extracted bytes, that `compressedSize === uncompressedSize`, that flag bit 11 is set, and that the extracted bytes round-trip. Assert byte-identical output for two runs with the same `modifiedAt`, and differing output for a different one. Assert the ZIP64 guard throws rather than truncating. Parse it in-process — do not shell out to `unzip`; the suite must not depend on host tooling.
-  - [ ] Rewrite the happy path in `test/tripExportRoute.test.ts:35-80`: `content-type` is `application/zip`, `content-disposition` matches `/^attachment; filename="trip-paris-rome-2026-\d{4}-\d{2}-\d{2}\.zip"$/`, and the body is read via `Buffer.from(await response.arrayBuffer())` and parsed with `test/helpers/zipReader.ts`.
-  - [ ] Keep all four negative cases exactly as they are — unauthenticated `401` (`:82-89`), `mustChangePassword` `403` (`:91-115`), non-owner `404` (`:117-146`), invalid token `401` (`:148-154`). They assert the JSON error envelope, which is unchanged: only the success path becomes a ZIP.
-  - [ ] Keep the filename-injection case (`:156-180`) and re-point it at `.zip`. A CRLF in a trip name must still not reach the header.
-  - [ ] New route cases: a trip with travel segments and bucket list items round-trips both into `trip.json` with the documented ordering and nesting (`bucketListItems` under `trip`); segment `fromItemId`/`toItemId` equal the exported accommodation/plan-item `id`s on the same day; a photo-bearing trip yields one archive member per `photos` entry with **no unregistered member and no dangling reference** (assert the set equality in both directions); a trip with no photos yields exactly one member (`trip.json`), `photos: {}`, and `200`; a DB row whose file was deleted from disk yields a `null` reference, a `meta.warnings` entry, and `200`; an `imageUrl` hand-written to `/uploads/trips/<tripId>/../../escape.png` yields no pool entry and no member; an `https://` day image yields `imagePhotoId: null` with `imageUrl` preserved; the same file referenced by two records yields one pool entry and one member; two consecutive exports of the same trip return byte-identical bodies.
-  - [ ] Write photo fixtures the way `test/tripAccommodationImagesRoute.test.ts:14-25` does — `getTripsUploadRoot()`, `fs.rm(..., { recursive: true, force: true })` in `beforeEach`, files written under the upload-path helpers. `test/setup.ts` redirects `UPLOADS_PUBLIC_ROOT` to a per-worker temp dir; **never** build a path with `process.cwd() + "/public"`. The header comment in `uploadPaths.ts:3-18` records what happened the last time a suite did that.
-  - [ ] Extend `test/tripRepo.test.ts` — `:174` (payload completeness) gains `travelSegments`, `trip.bucketListItems`, `images[]`, `heroPhotoId`, `imagePhotoId`, and the `photos` pool with its `archivePath` naming; `:587` and `:623` (ordering, payment order) keep passing against the new return shape. Add bucket-list ordering, pool-key assignment order, dedupe-by-path, and segment endpoint-id assertions.
-  - [ ] Run `npm test` in full before declaring done, plus `npm run lint`. `getTripExportForUser`'s changed return type will surface at every call site — that is the point.
+- [x] **Task 5 — Tests** (AC: 1-7)
+  - [x] New `test/helpers/zipReader.ts` — a minimal in-process reader: locate the EOCD, walk the central directory, and return `{ name, crc32, compressedSize, uncompressedSize, flags, localHeaderOffset, data }` per entry. Both suites below import it; do not let a second copy grow inside a test file.
+  - [x] New `test/tripZipArchive.test.ts`, unit-level, no HTTP: build an archive from two buffer entries and one file entry; parse it back with `zipReader`; assert every signature, that each central-directory `localHeaderOffset` lands on a `0x04034b50`, that each stored CRC equals `zlib.crc32` of the extracted bytes, that `compressedSize === uncompressedSize`, that flag bit 11 is set, and that the extracted bytes round-trip. Assert byte-identical output for two runs with the same `modifiedAt`, and differing output for a different one. Assert the ZIP64 guard throws rather than truncating. Parse it in-process — do not shell out to `unzip`; the suite must not depend on host tooling.
+  - [x] Rewrite the happy path in `test/tripExportRoute.test.ts:35-80`: `content-type` is `application/zip`, `content-disposition` matches `/^attachment; filename="trip-paris-rome-2026-\d{4}-\d{2}-\d{2}\.zip"$/`, and the body is read via `Buffer.from(await response.arrayBuffer())` and parsed with `test/helpers/zipReader.ts`.
+  - [x] Keep all four negative cases exactly as they are — unauthenticated `401` (`:82-89`), `mustChangePassword` `403` (`:91-115`), non-owner `404` (`:117-146`), invalid token `401` (`:148-154`). They assert the JSON error envelope, which is unchanged: only the success path becomes a ZIP.
+  - [x] Keep the filename-injection case (`:156-180`) and re-point it at `.zip`. A CRLF in a trip name must still not reach the header.
+  - [x] New route cases: a trip with travel segments and bucket list items round-trips both into `trip.json` with the documented ordering and nesting (`bucketListItems` under `trip`); segment `fromItemId`/`toItemId` equal the exported accommodation/plan-item `id`s on the same day; a photo-bearing trip yields one archive member per `photos` entry with **no unregistered member and no dangling reference** (assert the set equality in both directions); a trip with no photos yields exactly one member (`trip.json`), `photos: {}`, and `200`; a DB row whose file was deleted from disk yields a `null` reference, a `meta.warnings` entry, and `200`; an `imageUrl` hand-written to `/uploads/trips/<tripId>/../../escape.png` yields no pool entry and no member; an `https://` day image yields `imagePhotoId: null` with `imageUrl` preserved; the same file referenced by two records yields one pool entry and one member; two consecutive exports of the same trip return byte-identical bodies.
+  - [x] Write photo fixtures the way `test/tripAccommodationImagesRoute.test.ts:14-25` does — `getTripsUploadRoot()`, `fs.rm(..., { recursive: true, force: true })` in `beforeEach`, files written under the upload-path helpers. `test/setup.ts` redirects `UPLOADS_PUBLIC_ROOT` to a per-worker temp dir; **never** build a path with `process.cwd() + "/public"`. The header comment in `uploadPaths.ts:3-18` records what happened the last time a suite did that.
+  - [x] Extend `test/tripRepo.test.ts` — `:174` (payload completeness) gains `travelSegments`, `trip.bucketListItems`, `images[]`, `heroPhotoId`, `imagePhotoId`, and the `photos` pool with its `archivePath` naming; `:587` and `:623` (ordering, payment order) keep passing against the new return shape. Add bucket-list ordering, pool-key assignment order, dedupe-by-path, and segment endpoint-id assertions.
+  - [x] Run `npm test` in full before declaring done, plus `npm run lint`. `getTripExportForUser`'s changed return type will surface at every call site — that is the point.
 
-- [ ] **Task 6 — Record what this story deliberately does not do**
-  - [ ] Append a `Deferred from: 2-31-...` section to `_bmad-output/implementation-artifacts/deferred-work.md` noting that the export has **no user-facing entry point**: Story 7.8 removed the "Export JSON" button (its AC3) and PRD FR33/FR34 record "No user-facing entry point exists until one is decided." This story delivers the contract behind that decision and does not pre-empt it. Cross-reference the existing `TripImportDialog.tsx` zero-call-site entry from 7.8 (`deferred-work.md:91-93`) — the same surface will re-land both or neither.
-  - [ ] Update PRD FR33's parenthetical to note the format is now a v2 ZIP archive with photos. Leave the "no user-facing entry point" sentence in place.
-  - [ ] Record the Story 2.32 delta in the same `deferred-work.md` section, copying the four bullets from Dev Notes → "Where this diverges from Story 2.32's spec as written". 2.32 is already `ready-for-dev` against a base64-in-JSON container; its dev session must see this before it starts. **Do not edit `2-32-…md` itself** — amending another story's spec from inside this one is how two specs end up disagreeing about who changed what.
+- [x] **Task 6 — Record what this story deliberately does not do**
+  - [x] Append a `Deferred from: 2-31-...` section to `_bmad-output/implementation-artifacts/deferred-work.md` noting that the export has **no user-facing entry point**: Story 7.8 removed the "Export JSON" button (its AC3) and PRD FR33/FR34 record "No user-facing entry point exists until one is decided." This story delivers the contract behind that decision and does not pre-empt it. Cross-reference the existing `TripImportDialog.tsx` zero-call-site entry from 7.8 (`deferred-work.md:91-93`) — the same surface will re-land both or neither.
+  - [x] Update PRD FR33's parenthetical to note the format is now a v2 ZIP archive with photos. Leave the "no user-facing entry point" sentence in place.
+  - [x] Record the Story 2.32 delta in the same `deferred-work.md` section, copying the four bullets from Dev Notes → "Where this diverges from Story 2.32's spec as written". 2.32 is already `ready-for-dev` against a base64-in-JSON container; its dev session must see this before it starts. **Do not edit `2-32-…md` itself** — amending another story's spec from inside this one is how two specs end up disagreeing about who changed what.
 
 ## Dev Notes
 
@@ -209,12 +214,138 @@ Next `16.2.12`, React `19.2.3`, Prisma `7.3.0`, `zod` `4.1.11`, MUI `7.3.8`, `be
 
 ### Agent Model Used
 
+claude-opus-5[1m] (BMAD dev-story implementation agent)
+
 ### Debug Log References
+
+- `npm test` (full suite, `travelplan/`): 97 files, 668 tests, all passing.
+- `npm run lint`: 2 errors / 85 warnings — byte-identical to the pre-change baseline (both errors are pre-existing `react/no-children-prop` in `src/theme.ts`, untouched by this story). This story adds no lint error and no lint warning.
+- `npx tsc --noEmit`: 145 errors, all in test files, down from 152 at baseline. Every remaining one is a pre-existing category (`{ params: { id } }` passed where `Promise<{ id }>` is expected; `ImportTripResult` union not narrowed; the `IMPORT_PAYLOAD` literal missing optional plan-item keys). Zero errors under `src/`. The 7-error reduction is `test/tripExportRoute.test.ts`, which this story rewrote.
 
 ### Completion Notes List
 
+**Task 1 — ZIP writer.** New `src/lib/trips/zipArchive.ts`, ~230 lines, no new dependency. STORE only (method `0`), CRC from `zlib.crc32`, flag bit 11 set, all three record layouts written at the byte offsets the spec pins. `toDosDateTime` is exported so the test can assert the timestamp derivation independently rather than reverse-engineering it from the archive. Streaming is pull-based (`ReadableStream.pull`), so exactly one member is resident at a time; the CRC and size are computed once per entry and written into both the local header and the central directory from the same values.
+
+ZIP64 guards: entry count and buffer-entry size are checked **synchronously**, before the stream is constructed, so `createZipStream` throws where the route's `try`/`catch` turns it into a `500`. File-entry size and the running local-header offset are checked inside the stream, immediately after the read and before the header is enqueued — they cannot be known earlier without a `stat` round-trip that `createZipStream`'s synchronous signature does not allow. The test asserts the synchronous count guard (65 536 entries throws, 65 535 does not); a >4 GiB entry is not testable at reasonable cost, which is the one guard exercised only by inspection.
+
+Two additions beyond the spec's letter: entry names are validated (leading slash, backslash, `.`/`..` segments rejected) and duplicate names are rejected. Both are cheap and turn a silently-malformed archive into a `500`.
+
+**Task 2 — payload builder.** `getTripExportForUser` now returns `{ payload, photoFiles }` (`TripExportResult`). Every v1 field kept at its exact path and name; `heroImageUrl` and `days[].imageUrl` are untouched and sit beside the new `heroPhotoId` / `imagePhotoId`. `payments[]` fallback synthesis is unchanged. The pool is built in the repository, keyed `p1`, `p2`, … in the fixed traversal hero → (day image → accommodation gallery → each plan item's gallery) per day, deduped on the **resolved absolute path**. `photoFiles` is emitted in pool-key order by construction, so the route does not sort.
+
+`warnings` lives at the payload root rather than under a `meta` key on the payload — the route owns `meta` (it holds `appVersion` / `formatVersion`) and merges `payload.warnings` into it as `meta.warnings`. The manifest shape is exactly as specified; only the internal handoff differs.
+
+Travel segments carry the source `accommodation` / `dayPlanItems` ids, with the reason and the `@@unique(tripDayId, fromItemType, fromItemId, toItemType, toItemId)` warning recorded in the `TripExportTravelSegment` doc comment. `bucketListItems` is nested inside `trip` and ordered `title asc, createdAt asc, id asc`, matching `listBucketListItemsForTrip`. Gallery entries are `{ sortOrder, photoId }` only.
+
+**Task 3 — containment.** `resolveOwnedPhotoPath` requires all three checks in order: the `/uploads/trips/<tripId>/` prefix, `resolvePublicFilePath`, then `path.resolve(...).startsWith(path.resolve(getTripUploadDir(tripId)) + path.sep)`. The trailing separator is what stops `.../trips/abc-evil` passing as `.../trips/abc`, and there is a repo-level test for exactly that sibling-directory case as well as for `../../escape.png`. Nothing is read from disk before the check passes. External `http(s)` URLs are recognised before the prefix test and return `null` silently — they are legal and normal, so warning on them would be noise.
+
+**Judgement call worth reviewing:** a `/uploads/`-prefixed URL that fails containment produces a `meta.warnings` line, not just a silent `null`. The ACs only mandate a warning for the missing-file case. A stored path that points outside the trip's directory is a real anomaly the user should be able to see in their backup, and the warning names the URL without leaking any resolved filesystem path. Warnings are deduped per distinct URL so two rows sharing one bad URL yield one line (determinism).
+
+**Task 4 — route.** `FORMAT_VERSION` is `2`, the response is `application/zip` with a `.zip` filename, no `Content-Length`. `runtime = "nodejs"`, `APP_VERSION`, `toSafeSlug`, the guard order and the `500` wrapper are all unchanged. `meta.exportedAt` is still `<trip>.updatedAt`. The archive's `modifiedAt` is `new Date(payload.trip.updatedAt)`; the only `new Date()` left in the file is the filename's date part, which is not archive content. Entry order is fixed: `trip.json`, then `photoFiles` in pool-key order. There is no `?format=` switch — the JSON response is replaced, not supplemented.
+
+**Task 5 — tests.** `test/helpers/zipReader.ts` parses the central directory (not just the local headers) so a divergence between the two copies of each entry's CRC/size is caught rather than masked by a lenient extractor; both suites import it. `test/tripZipArchive.test.ts` (5 cases) covers signatures, per-entry local-header-vs-central-directory agreement, `crc32` of the extracted bytes, `compressedSize === uncompressedSize`, flag bit 11, byte-identity across two runs, divergence for a different `modifiedAt`, the DOS clamp, the ZIP64 guard and the name rejections. `test/tripExportRoute.test.ts` (14 cases) covers every scenario Task 5 lists, including pool/member set equality asserted in both directions and an assertion that the escaped file's bytes do not appear anywhere in the archive. `test/tripRepo.test.ts` gains the v2 assertions on the completeness case plus dedupe-by-path and containment cases.
+
+**Deviation, deliberate:** the four negative cases in `test/tripExportRoute.test.ts` keep their assertions verbatim, but their route context is now built by a shared `routeContext(id)` helper returning `{ params: Promise.resolve({ id }) }` instead of the inline `{ params: { id } }` literal. The literal was a type error against `RouteContext` (the route awaits `context.params`, so both work at runtime); normalising it removed 7 pre-existing `tsc` errors from the file. No status code, envelope or message assertion changed.
+
+**Task 6 — docs.** `deferred-work.md` gains DW-76 (no user-facing entry point; cross-references DW-47, the `TripImportDialog` zero-call-site entry from 7.8) and DW-77 (the four-bullet Story 2.32 delta). `2-32-…md` was **not** edited. PRD FR33's parenthetical now records the v2 ZIP format; the "No user-facing entry point exists until one is decided" sentence is left in place, and FR34 is untouched.
+
+**Not done, by design:** no UI, no i18n key, no component test, no new npm dependency, no Prisma migration, no change to the import side or to `tripImportSchemas.ts`.
+
 ### File List
+
+Created:
+
+- `travelplan/src/lib/trips/zipArchive.ts`
+- `travelplan/test/helpers/zipReader.ts`
+- `travelplan/test/tripZipArchive.test.ts`
+
+Modified:
+
+- `travelplan/src/lib/repositories/tripRepo.ts`
+- `travelplan/src/app/api/trips/[id]/export/route.ts`
+- `travelplan/test/tripExportRoute.test.ts`
+- `travelplan/test/tripRepo.test.ts`
+- `_bmad-output/implementation-artifacts/deferred-work.md`
+- `_bmad-output/planning-artifacts/prd.md`
+- `_bmad-output/implementation-artifacts/2-31-complete-trip-backup-export-with-photos-travel-segments-and-bucket-list.md`
 
 ### Change Log
 
 - 2026-08-01: Story context created. Format (STORE-only hand-rolled ZIP) and scope (API + format, no UI entry point) settled with Tommy before authoring.
+- 2026-08-02: Implemented Tasks 1-6. Export is now a deterministic STORE-only ZIP (`trip.json` manifest + `photos/` members) at `GET /api/trips/[id]/export`, `meta.formatVersion` `2`. `getTripExportForUser` returns `{ payload, photoFiles }`. Full suite green (668 tests, 97 files); lint and `tsc` unchanged-or-better against baseline.
+- 2026-08-02: Review pass applied 9 patches (symlink containment, EOCD ZIP64 guard, DOS year upper clamp, exhaustive transport enum, gallery-drop warnings, mutation-catching determinism test, three test-quality fixes). Suite 674 tests green. Two findings deferred as DW-78 / DW-79.
+- 2026-08-02: Follow-up review pass applied 4 low patches (exhaustive segment-item enum, realpath-keyed pool dedupe, per-slot gallery drop warnings, binary-bytes fixture coverage). Suite 677 tests green across 97 files. Three findings deferred as DW-80 / DW-81 / DW-82.
+
+## Review Triage Log
+
+### 2026-08-02 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 9: (high 0, medium 3, low 6)
+- defer: 2: (high 0, medium 2, low 0)
+- reject: 5
+- addressed_findings:
+  - `[medium]` `[patch]` A symlink *inside* the trip's upload directory escaped the containment check: `path.resolve` is lexical, but `fs.stat`/`fs.readFile` follow links, so `<tripDir>/hero.jpg -> /etc/passwd` passed and its bytes would have been streamed to the caller. `resolveOwnedPhotoPath` is now async and compares `fs.realpath` of the file against `fs.realpath` of the upload root (both sides realpath-ed — the root itself sits under a symlinked ancestor on macOS and under the per-worker temp dir `test/setup.ts` uses). A realpath failure deliberately falls through to the existing `stat`, so a missing file still reports the accurate "missing on disk" warning rather than a mislabelled containment breach. New test: `tripRepo.test.ts` "refuses to pool a symlink inside the trip directory that points outside it".
+  - `[medium]` `[patch]` The determinism test could not fail on the regression it existed to catch: DOS timestamps have two-second resolution, so replacing `new Date(payload.trip.updatedAt)` with `new Date()` still produced byte-identical back-to-back exports. AC7's headline property was effectively unguarded. Added `tripExportRoute.test.ts` "derives every archive timestamp from trip.updatedAt rather than the wall clock", which pins `updatedAt` to 2021 and asserts every entry's `dosTime`/`dosDate` equals `toDosDateTime` of it. Verified by mutation: with `new Date()` wired in, the new test fails and the old byte-identity test still passes.
+  - `[medium]` `[patch]` A gallery entry that earned no pool id vanished from the backup with no trace. Unlike `trip.heroImageUrl` / `days[].imageUrl`, a `TripExportImageRef` is `{ sortOrder, photoId }` by contract with no fallback URL — so an external `http(s)` gallery image (legal in this schema) was dropped silently, `meta.warnings` empty, `200`. `registerGallery` now calls `warnOnce` for every dropped entry, naming the `sortOrder` and the URL; dedupe-per-URL means rows already reported by `registerPhoto` are not double-reported. New test: `tripRepo.test.ts` "warns when a gallery entry is dropped, because a gallery ref carries no fallback URL".
+  - `[low]` `[patch]` The ZIP64 guard checked each entry's own local-header offset but never `cdOffset`/`cdSize`, which are only knowable after the last member. Past 4 GiB, `writeUInt32LE` would have thrown a `RangeError` mid-stream with gigabytes already delivered. `createZipStream` now sums the central directory and checks all three bounds before enqueuing any of it.
+  - `[low]` `[patch]` `toDosDateTime` clamped the year's lower bound only. A date past 2107 overflowed the uint16 field (`writeUInt16LE` throwing from inside the stream, after headers are on the wire) and an `Invalid Date` emitted month 0 / day 0, which is not a legal MS-DOS date. Added the upper clamp to 2107 and an explicit `Invalid Date` fallback to the DOS epoch. Unreachable from `trip.updatedAt`, but the writer is a general-purpose module. New test asserts both survive an actual `writeUInt16LE`.
+  - `[low]` `[patch]` `toExportTransportType` used `default: return "flight"`, so a future `TravelTransportType` member would have exported silently under an existing spelling and Story 2.32 would have restored the wrong transport. Replaced with an exhaustive switch and a `never` check.
+  - `[low]` `[patch]` `test/helpers/zipReader.ts` exported `readZipEntryNames` and `readZipEntryMap` that no test imported, while four sites in `tripExportRoute.test.ts` hand-rolled the same two expressions. Wired the call sites to the helpers instead of deleting them.
+  - `[low]` `[patch]` `writeUploadFile` was duplicated verbatim in `tripExportRoute.test.ts` and `tripRepo.test.ts` — in the same change that created `test/helpers/` to stop exactly that. Extracted to `test/helpers/uploadFixtures.ts` with the `UPLOADS_PUBLIC_ROOT` rationale attached; removed the now-unused `path` import the move orphaned.
+  - `[low]` `[patch]` The `bin` / `application/octet-stream` extension fallback and the `!stats.isFile()` branch had no coverage — a regression emitting `photos/pN.undefined` would have broken AC4's set equality with a green suite. Added `tripRepo.test.ts` cases for a `.gif`, an extensionless URL, and a URL resolving to a directory.
+
+### 2026-08-02 — Follow-up review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 4: (high 0, medium 0, low 4)
+- defer: 3: (high 0, medium 1, low 2)
+- reject: 14
+- addressed_findings:
+  - `[low]` `[patch]` `toExportSegmentItemType` was a ternary (`value === "ACCOMMODATION" ? … : "dayPlanItem"`) while its sibling `toExportTransportType` had been made exhaustive in the previous pass for exactly this reason. A third `TravelSegmentItemType` member would have exported silently as `dayPlanItem`, and Story 2.32 would have rewired the segment onto the wrong kind of record. Replaced with an exhaustive switch and a `never` check, carrying the same rationale in a comment.
+  - `[low]` `[patch]` The photo pool deduped on the **lexical** resolved path while `resolveOwnedPhotoPath` had a realpath in hand and discarded it, so two URLs aliasing one file — a symlink inside the trip's own directory, or two spellings a case-insensitive filesystem folds together — each earned their own pool id and the same bytes were written into the archive twice. Both aliases pass containment legitimately, so this was duplication, not a leak. `resolveOwnedPhotoPath` now returns `real ?? resolved`, which is both the dedupe key and the path the route reads. New test: `tripRepo.test.ts` "pools one entry when two urls alias the same file through a symlink inside the trip". The completeness test's `filePath` assertion now compares against `fs.realpath` (macOS resolves `/var` to `/private/var`).
+  - `[low]` `[patch]` Gallery drop warnings were deduped per URL, but nothing constrains a gallery to distinct URLs — `AccommodationImage` is unique on `(accommodationId, sortOrder)`, not on `imageUrl`. Two slots holding one unarchivable URL produced a single warning naming only the first `sortOrder`, so the later slots vanished with no trace at all — the one thing a gallery ref cannot afford, since `{ sortOrder, photoId }` carries no fallback URL. Gallery drops now dedupe per `(URL, sortOrder)` via `warnGalleryDropOnce`, while a row `registerPhoto` has just reported is still not reported twice (tracked by comparing `skippedUrls` membership across the call). New test: `tripRepo.test.ts` "reports every gallery slot lost to one bad url, not just the first"; the existing single-external-URL warning assertion is unchanged.
+  - `[low]` `[patch]` No test ever pushed non-ASCII bytes through the archive: `writeUploadFile` accepted `contents: string` only and every export fixture was short ASCII, so CRC-32 and the two size fields — the pair most likely to be wrong for real image data — were only ever exercised on trivial input. Widened the helper to `string | Buffer` and added `tripExportRoute.test.ts` "round-trips real binary photo bytes through the archive", which archives a 4104-byte fixture with a PNG signature, embedded nulls and every byte value, then asserts the member's `crc32`, both sizes and a byte-exact `Buffer.compare` of the extracted bytes.
+  - Deferred as DW-80 (`bin`/`application/octet-stream` fallback produces a package 2.32's pinned `contentType` allow-list rejects, with no warning at export time), DW-81 (nothing declares the Node ≥20.15 floor `zlib.crc32` needs), DW-82 (a photo deleted between the assembly-time stat and the stream-time read truncates an archive already sent as `200`). The orphan-travel-segment finding was re-raised and dropped as a duplicate of the existing DW-79.
+
+
+## Auto Run Result
+
+Status: done — follow-up review pass on an already-implemented story. No implementation loopback; four low-severity patches applied on top of the shipped change.
+
+### Summary of implemented change
+
+`GET /api/trips/[id]/export` returns a deterministic STORE-only ZIP archive (`trip.json` manifest plus `photos/` members) instead of a JSON body, `meta.formatVersion` `2`. The manifest is a strict superset of v1 and adds `meta.warnings`, a top-level `photos` pool, `trip.heroPhotoId`, `trip.bucketListItems[]`, `days[].imagePhotoId`, `images[]` on accommodations and day-plan items, and per-day `travelSegments[]`. Photo bytes travel with the manifest, gated on a realpath containment check against the trip's own upload directory. No new dependency, no UI, no schema change.
+
+This pass changed no behaviour a user can observe except that `meta.warnings` now names every gallery slot lost to a repeated bad URL rather than only the first.
+
+### Files changed in this pass
+
+- `travelplan/src/lib/repositories/tripRepo.ts` — exhaustive `toExportSegmentItemType`; `resolveOwnedPhotoPath` returns the realpath so aliases dedupe to one pool entry; `warnGalleryDropOnce` dedupes gallery drops per `(URL, sortOrder)`.
+- `travelplan/test/helpers/uploadFixtures.ts` — `writeUploadFile` accepts `string | Buffer`.
+- `travelplan/test/tripRepo.test.ts` — two new cases (repeated bad gallery URL, symlink alias dedupe); the completeness case compares `filePath` against `fs.realpath`.
+- `travelplan/test/tripExportRoute.test.ts` — one new case round-tripping 4104 bytes of real binary photo data through the archive.
+- `_bmad-output/implementation-artifacts/deferred-work.md` — DW-80, DW-81, DW-82 appended as new entries; no existing entry touched.
+
+### Review findings breakdown
+
+Two reviewers (adversarial general, edge-case hunter) ran in parallel against the full diff since `4dfef44`. After dedup and re-severitisation: 0 intent_gap, 0 bad_spec, 4 patched (all low), 3 deferred (1 medium, 2 low), 14 rejected.
+
+Rejected with reason: AC1's "opens in Finder/Explorer/unzip" cannot be verified in-suite because the spec forbids shelling out to host tooling; the v1-importer-accepts-v2-manifest hazard is already DW-78 and the import side is out of scope by spec; the orphan-travel-segment finding is already DW-79; the removal of the v1 JSON producer is the story's explicit decision; the `>=` vs `>` MAX_UINT32 boundary is off by one in the safe direction; the EOCD ZIP64 guard cannot run earlier without a stat round-trip the synchronous signature does not allow; sequential `fs.stat` per image, unbounded `meta.warnings`, the missing `cancel()` handler, the absent `Cache-Control`, the unlogged `catch`, the `fs.rm` test-fixture guard and the un-updated PRD FR34 are all either pre-existing convention or below the threshold that justifies churn on a done story.
+
+### Follow-up review recommendation
+
+`false`. Four low-severity, individually localized fixes: one compile-time exhaustiveness guard, one dedupe-key correction, one warning-completeness fix, one test-coverage addition. Nothing touched the wire format, the auth path or the containment control, and no fix was structural enough to warrant an independent pass.
+
+### Verification performed
+
+- `npm test` — 97 files, 677 tests, all passing (674 before this pass; +3 new cases).
+- `npm run lint` — 2 errors / 84 warnings. Both errors are the pre-existing `react/no-children-prop` pair in `src/theme.ts`; warning count is one below the pre-pass baseline of 85.
+- `npx tsc --noEmit` — 145 errors, identical to the pre-pass count, **zero under `src/`**. Every remaining error is a pre-existing test-file category.
+- Manual verification of each reviewer claim before triage, including reading `prisma/schema.prisma` for the `TravelSegment` relations, `accommodationRepo.ts` vs `dayPlanItemRepo.ts` delete paths, `package.json` for an `engines` field, and the ZIP64 guard placement in `zipArchive.ts`.
+
+### Residual risks
+
+- **DW-80** (medium): a photo with an out-of-allow-list extension exports as `application/octet-stream` with no warning, and Story 2.32's pinned `contentType` enum will reject the whole package. Only reachable via a legacy or hand-written DB row; the resolution belongs to 2.32.
+- **DW-82** (low): the assembly-time stat and the stream-time read are not atomic, so a photo deleted in between truncates a response already sent as `200`. Structural to fix; chunked transfer makes it detectable by a well-behaved client.
+- **DW-81** (low): nothing declares the Node ≥20.15 floor that `zlib.crc32` requires.
+- The export remains unreachable from the UI by design (DW-76), so none of the above is user-visible until an entry point lands.

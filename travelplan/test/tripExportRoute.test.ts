@@ -1,14 +1,63 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
+import fs from "node:fs/promises";
+import { crc32 } from "node:zlib";
 import { GET } from "@/app/api/trips/[id]/export/route";
 import { prisma } from "@/lib/db/prisma";
 import { createSessionJwt } from "@/lib/auth/jwt";
 import { createTripWithDays } from "@/lib/repositories/tripRepo";
+import {
+  getAccommodationImageUploadDir,
+  getDayPlanItemImageUploadDir,
+  getTripDayUploadDir,
+  getTripUploadDir,
+  getTripsUploadRoot,
+} from "@/lib/trips/uploadPaths";
+import { readZipArchive, readZipEntryMap, readZipEntryNames } from "./helpers/zipReader";
+import { writeUploadFile } from "./helpers/uploadFixtures";
+import { toDosDateTime } from "@/lib/trips/zipArchive";
 
-// eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 type ApiEnvelope<T> = {
   data: T | null;
   error: { code: string; message: string; details?: unknown } | null;
+};
+
+type ExportManifest = {
+  meta: { exportedAt: string; appVersion: string; formatVersion: number; warnings: string[] };
+  photos: Record<string, { contentType: string; archivePath: string }>;
+  trip: {
+    id: string;
+    name: string;
+    updatedAt: string;
+    heroImageUrl: string | null;
+    heroPhotoId: string | null;
+    bucketListItems: {
+      id: string;
+      title: string;
+      description: string | null;
+      positionText: string | null;
+      location: { lat: number; lng: number; label: string | null } | null;
+    }[];
+  };
+  days: {
+    id: string;
+    dayIndex: number;
+    imageUrl: string | null;
+    imagePhotoId: string | null;
+    accommodation: { id: string; images: { sortOrder: number; photoId: string }[] } | null;
+    dayPlanItems: { id: string; images: { sortOrder: number; photoId: string }[] }[];
+    travelSegments: {
+      id: string;
+      fromItemType: string;
+      fromItemId: string;
+      toItemType: string;
+      toItemId: string;
+      transportType: string;
+      durationMinutes: number;
+      distanceKm: number | null;
+      linkUrl: string | null;
+    }[];
+  }[];
 };
 
 const buildRequest = (tripId: string, options?: { session?: string }) => {
@@ -23,24 +72,43 @@ const buildRequest = (tripId: string, options?: { session?: string }) => {
   });
 };
 
+const routeContext = (id: string) => ({ params: Promise.resolve({ id }) });
+
+const readArchive = async (response: Response) => Buffer.from(await response.arrayBuffer());
+
+const readManifest = (archive: Buffer) => {
+  const entry = readZipArchive(archive).entries.find((candidate) => candidate.name === "trip.json");
+  if (!entry) {
+    throw new Error("Archive has no trip.json member");
+  }
+  return JSON.parse(entry.data.toString("utf8")) as ExportManifest;
+};
+
 describe("GET /api/trips/[id]/export", () => {
+  const uploadsRoot = getTripsUploadRoot();
+
   beforeEach(async () => {
+    await prisma.accommodationImage.deleteMany();
+    await prisma.dayPlanItemImage.deleteMany();
+    await prisma.travelSegment.deleteMany();
+    await prisma.tripBucketListItem.deleteMany();
     await prisma.dayPlanItem.deleteMany();
     await prisma.accommodation.deleteMany();
     await prisma.tripDay.deleteMany();
     await prisma.trip.deleteMany();
     await prisma.user.deleteMany();
+    await fs.rm(uploadsRoot, { recursive: true, force: true });
   });
 
-  it("returns downloadable JSON for owned trip", async () => {
+  const createOwner = async (email: string) => {
     const user = await prisma.user.create({
-      data: {
-        email: "trip-export-route@example.com",
-        passwordHash: "hashed",
-        role: "OWNER",
-      },
+      data: { email, passwordHash: "hashed", role: "OWNER" },
     });
-    const token = await createSessionJwt({ sub: user.id, role: user.role });
+    return { user, token: await createSessionJwt({ sub: user.id, role: user.role }) };
+  };
+
+  it("returns a downloadable v2 zip archive for an owned trip", async () => {
+    const { user, token } = await createOwner("trip-export-route@example.com");
 
     const { trip } = await createTripWithDays({
       userId: user.id,
@@ -61,26 +129,438 @@ describe("GET /api/trips/[id]/export", () => {
     });
 
     const request = buildRequest(trip.id, { session: token });
-    const response = await GET(request, { params: { id: trip.id } });
-    const payload = (await response.json()) as {
-      meta: { formatVersion: number; exportedAt: string };
-      trip: { id: string; name: string };
-      days: unknown[];
-    };
+    const response = await GET(request, routeContext(trip.id));
 
     expect(response.status).toBe(200);
-    expect(response.headers.get("content-type")).toBe("application/json; charset=utf-8");
+    expect(response.headers.get("content-type")).toBe("application/zip");
     expect(response.headers.get("content-disposition")).toMatch(
-      /^attachment; filename="trip-paris-rome-2026-\d{4}-\d{2}-\d{2}\.json"$/
+      /^attachment; filename="trip-paris-rome-2026-\d{4}-\d{2}-\d{2}\.zip"$/
     );
-    expect(payload.meta.formatVersion).toBe(1);
+
+    const archive = await readArchive(response);
+    const parsed = readZipArchive(archive);
+    expect(parsed.entries.map((entry) => entry.name)).toEqual(["trip.json"]);
+
+    const payload = readManifest(archive);
+    expect(payload.meta.formatVersion).toBe(2);
     expect(payload.meta.exportedAt).toBe(payload.trip.updatedAt);
+    expect(payload.meta.warnings).toEqual([]);
+    expect(payload.photos).toEqual({});
     expect(payload.trip.id).toBe(trip.id);
+    expect(payload.trip.heroPhotoId).toBeNull();
+    expect(payload.trip.bucketListItems).toEqual([]);
     expect(payload.days).toHaveLength(2);
+    expect(payload.days[0].imagePhotoId).toBeNull();
+    expect(payload.days[0].accommodation?.images).toEqual([]);
+    expect(payload.days[0].travelSegments).toEqual([]);
+  });
+
+  it("round-trips travel segments and bucket list items into the manifest", async () => {
+    const { user, token } = await createOwner("trip-export-segments@example.com");
+
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Segment Trip",
+      startDate: "2026-09-01T00:00:00.000Z",
+      endDate: "2026-09-01T00:00:00.000Z",
+    });
+    const [day] = await prisma.tripDay.findMany({ where: { tripId: trip.id } });
+
+    const accommodation = await prisma.accommodation.create({
+      data: { tripDayId: day.id, name: "Harbour Inn" },
+    });
+    const planItem = await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: day.id,
+        title: "Ferry terminal",
+        contentJson: JSON.stringify({ type: "doc", content: [] }),
+      },
+    });
+    await prisma.travelSegment.create({
+      data: {
+        tripDayId: day.id,
+        fromItemType: "ACCOMMODATION",
+        fromItemId: accommodation.id,
+        toItemType: "DAY_PLAN_ITEM",
+        toItemId: planItem.id,
+        transportType: "SHIP",
+        durationMinutes: 45,
+        distanceKm: 12.5,
+        linkUrl: "https://example.com/ferry",
+      },
+    });
+    // Deliberately inserted out of alphabetical order to pin the title-first ordering.
+    await prisma.tripBucketListItem.create({
+      data: { tripId: trip.id, title: "Zoo visit", description: "Pandas", positionText: "North" },
+    });
+    await prisma.tripBucketListItem.create({
+      data: {
+        tripId: trip.id,
+        title: "Aquarium",
+        locationLat: 48.14,
+        locationLng: 11.58,
+        locationLabel: "Old harbour",
+      },
+    });
+
+    const response = await GET(buildRequest(trip.id, { session: token }), routeContext(trip.id));
+    const payload = readManifest(await readArchive(response));
+
+    expect(response.status).toBe(200);
+    expect(payload.trip.bucketListItems.map((item) => item.title)).toEqual(["Aquarium", "Zoo visit"]);
+    expect(payload.trip.bucketListItems[0].location).toEqual({ lat: 48.14, lng: 11.58, label: "Old harbour" });
+    expect(payload.trip.bucketListItems[1]).toEqual(
+      expect.objectContaining({ description: "Pandas", positionText: "North", location: null })
+    );
+
+    expect(payload.days[0].travelSegments).toHaveLength(1);
+    const segment = payload.days[0].travelSegments[0];
+    expect(segment).toEqual(
+      expect.objectContaining({
+        fromItemType: "accommodation",
+        toItemType: "dayPlanItem",
+        transportType: "ship",
+        durationMinutes: 45,
+        distanceKm: 12.5,
+        linkUrl: "https://example.com/ferry",
+      })
+    );
+    // Endpoint ids must equal the exported records' ids, or 2.32 cannot rewire them.
+    expect(segment.fromItemId).toBe(payload.days[0].accommodation?.id);
+    expect(segment.toItemId).toBe(payload.days[0].dayPlanItems[0].id);
+  });
+
+  it("writes one archive member per pooled photo with no unregistered member and no dangling reference", async () => {
+    const { user, token } = await createOwner("trip-export-photos@example.com");
+
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Photo Trip",
+      startDate: "2026-07-01T00:00:00.000Z",
+      endDate: "2026-07-01T00:00:00.000Z",
+    });
+    const [day] = await prisma.tripDay.findMany({ where: { tripId: trip.id } });
+    const accommodation = await prisma.accommodation.create({
+      data: { tripDayId: day.id, name: "Gallery Hotel" },
+    });
+    const planItem = await prisma.dayPlanItem.create({
+      data: { tripDayId: day.id, contentJson: JSON.stringify({ type: "doc", content: [] }) },
+    });
+
+    await writeUploadFile(getTripUploadDir(trip.id), "hero.jpg", "hero-bytes");
+    await writeUploadFile(getTripDayUploadDir(trip.id, day.id), "day.png", "day-bytes");
+    await writeUploadFile(
+      getAccommodationImageUploadDir(trip.id, day.id, accommodation.id),
+      "stay.webp",
+      "stay-bytes"
+    );
+    await writeUploadFile(
+      getDayPlanItemImageUploadDir(trip.id, day.id, planItem.id),
+      "activity.JPEG",
+      "activity-bytes"
+    );
+
+    await prisma.trip.update({
+      where: { id: trip.id },
+      data: { heroImageUrl: `/uploads/trips/${trip.id}/hero.jpg` },
+    });
+    await prisma.tripDay.update({
+      where: { id: day.id },
+      data: { imageUrl: `/uploads/trips/${trip.id}/days/${day.id}/day.png` },
+    });
+    await prisma.accommodationImage.create({
+      data: {
+        accommodationId: accommodation.id,
+        imageUrl: `/uploads/trips/${trip.id}/days/${day.id}/accommodations/${accommodation.id}/stay.webp`,
+        sortOrder: 0,
+      },
+    });
+    await prisma.dayPlanItemImage.create({
+      data: {
+        dayPlanItemId: planItem.id,
+        imageUrl: `/uploads/trips/${trip.id}/days/${day.id}/day-plan-items/${planItem.id}/activity.JPEG`,
+        sortOrder: 0,
+      },
+    });
+
+    const response = await GET(buildRequest(trip.id, { session: token }), routeContext(trip.id));
+    const archive = await readArchive(response);
+    const parsed = readZipArchive(archive);
+    const payload = readManifest(archive);
+
+    expect(response.status).toBe(200);
+    expect(payload.meta.warnings).toEqual([]);
+    // Pool keys are assigned in traversal order: hero, day image, accommodation gallery, plan items.
+    expect(Object.keys(payload.photos)).toEqual(["p1", "p2", "p3", "p4"]);
+    expect(payload.photos).toEqual({
+      p1: { contentType: "image/jpeg", archivePath: "photos/p1.jpg" },
+      p2: { contentType: "image/png", archivePath: "photos/p2.png" },
+      p3: { contentType: "image/webp", archivePath: "photos/p3.webp" },
+      p4: { contentType: "image/jpeg", archivePath: "photos/p4.jpeg" },
+    });
+    expect(payload.trip.heroPhotoId).toBe("p1");
+    expect(payload.days[0].imagePhotoId).toBe("p2");
+    expect(payload.days[0].accommodation?.images).toEqual([{ sortOrder: 0, photoId: "p3" }]);
+    expect(payload.days[0].dayPlanItems[0].images).toEqual([{ sortOrder: 0, photoId: "p4" }]);
+
+    // Pool and archive agree in both directions.
+    const memberNames = parsed.entries.filter((entry) => entry.name !== "trip.json").map((entry) => entry.name);
+    const poolPaths = Object.values(payload.photos).map((photo) => photo.archivePath);
+    expect([...memberNames].sort()).toEqual([...poolPaths].sort());
+    expect(memberNames).toHaveLength(new Set(memberNames).size);
+
+    // Every reference resolves to a pool key.
+    const referenced = [
+      payload.trip.heroPhotoId,
+      payload.days[0].imagePhotoId,
+      ...(payload.days[0].accommodation?.images.map((image) => image.photoId) ?? []),
+      ...payload.days[0].dayPlanItems.flatMap((item) => item.images.map((image) => image.photoId)),
+    ].filter((value): value is string => value !== null);
+    for (const photoId of referenced) {
+      expect(payload.photos[photoId]).toBeDefined();
+    }
+
+    const byName = readZipEntryMap(archive);
+    expect(byName.get("photos/p1.jpg")?.toString("utf8")).toBe("hero-bytes");
+    expect(byName.get("photos/p4.jpeg")?.toString("utf8")).toBe("activity-bytes");
+  });
+
+  it("pools a file referenced by two records once and writes one member for it", async () => {
+    const { user, token } = await createOwner("trip-export-dedupe@example.com");
+
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Dedupe Trip",
+      startDate: "2026-07-05T00:00:00.000Z",
+      endDate: "2026-07-05T00:00:00.000Z",
+    });
+    const [day] = await prisma.tripDay.findMany({ where: { tripId: trip.id } });
+    const accommodation = await prisma.accommodation.create({
+      data: { tripDayId: day.id, name: "Shared Photo Hotel" },
+    });
+
+    const sharedUrl = `/uploads/trips/${trip.id}/days/${day.id}/accommodations/${accommodation.id}/shared.jpg`;
+    await writeUploadFile(
+      getAccommodationImageUploadDir(trip.id, day.id, accommodation.id),
+      "shared.jpg",
+      "shared-bytes"
+    );
+    await prisma.accommodationImage.createMany({
+      data: [
+        { accommodationId: accommodation.id, imageUrl: sharedUrl, sortOrder: 0 },
+        { accommodationId: accommodation.id, imageUrl: sharedUrl, sortOrder: 1 },
+      ],
+    });
+
+    const response = await GET(buildRequest(trip.id, { session: token }), routeContext(trip.id));
+    const archive = await readArchive(response);
+    const payload = readManifest(archive);
+    const parsed = readZipArchive(archive);
+
+    expect(Object.keys(payload.photos)).toEqual(["p1"]);
+    expect(payload.days[0].accommodation?.images).toEqual([
+      { sortOrder: 0, photoId: "p1" },
+      { sortOrder: 1, photoId: "p1" },
+    ]);
+    expect(parsed.entries.map((entry) => entry.name)).toEqual(["trip.json", "photos/p1.jpg"]);
+  });
+
+  it("round-trips real binary photo bytes through the archive", async () => {
+    const { user, token } = await createOwner("trip-export-binary@example.com");
+
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Binary Trip",
+      startDate: "2026-07-06T00:00:00.000Z",
+      endDate: "2026-07-06T00:00:00.000Z",
+    });
+
+    // Every other fixture in this suite writes ASCII, which exercises neither the CRC nor the size
+    // fields the way a real JPEG does. This one carries a PNG signature, embedded nulls, high bytes
+    // and every byte value in between, at a length no header field can hide a mistake in.
+    const bytes = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.from(Array.from({ length: 4096 }, (_, index) => index % 256)),
+    ]);
+    await writeUploadFile(getTripUploadDir(trip.id), "hero.png", bytes);
+    await prisma.trip.update({
+      where: { id: trip.id },
+      data: { heroImageUrl: `/uploads/trips/${trip.id}/hero.png` },
+    });
+
+    const response = await GET(buildRequest(trip.id, { session: token }), routeContext(trip.id));
+    const archive = await readArchive(response);
+    const member = readZipArchive(archive).entries.find((entry) => entry.name === "photos/p1.png");
+
+    expect(member).toBeDefined();
+    expect(member?.uncompressedSize).toBe(bytes.length);
+    expect(member?.compressedSize).toBe(bytes.length);
+    expect(member?.crc32).toBe(crc32(bytes));
+    expect(Buffer.compare(member?.data ?? Buffer.alloc(0), bytes)).toBe(0);
+  });
+
+  it("exports a trip with no photos as a single-member archive", async () => {
+    const { user, token } = await createOwner("trip-export-no-photos@example.com");
+
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "No Photos",
+      startDate: "2026-07-10T00:00:00.000Z",
+      endDate: "2026-07-10T00:00:00.000Z",
+    });
+
+    const response = await GET(buildRequest(trip.id, { session: token }), routeContext(trip.id));
+    const archive = await readArchive(response);
+    const payload = readManifest(archive);
+
+    expect(response.status).toBe(200);
+    expect(readZipEntryNames(archive)).toEqual(["trip.json"]);
+    expect(payload.photos).toEqual({});
+    expect(payload.meta.warnings).toEqual([]);
+  });
+
+  it("drops a photo whose file was deleted from disk and records a warning", async () => {
+    const { user, token } = await createOwner("trip-export-missing-file@example.com");
+
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Missing File",
+      startDate: "2026-07-12T00:00:00.000Z",
+      endDate: "2026-07-12T00:00:00.000Z",
+    });
+    const heroUrl = `/uploads/trips/${trip.id}/hero.jpg`;
+    await prisma.trip.update({ where: { id: trip.id }, data: { heroImageUrl: heroUrl } });
+
+    const response = await GET(buildRequest(trip.id, { session: token }), routeContext(trip.id));
+    const archive = await readArchive(response);
+    const payload = readManifest(archive);
+
+    expect(response.status).toBe(200);
+    expect(payload.trip.heroPhotoId).toBeNull();
+    // The v1 field survives untouched, so a v1 reader is unaffected.
+    expect(payload.trip.heroImageUrl).toBe(heroUrl);
+    expect(payload.photos).toEqual({});
+    expect(payload.meta.warnings).toHaveLength(1);
+    expect(payload.meta.warnings[0]).toContain(heroUrl);
+    expect(readZipEntryNames(archive)).toEqual(["trip.json"]);
+  });
+
+  it("never reads a stored path that escapes the trip's own upload directory", async () => {
+    const { user, token } = await createOwner("trip-export-traversal@example.com");
+
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Traversal Trip",
+      startDate: "2026-07-15T00:00:00.000Z",
+      endDate: "2026-07-15T00:00:00.000Z",
+    });
+    const [day] = await prisma.tripDay.findMany({ where: { tripId: trip.id } });
+
+    // A real file exists at the escape target, so a pass would be visible rather than silent.
+    await writeUploadFile(uploadsRoot, "escape.png", "escaped-bytes");
+
+    const escapeUrl = `/uploads/trips/${trip.id}/../../escape.png`;
+    await prisma.tripDay.update({ where: { id: day.id }, data: { imageUrl: escapeUrl } });
+
+    const response = await GET(buildRequest(trip.id, { session: token }), routeContext(trip.id));
+    const archive = await readArchive(response);
+    const payload = readManifest(archive);
+
+    expect(response.status).toBe(200);
+    expect(payload.days[0].imagePhotoId).toBeNull();
+    expect(payload.days[0].imageUrl).toBe(escapeUrl);
+    expect(payload.photos).toEqual({});
+    expect(readZipEntryNames(archive)).toEqual(["trip.json"]);
+    expect(archive.includes(Buffer.from("escaped-bytes", "utf8"))).toBe(false);
+  });
+
+  it("leaves an external https image URL unfetched and unpooled", async () => {
+    const { user, token } = await createOwner("trip-export-external@example.com");
+
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "External Image",
+      startDate: "2026-07-18T00:00:00.000Z",
+      endDate: "2026-07-18T00:00:00.000Z",
+    });
+    const [day] = await prisma.tripDay.findMany({ where: { tripId: trip.id } });
+    await prisma.tripDay.update({
+      where: { id: day.id },
+      data: { imageUrl: "https://cdn.example.com/day.jpg" },
+    });
+
+    const response = await GET(buildRequest(trip.id, { session: token }), routeContext(trip.id));
+    const payload = readManifest(await readArchive(response));
+
+    expect(payload.days[0].imagePhotoId).toBeNull();
+    expect(payload.days[0].imageUrl).toBe("https://cdn.example.com/day.jpg");
+    expect(payload.photos).toEqual({});
+    expect(payload.meta.warnings).toEqual([]);
+  });
+
+  it("produces byte-identical archives for two exports of an unchanged trip", async () => {
+    const { user, token } = await createOwner("trip-export-deterministic@example.com");
+
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Deterministic Trip",
+      startDate: "2026-08-01T00:00:00.000Z",
+      endDate: "2026-08-01T00:00:00.000Z",
+    });
+    const [day] = await prisma.tripDay.findMany({ where: { tripId: trip.id } });
+    const accommodation = await prisma.accommodation.create({
+      data: { tripDayId: day.id, name: "Stable Hotel" },
+    });
+    await writeUploadFile(
+      getAccommodationImageUploadDir(trip.id, day.id, accommodation.id),
+      "stay.jpg",
+      "stay-bytes"
+    );
+    await prisma.accommodationImage.create({
+      data: {
+        accommodationId: accommodation.id,
+        imageUrl: `/uploads/trips/${trip.id}/days/${day.id}/accommodations/${accommodation.id}/stay.jpg`,
+        sortOrder: 0,
+      },
+    });
+
+    const first = await readArchive(await GET(buildRequest(trip.id, { session: token }), routeContext(trip.id)));
+    const second = await readArchive(await GET(buildRequest(trip.id, { session: token }), routeContext(trip.id)));
+
+    expect(Buffer.compare(first, second)).toBe(0);
+  });
+
+  it("derives every archive timestamp from trip.updatedAt rather than the wall clock", async () => {
+    const { user, token } = await createOwner("trip-export-timestamps@example.com");
+
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Timestamped Trip",
+      startDate: "2026-08-01T00:00:00.000Z",
+      endDate: "2026-08-01T00:00:00.000Z",
+    });
+
+    // Byte-identity alone cannot catch a `new Date()` regression: DOS timestamps have two-second
+    // resolution, so two back-to-back exports stay identical even with the clock wired in. Pinning
+    // `updatedAt` to a date that is not today is what makes this assertion fail on that mutation.
+    const pinnedUpdatedAt = new Date("2021-03-04T05:06:08.000Z");
+    await prisma.trip.update({ where: { id: trip.id }, data: { updatedAt: pinnedUpdatedAt } });
+
+    const archive = await readArchive(
+      await GET(buildRequest(trip.id, { session: token }), routeContext(trip.id)),
+    );
+    const parsed = readZipArchive(archive);
+    const expected = toDosDateTime(pinnedUpdatedAt);
+
+    expect(expected.dosDate).not.toBe(toDosDateTime(new Date()).dosDate);
+    expect(parsed.entries).not.toHaveLength(0);
+    for (const entry of parsed.entries) {
+      expect({ dosTime: entry.dosTime, dosDate: entry.dosDate }).toEqual(expected);
+    }
   });
 
   it("rejects unauthenticated export requests", async () => {
-    const response = await GET(buildRequest("missing-trip"), { params: { id: "missing-trip" } });
+    const response = await GET(buildRequest("missing-trip"), routeContext("missing-trip"));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(401);
@@ -106,7 +586,7 @@ describe("GET /api/trips/[id]/export", () => {
       endDate: "2026-11-11T00:00:00.000Z",
     });
 
-    const response = await GET(buildRequest(trip.id, { session: token }), { params: { id: trip.id } });
+    const response = await GET(buildRequest(trip.id, { session: token }), routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(403);
@@ -138,7 +618,7 @@ describe("GET /api/trips/[id]/export", () => {
       endDate: "2026-10-02T00:00:00.000Z",
     });
 
-    const response = await GET(buildRequest(trip.id, { session: otherToken }), { params: { id: trip.id } });
+    const response = await GET(buildRequest(trip.id, { session: otherToken }), routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(404);
@@ -146,7 +626,7 @@ describe("GET /api/trips/[id]/export", () => {
   });
 
   it("rejects invalid session token", async () => {
-    const response = await GET(buildRequest("trip-1", { session: "not-a-valid-jwt" }), { params: { id: "trip-1" } });
+    const response = await GET(buildRequest("trip-1", { session: "not-a-valid-jwt" }), routeContext("trip-1"));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(401);
@@ -170,11 +650,11 @@ describe("GET /api/trips/[id]/export", () => {
       endDate: "2026-11-01T00:00:00.000Z",
     });
 
-    const response = await GET(buildRequest(trip.id, { session: token }), { params: { id: trip.id } });
+    const response = await GET(buildRequest(trip.id, { session: token }), routeContext(trip.id));
     const contentDisposition = response.headers.get("content-disposition");
 
     expect(response.status).toBe(200);
-    expect(contentDisposition).toMatch(/^attachment; filename="trip-trip-injected-\d{4}-\d{2}-\d{2}\.json"$/);
+    expect(contentDisposition).toMatch(/^attachment; filename="trip-trip-injected-\d{4}-\d{2}-\d{2}\.zip"$/);
     expect(contentDisposition).not.toContain("\r");
     expect(contentDisposition).not.toContain("\n");
   });

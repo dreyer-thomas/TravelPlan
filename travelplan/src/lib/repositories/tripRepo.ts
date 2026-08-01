@@ -1,8 +1,12 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import { prisma } from "@/lib/db/prisma";
 import { hashPassword } from "@/lib/auth/bcrypt";
 import { Prisma } from "@/generated/prisma/client";
+import type { TravelSegmentItemType, TravelTransportType } from "@/generated/prisma/enums";
 import type { TripAccessRole } from "@/lib/auth/tripAccess";
 import { buildDayMapPanelData, buildTripDayMapItems, type TripDayMapPanelData } from "@/lib/trips/dayMapData";
+import { getTripUploadDir, resolvePublicFilePath } from "@/lib/trips/uploadPaths";
 import type { TripImportConflictStrategy, TripImportPayloadInput } from "@/lib/validation/tripImportSchemas";
 
 export type CreateTripParams = {
@@ -177,23 +181,91 @@ export type TripDayPrintPayload = {
   map: TripDayMapPanelData;
 };
 
+/**
+ * One member of the export archive's photo pool.
+ *
+ * The bytes are *not* here - `archivePath` names the archive member that carries them, and the
+ * export route streams that member straight off disk. Entities reference the pool by id so a file
+ * referenced twice is stored once.
+ */
+export type TripExportPhoto = {
+  contentType: string;
+  archivePath: string;
+};
+
+/** Gallery entry in the export manifest. Deliberately no `id` and no `imageUrl`: the source row id is
+ * meaningless to an importer and the old `/uploads/` URL is a dead link on the target server. The
+ * `sortOrder` is the only thing that has to survive. */
+export type TripExportImageRef = {
+  sortOrder: number;
+  photoId: string;
+};
+
+export type TripExportTravelSegment = {
+  id: string;
+  fromItemType: "accommodation" | "dayPlanItem";
+  /**
+   * The `id` of this day's exported `accommodation` / `dayPlanItems` record.
+   *
+   * Story 2.32 regenerates every cuid on import and can only rewire a segment by matching these
+   * against the exported record ids. Dropping them - or emitting positional indexes instead -
+   * silently breaks the import half. Note that `TravelSegment` carries a unique constraint on
+   * `(tripDayId, fromItemType, fromItemId, toItemType, toItemId)`, so an importer whose remap
+   * collapses two distinct source ids onto one new id will hit a P2002.
+   */
+  fromItemId: string;
+  toItemType: "accommodation" | "dayPlanItem";
+  toItemId: string;
+  transportType: "car" | "ship" | "flight";
+  durationMinutes: number;
+  distanceKm: number | null;
+  linkUrl: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type TripExportBucketListItem = {
+  id: string;
+  title: string;
+  description: string | null;
+  positionText: string | null;
+  location: { lat: number; lng: number; label: string | null } | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type TripExportPayload = {
+  /**
+   * Surfaced as `meta.warnings` in the manifest. Always present, `[]` when clean - an optional field
+   * would make every consumer branch on absence for no reason. Holds one line per image row that was
+   * skipped (file gone from disk, or a stored URL that does not resolve inside the trip's own upload
+   * directory), so a skipped photo is visible rather than silent.
+   */
+  warnings: string[];
+  /** Photo pool, keyed `p1`, `p2`, ... in traversal order. `{}` for a trip with no photos. */
+  photos: Record<string, TripExportPhoto>;
   trip: {
     id: string;
     name: string;
     startDate: string;
     endDate: string;
+    /** v1 field, kept verbatim - a v1 reader and the existing import schema both still read it. */
     heroImageUrl: string | null;
+    heroPhotoId: string | null;
     startLocation: { lat: number; lng: number; label: string | null } | null;
     destinationLocation: { lat: number; lng: number; label: string | null } | null;
     createdAt: string;
     updatedAt: string;
+    /** Trip-scoped, so it lives inside `trip` and not at the manifest root. */
+    bucketListItems: TripExportBucketListItem[];
   };
   days: {
     id: string;
     date: string;
     dayIndex: number;
+    /** v1 field, kept verbatim. */
     imageUrl: string | null;
+    imagePhotoId: string | null;
     note: string | null;
     createdAt: string;
     updatedAt: string;
@@ -210,6 +282,7 @@ export type TripExportPayload = {
       location: { lat: number; lng: number; label: string | null } | null;
       createdAt: string;
       updatedAt: string;
+      images: TripExportImageRef[];
     } | null;
     dayPlanItems: {
       id: string;
@@ -223,8 +296,20 @@ export type TripExportPayload = {
       location: { lat: number; lng: number; label: string | null } | null;
       createdAt: string;
       updatedAt: string;
+      images: TripExportImageRef[];
     }[];
+    travelSegments: TripExportTravelSegment[];
   }[];
+};
+
+/**
+ * What `getTripExportForUser` hands back: the manifest payload plus the on-disk location of every
+ * pooled photo, already in pool-key order, so the route can stream each member without re-deriving
+ * (or re-validating) a single path.
+ */
+export type TripExportResult = {
+  payload: TripExportPayload;
+  photoFiles: { archivePath: string; filePath: string }[];
 };
 
 type TripImportConflict = {
@@ -1132,10 +1217,71 @@ export const getTripDayPrintPayloadForUser = async ({
   };
 };
 
-export const getTripExportForUser = async (userId: string, tripId: string): Promise<TripExportPayload | null> => {
+/**
+ * Extension allow-list for pooled photos, mirroring the set the three upload routes accept
+ * (`ALLOWED_TYPES` in e.g. `accommodations/images/route.ts`). Anything else lands as `bin` /
+ * `application/octet-stream` rather than being guessed at.
+ */
+const EXPORT_PHOTO_CONTENT_TYPES = new Map<string, string>([
+  ["jpg", "image/jpeg"],
+  ["jpeg", "image/jpeg"],
+  ["png", "image/png"],
+  ["webp", "image/webp"],
+]);
+const EXPORT_PHOTO_FALLBACK_EXTENSION = "bin";
+const EXPORT_PHOTO_FALLBACK_CONTENT_TYPE = "application/octet-stream";
+
+const toExportPhotoExtension = (imageUrl: string) => {
+  const fileName = imageUrl.split("/").pop() ?? "";
+  const dotIndex = fileName.lastIndexOf(".");
+  const extension = dotIndex >= 0 ? fileName.slice(dotIndex + 1).toLowerCase() : "";
+  return EXPORT_PHOTO_CONTENT_TYPES.has(extension) ? extension : EXPORT_PHOTO_FALLBACK_EXTENSION;
+};
+
+// Same wire vocabulary the rest of the app uses; shape copied from `travelSegmentRepo.ts`.
+const toExportSegmentItemType = (value: TravelSegmentItemType): "accommodation" | "dayPlanItem" => {
+  switch (value) {
+    case "ACCOMMODATION":
+      return "accommodation";
+    case "DAY_PLAN_ITEM":
+      return "dayPlanItem";
+    default: {
+      // Exhaustive for the same reason `toExportTransportType` is: a new `TravelSegmentItemType`
+      // member falling through to an existing spelling would make Story 2.32 rewire the segment
+      // onto the wrong kind of record. Fail loudly instead.
+      const unhandled: never = value;
+      throw new Error(`Unhandled travel segment item type: ${String(unhandled)}`);
+    }
+  }
+};
+
+const toExportTransportType = (value: TravelTransportType): "car" | "ship" | "flight" => {
+  switch (value) {
+    case "CAR":
+      return "car";
+    case "SHIP":
+      return "ship";
+    case "FLIGHT":
+      return "flight";
+    default: {
+      // Exhaustive: a new `TravelTransportType` member must not be exported under an existing
+      // spelling. Story 2.32 remaps by this vocabulary, so a silent mislabel would restore the
+      // wrong transport rather than fail loudly.
+      const unhandled: never = value;
+      throw new Error(`Unhandled travel transport type: ${String(unhandled)}`);
+    }
+  }
+};
+
+export const getTripExportForUser = async (userId: string, tripId: string): Promise<TripExportResult | null> => {
   const trip = await prisma.trip.findFirst({
     where: { id: tripId, userId },
     include: {
+      // Trip-scoped, so it hangs off `Trip` and not off a day. Ordering is identical to
+      // `listBucketListItemsForTrip` so the backup matches what the UI shows.
+      bucketListItems: {
+        orderBy: [{ title: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+      },
       days: {
         orderBy: [{ dayIndex: "asc" }, { date: "asc" }],
         include: {
@@ -1158,6 +1304,12 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
               locationLabel: true,
               createdAt: true,
               updatedAt: true,
+              // Nested include rather than the print path's separate per-owner queries: the export
+              // walks one trip top-down and has no need to reach a neighbouring day.
+              images: {
+                select: { imageUrl: true, sortOrder: true },
+                orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+              },
             },
           },
           dayPlanItems: {
@@ -1179,6 +1331,26 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
               locationLabel: true,
               createdAt: true,
               updatedAt: true,
+              images: {
+                select: { imageUrl: true, sortOrder: true },
+                orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+              },
+            },
+          },
+          travelSegments: {
+            orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+            select: {
+              id: true,
+              fromItemType: true,
+              fromItemId: true,
+              toItemType: true,
+              toItemId: true,
+              transportType: true,
+              durationMinutes: true,
+              distanceKm: true,
+              linkUrl: true,
+              createdAt: true,
+              updatedAt: true,
             },
           },
         },
@@ -1190,37 +1362,214 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
     return null;
   }
 
-  return {
-    trip: {
-      id: trip.id,
-      name: trip.name,
-      startDate: trip.startDate.toISOString(),
-      endDate: trip.endDate.toISOString(),
-      heroImageUrl: trip.heroImageUrl,
-      startLocation:
-        trip.startLocationLat !== null && trip.startLocationLng !== null
-          ? {
-              lat: trip.startLocationLat,
-              lng: trip.startLocationLng,
-              label: trip.startLocationLabel,
-            }
-          : null,
-      destinationLocation:
-        trip.destinationLocationLat !== null && trip.destinationLocationLng !== null
-          ? {
-              lat: trip.destinationLocationLat,
-              lng: trip.destinationLocationLng,
-              label: trip.destinationLocationLabel,
-            }
-          : null,
-      createdAt: trip.createdAt.toISOString(),
-      updatedAt: trip.updatedAt.toISOString(),
-    },
-    days: trip.days.map((day) => ({
+  const warnings: string[] = [];
+  const photos: Record<string, TripExportPhoto> = {};
+  const photoFiles: { archivePath: string; filePath: string }[] = [];
+  const poolIdByFilePath = new Map<string, string>();
+  const skippedUrls = new Set<string>();
+
+  const ownedUrlPrefix = `/uploads/trips/${tripId}/`;
+  const ownedUploadRoot = path.resolve(getTripUploadDir(tripId));
+  // Both sides of the containment test must be compared in the same terms. The upload root itself
+  // can sit under a symlinked ancestor (macOS `/tmp` -> `/private/tmp`, and the per-worker temp dir
+  // `test/setup.ts` points `UPLOADS_PUBLIC_ROOT` at), so realpath the root once here rather than
+  // comparing a realpath-ed file against a lexical root and rejecting every legitimate photo.
+  const ownedUploadRootReal = await fs.realpath(ownedUploadRoot).catch(() => ownedUploadRoot);
+
+  const warnOnce = (imageUrl: string, message: string) => {
+    if (skippedUrls.has(imageUrl)) {
+      return;
+    }
+    skippedUrls.add(imageUrl);
+    warnings.push(message);
+  };
+
+  // Gallery drops are deduped per (URL, sortOrder) rather than per URL: the slot is the thing the
+  // user needs to be told about, and one URL can legitimately occupy several slots.
+  const warnedGalleryDrops = new Set<string>();
+  const warnGalleryDropOnce = (imageUrl: string, sortOrder: number, message: string) => {
+    const key = `${sortOrder} ${imageUrl}`;
+    if (warnedGalleryDrops.has(key)) {
+      return;
+    }
+    warnedGalleryDrops.add(key);
+    warnings.push(message);
+  };
+
+  /**
+   * Resolve a stored URL to a file this trip actually owns, or `null`.
+   *
+   * The prefix test alone is the pattern `removeManagedFile` uses, and it is not enough here: that
+   * function only unlinks, this one reads bytes into a file the user downloads.
+   * `/uploads/trips/<tripId>/../../../etc/passwd` satisfies the prefix and escapes the directory, so
+   * the resolved-path containment check is the control that matters. The trailing separator stops
+   * `.../trips/abc-evil` from passing as `.../trips/abc`.
+   *
+   * `path.resolve` is purely lexical, but `fs.stat` and `fs.readFile` both follow symlinks - so a
+   * symlink *inside* the trip's own directory pointing anywhere on the box would pass a lexical
+   * check and stream its target's bytes into the download. The realpath comparison below is what
+   * closes that. A realpath failure is left to the `stat` in `registerPhoto`, which reports a
+   * missing file with the accurate warning rather than mislabelling it a containment breach.
+   */
+  const resolveOwnedPhotoPath = async (imageUrl: string): Promise<string | null> => {
+    if (!imageUrl.startsWith(ownedUrlPrefix)) {
+      return null;
+    }
+    const resolved = path.resolve(resolvePublicFilePath(imageUrl));
+    if (!resolved.startsWith(`${ownedUploadRoot}${path.sep}`)) {
+      return null;
+    }
+    const real = await fs.realpath(resolved).catch(() => null);
+    if (real !== null && !real.startsWith(`${ownedUploadRootReal}${path.sep}`)) {
+      return null;
+    }
+    // Return the realpath when there is one: it is what the pool dedupes on, and two URLs that
+    // alias the same bytes (a symlink inside the trip's own directory, or two spellings that a
+    // case-insensitive filesystem folds together) must collapse to one pool entry and one archive
+    // member. A lexical path would give each alias its own id and write the bytes twice.
+    return real ?? resolved;
+  };
+
+  /**
+   * Register one stored image URL in the pool and return its id, or `null` when it earns no entry.
+   *
+   * `null` is returned - and nothing is read from disk - for an absent URL, an external `http(s)`
+   * URL (legal in this schema; a backup does not go out to the network), a path that does not
+   * resolve inside this trip's own upload directory, and a row whose file is gone. Everything is
+   * stat-ed here during assembly rather than mid-stream: a header already on the wire cannot be
+   * retracted, and AC4's pool/member set equality has to hold before the first byte is written.
+   */
+  const registerPhoto = async (imageUrl: string | null): Promise<string | null> => {
+    if (!imageUrl) {
+      return null;
+    }
+    if (!imageUrl.startsWith("/uploads/")) {
+      // External URL - preserved in its v1 field, never fetched.
+      return null;
+    }
+
+    const filePath = await resolveOwnedPhotoPath(imageUrl);
+    if (!filePath) {
+      warnOnce(imageUrl, `Skipped image outside this trip's upload directory: ${imageUrl}`);
+      return null;
+    }
+
+    const pooled = poolIdByFilePath.get(filePath);
+    if (pooled) {
+      return pooled;
+    }
+    if (skippedUrls.has(imageUrl)) {
+      return null;
+    }
+
+    try {
+      const stats = await fs.stat(filePath);
+      if (!stats.isFile()) {
+        warnOnce(imageUrl, `Skipped image that is not a regular file: ${imageUrl}`);
+        return null;
+      }
+    } catch {
+      warnOnce(imageUrl, `Skipped image whose file is missing on disk: ${imageUrl}`);
+      return null;
+    }
+
+    const extension = toExportPhotoExtension(imageUrl);
+    const poolId = `p${photoFiles.length + 1}`;
+    const archivePath = `photos/${poolId}.${extension}`;
+    photos[poolId] = {
+      contentType: EXPORT_PHOTO_CONTENT_TYPES.get(extension) ?? EXPORT_PHOTO_FALLBACK_CONTENT_TYPE,
+      archivePath,
+    };
+    photoFiles.push({ archivePath, filePath });
+    poolIdByFilePath.set(filePath, poolId);
+    return poolId;
+  };
+
+  /**
+   * Gallery entries are the one place a dropped photo leaves no trace: `trip.heroImageUrl` and
+   * `days[].imageUrl` survive verbatim beside their pool id, but `TripExportImageRef` is
+   * `{ sortOrder, photoId }` by contract - no `imageUrl` to fall back on. So a gallery row that
+   * earns no pool entry vanishes from the backup entirely, and the only record the user gets is
+   * `meta.warnings`. A row `registerPhoto` has just reported (missing file, failed containment) is
+   * not reported twice; this catches the two cases it leaves silent - an external `http(s)` URL,
+   * which is legal in this schema, and a *repeat* row whose URL an earlier row already spent the
+   * per-URL warning on. Nothing constrains a gallery to distinct URLs (`AccommodationImage` is
+   * unique on `(accommodationId, sortOrder)`, not on `imageUrl`), so without the second case the
+   * later slots of a repeated bad URL would disappear with no trace at all.
+   */
+  const registerGallery = async (images: { imageUrl: string; sortOrder: number }[]) => {
+    const refs: TripExportImageRef[] = [];
+    for (const image of images) {
+      const alreadyReported = skippedUrls.has(image.imageUrl);
+      const photoId = await registerPhoto(image.imageUrl);
+      if (photoId) {
+        refs.push({ sortOrder: image.sortOrder, photoId });
+        continue;
+      }
+      if (!alreadyReported && skippedUrls.has(image.imageUrl)) {
+        // `registerPhoto` warned about this very row - one line per row is enough.
+        continue;
+      }
+      warnGalleryDropOnce(
+        image.imageUrl,
+        image.sortOrder,
+        `Dropped gallery image at sortOrder ${image.sortOrder} that could not be archived: ${image.imageUrl}`,
+      );
+    }
+    return refs;
+  };
+
+  // Pool ids are assigned in a fixed traversal: hero, then day by day - day image, accommodation
+  // gallery in sortOrder, then each plan item's gallery in sortOrder. AC7 rests on this order.
+  const heroPhotoId = await registerPhoto(trip.heroImageUrl);
+
+  const days: TripExportPayload["days"] = [];
+  for (const day of trip.days) {
+    const imagePhotoId = await registerPhoto(day.imageUrl);
+    const accommodationImages = day.accommodation ? await registerGallery(day.accommodation.images) : [];
+
+    const dayPlanItems: TripExportPayload["days"][number]["dayPlanItems"] = [];
+    for (const item of day.dayPlanItems) {
+      const images = await registerGallery(item.images);
+      dayPlanItems.push({
+        id: item.id,
+        title: item.title,
+        fromTime: item.fromTime,
+        toTime: item.toTime,
+        contentJson: item.contentJson,
+        costCents: item.costCents,
+        payments:
+          item.payments && item.payments.length > 0
+            ? item.payments
+            : item.costCents !== null
+              ? [
+                  {
+                    amountCents: item.costCents,
+                    dueDate: day.date.toISOString().slice(0, 10),
+                  },
+                ]
+              : [],
+        linkUrl: item.linkUrl,
+        location:
+          item.locationLat !== null && item.locationLng !== null
+            ? {
+                lat: item.locationLat,
+                lng: item.locationLng,
+                label: item.locationLabel,
+              }
+            : null,
+        createdAt: item.createdAt.toISOString(),
+        updatedAt: item.updatedAt.toISOString(),
+        images,
+      });
+    }
+
+    days.push({
       id: day.id,
       date: day.date.toISOString(),
       dayIndex: day.dayIndex,
       imageUrl: day.imageUrl,
+      imagePhotoId,
       note: day.note,
       createdAt: day.createdAt.toISOString(),
       updatedAt: day.updatedAt.toISOString(),
@@ -1255,27 +1604,59 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
                 : null,
             createdAt: day.accommodation.createdAt.toISOString(),
             updatedAt: day.accommodation.updatedAt.toISOString(),
+            images: accommodationImages,
           }
         : null,
-      dayPlanItems: day.dayPlanItems.map((item) => ({
+      dayPlanItems,
+      travelSegments: day.travelSegments.map((segment) => ({
+        id: segment.id,
+        fromItemType: toExportSegmentItemType(segment.fromItemType),
+        fromItemId: segment.fromItemId,
+        toItemType: toExportSegmentItemType(segment.toItemType),
+        toItemId: segment.toItemId,
+        transportType: toExportTransportType(segment.transportType),
+        durationMinutes: segment.durationMinutes,
+        distanceKm: segment.distanceKm,
+        linkUrl: segment.linkUrl,
+        createdAt: segment.createdAt.toISOString(),
+        updatedAt: segment.updatedAt.toISOString(),
+      })),
+    });
+  }
+
+  const payload: TripExportPayload = {
+    warnings,
+    photos,
+    trip: {
+      id: trip.id,
+      name: trip.name,
+      startDate: trip.startDate.toISOString(),
+      endDate: trip.endDate.toISOString(),
+      heroImageUrl: trip.heroImageUrl,
+      heroPhotoId,
+      startLocation:
+        trip.startLocationLat !== null && trip.startLocationLng !== null
+          ? {
+              lat: trip.startLocationLat,
+              lng: trip.startLocationLng,
+              label: trip.startLocationLabel,
+            }
+          : null,
+      destinationLocation:
+        trip.destinationLocationLat !== null && trip.destinationLocationLng !== null
+          ? {
+              lat: trip.destinationLocationLat,
+              lng: trip.destinationLocationLng,
+              label: trip.destinationLocationLabel,
+            }
+          : null,
+      createdAt: trip.createdAt.toISOString(),
+      updatedAt: trip.updatedAt.toISOString(),
+      bucketListItems: trip.bucketListItems.map((item) => ({
         id: item.id,
         title: item.title,
-        fromTime: item.fromTime,
-        toTime: item.toTime,
-        contentJson: item.contentJson,
-        costCents: item.costCents,
-        payments:
-          item.payments && item.payments.length > 0
-            ? item.payments
-            : item.costCents !== null
-              ? [
-                  {
-                    amountCents: item.costCents,
-                    dueDate: day.date.toISOString().slice(0, 10),
-                  },
-                ]
-              : [],
-        linkUrl: item.linkUrl,
+        description: item.description,
+        positionText: item.positionText,
         location:
           item.locationLat !== null && item.locationLng !== null
             ? {
@@ -1287,8 +1668,11 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
         createdAt: item.createdAt.toISOString(),
         updatedAt: item.updatedAt.toISOString(),
       })),
-    })),
+    },
+    days,
   };
+
+  return { payload, photoFiles };
 };
 
 const toAccommodationStatus = (status: "planned" | "booked") => (status === "booked" ? "BOOKED" : "PLANNED");

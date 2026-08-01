@@ -569,3 +569,69 @@ location: `travelplan/src/components/features/trips/TripDayView.tsx` — `costPi
 severity: low
 reason: Story 6.9 AC1 turned the activity card's cost into a filled accent pill in the card head. The accommodation card immediately below it on the same timeline keeps the old plain-bold `tlCostSx`. Newly created by this change rather than pre-existing, but out of scope by design: AC1 is written about the activity card specifically, the two cards have different head structures, and Tommy settled the filled-pill decision on 2026-08-01 for activities only. Worth a deliberate judgement rather than a drive-by: either the accommodation cost becomes a pill too, or the divergence is confirmed as intentional (the accommodation cost is a nightly rate, not a slot cost, so a different treatment may be right). Note the code Story 6.9 deleted carried the opposite rationale — "the mockup puts tl-cost on every card that has one". Related: DW-27, `formatCost` diverges across screens.
 status: open
+
+## Deferred from: 2-31-complete-trip-backup-export-with-photos-travel-segments-and-bucket-list (2026-08-02)
+
+### DW-76: The v2 trip backup export has no user-facing entry point
+
+origin: 2-31-complete-trip-backup-export-with-photos-travel-segments-and-bucket-list, 2026-08-02
+location: `travelplan/src/app/api/trips/[id]/export/route.ts` — reachable only by requesting the URL directly
+severity: low
+reason: Story 7.8 removed the "Export JSON" button from the trip overview (its AC3), and PRD FR33/FR34 record the consequence: "No user-facing entry point exists until one is decided." Story 2.31 deliberately did not pre-empt that decision — its AC8 forbids adding a button, an i18n key or a component test, so the complete v2 ZIP backup (manifest + photo bytes + travel segments + bucket list) now exists behind a URL nobody can reach from the UI. This is the contract *behind* the parked decision, not a half-finished feature. Recorded so the next reader does not treat the missing button as an oversight, and so whoever re-lands the surface knows what is already there to wire up. **Same surface as DW-47** (`TripImportDialog.tsx` has zero production call sites for exactly the same reason): the export trigger and the import dialog will re-land together or not at all — deciding one without the other leaves the pair asymmetric. Note that Story 2.32's AC6 *does* require a reachable "Import trip backup" control, which will make the asymmetry visible the moment 2.32 ships; if that reads wrong, it is a product call for Tommy, not something to fix by quietly adding an export button.
+status: open
+
+### DW-77: Story 2.32's `## Package Format Contract v2` still describes the base64-in-JSON container that 2.31 did not ship
+
+origin: 2-31-complete-trip-backup-export-with-photos-travel-segments-and-bucket-list, 2026-08-02
+location: `_bmad-output/implementation-artifacts/2-32-complete-trip-backup-import-with-photos-travel-segments-and-bucket-list.md` — `## Package Format Contract v2`, and its Open Item #1
+severity: medium
+reason: 2.32 is already `ready-for-dev` and was authored against a single `.json` file with photo bytes embedded as base64 in `photos[id].data`; its Open Item #1 asserts that a real `.zip` "needs a new dependency." That premise is wrong — `node:zlib` ships `crc32` and a STORE-only archive needs no compressor — and Tommy settled the container as a hand-rolled ZIP on 2026-08-01, after that spec was written. Story 2.31 shipped the ZIP. 2.32's spec was deliberately **not** edited from inside 2.31 (amending another story's spec from within one is how two specs end up disagreeing about who changed what), so the delta is recorded here and 2.32's dev session must read it before it starts. Everything else in 2.32 survives unchanged: the pool indirection, `heroPhotoId` / `imagePhotoId` / `images[].photoId`, `bucketListItems` under `trip`, per-day `travelSegments`, the cross-reference validation and the whole id-remapping design. The four deltas:
+
+- `photos[id]` is `{ contentType, archivePath }`, not `{ contentType, data }`.
+- The uploaded package is a `.zip`; the manifest is the member `trip.json`; photo bytes are the members named by `archivePath`.
+- Its base64 decode-and-round-trip validation is replaced by ZIP member extraction plus CRC verification; its 5 MB per-photo cap and `contentType` allow-list still apply, to the extracted bytes.
+- Its Open Item #1 is closed: the format is a ZIP and no dependency was added.
+
+status: open
+
+### DW-78: A v2 manifest POSTed to the v1 import API is silently accepted and stripped
+
+origin: 2-31-complete-trip-backup-export-with-photos-travel-segments-and-bucket-list, code review, 2026-08-02
+location: `travelplan/src/lib/validation/tripImportSchemas.ts` — `tripImportPayloadSchema`, the `formatVersion` field
+severity: medium
+reason: `tripImportPayloadSchema` validates `formatVersion` only as `z.number().int().positive()`, and its objects are non-strict, so zod's default strip silently discards every field v2 added. A user who extracts `trip.json` from a v2 archive and POSTs it to `/api/trips/import` gets a `200` and a restored trip that has lost all travel segments, all bucket-list items, all gallery photos and every pool reference — reported as success. Not caused by this story's code (the v1 importer was already permissive), but this story is what makes a v2 manifest exist, so the hazard is newly reachable. Deliberately not fixed here: Story 2.31's Dev Notes forbid touching the import side or relaxing `tripImportSchemas.ts` in anticipation, and Story 2.32 owns the v2 importer. 2.32 should either gate on `formatVersion` explicitly or reject an unknown version rather than degrading, and note that today's failure mode is silent data loss rather than an error. See also DW-77 (the container delta 2.32 must read first) and DW-76 (neither export nor import is reachable from the UI today, which is why this is not yet user-visible).
+status: open
+
+### DW-79: Deleting an accommodation leaves orphan travel segments with dangling endpoint ids
+
+origin: 2-31-complete-trip-backup-export-with-photos-travel-segments-and-bucket-list, code review, 2026-08-02
+location: `travelplan/src/lib/repositories/accommodationRepo.ts:413` — `deleteAccommodationForTripDay`
+severity: medium
+reason: `TravelSegment.fromItemId` / `toItemId` are plain `String` columns with no foreign key — only `tripDayId` cascades (`prisma/schema.prisma`, `model TravelSegment`). `deleteDayPlanItemForTripDay` compensates by calling `tx.travelSegment.deleteMany(...)` (`dayPlanItemRepo.ts:532`, `:578`), but `deleteAccommodationForTripDay` deletes the accommodation row without any equivalent cleanup, so a segment whose endpoint was that accommodation survives pointing at an id that no longer exists. Pre-existing and not caused by this story — but Story 2.31 is the first code to *export* those endpoint ids, so a backup taken after such a delete carries a dangling `fromItemId`/`toItemId` that Story 2.32's id-remapping cannot resolve. Two candidate fixes, and the choice is a real one: clean up on delete in `accommodationRepo` (fixes the data, matches what `dayPlanItemRepo` already does), or have the export filter segments whose endpoints are absent from the same day's exported records and warn. The first is the root-cause fix; the second alone would leave the orphan rows in the database. Note the `@@unique([tripDayId, fromItemType, fromItemId, toItemType, toItemId])` constraint, which 2.32 will hit if a remap ever collapses two distinct old ids onto one new one.
+status: open
+
+## Deferred from: 2-31-complete-trip-backup-export-with-photos-travel-segments-and-bucket-list — follow-up review (2026-08-02)
+
+### DW-80: The exporter can pool a photo whose `contentType` Story 2.32's importer is specified to reject
+
+origin: 2-31-complete-trip-backup-export-with-photos-travel-segments-and-bucket-list, follow-up code review, 2026-08-02
+location: `travelplan/src/lib/repositories/tripRepo.ts` — `toExportPhotoExtension`, `EXPORT_PHOTO_FALLBACK_CONTENT_TYPE`
+severity: medium
+reason: An `imageUrl` whose extension is outside `jpg|jpeg|png|webp` is still archived, with `archivePath` `photos/pN.bin` and `contentType` `application/octet-stream`, and **no `meta.warnings` line** — `tripRepo.test.ts` "falls back to a binary content type for an extension outside the upload allow-list" pins exactly that, asserting `warnings: []`. Story 2.32's `photoSchema` pins `contentType` to `z.enum(["image/jpeg", "image/png", "image/webp"])` with an explicit "do not widen it", so such a package fails import wholesale — and the export gave no hint at the time it was produced. The `bin` fallback is what Story 2.31's Task 2 mandates, so this is not a deviation and was not patched here; the decision belongs to the importer's story. Only reachable today via a legacy or hand-written DB row (the upload routes accept the three types only), which is why this is low-frequency rather than low-consequence. Three candidate resolutions for 2.32's dev session: widen the allow-list to accept and pass through `application/octet-stream`, have the exporter warn when it uses the fallback, or have the exporter drop the row like any other unarchivable image. Note DW-77 records four 2.31→2.32 deltas and this is not among them.
+status: open
+
+### DW-81: Nothing enforces the Node floor that `zlib.crc32` needs
+
+origin: 2-31-complete-trip-backup-export-with-photos-travel-segments-and-bucket-list, follow-up code review, 2026-08-02
+location: `travelplan/package.json` — no `engines` field; `.github/workflows/*` pin `node-version: 20` (floating minor)
+severity: low
+reason: `zipArchive.ts` depends on `zlib.crc32`, added in Node 20.15.0 / 22.2.0. Story 2.31 verified it against Node 20.19.2, but that is an observation, not a constraint: `package.json` declares no `engines` at all and CI pins only the major. A self-hosted deployment on Node 20.0–20.14 gets `crc32 is not a function` on every export request, which the route's bare `catch` turns into an unexplained `500` with nothing logged. Pre-existing in the sense that the project has never declared an engine floor — this story is the first code that makes one load-bearing. Fix is one line (`"engines": { "node": ">=20.15" }`), but it is a project-wide toolchain policy rather than a story-scoped change, and note npm does not enforce `engines` without `engine-strict`. Worth pairing with Story 8.1's Node 24 bump, which will want to revisit the floor anyway.
+status: open
+
+### DW-82: A photo file that disappears between the assembly-time stat and the stream-time read truncates an archive already sent as 200
+
+origin: 2-31-complete-trip-backup-export-with-photos-travel-segments-and-bucket-list, follow-up code review, 2026-08-02
+location: `travelplan/src/lib/trips/zipArchive.ts` — the `fs.readFile` inside `pull`; `tripRepo.ts` — `registerPhoto`'s `fs.stat`
+severity: low
+reason: The design deliberately stats every pooled photo during payload assembly so AC4's pool/member set equality holds before the first byte goes out, and the code comment says so. But the bytes are read much later, inside the stream's `pull`. If the file is deleted, replaced or made unreadable in between — a concurrent image delete, an operator pruning uploads — `fs.readFile` rejects, the stream errors after the `200` and the `Content-Disposition` are on the wire, and there is no way to retract them. Chunked transfer means a well-behaved client sees a network error rather than silently saving a corrupt file, which is why this is low rather than medium, but a client that saves what it got keeps a ZIP with no end-of-central-directory record. No test covers the path and `pull` has no `try`/`catch` that could skip the member instead. Not patched here: the honest fixes are structural (hold an open file descriptor from assembly through to the read, or capture `stats.size` — already in hand at the stat and currently discarded — and fail deterministically when it changes), and neither is a drive-by. The same window is what makes a post-check symlink swap theoretically exploitable, though that already requires write access to the upload directory.
+status: open
