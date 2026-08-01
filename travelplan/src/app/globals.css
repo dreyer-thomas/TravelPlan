@@ -5,7 +5,10 @@
   --color-card-alt: #FBF9F4;
   --color-ink: #2B2A26;
   --color-ink-soft: #6B675C;
-  --color-ink-muted: #8A8677;
+  /* Darkened from #8A8677 (3.65:1 on --color-card) to 4.55:1 - this system's engineering contrast
+     target, not a claim of conformance to any formal accessibility level. Keep in step with
+     `colors.inkMuted` in src/theme.ts: these two blocks are independent copies of one palette. */
+  --color-ink-muted: #7A7667;
   --color-border: #E4DFD3;
   --color-border-strong: #D9D0BE;
   --color-accent: #4B6358;
@@ -14,7 +17,12 @@
   --color-travel-neutral: #B9B2A0;
   --color-warn: #8A5A2B;
   --color-warn-bg: #F6ECE0;
+  /* Whole-row gap fill only - a weaker warn tint for the much larger area of a day-row / trip-row.
+     `--color-warn-bg` keeps serving pills, badges, error inputs and coverage segments. */
+  --color-warn-bg-row: #FBF6EE;
   --color-warn-border: #E3C7A2;
+  /* Neutral pill track for the `upcoming` and `past` trip-status states. */
+  --color-pill-neutral: #F1ECE1;
   --radius-sm: 4px;
   --radius-default: 6px;
   --radius-md: 8px;

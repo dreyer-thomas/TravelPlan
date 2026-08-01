@@ -55,8 +55,10 @@ describe("TripAccommodationDialog", () => {
     expect(screen.queryByLabelText("Location label (optional)")).toBeNull();
     expect(screen.getByText("No coordinates selected")).toBeInTheDocument();
 
-    // AC8: "Remove stay" used color="error", which resolves to MUI's default #d32f2f because
-    // theme.ts defines no `error` palette entry. Destructive actions use the text variant now.
+    // AC8: "Remove stay" used color="error", which at the time resolved to MUI's default #d32f2f
+    // because theme.ts defined no `error` palette entry (Story 7.11 has since added one, drawn from
+    // `errorBorder`). Destructive actions use the text variant now regardless - the reason this
+    // assertion survives is the treatment, not the missing palette entry.
     expect(screen.getByRole("button", { name: "Remove stay" })).toBeInTheDocument();
     expect(document.querySelectorAll(".MuiButton-colorError")).toHaveLength(0);
     expect(document.querySelectorAll(".MuiAlert-standardError")).toHaveLength(0);

@@ -8,7 +8,6 @@ import { Box, Button, Checkbox, CircularProgress, FormControlLabel } from "@mui/
 import { useTheme } from "@mui/material/styles";
 import FormField from "@/components/forms/FormField";
 import AuthScreenShell from "@/components/features/auth/AuthScreenShell";
-import { AUTH_SUBMIT_SX } from "@/components/features/auth/authSubmitSx";
 import AuthTabs from "@/components/features/auth/AuthTabs";
 import { WarningTriangleIcon } from "@/components/features/trips/TripIcons";
 import { useI18n } from "@/i18n/provider";
@@ -240,7 +239,7 @@ export default function RegisterPage() {
             </Box>
           )}
         </Box>
-        <Button type="submit" variant="contained" fullWidth disabled={isSubmitting} sx={AUTH_SUBMIT_SX}>
+        <Button type="submit" variant="contained" fullWidth disabled={isSubmitting} sx={{ mt: "6px" }}>
           {isSubmitting ? <CircularProgress size={22} /> : t("auth.register.submit")}
         </Button>
       </Box>

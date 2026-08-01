@@ -405,8 +405,11 @@ export default function TripCreateForm({
   return (
     <Box display="flex" flexDirection="column" gap={3}>
       {/*
-        Not MUI's `Alert`: theme.ts defines no `error` palette entry, so `severity="error"` falls back
-        to #d32f2f, a colour DESIGN.md does not have. `FormNotice` keeps the `role="alert"` semantics.
+        Not MUI's `Alert`. The original reason - theme.ts had no `error` palette entry, so
+        `severity="error"` fell back to #d32f2f - was closed by Story 7.11, which added one. This stays
+        on `FormNotice` because DESIGN.md's treatment for a form-level notice is the warn family, and
+        choosing between the app's two error idioms is a UX decision made elsewhere, not here. See
+        `FormNotice`'s docblock. It keeps the `role="alert"` semantics either way.
       */}
       {serverError && <FormNotice tone="warn" message={serverError} />}
       {success && <FormNotice tone="success" message={success} />}

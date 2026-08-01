@@ -18,7 +18,6 @@ import {
   HERO_SCRIM,
   HouseIcon,
   ON_PHOTO_CHROME,
-  ROW_GAP_BG,
   ShareGlyphIcon,
   WarningTriangleIcon,
   toCssUrl,
@@ -565,7 +564,7 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                         borderColor: isGap ? tokens.warnBorder : tokens.borderStrong,
                         borderRadius: "8px",
                         marginBottom: "8px",
-                        backgroundColor: isGap ? ROW_GAP_BG : tokens.card,
+                        backgroundColor: isGap ? tokens.warnBgRow : tokens.card,
                         // Keyboard-only focus: the row is outlined when its navigation link is focused,
                         // without also firing on plain mouse clicks the way :focus-within does.
                         "&:has(:focus-visible)": {

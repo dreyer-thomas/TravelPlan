@@ -1,7 +1,7 @@
 ---
 baseline_revision: 8564c15
 final_revision: b8c3fcb
-status: awaiting-operator
+status: done
 followup_review_recommended: false
 operator_actions:
   - "Seed an isolated SQLite DB on a non-default port (do NOT use travelplan/prisma/dev.db — it holds real trip data; follow the isolation precedent from Stories 7.2, 7.3 and 7.8) and start the dev server against it."
@@ -338,3 +338,19 @@ All four gates were run twice — once by the implementation agent and once inde
 - **`FULL_PAGE_MAP_HEIGHT` is knowingly unexamined**, and static measurement suggests it is wrong on both screens by different amounts. If the operator's viewport check is cursory, a scrolling map page ships.
 - **`trips.overviewMap.back` gained a user-visible `← ` prefix** in a story declared visual-only. It was an explicitly authorised call, but it is copy, no test pins it, and it should be looked at during the operator pass.
 - The i18n change was made by hand in both dictionaries with nothing enforcing parity; it is correct here, but the class of error is unguarded (deferred).
+
+## Operator Confirmation
+
+Confirmed 2026-08-01: the external actions this story owed were carried out.
+
+- Seed an isolated SQLite DB on a non-default port (do NOT use travelplan/prisma/dev.db — it holds real trip data; follow the isolation precedent from Stories 7.2, 7.3 and 7.8) and start the dev server against it.
+- Open a trip and click the expand icon in the Trip Overview sidebar (goes to /trips/{id}/map), then open a day and click the expand icon in the Day Detail sidebar (goes to /trips/{id}/days/{dayId}/map). Confirm neither screen inverts to a dark background on the way in, and that each map card reads as the same card as the preview panel it enlarged (cream card, 1px border, 8px radius, 18px padding — no elevated white panel).
+- On both screens confirm the card label is the small uppercase label-caps title in muted ink, matching the preview panel: 'Day map' on the day screen and 'Route' (not 'Full trip map') on the trip screen, with the trip name still shown as a subline beneath 'Route'.
+- Check the back button on both screens: readable accent-green against the paper background, at least 44x44px in dev tools' computed box, and the day-map one now reads '← Back to day' (not '← Back to trip'). Confirm the trip-map one reads '← Back to trip overview' — the leading arrow is newly added.
+- Test both back-button branches on each screen: arriving via the expand icon should go back in history, and pasting the map URL into a fresh tab should navigate forward to the trip/day. Both must land on the correct screen.
+- Exercise on both screens: a populated route with a Google-routed polyline; the routing-unavailable notice (block /api/trips/*/days/*/route in devtools); the missing-locations list (clear the location on one plan item) — on the trip map, confirm the missing-location labels are now underlined links that navigate to the owning day; and the no-locations empty state (a trip/day with no coordinates anywhere), confirming its dashed border is the light token border with a 6px radius.
+- Click a marker on each screen and confirm the detail dialog opens with its content and images and that the fullscreen photo viewer still works — these were deliberately NOT restyled (AC5), so they should look exactly as they did before.
+- At roughly 1080px and again at a short viewport, check whether the map fills its container without the page scrolling. FULL_PAGE_MAP_HEIGHT is still 'calc(100vh - 220px)' in both TripDayMapFullPage.tsx:73 and TripOverviewMapFullPage.tsx:57; review's static measurement suggests the real chrome is nearer 291px on the day map and ~23px more on the trip map. If either page scrolls or leaves a dead band, adjust the constant in that file and record the before/after value in the Dev Agent Record.
+- If every check above passes, edit _bmad-output/implementation-artifacts/7-9-full-page-map-screens-redesign.md: tick Task 8's six checkboxes to [x], set status: done in both the frontmatter and the body's 'Status:' line, and append a Change Log entry dated with the verification date.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._

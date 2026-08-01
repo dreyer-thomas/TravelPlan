@@ -261,14 +261,40 @@ describe("TripsDashboard", () => {
       expect(within(await rowFor(/portugal/i)).getByTestId("trip-row-status")).toHaveTextContent("1 day open");
     });
 
-    it("renders a past trip at reduced opacity with the total-costs label", async () => {
+    it("fades only a past trip's photo and border, never its text, and uses the total-costs label", async () => {
       renderDashboard();
 
       const row = await rowFor(/tuscany/i);
       expect(row).toHaveAttribute("data-status", "past");
-      expect(row).toHaveStyle({ opacity: "0.78" });
+
+      // The archival multiplier lives on the two decorative carriers. It is deliberately NOT on the
+      // row: a row-level `opacity` inherits into every descendant and drops the 12px `inkSoft`
+      // sub-line and the 11.5px status pill below this system's 4.5:1 contrast target.
+      expect(within(row).getByTestId("trip-row-photo")).toHaveStyle({ opacity: "0.78" });
+      // `borderStrong` #D9D0BE composited at 0.78 - a colour, not a nested opacity, so nothing
+      // inherits down into the children.
+      expect(row).toHaveStyle({ borderColor: "rgba(217, 208, 190, 0.78)" });
+
+      // The row itself, its text and its status pill all stay at full opacity. jsdom does not resolve
+      // a UA default for an undeclared `opacity`, so "no reduced opacity declared anywhere on the
+      // inheritance path" is what is actually checkable - and it is the property that matters, since
+      // any declaration on these three would inherit down to the text.
+      for (const el of [row, within(row).getByTestId("trip-row-status"), within(row).getByText(/total costs/i)]) {
+        expect(["", "1"]).toContain(getComputedStyle(el).opacity);
+      }
+      expect(getComputedStyle(row).opacity).not.toBe("0.78");
+
       expect(within(row).getByText(/total costs/i)).toBeInTheDocument();
       expect(within(await rowFor(/portugal/i)).getByText(/costs so far/i)).toBeInTheDocument();
+    });
+
+    it("leaves an active trip's photo and border at full strength", async () => {
+      renderDashboard();
+
+      const row = await rowFor(/copenhagen/i);
+      expect(row).toHaveAttribute("data-status", "planned");
+      expect(within(row).getByTestId("trip-row-photo")).toHaveStyle({ opacity: "1" });
+      expect(row).toHaveStyle({ borderColor: "#D9D0BE" });
     });
 
     it("gives a gap row the warn border and background", async () => {
@@ -276,7 +302,19 @@ describe("TripsDashboard", () => {
 
       const row = await rowFor(/portugal/i);
       expect(row).toHaveAttribute("data-status", "gap");
+      // Guards AC3's pixel-identical claim: `ROW_GAP_BG` became `tokens.warnBgRow`, and the rendered
+      // hex must not have moved. #FBF6EE is the whole-row gap fill, distinct from `warnBg` #F6ECE0.
       expect(row).toHaveStyle({ backgroundColor: "#FBF6EE", borderColor: "#E3C7A2" });
+    });
+
+    it("renders the neutral status pills on the pill-neutral token, unchanged from the old literal", async () => {
+      renderDashboard();
+
+      // The other half of AC3: `NEUTRAL_PILL_BG` became `tokens.pillNeutral`, same #F1ECE1.
+      for (const name of [/alpine/i, /tuscany/i]) {
+        const pill = within(await rowFor(name)).getByTestId("trip-row-status");
+        expect(pill).toHaveStyle({ backgroundColor: "#F1ECE1" });
+      }
     });
 
     it("sorts past trips last", async () => {

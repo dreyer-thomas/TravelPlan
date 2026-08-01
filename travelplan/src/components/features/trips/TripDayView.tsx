@@ -1134,9 +1134,14 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     padding: "3px 8px",
     fontVariantNumeric: "tabular-nums",
   } as const;
-  // Same pill, drained of accent, for a range derived from a default rather than a stored time. Uses
-  // inkSoft rather than inkMuted: inkMuted is 3.65:1 on card white and already carries a deferred
-  // contrast finding, so new text should not add another instance of it.
+  // Same pill, drained of accent, for a range derived from a default rather than a stored time.
+  //
+  // Still inkSoft rather than inkMuted, but for a different reason than before: Story 7.11 darkened
+  // inkMuted to #7A7667 (4.55:1 on card white), closing the original finding. This pill is not on card
+  // white though - it sits on `tokens.border` #E4DFD3, where inkMuted measures 3.42:1 and inkSoft
+  // measures 4.25:1. Neither clears this system's 4.5:1 target on that background, so the swap would
+  // strictly lose contrast at 11px for no design gain. Left on inkSoft deliberately; the pill's own
+  // background is the thing to revisit if this row is ever reworked.
   const timePillAssumedSx = {
     ...timePillSx,
     color: tokens.inkSoft,

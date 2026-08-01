@@ -1,4 +1,5 @@
 import { SvgIcon } from "@mui/material";
+import type { SxProps, Theme } from "@mui/material/styles";
 
 /**
  * Shared presentational primitives for the redesigned trip surfaces (Epic 7).
@@ -9,11 +10,25 @@ import { SvgIcon } from "@mui/material";
  * information needs a real `aria-label` instead - none currently is.
  */
 
-type IconProps = { sx?: object };
+/**
+ * `sx` is `SxProps<Theme>`, not `object`. What this buys, precisely: the *values* of known style keys
+ * are checked (`fontSize: "beeg"` and `color: 12` are now errors), theme-aware callback and array
+ * forms are accepted, and the prop composes with MUI's own typings instead of erasing to `object`.
+ *
+ * What it does NOT buy, contrary to a reasonable first reading: unknown *keys* are still accepted.
+ * `SystemStyleObject` carries a string index signature for CSS selectors and custom properties, so
+ * `sx={{ fontWeigth: 700 }}` type-checks and silently never applies. Verified against this repo's
+ * MUI 7.3.11 - no type-level guard against style-key typos exists to be had here, at any call site.
+ *
+ * Each icon merges its default `fontSize` with the incoming `sx` through the array form rather than an
+ * object spread - `SxProps` may itself be an array or a callback, and `{ ...sx }` would silently drop
+ * either.
+ */
+type IconProps = { sx?: SxProps<Theme> };
 
 export function HouseIcon({ sx }: IconProps) {
   return (
-    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={{ fontSize: 15, ...sx }}>
+    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={[{ fontSize: 15 }, ...(Array.isArray(sx) ? sx : [sx])]}>
       <path
         d="M3 21V8l9-5 9 5v13"
         fill="none"
@@ -36,7 +51,7 @@ export function HouseIcon({ sx }: IconProps) {
 
 export function WarningTriangleIcon({ sx }: IconProps) {
   return (
-    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={{ fontSize: 15, ...sx }}>
+    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={[{ fontSize: 15 }, ...(Array.isArray(sx) ? sx : [sx])]}>
       <path d="M12 9v4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
       <path d="M12 17h.01" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
       <path
@@ -52,7 +67,7 @@ export function WarningTriangleIcon({ sx }: IconProps) {
 
 export function ChevronRightIcon({ sx }: IconProps) {
   return (
-    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={{ fontSize: 18, ...sx }}>
+    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={[{ fontSize: 18 }, ...(Array.isArray(sx) ? sx : [sx])]}>
       <path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
     </SvgIcon>
   );
@@ -66,7 +81,7 @@ export function ChevronRightIcon({ sx }: IconProps) {
  */
 export function ChevronDownIcon({ sx }: IconProps) {
   return (
-    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={{ fontSize: 18, ...sx }}>
+    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={[{ fontSize: 18 }, ...(Array.isArray(sx) ? sx : [sx])]}>
       <path
         d="M9 6l6 6-6 6"
         fill="none"
@@ -85,7 +100,7 @@ export function ChevronDownIcon({ sx }: IconProps) {
  */
 export function ChevronUpIcon({ sx }: IconProps) {
   return (
-    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={{ fontSize: 18, ...sx }}>
+    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={[{ fontSize: 18 }, ...(Array.isArray(sx) ? sx : [sx])]}>
       <path
         d="M9 6l6 6-6 6"
         fill="none"
@@ -102,7 +117,7 @@ export function ChevronUpIcon({ sx }: IconProps) {
 /** Pencil (row-level edit). Stroke-based to match the rest of the icon set. */
 export function PencilIcon({ sx }: IconProps) {
   return (
-    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={{ fontSize: 15, ...sx }}>
+    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={[{ fontSize: 15 }, ...(Array.isArray(sx) ? sx : [sx])]}>
       <path
         d="M4 20h4L20 8l-4-4L4 16v4z"
         fill="none"
@@ -119,7 +134,7 @@ export function PencilIcon({ sx }: IconProps) {
 /** Trash (row-level delete). Stroke-based to match the rest of the icon set. */
 export function TrashIcon({ sx }: IconProps) {
   return (
-    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={{ fontSize: 15, ...sx }}>
+    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={[{ fontSize: 15 }, ...(Array.isArray(sx) ? sx : [sx])]}>
       <path d="M4 7h16" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
       <path
         d="M6 7v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7"
@@ -145,7 +160,7 @@ export function TrashIcon({ sx }: IconProps) {
 
 export function CheckIcon({ sx }: IconProps) {
   return (
-    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={{ fontSize: 13, ...sx }}>
+    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={[{ fontSize: 13 }, ...(Array.isArray(sx) ? sx : [sx])]}>
       <path d="M20 6 9 17l-5-5" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" />
     </SvgIcon>
   );
@@ -153,7 +168,7 @@ export function CheckIcon({ sx }: IconProps) {
 
 export function ClockIcon({ sx }: IconProps) {
   return (
-    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={{ fontSize: 13, ...sx }}>
+    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={[{ fontSize: 13 }, ...(Array.isArray(sx) ? sx : [sx])]}>
       <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth={2} />
       <path d="M12 7v5l3.2 2" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
     </SvgIcon>
@@ -162,7 +177,7 @@ export function ClockIcon({ sx }: IconProps) {
 
 export function CalendarIcon({ sx }: IconProps) {
   return (
-    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={{ fontSize: 13, ...sx }}>
+    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={[{ fontSize: 13 }, ...(Array.isArray(sx) ? sx : [sx])]}>
       <rect x="3" y="4" width="18" height="17" rx="2" fill="none" stroke="currentColor" strokeWidth={2} />
       <line x1="3" y1="9" x2="21" y2="9" stroke="currentColor" strokeWidth={2} />
       <line x1="8" y1="2" x2="8" y2="6" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
@@ -173,7 +188,7 @@ export function CalendarIcon({ sx }: IconProps) {
 
 export function PlusIcon({ sx }: IconProps) {
   return (
-    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={{ fontSize: 15, ...sx }}>
+    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={[{ fontSize: 15 }, ...(Array.isArray(sx) ? sx : [sx])]}>
       <line x1="12" y1="5" x2="12" y2="19" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" />
       <line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" />
     </SvgIcon>
@@ -183,7 +198,7 @@ export function PlusIcon({ sx }: IconProps) {
 /** `.photo-upload-icon`'s glyph (`mockups/forms-authoring.html:731`). Used by `PhotoUploadField`. */
 export function UploadIcon({ sx }: IconProps) {
   return (
-    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={{ fontSize: 20, ...sx }}>
+    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={[{ fontSize: 20 }, ...(Array.isArray(sx) ? sx : [sx])]}>
       <path d="M12 16V4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
       <path d="M6 10l6-6 6 6" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
       <path d="M4 20h16" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
@@ -194,7 +209,7 @@ export function UploadIcon({ sx }: IconProps) {
 /** The `×` inside `.photo-thumb .remove-x`. Decorative — the button around it carries the name. */
 export function CloseXIcon({ sx }: IconProps) {
   return (
-    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={{ fontSize: 11, ...sx }}>
+    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={[{ fontSize: 11 }, ...(Array.isArray(sx) ? sx : [sx])]}>
       <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" strokeWidth={2.6} strokeLinecap="round" />
     </SvgIcon>
   );
@@ -202,7 +217,7 @@ export function CloseXIcon({ sx }: IconProps) {
 
 export function ShareGlyphIcon({ sx }: IconProps) {
   return (
-    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={{ fontSize: 15, ...sx }}>
+    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={[{ fontSize: 15 }, ...(Array.isArray(sx) ? sx : [sx])]}>
       <circle cx="18" cy="5" r="2.6" fill="none" stroke="currentColor" strokeWidth={2} />
       <circle cx="6" cy="12" r="2.6" fill="none" stroke="currentColor" strokeWidth={2} />
       <circle cx="18" cy="19" r="2.6" fill="none" stroke="currentColor" strokeWidth={2} />
@@ -217,7 +232,7 @@ export function ShareGlyphIcon({ sx }: IconProps) {
 // TravelSegment.transportType, a real enum, so per-type iconography is legitimate here.
 export function CarIcon({ sx }: IconProps) {
   return (
-    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={{ fontSize: 14, ...sx }}>
+    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={[{ fontSize: 14 }, ...(Array.isArray(sx) ? sx : [sx])]}>
       <path
         d="M5 11l1.5-4.5A2 2 0 0 1 8.4 5h7.2a2 2 0 0 1 1.9 1.5L19 11"
         fill="none"
@@ -242,7 +257,7 @@ export function CarIcon({ sx }: IconProps) {
 
 export function ShipIcon({ sx }: IconProps) {
   return (
-    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={{ fontSize: 14, ...sx }}>
+    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={[{ fontSize: 14 }, ...(Array.isArray(sx) ? sx : [sx])]}>
       <path
         d="M3 18c1.5 0 1.5 1.5 3 1.5S7.5 18 9 18s1.5 1.5 3 1.5 1.5-1.5 3-1.5 1.5 1.5 3 1.5 1.5-1.5 3-1.5"
         fill="none"
@@ -266,7 +281,7 @@ export function ShipIcon({ sx }: IconProps) {
 
 export function PlaneIcon({ sx }: IconProps) {
   return (
-    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={{ fontSize: 14, ...sx }}>
+    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={[{ fontSize: 14 }, ...(Array.isArray(sx) ? sx : [sx])]}>
       <path
         d="M21 15.5 3 10V7l2 .6L6.5 10l4.5 1.3V5.2a1.6 1.6 0 0 1 3.2 0v6.9l6.3 1.8v1.6Z"
         fill="none"
@@ -296,32 +311,20 @@ export function transportIconFor(transportType: "car" | "ship" | "flight") {
 export const HERO_SCRIM =
   "linear-gradient(to top, rgba(20,18,14,.88) 0%, rgba(20,18,14,.54) 38%, rgba(20,18,14,.10) 66%, rgba(20,18,14,.26) 100%)";
 
-/** Translucent chrome for controls that sit on top of a hero photo (`.share-btn.on-photo`). */
+/**
+ * Translucent chrome for controls that sit on top of a hero photo (`.share-btn.on-photo`).
+ *
+ * The focus ring is white, overriding the `ink` one `theme.ts`'s `MuiButton` root now applies app-wide:
+ * two of the three consumers here are MUI `Button`s sitting on `HERO_SCRIM`, where a #2B2A26 outline is
+ * ink-on-near-black and effectively invisible. Same 2px/2px geometry, inverted for the surface.
+ */
 export const ON_PHOTO_CHROME = {
   backgroundColor: "rgba(255,255,255,.18)",
   border: "1px solid rgba(255,255,255,.55)",
   color: "#FFFFFF",
   "&:hover": { backgroundColor: "rgba(255,255,255,.28)" },
+  "&.Mui-focusVisible": { outline: "2px solid #FFFFFF", outlineOffset: "2px" },
 } as const;
-
-/**
- * Warn-row background for a row whose plan has holes.
- *
- * `DESIGN.md.components.day-row.bg-gap` and `.trip-row.bg-gap` are the same value, so Trip Overview's
- * day rows and the Trips List's trip rows share this one constant rather than each declaring a copy.
- * Deliberately not `tokens.warnBg` (#F6ECE0) - the mockups use a lighter tint for a whole-row fill
- * than for a pill fill. See `mockups/trips-list-share-login.html:174`.
- */
-export const ROW_GAP_BG = "#FBF6EE";
-
-/**
- * The neutral pill track for the `upcoming` and `past` trip-status states.
- *
- * The one value on this screen with no token behind it (`theme.ts` has no equivalent). Neither
- * `cardAlt` nor `warnBg` substitutes: both read as a different state. See
- * `mockups/trips-list-share-login.html:210-211`.
- */
-export const NEUTRAL_PILL_BG = "#F1ECE1";
 
 /**
  * Quoted and percent-escaped. An unquoted url() breaks on any path containing a space or ")", and

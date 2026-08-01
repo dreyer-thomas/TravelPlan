@@ -15,7 +15,9 @@ declare module "@mui/material/styles" {
       accentSoft: string;
       travelNeutral: string;
       warnBg: string;
+      warnBgRow: string;
       warnBorder: string;
+      pillNeutral: string;
     };
   }
   interface PaletteOptions {
@@ -58,7 +60,12 @@ const colors = {
   cardAlt: "#FBF9F4",
   ink: "#2B2A26",
   inkSoft: "#6B675C",
-  inkMuted: "#8A8677",
+  // Darkened from #8A8677 (3.65:1 on `card` white) to 4.55:1 - the engineering contrast target this
+  // system works to under the PRD's "basic best practices (contrast)" clause. It is not a claim of
+  // conformance to any formal accessibility level (see EXPERIENCE.md, Accessibility Floor).
+  // Chosen as the *lightest* value that clears 4.5:1 while preserving the original's warm-grey channel
+  // deltas exactly (R-G = 4, G-B = 15), so no surface shifts toward a cold grey.
+  inkMuted: "#7A7667",
   border: "#E4DFD3",
   borderStrong: "#D9D0BE",
   accent: "#4B6358",
@@ -67,7 +74,14 @@ const colors = {
   travelNeutral: "#B9B2A0",
   warn: "#8A5A2B",
   warnBg: "#F6ECE0",
+  // A second, weaker warn tint, for whole-row gap fills only. The mockups deliberately carry both:
+  // `warnBg` over a pill, badge, error input or coverage segment, `warnBgRow` over the much larger
+  // area of a full day-row / trip-row. See mockups/trips-list-share-login.html:173 (row) vs :209 (pill).
+  warnBgRow: "#FBF6EE",
   warnBorder: "#E3C7A2",
+  // The neutral pill track behind the `upcoming` and `past` trip-status states. Neither `cardAlt` nor
+  // `warnBg` substitutes - both read as a different state. mockups/trips-list-share-login.html:210-211.
+  pillNeutral: "#F1ECE1",
   errorBorder: "#C97A3E",
 };
 
@@ -153,6 +167,21 @@ const theme = createTheme({
     primary: { main: colors.accent, contrastText: "#FFFFFF" },
     secondary: { main: colors.accent2 },
     warning: { main: colors.warn },
+    // Drawn from existing tokens rather than MUI's stock #d32f2f red and stock green, so `<Alert
+    // severity="error">` / `severity="success"` and every MUI-derived `helperText` error colour come
+    // from the design system instead of from MUI's defaults. No component-local `sx` needed.
+    //
+    // `error.main` is the *border/edge* token, so it is deliberately NOT used as a fill behind white
+    // text: white on #C97A3E is 3.31:1. Two places would otherwise do exactly that, and both are
+    // redirected below rather than by a component `sx` - `MuiButton.containedError` (the two
+    // `color="error" variant="contained"` delete confirms) and `MuiFormHelperText.Mui-error`.
+    error: { main: colors.errorBorder },
+    success: { main: colors.accent },
+    // `info` too, for the same reason `error` and `success` are here: without it MUI's stock #0288d1
+    // blue is the one non-token colour left on an alert, and the warm token border the `MuiAlert`
+    // override draws would frame a cold blue box. `travelNeutral` is the system's existing
+    // "connective tissue, not a destination" neutral, which is what an informational notice is.
+    info: { main: colors.travelNeutral },
     background: { default: colors.paper, paper: colors.card },
     text: { primary: colors.ink, secondary: colors.inkSoft },
     tokens: {
@@ -167,7 +196,9 @@ const theme = createTheme({
       accentSoft: colors.accentSoft,
       travelNeutral: colors.travelNeutral,
       warnBg: colors.warnBg,
+      warnBgRow: colors.warnBgRow,
       warnBorder: colors.warnBorder,
+      pillNeutral: colors.pillNeutral,
     },
   },
   typography: {
@@ -257,9 +288,36 @@ const theme = createTheme({
           borderRadius: 6,
           paddingInline: 20,
           paddingBlock: 10,
+          // MUI's own contained-button focus indicator is `boxShadow: theme.shadows[6]`, and the
+          // `shadows` array above is blanked everywhere except index 24 - so without this every
+          // `variant="contained"` button in the app computes to `outline: none` / `box-shadow: none`
+          // and shows nothing at all under keyboard focus. EXPERIENCE.md's Accessibility Floor makes
+          // visible focus an unconditional baseline commitment.
+          //
+          // A 4px accent halo (what the inputs use) would be accent-on-accent on a filled primary
+          // button and invisible, so the ring is a 2px `ink` outline with an offset: high contrast
+          // against the accent fill, the card white and the paper column alike, and built from an
+          // existing token rather than a new one. Lives here rather than in a per-screen `sx` so
+          // non-auth buttons ("Neue Reise", dialog footers) get it too.
+          "&.Mui-focusVisible": {
+            outline: `2px solid ${colors.ink}`,
+            outlineOffset: "2px",
+          },
         },
         containedPrimary: {
           backgroundColor: colors.accent,
+          color: "#FFFFFF",
+          fontWeight: 800,
+        },
+        // `palette.error.main` is `errorBorder` #C97A3E, an edge token. MUI derives `contrastText`
+        // "#FFFFFF" for it, which lands the label of the two `color="error" variant="contained"`
+        // delete confirms (TripDeleteDialog, TripBucketListPanel) at 3.31:1 - below this system's
+        // 4.5:1 target, and *worse* than the #d32f2f these buttons rendered before the `error` entry
+        // existed. So the destructive fill steps to `warn` #8A5A2B, the darkest member of the same
+        // terracotta family, where a white label measures 5.87:1. Fixed here rather than at the two
+        // call sites so no third one can reintroduce the thin fill.
+        containedError: {
+          backgroundColor: colors.warn,
           color: "#FFFFFF",
           fontWeight: 800,
         },
@@ -352,6 +410,42 @@ const theme = createTheme({
         root: {
           padding: 12,
         },
+      },
+    },
+    // DESIGN.md:251 is explicit that an error field's inline message below it is `warn` #8A5A2B.
+    // `FormField` already forced that locally; every component that reaches for a raw `TextField`
+    // instead (TripEditDialog, TripShareDialog, TripBucketListPanel, TripDayTravelSegmentDialog,
+    // TripImportDialog, TripAccommodationDialog) inherited MUI's `palette.error.main` - #d32f2f
+    // before this story, #C97A3E after it, which is 3.31:1 on card white and reads as an input
+    // border rather than as text. Lifting the rule to the theme puts every error line in the app on
+    // the one colour the design system assigns to it, at 5.87:1.
+    MuiFormHelperText: {
+      styleOverrides: {
+        root: {
+          "&.Mui-error": { color: colors.warn },
+        },
+      },
+    },
+    MuiAlert: {
+      styleOverrides: {
+        // `AlertRoot` is `styled(Paper)`, so the `MuiPaper` root override above already draws
+        // `1px solid rgba(17, 18, 20, 0.08)` on every alert. Restating `border` here *replaces* that
+        // edge rather than adding a second one (Alert's own styles are emitted after Paper's), which
+        // is what keeps the severity borders below from reading as a double rule. All four tints are
+        // MUI-derived from the palette entries above, which are themselves tokens.
+        //
+        // The `root` border is a fallback, not the border any alert in the app actually renders: the
+        // default `standard` variant always resolves one of the four severity slots below, and those
+        // are emitted after `root`. It exists so a future `variant="outlined"` / `"filled"` alert -
+        // there are none today - gets a token edge instead of the `MuiPaper` rgba.
+        root: {
+          borderRadius: 8,
+          border: `1px solid ${colors.border}`,
+        },
+        standardError: { border: `1px solid ${colors.errorBorder}` },
+        standardWarning: { border: `1px solid ${colors.warnBorder}` },
+        standardSuccess: { border: `1px solid ${colors.accent2}` },
+        standardInfo: { border: `1px solid ${colors.borderStrong}` },
       },
     },
     MuiDialog: {

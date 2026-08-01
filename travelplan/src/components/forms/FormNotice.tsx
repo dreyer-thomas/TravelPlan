@@ -11,10 +11,16 @@ import { CheckIcon, WarningTriangleIcon } from "@/components/features/trips/Trip
  * the same treatment instead of a second copy. The shell now imports it; its rendered output is
  * unchanged.
  *
- * Deliberately NOT a MUI `<Alert severity="error">`: `theme.ts` defines no `error` palette entry, so
- * MUI would fall back to its default #d32f2f red — a colour absent from DESIGN.md. The warn family is
- * what the design system has. `role="alert"` is the semantics the previous `<Alert>` carried and is
- * preserved here, so a server error is still announced when it appears.
+ * Deliberately NOT a MUI `<Alert severity="error">`. The original reason was that `theme.ts` had no
+ * `error` palette entry, so MUI fell back to its default #d32f2f red; Story 7.11 added one
+ * (`colors.errorBorder`), so that particular argument no longer holds. The component stays as it is
+ * regardless: DESIGN.md's treatment for a *form-level* notice is the warn family, which is what this
+ * renders, and the app now carries two error idioms — this one for form/dialog notices and `<Alert>`
+ * for surface-level load and action failures. Picking one of them to win app-wide is a UX decision,
+ * not a refactor, and it is deliberately not made here.
+ *
+ * `role="alert"` is the semantics the previous `<Alert>` carried and is preserved, so a server error
+ * is still announced when it appears.
  */
 
 export type FormNoticeProps = {

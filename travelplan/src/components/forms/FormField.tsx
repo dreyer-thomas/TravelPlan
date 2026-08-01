@@ -81,7 +81,8 @@ export default function FormField({ id, label, error, hint, ...rest }: FormField
               opacity: 1,
               fontWeight: 600,
             },
-            // `.field-hint` is 11px/600/#8A8677; `.field-hint.error` is 11px/700/#8A5A2B.
+            // `.field-hint` is 11px/600/`inkMuted` (#7A7667 since Story 7.11 darkened it from
+            // #8A8677); `.field-hint.error` is 11px/700/#8A5A2B.
             "& .MuiFormHelperText-root": {
               fontSize: 11,
               fontWeight: 600,

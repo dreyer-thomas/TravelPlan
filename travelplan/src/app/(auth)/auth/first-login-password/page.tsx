@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import { Box, Button, CircularProgress } from "@mui/material";
 import FormField from "@/components/forms/FormField";
 import AuthScreenShell from "@/components/features/auth/AuthScreenShell";
-import { AUTH_SUBMIT_SX } from "@/components/features/auth/authSubmitSx";
 import { useI18n } from "@/i18n/provider";
 
 type FirstLoginPasswordValues = {
@@ -164,7 +163,7 @@ export default function FirstLoginPasswordPage() {
           error={errors.password?.message}
           {...register("password", passwordRules)}
         />
-        <Button type="submit" variant="contained" fullWidth disabled={isSubmitting} sx={AUTH_SUBMIT_SX}>
+        <Button type="submit" variant="contained" fullWidth disabled={isSubmitting} sx={{ mt: "6px" }}>
           {isSubmitting ? <CircularProgress size={22} /> : t("auth.firstLogin.submit")}
         </Button>
       </Box>

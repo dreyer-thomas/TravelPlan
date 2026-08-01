@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, Box, Button, Skeleton, Typography } from "@mui/material";
-import { useTheme } from "@mui/material/styles";
+import { alpha, useTheme } from "@mui/material/styles";
 import Link from "next/link";
 import TripCreateDialog from "@/components/features/trips/TripCreateDialog";
 import { type TripCreateResponse } from "@/components/features/trips/TripCreateForm";
@@ -11,9 +11,7 @@ import {
   CheckIcon,
   ChevronRightIcon,
   ClockIcon,
-  NEUTRAL_PILL_BG,
   PlusIcon,
-  ROW_GAP_BG,
   WarningTriangleIcon,
 } from "@/components/features/trips/TripIcons";
 import { withImageCacheBuster } from "@/lib/trips/imageUploads";
@@ -209,13 +207,13 @@ export default function TripsDashboard() {
       },
       upcoming: {
         color: tokens.inkSoft,
-        backgroundColor: NEUTRAL_PILL_BG,
+        backgroundColor: tokens.pillNeutral,
         icon: <ClockIcon />,
         label: t("trips.dashboard.statusUpcoming"),
       },
       past: {
         color: tokens.inkSoft,
-        backgroundColor: NEUTRAL_PILL_BG,
+        backgroundColor: tokens.pillNeutral,
         icon: <CalendarIcon />,
         label: t("trips.dashboard.statusPast"),
       },
@@ -445,13 +443,27 @@ export default function TripsDashboard() {
                     gap: "16px",
                     padding: "14px 16px",
                     border: "1px solid",
-                    borderColor: isGap ? tokens.warnBorder : tokens.borderStrong,
+                    // The archival treatment for a past row is 0.78 applied to the photo and to this
+                    // border - never to the row itself. A row-level `opacity` inherits to every
+                    // descendant, and the two elements it reaches hardest both fall below this
+                    // system's 4.5:1 contrast target under the multiplier: the 12px `inkSoft`
+                    // sub-line goes 5.65:1 -> 3.53:1 and the 11.5px bold "past" pill on
+                    // `pillNeutral` goes 4.79:1 -> 3.11:1. Raising the multiplier to its ~0.90
+                    // break-even makes a past row nearly indistinguishable from an active one, and
+                    // darkening `inkSoft` enough to survive it would repaint every secondary-text
+                    // surface in the app. So the row's text and status pill render at full opacity
+                    // and the fade lives on the two purely decorative carriers.
+                    //
+                    // The border fades through a composited colour rather than a nested `opacity`
+                    // block, which would inherit right back down into the children.
+                    borderColor: isGap
+                      ? tokens.warnBorder
+                      : isPast
+                        ? alpha(tokens.borderStrong, 0.78)
+                        : tokens.borderStrong,
                     borderRadius: "8px",
                     marginBottom: "10px",
-                    backgroundColor: isGap ? ROW_GAP_BG : tokens.card,
-                    // DESIGN.md is explicit that opacity is the whole treatment for a past row - the
-                    // text is not additionally greyed and the border is not dropped.
-                    opacity: isPast ? 0.78 : 1,
+                    backgroundColor: isGap ? tokens.warnBgRow : tokens.card,
                     // The whole row is a click target, so it needs a pointer affordance of its own -
                     // EXPERIENCE.md leaves hover unspecified and asks implementations to author it
                     // from the accent/border tokens. Border-only, so a gap row keeps its warn fill
@@ -461,8 +473,17 @@ export default function TripsDashboard() {
                     }),
                     "@media (hover: hover)": {
                       "&:hover": {
-                        borderColor: isGap ? tokens.warnBorder : theme.palette.primary.main,
-                        backgroundColor: isGap ? ROW_GAP_BG : tokens.cardAlt,
+                        // The past row's accent edge is composited at the same 0.78 as its resting
+                        // border. Under the old row-level `opacity` the hover accent was faded too;
+                        // at full strength it would make a hovered past row's edge identical to an
+                        // active row's, so the border - the only archival cue left once the photo is
+                        // out of the picture - would vanish exactly when the user points at it.
+                        borderColor: isGap
+                          ? tokens.warnBorder
+                          : isPast
+                            ? alpha(theme.palette.primary.main, 0.78)
+                            : theme.palette.primary.main,
+                        backgroundColor: isGap ? tokens.warnBgRow : tokens.cardAlt,
                       },
                     },
                     "&:has(:focus-visible)": {
@@ -510,6 +531,10 @@ export default function TripsDashboard() {
                       backgroundColor: "rgba(0,0,0,0.04)",
                       flexShrink: 0,
                       position: "relative",
+                      // The archival fade for a past row: here and on the row border only, never on
+                      // the row. See the row `sx` above for why. The photo carries no text, so the
+                      // multiplier costs no legibility.
+                      opacity: isPast ? 0.78 : 1,
                     }}
                   />
 
