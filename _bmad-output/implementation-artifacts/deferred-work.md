@@ -89,7 +89,8 @@ status: open
 origin: migrated from legacy ledger ("Deferred from: code review of 7-2-trip-overview-redesign (2026-07-31)"), 2026-08-01
 location: `TripTimeline.tsx:92-151`
 reason: `HouseIcon`, `WarningTriangleIcon`, `ChevronRightIcon` and `ShareGlyphIcon` are private to this file, but Story 7.3 (Day Detail) needs the same house and warning glyphs and will duplicate them. Each also types its prop as `sx?: object` rather than `SxProps<Theme>`, so style-key typos go unchecked. The call was to extract to a shared icon module when 7.3 needs them rather than pre-emptively.
-status: open
+status: done 2026-08-01
+resolution: already resolved: Both halves done: the four glyphs are now shared exports in `TripIcons.tsx` (`HouseIcon:29`, `WarningTriangleIcon:52`, `ChevronRightIcon:68`, `ShareGlyphIcon:218`) imported by `TripTimeline.tsx:17-22`, and `IconProps` types `sx` as `SxProps<Theme>` at `TripIcons.tsx:27` (Story 7.11 AC8) rather than `object`.
 
 ### DW-14: `data-layout` re-derives the breakpoint in JS, duplicating the CSS grid's source of truth
 
@@ -124,7 +125,8 @@ status: open
 origin: migrated from legacy ledger ("Deferred from: code review of 7-4-trips-list-redesign (2026-08-01)"), 2026-08-01
 location: `src/components/features/trips/TripIcons.tsx:202-215`
 reason: `ROW_GAP_BG = "#FBF6EE"` and `NEUTRAL_PILL_BG = "#F1ECE1"` are exported from a file whose stated purpose is SVG glyphs, and `TripTimeline.tsx` now imports a background color from `TripIcons`. Task 4 sanctioned this location and both carry mockup line references, so this is not a defect — but `theme.ts` already owns exactly this class of value (`warnBg`, `cardAlt`, `borderStrong`), and `NEUTRAL_PILL_BG`'s own docstring concedes it is "the one value on this screen with no token behind it", which argues for adding the token rather than housing it in the icon file. Folds into the hardcoded-literal reconciliation pass in DW-12.
-status: open
+status: done 2026-08-01
+resolution: already resolved: Story 7.11 AC1-AC3 (commit 33abbdf): `ROW_GAP_BG` and `NEUTRAL_PILL_BG` no longer exist anywhere in `src/` (grep returns zero hits) and the values are now real tokens - `warnBgRow: "#FBF6EE"` at `theme.ts:78` and `pillNeutral: "#F1ECE1"` at `theme.ts:84`, mirrored in `globals.css` as `--color-warn-bg-row` / `--color-pill-neutral`.
 
 ### DW-19: The three new `/api/trips` payload fields are non-optional and unvalidated, while `updatedAt` right above them carries a defensive `?`
 
@@ -138,7 +140,8 @@ status: open
 origin: migrated from legacy ledger ("Deferred from: code review of 7-4-trips-list-redesign (2026-08-01)"), 2026-08-01
 location: `src/components/features/trips/TripsDashboard.tsx:399`
 reason: The sub-line (`#6B675C` on `#FFFFFF`) composites to about `#8B8880` at roughly 3.4:1 against the 4.5:1 floor for normal text, and the "Completed" pill (11.5px bold `inkSoft` on `#F1ECE1`) fails the same way. The code is spec-compliant — `DESIGN.md.components.trip-row.opacity-past` prescribes 0.78 and is explicit that opacity is the whole treatment for a past row — so the conflict lives in the design system, not on this screen, and it is the same class of problem as the `inkMuted` contrast finding carried from 7-2's review (DW-28). Resolving it per-screen would fragment the archival treatment across surfaces; resolve both together in a design-system contrast pass that decides whether the floor is a higher opacity (about 0.85), an opacity applied to the photo and border only, or a darker `inkSoft`. Deferred by Tommy during the 7-4 code review for exactly that reason.
-status: open
+status: done 2026-08-01
+resolution: already resolved: Story 7.11 AC5: the row-level `opacity` is gone from `TripsDashboard.tsx` - the 0.78 now composites only the border (`:462` `alpha(tokens.borderStrong, 0.78)`) and the photo (`:537`), and the comment at `:446-457` states the new rule explicitly ("the row's text and status pill render at full opacity"). Pinned by `test/tripsDashboard.test.tsx:264`.
 
 ### DW-21: Coverage gaps in an otherwise well-tested change (7-4 trips list)
 
@@ -196,7 +199,8 @@ status: open
 origin: migrated from legacy ledger ("Deferred from: code review of 7-3-day-detail-redesign (2026-07-31)"), 2026-08-01
 location: `theme.ts:61`, consumer `TripDayView.tsx:1787-1789`
 reason: `#8A8677` on `tokens.card` `#FFFFFF` is 3.65:1, below the 4.5:1 floor, and the new coverage-axis tick labels render it at 10px. The token is Story 7.1's and predates 7.3; darkening it is a system-wide visual change. Belongs to the standing design-token reconciliation pass deferred from 7.2 (DW-12) and shares the contrast question in DW-20 — see also DW-61, which measured the post-7.11 residue of the same token.
-status: open
+status: done 2026-08-01
+resolution: already resolved: Story 7.11 AC4: `colors.inkMuted` is `#7A7667` at `theme.ts:61` (4.55:1 on `card`), darkened from the `#8A8677` this entry measured at 3.65:1; `globals.css:10` carries the same value. DW-61 already tracks the post-7.11 residue on non-`card` surfaces, and says so.
 
 ### DW-29: "Total travel time" counts travel the coverage bar refuses to draw
 
@@ -224,14 +228,16 @@ status: open
 origin: migrated from legacy ledger ("Deferred from: code review of 7-3-day-detail-redesign (2026-07-31)"), 2026-08-01
 location: `TripDayView.tsx:1611-1613`
 reason: The hero is a decorative CSS `background-image` per `DESIGN.md.Photo Alt-Text` (the adjacent title names the day) and `trips.dayImage.previewAlt` was deleted from both dictionaries as the story required — correct for the hero. The residual gap is that the day-details edit dialog has no preview `<img>` either: it only says "No day image selected yet." when the image is absent, so a non-sighted owner cannot confirm an upload succeeded. That dialog's internals are Story 7.7's surface.
-status: open
+status: done 2026-08-01
+resolution: already resolved: Story 7.7 (a4f553b) closed the residual gap: the day-details dialog now renders the current day image through `PhotoUploadField`'s `images` prop with a real text alternative, `alt: t("trips.dayImage.previewAlt")` at `TripDayView.tsx:2576`, and the key is back in both dictionaries (`en.ts:335`, `de.ts:332`).
 
 ### DW-33: Alerts are the one surface in the redesigned share dialog left on stock MUI colours
 
 origin: migrated from legacy ledger ("Deferred from: code review of 7-5-share-dialog-redesign (2026-08-01)"), 2026-08-01
 location: `travelplan/src/components/features/trips/TripShareDialog.tsx:369-371`
 reason: `theme.ts` defines `primary`, `secondary` and `warning` but no `error` palette entry, so `<Alert severity="error">` renders MUI's default `#d32f2f` and `severity="success"` its default green — two colours absent from the token set, inside a dialog where every other element was re-tokenised. The system does have an error colour, `colors.errorBorder` `#C97A3E` (`theme.ts:71`), already used for input error borders; it just never reached the alerts. Not 7.5's doing: the alerts predate it, Task 2 explicitly kept them in place ("Alerts stay where they are") and the Dev Notes forbade touching `theme.ts`. Every other dialog in the app has the same gap, so the fix is a theme-level `error` palette entry plus an `MuiAlert` treatment, not a local `sx` on one component. Natural home: Story 7.7, which owns the remaining dialog chrome, or the standing design-token reconciliation pass (DW-12); see also DW-49.
-status: open
+status: done 2026-08-01
+resolution: already resolved: Story 7.11 AC7: `theme.ts` now defines `error: { main: colors.errorBorder }` (`:178`), `success` (`:179`) and `info` (`:184`), plus an `MuiAlert` block (`:429-444`) giving all four severities a token border - so no alert renders MUI's `#d32f2f` or stock green, and no component-local `sx` was needed.
 
 ### DW-34: The CSRF preamble is now copy-pasted an eleventh time
 
@@ -245,7 +251,8 @@ status: open
 origin: migrated from legacy ledger ("Deferred from: 7-6-login-register-and-password-reset-redesign (2026-08-01)"), 2026-08-01
 location: `travelplan/src/theme.ts:78-104, 253-273`
 reason: Found by Story 7.6's manual browser check, pre-existing and outside its scope boundary. MUI's contained-button focus indicator is `boxShadow: theme.shadows[6]`, and `theme.ts` replaces the entire `shadows` array with `"none"` at every index except 24 (the modal shadow), so a keyboard-focused primary button computes to `outline: none` / `box-shadow: none` — measured directly in Chrome on `/auth/login`, where the submit button was the only focusable element on the screen with no focus indicator at all (inputs get the accent halo from `MuiOutlinedInput`, links get the UA ring). This fails `EXPERIENCE.md`'s Accessibility Floor ("visible keyboard focus everywhere"). Story 7.6 patched it only for the five auth submits via `AUTH_SUBMIT_SX` (`src/components/features/auth/authSubmitSx.ts`) because its scope boundary excludes `theme.ts`, but the gap is app-wide: every "Reise hinzufügen", every dialog confirm, every save button. The real fix is a `MuiButton` `&.Mui-focusVisible` treatment in `theme.ts` (plus deciding whether `shadows[6]` should stay blanked), after which the auth-local override should be deleted rather than left as a second source of truth. `EXPERIENCE.md:95` notes focus visuals were never mocked, so the design system has to choose the ring.
-status: open
+status: done 2026-08-01
+resolution: already resolved: Story 7.11 AC6: `theme.ts:302-305` adds `MuiButton` `"&.Mui-focusVisible": { outline: "2px solid #2B2A26", outlineOffset: "2px" }` app-wide, and the auth-local second source of truth is gone - `src/components/features/auth/` now holds only `AuthScreenShell.tsx` and `AuthTabs.tsx`, with zero references to `AUTH_SUBMIT_SX` in `src/` or `test/`.
 
 ### DW-36: `register/page.tsx` leaves BOTH the `fetch` and the `response.json()` unguarded, so a network failure or a 5xx with an empty body shows the user nothing
 
@@ -280,7 +287,8 @@ status: open
 origin: migrated from legacy ledger ("Deferred from: code review of 7-6-login-register-and-password-reset-redesign (2026-08-01)"), 2026-08-01
 location: `travelplan/src/components/features/auth/AuthField.tsx:60`
 reason: `...rest.sx` is spread into an object literal, but `AuthFieldProps` extends `TextFieldProps`, so `sx` is legally `SxProps<Theme>`: an array or a `(theme) => …` callback as well as an object. An array spreads to `{ 0: {…} }` and a callback spreads to `{}`, so a future caller's styles would be silently dropped — and the placeholder and helper-text overrides above may be clobbered — with no type error. Latent: no current call site passes `sx`. Fix is the array form (`sx={[baseSx, ...(Array.isArray(rest.sx) ? rest.sx : [rest.sx])]}`), which MUI supports natively. Recorded rather than patched because it has no live consumer and the same pattern likely exists in other wrapper components.
-status: open
+status: done 2026-08-01
+resolution: already resolved: `AuthField.tsx` no longer exists; its successor `src/components/forms/FormField.tsx` merges the caller `sx` with MUI's array form at `:77` and `:96-98` (`...(Array.isArray(rest.sx) ? rest.sx : [rest.sx])`), with a comment naming exactly this defect - so an array or callback `sx` is no longer silently dropped.
 
 ### DW-41: AC3 of Story 7.6 ships with no automated assertion
 
@@ -343,7 +351,8 @@ status: open
 origin: migrated from legacy ledger ("Deferred from: code review of 7-8-trip-overview-lower-sections-redesign (2026-08-01)"), 2026-08-01
 location: `travelplan/src/components/features/trips/TripBucketListPanel.tsx:647`
 reason: Story 7.8 removed exactly this off-palette `#d32f2f` treatment from the trip-level Delete button (`TripTimeline.tsx`, AC2), but the delete-confirmation dialog inside the same panel that story restyled still ships `<Button color="error" variant="contained">`. Task 4 explicitly deferred dialog internals to Story 7.7's scope and 7.7 landed without touching this dialog, so the two Delete confirmations on the Trip Overview now diverge in palette. Fix is a one-word deletion (`color="error"` removed) once the dialog-audit pass is scoped. `theme.palette` has no `error` entry; MUI's stock `#d32f2f` is the value being removed — see DW-33 for the missing theme-level error palette.
-status: open
+status: done 2026-08-01
+resolution: already resolved: The off-palette red is gone at the theme level: `MuiButton.containedError` (`theme.ts:320-324`) paints both delete confirms `colors.warn` `#8A5A2B` with a white label at 5.87:1, so `TripBucketListPanel.tsx:647` and `TripDeleteDialog.tsx:125` now render identically and neither shows MUI's `#d32f2f`.
 
 ### DW-50: Row-level edit/delete `IconButton`s have 2px cluster gap and no `:focus-visible` treatment
 
@@ -448,7 +457,8 @@ status: open
 origin: migrated from legacy ledger ("Deferred from: code review of 7-11-design-token-reconciliation (2026-08-01)"), 2026-08-01
 location: `_bmad-output/implementation-artifacts/7-9-full-page-map-screens-redesign.md`
 reason: The frontmatter is `status: done` and `sprint-status.yaml` agrees, but the body's `Status:` line still reads `awaiting-operator`, all six of Task 8's checkboxes are still `[ ]`, and the Change Log has no verification-dated entry — its last line still ends "Status: awaiting-operator." Those three edits were exactly what the story's final `operator_actions` entry required, and the appended Operator Confirmation block both asserts the external actions were carried out and re-lists that entry verbatim, so the file simultaneously claims the bookkeeping was done and shows that it was not. Not caused by Story 7.11; found while reading the epic's recent history. Fix is the three edits the operator action already specified, plus a look at whether the same drift exists on 7-8, which has the same shape — see DW-66 for the structural cause.
-status: open
+status: done 2026-08-01
+resolution: already resolved: Reconciled by hand on 2026-08-01: `7-9-full-page-map-screens-redesign.md` now has `status: done` in frontmatter (`:4`) and `Status: done` in the body (`:20`), all six Task 8 checkboxes are `[x]` (`:86-95`), and a verification-dated Change Log entry records the retroactive browser pass. (The `## Auto Run Result` block still reads `awaiting-operator` - that third copy is DW-66's subject, not this entry's three edits.)
 
 ### DW-65: `MuiIconButton` gets no focus ring, so the header menu button has no visible keyboard focus
 
