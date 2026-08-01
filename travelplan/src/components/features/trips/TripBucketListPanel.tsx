@@ -14,14 +14,20 @@ import {
   IconButton,
   List,
   ListItem,
-  Paper,
-  SvgIcon,
   TextField,
   Typography,
+  useTheme,
 } from "@mui/material";
 import { useForm } from "react-hook-form";
 import { formatMessage } from "@/i18n";
 import { useI18n } from "@/i18n/provider";
+import {
+  ChevronDownIcon,
+  ChevronUpIcon,
+  PencilIcon,
+  PlusIcon,
+  TrashIcon,
+} from "@/components/features/trips/TripIcons";
 
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 type ApiEnvelope<T> = {
@@ -54,6 +60,8 @@ type DialogMode = "add" | "edit";
 
 export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps) {
   const { t } = useI18n();
+  const theme = useTheme();
+  const tokens = theme.palette.tokens;
   const [items, setItems] = useState<BucketListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -387,36 +395,68 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
 
   return (
     <>
-      <Paper elevation={1} sx={{ p: 3, borderRadius: 3, background: "#ffffff" }}>
+      <Box
+        sx={{
+          backgroundColor: tokens.card,
+          border: "1px solid",
+          borderColor: tokens.borderStrong,
+          borderRadius: "8px",
+          padding: "18px",
+        }}
+      >
         <Box display="flex" flexDirection="column" gap={2}>
           <Box display="flex" alignItems="center" justifyContent="space-between" gap={1} flexWrap="wrap">
             <Box display="flex" flexDirection="column" gap={0.25}>
-              <Typography variant="h6" fontWeight={600}>
+              {/* Trip Overview's title is `h4`, so its card labels are `h5` (title + 1). The custom
+                  labelCaps variant has no `variantMapping`, so `component="h5"` must be passed
+                  explicitly - otherwise the Typography renders as a <span>. */}
+              <Typography
+                variant="labelCaps"
+                component="h5"
+                sx={{ color: tokens.inkSoft, display: "block" }}
+              >
                 {t("trips.bucketList.title")}
               </Typography>
-              <Typography variant="caption" color="text.secondary">
+              <Typography sx={{ fontSize: "11.5px", fontWeight: 600, color: tokens.inkSoft }}>
                 {entryCountLabel}
               </Typography>
             </Box>
             <Box display="flex" alignItems="center" gap={0.75}>
-              <IconButton aria-label={toggleLabel} title={toggleLabel} onClick={() => setIsCollapsed((prev) => !prev)}>
-                <SvgIcon fontSize="small">
-                  {isCollapsed ? (
-                    <path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z" />
-                  ) : (
-                    <path d="M12 8l6 6-1.41 1.41L12 10.83 7.41 15.41 6 14z" />
-                  )}
-                </SvgIcon>
+              <IconButton
+                aria-label={toggleLabel}
+                title={toggleLabel}
+                onClick={() => setIsCollapsed((prev) => !prev)}
+                sx={{ width: 44, height: 44, padding: 0, color: tokens.inkSoft }}
+              >
+                {isCollapsed ? <ChevronDownIcon /> : <ChevronUpIcon />}
               </IconButton>
+              {/* The visible circle stays the mockup's 24px, but the hit area is padded out to the
+                  44px floor - matches the pattern established in TripDayBucketListPanel. */}
               <IconButton
                 aria-label={t("trips.bucketList.addAction")}
                 title={t("trips.bucketList.addAction")}
                 onClick={openAddDialog}
-                sx={{ color: "warning.main", border: "1px solid", borderColor: "warning.main" }}
+                sx={{
+                  width: 44,
+                  height: 44,
+                  padding: 0,
+                  color: theme.palette.primary.main,
+                  "& .bucket-add-circle": {
+                    width: 24,
+                    height: 24,
+                    borderRadius: "50%",
+                    border: "1px solid",
+                    borderColor: tokens.borderStrong,
+                    backgroundColor: tokens.card,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  },
+                }}
               >
-                <SvgIcon fontSize="small">
-                  <path d="M19 13H13v6h-2v-6H5v-2h6V5h2v6h6v2z" />
-                </SvgIcon>
+                <Box className="bucket-add-circle">
+                  <PlusIcon />
+                </Box>
               </IconButton>
             </Box>
           </Box>
@@ -424,69 +464,90 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
           <Collapse in={!isCollapsed} timeout="auto" unmountOnExit>
             {loadError && <Alert severity="error">{loadError}</Alert>}
 
-            {loading && <Typography variant="body2">{t("trips.bucketList.loading")}</Typography>}
+            {loading && (
+              <Typography variant="body2" sx={{ color: tokens.inkSoft }}>
+                {t("trips.bucketList.loading")}
+              </Typography>
+            )}
 
             {emptyState && (
-              <Typography variant="body2" color="text.secondary">
+              <Typography variant="body2" sx={{ color: tokens.inkSoft }}>
                 {t("trips.bucketList.empty")}
               </Typography>
             )}
 
             {!loading && items.length > 0 && (
-              <List disablePadding sx={{ display: "flex", flexDirection: "column", gap: 1.25 }}>
+              // Real MUI List/ListItem semantics: the presentational treatment is applied to each
+              // ListItem, and the last row's border-bottom is suppressed via `:last-child` on the
+              // wrapper so adding or removing an item never leaves a trailing rule.
+              <List
+                disablePadding
+                sx={{ "& > li:last-child": { borderBottom: "none" } }}
+              >
                 {items.map((item) => (
-                  <ListItem key={item.id} disablePadding>
-                    <Box
-                      display="flex"
-                      justifyContent="space-between"
-                      alignItems="flex-start"
-                      gap={1.5}
-                      sx={{
-                        width: "100%",
-                        p: 2,
-                        borderRadius: 2,
-                        border: "1px solid",
-                        borderColor: "divider",
-                        backgroundColor: "#f7f9fc",
-                      }}
-                    >
-                      <Box display="flex" flexDirection="column" gap={0.5} minWidth={0}>
-                        <Typography variant="subtitle1" fontWeight={600}>
-                          {item.title}
-                        </Typography>
-                        {item.description ? (
-                          <Typography variant="body2" color="text.secondary">
-                            {item.description}
-                          </Typography>
-                        ) : null}
-                        <Typography variant="caption" color="text.secondary">
-                          {item.positionText?.trim()
-                            ? item.positionText
-                            : item.location?.label?.trim() ?? t("trips.bucketList.locationMissing")}
-                        </Typography>
-                      </Box>
-                      <Box display="flex" alignItems="center" gap={0.5}>
-                        <IconButton
-                          size="small"
-                          aria-label={t("trips.bucketList.editAction")}
-                          title={t("trips.bucketList.editAction")}
-                          onClick={() => openEditDialog(item)}
+                  <ListItem
+                    key={item.id}
+                    disablePadding
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 1.25,
+                      padding: "9px 0",
+                      borderBottom: "1px solid",
+                      borderColor: tokens.border,
+                    }}
+                  >
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography
+                        sx={{ fontSize: "12.5px", fontWeight: 700, color: tokens.ink, overflowWrap: "anywhere" }}
+                      >
+                        {item.title}
+                      </Typography>
+                      {item.description ? (
+                        <Typography
+                          sx={{
+                            fontSize: 11,
+                            fontWeight: 600,
+                            color: tokens.inkSoft,
+                            mt: "1px",
+                            overflowWrap: "anywhere",
+                          }}
                         >
-                          <SvgIcon fontSize="inherit">
-                            <path d="M3 17.25V21h3.75l11-11-3.75-3.75-11 11zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66z" />
-                          </SvgIcon>
-                        </IconButton>
-                        <IconButton
-                          size="small"
-                          aria-label={t("trips.bucketList.deleteAction")}
-                          title={t("trips.bucketList.deleteAction")}
-                          onClick={() => setDeleteTarget(item)}
-                        >
-                          <SvgIcon fontSize="inherit">
-                            <path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6zm3.5-8h1v7h-1zm4 0h1v7h-1zM15.5 4l-1-1h-5l-1 1H5v2h14V4z" />
-                          </SvgIcon>
-                        </IconButton>
-                      </Box>
+                          {item.description}
+                        </Typography>
+                      ) : null}
+                      <Typography
+                        sx={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          color: tokens.inkSoft,
+                          mt: "1px",
+                          overflowWrap: "anywhere",
+                        }}
+                      >
+                        {item.positionText?.trim()
+                          ? item.positionText
+                          : item.location?.label?.trim() ?? t("trips.bucketList.locationMissing")}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.25, flexShrink: 0 }}>
+                      <IconButton
+                        aria-label={t("trips.bucketList.editAction")}
+                        title={t("trips.bucketList.editAction")}
+                        onClick={() => openEditDialog(item)}
+                        sx={{ width: 44, height: 44, padding: 0, color: tokens.inkSoft }}
+                      >
+                        <PencilIcon />
+                      </IconButton>
+                      <IconButton
+                        aria-label={t("trips.bucketList.deleteAction")}
+                        title={t("trips.bucketList.deleteAction")}
+                        onClick={() => setDeleteTarget(item)}
+                        sx={{ width: 44, height: 44, padding: 0, color: tokens.inkSoft }}
+                      >
+                        <TrashIcon />
+                      </IconButton>
                     </Box>
                   </ListItem>
                 ))}
@@ -494,7 +555,7 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
             )}
           </Collapse>
         </Box>
-      </Paper>
+      </Box>
 
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>

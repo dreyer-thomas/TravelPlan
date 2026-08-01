@@ -1,5 +1,5 @@
 # generated: 2026-03-01 13:08:00 CET
-# last_updated: 2026-08-01 (7-11-design-token-reconciliation → ready-for-dev, create-story; prior: 7-7 → done; correct-course: 7-10 → 8-1 in new epic-8 — see planning-artifacts/sprint-change-proposal-2026-08-01.md)
+# last_updated: 2026-08-01 (2-31-complete-trip-backup-export-... → ready-for-dev, create-story; container settled as a hand-rolled STORE-only ZIP with no new dependency, and no UI entry point — so 2-32's spec, written earlier the same day against a base64-in-JSON single file, needs the delta recorded in 2-31's Dev Notes → "Where this diverges from Story 2.32's spec as written" before 2-32 is dispatched; prior: 2-32 → ready-for-dev; 7-11 → ready-for-dev; 7-7 → done; correct-course: 7-10 → 8-1 in new epic-8 — see planning-artifacts/sprint-change-proposal-2026-08-01.md)
 # project: TravelPlan
 # project_key: NOKEY
 # tracking_system: file-system
@@ -83,8 +83,8 @@ development_status:
   2-28-map-full-page-view: done
   2-29-day-plan-gannt: done
   2-30-day-plan-gannt-overview: done
-  2-31-complete-trip-backup-export-with-photos-travel-segments-and-bucket-list: backlog
-  2-32-complete-trip-backup-import-with-photos-travel-segments-and-bucket-list: backlog
+  2-31-complete-trip-backup-export-with-photos-travel-segments-and-bucket-list: ready-for-dev
+  2-32-complete-trip-backup-import-with-photos-travel-segments-and-bucket-list: ready-for-dev
   epic-2-retrospective: optional
 
   epic-3: backlog
@@ -131,7 +131,7 @@ development_status:
   7-5-share-dialog-redesign: done
   7-6-login-register-and-password-reset-redesign: done
   7-7-trip-create-and-add-entry-dialog-redesign: done
-  7-8-trip-overview-lower-sections-redesign: ready-for-dev
+  7-8-trip-overview-lower-sections-redesign: awaiting-operator
   7-9-full-page-map-screens-redesign: ready-for-dev
   7-11-design-token-reconciliation: ready-for-dev
   epic-7-retrospective: optional

@@ -1,5 +1,4 @@
 ---
-baseline_commit: b18997c
 ---
 
 # Story 7.9: Full-Page Map Screens Redesign — Day Route Map and Trip Route Map

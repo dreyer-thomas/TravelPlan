@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import TripTimeline from "@/components/features/trips/TripTimeline";
 import theme from "@/theme";
@@ -415,108 +414,6 @@ describe("TripTimeline plan action", () => {
     expect(screen.getByTestId("day-row-photo")).toHaveAttribute("alt", "");
     expect(screen.queryByRole("button", { name: "Add plan" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Edit plan" })).toBeNull();
-
-    vi.unstubAllGlobals();
-  });
-
-  it("shows export action and requests trip export endpoint", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-01T00:00:00.000Z",
-              dayCount: 1,
-              plannedCostTotal: 0,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [],
-          },
-          error: null,
-        }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        blob: async () => new Blob([JSON.stringify({ trip: { id: "trip-1" }, days: [] })], { type: "application/json" }),
-        headers: new Headers({ "content-disposition": 'attachment; filename="trip-trip-2026-12-01.json"' }),
-      }) as unknown as typeof fetch;
-
-    const createObjectURL = vi.fn(() => "blob:trip-export");
-    const revokeObjectURL = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-    vi.stubGlobal("URL", { createObjectURL, revokeObjectURL });
-
-    renderWithProviders(<TripTimeline tripId="trip-1" />);
-
-    await waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith("/api/trips/trip-1", {
-        method: "GET",
-        credentials: "include",
-        cache: "no-store",
-      }),
-    );
-    expect(screen.getByRole("button", { name: "Import JSON" })).toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole("button", { name: "Export JSON" }));
-
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/trips/trip-1/export", { method: "GET" }));
-    expect(createObjectURL).toHaveBeenCalled();
-    expect(revokeObjectURL).toHaveBeenCalled();
-
-    vi.unstubAllGlobals();
-  });
-
-  it("shows localized export error when download fails", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-01T00:00:00.000Z",
-              dayCount: 1,
-              plannedCostTotal: 0,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [],
-          },
-          error: null,
-        }),
-      })
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 500,
-      }) as unknown as typeof fetch;
-
-    vi.stubGlobal("fetch", fetchMock);
-
-    renderWithProviders(<TripTimeline tripId="trip-1" />);
-
-    await waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith("/api/trips/trip-1", {
-        method: "GET",
-        credentials: "include",
-        cache: "no-store",
-      }),
-    );
-
-    await userEvent.click(screen.getByRole("button", { name: "Export JSON" }));
-
-    expect(await screen.findByText("Trip export failed. Please try again.")).toBeInTheDocument();
 
     vi.unstubAllGlobals();
   });

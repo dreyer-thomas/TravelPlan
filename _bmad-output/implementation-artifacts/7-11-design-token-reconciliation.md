@@ -1,5 +1,4 @@
 ---
-baseline_commit: ec605fb
 ---
 
 # Story 7.11: Design Token Reconciliation — Contrast, Focus, and Literal Cleanup
@@ -74,11 +73,11 @@ so that retheming does not require editing component bodies, and so that the foc
 
 ## Dev Notes
 
-### Baseline is not a clean tree
+### Baseline, and what lands before this story
 
-`baseline_commit: ec605fb` is Story 7.6's commit. **Story 7.7's work is complete and marked `done` but is not committed** — `src/components/forms/` (`FormField`, `FormNotice`, `PhotoUploadField`), `src/components/ui/DialogShell.tsx` and the deletion of `AuthField.tsx` all exist only in the working tree. Every line number in this story was read from the working tree, not from `ec605fb`. If you find yourself on a tree without `src/components/forms/`, stop: you are on the wrong baseline and the file map below will not match.
+`baseline_commit: 1ac8c5f` — Story 7.7's implementation (`a4f553b`) plus this story's planning commit. Every line number below was read at that tree. Sanity check: `src/components/forms/` (`FormField`, `FormNotice`, `PhotoUploadField`) and `src/components/ui/DialogShell.tsx` must exist and `src/components/features/auth/AuthField.tsx` must not. If that does not hold you are on the wrong baseline and the file map below will not match.
 
-Stories 7.8 and 7.9 are `ready-for-dev` and both touch files this story also touches (`TripTimeline.tsx`, `TripsDashboard.tsx` are 7.8's; `TripIcons.tsx` is shared). This story is sequenced **last in Epic 7** for that reason. If it runs before them, expect conflicts.
+**Stories 7.8 and 7.9 land between that baseline and this story**, and both touch files this story touches — 7.8 owns `TripTimeline.tsx`'s lower sections and the trip-controls block, 7.9 shares `TripIcons.tsx`. This story is sequenced last in Epic 7 for exactly that reason. Expect the line numbers cited here to have drifted by the time you run; treat them as locators, not addresses, and re-grep for the symbol (`ROW_GAP_BG`, `AUTH_SUBMIT_SX`, `opacity: isPast`) rather than trusting the number. The *substance* of every finding below was verified at `1ac8c5f`.
 
 ### The two design decisions are settled — do not re-open them
 

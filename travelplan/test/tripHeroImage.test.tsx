@@ -7,7 +7,6 @@ import TripTimeline from "@/components/features/trips/TripTimeline";
 import { renderWithProviders } from "./helpers/renderWithProviders";
 
 vi.mock("@/components/features/trips/TripDeleteDialog", () => ({ default: () => <div data-testid="delete-dialog" /> }));
-vi.mock("@/components/features/trips/TripImportDialog", () => ({ default: () => <div data-testid="import-dialog" /> }));
 vi.mock("@/components/features/trips/TripShareDialog", () => ({ default: () => <div data-testid="share-dialog" /> }));
 vi.mock("@/components/features/trips/TripOverviewMapPanel", () => ({ default: () => <div data-testid="overview-map-panel" /> }));
 vi.mock("@/components/features/trips/TripBucketListPanel", () => ({ default: () => <div data-testid="bucket-list-panel" /> }));

@@ -17,10 +17,6 @@ vi.mock("@/components/features/trips/TripDeleteDialog", () => ({
   default: () => <div data-testid="delete-dialog" />,
 }));
 
-vi.mock("@/components/features/trips/TripImportDialog", () => ({
-  default: () => <div data-testid="import-dialog" />,
-}));
-
 vi.mock("@/components/features/trips/TripShareDialog", () => ({
   default: () => <div data-testid="share-dialog" />,
 }));
@@ -115,7 +111,11 @@ describe("TripTimeline role gating", () => {
     expect(screen.queryByRole("button", { name: "Share trip" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Edit trip" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Delete trip" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Import trip" })).not.toBeInTheDocument();
+    // Story 7.8: the Import/Export UI entry points were removed for every role. The label the
+    // component used to render was `trips.import.action` = "Import JSON" (not "Import trip", which
+    // was the vacuous name the pre-7.8 assertion queried), so query by the real strings.
+    expect(screen.queryByRole("button", { name: "Import JSON" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Export JSON" })).not.toBeInTheDocument();
     expect(screen.queryByTestId("bucket-list-panel")).not.toBeInTheDocument();
 
     // A viewer still gets the read-only overview itself.
@@ -146,8 +146,69 @@ describe("TripTimeline role gating", () => {
     expect(screen.getByRole("button", { name: "Edit trip" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Share trip" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Delete trip" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Import trip" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Import JSON" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Export JSON" })).not.toBeInTheDocument();
     expect(screen.queryByTestId("bucket-list-panel")).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("hides Import and Export from an owner as well - the assertion AC3/AC4 actually turn on", async () => {
+    // The old two role tests (viewer, contributor) would both have passed even if Import/Export
+    // still rendered for owners; the queried "Import trip" name never existed. This owner case is
+    // the missing anchor that fails the moment either button comes back.
+    const fetchMock = stubDetailFetch(
+      buildDetailResponse({ name: "Owner Trip", accessRole: "owner" }, { missingAccommodation: true, accommodation: null }),
+    );
+
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/trips/trip-1", expect.anything()));
+
+    expect(screen.queryByRole("button", { name: "Import JSON" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Export JSON" })).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("renders no trip-controls card at all for a viewer (empty-card guard)", async () => {
+    // Task 5's edge case: with Export removed, a viewer would otherwise see an empty 18px-padded
+    // bordered card. The whole block is now guarded on `canEditPlanning || isOwner`.
+    const fetchMock = stubDetailFetch(
+      buildDetailResponse({ name: "Viewer Card Trip", accessRole: "viewer" }, { missingAccommodation: true, accommodation: null }),
+    );
+
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/trips/trip-1", expect.anything()));
+
+    // Neither Edit nor Delete is rendered, and there is no empty container either.
+    expect(screen.queryByRole("button", { name: "Edit trip" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete trip" })).not.toBeInTheDocument();
+    expect(document.querySelector("[data-testid='trip-controls-card']")).toBeNull();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("renders owner Edit and Delete inside the controls card without MUI's error-red color", async () => {
+    // AC2's only mechanical assertion: Delete stays outlined-secondary, never `color="error"`.
+    // MUI marks non-default color buttons with `MuiButton-{outlined,color}{Error,Warning,Info,Success}`
+    // classes - the assertion is that none of those apply to the Delete button.
+    const fetchMock = stubDetailFetch(
+      buildDetailResponse({ name: "Owner Controls", accessRole: "owner" }, { missingAccommodation: true, accommodation: null }),
+    );
+
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/trips/trip-1", expect.anything()));
+
+    const editButton = screen.getByRole("button", { name: "Edit trip" });
+    const deleteButton = screen.getByRole("button", { name: "Delete trip" });
+
+    expect(editButton).toBeInTheDocument();
+    expect(deleteButton).toBeInTheDocument();
+    expect(document.querySelector("[data-testid='trip-controls-card']")).not.toBeNull();
+    expect(deleteButton.className).not.toMatch(/MuiButton-(outlined|color)(Error|Warning|Info|Success)/);
 
     vi.unstubAllGlobals();
   });

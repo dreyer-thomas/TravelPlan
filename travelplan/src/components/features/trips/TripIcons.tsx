@@ -58,6 +58,91 @@ export function ChevronRightIcon({ sx }: IconProps) {
   );
 }
 
+/**
+ * The same path as `ChevronRightIcon`, rotated 90deg via `transform`, rather than duplicating a
+ * near-identical `d=` string. A second glyph would drift the moment someone tweaked the corner
+ * radius on the right chevron and forgot the down copy - see the same convention already applied for
+ * `bucket-add` reusing the `PlusIcon` glyph.
+ */
+export function ChevronDownIcon({ sx }: IconProps) {
+  return (
+    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={{ fontSize: 18, ...sx }}>
+      <path
+        d="M9 6l6 6-6 6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        transform="rotate(90 12 12)"
+      />
+    </SvgIcon>
+  );
+}
+
+/**
+ * Chevron-up (open state) - the mirror of `ChevronDownIcon`, same base path rotated -90 (270).
+ */
+export function ChevronUpIcon({ sx }: IconProps) {
+  return (
+    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={{ fontSize: 18, ...sx }}>
+      <path
+        d="M9 6l6 6-6 6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        transform="rotate(-90 12 12)"
+      />
+    </SvgIcon>
+  );
+}
+
+/** Pencil (row-level edit). Stroke-based to match the rest of the icon set. */
+export function PencilIcon({ sx }: IconProps) {
+  return (
+    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={{ fontSize: 15, ...sx }}>
+      <path
+        d="M4 20h4L20 8l-4-4L4 16v4z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M14 6l4 4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
+    </SvgIcon>
+  );
+}
+
+/** Trash (row-level delete). Stroke-based to match the rest of the icon set. */
+export function TrashIcon({ sx }: IconProps) {
+  return (
+    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={{ fontSize: 15, ...sx }}>
+      <path d="M4 7h16" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
+      <path
+        d="M6 7v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M10 11v6" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
+      <path d="M14 11v6" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
+    </SvgIcon>
+  );
+}
+
 export function CheckIcon({ sx }: IconProps) {
   return (
     <SvgIcon aria-hidden viewBox="0 0 24 24" sx={{ fontSize: 13, ...sx }}>

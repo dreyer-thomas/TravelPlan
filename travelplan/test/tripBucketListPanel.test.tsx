@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import TripBucketListPanel from "@/components/features/trips/TripBucketListPanel";
-import { I18nProvider } from "@/i18n/provider";
+import { renderWithProviders } from "./helpers/renderWithProviders";
 
 const buildItem = (overrides: Partial<Record<string, unknown>> = {}) => ({
   id: "item-1",
@@ -40,11 +40,7 @@ describe("TripBucketListPanel", () => {
   it("defaults to collapsed with a visible count line", async () => {
     const fetchMock = mockBucketListFetch([buildItem(), buildItem({ id: "item-2", title: "Museum" })]);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripBucketListPanel tripId="trip-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripBucketListPanel tripId="trip-1" />);
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
@@ -58,11 +54,7 @@ describe("TripBucketListPanel", () => {
     const fetchMock = mockBucketListFetch([buildItem()]);
     const user = userEvent.setup();
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripBucketListPanel tripId="trip-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripBucketListPanel tripId="trip-1" />);
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     await user.click(screen.getByRole("button", { name: "Expand bucket list" }));
@@ -76,15 +68,99 @@ describe("TripBucketListPanel", () => {
     const fetchMock = mockBucketListFetch([]);
     const user = userEvent.setup();
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripBucketListPanel tripId="trip-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripBucketListPanel tripId="trip-1" />);
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     await user.click(screen.getByRole("button", { name: "Add item" }));
 
     expect(screen.getByText("Add bucket list item")).toBeInTheDocument();
+  });
+
+  it("gives the panel-level add button a 44x44 hit area and no warn coloring", async () => {
+    const fetchMock = mockBucketListFetch([]);
+
+    renderWithProviders(<TripBucketListPanel tripId="trip-1" />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+    const addButton = screen.getByRole("button", { name: "Add item" });
+    const style = window.getComputedStyle(addButton);
+
+    // AC1 "44px floor" (padded hit area) - the button's box is 44x44 even though the visible
+    // "+" circle is 24px.
+    expect(style.width).toBe("44px");
+    expect(style.height).toBe("44px");
+
+    // AC1 "warn is reserved for gap/open-item states" - the pre-redesign button was colored
+    // `warning.main` (#8A5A2B) with a matching border; the redesigned button must not compute
+    // to the warn tone. Also assert the outer IconButton carries no MUI warning color class,
+    // so the check fails loudly if a future refactor uses `color="warning"` instead of sx.
+    expect(style.color).not.toBe("rgb(138, 90, 43)");
+    expect(style.borderColor).not.toBe("rgb(138, 90, 43)");
+    expect(addButton.className).not.toMatch(/MuiIconButton-color(Warning|Error)/);
+  });
+
+  it("suppresses the last row's bottom border via :last-child and keeps prior rows' rule", async () => {
+    const fetchMock = mockBucketListFetch([
+      buildItem({ id: "item-a", title: "Alpha" }),
+      buildItem({ id: "item-b", title: "Beta" }),
+      buildItem({ id: "item-c", title: "Gamma" }),
+    ]);
+    const user = userEvent.setup();
+
+    renderWithProviders(<TripBucketListPanel tripId="trip-1" />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await user.click(screen.getByRole("button", { name: "Expand bucket list" }));
+
+    const list = screen.getByRole("list");
+    const items = within(list).getAllByRole("listitem");
+    expect(items).toHaveLength(3);
+
+    // The `:last-child` divider rule is a CSS-selector treatment (regression from Story 7.3),
+    // so assert against the presence of the rule in each row's sx-derived style. Rows before the
+    // last carry a `1px solid` bottom rule; the last row's rule is suppressed to `none`.
+    const firstBorder = window.getComputedStyle(items[0]).borderBottomStyle;
+    const middleBorder = window.getComputedStyle(items[1]).borderBottomStyle;
+    const lastBorder = window.getComputedStyle(items[2]).borderBottomStyle;
+
+    expect(firstBorder).toBe("solid");
+    expect(middleBorder).toBe("solid");
+    expect(lastBorder).toBe("none");
+  });
+
+  it("suppresses the only row's bottom border in a one-item list", async () => {
+    const fetchMock = mockBucketListFetch([buildItem({ id: "solo", title: "Solo" })]);
+    const user = userEvent.setup();
+
+    renderWithProviders(<TripBucketListPanel tripId="trip-1" />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await user.click(screen.getByRole("button", { name: "Expand bucket list" }));
+
+    const list = screen.getByRole("list");
+    const items = within(list).getAllByRole("listitem");
+    expect(items).toHaveLength(1);
+    // A single row is both first-child and last-child; the `:last-child` rule must still suppress
+    // the trailing divider, otherwise a one-item list ships a stray bottom rule.
+    expect(window.getComputedStyle(items[0]).borderBottomStyle).toBe("none");
+  });
+
+  it("preserves the list role after the row restyle", async () => {
+    const fetchMock = mockBucketListFetch([
+      buildItem({ id: "row-1", title: "One" }),
+      buildItem({ id: "row-2", title: "Two" }),
+    ]);
+    const user = userEvent.setup();
+
+    renderWithProviders(<TripBucketListPanel tripId="trip-1" />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await user.click(screen.getByRole("button", { name: "Expand bucket list" }));
+
+    const list = screen.getByRole("list");
+    // Screen readers must announce "list, N items" - the presentational `:last-child` treatment
+    // sits on a real MUI List/ListItem, not a `<Box>`, per the Story 7.3 review rule.
+    expect(within(list).getAllByRole("listitem")).toHaveLength(2);
   });
 });

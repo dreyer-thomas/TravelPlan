@@ -18,10 +18,6 @@ vi.mock("@/components/features/trips/TripDeleteDialog", () => ({
   default: () => <div data-testid="delete-dialog" />,
 }));
 
-vi.mock("@/components/features/trips/TripImportDialog", () => ({
-  default: () => <div data-testid="import-dialog" />,
-}));
-
 vi.mock("@/components/features/trips/TripOverviewMapPanel", () => ({
   default: () => <div data-testid="overview-map-panel" />,
 }));

@@ -6,7 +6,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import TripDeleteDialog from "@/components/features/trips/TripDeleteDialog";
 import TripEditDialog, { type TripDetail as EditableTripDetail } from "@/components/features/trips/TripEditDialog";
-import TripImportDialog from "@/components/features/trips/TripImportDialog";
 import TripShareDialog from "@/components/features/trips/TripShareDialog";
 import TripDayGanttBar from "@/components/features/trips/TripDayGanttBar";
 import { buildOverviewGanttSegments } from "@/components/features/trips/TripDayGanttOverviewData";
@@ -105,11 +104,9 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
   const [detail, setDetail] = useState<TripDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [importOpen, setImportOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const router = useRouter();
   const isNarrowLayout = useMediaQuery(theme.breakpoints.down("sm"));
@@ -154,7 +151,6 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
   const loadTrip = useCallback(async () => {
     setLoading(true);
     setError(null);
-    setSuccess(null);
     setNotFound(false);
 
     try {
@@ -319,56 +315,6 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
     router.push("/trips");
   };
 
-  const handleImported = async () => {
-    await loadTrip();
-    setSuccess(t("trips.import.success"));
-    setImportOpen(false);
-  };
-
-  const extractAttachmentFilename = (headerValue: string | null) => {
-    if (!headerValue) return null;
-    const utf8Match = /filename\*=UTF-8''([^;]+)/i.exec(headerValue);
-    if (utf8Match?.[1]) {
-      try {
-        return decodeURIComponent(utf8Match[1]);
-      } catch {
-        return utf8Match[1];
-      }
-    }
-
-    const simpleMatch = /filename="?([^";]+)"?/i.exec(headerValue);
-    return simpleMatch?.[1] ?? null;
-  };
-
-  const triggerDownload = (blob: Blob, filename: string) => {
-    const objectUrl = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = objectUrl;
-    anchor.download = filename;
-    anchor.style.display = "none";
-    document.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
-  };
-
-  const handleExport = async () => {
-    setError(null);
-    try {
-      const response = await fetch(`/api/trips/${tripId}/export`, { method: "GET" });
-      if (!response.ok) {
-        setError(t("trips.export.error"));
-        return;
-      }
-
-      const filename = extractAttachmentFilename(response.headers.get("content-disposition")) ?? `trip-${tripId}.json`;
-      const blob = await response.blob();
-      triggerDownload(blob, filename);
-    } catch {
-      setError(t("trips.export.error"));
-    }
-  };
-
   // The hero is versioned at *read* time, not just at upload time. The upload route replaces
   // `hero.<ext>` in place, so without a version the URL is byte-identical before and after and the
   // browser keeps serving whatever it already cached for that key - which is why a freshly uploaded
@@ -389,7 +335,6 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
   return (
     <Box display="flex" flexDirection="column" gap={2}>
       {error && <Alert severity="error">{error}</Alert>}
-      {success && <Alert severity="success">{success}</Alert>}
 
       {detail && (
         <>
@@ -839,35 +784,33 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
 
           {isOwner ? <TripBucketListPanel tripId={detail.trip.id} /> : null}
 
-          <Paper
-            elevation={1}
-            sx={{
-              p: 3,
-              borderRadius: 3,
-              background: "#ffffff",
-            }}
-          >
-            <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
-              {isOwner ? (
-                <Button variant="outlined" onClick={() => setImportOpen(true)}>
-                  {t("trips.import.action")}
-                </Button>
-              ) : null}
-              <Button variant="outlined" onClick={handleExport}>
-                {t("trips.export.action")}
-              </Button>
-              {canEditPlanning ? (
-                <Button variant="outlined" onClick={() => setEditOpen(true)}>
-                  {t("trips.edit.open")}
-                </Button>
-              ) : null}
-              {isOwner ? (
-                <Button variant="outlined" color="error" onClick={() => setDeleteOpen(true)}>
-                  {t("trips.delete.open")}
-                </Button>
-              ) : null}
+          {/* Viewers get neither Edit nor Delete, so guarding the container prevents an empty
+              18px-padded bordered card. Story 7.8 Task 5 covered this explicitly. */}
+          {canEditPlanning || isOwner ? (
+            <Box
+              data-testid="trip-controls-card"
+              sx={{
+                backgroundColor: tokens.card,
+                border: "1px solid",
+                borderColor: tokens.borderStrong,
+                borderRadius: "8px",
+                padding: "18px",
+              }}
+            >
+              <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                {canEditPlanning ? (
+                  <Button variant="outlined" onClick={() => setEditOpen(true)}>
+                    {t("trips.edit.open")}
+                  </Button>
+                ) : null}
+                {isOwner ? (
+                  <Button variant="outlined" onClick={() => setDeleteOpen(true)}>
+                    {t("trips.delete.open")}
+                  </Button>
+                ) : null}
+              </Box>
             </Box>
-          </Paper>
+          ) : null}
         </>
       )}
 
@@ -887,7 +830,6 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
             tripName={detail.trip.name}
             onClose={() => setShareOpen(false)}
           />
-          <TripImportDialog open={importOpen} tripId={detail.trip.id} onClose={() => setImportOpen(false)} onImported={handleImported} />
         </>
       )}
     </Box>

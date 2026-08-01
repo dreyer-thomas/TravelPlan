@@ -1,5 +1,10 @@
 "use client";
 
+// Retained intentionally with zero production call sites since Story 7.8 (2026-08-01) removed
+// the "Import JSON" entry point from the trip overview. AC3 preserves the dialog and its API
+// route so a future decision can re-surface the flow — do not delete this file as dead code.
+// See _bmad-output/implementation-artifacts/deferred-work.md → "Deferred from: 7-8-...".
+
 import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import {
   Alert,

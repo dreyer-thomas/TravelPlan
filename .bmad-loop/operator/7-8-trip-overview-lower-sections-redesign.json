@@ -1,0 +1,16 @@
+{
+  "actions": [
+    "Seed an isolated SQLite DB on a non-default port (do NOT use travelplan/prisma/dev.db \u2014 it holds real trip data; follow the isolation precedent from Stories 7.2 and 7.3) and start the dev server against it.",
+    "Sign in as the trip owner, open a trip with a populated bucket list, and confirm the bucket-list card visually matches the Day Detail panel: same card shell, same row rhythm, 24px accent '+' circle in a 44px hit area, and no #f7f9fc tile fill on the rows.",
+    "As the same owner on the same trip, exercise the bucket list: collapse/expand, add an item, edit an item, delete an item \u2014 every action must round-trip and the count line in the header must update.",
+    "As the same owner, verify the trip-controls card at the bottom of the overview shows only 'Edit trip' + 'Delete trip', both outlined-secondary (no red), and no 'Import JSON' or 'Export JSON' button is present anywhere on the page.",
+    "Use the share flow to grant a second account VIEWER access to the trip, sign in as that viewer, and confirm no bucket-list panel and no trip-controls card render at all (the whole controls block is guarded so a viewer sees no empty bordered card).",
+    "Use the share flow to grant a third account CONTRIBUTOR access, sign in as that contributor, and confirm no bucket-list panel, no Import/Export, but the trip-controls card renders with 'Edit trip' only (no 'Delete trip').",
+    "As the owner, hit GET /api/trips/{tripId}/export directly (browser URL bar or curl with the session cookie) and confirm the JSON download still works \u2014 AC3 requires the underlying export capability to remain intact after the UI entry point was removed.",
+    "If every check above passes, edit _bmad-output/implementation-artifacts/7-8-trip-overview-lower-sections-redesign.md: tick Task 8's five checkboxes to [x], set status: done in both the frontmatter and the body's 'Status:' line, and append a Change Log entry dated with the verification date."
+  ],
+  "parked_at": "2026-08-01",
+  "run_id": "20260801-164636-e3a7",
+  "spec_file": "_bmad-output/implementation-artifacts/7-8-trip-overview-lower-sections-redesign.md",
+  "story_key": "7-8-trip-overview-lower-sections-redesign"
+}

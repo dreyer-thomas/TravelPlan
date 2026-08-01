@@ -1,7 +1,8 @@
 "use client";
 
-import { Alert, Box, IconButton, SvgIcon, Typography, useTheme } from "@mui/material";
+import { Alert, Box, IconButton, Typography, useTheme } from "@mui/material";
 import { useI18n } from "@/i18n/provider";
+import { PlusIcon } from "@/components/features/trips/TripIcons";
 
 type BucketListItem = {
   id: string;
@@ -122,10 +123,7 @@ export default function TripDayBucketListPanel({ items, loading, error, onAddToD
                   }}
                 >
                   <Box className="bucket-add-circle">
-                    <SvgIcon fontSize="inherit" viewBox="0 0 24 24" sx={{ fontSize: 15 }}>
-                      <path d="M11 5h2v14h-2z" />
-                      <path d="M5 11h14v2H5z" />
-                    </SvgIcon>
+                    <PlusIcon />
                   </Box>
                 </IconButton>
               </Box>
