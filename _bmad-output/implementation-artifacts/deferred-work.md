@@ -461,7 +461,9 @@ status: open
 origin: migrated from legacy ledger ("Deferred from: code review of 7-11-design-token-reconciliation (2026-08-01)"), 2026-08-01
 location: `travelplan/src/components/features/trips/TripsDashboard.tsx:446-535`
 reason: Story 7.11 AC5 correctly moved the `0.78` off the row onto the trip photo and the row border, because a row-level opacity dropped the sub-line and status pill below the contrast target (DW-20). When `heroImageUrl` is null the photo is a near-white `rgba(0,0,0,0.04)` placeholder, so fading it is invisible and the only remaining visual cue is the border composited at 0.78 — a subtle step from `#D9D0BE`. The "abgeschlossen" pill still carries the state as text, which is what `DESIGN.md`'s "colour is never the sole signal" rule requires, so nothing is broken; but a photoless past row now reads much closer to an active one than a photographed one does. AC5 prescribed photo-and-border and was followed exactly — the photoless case is an edge the spec did not consider. Fix needs a UX call: either a second carrier for that case (`filter: grayscale(1)` is a no-op on a grey placeholder, so more likely a step to `tokens.border` on the row edge, or a `cardAlt` row fill), or an explicit decision that the pill alone suffices.
-status: open
+status: done 2026-08-01
+resolution: closed by human decision: The photoless case is covered: the world-map placeholder is real image content that receives the 0.78 fade, the row border composites at the same value, and the status pill carries the state as text per DESIGN.md's "colour is never the sole signal" rule.
+decision: 2026-08-01 Close - placeholder fade plus the pill is enough — The photoless case is covered: the world-map placeholder is real image content that receives the 0.78 fade, the row border composites at the same value, and the status pill carries the state as text per DESIGN.md's "colour is never the sole signal" rule.
 
 ### DW-64: Story 7-9's frontmatter says `done` while its body still reads as unverified
 
