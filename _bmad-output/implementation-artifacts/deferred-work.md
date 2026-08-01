@@ -70,7 +70,9 @@ status: open
 origin: migrated from legacy ledger ("Deferred from: code review of 6-8-export-day-itinerary-pdf-for-offline-use (2026-05-03)"), 2026-08-01
 location: `tripRepo.ts:974`
 reason: Data integrity is enforced at write time, and a defensive guard at this read site would mask a deeper DB problem rather than fix it — so the guard was deliberately not added.
-status: open
+status: done 2026-08-01
+resolution: closed by human decision: Deliberate design decision, re-affirmed: `day.date` integrity is enforced at write time and a read-site guard would mask a corrupted database rather than fix it. Failing loudly is correct.
+decision: 2026-08-01 Close - fail-fast is the intended behaviour — Deliberate design decision, re-affirmed: `day.date` integrity is enforced at write time and a read-site guard would mask a corrupted database rather than fix it. Failing loudly is correct.
 
 ### DW-11: Unauthenticated user sees the print page loading state before the 401 redirect
 
