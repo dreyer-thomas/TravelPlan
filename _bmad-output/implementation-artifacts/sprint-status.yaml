@@ -1,5 +1,5 @@
 # generated: 2026-03-01 13:08:00 CET
-# last_updated: 2026-08-01 (7-12-bucket-list-sidebar-card → ready-for-dev, create-story; 7-9 operator pass carried out retroactively — one finding deferred; 7-11 still awaiting-operator)
+# last_updated: 2026-08-01 (6-9-day-detail-refinements → ready-for-dev, create-story; closes DW-44. Prior: sweep c86a migrated the ledger to DW format and closed 10 resolved entries; 7-12 ready-for-dev)
 # project: TravelPlan
 # project_key: NOKEY
 # tracking_system: file-system
@@ -121,6 +121,7 @@ development_status:
   6-6-match-day-item-photo-ux-to-accommodations: done
   6-7-move-or-swap-day-activities-between-dates: done
   6-8-export-day-itinerary-pdf-for-offline-use: done
+  6-9-day-detail-refinements: ready-for-dev
   epic-6-retrospective: done
 
   epic-7: in-progress
