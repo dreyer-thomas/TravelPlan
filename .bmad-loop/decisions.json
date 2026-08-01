@@ -1,0 +1,11 @@
+{
+  "DW-3": {
+    "answered_at": "2026-08-01",
+    "bundle_name": "",
+    "effect": "build",
+    "intent": "Refactor only the sites where the rule is reporting a real bug: the reset-on-open cluster in `TripDayPlanDialog.tsx` (~15 setters around `:301`) and any sibling dialog with the same shape, using a `key`-based remount or render-time derivation rather than an effect. Leave the already-guarded async-fetch effects (`cancelled` flag) as they are and keep `eslint.config.mjs`'s scoped `\"warn\"` for the files that still hold them, narrowing the `files:` list to exactly those that remain. Record in the config comment that the remaining warnings are known false positives for a guarded-fetch pattern, so the next reader does not re-derive it.",
+    "key": "1",
+    "label": "Fix only the genuine reset-on-open sites, keep the scoped warn for the guarded fetches",
+    "resolution": ""
+  }
+}
