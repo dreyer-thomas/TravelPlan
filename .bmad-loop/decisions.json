@@ -1,4 +1,13 @@
 {
+  "DW-15": {
+    "answered_at": "2026-08-01",
+    "bundle_name": "",
+    "effect": "build",
+    "intent": "Add the text caption `EXPERIENCE.md` mandates to every map preview surface, not just this one: a station-count-plus-action summary beneath the map in `TripOverviewMapPanel` and `TripDayMapPanel`, with a shared i18n key in both dictionaries. Feed the count from the same data the map already receives so it cannot drift from the stat strip. While there, give the populated map wrapper the mockup's `1px solid` token border on the `paper` fill, matching what the empty state already does, so populated and empty previews read as the same card.",
+    "key": "1",
+    "label": "Standardise the caption across all map surfaces",
+    "resolution": ""
+  },
   "DW-3": {
     "answered_at": "2026-08-01",
     "bundle_name": "",

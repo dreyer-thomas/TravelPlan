@@ -111,6 +111,7 @@ origin: migrated from legacy ledger ("Deferred from: code review of 7-2-trip-ove
 location: `TripOverviewMapPanel.tsx:41`
 reason: `EXPERIENCE.md`'s Interaction Primitives and Accessibility Floor both state map previews are "always paired with a text caption/summary (station count…)", and the mockup has `.map-caption` "5 Stationen · Kartenvorschau öffnen". Task 4 explicitly authorized keeping the icon-button instead, so this is task-sanctioned — but the station count now lives in a different component (the stat strip) and the card carries only a "Route" label plus an icon button. Also the populated map wrapper has no border/background where the mockup's `.map-preview` has `1px solid #E4DFD3` on `#F7F4EC` (only the empty state kept a dashed border). Revisit if the caption pattern is standardized across map surfaces.
 status: open
+decision: 2026-08-01 Standardise the caption across all map surfaces — Add the text caption `EXPERIENCE.md` mandates to every map preview surface, not just this one: a station-count-plus-action summary beneath the map in `TripOverviewMapPanel` and `TripDayMapPanel`, with a shared i18n key in both dictionaries. Feed the count from the same data the map already receives so it cannot drift from the stat strip. While there, give the populated map wrapper the mockup's `1px solid` token border on the `paper` fill, matching what the empty state already does, so populated and empty previews read as the same card.
 
 ### DW-16: `trips.dashboard.dayCount` renders "1 days" / "1 Tage" for a one-day trip
 
