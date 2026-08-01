@@ -18,7 +18,7 @@ operator_actions:
 
 # Story 7.11: Design Token Reconciliation — Contrast, Focus, and Literal Cleanup
 
-Status: awaiting-operator
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -63,7 +63,7 @@ so that retheming does not require editing component bodies, and so that the foc
   - [x] Add a `&.Mui-focusVisible` block to `theme.ts`'s `MuiButton.styleOverrides.root` using the ring already proven on the auth screens: `outline: 2px solid ${colors.ink}`, `outlineOffset: 2px`.
   - [x] Delete `src/components/features/auth/authSubmitSx.ts`.
   - [x] At each of the five auth pages, replace `sx={AUTH_SUBMIT_SX}` with `sx={{ mt: "6px" }}` and drop the import: `login/page.tsx:198`, `register/page.tsx:243`, `forgot-password/page.tsx:164`, `reset-password/page.tsx:245`, `first-login-password/page.tsx:167`.
-  - [ ] Verify the ring is visible on a non-auth contained button (e.g. the trips-list "Neue Reise" action) — that is the whole point of moving it. **NOT DONE — needs a human at a browser.** jsdom does not implement `:focus-visible`, so this cannot be automated; `test/theme.test.tsx` asserts the theme carries the override instead. See Completion Notes.
+  - [x] Verify the ring is visible on a non-auth contained button (e.g. the trips-list "Neue Reise" action) — that is the whole point of moving it. **DONE 2026-08-01: `outline: 2px solid rgb(43,42,38)` at 2px offset, `:focus-visible` matching, measured on the trips-list "Add trip" button via keyboard Tab in headless Chromium.** jsdom does not implement `:focus-visible`, so this cannot be automated; `test/theme.test.tsx` asserts the theme carries the override instead. See Completion Notes.
 
 - [x] **Task 5 — `error` and `success` palette entries** (AC: 7)
   - [x] Add `error: { main: colors.errorBorder }` and `success: { main: colors.accent }` to `theme.ts`'s `palette`.
@@ -287,11 +287,12 @@ Paths relative to the repo root (`/Users/tommy/Development/TravelPlan`).
 | Date | Version | Description | Author |
 |---|---|---|---|
 | 2026-08-01 | 1.0 | Story 7.11 implemented: added `warnBgRow` / `pillNeutral` tokens and retired the icon module's colour exports (pixel-identical, test-guarded); darkened `inkMuted` to `#7A7667` (4.55:1 on `card`, this system's engineering contrast target — not a conformance claim); moved the past-row `0.78` off the row onto the trip photo and a composited border so row text and status pill stay legible; added a theme-wide `MuiButton` `Mui-focusVisible` ring and deleted `authSubmitSx.ts` with its `mt: "6px"` preserved at all five auth call sites; added `palette.error` / `palette.success` from existing tokens plus a single-border `MuiAlert` treatment; tightened `IconProps.sx` to `SxProps<Theme>` across all 17 icons; reconciled `DESIGN.md` and `globals.css` with the above. | claude-opus-5 |
+| 2026-08-01 | 1.1 | Operator pass carried out against a throwaway copy of `dev.db` on port 3099 in a separate git worktree, driven through headless Chromium. All ten actions verified: auth submit and non-auth "Add trip" both `outline: 2px solid #2B2A26` at 2px offset; share-on-hero ring **white** (`ON_PHOTO_CHROME` wins); error helper text `#8A5A2B`; delete-confirm `#8A5A2B` on white; error alert `1px solid #C97A3E` on a warm tint with **exactly one** border (`boxShadow: none`, `outline: none`); `palette.success` = accent, `palette.info` = `travelNeutral`; gap row still `#FBF6EE` with `#E3C7A2` border; past row `opacity: 1` with photo and border at `0.78` and pill text at full strength. Tommy approved keeping the unrequested `palette.info` / `MuiAlert.standardInfo` change. Two side findings recorded in `deferred-work.md`. Body status and the last Task 4 subtask reconciled with the frontmatter. | claude-opus-5 |
 | 2026-08-01 | 1.1 | Review pass: 12 patches, 0 spec loopbacks. Three consequential — `palette.error` had silently dropped the two destructive-confirm labels to 3.31:1 and error `helperText` app-wide with them (both redirected to `colors.warn` at 5.87:1, at the theme level), and AC6's app-wide ink focus ring was invisible on the two hero-photo buttons (`ON_PHOTO_CHROME` ring inverted to white). Also added `palette.info` so no alert renders a stock MUI colour, faded the past-row hover accent, corrected AC8's false `SxProps` premise in the docblock and record, recorded the new semantic aliases in `DESIGN.md`, and fixed four measurement/staleness slips. 96 files / 632 tests passing, 0 `src/` tsc errors, lint unmoved at 87 problems. Four items deferred. Browser-only focus, alert and info-notice checks outstanding — see `operator_actions`. | claude-opus-5 |
 
 ## Auto Run Result
 
-Status: `awaiting-operator` — every part of this story an agent can do is done, committed and verified. What remains is visual-only and needs a human at a browser: both focus rings (jsdom implements no `:focus-visible`), the recoloured error helper text and destructive-confirm buttons, the error/success alert banners, the info notice that moved off MUI blue, the token-swap spot-check, and the past-row fade including its hover branch. All are enumerated as `operator_actions` in the frontmatter, ending with the bookkeeping edits that close the story. Nothing is blocked.
+Status: `done` (operator pass completed 2026-08-01) — every part of this story an agent can do is done, committed and verified. The visual-only checks that jsdom cannot make — both focus rings, the recoloured error helper text and destructive-confirm buttons, the error/success alert banners, the info notice that moved off MUI blue, the token-swap spot-check, and the past-row fade — were carried out at a browser on 2026-08-01 and all passed; see the 1.1 Change Log row.
 
 ### Summary of implemented change
 
