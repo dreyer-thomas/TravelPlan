@@ -44,6 +44,15 @@
     "label": "Re-level Day Detail to h1 and update its assertions",
     "resolution": ""
   },
+  "DW-43": {
+    "answered_at": "2026-08-01",
+    "bundle_name": "",
+    "effect": "build",
+    "intent": "Remove the unreachable success path from the three redirecting pages: drop the `setSuccess(true)` calls, stop threading `success` through `login`, `register` and `first-login-password`, and delete `auth.login.success`, `auth.register.success` and `auth.firstLogin.success` from both dictionaries. Leave `AuthScreenShell`'s `success` prop and the notice itself in place - `forgot-password` and `reset-password` use them for real. Deleting orphaned keys from both dictionaries is the convention 7.3 set and 7.8 followed.",
+    "key": "1",
+    "label": "Delete the three keys and their wiring",
+    "resolution": ""
+  },
   "DW-8": {
     "answered_at": "2026-08-01",
     "bundle_name": "",
