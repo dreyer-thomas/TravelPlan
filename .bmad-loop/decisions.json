@@ -53,6 +53,15 @@
     "label": "Delete the three keys and their wiring",
     "resolution": ""
   },
+  "DW-66": {
+    "answered_at": "2026-08-01",
+    "bundle_name": "",
+    "effect": "build",
+    "intent": "Remove the body `Status:` line from `.claude/skills/bmad-create-story/template.md` and from the corresponding emission in `SKILL.md`, so newly created stories carry the status only in YAML frontmatter and there is nothing for `confirm` to leave behind. Check which other local skills read the body line before removing it - `bmad-dev-story`, `bmad-dev-auto` and `bmad-loop-*` are the likely readers - and point any that do at the frontmatter instead. Leave existing story files alone: this stops new drift rather than rewriting history, and the `## Auto Run Result` copy is a run record, not a status field.",
+    "key": "1",
+    "label": "Make the frontmatter the only source in the local template",
+    "resolution": ""
+  },
   "DW-8": {
     "answered_at": "2026-08-01",
     "bundle_name": "",
