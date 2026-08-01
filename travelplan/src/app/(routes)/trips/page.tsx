@@ -1,32 +1,13 @@
-import { Box, Container, Typography } from "@mui/material";
+import { Container } from "@mui/material";
 import TripsDashboard from "@/components/features/trips/TripsDashboard";
-import { getServerT } from "@/i18n/server";
 
-export default async function TripsPage() {
-  const t = await getServerT();
-
+// The page-level header block moved into TripsDashboard's topbar: it now shows counts derived from
+// the fetched trips, which a server component cannot know. The old card was also a shadowed,
+// 16px-radius Paper in a system that is flat and bordered (DESIGN.md, "Elevation & Depth").
+export default function TripsPage() {
   return (
-    <Container maxWidth="md" sx={{ py: { xs: 6, md: 10 } }}>
-      <Box display="flex" flexDirection="column" gap={4}>
-        <Box
-          sx={{
-            p: { xs: 3, md: 4 },
-            borderRadius: 4,
-            background: "#ffffff",
-            boxShadow: "0 22px 40px rgba(17, 18, 20, 0.1)",
-            border: "1px solid rgba(17, 18, 20, 0.08)",
-          }}
-        >
-          <Typography variant="h3" fontWeight={700} gutterBottom>
-            {t("trips.page.title")}
-          </Typography>
-          <Typography variant="body1" color="text.secondary">
-            {t("trips.page.subtitle")}
-          </Typography>
-        </Box>
-
-        <TripsDashboard />
-      </Box>
+    <Container maxWidth="lg" sx={{ py: { xs: 3, md: 4 } }}>
+      <TripsDashboard />
     </Container>
   );
 }

@@ -40,8 +40,8 @@ FR21: Users can see a total of planned costs entered so far.
 FR22: Users can share a trip with a viewer.
 FR23: Viewers can see the trip plan but cannot edit core details.
 ~~FR24: Viewers can add comments/suggestions to days or items.~~ **(Removed 2026-07-30 — comments/voting feature discontinued, see Sprint Change Proposal 2026-07-30)**
-FR25: Users can export or back up trip data for recovery.
-FR34: Users can restore/import trip data from a backup.
+FR25: Users can export or back up trip data for recovery. **(2026-08-01: capability retained; UI entry point removed from the trip overview by Story 7.8 — reachable via API only until a new entry point is decided)**
+FR34: Users can restore/import trip data from a backup. **(2026-08-01: capability retained; UI entry point removed from the trip overview by Story 7.8 — reachable via API only until a new entry point is decided)**
 FR26: Maps integration for overall trip visualization and day-plan mapping.
 FR27: Ability to start a trip plan using Google (start + destination).
 FR28: Owners can grant a contributor role with full edit permissions.
@@ -1699,3 +1699,40 @@ So that creating trips and adding accommodations/day-plan items feels consistent
 **Given** the existing create-trip and add-entry functionality
 **When** these dialogs are redesigned
 **Then** all of it continues to work unchanged — this story is visual only
+
+### Story 7.8: Trip Overview Lower Sections — Bucket List, Trip Controls, and Import/Export Removal
+
+As a trip planner,
+I want the bucket list and the trip controls at the bottom of the trip overview to match the approved design, and the JSON import/export buttons removed from that page,
+So that the overview reads as one consistent surface end-to-end instead of trailing off into two pre-redesign cards and two developer-facing actions.
+
+**FRs covered:** FR7, FR8, FR30, FR31 (import/export UI removal affects FR25 and FR34 — see note below)
+
+**Context:** Story 7.2 redesigned the upper trip overview but left the two bottom blocks untouched — `TripBucketListPanel.tsx` and the inline trip-controls `Paper` at `TripTimeline.tsx:843-871`. These are the only two blocks in the page's render tree that never reference `theme.palette.tokens`; both still use `background: "#ffffff"` with `borderRadius: 3` (24px) against the 8px token card idiom used everywhere else. Story 7.2's AC3 asserted export/import "continues to work unchanged" — this story deliberately supersedes that clause for the UI layer only.
+
+**Acceptance Criteria:**
+
+**Given** the trip-overview bucket-list panel and the `bucket-list` / `bucket-item` / `bucket-add` patterns already implemented for Day Detail in Story 7.3 (`TripDayBucketListPanel.tsx`)
+**When** `TripBucketListPanel.tsx` is restyled
+**Then** it uses the same `card` shell, `card-label` title, `bucket-item` rows with `:last-child` divider suppression, and a 24px circular add affordance inside a ≥44×44px hit area — reusing the established pattern rather than introducing a second visual treatment for the same feature
+**And** the non-palette surface color `#f7f9fc`, the raw `borderColor: "divider"`, and the `warning.main`-colored add button are all replaced with token values (`tokens.cardAlt`, `tokens.border`, `tokens.accent`) — warn is reserved exclusively for gap/open-item states per `DESIGN.md`
+**And** its inline `SvgIcon` paths are replaced with the shared stroke icons from `TripIcons.tsx`
+
+**Given** the trip-controls block at the bottom of the trip overview
+**When** it is restyled
+**Then** its container uses the token card treatment (`tokens.card`, `tokens.borderStrong`, 8px radius) instead of hardcoded `#ffffff` / `borderRadius: 3`
+**And** "Reise löschen" uses the existing secondary button variant paired with its confirmation dialog, not MUI's default `color="error"` red (`#d32f2f`) — the palette defines no `error` entry, and `DESIGN.md` defines no destructive variant, so no new color is introduced by this story
+
+**Given** the "Import JSON" and "Export JSON" buttons currently rendered in that same controls block
+**When** the trip overview renders
+**Then** neither button is present anywhere in the UI
+**And** the underlying export/import API routes, dialogs, and logic remain intact and functional — this is a UI-entry-point removal, not a feature removal
+
+**Given** a viewer or contributor opens a trip
+**When** the redesigned controls block renders
+**Then** the pre-existing defect where an ungated "Export JSON" button produced an owner-only 404 error is resolved by the button's removal
+**And** `test/tripTimelineRoles.test.tsx` is updated to assert the absence of both import and export controls for every role, closing the gap where Export visibility was never asserted
+
+**Given** existing bucket-list functionality (add, edit, delete, add-to-day-plan) and trip controls (edit, delete)
+**When** the redesigned sections render
+**Then** all of it continues to work unchanged, including owner/contributor/viewer gating — apart from the import/export removal, this story is visual only

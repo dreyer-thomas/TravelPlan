@@ -36,6 +36,18 @@ export type TripSummary = {
    * `TripDaySummary.updatedAt`. See `withImageCacheBuster`.
    */
   updatedAt: Date;
+  /**
+   * Days whose accommodation name is missing or blank - the trip-level mirror of a day's
+   * `missingAccommodation`. A stay row that exists with a blank name counts as open, which is the
+   * same rule `getTripWithDaysForUser` applies; the two surfaces must not disagree.
+   */
+  openDayCount: number;
+  /** Total day plan items across the trip. Distinguishes "not planned yet" from "plan has holes". */
+  planItemCount: number;
+  /** Cents. Visible accommodation cost (non-blank name only) plus every plan item cost. */
+  plannedCostTotal: number;
+  startLocationLabel: string | null;
+  destinationLocationLabel: string | null;
 };
 
 export type TripHeroSummary = {
@@ -415,21 +427,55 @@ export const createTripWithDays = async ({
 };
 
 export const listTripsForUser = async (userId: string): Promise<TripSummary[]> => {
+  // One `findMany`, not one query per trip: calling `getTripWithDaysForUser` in a loop would issue a
+  // raw query plus a full day/plan-item/travel-segment tree for every row on the landing surface.
+  // (Prisma still expands the nested relations into their own queries - the point is that the cost
+  // is fixed, not proportional to the number of trips.) The `where`/`orderBy` stay as they are -
+  // shared trips are deliberately not listed here (see the story's Dev Notes), and past-trips-last
+  // ordering is applied client-side where "today" is known.
   const trips = await prisma.trip.findMany({
     where: { userId },
     orderBy: { startDate: "asc" },
-    include: { _count: { select: { days: true } } },
+    include: {
+      days: {
+        select: {
+          accommodation: { select: { name: true, costCents: true } },
+          dayPlanItems: { select: { costCents: true } },
+        },
+      },
+    },
   });
 
-  return trips.map((trip) => ({
-    id: trip.id,
-    name: trip.name,
-    startDate: trip.startDate,
-    endDate: trip.endDate,
-    dayCount: trip._count.days,
-    heroImageUrl: trip.heroImageUrl,
-    updatedAt: trip.updatedAt,
-  }));
+  return trips.map((trip) => {
+    // Mirrors `getTripWithDaysForUser`'s visible-cost rules verbatim: a stay whose name is blank
+    // contributes neither cost nor "has accommodation", so the same trip reads identically here and
+    // on the trip overview.
+    const hasVisibleAccommodation = (day: (typeof trip.days)[number]) =>
+      (day.accommodation?.name?.trim() ?? "").length > 0;
+    const getVisibleAccommodationCost = (day: (typeof trip.days)[number]) =>
+      hasVisibleAccommodation(day) ? (day.accommodation?.costCents ?? 0) : 0;
+    const getVisibleDayPlanCost = (day: (typeof trip.days)[number]) =>
+      day.dayPlanItems.reduce((sum, item) => sum + (item.costCents ?? 0), 0);
+
+    return {
+      id: trip.id,
+      name: trip.name,
+      startDate: trip.startDate,
+      endDate: trip.endDate,
+      // `trip.days` is already loaded in full, so counting it here avoids a `_count` subquery.
+      dayCount: trip.days.length,
+      heroImageUrl: trip.heroImageUrl,
+      updatedAt: trip.updatedAt,
+      openDayCount: trip.days.filter((day) => !hasVisibleAccommodation(day)).length,
+      planItemCount: trip.days.reduce((sum, day) => sum + day.dayPlanItems.length, 0),
+      plannedCostTotal: trip.days.reduce(
+        (sum, day) => sum + getVisibleAccommodationCost(day) + getVisibleDayPlanCost(day),
+        0,
+      ),
+      startLocationLabel: trip.startLocationLabel,
+      destinationLocationLabel: trip.destinationLocationLabel,
+    };
+  });
 };
 
 export type UpdateTripParams = {

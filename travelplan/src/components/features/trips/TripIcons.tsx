@@ -58,6 +58,43 @@ export function ChevronRightIcon({ sx }: IconProps) {
   );
 }
 
+export function CheckIcon({ sx }: IconProps) {
+  return (
+    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={{ fontSize: 13, ...sx }}>
+      <path d="M20 6 9 17l-5-5" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" />
+    </SvgIcon>
+  );
+}
+
+export function ClockIcon({ sx }: IconProps) {
+  return (
+    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={{ fontSize: 13, ...sx }}>
+      <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth={2} />
+      <path d="M12 7v5l3.2 2" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    </SvgIcon>
+  );
+}
+
+export function CalendarIcon({ sx }: IconProps) {
+  return (
+    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={{ fontSize: 13, ...sx }}>
+      <rect x="3" y="4" width="18" height="17" rx="2" fill="none" stroke="currentColor" strokeWidth={2} />
+      <line x1="3" y1="9" x2="21" y2="9" stroke="currentColor" strokeWidth={2} />
+      <line x1="8" y1="2" x2="8" y2="6" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
+      <line x1="16" y1="2" x2="16" y2="6" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
+    </SvgIcon>
+  );
+}
+
+export function PlusIcon({ sx }: IconProps) {
+  return (
+    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={{ fontSize: 15, ...sx }}>
+      <line x1="12" y1="5" x2="12" y2="19" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" />
+      <line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" />
+    </SvgIcon>
+  );
+}
+
 export function ShareGlyphIcon({ sx }: IconProps) {
   return (
     <SvgIcon aria-hidden viewBox="0 0 24 24" sx={{ fontSize: 15, ...sx }}>
@@ -161,6 +198,25 @@ export const ON_PHOTO_CHROME = {
   color: "#FFFFFF",
   "&:hover": { backgroundColor: "rgba(255,255,255,.28)" },
 } as const;
+
+/**
+ * Warn-row background for a row whose plan has holes.
+ *
+ * `DESIGN.md.components.day-row.bg-gap` and `.trip-row.bg-gap` are the same value, so Trip Overview's
+ * day rows and the Trips List's trip rows share this one constant rather than each declaring a copy.
+ * Deliberately not `tokens.warnBg` (#F6ECE0) - the mockups use a lighter tint for a whole-row fill
+ * than for a pill fill. See `mockups/trips-list-share-login.html:174`.
+ */
+export const ROW_GAP_BG = "#FBF6EE";
+
+/**
+ * The neutral pill track for the `upcoming` and `past` trip-status states.
+ *
+ * The one value on this screen with no token behind it (`theme.ts` has no equivalent). Neither
+ * `cardAlt` nor `warnBg` substitutes: both read as a different state. See
+ * `mockups/trips-list-share-login.html:210-211`.
+ */
+export const NEUTRAL_PILL_BG = "#F1ECE1";
 
 /**
  * Quoted and percent-escaped. An unquoted url() breaks on any path containing a space or ")", and

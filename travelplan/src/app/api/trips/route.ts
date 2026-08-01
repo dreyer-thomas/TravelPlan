@@ -91,6 +91,13 @@ export const GET = async (request: NextRequest) => {
         heroImageUrl: trip.heroImageUrl,
         // Versions the otherwise-stable `hero.<ext>` URL on the dashboard cards.
         updatedAt: trip.updatedAt.toISOString(),
+        // Raw counts only. Trip *status* depends on "today" and on the viewer's timezone, neither of
+        // which the server knows, so it is derived in the component instead.
+        openDayCount: trip.openDayCount,
+        planItemCount: trip.planItemCount,
+        plannedCostTotal: trip.plannedCostTotal,
+        startLocationLabel: trip.startLocationLabel,
+        destinationLocationLabel: trip.destinationLocationLabel,
       })),
     });
   } catch {

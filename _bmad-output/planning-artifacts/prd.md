@@ -269,8 +269,8 @@ TravelPlan is a web SPA targeting Chrome/Safari on desktop and mobile/tablet.
 
 ### Data Safety
 
-- FR33: Users can export trip data for backup.
-- FR34: Users can restore/import trip data from a backup.
+- FR33: Users can export trip data for backup. **(2026-08-01: capability retained and functional; UI entry point removed from the trip overview by Story 7.8. No user-facing entry point exists until one is decided.)**
+- FR34: Users can restore/import trip data from a backup. **(2026-08-01: capability retained and functional; UI entry point removed from the trip overview by Story 7.8. No user-facing entry point exists until one is decided.)**
 
 ### Idea Capture & Logbook
 

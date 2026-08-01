@@ -19,6 +19,7 @@ import {
   HERO_SCRIM,
   HouseIcon,
   ON_PHOTO_CHROME,
+  ROW_GAP_BG,
   ShareGlyphIcon,
   WarningTriangleIcon,
   toCssUrl,
@@ -96,8 +97,6 @@ type TripDetail = {
 type TripTimelineProps = {
   tripId: string;
 };
-
-const DAY_ROW_GAP_BG = "#FBF6EE";
 
 export default function TripTimeline({ tripId }: TripTimelineProps) {
   const { language, t } = useI18n();
@@ -621,7 +620,7 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                         borderColor: isGap ? tokens.warnBorder : tokens.borderStrong,
                         borderRadius: "8px",
                         marginBottom: "8px",
-                        backgroundColor: isGap ? DAY_ROW_GAP_BG : tokens.card,
+                        backgroundColor: isGap ? ROW_GAP_BG : tokens.card,
                         // Keyboard-only focus: the row is outlined when its navigation link is focused,
                         // without also firing on plain mouse clicks the way :focus-within does.
                         "&:has(:focus-visible)": {
