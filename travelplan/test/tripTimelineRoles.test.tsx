@@ -131,6 +131,27 @@ describe("TripTimeline role gating", () => {
     vi.unstubAllGlobals();
   });
 
+  it("renders the owner's bucket list inside the overview's side column, not as a full-width block", async () => {
+    // Story 7.12 AC1. Asserted as an ancestor relationship rather than a sibling index, so the case
+    // survives a reordering of the sidebar's cards but still fails if the panel escapes the column.
+    const fetchMock = stubDetailFetch(
+      buildDetailResponse({ name: "Sidebar Trip", accessRole: "owner" }, { missingAccommodation: true, accommodation: null }),
+    );
+
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/trips/trip-1", expect.anything()));
+
+    const sideColumn = screen.getByTestId("trip-overview-side-column");
+    const panel = screen.getByTestId("bucket-list-panel");
+
+    expect(within(sideColumn).getByTestId("bucket-list-panel")).toBe(panel);
+    // The map panel is the sidebar card the bucket list sits below; both live in the same column.
+    expect(within(sideColumn).getByTestId("overview-map-panel")).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
   it("shows contributor trip editing while keeping owner-only management actions hidden", async () => {
     const fetchMock = stubDetailFetch(
       buildDetailResponse(

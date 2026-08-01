@@ -498,3 +498,31 @@ reason: The spec template carries the status twice — once in YAML frontmatter 
 status: open
 decision: 2026-08-01 Make the frontmatter the only source in the local template — Remove the body `Status:` line from `.claude/skills/bmad-create-story/template.md` and from the corresponding emission in `SKILL.md`, so newly created stories carry the status only in YAML frontmatter and there is nothing for `confirm` to leave behind. Check which other local skills read the body line before removing it - `bmad-dev-story`, `bmad-dev-auto` and `bmad-loop-*` are the likely readers - and point any that do at the frontmatter instead. Leave existing story files alone: this stops new drift rather than rewriting history, and the `## Auto Run Result` copy is a run record, not a status field.
 decision: 2026-08-01 Make the frontmatter the only source in the local template — Remove the body `Status:` line from `.claude/skills/bmad-create-story/template.md` and from the corresponding emission in `SKILL.md`, so newly created stories carry the status only in YAML frontmatter and there is nothing for `confirm` to leave behind. Check which other local skills read the body line before removing it - `bmad-dev-story`, `bmad-dev-auto` and `bmad-loop-*` are the likely readers - and point any that do at the frontmatter instead. Leave existing story files alone: this stops new drift rather than rewriting history, and the `## Auto Run Result` copy is a run record, not a status field.
+
+### DW-67: The bucket-list empty message renders alongside the load-error alert when the fetch fails
+
+origin: code review of 7-12-bucket-list-sidebar-card, 2026-08-01
+location: `travelplan/src/components/features/trips/TripBucketListPanel.tsx:394` (`emptyState`), `:415-425` (`loadItems` error paths)
+reason: `emptyState` is `!loading && items.length === 0`, and both failure paths in `loadItems` call `setItems([])` alongside `setLoadError(...)`. So a failed `GET /api/trips/{id}/bucket-list-items` renders the error alert *and* "Noch keine Ideen gesammelt." / "No bucket list items yet." together, telling the user their bucket list is empty when the truth is that it could not be read — the one reading under which they might stop looking for data that exists. Pre-existing: the `emptyState` computation predates Story 7.12, which only relocated the panel and capped its height. Surfaced now because 7.12 made the empty-state treatment a confirmed spec decision (`EXPERIENCE.md:81`), so the branch is worth getting right. Fix is a one-line gate: `!loading && !loadError && items.length === 0`. `TripDayBucketListPanel.tsx` should be checked for the same shape.
+status: open
+
+### DW-68: `trips.bucketList.countLine` has no singular form, so a one-item list reads "1 entries" / "1 Einträge"
+
+origin: code review of 7-12-bucket-list-sidebar-card, 2026-08-01
+location: `travelplan/src/i18n/en.ts:378`, `travelplan/src/i18n/de.ts:375`; consumer `TripBucketListPanel.tsx:412`
+reason: Both dictionaries define the key as a bare `"{count} entries"` / `"{count} Einträge"` and `formatMessage` does no pluralization, so `items.length === 1` renders ungrammatically in both languages. Pre-existing since Story 4.4 introduced the collapsed count line. The app already has the precedent for handling this: the trips-list gap pill singularizes "N Tage offen" to "1 Tag offen" for N=1 (`EXPERIENCE.md:81`, Trip status variants). Visible on the collapsed card, which is the default state, so it is the first thing a user with one collected idea sees. Worth pairing with a sweep for other unpluralized `{count}` keys rather than fixing this one key alone.
+status: open
+
+### DW-69: `tripTimelineRoles.test.tsx` unstubs `fetch` at the end of each test body instead of in an `afterEach`, so a failing assertion leaks the stub
+
+origin: code review of 7-12-bucket-list-sidebar-card, 2026-08-01
+location: `travelplan/test/tripTimelineRoles.test.tsx` — no `afterEach`; per-test `vi.unstubAllGlobals()` calls as the last statement of most test bodies, and absent entirely from two (`:250`, `:279`)
+reason: The file stubs `fetch` per test and tears it down as the final statement of the body. Any assertion that throws before that line leaves the stub installed, so the *next* test in the file runs against the previous test's canned response and fails for reasons unrelated to its own subject — the classic cascading-failure pattern that makes a single real regression look like five. Two tests omit the call entirely, so the leak already exists on the happy path there. Pre-existing; Story 7.12's new case copied the surrounding convention rather than introducing it. Fix is a file-level `afterEach(() => vi.unstubAllGlobals())` and deleting the per-test calls — mechanical, but it touches every test in the file, which is why it was not folded into 7.12. `tripBucketListPanel.test.tsx` already does it the right way and is the model.
+status: open
+
+### DW-70: Day Detail's bucket-list card is still unbounded, so Tommy's "optisch übermächtig" concern is only half addressed
+
+origin: code review of 7-12-bucket-list-sidebar-card, 2026-08-01
+location: `travelplan/src/components/features/trips/TripDayBucketListPanel.tsx:62` (a plain `Box component="ul"` with no `maxHeight`/`overflow`)
+reason: Story 7.12 capped the *Trip Overview* bucket list at 5.5 rows because an unbounded card next to the day list reads as visually overwhelming at twenty collected ideas. Day Detail's sidebar carries a bucket-list card too, but it is a different component with no cap, no scroll region and no collapse, so the same twenty items grow it without limit there. Correctly outside 7.12's scope, which named the trip overview only — recorded because the decision behind the cap is a general one about the card, not about one screen, and because `EXPERIENCE.md:81` now has to explicitly say Day Detail is not capped in order to stay truthful. Fix is applying the same breakpoint-scoped `maxHeight`/`overflowY` pair; the derivation constants in `TripBucketListPanel.tsx` would need to move somewhere shared, and the day panel's rows have the same 12.5px/11px + 44px-hit-area shape, so the metric transfers. Note the day panel has no collapse toggle, so whether it should also start collapsed is a UX call, not a mechanical port.
+status: open

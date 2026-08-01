@@ -1,5 +1,5 @@
 ---
-baseline_commit: 1ac8c5f
+authored_against: 1ac8c5f
 ---
 
 # Story 2.31: Complete Trip Backup Export With Photos, Travel Segments, and Bucket List

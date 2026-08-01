@@ -58,6 +58,45 @@ type TripBucketListPanelProps = {
 
 type DialogMode = "add" | "edit";
 
+/*
+ * Expanded-height cap for the row list (Story 7.12 AC2).
+ *
+ * Derived from the row metric rather than written as a pixel literal, so a change to the row's own
+ * measurements moves the cap instead of silently invalidating it.
+ *
+ * A row is `alignItems: "center"`, so its height is whichever is taller: the stacked text block, or
+ * the 44px touch floor of its trailing edit/delete buttons. The text block wins for a fully
+ * populated row - the row `Typography`s carry no `variant`, so they are `body1`, and `theme.ts`
+ * overrides only `fontSize`/`fontWeight` there, leaving MUI's `lineHeight: 1.5` in force. That is
+ * 53.75px of text against 44px of button, which is why the line-height term below is not optional.
+ *
+ * The metric is taken from a fully populated row (title + description + location, one line each)
+ * because that is the row the add dialog produces when every field is filled, and it is the taller
+ * case - so the cap never shows FEWER than the intended rows. A row with no description is 63px, of
+ * which the cap shows ~6.3: still inside AC2's "roughly 5-6". A row whose text wraps in the narrow
+ * sidebar column is taller again and the cap shows correspondingly fewer; wrapping is not knowable
+ * here, so the cap is deliberately an approximation and Task 6's browser pass is what judges it.
+ */
+const BUCKET_ROW_LINE_HEIGHT = 1.5; // MUI `body1`; theme.ts sets only fontSize/fontWeight on it
+const BUCKET_ROW_TITLE_FONT_SIZE_PX = 12.5;
+const BUCKET_ROW_SUBLINE_FONT_SIZE_PX = 11; // the description and location lines
+const BUCKET_ROW_SUBLINE_OFFSET_PX = 1; // each subline's `mt: "1px"`
+const BUCKET_ROW_TEXT_HEIGHT_PX =
+  BUCKET_ROW_TITLE_FONT_SIZE_PX * BUCKET_ROW_LINE_HEIGHT +
+  2 * (BUCKET_ROW_SUBLINE_FONT_SIZE_PX * BUCKET_ROW_LINE_HEIGHT + BUCKET_ROW_SUBLINE_OFFSET_PX);
+const BUCKET_ROW_ACTION_HIT_AREA_PX = 44; // the edit/delete IconButtons' 44px touch floor
+const BUCKET_ROW_PADDING_Y_PX = 9; // ListItem `padding: "9px 0"`, top and bottom
+const BUCKET_ROW_DIVIDER_PX = 1; // ListItem `borderBottom: "1px solid"`
+const BUCKET_ROW_HEIGHT_PX =
+  Math.max(BUCKET_ROW_TEXT_HEIGHT_PX, BUCKET_ROW_ACTION_HIT_AREA_PX) +
+  BUCKET_ROW_PADDING_Y_PX * 2 +
+  BUCKET_ROW_DIVIDER_PX;
+
+// Five full rows plus half of the sixth, so the cut falls mid-row and the list visibly reads as
+// scrollable instead of looking like it simply ends.
+const BUCKET_LIST_VISIBLE_ROWS = 5.5;
+export const BUCKET_LIST_MAX_HEIGHT_PX = BUCKET_ROW_HEIGHT_PX * BUCKET_LIST_VISIBLE_ROWS;
+
 export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps) {
   const { t } = useI18n();
   const theme = useTheme();
@@ -480,9 +519,22 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
               // Real MUI List/ListItem semantics: the presentational treatment is applied to each
               // ListItem, and the last row's border-bottom is suppressed via `:last-child` on the
               // wrapper so adding or removing an item never leaves a trailing rule.
+              // The cap and the scroll region sit on the List, never on the card Box, so the
+              // header, count line and add affordance stay visible while the rows scroll.
+              // `md` is the trip overview grid's own breakpoint (TripTimeline's
+              // `gridTemplateColumns: { xs: "1fr", md: "1.7fr 1fr" }`): below it the overview is a
+              // single column, and capping there would nest a scroll region inside the page's own
+              // scroll. Using any other key would open a window where the layout is stacked but the
+              // list is still capped.
               <List
                 disablePadding
-                sx={{ "& > li:last-child": { borderBottom: "none" } }}
+                tabIndex={0}
+                aria-label={t("trips.bucketList.title")}
+                sx={{
+                  "& > li:last-child": { borderBottom: "none" },
+                  maxHeight: { xs: "none", md: BUCKET_LIST_MAX_HEIGHT_PX },
+                  overflowY: { xs: "visible", md: "auto" },
+                }}
               >
                 {items.map((item) => (
                   <ListItem

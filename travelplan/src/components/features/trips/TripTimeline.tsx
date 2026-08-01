@@ -704,7 +704,10 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
               </Box>
             </Box>
 
-            <Box sx={{ p: { xs: 0, md: "22px 0 22px 22px" }, borderLeft: { xs: "none", md: "1px solid" }, borderColor: tokens.border }}>
+            <Box
+              data-testid="trip-overview-side-column"
+              sx={{ p: { xs: 0, md: "22px 0 22px 22px" }, borderLeft: { xs: "none", md: "1px solid" }, borderColor: tokens.border }}
+            >
               <Box sx={{ backgroundColor: tokens.card, border: "1px solid", borderColor: tokens.borderStrong, borderRadius: "8px", padding: "18px", mb: 2 }}>
                 <Typography variant="labelCaps" component="h5" sx={{ color: tokens.inkSoft, display: "block", mb: 1.25 }}>
                   {t("trips.timeline.costSummaryTitle")}
@@ -750,6 +753,17 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                 expandHref={`/trips/${tripId}/map`}
               />
 
+              {/* Third sidebar card, after the map panel. The panel brings its own card shell
+                  (Story 7.8), so the wrapper carries spacing only - a bordered wrapper here would
+                  double the edge. The side column has no flex gap: its rhythm is the sibling
+                  `mb: 2` / `mt: 2` used by the cost card and the gap alert, so this joins that same
+                  16px rule rather than introducing a second spacing scale. */}
+              {isOwner ? (
+                <Box sx={{ mt: 2 }}>
+                  <TripBucketListPanel tripId={detail.trip.id} />
+                </Box>
+              ) : null}
+
               {firstGapDay ? (
                 <Box
                   sx={{
@@ -780,8 +794,6 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
               ) : null}
             </Box>
           </Box>
-
-          {isOwner ? <TripBucketListPanel tripId={detail.trip.id} /> : null}
 
           {/* Viewers get neither Edit nor Delete, so guarding the container prevents an empty
               18px-padded bordered card. Story 7.8 Task 5 covered this explicitly. */}

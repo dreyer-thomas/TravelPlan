@@ -1,5 +1,5 @@
 ---
-baseline_commit: b5720ca
+authored_against: b5720ca
 closes_deferred: [DW-44]
 ---
 

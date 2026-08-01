@@ -1,5 +1,5 @@
 ---
-baseline_commit: b18997c
+authored_against: b18997c
 ---
 
 # Story 8.1: Node 24 LTS Runtime Upgrade (CI, Local, Server)
