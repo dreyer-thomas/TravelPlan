@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import TripDayMapFullPage from "@/components/features/trips/TripDayMapFullPage";
-import { I18nProvider } from "@/i18n/provider";
+import { renderWithProviders } from "./helpers/renderWithProviders";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import type { ReactNode } from "react";
 
 vi.mock("react-leaflet", () => ({
@@ -35,6 +37,24 @@ vi.mock("leaflet", () => ({
   latLngBounds: (points: [number, number][]) => ({ points }),
   divIcon: (options: unknown) => options,
 }));
+
+// The page shell is an async RSC, so vitest cannot render it. A source-text guard is the only
+// mechanical check available for "no hardcoded hex value remains in either page component"; the
+// shell previously painted itself #2f343d, inverting the app's value scheme on the way in.
+// Comments are stripped first so an issue reference like `// see #1234` cannot fail the guard, and
+// rgb()/hsl() are matched too so the literal cannot simply come back in another notation.
+const HARDCODED_COLOUR = /#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(/;
+const stripComments = (source: string) => source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+
+describe("day map page shell", () => {
+  it("carries no hardcoded colour", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "src/app/(routes)/trips/[id]/days/[dayId]/map/page.tsx"),
+      "utf8",
+    );
+    expect(stripComments(source)).not.toMatch(HARDCODED_COLOUR);
+  });
+});
 
 describe("TripDayMapFullPage", () => {
   it("renders the full-page day map when day data loads", async () => {
@@ -93,13 +113,12 @@ describe("TripDayMapFullPage", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayMapFullPage tripId="trip-1" dayId="day-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayMapFullPage tripId="trip-1" dayId="day-1" />);
 
     expect(await screen.findByTestId("day-map-container")).toBeInTheDocument();
+    // The card label is this screen's only heading, and the custom labelCaps variant has no
+    // variantMapping entry - drop `component=` and it silently degrades to a <span>.
+    expect(screen.getByRole("heading", { name: "Day map" })).toBeInTheDocument();
     vi.unstubAllGlobals();
   });
 
@@ -177,11 +196,7 @@ describe("TripDayMapFullPage", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripDayMapFullPage tripId="trip-1" dayId="day-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripDayMapFullPage tripId="trip-1" dayId="day-1" />);
 
     const markers = await screen.findAllByTestId("day-map-marker");
     await user.click(markers[0]);

@@ -1,6 +1,6 @@
 "use client";
 
-import { Alert, Box, Button, Chip, Dialog, DialogContent, DialogTitle, List, ListItem, Paper, Skeleton, Typography } from "@mui/material";
+import { Alert, Box, Button, Chip, Dialog, DialogContent, DialogTitle, List, ListItem, Skeleton, Typography, useTheme } from "@mui/material";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -58,6 +58,18 @@ const FULL_PAGE_MAP_HEIGHT = "calc(100vh - 220px)";
 
 export default function TripOverviewMapFullPage({ tripId }: TripOverviewMapFullPageProps) {
   const { t } = useI18n();
+  const theme = useTheme();
+  const tokens = theme.palette.tokens;
+  // The shipped `card` treatment, identical to TripOverviewMapPanel.tsx and TripDayView.tsx's cardSx.
+  // A Box, not a Paper: theme.ts stamps a non-token 1px border on every MuiPaper, which would layer
+  // over borderStrong.
+  const cardSx = {
+    backgroundColor: tokens.card,
+    border: "1px solid",
+    borderColor: tokens.borderStrong,
+    borderRadius: "8px",
+    padding: "18px",
+  } as const;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
@@ -117,22 +129,27 @@ export default function TripOverviewMapFullPage({ tripId }: TripOverviewMapFullP
 
   if (loading) {
     return (
-      <Paper elevation={1} sx={{ p: 3, borderRadius: 3, background: "#ffffff" }}>
+      <Box sx={cardSx}>
         <Box display="flex" flexDirection="column" gap={2}>
-          <Skeleton variant="text" width="40%" height={36} />
-          <Skeleton variant="rectangular" height={FULL_PAGE_MAP_HEIGHT} sx={{ borderRadius: 2 }} />
+          {/* The real label, not a text skeleton: the preview panels render their title during load
+              and skeleton only the map, and a placeholder bar sized for the retired h5 title would
+              jump on settle. It also keeps the screen from having no heading at all while loading. */}
+          <Typography variant="labelCaps" component="h1" sx={{ color: tokens.inkSoft }}>
+            {t("trips.overviewMap.title")}
+          </Typography>
+          <Skeleton variant="rectangular" height={FULL_PAGE_MAP_HEIGHT} sx={{ borderRadius: "6px" }} />
         </Box>
-      </Paper>
+      </Box>
     );
   }
 
   if (notFound) {
     return (
-      <Paper elevation={1} sx={{ p: 3, borderRadius: 3, background: "#ffffff" }}>
-        <Typography variant="h6" fontWeight={600}>
+      <Box sx={cardSx}>
+        <Typography variant="heading" component="h1" sx={{ color: tokens.ink }}>
           {t("trips.detail.notFoundTitle")}
         </Typography>
-      </Paper>
+      </Box>
     );
   }
 
@@ -140,14 +157,20 @@ export default function TripOverviewMapFullPage({ tripId }: TripOverviewMapFullP
     <Box display="flex" flexDirection="column" gap={3}>
       {error ? <Alert severity="error">{error}</Alert> : null}
 
-      <Paper elevation={1} sx={{ p: 3, borderRadius: 3, background: "#ffffff" }}>
+      <Box sx={cardSx}>
         <Box display="flex" flexDirection="column" gap={2}>
           <Box display="flex" flexDirection="column" gap={0.75}>
-            <Typography variant="h5" fontWeight={700}>
-              {t("trips.overviewMap.fullPageTitle")}
+            {/* component= is mandatory: the custom labelCaps variant has no variantMapping entry, so
+                it renders a <span> otherwise. h1 because neither map screen has a page title - the
+                card label is this screen's only heading. */}
+            <Typography variant="labelCaps" component="h1" sx={{ color: tokens.inkSoft }}>
+              {t("trips.overviewMap.title")}
             </Typography>
+            {/* Kept: the only element on the page that names the trip, which matters on a screen
+                reachable by direct URL. Set to the panel-caption rhythm so it reads as a subline
+                under the caps label rather than competing with it. */}
             {detail ? (
-              <Typography variant="body2" color="text.secondary">
+              <Typography sx={{ fontSize: "11.5px", fontWeight: 600, color: tokens.inkSoft }}>
                 {detail.trip.name}
               </Typography>
             ) : null}
@@ -161,9 +184,9 @@ export default function TripOverviewMapFullPage({ tripId }: TripOverviewMapFullP
                 flexDirection: "column",
                 justifyContent: "center",
                 alignItems: "center",
-                borderRadius: 2,
+                borderRadius: "6px",
                 border: "1px dashed",
-                borderColor: "divider",
+                borderColor: tokens.border,
                 px: 2,
                 textAlign: "center",
                 gap: 1,
@@ -177,7 +200,7 @@ export default function TripOverviewMapFullPage({ tripId }: TripOverviewMapFullP
               </Typography>
             </Box>
           ) : (
-            <Box sx={{ borderRadius: 2, overflow: "hidden" }}>
+            <Box sx={{ borderRadius: "6px", overflow: "hidden" }}>
               <TripOverviewLeafletMap
                 points={mapData.points}
                 polylinePositions={mapData.polylinePositions}
@@ -196,14 +219,26 @@ export default function TripOverviewMapFullPage({ tripId }: TripOverviewMapFullP
                 {mapData.missingLocations.map((item) => (
                   <ListItem key={item.id} sx={{ px: 0, display: "flex", gap: 1 }}>
                     <Chip label={t("trips.overviewMap.missingTag")} size="small" color="warning" />
-                    <Typography variant="body2">{item.label}</Typography>
+                    <Typography
+                      component={Link}
+                      href={item.href}
+                      variant="body2"
+                      sx={{
+                        color: "primary.main",
+                        textDecoration: "underline",
+                        textUnderlineOffset: "2px",
+                        "&:hover": { color: "primary.dark" },
+                      }}
+                    >
+                      {item.label}
+                    </Typography>
                   </ListItem>
                 ))}
               </List>
             </Box>
           ) : null}
         </Box>
-      </Paper>
+      </Box>
 
       <Dialog open={Boolean(mapDialogItem)} onClose={() => setMapDialogItem(null)} fullWidth maxWidth="sm">
         <DialogTitle>{mapDialogItem?.label ?? ""}</DialogTitle>

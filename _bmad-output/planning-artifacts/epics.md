@@ -1831,6 +1831,49 @@ Two of its criteria were design-system decisions rather than implementation choi
 
 **Note:** the `closes_deferred` declaration requires the deferred-work ledger to have been migrated to the canonical `DW-<n>` format first. If the migration has not run when this story is specced, the final criterion is dropped and the entries are closed by a later sweep instead.
 
+### Story 7.12: Bucket List as a Trip Overview Sidebar Card
+
+As a trip planner,
+I want the trip-level bucket list to sit in the trip overview's sidebar alongside the cost and route cards,
+So that my collected ideas read as one of the overview's reference panels instead of a full-width block trailing off the bottom of the page.
+
+**FRs covered:** FR30, FR31 (placement only — no bucket-list capability changes)
+
+**Context:** The trip overview's layout is `1.7fr 1fr` (`TripTimeline.tsx:459`), matching the mockup's `.layout`. The sidebar holds "Kosten bisher" and "Route"; the bucket list renders *outside* that grid at `:785`, spanning the full page width beneath it.
+
+That placement is not a design decision — it is a gap. The bucket list appears in **no Screen A mockup at all**: `mockups/trip-overview-day-detail.html` gives Screen A exactly two `side-col` cards, and shows the bucket list only in Screen B's sidebar (`:1070`). `EXPERIENCE.md:39` records why the Day Detail cards exist at all — the bucket list and day map "correspond to real, already-existing product features … that were **simply missing from earlier mockups in this pass** and were added back as sidebar cards using existing card conventions." The identical reasoning was never applied to Screen A. Story 7.8 restyled the panel where it stood, exactly as its scope prescribed, and left placement untouched.
+
+This story finishes that job. It also settles the open `[ASSUMPTION]` at `EXPERIENCE.md:81`, which proposed an empty-state treatment for the bucket-list card and asked for confirmation in a later review pass — Tommy confirmed it on 2026-08-01 with one added constraint: the empty card must stay compact.
+
+**Acceptance Criteria:**
+
+**Given** `TripBucketListPanel` renders outside the overview's layout grid at `TripTimeline.tsx:785`
+**When** it is relocated
+**Then** it renders inside the side column as the third card, below `TripOverviewMapPanel`, using the same `card` shell the other two sidebar cards use
+**And** its owner-only gating is preserved exactly — a viewer and a contributor see no bucket-list card, as today
+
+**Given** a trip-level bucket list can hold far more ideas than the four a Day Detail card shows
+**When** the card is expanded
+**Then** it grows with its content up to approximately 5–6 rows, after which it holds a fixed maximum height and scrolls internally — expressed as a `max-height` derived from the row metric, not a magic pixel value
+**And** the scroll container is keyboard-reachable and does not trap focus
+
+**Given** a trip with no bucket-list items
+**When** the card renders
+**Then** it stays compact — the existing `trips.bucketList.empty` line inside the card shell, with no minimum height, no filler, and no illustration
+**And** `EXPERIENCE.md:81`'s `[ASSUMPTION]` marker is replaced by the confirmed treatment, including this compactness constraint
+
+**Given** the overview collapses to a single column below `md` (`TripTimeline.tsx:459`)
+**When** the page renders at `xs`/`sm`
+**Then** the bucket list keeps a sensible stacked position relative to the cost and route cards, and the max-height rule does not produce a scroll region inside an already-scrolling page
+
+**Given** the existing bucket-list functionality (collapse/expand, add, edit, delete, add-to-day-plan) and Story 4.4's collapsed-by-default behavior with its count line
+**When** the card is relocated
+**Then** all of it continues to work unchanged — this story moves and bounds a panel, it does not change what the panel does
+
+**Given** `EXPERIENCE.md`'s Information Architecture lists Screen A's sidebar contents
+**When** this story lands
+**Then** it records the bucket list as Screen A's third sidebar card, so the next reader does not rediscover the gap
+
 ## Epic 8: Maintenance & Infrastructure
 
 The maintainer can keep the runtime, toolchain, and accumulated technical debt current without threading infrastructure work through feature or redesign epics. This epic is the standing home for work that is neither a feature nor a redesign — runtime and toolchain upgrades, and the deferred-work bundles that earn a story number after a `bmad-loop sweep` has verified them against the code.

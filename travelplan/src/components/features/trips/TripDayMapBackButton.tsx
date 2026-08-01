@@ -22,7 +22,10 @@ export default function TripDayMapBackButton({ href, label }: { href: string; la
   }, [href, router]);
 
   return (
-    <Button variant="text" onClick={handleClick} sx={{ alignSelf: "flex-start", color: "#f3f6fb" }}>
+    // No color override: the text-button default resolves to primary.main (the accent), which is what
+    // the sibling back button on trips/[id]/page.tsx renders. The 44px touch target comes from
+    // theme.ts's MuiButton.root { minHeight: 44 } and needs no restatement here.
+    <Button variant="text" onClick={handleClick} sx={{ alignSelf: "flex-start" }}>
       {label}
     </Button>
   );

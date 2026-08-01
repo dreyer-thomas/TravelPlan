@@ -131,8 +131,8 @@ development_status:
   7-5-share-dialog-redesign: done
   7-6-login-register-and-password-reset-redesign: done
   7-7-trip-create-and-add-entry-dialog-redesign: done
-  7-8-trip-overview-lower-sections-redesign: awaiting-operator
-  7-9-full-page-map-screens-redesign: ready-for-dev
+  7-8-trip-overview-lower-sections-redesign: done
+  7-9-full-page-map-screens-redesign: awaiting-operator
   7-11-design-token-reconciliation: ready-for-dev
   epic-7-retrospective: optional
 

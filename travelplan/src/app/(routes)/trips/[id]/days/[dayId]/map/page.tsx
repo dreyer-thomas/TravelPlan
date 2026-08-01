@@ -14,10 +14,10 @@ export default async function TripDayMapPage({ params }: TripDayMapPageProps) {
   const { id, dayId } = await params;
   const t = await getServerT();
   return (
-    <Box sx={{ backgroundColor: "#2f343d", minHeight: "100vh" }}>
+    <Box sx={{ minHeight: "100vh" }}>
       <Container maxWidth="lg" sx={{ py: { xs: 4, md: 6 } }}>
         <Box display="flex" flexDirection="column" gap={3}>
-          <TripDayMapBackButton href={`/trips/${id}/days/${dayId}`} label={t("trips.dayView.back")} />
+          <TripDayMapBackButton href={`/trips/${id}/days/${dayId}`} label={t("trips.dayView.mapBack")} />
           <TripDayMapFullPage tripId={id} dayId={dayId} />
         </Box>
       </Container>

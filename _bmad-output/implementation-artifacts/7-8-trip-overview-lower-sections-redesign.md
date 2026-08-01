@@ -1,7 +1,7 @@
 ---
 baseline_revision: 1ac8c5f
 final_revision: 5e681ef
-status: awaiting-operator
+status: done
 followup_review_recommended: false
 operator_actions:
   - "Seed an isolated SQLite DB on a non-default port (do NOT use travelplan/prisma/dev.db — it holds real trip data; follow the isolation precedent from Stories 7.2 and 7.3) and start the dev server against it."
@@ -345,3 +345,18 @@ Post-implementation and post-review-patches:
 - **Task 8 (manual browser check) is deferred to a human operator.** The automated suite covers the role-gating cases (owner / contributor / viewer visibility of the redesigned controls card), the bucket-list restyle end-to-end (including the 44px add-button hit area, the warn-color removal, the `:last-child` divider rule, and the preserved list role), and the export API's owner-only 404 gate. What the automated suite cannot cover is the visual match against Day Detail (same shell, same row rhythm, same 24px circle), any layout regression under a real MUI theme + real Emotion class ordering, or the hero-image-cache concerns that only surface in a real browser session. The `operator_actions` list in the frontmatter enumerates the eight-step verification the human is owed.
 - **Two dialog-internals findings recorded in `deferred-work.md`** (bucket-item delete confirmation off-palette red; row-level IconButton focus-visible + spacing) are Task 4's explicitly-deferred surface. Neither is a functional defect — both are palette/interaction polish that the dialog-audit or accessibility-polish stories will reconcile.
 - **The `Collapse` swallowing `loadError` finding is a real UX concern surfaced by this story but not caused by it.** A failed API load on the bucket list shows "0 entries" in the always-visible header rather than an error banner. Fix is a small hoist; not scoped to this story.
+
+## Operator Confirmation
+
+Confirmed 2026-08-01: the external actions this story owed were carried out.
+
+- Seed an isolated SQLite DB on a non-default port (do NOT use travelplan/prisma/dev.db — it holds real trip data; follow the isolation precedent from Stories 7.2 and 7.3) and start the dev server against it.
+- Sign in as the trip owner, open a trip with a populated bucket list, and confirm the bucket-list card visually matches the Day Detail panel: same card shell, same row rhythm, 24px accent '+' circle in a 44px hit area, and no #f7f9fc tile fill on the rows.
+- As the same owner on the same trip, exercise the bucket list: collapse/expand, add an item, edit an item, delete an item — every action must round-trip and the count line in the header must update.
+- As the same owner, verify the trip-controls card at the bottom of the overview shows only 'Edit trip' + 'Delete trip', both outlined-secondary (no red), and no 'Import JSON' or 'Export JSON' button is present anywhere on the page.
+- Use the share flow to grant a second account VIEWER access to the trip, sign in as that viewer, and confirm no bucket-list panel and no trip-controls card render at all (the whole controls block is guarded so a viewer sees no empty bordered card).
+- Use the share flow to grant a third account CONTRIBUTOR access, sign in as that contributor, and confirm no bucket-list panel, no Import/Export, but the trip-controls card renders with 'Edit trip' only (no 'Delete trip').
+- As the owner, hit GET /api/trips/{tripId}/export directly (browser URL bar or curl with the session cookie) and confirm the JSON download still works — AC3 requires the underlying export capability to remain intact after the UI entry point was removed.
+- If every check above passes, edit _bmad-output/implementation-artifacts/7-8-trip-overview-lower-sections-redesign.md: tick Task 8's five checkboxes to [x], set status: done in both the frontmatter and the body's 'Status:' line, and append a Change Log entry dated with the verification date.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._

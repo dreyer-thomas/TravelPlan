@@ -1,6 +1,6 @@
 "use client";
 
-import { Alert, Box, Chip, Dialog, DialogContent, DialogTitle, List, ListItem, Paper, Skeleton, Typography } from "@mui/material";
+import { Alert, Box, Chip, Dialog, DialogContent, DialogTitle, List, ListItem, Skeleton, Typography, useTheme } from "@mui/material";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import TripDayLeafletMap from "@/components/features/trips/TripDayLeafletMap";
 import { MiniImageStrip, PlanItemRichContent, parsePlanText } from "@/components/features/trips/TripDayPlanItemContent";
@@ -99,6 +99,18 @@ const parsePolyline = (value: unknown): [number, number][] => {
 
 export default function TripDayMapFullPage({ tripId, dayId }: TripDayMapFullPageProps) {
   const { t } = useI18n();
+  const theme = useTheme();
+  const tokens = theme.palette.tokens;
+  // The shipped `card` treatment, identical to TripDayMapPanel.tsx and TripDayView.tsx's cardSx.
+  // A Box, not a Paper: theme.ts stamps a non-token 1px border on every MuiPaper, which would layer
+  // over borderStrong.
+  const cardSx = {
+    backgroundColor: tokens.card,
+    border: "1px solid",
+    borderColor: tokens.borderStrong,
+    borderRadius: "8px",
+    padding: "18px",
+  } as const;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
@@ -353,27 +365,32 @@ export default function TripDayMapFullPage({ tripId, dayId }: TripDayMapFullPage
 
   if (loading) {
     return (
-      <Paper elevation={1} sx={{ p: 3, borderRadius: 3 }}>
+      <Box sx={cardSx}>
         <Box display="flex" flexDirection="column" gap={2}>
-          <Skeleton variant="text" width="30%" height={28} />
-          <Skeleton variant="rectangular" height={FULL_PAGE_MAP_HEIGHT} />
+          {/* The real label, not a text skeleton: the preview panels render their title during load
+              and skeleton only the map, and a placeholder bar sized for the retired h6 title would
+              jump on settle. It also keeps the screen from having no heading at all while loading. */}
+          <Typography variant="labelCaps" component="h1" sx={{ color: tokens.inkSoft }}>
+            {t("trips.dayView.mapTitle")}
+          </Typography>
+          <Skeleton variant="rectangular" height={FULL_PAGE_MAP_HEIGHT} sx={{ borderRadius: "6px" }} />
         </Box>
-      </Paper>
+      </Box>
     );
   }
 
   if (notFound) {
     return (
-      <Paper elevation={1} sx={{ p: 3, borderRadius: 3 }}>
+      <Box sx={cardSx}>
         <Box display="flex" flexDirection="column" gap={2}>
-          <Typography variant="h6" fontWeight={600}>
+          <Typography variant="heading" component="h1" sx={{ color: tokens.ink }}>
             {t("trips.dayView.notFoundTitle")}
           </Typography>
           <Typography variant="body2" color="text.secondary">
             {t("trips.dayView.notFoundBody")}
           </Typography>
         </Box>
-      </Paper>
+      </Box>
     );
   }
 
@@ -381,9 +398,12 @@ export default function TripDayMapFullPage({ tripId, dayId }: TripDayMapFullPage
     <Box display="flex" flexDirection="column" gap={2}>
       {error && <Alert severity="error">{error}</Alert>}
 
-      <Paper elevation={1} sx={{ p: 3, borderRadius: 3 }}>
+      <Box sx={cardSx}>
         <Box display="flex" flexDirection="column" gap={2}>
-          <Typography variant="h6" fontWeight={600}>
+          {/* component= is mandatory: the custom labelCaps variant has no variantMapping entry, so it
+              renders a <span> otherwise. h1 because neither map screen has a page title - the card
+              label is this screen's only heading. */}
+          <Typography variant="labelCaps" component="h1" sx={{ color: tokens.inkSoft }}>
             {t("trips.dayView.mapTitle")}
           </Typography>
 
@@ -395,9 +415,9 @@ export default function TripDayMapFullPage({ tripId, dayId }: TripDayMapFullPage
                 flexDirection: "column",
                 justifyContent: "center",
                 alignItems: "center",
-                borderRadius: 2,
+                borderRadius: "6px",
                 border: "1px dashed",
-                borderColor: "divider",
+                borderColor: tokens.border,
                 px: 2,
                 textAlign: "center",
                 gap: 1,
@@ -411,7 +431,7 @@ export default function TripDayMapFullPage({ tripId, dayId }: TripDayMapFullPage
               </Typography>
             </Box>
           ) : (
-            <Box sx={{ borderRadius: 2, overflow: "hidden" }}>
+            <Box sx={{ borderRadius: "6px", overflow: "hidden" }}>
               <TripDayLeafletMap
                 points={mapData.points}
                 polylinePositions={routePolyline.length >= 2 ? routePolyline : mapData.points.map((point) => point.position)}
@@ -448,7 +468,7 @@ export default function TripDayMapFullPage({ tripId, dayId }: TripDayMapFullPage
             </Box>
           )}
         </Box>
-      </Paper>
+      </Box>
       <Dialog open={Boolean(mapDialogItem)} onClose={() => setMapDialogItem(null)} fullWidth maxWidth="sm">
         <DialogTitle>{mapDialogItem?.label ?? ""}</DialogTitle>
         <DialogContent>

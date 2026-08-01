@@ -1,0 +1,17 @@
+{
+  "actions": [
+    "Seed an isolated SQLite DB on a non-default port (do NOT use travelplan/prisma/dev.db \u2014 it holds real trip data; follow the isolation precedent from Stories 7.2, 7.3 and 7.8) and start the dev server against it.",
+    "Open a trip and click the expand icon in the Trip Overview sidebar (goes to /trips/{id}/map), then open a day and click the expand icon in the Day Detail sidebar (goes to /trips/{id}/days/{dayId}/map). Confirm neither screen inverts to a dark background on the way in, and that each map card reads as the same card as the preview panel it enlarged (cream card, 1px border, 8px radius, 18px padding \u2014 no elevated white panel).",
+    "On both screens confirm the card label is the small uppercase label-caps title in muted ink, matching the preview panel: 'Day map' on the day screen and 'Route' (not 'Full trip map') on the trip screen, with the trip name still shown as a subline beneath 'Route'.",
+    "Check the back button on both screens: readable accent-green against the paper background, at least 44x44px in dev tools' computed box, and the day-map one now reads '\u2190 Back to day' (not '\u2190 Back to trip'). Confirm the trip-map one reads '\u2190 Back to trip overview' \u2014 the leading arrow is newly added.",
+    "Test both back-button branches on each screen: arriving via the expand icon should go back in history, and pasting the map URL into a fresh tab should navigate forward to the trip/day. Both must land on the correct screen.",
+    "Exercise on both screens: a populated route with a Google-routed polyline; the routing-unavailable notice (block /api/trips/*/days/*/route in devtools); the missing-locations list (clear the location on one plan item) \u2014 on the trip map, confirm the missing-location labels are now underlined links that navigate to the owning day; and the no-locations empty state (a trip/day with no coordinates anywhere), confirming its dashed border is the light token border with a 6px radius.",
+    "Click a marker on each screen and confirm the detail dialog opens with its content and images and that the fullscreen photo viewer still works \u2014 these were deliberately NOT restyled (AC5), so they should look exactly as they did before.",
+    "At roughly 1080px and again at a short viewport, check whether the map fills its container without the page scrolling. FULL_PAGE_MAP_HEIGHT is still 'calc(100vh - 220px)' in both TripDayMapFullPage.tsx:73 and TripOverviewMapFullPage.tsx:57; review's static measurement suggests the real chrome is nearer 291px on the day map and ~23px more on the trip map. If either page scrolls or leaves a dead band, adjust the constant in that file and record the before/after value in the Dev Agent Record.",
+    "If every check above passes, edit _bmad-output/implementation-artifacts/7-9-full-page-map-screens-redesign.md: tick Task 8's six checkboxes to [x], set status: done in both the frontmatter and the body's 'Status:' line, and append a Change Log entry dated with the verification date."
+  ],
+  "parked_at": "2026-08-01",
+  "run_id": "20260801-164636-e3a7",
+  "spec_file": "_bmad-output/implementation-artifacts/7-9-full-page-map-screens-redesign.md",
+  "story_key": "7-9-full-page-map-screens-redesign"
+}

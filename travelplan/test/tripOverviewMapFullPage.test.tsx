@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import TripOverviewMapFullPage from "@/components/features/trips/TripOverviewMapFullPage";
-import { I18nProvider } from "@/i18n/provider";
+import { renderWithProviders } from "./helpers/renderWithProviders";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 vi.mock("next/dynamic", () => ({
   default: () =>
@@ -25,6 +27,21 @@ vi.mock("next/dynamic", () => ({
       </div>
     ),
 }));
+
+// The page shell is an async RSC, so vitest cannot render it. A source-text guard is the only
+// mechanical check available for "no hardcoded hex value remains in either page component"; the
+// shell previously painted itself #2f343d, inverting the app's value scheme on the way in.
+// Comments are stripped first so an issue reference like `// see #1234` cannot fail the guard, and
+// rgb()/hsl() are matched too so the literal cannot simply come back in another notation.
+const HARDCODED_COLOUR = /#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(/;
+const stripComments = (source: string) => source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+
+describe("trip map page shell", () => {
+  it("carries no hardcoded colour", () => {
+    const source = readFileSync(resolve(process.cwd(), "src/app/(routes)/trips/[id]/map/page.tsx"), "utf8");
+    expect(stripComments(source)).not.toMatch(HARDCODED_COLOUR);
+  });
+});
 
 describe("TripOverviewMapFullPage", () => {
   it("renders canonical trip markers, a chronological polyline, and popup details for stays and plan items", async () => {
@@ -87,13 +104,16 @@ describe("TripOverviewMapFullPage", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripOverviewMapFullPage tripId="trip-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripOverviewMapFullPage tripId="trip-1" />);
 
     expect(await screen.findByTestId("trip-map-container")).toBeInTheDocument();
+    // AC3: the card label renders the same string as the preview panel it enlarges, as a real
+    // heading (the custom labelCaps variant degrades to a <span> without `component=`). The trip
+    // name survives as a subline; the retired "Full trip map" title does not. Asserted as
+    // heading-role vs. plain text so the "Route" / "Northern Route" fixture cannot satisfy both.
+    expect(screen.getByRole("heading", { name: "Route" })).toBeInTheDocument();
+    expect(screen.getByText("Northern Route")).toBeInTheDocument();
+    expect(screen.queryByText("Full trip map")).not.toBeInTheDocument();
     expect(screen.getByTestId("trip-map-polyline")).toHaveAttribute(
       "data-positions",
       JSON.stringify([
@@ -159,15 +179,16 @@ describe("TripOverviewMapFullPage", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <TripOverviewMapFullPage tripId="trip-1" />
-      </I18nProvider>,
-    );
+    renderWithProviders(<TripOverviewMapFullPage tripId="trip-1" />);
 
     expect(await screen.findByText("Missing locations")).toBeInTheDocument();
     expect(screen.getByText("Unmapped museum")).toBeInTheDocument();
     expect(screen.queryByTestId("trip-map-container")).not.toBeInTheDocument();
+    // Matching the preview panel: missing-location labels link to the day that owns them.
+    expect(screen.getByRole("link", { name: "Unmapped museum" })).toHaveAttribute(
+      "href",
+      "/trips/trip-1/days/day-1?open=plan&itemId=item-1",
+    );
 
     vi.unstubAllGlobals();
   });
