@@ -8,6 +8,15 @@
     "label": "Standardise the caption across all map surfaces",
     "resolution": ""
   },
+  "DW-25": {
+    "answered_at": "2026-08-01",
+    "bundle_name": "",
+    "effect": "build",
+    "intent": "Remove `currentUserId` from the `GET` and `PATCH` payloads in `src/app/api/trips/[id]/route.ts` (`:46`, `:171`) and update the key-set assertion at `test/tripDetailRoute.test.ts:244` plus the test fixtures that carry it. Confirm with a grep across `src/` first that no client reads it - it is dead weight shipped to every client on every trip read. The client bundle and the route deploy together in Next.js, and `GET /api/trips/:id` sets no cache headers, so there is no stale-consumer window to sequence around.",
+    "key": "1",
+    "label": "Drop it from both responses",
+    "resolution": ""
+  },
   "DW-3": {
     "answered_at": "2026-08-01",
     "bundle_name": "",

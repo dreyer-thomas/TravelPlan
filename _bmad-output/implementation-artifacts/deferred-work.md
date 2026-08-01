@@ -186,6 +186,7 @@ origin: migrated from legacy ledger ("Deferred from: code review of 5-9-remove-c
 location: `travelplan/src/app/api/trips/[id]/route.ts:47,169`
 reason: Still serialized into both the `GET` and `PATCH` trip payloads, but its only reader was the deleted `TripFeedbackPanel`'s comment-authorship check. AC 5 forbade changing any surviving response field, so Story 5.9 correctly left it on the wire and the code review removed only the two dead client-local type declarations (`TripTimeline.tsx`, `TripDayView.tsx`). The field itself is now dead weight shipped to every client on every trip read — harmless, but it should either be dropped in a story that is allowed to change the response contract, or gain a real consumer. Recorded so the next reader does not have to rediscover that nothing reads it.
 status: open
+decision: 2026-08-01 Drop it from both responses — Remove `currentUserId` from the `GET` and `PATCH` payloads in `src/app/api/trips/[id]/route.ts` (`:46`, `:171`) and update the key-set assertion at `test/tripDetailRoute.test.ts:244` plus the test fixtures that carry it. Confirm with a grep across `src/` first that no client reads it - it is dead weight shipped to every client on every trip read. The client bundle and the route deploy together in Next.js, and `GET /api/trips/:id` sets no cache headers, so there is no stale-consumer window to sequence around.
 
 ### DW-26: `cachedClientMatchesCurrentSchema` is structurally blind to removal-only schema changes
 
