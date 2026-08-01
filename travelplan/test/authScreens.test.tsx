@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import FirstLoginPasswordPage from "@/app/(auth)/auth/first-login-password/page";
@@ -290,5 +290,139 @@ describe("FirstLoginPasswordPage (invite flow)", () => {
       expect(pushMock).toHaveBeenCalledWith("/");
     });
     expect(postsTo("/api/auth/first-login-password")).toHaveLength(1);
+  });
+});
+
+/**
+ * Cover for the code-review patches (2026-08-01). Each block pins a defect that shipped in the
+ * story commit, so a regression fails here rather than in a browser check.
+ */
+describe("code-review patches", () => {
+  it("surfaces a token error in the notice when the token field is hidden", async () => {
+    // The API rejects a whitespace-only `?token=` (`.trim().min(1)`), but RHF's `required` passes it,
+    // so `setError("token")` fires against an input that is `type="hidden"` and renders nothing.
+    const user = userEvent.setup();
+    searchParams = new URLSearchParams("token=%20%20");
+    mockFetch({
+      "/api/auth/password-reset/confirm": {
+        ok: false,
+        body: {
+          data: null,
+          error: {
+            code: "validation_error",
+            message: "Invalid reset details",
+            details: { fieldErrors: { token: ["Reset token is required"] } },
+          },
+        },
+      },
+    });
+    renderWithProviders(<ResetPasswordPage />);
+    await waitForCsrf();
+
+    expect(screen.queryByLabelText(/reset token/i)).toBeNull();
+
+    await user.type(screen.getByLabelText(/new password/i), "brandnewpassword");
+    await user.type(screen.getByLabelText(/confirm password/i), "brandnewpassword");
+    await user.click(screen.getByRole("button", { name: /save password/i }));
+
+    await waitFor(() => {
+      expect(postsTo("/api/auth/password-reset/confirm")).toHaveLength(1);
+    });
+    // Before the patch this was a total silent failure: no alert, no field error, no success.
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent("Reset token is required");
+    });
+  });
+
+  it("clears the mismatch error when the password field is corrected, not just the confirm field", async () => {
+    const user = userEvent.setup();
+    searchParams = new URLSearchParams("token=abc");
+    mockFetch({
+      "/api/auth/password-reset/confirm": { ok: true, body: { data: { success: true }, error: null } },
+    });
+    renderWithProviders(<ResetPasswordPage />);
+    await waitForCsrf();
+
+    await user.type(screen.getByLabelText(/new password/i), "brandnewpassword");
+    await user.type(screen.getByLabelText(/confirm password/i), "somethingelse00");
+    await user.click(screen.getByRole("button", { name: /save password/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Passwords do not match")).toBeInTheDocument();
+    });
+    expect(postsTo("/api/auth/password-reset/confirm")).toHaveLength(0);
+
+    // Fixing the OTHER field is what `deps: ["password"]` makes re-validate. Without it the stale
+    // error sits there until the confirm field is touched again.
+    await user.clear(screen.getByLabelText(/new password/i));
+    await user.type(screen.getByLabelText(/new password/i), "somethingelse00");
+
+    await waitFor(() => {
+      expect(screen.queryByText("Passwords do not match")).toBeNull();
+    });
+  });
+
+  it("ties the register consent error to the checkbox", async () => {
+    const user = userEvent.setup();
+    mockFetch({});
+    renderWithProviders(<RegisterPage />);
+    await waitForCsrf();
+
+    const consent = screen.getByRole("checkbox");
+    expect(consent).not.toHaveAttribute("aria-describedby");
+
+    await user.type(screen.getByLabelText(/email/i), "new@example.com");
+    await user.type(screen.getByLabelText(/^password$/i), "brandnewpassword");
+    await user.click(screen.getByRole("button", { name: /create account/i }));
+
+    // Same pairing AuthField gets free from MUI's id/helperText wiring: the message must be
+    // reachable from the control, not merely visible next to it.
+    await waitFor(() => {
+      expect(consent).toHaveAttribute("aria-invalid", "true");
+    });
+    const describedBy = consent.getAttribute("aria-describedby");
+    expect(describedBy).toBeTruthy();
+    expect(document.getElementById(describedBy as string)).toHaveTextContent("Consent is required");
+  });
+
+  it("offers a language switcher on the auth screens, which have no AppHeader", async () => {
+    const user = userEvent.setup();
+    mockFetch({});
+    renderWithProviders(<LoginPage />);
+    await waitForCsrf();
+
+    // The (auth) route group has no AppHeader ancestor, so this shell is the only place an
+    // unauthenticated visitor can reach the German dictionary.
+    const toggle = screen.getByRole("group", { name: "Language" });
+    expect(toggle).toBeInTheDocument();
+
+    const german = within(toggle).getByRole("button", { name: "German" });
+    expect(within(toggle).getByRole("button", { name: "English" })).toHaveAttribute("aria-pressed", "true");
+    expect(german).toHaveAttribute("aria-pressed", "false");
+
+    await user.click(german);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Deutsch" })).toHaveAttribute("aria-pressed", "true");
+    });
+    // The whole screen follows, not just the toggle.
+    expect(screen.getByLabelText(/e-mail/i)).toBeInTheDocument();
+  });
+
+  it("sets autoComplete on every auth field so managers do not offer the current password as a new one", async () => {
+    mockFetch({});
+
+    const { unmount } = renderWithProviders(<LoginPage />);
+    await waitForCsrf();
+    expect(screen.getByLabelText(/email/i)).toHaveAttribute("autocomplete", "username");
+    expect(screen.getByLabelText(/^password$/i)).toHaveAttribute("autocomplete", "current-password");
+    unmount();
+
+    searchParams = new URLSearchParams("token=abc");
+    renderWithProviders(<ResetPasswordPage />);
+    // The distinction that matters: these are new-password, so a manager offers a generated
+    // secret rather than autofilling the account's existing one.
+    expect(screen.getByLabelText(/new password/i)).toHaveAttribute("autocomplete", "new-password");
+    expect(screen.getByLabelText(/confirm password/i)).toHaveAttribute("autocomplete", "new-password");
   });
 });

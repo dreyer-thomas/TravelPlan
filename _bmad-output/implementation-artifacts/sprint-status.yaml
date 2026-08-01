@@ -1,5 +1,5 @@
 # generated: 2026-03-01 13:08:00 CET
-# last_updated: 2026-08-01 (7-6-login-register-and-password-reset-redesign → review)
+# last_updated: 2026-08-01 (7-6-login-register-and-password-reset-redesign → done, code review)
 # project: TravelPlan
 # project_key: NOKEY
 # tracking_system: file-system
@@ -129,7 +129,7 @@ development_status:
   7-3-day-detail-redesign: done
   7-4-trips-list-redesign: done
   7-5-share-dialog-redesign: done
-  7-6-login-register-and-password-reset-redesign: review
+  7-6-login-register-and-password-reset-redesign: done
   7-7-trip-create-and-add-entry-dialog-redesign: ready-for-dev
   7-8-trip-overview-lower-sections-redesign: ready-for-dev
   7-9-full-page-map-screens-redesign: ready-for-dev

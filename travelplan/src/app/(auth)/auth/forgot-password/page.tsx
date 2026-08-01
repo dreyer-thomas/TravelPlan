@@ -154,6 +154,7 @@ export default function ForgotPasswordPage() {
       >
         <AuthField
           id="forgot-email"
+          autoComplete="email"
           label={t("auth.emailLabel")}
           type="email"
           placeholder={t("auth.emailPlaceholder")}

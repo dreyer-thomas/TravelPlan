@@ -24,6 +24,9 @@ type ApiEnvelope<T> = {
   error: { code: string; message: string; details?: unknown } | null;
 };
 
+/** Ties the consent error to the checkbox the way `AuthField`'s `id`/`helperText` pair does. */
+const CONSENT_ERROR_ID = "register-consent-error";
+
 export default function RegisterPage() {
   const router = useRouter();
   const theme = useTheme();
@@ -163,6 +166,7 @@ export default function RegisterPage() {
       >
         <AuthField
           id="register-email"
+          autoComplete="email"
           label={t("auth.emailLabel")}
           type="email"
           placeholder={t("auth.emailPlaceholder")}
@@ -171,6 +175,7 @@ export default function RegisterPage() {
         />
         <AuthField
           id="register-password"
+          autoComplete="new-password"
           label={t("auth.passwordLabel")}
           type="password"
           placeholder={t("auth.passwordPlaceholderMin")}
@@ -186,7 +191,20 @@ export default function RegisterPage() {
         */}
         <Box>
           <FormControlLabel
-            control={<Checkbox {...register("consent", { required: t("auth.consentRequired") })} />}
+            control={
+              <Checkbox
+                {...register("consent", { required: t("auth.consentRequired") })}
+                // AuthField gets this pairing free from MUI's `helperText`/`id` wiring; a hand-rolled
+                // error Box does not. Without it the one hard blocker on the screen is the one error
+                // a screen-reader user is never told about.
+                slotProps={{
+                  input: {
+                    "aria-invalid": errors.consent ? true : undefined,
+                    "aria-describedby": errors.consent ? CONSENT_ERROR_ID : undefined,
+                  },
+                }}
+              />
+            }
             label={t("auth.consentLabel")}
             sx={{
               m: 0,
@@ -206,6 +224,7 @@ export default function RegisterPage() {
           {errors.consent && (
             // Same warn-toned error-hint treatment AuthField uses — not MUI's `color="error"` red.
             <Box
+              id={CONSENT_ERROR_ID}
               sx={{
                 display: "flex",
                 alignItems: "center",

@@ -153,6 +153,13 @@ export default function ResetPasswordPage() {
       required: t("auth.passwordRequired"),
       minLength: { value: 8, message: t("auth.passwordMin") },
       maxLength: { value: 72, message: t("auth.passwordMax") },
+      // Re-runs the mismatch check on `confirmPassword` whenever THIS field changes. RHF's `deps`
+      // points at the fields to re-validate, so it belongs here and not on the confirm rule: without
+      // it, a user who resolves a mismatch by editing the password field keeps staring at "Passwords
+      // do not match" until they touch the confirm field again. (Submitting always succeeded — the
+      // error was stale, not blocking — but it reads as a stuck form.) Only takes effect after a
+      // first failed submit, since the form's default mode does not validate before then.
+      deps: ["confirmPassword" as const],
     }),
     [t],
   );
@@ -167,6 +174,15 @@ export default function ResetPasswordPage() {
     [t],
   );
 
+  /**
+   * When the token arrives in the URL its input is hidden, so `errors.token` has nowhere to render.
+   * `setError("token", …)` can still fire from the API's `validation_error` details (a whitespace-only
+   * `?token=` passes RHF's `required` but fails `passwordResetConfirmSchema`'s `.trim().min(1)`), and
+   * the client-side `required` fires after a successful reset clears the field. Without this the
+   * submit would spin and leave the screen completely unchanged.
+   */
+  const hiddenTokenError = initialToken ? errors.token?.message : undefined;
+
   return (
     <AuthScreenShell
       heroTitle={t("auth.hero.resetTitle")}
@@ -177,7 +193,7 @@ export default function ResetPasswordPage() {
       // oracle for unauthenticated callers.
       subtitle={t("auth.reset.subtitle")}
       stepLabel={t("auth.reset.step")}
-      error={serverError}
+      error={serverError ?? hiddenTokenError ?? null}
       // Says what actually happens: `POST /api/auth/password-reset/confirm` issues no session, so the
       // mockup's "you will be signed in automatically" promise is not made here.
       success={success ? t("auth.reset.success") : null}
@@ -202,6 +218,7 @@ export default function ResetPasswordPage() {
         ) : (
           <AuthField
             id="reset-token"
+            autoComplete="off"
             label={t("auth.reset.tokenLabel")}
             error={errors.token?.message}
             {...register("token", tokenRules)}
@@ -209,6 +226,7 @@ export default function ResetPasswordPage() {
         )}
         <AuthField
           id="reset-password"
+          autoComplete="new-password"
           label={t("auth.reset.newPassword")}
           type="password"
           placeholder={t("auth.passwordPlaceholderMin")}
@@ -217,6 +235,7 @@ export default function ResetPasswordPage() {
         />
         <AuthField
           id="reset-confirm-password"
+          autoComplete="new-password"
           label={t("auth.reset.confirmPassword")}
           type="password"
           placeholder={t("auth.reset.confirmPlaceholder")}

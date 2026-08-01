@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { Box, Typography } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
 import { CheckIcon, HERO_SCRIM, toCssUrl, WarningTriangleIcon } from "@/components/features/trips/TripIcons";
+import type { Language } from "@/i18n";
 import { useI18n } from "@/i18n/provider";
 
 /**
@@ -54,6 +55,82 @@ function AuthNotice({ tone, message }: AuthNoticeProps) {
         <CheckIcon sx={{ fontSize: 16, flexShrink: 0, mt: "1px" }} />
       )}
       <Typography sx={{ fontSize: 12, fontWeight: 700, lineHeight: 1.5, color: "inherit" }}>{message}</Typography>
+    </Box>
+  );
+}
+
+const LANGUAGES: Language[] = ["en", "de"];
+
+/**
+ * The auth screens' only language control (code review of 7.6).
+ *
+ * `LanguageSwitcherMenuItem` is mounted from exactly one place — `HeaderMenu` inside `AppHeader` —
+ * and the `(auth)` route group deliberately has no `AppHeader` ancestor (AC3). `getServerLanguage()`
+ * reads the `lang` cookie with no `Accept-Language` fallback, so without this a first-time German
+ * visitor lands on `/auth/login` in English with no way to change it until after signing in.
+ *
+ * Deliberately not the header's nested `Menu`: two labels are the whole choice, and a popup on the
+ * app's front door is more chrome than a re-skinned auth screen should carry. `useI18n().setLanguage`
+ * writes the cookie itself, so this needs no API call — which matters, because nobody is
+ * authenticated here.
+ */
+function AuthLanguageToggle() {
+  const theme = useTheme();
+  const { language, setLanguage, t } = useI18n();
+
+  return (
+    <Box
+      role="group"
+      aria-label={t("language.label")}
+      sx={{
+        position: "absolute",
+        top: { xs: 4, md: 8 },
+        right: { xs: 8, md: 12 },
+        display: "flex",
+        alignItems: "center",
+      }}
+    >
+      {LANGUAGES.map((value) => {
+        const isActive = language === value;
+        return (
+          <Box
+            key={value}
+            component="button"
+            type="button"
+            aria-pressed={isActive}
+            onClick={() => setLanguage(value)}
+            sx={{
+              // 44px is the floor for a control (DESIGN.md:266). The visible text is 11px; the rest is
+              // transparent touch area, so the toggle reads as quiet chrome rather than a second CTA.
+              minHeight: 44,
+              minWidth: 44,
+              px: "6px",
+              border: "none",
+              background: "none",
+              cursor: "pointer",
+              fontSize: 11,
+              fontWeight: isActive ? 800 : 700,
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+              color: isActive ? theme.palette.primary.main : theme.palette.tokens.inkSoft,
+              "&:hover": { color: theme.palette.primary.main },
+              "&:focus-visible": {
+                outline: `2px solid ${theme.palette.tokens.ink}`,
+                outlineOffset: "-4px",
+                borderRadius: "5px",
+              },
+            }}
+          >
+            {/* The uppercase code is the label; the full language name carries it for screen readers. */}
+            <Box component="span" aria-hidden>
+              {value}
+            </Box>
+            <Box component="span" sx={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>
+              {t(`language.${value}`)}
+            </Box>
+          </Box>
+        );
+      })}
     </Box>
   );
 }
@@ -173,6 +250,7 @@ export default function AuthScreenShell({
 
       <Box
         sx={{
+          position: "relative",
           backgroundColor: theme.palette.background.default,
           display: "flex",
           alignItems: "center",
@@ -180,6 +258,8 @@ export default function AuthScreenShell({
           padding: { xs: "32px 20px", md: "40px" },
         }}
       >
+        <AuthLanguageToggle />
+
         {/*
           A plain Box, not a Paper: theme.ts's MuiPaper override stamps a border on every Paper, which
           is why 7.3, 7.8 and 7.9 all build card surfaces this way.

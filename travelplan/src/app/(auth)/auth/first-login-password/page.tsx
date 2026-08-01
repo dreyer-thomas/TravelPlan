@@ -157,6 +157,7 @@ export default function FirstLoginPasswordPage() {
       >
         <AuthField
           id="first-login-password"
+          autoComplete="new-password"
           label={t("auth.firstLogin.passwordLabel")}
           type="password"
           placeholder={t("auth.passwordPlaceholderMin")}

@@ -180,6 +180,7 @@ export default function LoginPage() {
       >
         <AuthField
           id="login-email"
+          autoComplete="username"
           label={t("auth.emailLabel")}
           type="email"
           placeholder={t("auth.emailPlaceholder")}
@@ -188,6 +189,7 @@ export default function LoginPage() {
         />
         <AuthField
           id="login-password"
+          autoComplete="current-password"
           label={t("auth.passwordLabel")}
           type="password"
           error={errors.password?.message}
