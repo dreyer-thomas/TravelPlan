@@ -7,5 +7,14 @@
     "key": "1",
     "label": "Fix only the genuine reset-on-open sites, keep the scoped warn for the guarded fetches",
     "resolution": ""
+  },
+  "DW-8": {
+    "answered_at": "2026-08-01",
+    "bundle_name": "",
+    "effect": "build",
+    "intent": "Reject or strip any `heroImageUrl` (and any day/plan-item image URL the importer accepts) that is not a relative path under `/uploads/`, in `src/app/api/trips/import/route.ts`. That closes the one path by which a non-server-issued URL can enter the database, keeps every render site unchanged, and needs no CSP decision. Add a test asserting an absolute `http(s)://` hero URL in an imported backup is refused.",
+    "key": "1",
+    "label": "Validate at the import boundary only",
+    "resolution": ""
   }
 }

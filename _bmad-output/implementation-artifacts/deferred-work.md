@@ -56,6 +56,7 @@ origin: migrated from legacy ledger ("Deferred from: code review of 6-8-export-d
 location: `TripDayPrintDocument.tsx:~213`
 reason: An app-wide pattern rather than a defect in the print document; enforcing an allowlist requires a broader CSP/URL policy decision that spans every image-rendering surface.
 status: open
+decision: 2026-08-01 Validate at the import boundary only — Reject or strip any `heroImageUrl` (and any day/plan-item image URL the importer accepts) that is not a relative path under `/uploads/`, in `src/app/api/trips/import/route.ts`. That closes the one path by which a non-server-issued URL can enter the database, keeps every render site unchanged, and needs no CSP decision. Add a test asserting an absolute `http(s)://` hero URL in an imported backup is refused.
 
 ### DW-9: `parsePrintablePlanText` in `tripRepo.ts` duplicates the `parsePlanText` client utility
 
