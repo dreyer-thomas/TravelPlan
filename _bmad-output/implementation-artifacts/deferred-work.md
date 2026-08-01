@@ -231,6 +231,7 @@ origin: migrated from legacy ledger ("Deferred from: code review of 7-3-day-deta
 location: `TripDayView.tsx:1722`
 reason: The day title is the page's top heading at `h5`, chosen because about 14 existing assertions pin `level: 5`. `<h1>` exists only in `HomeHero.tsx` and `TripDayPrintDocument.tsx`, so this is an app-wide convention rather than a Day Detail defect, and fixing it means re-levelling every screen and its assertions at once.
 status: open
+decision: 2026-08-01 Re-level Day Detail to h1 and update its assertions — Promote the day title to `component="h1"` on both branches (`TripDayView.tsx:1798` and the loading/not-found heading at `:1653`), keeping the visual `variant` unchanged so nothing moves on screen, and re-level the section labels beneath it (`h6` at `:1827`, `:2026`, `:2338`) so the outline descends without skipping. Update the ~14 `level: 5` assertions in `test/tripDayViewLayout.test.tsx` to match. Note that custom typography variants carry no `variantMapping`, so `component=` is mandatory or the element renders a `<span>`.
 
 ### DW-32: The day photo has no text alternative anywhere
 
