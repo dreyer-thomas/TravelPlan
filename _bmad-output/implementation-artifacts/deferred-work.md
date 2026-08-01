@@ -79,7 +79,9 @@ decision: 2026-08-01 Close - fail-fast is the intended behaviour — Deliberate 
 origin: migrated from legacy ledger ("Deferred from: code review of 6-8-export-day-itinerary-pdf-for-offline-use (2026-05-03)"), 2026-08-01
 location: `print/page.tsx`
 reason: Consistent with every other client-rendered page in this app; moving to a server-side auth redirect is a broader architectural change than one print route.
-status: open
+status: done 2026-08-01
+resolution: closed by human decision: Not a print-route defect: every client-rendered page in this app shows its loading state before an unauthenticated fetch redirects. Moving to server-side auth redirects is an architecture change to file as its own story if wanted, not a fix to this route.
+decision: 2026-08-01 Close - matches the app-wide client-rendering convention — Not a print-route defect: every client-rendered page in this app shows its loading state before an unauthenticated fetch redirects. Moving to server-side auth redirects is an architecture change to file as its own story if wanted, not a fix to this route.
 
 ### DW-12: New hardcoded hex/rgba literals contradict Story 7.1's token foundation
 
