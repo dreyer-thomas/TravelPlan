@@ -1,7 +1,7 @@
 ---
 baseline_revision: 284b093
 final_revision: 5198086
-status: awaiting-operator
+status: done
 followup_review_recommended: true
 operator_actions:
   - "Seed an isolated SQLite DB on a non-default port (do NOT use travelplan/prisma/dev.db — it holds real trip data; follow the isolation precedent from Stories 7.2, 7.3, 7.8 and 7.9) and start the dev server against it."
@@ -342,3 +342,20 @@ Story 7.11 makes the Story 7.1 design tokens the single source of truth for colo
 4. **The `globals.css` half of the token work has no runtime effect** — almost nothing reads those custom properties, and nothing enforces their agreement with `theme.ts`. Deferred.
 5. **`inkMuted` clears the target on `card` but not on `cardAlt` / `paper`**, where the app's 10–11px text lives. AC4 scoped the target to `card`; deferred.
 6. **The seven source entries in `deferred-work.md` are not closed in place** — the spec deliberately routes that to a later `bmad-loop sweep`, so six of them still describe the pre-change world as current and one names the file this story deletes.
+
+## Operator Confirmation
+
+Confirmed 2026-08-01: the external actions this story owed were carried out.
+
+- Seed an isolated SQLite DB on a non-default port (do NOT use travelplan/prisma/dev.db — it holds real trip data; follow the isolation precedent from Stories 7.2, 7.3, 7.8 and 7.9) and start the dev server against it.
+- Tab to the submit button on any auth screen (/auth/login is fine) and confirm a 2px dark outline appears 2px outside the button. Then tab to the trips-list 'Neue Reise' / 'Add trip' button and confirm the same ring appears there — that non-auth button is the entire point of AC6, and jsdom cannot test it.
+- Tab to the two buttons that sit on top of a hero photo — the share action on a trip overview (/trips/{id}) and the '← back' link on a day page (/trips/{id}/days/{dayId}) — and confirm their focus ring is WHITE, not dark. A dark ring there is invisible against the hero scrim; if you see one, the ON_PHOTO_CHROME override in TripIcons.tsx is not winning over the theme's MuiButton rule.
+- Trigger a validation error on a dialog that uses a raw TextField rather than FormField (TripEditDialog's date fields, or the email field in the share dialog) and confirm the message below the field is the brown warn colour #8A5A2B, matching what the auth screens already show — not the lighter terracotta #C97A3E and not red.
+- Open the trip delete confirmation (trip overview → Delete) and the bucket-list item delete confirmation, and confirm the confirm button is now dark brown #8A5A2B with a clearly readable white label. These were red #d32f2f before; if either looks light/washed-out terracotta, the MuiButton.containedError override is not applying.
+- Force an error alert (block a /api/trips request in devtools and reload /trips) and confirm the banner is warm terracotta-bordered with a warm tint and exactly ONE border, no doubled edge. Then check a success alert — the share dialog after a successful invite — is accent green.
+- Open the travel-segment dialog on a day page and look at its blue-tinted info notice: it should now be a warm neutral grey-tan, not MUI blue. This was NOT requested by any acceptance criterion — it was added in review because the alert border had otherwise framed a cold blue box in a warm cream edge. If you want that notice to stay blue, revert BOTH palette.info and MuiAlert.standardInfo in src/theme.ts together, never one alone.
+- Spot-check that nothing regressed visually from the token swap: a gap trip row and a gap day row should still be the same pale cream #FBF6EE, and the 'bevorstehend' / 'abgeschlossen' status pills the same #F1ECE1 as before this change.
+- Look at a completed (past) trip row in the trips list: its photo and border should be faded but its name, sub-line and 'abgeschlossen' pill should be at full strength. Hover it and confirm the border stays visibly faded rather than snapping to a full-strength green. If that trip has no photo, note whether the row still reads as archival — a deferred-work entry already flags that case.
+- If every check above passes, edit _bmad-output/implementation-artifacts/7-11-design-token-reconciliation.md: tick Task 4's last subtask to [x], set status: done in BOTH the frontmatter and the body's 'Status:' line, set 7-11-design-token-reconciliation to done in sprint-status.yaml, and append a Change Log entry dated with the verification date. (Story 7-9 was left with its frontmatter and body disagreeing on exactly this step — a deferred-work entry now tracks fixing it, so please do not repeat it here.)
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
