@@ -35,6 +35,7 @@ import {
   HERO_SCRIM,
   HouseIcon,
   ON_PHOTO_CHROME,
+  PencilIcon,
   WarningTriangleIcon,
   toCssUrl,
   transportIconFor,
@@ -55,6 +56,47 @@ type ApiEnvelope<T> = {
   data: T | null;
   error: { code: string; message: string; details?: unknown } | null;
 };
+
+/**
+ * Styling hook for the activity card's edit glyph.
+ *
+ * A real class rather than a `[data-testid=...]` selector: the card's hover and touch rules have to
+ * reach the glyph from the outside, and hanging production CSS off a test attribute makes renaming a
+ * test id a silent visual regression.
+ */
+const EDIT_GLYPH_CLASS = "day-plan-item-edit-glyph";
+
+/**
+ * Cap for the activity title once it is spoken as the edit overlay's accessible name.
+ *
+ * An activity with no title falls back to its flattened note body, which has no length bound of its
+ * own - a screen reader would otherwise announce the whole note every time focus lands on the card.
+ */
+const EDIT_LABEL_MAX_CHARS = 80;
+
+/**
+ * Screen-reader-only text. The units are the entire point.
+ *
+ * This started as `sx={{ width: 1, height: 1, ... }}`, which reads as "1px" and is not: MUI's system
+ * maps a bare `width`/`height` between 0 and 1 to a *percentage*, so `1` compiled to `width: 100%`.
+ * The text stayed invisible - `clip` and `overflow: hidden` still hid it - but `clip` does not shrink
+ * an element's layout box, so each of these spans went on occupying its container's full width inside
+ * the scroll box. Measured at `4978db8`, the coverage-axis description alone gave the day page 25px of
+ * horizontal overflow at 390px and 169px at 1440px (DW-44).
+ *
+ * So: explicit `px` strings, one shared constant, and never a bare number in this recipe again.
+ */
+const VISUALLY_HIDDEN = {
+  position: "absolute",
+  width: "1px",
+  height: "1px",
+  p: 0,
+  m: "-1px",
+  overflow: "hidden",
+  clip: "rect(0 0 0 0)",
+  whiteSpace: "nowrap",
+  border: 0,
+} as const;
 
 type TripSummary = {
   id: string;
@@ -1147,6 +1189,24 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     color: tokens.inkSoft,
     backgroundColor: tokens.border,
   } as const;
+  // badge-pill, filled variant: the same 4px/tabular geometry as the time pill with the accent moved
+  // from the text to the fill. The two pills share the card head's one line, so the soft variant would
+  // read as a second time range at a glance - which is the whole reason the fill is here.
+  //
+  // It shares `containedPrimary`'s accent-on-white pairing, but nothing else a button has: no 44px
+  // minimum, no 6px radius, no 20px inline padding, and it sits inside a card head rather than on a
+  // baseline of its own. At 11px in a 3px/8px pill it reads as a tag, not as an action.
+  // `primary.main` *is* DESIGN.md's `colors.accent` #4B6358 - the palette entry is where theme.ts puts
+  // it, and there is no `tokens.accent`. White on it measures 6.51:1.
+  const costPillSx = {
+    ...timePillSx,
+    color: theme.palette.primary.contrastText,
+    backgroundColor: theme.palette.primary.main,
+    // The head row is `1fr auto`, so this cell sizes to its content and can be squeezed by a long
+    // title beside it. `tlCostSx`, which this replaces, carried `nowrap` for the same reason - a
+    // pill that breaks mid-amount stops reading as a pill.
+    whiteSpace: "nowrap",
+  } as const;
   const renderTimePill = (range: string | null, isAssumed: boolean) => {
     if (!range) return null;
     return (
@@ -1192,6 +1252,80 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     fontVariantNumeric: "tabular-nums",
     whiteSpace: "nowrap",
   } as const;
+  // The whole activity card opens its editor, so it needs the affordances the pencil used to supply.
+  //
+  // Split by pointer capability rather than by breakpoint. On a pointer device the glyph is a hover
+  // reveal, so the card is not permanently decorated with an icon; on a touch device there is no hover
+  // to reveal it with, so it is always there at low emphasis - a screen where nothing indicates the
+  // card is editable is the failure mode this replaces the pencil to avoid.
+  //
+  // `opacity` rather than conditional rendering: the glyph holds its space in the head row at all
+  // times, so the cost pill beside it does not jump left when the pointer arrives.
+  const editableActivityCardSx = canEditPlanning
+    ? {
+        transition: theme.transitions.create(["border-color", "background-color"], {
+          duration: theme.transitions.duration.shortest,
+        }),
+        "@media (hover: hover)": {
+          cursor: "pointer",
+          [`& .${EDIT_GLYPH_CLASS}`]: {
+            opacity: 0,
+            transition: theme.transitions.create("opacity", {
+              duration: theme.transitions.duration.shortest,
+            }),
+          },
+          "&:hover": {
+            backgroundColor: tokens.cardAlt,
+            borderColor: theme.palette.primary.main,
+            [`& .${EDIT_GLYPH_CLASS}`]: { opacity: 1, color: theme.palette.primary.main },
+          },
+        },
+        "@media (hover: none)": {
+          [`& .${EDIT_GLYPH_CLASS}`]: { opacity: 1 },
+        },
+        // A touchscreen laptop reports `hover: hover` - Chrome derives that pair from the *primary*
+        // pointer - so the two branches above would leave it pinned at `opacity: 0` and reachable
+        // only by mouse. Someone using that machine with a finger would see a card with nothing on
+        // it saying it can be edited, which is the exact regression the touch branch exists to
+        // prevent. `any-pointer: coarse` asks the other question: is a coarse pointer available at
+        // all. It must stay after the `hover: hover` block - media queries add no specificity, so
+        // source order is what decides this.
+        "@media (any-pointer: coarse)": {
+          [`& .${EDIT_GLYPH_CLASS}`]: { opacity: 1 },
+        },
+        // Keyboard reaches the overlay, not the glyph, so the hover reveal never fires for it. Without
+        // this a keyboard user on a pointer device gets a focus ring around a card with no indication
+        // of what activating it does. Outranks the `opacity: 0` above on specificity, not order.
+        "&:has(:focus-visible)": {
+          [`& .${EDIT_GLYPH_CLASS}`]: { opacity: 1, color: theme.palette.primary.main },
+        },
+      }
+    : {};
+  // The card's content paints *above* the full-card edit overlay but lets clicks fall through to it,
+  // so the card stays one click target without the content having to know the overlay exists. This is
+  // the row pattern from `TripsDashboard.tsx:573-586`, which is also where the opt-out/opt-in pair
+  // comes from: a layer that paints above the overlay is a dead zone unless it passes clicks on, and
+  // real controls then take theirs back.
+  //
+  // The opt-in is what makes the links work, and it is why nothing here calls `stopPropagation`. A
+  // raised `<a>` receives the click itself, so the overlay beneath it never fires at all - true for
+  // the "open link" action and equally for a link mark inside the rich-text notes, which no handler
+  // on the card could have distinguished from ordinary text.
+  const overlaidContentSx = canEditPlanning
+    ? {
+        position: "relative",
+        zIndex: 2,
+        pointerEvents: "none",
+        "& a, & button": { pointerEvents: "auto" },
+      }
+    : {};
+  // An untitled activity falls back to its whole note body for a title, and that string becomes the
+  // overlay's accessible name - a screen reader would read the entire note on every focus. The card
+  // still shows the full text; only the name is capped.
+  const editLabelFor = (label: string) =>
+    formatMessage(t("trips.plan.editItemAria"), {
+      title: label.length <= EDIT_LABEL_MAX_CHARS ? label : `${label.slice(0, EDIT_LABEL_MAX_CHARS - 1).trimEnd()}…`,
+    });
   // The continuous rail: a 2px rule the dots sit on top of, inset so it stops short of both ends.
   //
   // The rule's centre is fixed at x=16 (left 15 + half of 2px) at every breakpoint, because that is
@@ -1311,20 +1445,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
             aria-label={t("trips.travelSegment.editAction")}
             onClick={() => handleOpenTravelSegment(from, to)}
           >
-            <Box
-              component="span"
-              sx={{
-                position: "absolute",
-                width: 1,
-                height: 1,
-                p: 0,
-                m: -1,
-                overflow: "hidden",
-                clip: "rect(0 0 0 0)",
-                whiteSpace: "nowrap",
-                border: 0,
-              }}
-            >
+            <Box component="span" sx={VISUALLY_HIDDEN}>
               {t("trips.travelSegment.editAction")}
             </Box>
             <SvgIcon fontSize="small">
@@ -1710,8 +1831,14 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
               <Box aria-hidden sx={{ position: "absolute", inset: 0, background: HERO_SCRIM }} />
               {/* In normal flow, not absolutely positioned. Out of flow it reserved no height, so a day
                   with a note - the title is "Day N: {note}" at 28px/900, and notes run to 280 chars -
-                  grew the title block upward until its first line ran under the breadcrumb. */}
+                  grew the title block upward until its first line ran under the header row.
+
+                  The breadcrumb that used to hold the left slot is gone. It duplicated navigation the
+                  row already had on the right: both its trip link and the "back to trip" button led to
+                  the same place, and its day label repeated the title 28px below it in the same block.
+                  So the button takes the slot and the row carries one route out instead of two. */}
               <Box
+                data-testid="day-hero-header-row"
                 sx={{
                   position: "relative",
                   display: "flex",
@@ -1722,43 +1849,29 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                   mb: 2,
                 }}
               >
-                <Box
-                  sx={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 0.75,
-                    fontSize: 12,
-                    fontWeight: 700,
-                    minWidth: 0,
-                    // The breadcrumb sits at the scrim's weakest stop (.26) over arbitrary user
-                    // photography, so it needs the same shadow the title already carries.
-                    textShadow: "0 2px 14px rgba(0,0,0,.35)",
-                  }}
-                >
-                  <Box
+                <Box data-testid="day-hero-header-left" sx={{ display: "flex", alignItems: "center", minWidth: 0 }}>
+                  {/* No leading icon: trips.dayView.back already opens with an arrow glyph, and an
+                      existing test pins that exact accessible name.
+
+                      Enlarged past the theme's 44px floor because it is now the only way off this
+                      screen from the header, and on a phone it is reached with a thumb. */}
+                  <Button
                     component={Link}
                     href={`/trips/${tripId}`}
+                    variant="text"
                     sx={{
-                      color: "rgba(255,255,255,.82)",
-                      textDecoration: "none",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
+                      ...ON_PHOTO_CHROME,
                       whiteSpace: "nowrap",
-                      "&:hover": { textDecoration: "underline" },
+                      minHeight: 48,
+                      paddingInline: "22px",
+                      fontSize: 15,
                     }}
                   >
-                    {detail.trip.name}
-                  </Box>
-                  <Box component="span" aria-hidden sx={{ color: "rgba(255,255,255,.45)" }}>
-                    /
-                  </Box>
-                  <Box
-                    component="span"
-                    sx={{ color: "#FFFFFF", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                  >
-                    {formatMessage(t("trips.dayView.title"), { index: day.dayIndex })}
-                  </Box>
+                    {t("trips.dayView.back")}
+                  </Button>
                 </Box>
+                {/* Rendered even when empty so the row keeps two flex children and space-between goes
+                    on pinning the trip button left for a non-owner, rather than centring it. */}
                 <Box display="flex" alignItems="center" gap={1} sx={{ flexShrink: 0 }}>
                   {isOwner ? (
                     <IconButton
@@ -1776,16 +1889,6 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                       </SvgIcon>
                     </IconButton>
                   ) : null}
-                  {/* No leading icon: trips.dayView.back already opens with an arrow glyph, and an
-                      existing test pins that exact accessible name. */}
-                  <Button
-                    component={Link}
-                    href={`/trips/${tripId}`}
-                    variant="text"
-                    sx={{ ...ON_PHOTO_CHROME, whiteSpace: "nowrap" }}
-                  >
-                    {t("trips.dayView.back")}
-                  </Button>
                 </Box>
               </Box>
               {/* mt: auto keeps the title bottom-anchored now that the hero is no longer
@@ -1824,9 +1927,9 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                   mb: 1.25,
                 }}
               >
-                <Typography variant="labelCaps" component="h6" sx={{ color: tokens.inkSoft }}>
-                  {t("trips.dayView.coverageTitle")}
-                </Typography>
+                {/* No section label. The bar sits directly under a hero whose title already says which
+                    day this is, and its own legend names every fill on it - "Day coverage" restated
+                    what the reader could see and cost a line of vertical space on a phone. */}
                 <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
                   {coverageLegend.map((entry) => (
                     <Box key={entry.key} sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
@@ -1874,20 +1977,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
               {/* The tick row stays aria-hidden - five bare numbers read in sequence are noise - but the
                   domain it conveys is real information that appears nowhere else, so it is carried in
                   text for assistive tech instead of being dropped. */}
-              <Box
-                component="span"
-                sx={{
-                  position: "absolute",
-                  width: 1,
-                  height: 1,
-                  p: 0,
-                  m: -1,
-                  overflow: "hidden",
-                  clip: "rect(0 0 0 0)",
-                  whiteSpace: "nowrap",
-                  border: 0,
-                }}
-              >
+              <Box component="span" data-testid="coverage-axis-description" sx={VISUALLY_HIDDEN}>
                 {t("trips.dayView.coverageAxisDescription")}
               </Box>
 
@@ -2144,6 +2234,9 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                       location: item.location,
                       endTime: item.toTime ?? null,
                     };
+                    const itemImages = planItemImagesById[item.id] ?? [];
+                    // Every child of the head row is conditional, so the row itself has to be too.
+                    const showCardHead = Boolean((item.fromTime && item.toTime) || item.costCents || canEditPlanning);
                     const nextPlanItem = planItems[index + 1];
                     const nextSegmentItem = nextPlanItem
                       ? {
@@ -2163,18 +2256,117 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                           <Box aria-hidden sx={activityDotSx}>
                             <Box sx={neutralMarkerSx} data-testid="activity-neutral-marker" />
                           </Box>
-                          <Box sx={tlCardSx}>
-                          <Box sx={tlCardTopSx}>
-                            <Box display="flex" flexDirection="column" gap={0.75} sx={{ minWidth: 0 }}>
-                              <Box>
-                                {item.fromTime && item.toTime ? (
-                                  <Box sx={{ ...timePillSx, mb: 0.75 }}>{`${item.fromTime} - ${item.toTime}`}</Box>
-                                ) : null}
-                                <Typography variant="cardTitle" component="p" sx={{ color: tokens.ink, m: 0 }}>
-                                  {title}
-                                </Typography>
+                          {/* The whole card is the edit target - there is no per-activity pencil to
+                              hit - but the card element itself is not the control. A stretched
+                              overlay is, and the difference is the point: `role="button"` on this
+                              wrapper would make its contents *presentational* (ARIA gives `button`
+                              Children Presentational: True), so the title, the notes, both pills and
+                              the link would collapse into a single node announced as the card's
+                              label. A viewer, who gets no role, would hear the whole card while a
+                              contributor heard one line of it.
+                              `editableActivityCardSx` / `overlaidContentSx` are both empty without
+                              planning rights, and the overlay does not render, so a reader gets a
+                              plain inert card. */}
+                          <Box
+                            data-testid="day-plan-item-card"
+                            sx={{ ...tlCardSx, position: "relative", ...editableActivityCardSx }}
+                          >
+                            {canEditPlanning ? (
+                              // A real `<button>`, so Enter and Space are the browser's job: no
+                              // `onKeyDown`, no `preventDefault`, and therefore no way for this to
+                              // swallow a keystroke meant for the link inside the card.
+                              //
+                              // `inset: 0` puts it exactly on the card's border box, so its own focus
+                              // ring at `outline-offset: 2` draws where a ring on the card would. It
+                              // owns the ring rather than the card, so focus stays visible even where
+                              // `:has()` does not resolve.
+                              <Box
+                                component="button"
+                                type="button"
+                                data-testid="day-plan-item-edit-overlay"
+                                aria-label={editLabelFor(title)}
+                                aria-haspopup="dialog"
+                                onClick={() => handleOpenEditPlan(item)}
+                                sx={{
+                                  position: "absolute",
+                                  inset: 0,
+                                  zIndex: 1,
+                                  borderRadius: "8px",
+                                  border: 0,
+                                  padding: 0,
+                                  background: "none",
+                                  appearance: "none",
+                                  // Deliberately inherited: the pointer affordance is authored once on
+                                  // the card, inside `@media (hover: hover)`, so a touch device does
+                                  // not get a cursor rule it has no cursor for.
+                                  cursor: "inherit",
+                                  "&:focus-visible": {
+                                    outline: `2px solid ${theme.palette.primary.main}`,
+                                    outlineOffset: 2,
+                                  },
+                                }}
+                              />
+                            ) : null}
+                            {/* tl-card-top's head row: time on the left, money and the edit glyph
+                                right-aligned against it. The cost was previously in a trailing block
+                                beside the card body, where it read as a footnote to the description
+                                rather than as a property of the time slot.
+
+                                Rendered only when it holds something. All three children are
+                                conditional, and for a reader looking at an untimed, cost-free
+                                activity all three are absent - an unconditional head would open that
+                                card with a blank band the width of `tlCardSx`'s 12px row gap. */}
+                            {showCardHead ? (
+                              <Box data-testid="day-plan-item-head" sx={{ ...tlCardTopSx, ...overlaidContentSx }}>
+                                <Box sx={{ minWidth: 0 }}>
+                                  {item.fromTime && item.toTime ? (
+                                    <Box sx={timePillSx}>{`${item.fromTime} - ${item.toTime}`}</Box>
+                                  ) : null}
+                                </Box>
+                                <Box display="flex" alignItems="center" gap={0.75}>
+                                  {/* Truthy, not `typeof === "number"`: a recorded 0 renders nothing.
+                                      As plain 13px text a "€0.00" was a footnote; as a filled accent
+                                      pill it would be the loudest thing in the card head, announcing
+                                      a cost on an activity that has none. */}
+                                  {item.costCents ? (
+                                    <Box sx={costPillSx} data-testid="day-plan-item-cost">
+                                      {formatCost(item.costCents)}
+                                    </Box>
+                                  ) : null}
+                                  {canEditPlanning ? (
+                                    // Decoration, never a control: the overlay already carries the
+                                    // role, the name and the tab stop. A button here would rebuild the
+                                    // nested control this story removed - and on a pointer device it
+                                    // is invisible until hover, so the tab stop would land on nothing
+                                    // the user can see.
+                                    <Box
+                                      aria-hidden
+                                      data-testid="day-plan-item-edit-glyph"
+                                      className={EDIT_GLYPH_CLASS}
+                                      sx={{ display: "flex", alignItems: "center", color: tokens.inkMuted }}
+                                    >
+                                      <PencilIcon />
+                                    </Box>
+                                  ) : null}
+                                </Box>
                               </Box>
-                              <PlanItemRichContent contentJson={item.contentJson} fallbackText={preview} />
+                            ) : null}
+                            <Box display="flex" flexDirection="column" gap={0.75} sx={{ minWidth: 0, ...overlaidContentSx }}>
+                              <Typography variant="cardTitle" component="p" sx={{ color: tokens.ink, m: 0 }}>
+                                {title}
+                              </Typography>
+                              {/* The notes take their pointer events back, which is the one place the
+                                  stretched overlay costs something real. Everything else on the card
+                                  passes clicks down to it, and a layer that does that cannot be
+                                  drag-selected either - the drag never reaches the text and the
+                                  mouse-up lands on the overlay, so the reader gets an edit dialog
+                                  instead of a selection. Measured before deciding: selection came back
+                                  empty. This block is the one that holds addresses and booking
+                                  references, so it stays selectable and copyable at the price of not
+                                  being part of the click target. */}
+                              <Box sx={{ pointerEvents: "auto" }} data-testid="day-plan-item-notes">
+                                <PlanItemRichContent contentJson={item.contentJson} fallbackText={preview} />
+                              </Box>
                               {item.linkUrl && isSafeLink(item.linkUrl) ? (
                                 <Button
                                   component="a"
@@ -2183,6 +2375,10 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                                   rel="noreferrer noopener"
                                   variant="text"
                                   size="small"
+                                  // Opens the link, and only the link. No `stopPropagation` needed:
+                                  // this renders as an `<a>`, so `overlaidContentSx` restores its
+                                  // pointer events and it sits above the overlay - the click lands
+                                  // here and the overlay never sees it, on pointer or on keyboard.
                                   sx={{ p: 0, minWidth: "auto", alignSelf: "flex-start" }}
                                 >
                                   {t("trips.plan.linkOpen")}
@@ -2192,41 +2388,24 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                                   {t("trips.plan.noLink")}
                                 </Typography>
                               )}
-                              {/* Last child: DESIGN.md's photo-strip runs along the bottom of the card. */}
-                              <MiniImageStrip
-                                variant="strip"
-                                images={planItemImagesById[item.id] ?? []}
-                                altPrefix={t("trips.dayView.timelineTitle")}
-                                onImageClick={(imageUrl, alt) => setFullscreenImage({ imageUrl, alt })}
-                              />
-                            </Box>
-                            {/* tl-card-top's trailing block: the cost this activity actually recorded,
-                                then the edit affordance. An activity cost was previously reachable only
-                                by cross-referencing the sidebar breakdown, while the stay card beside it
-                                showed money - the mockup puts tl-cost on every card that has one. */}
-                            <Box display="flex" alignItems="center" gap={0.5}>
-                              {typeof item.costCents === "number" ? (
-                                <Typography sx={tlCostSx} data-testid="day-plan-item-cost">
-                                  {formatCost(item.costCents)}
-                                </Typography>
-                              ) : null}
-                              {canEditPlanning ? (
-                                <Box display="flex" alignItems="center" gap={0.5} data-testid="day-plan-item-actions">
-                                  <IconButton
-                                    size="small"
-                                    aria-label={t("trips.plan.editItemAria")}
-                                    title={t("trips.plan.editItemAria")}
-                                    onClick={() => handleOpenEditPlan(item)}
-                                    data-testid="day-plan-item-edit"
-                                  >
-                                    <SvgIcon fontSize="inherit">
-                                      <path d="M3 17.25V21h3.75l11-11-3.75-3.75-11 11zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66z" />
-                                    </SvgIcon>
-                                  </IconButton>
+                              {/* Last child: DESIGN.md's photo-strip runs along the bottom of the card.
+                                  The strip is shared with four other call sites, so the wrapper is
+                                  here rather than inside it.
+                                  Thumbnails are `<img>` with a click handler, not `<a>` or `<button>`,
+                                  so `overlaidContentSx`'s opt-in does not reach them and they need
+                                  their pointer events back explicitly - otherwise the strip is a dead
+                                  zone that opens the editor instead of the viewer. */}
+                              {itemImages.length > 0 ? (
+                                <Box sx={{ pointerEvents: "auto" }}>
+                                  <MiniImageStrip
+                                    variant="strip"
+                                    images={itemImages}
+                                    altPrefix={t("trips.dayView.timelineTitle")}
+                                    onImageClick={(imageUrl, alt) => setFullscreenImage({ imageUrl, alt })}
+                                  />
                                 </Box>
                               ) : null}
                             </Box>
-                          </Box>
                           </Box>
                         </Box>
                         {nextSegmentItem ? renderTravelSegment(segmentItem, nextSegmentItem) : null}

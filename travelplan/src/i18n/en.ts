@@ -223,7 +223,6 @@ const en: Dictionary = {
   "trips.dayView.activitiesEmpty": "No activities planned yet.",
   "trips.dayView.currentNightTitle": "Current night accommodation",
   "trips.dayView.currentNightEmpty": "No current-night accommodation set.",
-  "trips.dayView.coverageTitle": "Day coverage",
   "trips.dayView.coverageLegendStay": "Accommodation",
   "trips.dayView.coverageLegendActivity": "Activity",
   "trips.dayView.coverageLegendTravel": "Travel",
@@ -236,7 +235,7 @@ const en: Dictionary = {
   "trips.dayView.statSpendToday": "Spend today",
   "trips.dayView.statCheckIn": "Check-in {name}",
   "trips.dayView.statCheckInGeneric": "Check-in",
-  "trips.dayView.costCardTitle": "Cost so far · today",
+  "trips.dayView.costCardTitle": "Costs today",
   "trips.dayView.costCardSubtitle": "expenses recorded so far, day {index}",
   "trips.dayView.mapCaption": "{count} stops · open the full map",
   "trips.dayView.mapCaptionOne": "1 stop · open the full map",
@@ -408,7 +407,10 @@ const en: Dictionary = {
   "trips.plan.saveNew": "Save item",
   "trips.plan.saveUpdate": "Update item",
   "trips.plan.deleteItem": "Delete",
-  "trips.plan.editItemAria": "Edit plan item",
+  // Carries the activity's title because the accessible name now belongs to the whole card rather
+  // than to a pencil sitting inside it: a timeline of eight cards all named "Edit plan item" tells a
+  // screen-reader user nothing about which one they are on.
+  "trips.plan.editItemAria": "Edit plan item: {title}",
   "trips.plan.deleteItemAria": "Delete plan item",
   "trips.plan.deleteConfirm": "Delete this plan item?",
   "trips.plan.contentLabel": "Plan notes",

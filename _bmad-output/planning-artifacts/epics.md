@@ -1623,6 +1623,89 @@ Two of the six carry a design decision that must be settled before implementatio
 **Then** all of it works exactly as before: this story changes presentation and one interaction, nothing else
 **And** timing, travel, and section hierarchy are still understandable without relying only on color
 
+### Story 6.10: Trip Overview Refinements From First Production Use
+
+As a trip planner using the redesigned trip overview on a real trip,
+I want the trip-controls block to line up with the day list above it,
+So that the page ends on a clean edge instead of a block that runs wider than everything it sits under.
+
+**FRs covered:** None (presentation only — no capability, data or gating change)
+
+**Context:** The trip overview's layout grid is `1.7fr 1fr` (`TripTimeline.tsx:455-460`). The day list occupies the left column, which carries `p: "22px 28px 22px 0"` — so at a 1400px viewport the grid measures `725.328px / 426.656px` and a day row is about **697px** wide after that right padding. The trip-controls card (`:800-822`, `data-testid="trip-controls-card"`) renders *outside* the grid entirely and therefore spans the full **1152px** — roughly 455px wider than everything above it, and the last thing on the page.
+
+This is the same structural situation the bucket list was in before Story 7.12: a block that belongs to the trip's content column but was rendered after the grid rather than inside it. Story 7.8 restyled this card onto the token card treatment and, like 7.12's predecessor, left its placement alone because placement was not in its scope.
+
+**Acceptance Criteria:**
+
+**Given** the trip-controls card renders after the layout grid closes (`TripTimeline.tsx:800`) and so spans the full container width
+**When** it is relocated
+**Then** it renders inside the grid's left column, below the day list, and its rendered width matches a day row's — achieved by inheriting the column's existing padding, not by adding a width, `maxWidth` or margin of its own
+**And** the `canEditPlanning || isOwner` guard moves with it unchanged, so a viewer still sees no empty bordered card
+
+**Given** the overview collapses to a single column below `md` (`TripTimeline.tsx:456`)
+**When** the page renders at `xs`/`sm`
+**Then** the controls card still spans the column as it does today — the alignment this story fixes exists only in the two-column layout
+
+**Given** the card's existing treatment from Story 7.8 — `tokens.card`, `1px solid tokens.borderStrong`, 8px radius, 18px padding, and the outlined "Edit trip" / "Delete trip" buttons with no destructive red
+**When** it moves
+**Then** none of that changes: this story relocates a block and nothing else
+
+**Given** the bucket-list card that Story 7.12 moved into the sidebar
+**When** the controls card moves into the left column
+**Then** the two do not collide — the left column ends with the controls card, the right column ends with the gap alert, and neither reintroduces a full-width block after the grid
+
+### Story 6.11: Day Navigation as Hero Chevrons, Print Into the Header Menu
+
+As a trip planner opening a day on my phone,
+I want previous/next to be chevrons on the day photo and print to live in the header menu,
+So that the day view stops spending a full toolbar row on three controls I rarely need.
+
+**FRs covered:** FR9 (day navigation), FR33 (print/PDF) — placement only, no capability change
+
+**Context:** `TripDayView.tsx:2045-2088` renders a flex row of three controls below the hero — "previous day", "next day" and "print", each an outlined or text `Button` at `size="small"`. Its own comment concedes the position was never designed: *"Undepicted by the mockup, which shows only the breadcrumb and back button — kept as its own slim toolbar rather than dropped."* On a phone that row is a full band of chrome above the content the user came for.
+
+Two facts shape the work. The hero already has a treatment for controls sitting on photography — `ON_PHOTO_CHROME` (`TripIcons.tsx:215`), whose white focus ring Story 7.11 verified in a browser — so the chevrons have a pattern to follow rather than one to invent. And the header menu's items come from `getAuthMenuItems(authState)` (`HeaderMenu.tsx:58,209`), a **global** list driven only by auth state, while print needs `tripId` and `day.id`. Moving print there makes a global menu context-aware for the first time.
+
+Note this story overlaps Story 6.9, which also restructures this header: 6.9 removes the breadcrumb and moves "back to trip" into the left slot, while this story puts chevrons into the hero. They must be sequenced, not run in parallel.
+
+**Acceptance Criteria:**
+
+**Given** previous/next render as labelled `Button`s in a toolbar row below the hero
+**When** they are relocated
+**Then** they render as chevron controls inside the hero photo, one at each side, vertically centred
+**And** they use `ON_PHOTO_CHROME` so they stay legible over arbitrary user photography, with the white focus ring Story 7.11 established
+**And** each keeps a ≥44×44px hit area and its existing accessible name (`trips.dayView.previousAria` / `nextAria`), so the control is still announced as "previous day" rather than as a bare glyph
+**And** the toolbar row they leave behind is removed rather than left as an empty flex container
+
+**Given** the first and last day of a trip, where today a disabled `Button` still occupies the row
+**When** there is no previous or no next day
+**Then** that chevron is **not rendered at all** — decided by Tommy on 2026-08-01: the controls sit inside the photo, so an absent one leaves no hole in the layout and needs no disabled treatment
+**And** nothing focusable remains in its place, so keyboard order skips it rather than stopping on a dead control
+**And** the two `trips.dayView.previousAction` / `nextAction` label strings become unused if no other surface renders them — check and remove them from both dictionaries if so, keeping the `*Aria` keys, which the chevrons still need
+
+**Given** print is a `Button` in that same toolbar, linking to `/trips/{id}/days/{dayId}/print` in a new tab, and it is the day view's only print entry point
+**When** it is relocated
+**Then** it moves into a new overflow menu (`⋯`) in the day hero's header, beside the day-image edit action — decided by Tommy on 2026-08-01, in preference to making the global `HeaderMenu` context-aware
+**And** `HeaderMenu.tsx` and `src/lib/navigation/authMenu.ts` are **not touched**: the overflow is the day page's own, built from the same `Menu` / `MenuItem` treatment so the two read as one idiom
+**And** the overflow trigger carries an accessible name, a ≥44×44px hit area, and opens by keyboard
+
+**Given** the day-image edit action beside it is owner-only (`TripDayView.tsx:1764`) while print is a read action available to every role that can open the day
+**When** the overflow menu is placed in that same control group
+**Then** it is rendered **without** the `isOwner` guard, so a viewer and a contributor keep their access to print
+**And** the group renders correctly in all three cases: owner (edit + overflow), non-owner (overflow only), and — if a future role can neither edit nor print — nothing at all rather than an empty container
+
+**Given** a print action that opens a new tab
+**When** it is invoked from a menu rather than a button
+**Then** it keeps `target="_blank"` with `rel="noopener noreferrer"`, and the menu closes on selection
+
+**Given** the day view at a phone width
+**When** the three controls have moved
+**Then** the vertical space the toolbar occupied is gone, and the hero is followed directly by the day's content
+
+**Given** every existing behaviour — the day timeline, coverage bar, stays, travel segments, bucket list, map panel, costs, and the print document itself
+**When** these controls move
+**Then** none of it changes: this story relocates three controls and nothing else
+
 ## Epic 7: Visual Redesign — Light Cockpit System
 
 Users experience the approved `DESIGN.md`/`EXPERIENCE.md` visual system across every screen instead of the current inconsistent styling. Source of truth: `_bmad-output/planning-artifacts/ux-designs/ux-TravelPlan-2026-07-27/DESIGN.md`, `EXPERIENCE.md`, and `mockups/*.html`. This epic re-skins existing, already-shipped screens — it does not add product capability, so no new FRs are introduced.

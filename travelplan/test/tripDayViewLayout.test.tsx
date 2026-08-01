@@ -339,7 +339,8 @@ describe("TripDayView layout", () => {
     expect(await screen.findByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add stay" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add item" })).not.toBeInTheDocument();
-    expect(screen.queryByTestId("day-plan-item-edit")).not.toBeInTheDocument();
+    // Story 6.9: the pencil is gone; a viewer's activity card is inert instead of pencil-less.
+    expect(screen.queryByTestId("day-plan-item-edit-overlay")).not.toBeInTheDocument();
     expect(screen.queryByText("Bucket list")).not.toBeInTheDocument();
 
     vi.unstubAllGlobals();
@@ -428,7 +429,9 @@ describe("TripDayView layout", () => {
     expect(await screen.findByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit stay" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add plan item" })).toBeInTheDocument();
-    expect(screen.getByTestId("day-plan-item-edit")).toBeInTheDocument();
+    // Story 6.9: a contributor edits by clicking the card, so the gate shows up as the stretched edit
+    // overlay. canEditPlanning, not isOwner - a contributor keeps this.
+    expect(screen.getByTestId("day-plan-item-edit-overlay")).toBeInTheDocument();
     expect(screen.queryByText("Bucket list")).not.toBeInTheDocument();
 
     vi.unstubAllGlobals();
@@ -1612,21 +1615,24 @@ describe("TripDayView layout", () => {
     expect(screen.getByRole("link", { name: "Open link" })).toHaveAttribute("href", "https://example.com/museum");
     expect(screen.getByText("Current night accommodation")).toBeInTheDocument();
     expect(screen.getAllByText("City Hotel").length).toBeGreaterThan(0);
-    expect(screen.getByText("Cost so far · today")).toBeInTheDocument();
+    expect(screen.getByText("Costs today")).toBeInTheDocument();
     expect(screen.getByTestId("day-cost-total")).toHaveTextContent("€160.00");
     expect(screen.getAllByRole("button", { name: "Edit stay" }).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Add plan item" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Edit plan item" })).toBeInTheDocument();
-    const planItemActions = screen.getByTestId("day-plan-item-actions");
-    expect(within(planItemActions).getAllByRole("button")).toHaveLength(1);
-    expect(within(planItemActions).getByTestId("day-plan-item-edit")).toBeInTheDocument();
+    // Story 6.9: the card is the edit target and its overlay is the only control on the activity -
+    // the pencil and the wrapper that existed only to hold it are gone.
+    const planItemCard = screen.getByTestId("day-plan-item-card");
+    expect(within(planItemCard).getByTestId("day-plan-item-edit-overlay")).toHaveAccessibleName(
+      "Edit plan item: Museum title",
+    );
+    expect(screen.queryByTestId("day-plan-item-actions")).not.toBeInTheDocument();
     expect(screen.queryAllByRole("button", { name: "Delete plan item" })).toHaveLength(0);
     expect(screen.queryByTestId("plan-dialog-mode")).toBeNull();
     expect(screen.queryByTestId("plan-dialog-item-id")).toBeNull();
     expect(screen.getAllByTestId("day-map-marker")).toHaveLength(3);
     expect(screen.getByTestId("day-map-polyline")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit plan item" }));
+    fireEvent.click(within(planItemCard).getByTestId("day-plan-item-edit-overlay"));
 
     await waitFor(() => expect(planDialogMockState.lastProps?.open).toBe(true));
     expect(screen.getByTestId("plan-dialog-mode")).toHaveTextContent("edit");
@@ -2726,7 +2732,7 @@ describe("TripDayView layout", () => {
 
     expect((await screen.findAllByText("Museum visit")).length).toBeGreaterThan(0);
     expect(screen.queryAllByRole("button", { name: "Delete plan item" })).toHaveLength(0);
-    fireEvent.click(screen.getByRole("button", { name: "Edit plan item" }));
+    fireEvent.click(screen.getAllByTestId("day-plan-item-edit-overlay")[0]);
     await waitFor(() => expect(planDialogMockState.lastProps?.open).toBe(true));
     fireEvent.click(screen.getByRole("button", { name: "Delete plan item" }));
 
@@ -3785,7 +3791,6 @@ describe("TripDayView layout", () => {
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
     await screen.findByRole("heading", { name: "Day 1", level: 5 });
-    expect(screen.getByRole("heading", { name: "Day coverage" })).toBeInTheDocument();
     for (const label of ["Accommodation", "Activity", "Travel", "Open"]) {
       expect(screen.getByText(label)).toBeInTheDocument();
     }
@@ -4250,6 +4255,483 @@ describe("TripDayView layout", () => {
     expect(style.height).toBe("56px");
     // Photography is always sharp, independent of the radius of the card containing it.
     expect(style.borderRadius).toBe("0px");
+
+    vi.unstubAllGlobals();
+  });
+
+  // --- Story 6.9: cost pill, whole-card edit target, header split -------------------------------
+
+  const activityWithCost = {
+    id: "item-1",
+    title: "Museum visit",
+    fromTime: "09:00",
+    toTime: "10:00",
+    contentJson: JSON.stringify({ type: "doc", content: [] }),
+    costCents: 4500,
+    payments: [],
+    linkUrl: null,
+    location: null,
+  };
+
+  it("renders the activity cost as a filled accent pill in the card head (AC1)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal("fetch", buildDayResponse({ dayPlanItems: [activityWithCost] }));
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    const costPill = screen.getByTestId("day-plan-item-cost");
+    expect(costPill).toHaveTextContent("€45.00");
+
+    // Filled accent with white text - the second badge-pill variant, distinguishable at a glance from
+    // the soft time pill sitting on the same line.
+    const pillStyle = getComputedStyle(costPill);
+    expect(pillStyle.backgroundColor).toBe("rgb(75, 99, 88)");
+    expect(pillStyle.color).toBe("rgb(255, 255, 255)");
+    expect(pillStyle.borderRadius).toBe("4px");
+    expect(pillStyle.fontVariantNumeric).toBe("tabular-nums");
+
+    // Same line as the time pill, and inside the card head rather than the trailing block.
+    const head = screen.getByTestId("day-plan-item-head");
+    expect(within(head).getByTestId("day-plan-item-cost")).toBe(costPill);
+    expect(within(head).getByText("09:00 - 10:00")).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("renders no cost pill for an activity without a recorded cost (AC1)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal("fetch", buildDayResponse({ dayPlanItems: [{ ...activityWithCost, costCents: null }] }));
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    expect(screen.queryByTestId("day-plan-item-cost")).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("renders no cost pill for a recorded cost of zero (AC1)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal("fetch", buildDayResponse({ dayPlanItems: [{ ...activityWithCost, costCents: 0 }] }));
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    // As plain text a "€0.00" read as a footnote; as a filled accent pill it would be the loudest
+    // thing in the card head, announcing a cost on an activity that has none.
+    expect(screen.queryByTestId("day-plan-item-cost")).not.toBeInTheDocument();
+    // Scoped to the card: the sidebar's cost roll-up legitimately shows a €0.00 total for this day.
+    expect(within(screen.getByTestId("day-plan-item-card")).queryByText("€0.00")).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("omits the card head entirely when it would be empty (AC1, AC12)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal(
+      "fetch",
+      buildDayResponse(
+        { dayPlanItems: [{ ...activityWithCost, fromTime: null, toTime: null, costCents: null }] },
+        { accessRole: "viewer" },
+      ),
+    );
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    // No times, no cost, and no glyph because a viewer gets none - an unconditional head would open
+    // this card with a blank band the width of the card's 12px row gap.
+    expect(screen.queryByTestId("day-plan-item-head")).not.toBeInTheDocument();
+    // Scoped: the activity's title also appears in the map panel's stop list.
+    expect(within(screen.getByTestId("day-plan-item-card")).getByText("Museum visit")).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("removes the per-activity pencil button and its wrapper (AC2)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal("fetch", buildDayResponse({ dayPlanItems: [activityWithCost] }));
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    expect(screen.queryByTestId("day-plan-item-edit")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("day-plan-item-actions")).not.toBeInTheDocument();
+    // The day-image edit action in the hero header stays.
+    expect(screen.getByRole("button", { name: "Edit day details" })).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("opens the editor when the activity card itself is clicked (AC3)", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    vi.stubGlobal("fetch", buildDayResponse({ dayPlanItems: [activityWithCost] }));
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    // The card is the target, but the control is a stretched overlay covering it rather than the card
+    // element itself - `role="button"` on the card would make its own contents presentational.
+    const card = screen.getByTestId("day-plan-item-card");
+    expect(card).not.toHaveAttribute("role");
+    const overlay = within(card).getByTestId("day-plan-item-edit-overlay");
+    expect(overlay.tagName.toLowerCase()).toBe("button");
+    fireEvent.click(overlay);
+
+    await waitFor(() => expect(planDialogMockState.lastProps?.open).toBe(true));
+    expect(screen.getByTestId("plan-dialog-mode")).toHaveTextContent("edit");
+    expect(screen.getByTestId("plan-dialog-item-id")).toHaveTextContent("item-1");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("leaves the notes block selectable rather than passing its clicks to the overlay (AC3)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal("fetch", buildDayResponse({ dayPlanItems: [activityWithCost] }));
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    // The rest of the card hands its clicks to the stretched overlay, and a layer that does that
+    // cannot be drag-selected. The notes hold addresses and booking references, so they opt back in.
+    const card = screen.getByTestId("day-plan-item-card");
+    expect(getComputedStyle(within(card).getByTestId("day-plan-item-notes")).pointerEvents).toBe("auto");
+    expect(getComputedStyle(screen.getByTestId("day-plan-item-head")).pointerEvents).toBe("none");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps the card's own content in the accessibility tree (AC3, AC12)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal("fetch", buildDayResponse({ dayPlanItems: [activityWithCost] }));
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    // ARIA gives `button` Children Presentational: True. Had the role gone on the card, everything
+    // below would have collapsed into the overlay's single accessible name - and a viewer, who gets
+    // no role at all, would have heard more of the card than a contributor.
+    const card = screen.getByTestId("day-plan-item-card");
+    expect(card).not.toHaveAttribute("role");
+    expect(card).not.toHaveAttribute("tabindex");
+    expect(within(card).getByText("Museum visit")).toBeInTheDocument();
+    expect(within(card).getByText("09:00 - 10:00")).toBeInTheDocument();
+    expect(within(card).getByTestId("day-plan-item-cost")).toHaveTextContent("€45.00");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("does not open the editor when a card thumbnail or its link action is clicked (AC3)", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const fetchMock = withBucketList(async (input) => {
+      const url = String(input);
+      if (url.includes("/day-plan-items/images")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: {
+              images: [{ id: "img-1", dayPlanItemId: "item-1", imageUrl: "/uploads/plan.webp", sortOrder: 1 }],
+            },
+            error: null,
+          }),
+        };
+      }
+      if (url.includes("/accommodations/images")) {
+        return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-01T00:00:00.000Z",
+              dayCount: 1,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: null,
+                dayPlanItems: [{ ...activityWithCost, linkUrl: "https://example.com/museum" }],
+                travelSegments: [],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    // The "open link" action opens the link and nothing else. The editor's absence is read off the DOM
+    // rather than off the mock's recorded props: the mock renders nothing while closed, and the props
+    // are re-recorded on every render, so the DOM is the honest signal here.
+    const thumbnail = await screen.findByRole("img", { name: "Day timeline 1" });
+    fireEvent.click(screen.getByRole("link", { name: "Open link" }));
+    expect(screen.queryByTestId("plan-dialog")).toBeNull();
+
+    // The thumbnail opens the fullscreen viewer, and its click must not bubble into the card handler.
+    // Asserted last: the viewer is a modal that aria-hides everything behind it.
+    fireEvent.click(thumbnail);
+    expect(screen.queryByTestId("plan-dialog")).toBeNull();
+    const viewer = await screen.findByRole("dialog");
+    expect(within(viewer).getByRole("img", { name: "Day timeline 1" })).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("makes the activity card keyboard operable with Enter (AC6)", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    vi.stubGlobal("fetch", buildDayResponse({ dayPlanItems: [activityWithCost] }));
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    const overlay = screen.getByTestId("day-plan-item-edit-overlay");
+    // A real `<button type="button">`, which is what makes Enter and Space the browser's job rather
+    // than a hand-rolled key handler's. The previous handler tested only `event.key` and called
+    // `preventDefault()` unconditionally, so a keydown bubbling up from the "open link" anchor
+    // cancelled the link and opened the editor instead.
+    expect(overlay.tagName.toLowerCase()).toBe("button");
+    expect(overlay).toHaveAttribute("type", "button");
+    // An accessible name that says which activity it edits, and a promise of what activating it does.
+    expect(overlay).toHaveAccessibleName("Edit plan item: Museum visit");
+    expect(overlay).toHaveAttribute("aria-haspopup", "dialog");
+
+    overlay.focus();
+    expect(overlay).toHaveFocus();
+    await userEvent.keyboard("{Enter}");
+    await waitFor(() => expect(planDialogMockState.lastProps?.open).toBe(true));
+
+    vi.unstubAllGlobals();
+  });
+
+  it("makes the activity card keyboard operable with Space (AC6)", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    vi.stubGlobal("fetch", buildDayResponse({ dayPlanItems: [activityWithCost] }));
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    // Its own render, not a second activation in the Enter case: there the dialog is already open by
+    // the time Space fires, so the assertion could not tell activation from a no-op.
+    const overlay = screen.getByTestId("day-plan-item-edit-overlay");
+    overlay.focus();
+    await userEvent.keyboard(" ");
+
+    await waitFor(() => expect(planDialogMockState.lastProps?.open).toBe(true));
+    expect(screen.getByTestId("plan-dialog-item-id")).toHaveTextContent("item-1");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("truncates a note-derived accessible name instead of reading the whole note (AC6)", async () => {
+    navigationMockState.search = "";
+    const longNote = "Wander the tiled backstreets of Alfama until the light goes, then find the miradouro above the cathedral and wait for it.";
+    vi.stubGlobal(
+      "fetch",
+      buildDayResponse({
+        dayPlanItems: [
+          {
+            ...activityWithCost,
+            title: null,
+            contentJson: JSON.stringify({
+              type: "doc",
+              content: [{ type: "paragraph", content: [{ type: "text", text: longNote }] }],
+            }),
+          },
+        ],
+      }),
+    );
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    // An untitled activity falls back to its flattened note for a title. The card still shows all of
+    // it; the name a screen reader speaks on every focus is capped.
+    const name = screen.getByTestId("day-plan-item-edit-overlay").getAttribute("aria-label") ?? "";
+    expect(name.length).toBeLessThan(longNote.length);
+    expect(name.startsWith("Edit plan item: Wander the tiled")).toBe(true);
+    expect(name.endsWith("…")).toBe(true);
+
+    vi.unstubAllGlobals();
+  });
+
+  it("shows a decorative, non-focusable edit glyph on the card (AC4, AC5)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal("fetch", buildDayResponse({ dayPlanItems: [activityWithCost] }));
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    const glyph = screen.getByTestId("day-plan-item-edit-glyph");
+    expect(glyph).toHaveAttribute("aria-hidden", "true");
+    expect(glyph.tagName.toLowerCase()).not.toBe("button");
+    expect(glyph).not.toHaveAttribute("tabindex");
+    expect(within(glyph).queryByRole("button")).toBeNull();
+    // The overlay is the card's only tab stop; the glyph must not add a second one.
+    expect(within(screen.getByTestId("day-plan-item-card")).getAllByRole("button")).toHaveLength(1);
+
+    // The reveal itself is a media-query behaviour and jsdom implements no media-query matching -
+    // `getComputedStyle` returns "" for any property declared inside `@media`, so asserting on the
+    // cursor or the glyph's opacity here would pass whether the rules existed or not. What is
+    // checkable in jsdom is that the rules were authored: the emitted stylesheet must carry all three
+    // pointer branches. The rendered result is browser-verified; see the story's Dev Agent Record.
+    const css = Array.from(document.querySelectorAll("style"))
+      .map((node) => node.textContent ?? "")
+      .join("");
+    const glyphSelector = `.${glyph.className.split(" ").find((name) => name.startsWith("day-plan-item-edit-glyph"))}`;
+    expect(css).toContain("@media (hover: hover)");
+    expect(css).toContain("@media (hover: none)");
+    // A touchscreen laptop reports `hover: hover`, so without this branch it would never see the glyph.
+    expect(css).toContain("@media (any-pointer: coarse)");
+    expect(css).toContain(glyphSelector);
+    // No custom cursor image on any device: the pointer affordance is the keyword, nothing else.
+    expect(css).not.toContain("cursor:url(");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("gives a viewer no click-to-edit, no pointer cursor and no glyph on activity cards (AC7)", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    vi.stubGlobal(
+      "fetch",
+      buildDayResponse({ dayPlanItems: [activityWithCost] }, { accessRole: "viewer" }),
+    );
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    const card = screen.getByTestId("day-plan-item-card");
+    expect(card).not.toHaveAttribute("role", "button");
+    expect(card).not.toHaveAttribute("tabindex");
+    expect(screen.queryByTestId("day-plan-item-edit-glyph")).not.toBeInTheDocument();
+    // The control itself must be absent, not merely inert. Reading `cursor` off the card is not a
+    // gate check: it is declared inside `@media (hover: hover)`, which jsdom does not apply, so that
+    // assertion returned "" for an editable card too.
+    expect(screen.queryByTestId("day-plan-item-edit-overlay")).not.toBeInTheDocument();
+    expect(within(card).queryByRole("button")).toBeNull();
+
+    fireEvent.click(card);
+    expect(screen.queryByTestId("plan-dialog")).toBeNull();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("drops the hero breadcrumb and moves the trip button into the left slot (AC8)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal("fetch", buildDayResponse({}));
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    // The breadcrumb carried no test id, so its absence has to be read off what it rendered: a link
+    // to the trip labelled with the trip's name, and the "/" separator beside it.
+    expect(screen.queryByRole("link", { name: "Test Trip" })).not.toBeInTheDocument();
+    expect(screen.queryByText("/")).not.toBeInTheDocument();
+
+    const headerRow = screen.getByTestId("day-hero-header-row");
+    const backLink = within(headerRow).getByRole("link", { name: "← Back to trip" });
+    const leftSlot = within(headerRow).getByTestId("day-hero-header-left");
+    expect(leftSlot).toContainElement(backLink);
+    // Enlarged for touch: it is now the primary way out of this screen.
+    expect(Number.parseInt(getComputedStyle(backLink).minHeight, 10)).toBeGreaterThanOrEqual(44);
+
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps the trip button in the left slot for a non-owner with no day-image action (AC8)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal("fetch", buildDayResponse({}, { accessRole: "contributor" }));
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    // "Edit day details" is the day-image action's actual accessible name (`trips.dayImage.editAction`)
+    // and it is `isOwner`-gated, so a contributor does not get it. Naming anything else here asserts
+    // the absence of an element that never existed.
+    expect(screen.queryByRole("button", { name: "Edit day details" })).not.toBeInTheDocument();
+
+    const leftSlot = screen.getByTestId("day-hero-header-left");
+    expect(within(leftSlot).getByRole("link", { name: "← Back to trip" })).toBeInTheDocument();
+    // The row still distributes rather than centring or right-snapping the lone remaining control.
+    expect(getComputedStyle(screen.getByTestId("day-hero-header-row")).justifyContent).toBe("space-between");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("no longer renders the coverage label and retitles the cost card (AC9, AC10)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal("fetch", buildDayResponse({}));
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    expect(screen.queryByText("Day coverage")).not.toBeInTheDocument();
+    expect(screen.getByText("Costs today")).toBeInTheDocument();
+    expect(screen.queryByText("Cost so far · today")).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("sizes the screen-reader-only coverage description in pixels, not percent (AC11, DW-44)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal("fetch", buildDayResponse({}));
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    // `sx={{ width: 1 }}` is MUI for `width: 100%`, not 1px. `clip` hid the text either way, but the
+    // span went on occupying its container's full width in the scroll box - which is where the day
+    // page's measured 25px of horizontal overflow at 390px came from. jsdom cannot measure the
+    // overflow, so the unit itself is what gets pinned here.
+    const style = getComputedStyle(screen.getByTestId("coverage-axis-description"));
+    expect(style.width).toBe("1px");
+    expect(style.height).toBe("1px");
+    expect(style.position).toBe("absolute");
+    expect(style.overflow).toBe("hidden");
+    // Still reachable by assistive tech - the point of the recipe is invisible, not absent.
+    expect(screen.getByTestId("coverage-axis-description")).toHaveTextContent(
+      "The coverage bar spans the full day, from 00:00 to 24:00.",
+    );
 
     vi.unstubAllGlobals();
   });

@@ -137,6 +137,12 @@ components:
   badge-pill:
     tl-time-radius: '{rounded.sm}'
     tl-time-bg: '{colors.accent-soft}'
+    # Second variant, same geometry: the accent moves from the text to the fill. Story 6.9 - a day
+    # activity's cost sits on the card head's one line beside its time pill, and in the soft variant
+    # the two read as a pair of time ranges at a glance. Filled, money is money. White on accent
+    # measures 6.51:1.
+    tl-cost-bg: '{colors.accent}'
+    tl-cost-color: '#FFFFFF'
     role-badge-radius: 5px
     gap-badge-bg: '{colors.warn-bg}'
     gap-badge-color: '{colors.warn}'

@@ -336,7 +336,8 @@ decision: 2026-08-01 Delete the three keys and their wiring — Remove the unrea
 origin: migrated from legacy ledger ("Deferred from: 7-7-trip-create-and-add-entry-dialog-redesign (2026-08-01)"; re-raised by the code review of the same story), 2026-08-01
 location: `travelplan/src/components/features/trips/TripDayView.tsx` — the Gantt coverage block, around `:1780-1800`
 reason: Found by Story 7.7's browser check, outside its scope boundary. A visually-hidden `<span>` carrying `trips.dayView.coverageAxisDescription` ("The coverage bar spans the full day, from 00:00 to 24:00.") is positioned but never clipped, so its full text box extends to x=415 on a 390px viewport and `document.scrollWidth - clientWidth` measures 25. It is the sole overflowing element, it is present with no dialog open, and `/trips` and `/trips/t1` both measure 0 — so this is the day page's own defect, not the redesigned dialogs' (all four measured `scrollWidth === clientWidth` at 390px). Story 7.3 owns this page and is `done`; Story 7.7 owns exactly one block of the file (the day-details dialog), so it was measured and recorded rather than fixed. Fix is the standard screen-reader-only clip (`position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0)`) — the same treatment `AuthScreenShell.tsx:87` already uses for its language-name spans, which suggests extracting one `visuallyHidden` constant rather than a third hand-rolled copy. Natural home: whichever story next touches Day Detail, or the standing accessibility pass.
-status: open
+decision: 2026-08-01 Resolved by Story 6.9 — reproduced, re-diagnosed and fixed. Measured 25px at 390px and 169px at 1440px on `4978db8`, re-measured 0px in both after the fix. The prescribed clip was **already present and already working**: the span really is clipped, and that is why nobody ever saw the text. The actual cause was a unit — `sx={{ width: 1, height: 1 }}` reads as 1px but MUI maps a bare 0..1 `width`/`height` to a *percentage*, so it compiled to `width: 100%; height: 100%`, and `clip` hides an element without shrinking its layout box, leaving the span to set `scrollWidth` on its own. So this entry's "positioned but never clipped" was wrong about the mechanism and right about the culprit. Fixed via one shared `VISUALLY_HIDDEN` constant with explicit `px` strings, applied to **both** occurrences of the recipe in `TripDayView.tsx` — the twin on the travel-segment edit button was latent only because an `IconButton` is `position: relative` and 28px wide. The entry's own suggestion to extract a single constant rather than hand-roll a third copy was the right instinct; note `AuthScreenShell.tsx:87` still carries its own copy and was left alone as out of scope.
+status: done 2026-08-01
 
 ### DW-45: The three photo-upload surfaces still state three different size limits
 
@@ -533,4 +534,38 @@ origin: retroactive operator verification of story 7-12, 2026-08-01
 location: `travelplan/src/components/features/trips/TripBucketListPanel.tsx` — the `List` carrying `tabIndex={0}`
 severity: low
 reason: Story 7.12 AC3 required the capped scroll container to be keyboard-operable, so the `List` carries `tabIndex={0}`. Verified working at desktop width — ArrowDown moves scrollTop 0 to 40, PageDown to 305 (bottom), and Tab leaves cleanly into the row edit/delete buttons rather than cycling. But the attribute is unconditional while the cap is not: measured at 820px the list reads `maxHeight: none`, `overflowY: visible` and is not scrollable, yet it still takes focus. So below `md` every keyboard user passes through a stop that does nothing. Fix is to make `tabIndex` track the same breakpoint the cap does, which needs the breakpoint in JS rather than only in `sx` — or to accept it. The story's own operator action 6 asked for this judgement and it was never made; recorded here so it is not lost. Related: the same `List` carries `aria-label="Bucket-Liste"`, duplicating the card heading a screen reader already announces (operator action 10, also unjudged — needs a real screen reader, not an automated check).
+status: open
+
+### DW-72: `AuthScreenShell`'s visually-hidden language names carry the same `width: 1` percentage bug DW-44 turned out to be
+
+origin: Story 6.9's DW-44 fix, 2026-08-01
+location: `travelplan/src/components/features/auth/AuthScreenShell.tsx` — the language-switcher's screen-reader span, `sx={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}`
+severity: low
+reason: DW-44 looked like a missing clip and was actually a unit: in MUI's `sx`, a bare `width`/`height` between 0 and 1 is a *percentage*, so `width: 1, height: 1` compiles to `width: 100%; height: 100%`. `clip` still hides the text, so nothing is visible — but `clip` does not shrink the layout box, and on Day Detail that span alone gave the page 25px of horizontal overflow at 390px. Story 6.9 fixed both occurrences in `TripDayView.tsx` behind one `VISUALLY_HIDDEN` constant. This third copy has the identical defect and was left alone as out of scope: it is a different screen owned by a different story (7.6), and it may well measure 0 overflow today because its container is narrow and the auth screens are simple. **Not verified either way** — nobody has measured `scrollWidth - clientWidth` on `/auth/login` at 390px. Fix is to promote `VISUALLY_HIDDEN` out of `TripDayView.tsx` into a shared module and use it here, which also removes the third hand-rolled copy DW-44 already complained about. Measure before and after, since the point of the entry is a number.
+status: open
+
+## Deferred from: code review of 6-9-day-detail-refinements (2026-08-01)
+
+### DW-73: The coverage block has no heading and no outline entry after AC9 removed its label
+
+origin: code review of Story 6.9, 2026-08-01
+location: `travelplan/src/components/features/trips/TripDayView.tsx` — the Gantt coverage block, around `:1896`
+severity: low
+reason: Story 6.9 AC9 required `trips.dayView.coverageTitle` to stop rendering, and it does — the code is compliant, this is not a defect in the change. The side effect is that the `Typography variant="labelCaps" component="h6"` it rendered was the coverage band's only entry in the document outline, so heading-based screen-reader navigation now steps from the day title straight past the coverage bar. The band is not nameless (`TripDayGanttBar` carries `ganttAriaLabel`, and the visually-hidden axis description survives), so nothing is unreachable — only unnavigable by heading. This belongs with **DW-31** (the day-detail route has no `h1`-`h4` at all), which Story 6.9 explicitly excluded and whose approach Tommy already decided on 2026-08-01: promote the day title to `h1` and re-level the sections beneath it. Fold this in there rather than fixing it alone.
+status: open
+
+### DW-74: `canEditPlanning` defaults to `true` when the day-detail response omits `accessRole`
+
+origin: code review of Story 6.9, 2026-08-01
+location: `travelplan/src/components/features/trips/TripDayView.tsx:339` — `const canEditPlanning = detail?.trip.accessRole ? detail.trip.accessRole !== "viewer" : true;`
+severity: low
+reason: Pre-existing, and `isOwner` on the line above uses the identical fail-open pattern. Recorded now because Story 6.9 widened its blast radius: the flag used to gate a 28px pencil and now gates the whole activity card's `role="button"`, tab stop, pointer cursor and click-to-edit. If the endpoint ever omits `accessRole`, or returns a role string added later that is neither `owner`, `contributor` nor `viewer`, a genuine read-only user gets a fully editable-looking card. No test covers the undefined-role branch — the viewer test stubs an explicit `"viewer"`. Fix is to fail closed, or to narrow the type so an unknown role is a compile error rather than a silent grant. Check whether the same pattern exists on the other trip surfaces before changing one in isolation.
+status: open
+
+### DW-75: Activity cost and accommodation cost are styled two different ways on the same timeline
+
+origin: code review of Story 6.9, 2026-08-01
+location: `travelplan/src/components/features/trips/TripDayView.tsx` — `costPillSx` at `:1193` vs `tlCostSx` at `:2385`
+severity: low
+reason: Story 6.9 AC1 turned the activity card's cost into a filled accent pill in the card head. The accommodation card immediately below it on the same timeline keeps the old plain-bold `tlCostSx`. Newly created by this change rather than pre-existing, but out of scope by design: AC1 is written about the activity card specifically, the two cards have different head structures, and Tommy settled the filled-pill decision on 2026-08-01 for activities only. Worth a deliberate judgement rather than a drive-by: either the accommodation cost becomes a pill too, or the divergence is confirmed as intentional (the accommodation cost is a nightly rate, not a slot cost, so a different treatment may be right). Note the code Story 6.9 deleted carried the opposite rationale — "the mockup puts tl-cost on every card that has one". Related: DW-27, `formatCost` diverges across screens.
 status: open
