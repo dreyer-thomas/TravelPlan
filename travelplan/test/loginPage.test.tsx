@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import LoginPage from "@/app/(routes)/auth/login/page";
-import { I18nProvider } from "@/i18n/provider";
+import LoginPage from "@/app/(auth)/auth/login/page";
+import { renderWithProviders } from "./helpers/renderWithProviders";
 
 const pushMock = vi.fn();
 
@@ -41,11 +41,7 @@ describe("LoginPage", () => {
       } as Response;
     }) as unknown as typeof fetch;
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <LoginPage />
-      </I18nProvider>
-    );
+    renderWithProviders(<LoginPage />);
 
     await user.type(screen.getByLabelText(/email/i), "flagged@example.com");
     await user.type(screen.getByLabelText(/^password$/i), "correctpassword");
@@ -78,11 +74,7 @@ describe("LoginPage", () => {
       } as Response;
     }) as unknown as typeof fetch;
 
-    render(
-      <I18nProvider initialLanguage="en">
-        <LoginPage />
-      </I18nProvider>
-    );
+    renderWithProviders(<LoginPage />);
 
     await user.type(screen.getByLabelText(/email/i), "regular@example.com");
     await user.type(screen.getByLabelText(/^password$/i), "correctpassword");
