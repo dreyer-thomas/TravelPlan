@@ -1,5 +1,5 @@
 # generated: 2026-03-01 13:08:00 CET
-# last_updated: 2026-08-01 (6-9-day-detail-refinements → done, code-review + browser verification; 4 decisions resolved, 12 patches applied. The whole-card edit target was rebuilt as a stretched-link overlay — role="button" on the card made its own contents presentational, and its key handler cancelled Enter meant for the link inside it. Both re-verified in Chrome 151: the card now exposes 13 AX descendants, and Enter on "Open link" opens the link and no editor. Suite 653 green, tsc at the 152 baseline. DW-73/74/75 opened.)
+# last_updated: 2026-08-02 (6-13-stay-cards-editable added — 6.9 left the timeline with three interaction rules; this makes both accommodation cards match the activities and drops two buttons. Prior: 6-12 ready-for-dev; 7-13 ready-for-dev)
 # project: TravelPlan
 # project_key: NOKEY
 # tracking_system: file-system
@@ -122,6 +122,10 @@ development_status:
   6-7-move-or-swap-day-activities-between-dates: done
   6-8-export-day-itinerary-pdf-for-offline-use: done
   6-9-day-detail-refinements: done
+  6-10-trip-overview-refinements: ready-for-dev
+  6-11-day-nav-chevrons-and-print-menu: ready-for-dev
+  6-12-fullscreen-photo-viewer: ready-for-dev
+  6-13-stay-cards-editable: ready-for-dev
   epic-6-retrospective: done
 
   epic-7: in-progress
@@ -136,6 +140,7 @@ development_status:
   7-9-full-page-map-screens-redesign: done
   7-11-design-token-reconciliation: done
   7-12-bucket-list-sidebar-card: done
+  7-13-cost-overview-redesign: ready-for-dev
   epic-7-retrospective: optional
 
   epic-8: backlog

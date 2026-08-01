@@ -1706,6 +1706,121 @@ Note this story overlaps Story 6.9, which also restructures this header: 6.9 rem
 **When** these controls move
 **Then** none of it changes: this story relocates three controls and nothing else
 
+### Story 6.12: One Fullscreen Photo Viewer — Correct Coverage, Paging, Keyboard Access
+
+As a trip planner looking at a photo I attached to an activity,
+I want the fullscreen viewer to actually fill the screen and let me page through that item's other photos,
+So that opening a photo shows me the photo instead of a black panel with a lighter rim around it, and I can see all of them without closing and reopening.
+
+**FRs covered:** FR13, FR18 (photo galleries — viewer behaviour only; no upload, storage or data-model change)
+
+**Context:** The viewer is inlined **four times** — `TripDayView.tsx:2786`, `TripAccommodationDialog.tsx:1111`, `TripDayPlanDialog.tsx:1290`, `TripDayMapFullPage.tsx:531` — and opened from **nine** call sites. Each copy is the same ~25 lines:
+
+```jsx
+<Dialog maxWidth={false} sx={{ "& .MuiDialog-paper": { backgroundColor: "transparent", boxShadow: "none", m: 0 } }}>
+  <DialogContent sx={{ minWidth: "100vw", minHeight: "100vh", backgroundColor: "rgba(0,0,0,0.85)" }}>
+```
+
+Three defects follow from that shape. The dark fill sits on the `DialogContent`, so MUI still paints its own `rgba(0,0,0,0.5)` backdrop underneath — two differently dark surfaces stacked, and wherever the inner one fails to cover, the outer shows as a rim. `100vw` **includes the scrollbar width**, so on a pointer device the inner surface is wider than the viewport, which produces overflow and offset. And `onKeyDown={() => setFullscreenImage(null)}` closes on *any* key, Tab included.
+
+Two ledger entries have been waiting for this story by name. **DW-30** records that `MiniImageStrip`'s thumbnails carry `onClick` and `cursor: pointer` but no `role`, `tabIndex` or key handler, so the viewer cannot be opened from a keyboard — and that the strip caps at three images with a "+N" indicator, leaving **the fourth photo and beyond unreachable by any input**. **DW-51** records the identical defect in `PhotoUploadField`, the shared primitive Story 7.7 introduced across three surfaces. Both name a photo-viewer story as their home.
+
+Paging is what closes the second half of DW-30: with it, the overflow images become reachable.
+
+**Acceptance Criteria:**
+
+**Given** the viewer is inlined in four components with nine call sites
+**When** it is consolidated
+**Then** one shared viewer component owns the behaviour and all four inline copies are deleted
+**And** the call sites hand it the image **collection and a starting index**, not a single URL — `MiniImageStrip` and `PhotoUploadField` already receive the whole array and discard it in an `onImageClick(imageUrl, alt)` callback, so this is a signature change, not new data plumbing
+
+**Given** the dark fill is applied to `DialogContent` while MUI paints its own backdrop beneath it
+**When** the viewer renders
+**Then** exactly **one** darkened surface covers the screen, and no lighter rim or seam is visible at any viewport size
+**And** `100vw` is not used for it, because it includes the scrollbar width and makes the surface wider than the visible area
+
+**Given** an activity, accommodation or day with several photos
+**When** the viewer is open on one of them
+**Then** the user can page to the next and previous image within that collection, without closing the viewer
+**And** paging wraps or stops consistently — whichever is chosen is applied the same way at both ends
+**And** the current position is stated, so it is clear how many images there are and which one this is
+
+**Given** `MiniImageStrip` shows at most three thumbnails plus a "+N" indicator, leaving later images unreachable (DW-30)
+**When** the viewer supports paging
+**Then** every image in the collection is reachable, including those the strip does not render
+**And** the "+N" indicator opens the viewer rather than being inert caption text
+
+**Given** thumbnails in `MiniImageStrip` and `PhotoUploadField` carry `onClick` and `cursor: pointer` but no `role`, `tabIndex` or key handler (DW-30, DW-51)
+**When** they are made operable
+**Then** each is reachable and activatable by keyboard with a visible focus state and an accessible name identifying which photo it opens
+**And** both components are fixed, not one — `PhotoUploadField` serves the accommodation gallery, the day-plan gallery and the day-details preview, so fixing only `MiniImageStrip` leaves three surfaces behind
+
+**Given** the viewer closes on `onKeyDown` for any key, Tab included
+**When** the key handling is corrected
+**Then** only `Escape` closes it, the arrow keys page, and focus is managed so it does not escape to the page behind while the viewer is open
+**And** focus returns to the thumbnail that opened it when it closes
+
+**Given** each image already has an alt string composed at the call sites
+**When** the viewer displays an image
+**Then** that alt travels with it and updates as the user pages, rather than being fixed at the one the viewer opened with
+
+**Given** every other photo behaviour — upload, delete, the gallery grids, the strip's three-thumbnail layout, and the image routes
+**When** the viewer is consolidated
+**Then** none of it changes: this story owns the viewer and the thumbnails' input handling, nothing else
+
+### Story 6.13: Accommodation Cards Editable Like Activities
+
+As a trip planner editing a day,
+I want the two accommodation cards to open their editor by clicking the card, exactly as activities now do,
+So that the timeline has one interaction rule instead of three, and the stay I am looking at is the stay I edit.
+
+**FRs covered:** FR14, FR15 (accommodation editing — interaction only; no data, gating or dialog change)
+
+**Context:** Story 6.9 made activity cards open their editor on click and removed their per-card pencil. The two accommodation cards were not in its scope, so the day timeline now has three different rules:
+
+- **Activity cards** — click the card. No visible button.
+- **Previous-night card** (`TripDayView.tsx:2173-2185`) — a `Button variant="text"` with a pencil, *inside* the card. Since 6.9 it is the only card in the timeline still carrying one, which is why it now stands out.
+- **Current-night card** (`:2439-2452`) — no card-level affordance at all. The only way in is a button in the toolbar above the timeline (`:2130-2143`, `setStayOpen`), so the card you are looking at and the control you press are in different places.
+
+Everything this needs already exists and was verified in a browser by 6.9: `editableActivityCardSx` (hover, cursor, glyph), `overlaidContentSx` (`pointerEvents: none` on content, `auto` on `a, button`), `editLabelFor` (a capped accessible name), and the stretched `<button>` overlay itself. 6.9's own comment records why the overlay exists rather than `role="button"` on the card: ARIA gives `button` *Children Presentational: True*, which would collapse the card's title, notes and pills into a single announced label.
+
+**Acceptance Criteria:**
+
+**Given** the previous-night and current-night cards
+**When** either is clicked anywhere other than an interactive child
+**Then** it opens the same dialog its current control opens — `setPreviousStayOpen` and `setStayOpen` respectively — with no change to the dialogs themselves
+**And** the mechanism is the stretched `<button>` overlay Story 6.9 built, not `role="button"` on the card, for the reason 6.9 recorded
+
+**Given** the previous-night card carries an inline edit/add `Button` (`:2173-2185`)
+**When** the card becomes the target
+**Then** that button is removed, so no card in the timeline carries a visible edit control
+
+**Given** the toolbar above the timeline carries a stay edit/add button (`:2130-2143`)
+**When** the current-night card becomes the target
+**Then** that button is removed as well
+**And** the toolbar's other actions — move, swap, add plan item — are untouched
+
+**Given** a day with no accommodation on record, where the cards render `trips.dayView.previousNightEmpty` / `currentNightEmpty` and today's buttons read "Unterkunft hinzufügen"
+**When** such a card is clicked
+**Then** it opens the same add dialog the removed button opened, so an empty card is the way to add a stay rather than a dead surface
+**And** the accessible name says whether it adds or edits, since the card looks the same either way
+
+**Given** the current-night card contains a "Vorherige Nacht kopieren" button when `canCopyPreviousStay` (`:2450`)
+**When** the card is clicked on that button
+**Then** the copy runs and the edit dialog does **not** open — `overlaidContentSx` already lifts `a` and `button` above the overlay, so this works by reusing the pattern rather than by special-casing
+
+**Given** editability must be visible, as Story 6.9 established for activities
+**When** an editable stay card is presented
+**Then** it carries the same hover treatment and edit glyph on a pointer device, and the same permanently visible glyph under `@media (hover: none)`, so all three card kinds signal editability identically
+
+**Given** a viewer or contributor without planning rights
+**When** the stay cards render for them
+**Then** they get no overlay, no cursor, no hover treatment and no glyph — matching both today's `canEditPlanning` gating and what 6.9 did for activities
+
+**Given** the timeline, coverage bar, travel segments, stay dialogs, cost roll-up and the copy-previous-night action
+**When** the two cards become clickable
+**Then** none of it changes: this story moves an affordance, it does not change what any dialog does
+
 ## Epic 7: Visual Redesign — Light Cockpit System
 
 Users experience the approved `DESIGN.md`/`EXPERIENCE.md` visual system across every screen instead of the current inconsistent styling. Source of truth: `_bmad-output/planning-artifacts/ux-designs/ux-TravelPlan-2026-07-27/DESIGN.md`, `EXPERIENCE.md`, and `mockups/*.html`. This epic re-skins existing, already-shipped screens — it does not add product capability, so no new FRs are introduced.
@@ -2029,6 +2144,57 @@ This story finishes that job. It also settles the open `[ASSUMPTION]` at `EXPERI
 **Given** `EXPERIENCE.md`'s Information Architecture lists Screen A's sidebar contents
 **When** this story lands
 **Then** it records the bucket list as Screen A's third sidebar card, so the next reader does not rediscover the gap
+
+### Story 7.13: Cost Overview Redesign — Per-Day and Per-Month Lists
+
+As a trip planner checking what a trip costs,
+I want the cost overview to match the rest of the redesigned app,
+So that opening it from the trip overview does not drop me onto a screen from before the redesign.
+
+**FRs covered:** FR19, FR20, FR32 (cost roll-up and payment schedule — presentation only)
+
+**Context:** `/trips/{id}/costs` is reached by clicking the trip's cost figure on the trip overview (`TripTimeline.tsx:420`). It renders `TripCostOverview.tsx` — 519 lines carrying **zero** `tokens.` references. Three `Paper elevation={1}` wrappers (loading `:323`, not-found `:336`, main `:355`) each hardcode `borderRadius: 3` (24px) and `background: "#ffffff"`; headings are `Typography variant="h6" fontWeight={600}`; the per-month groups are nested `Paper variant="outlined"` at `borderRadius: 2`.
+
+Story 7.9's context claimed the two full-page map screens were *"the last two unredesigned screens in the app."* That was wrong — this one was missed by the whole pass, and Tommy found it in production use. Like the map screens, it appears in **no mockup**: `DESIGN.md`'s source list covers Screens A–H and none of them is a cost surface. So this story derives its treatment from patterns already shipped rather than inventing one, exactly as 7.9 did.
+
+It also closes DW-27, whose own text names this file and assigns the fix to "the screen that owns the cost route".
+
+**Acceptance Criteria:**
+
+**Given** three `Paper elevation={1}` wrappers with `borderRadius: 3` and a hardcoded `#ffffff` fill
+**When** each is restyled
+**Then** all three use the token `card` treatment — `tokens.card`, `1px solid tokens.borderStrong`, 8px radius, `card-padding` — on a `Box` rather than a `Paper`, per the `MuiPaper` border-override constraint Stories 7.3, 7.8 and 7.9 each had to work around
+**And** no hex literal remains anywhere in the component
+
+**Given** the page shell around it
+**When** the screen renders
+**Then** it uses the same token page shell as the trip overview it was opened from, so the value scheme does not shift mid-flow
+
+**Given** section titles render as `Typography variant="h6" fontWeight={600}`
+**When** they are restyled
+**Then** they use the `label-caps` card-label in `tokens.inkSoft`, matching every other card label in the app
+**And** the document outline descends without skipping, following the rule 7.3's review set — card labels are the page title's level plus one
+
+**Given** the per-day list with its `Tag` / `Kostenpositionen` / `Tagessumme` columns
+**When** it is restyled
+**Then** it adopts the row rhythm and `:last-child` divider suppression already shipped for day rows and cost lists, and its figures use tabular numerals as the trip overview's cost summary does
+
+**Given** the per-month payment groups, each a nested `Paper variant="outlined"` at `borderRadius: 2`
+**When** they are restyled
+**Then** they read as a nested group inside the card rather than as a second card — no elevation, no competing radius — and the raw `borderColor: "divider"` is replaced with `tokens.border`
+
+**Given** `TripCostOverview.tsx` is the third copy of `formatCost` and the only one still emitting a bare number wrapped in the `trips.stay.costSummary` "Cost: {value}" template, so the same amount reads "€160.00" on Day Detail and "Cost: 160.00" here (DW-27)
+**When** the formatter is converged
+**Then** this screen uses the currency-aware formatter the other two screens use, and `test/tripCostOverview.test.tsx:137`, which pins the old form, is updated
+**And** the residual half of DW-27 — all three copies hardcoding EUR with no trip-level currency field — is recorded as its own ledger entry rather than silently carried, since a currency field is a data-model change this story does not make
+
+**Given** the loading skeleton, the not-found branch, the error alert and the two empty states (`trips.costOverview.empty`, `emptyDay`, `emptyMonths`)
+**When** the screen is restyled
+**Then** each matches the treatment already shipped on the screens this one is reached from, rather than introducing a second one
+
+**Given** every existing behaviour — the cost roll-up, the day grouping, the month grouping, the back link and the trip total
+**When** the screen is redesigned
+**Then** all of it works unchanged: this story is visual only
 
 ## Epic 8: Maintenance & Infrastructure
 
