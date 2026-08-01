@@ -1548,6 +1548,79 @@ So that I can take the plan with me and use it without internet access.
 **Given** I print the PDF in grayscale or on a standard office printer
 **When** the output is produced
 **Then** the itinerary remains readable
+
+### Story 6.9: Day Detail Refinements From First Production Use
+
+As a trip planner using the redesigned day view on a real trip,
+I want an activity's cost read as a tag beside its time, the whole activity clickable to edit, and the header stripped of duplicated navigation and redundant labels,
+So that the screen I use most is faster to scan and easier to operate, particularly on a phone.
+
+**FRs covered:** FR12, FR17, FR21 (presentation and interaction only — no data model, endpoint or capability change)
+
+**Context:** Story 7.3 redesigned Day Detail and Story 7.11 reconciled its tokens. Both are `done`. This story collects six changes Tommy identified after using the result on a real trip — the first feedback in Epic 7's history that comes from production use rather than from a mockup comparison. None of them is a defect in 7.3: each is a judgement that only became visible in use.
+
+Two of the six carry a design decision that must be settled before implementation; both are marked below.
+
+**Acceptance Criteria:**
+
+**Given** an activity's cost currently renders as plain text in the card's trailing block beside the edit affordance (`TripDayView.tsx:2208-2212`, `tlCostSx`), where it reads as an afterthought rather than as an attribute of the activity
+**When** the card is re-laid out
+**Then** the cost renders top-right in the card head, right-aligned, on the same line as the time
+**And** it uses the established `badge-pill` geometry the time pill already uses (`TripDayView.tsx:1126-1132` — 4px radius, tabular figures), so money and time read as one family of metadata
+**And** it is **filled** with `tokens.accent` `#4B6358` — the same forest green `DESIGN.md` assigns to `coverage-bar.seg-stay` (`:122`) — carrying white text, so time and money are distinguishable at a glance rather than reading as two identical tags (decided by Tommy, 2026-08-01; white on `#4B6358` measures 6.51:1, comfortably clear of this system's 4.5:1 contrast target)
+**And** `DESIGN.md`'s `badge-pill` section records this as a second, filled pill variant alongside the existing soft one (`tl-time-bg: {colors.accent-soft}`, `:139`), so the next screen that needs a filled tag reuses it instead of inventing one
+**And** the filled pill is visually distinguishable from a primary button, which uses the same accent fill and white text (`theme.ts` `containedPrimary`) — the 4px radius and small type carry that distinction, and a reviewer should confirm it holds at a glance rather than only in the markup
+
+**Given** the per-activity edit affordance is a bare `IconButton` carrying an inline pencil path (`TripDayView.tsx:2215-2225`) that users do not reliably recognise as editable
+**When** the card's interaction is reworked
+**Then** that `IconButton` is removed from the activity card entirely, along with the `data-testid="day-plan-item-actions"` wrapper that exists only to hold it
+**And** the day-image edit action in the hero header (`:1764`) is **kept** — this criterion is scoped to the activity cards alone
+
+**Given** the pencil was the only way into editing an activity and is now gone
+**When** an activity card is clicked anywhere other than its interactive children
+**Then** the edit dialog for that activity opens
+**And** the photo strip keeps its own behaviour — clicking a thumbnail opens the fullscreen viewer and does **not** open the edit dialog
+**And** the "open link" action keeps its own behaviour and does not open the edit dialog
+
+**Given** removing the pencil removes the only visible signal that an activity is editable
+**When** an editable card is hovered on a pointer device
+**Then** it carries a pointer cursor, a low-contrast background shift and a border move to accent, authored from the existing tokens — `EXPERIENCE.md:95` assigns hover and focus visuals to implementation because no mockup specifies them, and `TripsDashboard.tsx:462-471` is the established precedent for a whole-row click target in this app
+**And** a small edit glyph fades in at the card's top-right, so the card stays quiet until the pointer reaches it
+**And** that glyph is decoration only — `aria-hidden`, never a `<button>` — because the click target is the whole card, and a nested control would restore both the redundant affordance and the extra tab stop this story set out to remove
+
+**Given** hover does not exist on a touch device, and `TripsDashboard.tsx:462` already scopes this app's row hover to `@media (hover: hover)` — correct for a trip row, which is self-evidently tappable, but leaving an activity card with no editability signal at all on a phone
+**When** the card renders under `@media (hover: none)`
+**Then** the same edit glyph is permanently visible at low emphasis (`tokens.inkMuted` rather than accent), so touch users get a quiet standing hint where pointer users get a revealed one
+**And** no custom cursor image is used to carry this signal on any device — browsers cap cursor bitmap sizes, render them poorly on HiDPI displays, and no other surface in this app does it
+
+**Given** the card is now the click target
+**When** it is reached by keyboard
+**Then** it is focusable, activated by both Enter and Space, shows a visible focus state, and carries an accessible name that says which activity it edits
+
+**Given** a viewer or contributor without planning rights
+**When** an activity card renders for them
+**Then** it gets no click-to-edit behaviour, no pointer cursor, no hover treatment and no edit glyph in either media mode, matching today's `canEditPlanning` gating — a non-editable card must not look actionable
+
+**Given** the hero header is a `space-between` row (`TripDayView.tsx:1714-1723`) whose left slot holds a breadcrumb of trip name, a `/` separator and the day label (`:1738-1760`), and whose right slot holds two controls — the day-image edit action (owner-only) and a "back to trip" button to the same destination the breadcrumb already links (`:1787`)
+**When** the header is simplified
+**Then** the breadcrumb is removed entirely
+**And** the two right-slot controls are split across the row: "back to trip" moves into the left slot the breadcrumb vacates, and the day-image edit action stays right
+**And** the trip button is enlarged to a comfortable touch target on a phone — it is the primary way back out of this screen
+**And** the day is still named on the screen — the day title below the hero carries it, so no information is lost
+**And** a non-owner, for whom the edit action does not render, still sees the trip button on the left rather than having it snap across an empty row
+
+**Given** the day coverage bar is preceded by the label `trips.dayView.coverageTitle` ("Tagesabdeckung" / "Day coverage")
+**When** the bar renders
+**Then** that label is gone, the bar reading as self-evident from its segments and legend
+**And** the key is removed from both dictionaries, along with any assertion that pins it
+
+**Given** the day cost card is titled `trips.dayView.costCardTitle` ("Kosten bisher · heute")
+**When** the card renders
+**Then** it reads "Kosten heute" / "Costs today" in both dictionaries — the "bisher · heute" construction was carried over from the trip-level card, where "bisher" distinguishes spend-to-date from a total, a distinction that has no meaning on a single day
+
+**Given** every other behaviour of the day view — the timeline, coverage bar, travel segments, stays, bucket list, map panel, cost roll-up and print export
+**When** these six changes land
+**Then** all of it works exactly as before: this story changes presentation and one interaction, nothing else
 **And** timing, travel, and section hierarchy are still understandable without relying only on color
 
 ## Epic 7: Visual Redesign — Light Cockpit System
