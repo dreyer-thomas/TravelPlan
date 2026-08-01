@@ -17,6 +17,15 @@
     "label": "Drop it from both responses",
     "resolution": ""
   },
+  "DW-29": {
+    "answered_at": "2026-08-01",
+    "bundle_name": "",
+    "effect": "build",
+    "intent": "Make the \"Total travel time\" stat sum only the segments the coverage bar actually draws, by having `TripDayView.tsx:1055-1062` read the built segment list rather than the raw `travelSegments` array. The two surfaces then agree and neither over-claims, at the cost of under-reporting travel on days with no `toTime` set. If the number can differ from the raw total, say so in the stat's label or hint rather than silently reporting a smaller figure.",
+    "key": "2",
+    "label": "Exclude untimed segments from the stat as well",
+    "resolution": ""
+  },
   "DW-3": {
     "answered_at": "2026-08-01",
     "bundle_name": "",

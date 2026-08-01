@@ -216,6 +216,7 @@ origin: migrated from legacy ledger ("Deferred from: code review of 7-3-day-deta
 location: `TripDayGanttSegments.ts:98-111`, consumer `TripDayView.tsx:1055-1062`
 reason: `buildTravelSegments` skips any segment whose origin has no resolvable end time (`if (!endTime || !endTime.trim()) continue`), while the new stat cell sums every `travelSegments[].durationMinutes` unconditionally. A day whose activities have no `toTime` therefore shows "Total travel time 2h 10m" above a bar containing zero travel segments. The stat is arguably the more truthful of the two and the bar's skip is the limitation. Pre-existing asymmetry, newly made visible — fixing it means deciding whether an untimed travel segment should be positioned by inference or excluded from both surfaces.
 status: open
+decision: 2026-08-01 Exclude untimed segments from the stat as well — Make the "Total travel time" stat sum only the segments the coverage bar actually draws, by having `TripDayView.tsx:1055-1062` read the built segment list rather than the raw `travelSegments` array. The two surfaces then agree and neither over-claims, at the cost of under-reporting travel on days with no `toTime` set. If the number can differ from the raw total, say so in the stat's label or hint rather than silently reporting a smaller figure.
 
 ### DW-30: `MiniImageStrip` thumbnails are mouse-only
 
