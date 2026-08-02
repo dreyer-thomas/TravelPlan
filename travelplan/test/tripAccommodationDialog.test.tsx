@@ -183,6 +183,95 @@ describe("TripAccommodationDialog", () => {
 
     const input = await screen.findByLabelText("Check-in time");
     expect(input).toHaveValue("16:00");
+    /*
+      Story 6.18, AC1. jsdom renders `type="time"` as a plain text input and draws no picker, so the
+      attribute is the only part of the fix this suite can see — the behaviour itself is a browser
+      check. What it replaced was `inputMode: "numeric"`, which asks the OS for a digits-only keypad;
+      neither iOS nor Android puts a colon on that keypad, so "16:00" could not be typed at all.
+    */
+    expect(input).toHaveAttribute("type", "time");
+    expect(input).not.toHaveAttribute("inputmode");
+  });
+
+  /**
+   * Review pass, and the one consequence of AC1 that is worth writing down rather than discovering.
+   * A native time input reports `value === ""` for anything that is not a complete time — including
+   * a *partial* entry, hours set and minutes blank. `timeRules` allows an empty value (clearing the
+   * time is legitimate), so a half-finished entry now takes the same path a deliberate clear does:
+   * `checkInTime: null`, no error, and the day view falls back to its assumed 16:00.
+   *
+   * The old free-text field answered `trips.stay.timeInvalid` to "16:" and blocked the save. That
+   * message is kept — AC5 preserves validation messages — but it is no longer reachable from this
+   * control, because a time input cannot hand back a malformed value to be judged. Pinned here so
+   * the collapse of "invalid" into "empty" is a recorded property rather than a surprise; whether a
+   * partial entry deserves its own error is a decision for a story that is allowed to change what
+   * is accepted.
+   */
+  it("saves a cleared check-in time as null, the state a partial entry also produces", async () => {
+    // The dialog also GETs this path for the payment schedule, so collect the bodies rather than
+    // sifting `mock.calls`: the save is the only call that has one.
+    const sentBodies: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/api/auth/csrf")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
+        };
+      }
+      if (init?.body) sentBodies.push(String(init.body));
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ data: { accommodation: { id: "stay-1" } }, error: null }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <Providers language="en">
+        <TripAccommodationDialog
+          open
+          tripId="trip-1"
+          stayType="current"
+          day={{
+            id: "day-1",
+            date: "2026-11-01T00:00:00.000Z",
+            dayIndex: 1,
+            accommodation: {
+              id: "stay-1",
+              name: "Harbor Hotel",
+              notes: null,
+              status: "planned",
+              costCents: null,
+              link: null,
+              checkInTime: "16:00",
+              checkOutTime: null,
+              location: null,
+            },
+          }}
+          onClose={() => undefined}
+          onSaved={() => undefined}
+        />
+      </Providers>,
+    );
+
+    const input = await screen.findByLabelText("Check-in time");
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+
+    await waitFor(() => {
+      expect(sentBodies).toHaveLength(1);
+    });
+
+    const body = JSON.parse(sentBodies[0]);
+    expect(body.checkInTime).toBeNull();
+    // No error was raised on the way through: the empty value is accepted, not judged.
+    expect(screen.queryByText("Enter time as HH:mm")).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
   });
 
   it("defaults check-out time for previous-night stays", async () => {
@@ -224,6 +313,9 @@ describe("TripAccommodationDialog", () => {
 
     const input = await screen.findByLabelText("Check-out time");
     expect(input).toHaveValue("10:00");
+    // Story 6.18, AC1 — the check-out half of the same pair; see the note above.
+    expect(input).toHaveAttribute("type", "time");
+    expect(input).not.toHaveAttribute("inputmode");
   });
 
   it("blocks save when split payments do not match the total cost", async () => {

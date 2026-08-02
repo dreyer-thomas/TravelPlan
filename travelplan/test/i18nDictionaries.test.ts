@@ -108,4 +108,56 @@ describe("i18n dictionaries", () => {
       }
     });
   });
+
+  /**
+   * Story 6.18, AC2. Three keys left, and an orphan is again the failure the parity check above
+   * cannot see: it only says the two dictionaries agree, not that a key is gone from both.
+   * `trips.plan.fromTimeHelper` and `trips.plan.toTimeHelper` were dead — no source file read them —
+   * and described an `HH:mm` format the day-plan dialog's native time picker never asks anyone to
+   * produce. `trips.travelSegment.durationLabel` said "Duration (HH:mm)" over a field that is now
+   * two number boxes, so its format claim stopped being true.
+   *
+   * `trips.stay.timeInvalid` ("Enter time as HH:mm") is deliberately *not* here: it is a validation
+   * message, which AC5 preserves, not a hint explaining a control.
+   */
+  describe("story 6.18 key changes", () => {
+    const has = (dictionary: Record<string, string>, key: string) =>
+      Object.prototype.hasOwnProperty.call(dictionary, key);
+
+    it.each([
+      "trips.plan.fromTimeHelper",
+      "trips.plan.toTimeHelper",
+      "trips.travelSegment.durationLabel",
+    ])("no longer defines %s in either language", (key) => {
+      expect(has(en, key)).toBe(false);
+      expect(has(de, key)).toBe(false);
+    });
+
+    /**
+     * Review pass: this key is kept, but say plainly what it is now. A native time input hands back
+     * either `""` or a well-formed `HH:mm`, so `normalizeTimeInput` can no longer fail on a
+     * non-empty value and this message is unreachable from the accommodation dialog. It stays
+     * because AC5 preserves validation rules and messages, and because the rule still guards a
+     * value that did not come from that control. It is not evidence that a user can still see it —
+     * see the partial-entry case in `tripAccommodationDialog.test.tsx`.
+     */
+    it("keeps the stay time validation message, which is a rule and not a hint", () => {
+      expect(has(en, "trips.stay.timeInvalid")).toBe(true);
+      expect(has(de, "trips.stay.timeInvalid")).toBe(true);
+    });
+
+    /**
+     * Each replacement label is its box's accessible name — WCAG 2.5.3, so no `aria-label` may
+     * diverge from it — and both are what `travelSegmentDialog.test.tsx` queries by. Pinned here so
+     * a "clearer" longer label has to argue with a test: the pair shares one row of a dialog that
+     * has to fit a 390px phone.
+     */
+    it.each([
+      ["trips.travelSegment.durationHoursLabel", "Duration (h)", "Dauer (Std.)"],
+      ["trips.travelSegment.durationMinutesLabel", "Duration (min)", "Dauer (Min.)"],
+    ])("defines %s as the short label in both languages", (key, english, german) => {
+      expect(en[key]).toBe(english);
+      expect(de[key]).toBe(german);
+    });
+  });
 });

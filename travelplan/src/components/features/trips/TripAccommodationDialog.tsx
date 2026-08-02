@@ -894,14 +894,21 @@ export default function TripAccommodationDialog({
                 "& > *": { flex: 1, minWidth: 0 },
               }}
             >
+              {/*
+                Story 6.18: native `type="time"`, matching `TripDayPlanDialog`. The previous
+                `inputMode: "numeric"` asked the OS for a digits-only keypad, and neither iOS nor
+                Android puts a colon on it — so `16:00` could not be typed on a phone at all. The
+                placeholders went with it: a time input never renders one, and both fields are
+                prefilled with the default anyway. `timeRules` still judges the value; `type="time"`
+                narrows the keyboard, not the set of values that can reach `onSubmit`.
+              */}
               {stayType === "current" ? (
                 <FormField
                   id={`${fieldIdPrefix}-check-in`}
                   label={t("trips.stay.checkInLabel")}
                   error={errors.checkInTime?.message}
                   {...register("checkInTime", timeRules)}
-                  placeholder={DEFAULT_CHECK_IN}
-                  slotProps={{ htmlInput: { inputMode: "numeric" } }}
+                  type="time"
                 />
               ) : (
                 <FormField
@@ -909,8 +916,7 @@ export default function TripAccommodationDialog({
                   label={t("trips.stay.checkOutLabel")}
                   error={errors.checkOutTime?.message}
                   {...register("checkOutTime", timeRules)}
-                  placeholder={DEFAULT_CHECK_OUT}
-                  slotProps={{ htmlInput: { inputMode: "numeric" } }}
+                  type="time"
                 />
               )}
               <FormField

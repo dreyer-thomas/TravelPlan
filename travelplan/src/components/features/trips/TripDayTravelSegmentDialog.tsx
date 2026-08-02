@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Box,
@@ -10,6 +10,7 @@ import {
   DialogContent,
   DialogTitle,
   FormControl,
+  FormHelperText,
   InputLabel,
   MenuItem,
   Select,
@@ -88,11 +89,25 @@ type TripDayTravelSegmentDialogProps = {
   onSaved: (segment: TravelSegment) => void;
 };
 
-const formatMinutesToTime = (minutes: number) => {
-  if (!Number.isFinite(minutes) || minutes <= 0) return "";
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  return `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
+/** What the two duration boxes hold. Strings, because they are what the user is mid-way through typing. */
+type DurationInput = { hours: string; minutes: string };
+
+/**
+ * The duration a new segment opens with — 30 minutes, split the way the two boxes hold it. Frozen
+ * because this one object is stored into both `durationInput` and `openSnapshotRef.current`: every
+ * update path spreads into a new object today, and a future one that assigned a field in place
+ * would otherwise corrupt the default for every dialog in the process.
+ */
+const DEFAULT_DURATION: Readonly<DurationInput> = Object.freeze({ hours: "0", minutes: "30" });
+
+/**
+ * Story 6.18 replaced the single `HH:mm` text field with an hours box and a minutes box, so this is
+ * a split rather than a format. Nothing is zero-padded: the boxes take a bare count, where "05" is
+ * noise.
+ */
+const splitMinutesToDuration = (minutes: number): DurationInput => {
+  if (!Number.isFinite(minutes) || minutes <= 0) return { hours: "", minutes: "" };
+  return { hours: String(Math.floor(minutes / 60)), minutes: String(minutes % 60) };
 };
 
 const formatDistanceKmInput = (distanceMeters: number) => {
@@ -101,21 +116,38 @@ const formatDistanceKmInput = (distanceMeters: number) => {
 };
 
 /**
- * This is a *duration*, not a time of day, so hours are not capped at 23. They were, and the field
- * could therefore reject its own prefill: `formatMinutesToTime` happily writes "39:00" and the old
- * `\d{1,2}` / `hours > 23` pair then answered "Duration is required" over a field that visibly
- * contained a duration. Once route import started returning real walking speeds (~4.5 km/h) a ~110 km
- * leg was enough to reach it, and a multi-day ship crossing always could.
+ * The two boxes recombined, or `null` for "this is not a duration" — one answer for the pair, which
+ * is why one error line hangs under both boxes rather than one under each.
+ *
+ * The accepted set is deliberately the one the old `^(\d{1,3}):(\d{2})$` regex had: hours 0-999,
+ * minutes 0-59, total above zero. That is why each box is matched against `^\d+$` before it is
+ * parsed — `Number.parseInt` would otherwise read "1e3", "12abc", "-5" and "1.5" as numbers the
+ * regex rejected outright. This function is the only judge; the boxes are `type="text"` precisely
+ * so that everything the user typed reaches it, rather than a number input handing back `""` for
+ * input it privately considers malformed.
+ *
+ * Hours are *not* capped at 23. They were once, and the field could therefore reject its own
+ * prefill: a route import happily writes 39 hours and the old `\d{1,2}` / `hours > 23` pair then
+ * answered "Duration is required" over a field that visibly contained a duration. Once route import
+ * started returning real walking speeds (~4.5 km/h) a ~110 km leg was enough to reach it, and a
+ * multi-day ship crossing always could.
  */
-const parseTimeToMinutes = (value: string): number | null => {
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  const match = trimmed.match(/^(\d{1,3}):(\d{2})$/);
-  if (!match) return null;
-  const hours = Number.parseInt(match[1], 10);
-  const minutes = Number.parseInt(match[2], 10);
-  if (hours < 0 || hours > 999 || minutes < 0 || minutes > 59) return null;
-  return hours * 60 + minutes;
+const combineDurationToMinutes = ({ hours, minutes }: DurationInput): number | null => {
+  // The one widening Story 6.18 allows: an *empty* box counts as zero, where "01:" and ":30" were
+  // both rejected. An empty box in a two-box duration reads as zero, and 60 and 30 minutes were
+  // always acceptable durations. It applies to both boxes on purpose — an empty hours box next to a
+  // minutes box reading 45 is the same "Duration is required over a field that visibly holds a
+  // duration" this function's second paragraph exists to prevent, and a box empties itself on one
+  // backspace. Two empty boxes still cannot mean "0 minutes": the `total > 0` floor below catches
+  // that.
+  const hoursRaw = hours.trim() || "0";
+  const minutesRaw = minutes.trim() || "0";
+  if (!/^\d+$/.test(hoursRaw) || !/^\d+$/.test(minutesRaw)) return null;
+  const parsedHours = Number.parseInt(hoursRaw, 10);
+  const parsedMinutes = Number.parseInt(minutesRaw, 10);
+  if (parsedHours > 999 || parsedMinutes > 59) return null;
+  const total = parsedHours * 60 + parsedMinutes;
+  return total > 0 ? total : null;
 };
 
 const isSafeExternalUrl = (value: string) => {
@@ -227,12 +259,14 @@ export default function TripDayTravelSegmentDialog({
   const [saving, setSaving] = useState(false);
   const [routeLoading, setRouteLoading] = useState(false);
   const [transportType, setTransportType] = useState<TransportType>("car");
-  const [durationInput, setDurationInput] = useState<string>("00:30");
+  const [durationInput, setDurationInput] = useState<DurationInput>(DEFAULT_DURATION);
   const [distanceKm, setDistanceKm] = useState<string>("");
   const [linkUrl, setLinkUrl] = useState<string>("");
   const [routeHelper, setRouteHelper] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<{ durationMinutes?: string; distanceKm?: string; linkUrl?: string }>({});
   const isEditing = Boolean(segment?.id);
+  /** One error line serves both duration boxes, so both have to point `aria-describedby` at it. */
+  const durationErrorId = `${useId()}-duration-error`;
   const mapsLink = useMemo(() => buildGoogleMapsLink(fromItem, toItem), [fromItem, toItem]);
   const autoPrefillTriggeredRef = useRef(false);
   /** The last link this component wrote into the field, so a link the user typed is never stomped. */
@@ -240,8 +274,8 @@ export default function TripDayTravelSegmentDialog({
   /** True while the form holds the output of a route import, which belongs to one mode only. */
   const routePrefilledRef = useRef(false);
   /** What the form held when it opened, so discarding a stale import restores rather than blanks. */
-  const openSnapshotRef = useRef<{ duration: string; distance: string; link: string }>({
-    duration: "00:30",
+  const openSnapshotRef = useRef<{ duration: DurationInput; distance: string; link: string }>({
+    duration: DEFAULT_DURATION,
     distance: "",
     link: "",
   });
@@ -256,11 +290,11 @@ export default function TripDayTravelSegmentDialog({
 
     const opened = segment
       ? {
-          duration: formatMinutesToTime(segment.durationMinutes),
+          duration: splitMinutesToDuration(segment.durationMinutes),
           distance: segment.distanceKm !== null && segment.distanceKm !== undefined ? String(segment.distanceKm) : "",
           link: segment.linkUrl ?? "",
         }
-      : { duration: "00:30", distance: "", link: mapsLink ?? "" };
+      : { duration: DEFAULT_DURATION, distance: "", link: mapsLink ?? "" };
 
     setTransportType(segment ? segment.transportType : "car");
     setDurationInput(opened.duration);
@@ -342,8 +376,9 @@ export default function TripDayTravelSegmentDialog({
 
   const validate = () => {
     const nextErrors: { durationMinutes?: string; distanceKm?: string; linkUrl?: string } = {};
-    const durationValue = parseTimeToMinutes(durationInput);
-    if (durationValue === null || !Number.isFinite(durationValue) || durationValue <= 0) {
+    // `combineDurationToMinutes` already returns `null` for everything outside the accepted set,
+    // including a non-positive total, so there is nothing left for this to re-check.
+    if (combineDurationToMinutes(durationInput) === null) {
       nextErrors.durationMinutes = t("trips.travelSegment.durationRequired");
     }
 
@@ -437,7 +472,7 @@ export default function TripDayTravelSegmentDialog({
       }
 
       const routeLink = buildGoogleMapsRouteLink(fromItem, toItem, route.polyline, transportType) ?? modeAwareMapsLink;
-      setDurationInput(formatMinutesToTime(Math.max(1, Math.round(durationSeconds / 60))));
+      setDurationInput(splitMinutesToDuration(Math.max(1, Math.round(durationSeconds / 60))));
       setDistanceKm(formatDistanceKmInput(distanceMeters));
       setLinkUrl(routeLink);
       seededLinkRef.current = routeLink;
@@ -486,7 +521,7 @@ export default function TripDayTravelSegmentDialog({
       toItemType: toItem.type,
       toItemId: toItem.id,
       transportType,
-      durationMinutes: parseTimeToMinutes(durationInput) ?? 0,
+      durationMinutes: combineDurationToMinutes(durationInput) ?? 0,
       distanceKm: distanceValue,
       linkUrl: normalizedLink.length > 0 ? normalizedLink : null,
     };
@@ -579,17 +614,74 @@ export default function TripDayTravelSegmentDialog({
             </Select>
           </FormControl>
 
-          <TextField
-            label={t("trips.travelSegment.durationLabel")}
-            value={durationInput}
-            onChange={(event) => setDurationInput(event.target.value)}
-            placeholder="HH:mm"
-            size="small"
-            margin="dense"
-            error={Boolean(fieldErrors.durationMinutes)}
-            helperText={fieldErrors.durationMinutes ?? ""}
-            FormHelperTextProps={{ sx: { minHeight: 0 } }}
-          />
+          {/*
+            Story 6.18. A duration is a span, not a time of day, so this is deliberately *not*
+            `type="time"`: a clock would read "01:30" as half past one and could not hold 26:30 at
+            all, which a real walking prefill produces.
+
+            `type="text"` with `inputMode="numeric"`, not `type="number"`. Both give a phone a
+            digits-only keypad — `inputMode` is the part that does it, and on iOS bare
+            `type="number"` in fact yields the numbers-*and-punctuation* keyboard — but a number
+            input also reports `value === ""` for anything the browser calls `badInput`. "12e" and a
+            comma-decimal typed on a German keyboard both look filled on screen and arrive here
+            empty, which the empty-box-means-zero rule below would then save as a silent zero. A
+            text box hands `combineDurationToMinutes` exactly what the user typed, so its `^\d+$`
+            gate can reject it and say so. It also drops `type="number"`'s scroll-wheel behaviour,
+            which silently rewrites a focused field when the dialog is scrolled.
+
+            The two boxes share one row inside the column the single field used to occupy, so the
+            dialog gains no height — Story 6.17 spent itself reclaiming exactly that — and one error
+            line hangs under the pair rather than one under each box, because the two boxes are one
+            value and `validate()` produces one message for it.
+          */}
+          <Box>
+            <Box display="flex" gap={2} sx={{ "& > *": { flex: 1, minWidth: 0 } }}>
+              <TextField
+                label={t("trips.travelSegment.durationHoursLabel")}
+                value={durationInput.hours}
+                onChange={(event) => {
+                  setDurationInput((current) => ({ ...current, hours: event.target.value }));
+                  setFieldErrors((errors) => ({ ...errors, durationMinutes: undefined }));
+                }}
+                type="text"
+                size="small"
+                margin="dense"
+                error={Boolean(fieldErrors.durationMinutes)}
+                slotProps={{
+                  htmlInput: {
+                    inputMode: "numeric",
+                    "aria-describedby": fieldErrors.durationMinutes ? durationErrorId : undefined,
+                  },
+                }}
+              />
+              <TextField
+                label={t("trips.travelSegment.durationMinutesLabel")}
+                value={durationInput.minutes}
+                onChange={(event) => {
+                  setDurationInput((current) => ({ ...current, minutes: event.target.value }));
+                  setFieldErrors((errors) => ({ ...errors, durationMinutes: undefined }));
+                }}
+                type="text"
+                size="small"
+                margin="dense"
+                error={Boolean(fieldErrors.durationMinutes)}
+                slotProps={{
+                  htmlInput: {
+                    inputMode: "numeric",
+                    "aria-describedby": fieldErrors.durationMinutes ? durationErrorId : undefined,
+                  },
+                }}
+              />
+            </Box>
+            {fieldErrors.durationMinutes ? (
+              // `mx: "14px"` is the indent MUI's `contained` helper-text variant applies inside an
+              // outlined field; this one sits outside both fields' `FormControl`s, so it has to say
+              // so itself to line up with the distance field's error below it.
+              <FormHelperText error id={durationErrorId} sx={{ minHeight: 0, mx: "14px" }}>
+                {fieldErrors.durationMinutes}
+              </FormHelperText>
+            ) : null}
+          </Box>
 
           {allowsDistance(transportType) ? (
             <TextField

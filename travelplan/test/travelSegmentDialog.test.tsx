@@ -48,6 +48,23 @@ const placedItems = (props: typeof baseProps) => ({
   toItem: { ...props.toItem, location: { lat: 48.137, lng: 11.575, label: "Munich" } },
 });
 
+/**
+ * Story 6.18 split the single `HH:mm` duration field into an hours box and a minutes box, so the
+ * seven `getByDisplayValue("02:15")`-style reads this file used to make are now pairs. The boxes are
+ * `type="text"` with `inputMode="numeric"` rather than `type="number"` — a number input reports
+ * `value === ""` for anything the browser calls `badInput`, which the empty-box-means-zero rule
+ * would turn into a silent zero — so these expectations are strings.
+ */
+const expectDuration = (hours: string, minutes: string) => {
+  expect(screen.getByLabelText("Duration (h)")).toHaveValue(hours);
+  expect(screen.getByLabelText("Duration (min)")).toHaveValue(minutes);
+};
+
+const setDuration = (hours: string, minutes: string) => {
+  fireEvent.change(screen.getByLabelText("Duration (h)"), { target: { value: hours } });
+  fireEvent.change(screen.getByLabelText("Duration (min)"), { target: { value: minutes } });
+};
+
 describe("TripDayTravelSegmentDialog", () => {
   // Every case in this file ends with its own `vi.unstubAllGlobals()`, which is skipped whenever an
   // assertion throws - so one genuine failure used to leave the stubbed `fetch` installed and take
@@ -220,7 +237,7 @@ describe("TripDayTravelSegmentDialog", () => {
     fireEvent.click(routeAction);
 
     await waitFor(() => {
-      expect(screen.getByDisplayValue("02:15")).toBeInTheDocument();
+      expectDuration("2", "15");
     });
     expect(screen.getByDisplayValue("346.5")).toBeInTheDocument();
     expect((screen.getByDisplayValue(/google\.com\/maps\/dir/) as HTMLInputElement).value).toContain("waypoints=");
@@ -285,7 +302,7 @@ describe("TripDayTravelSegmentDialog", () => {
         screen.getByText(ROUTE_IMPORT_FAILED),
       ).toBeInTheDocument();
     });
-    expect(screen.getByDisplayValue("01:35")).toBeInTheDocument();
+    expectDuration("1", "35");
     expect(screen.getByDisplayValue("320.5")).toBeInTheDocument();
     expect(screen.getByDisplayValue(/google\.com\/maps\/dir/)).toBeInTheDocument();
 
@@ -349,7 +366,7 @@ describe("TripDayTravelSegmentDialog", () => {
         screen.getByText(ROUTE_IMPORT_FAILED),
       ).toBeInTheDocument();
     });
-    expect(screen.getByDisplayValue("01:35")).toBeInTheDocument();
+    expectDuration("1", "35");
     expect(screen.getByDisplayValue("320.5")).toBeInTheDocument();
 
     vi.unstubAllGlobals();
@@ -542,7 +559,7 @@ describe("TripDayTravelSegmentDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Plan" }));
 
     await waitFor(() => {
-      expect(screen.getByDisplayValue("00:30")).toBeInTheDocument();
+      expectDuration("0", "30");
     });
 
     const previewCall = fetchMock.mock.calls.find(([url]) => String(url).includes("route-preview"));
@@ -633,8 +650,9 @@ describe("TripDayTravelSegmentDialog", () => {
     fireEvent.click(await screen.findByRole("option", { name: "Walking" }));
     fireEvent.click(screen.getByRole("button", { name: "Plan" }));
 
+    // 26 h 30 min — the value that decided AC3 against `type="time"`, which cannot hold it.
     await waitFor(() => {
-      expect(screen.getByDisplayValue("26:30")).toBeInTheDocument();
+      expectDuration("26", "30");
     });
 
     fireEvent.click(screen.getByRole("button", { name: "OK" }));
@@ -696,21 +714,22 @@ describe("TripDayTravelSegmentDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Plan" }));
 
     await waitFor(() => {
-      expect(screen.getByDisplayValue("00:45")).toBeInTheDocument();
+      expectDuration("0", "45");
     });
     expect(screen.getByText("Route details were prefilled from Maps.")).toBeInTheDocument();
 
     await openTransportMenu();
     fireEvent.click(await screen.findByRole("option", { name: "Cycling" }));
 
-    // The walking numbers are gone, not carried over onto a cycling leg.
+    // The walking numbers are gone, not carried over onto a cycling leg: the duration is back at the
+    // 30 minutes the dialog opened with, which says more than "45 is absent" did.
     await waitFor(() => {
-      expect(screen.queryByDisplayValue("00:45")).not.toBeInTheDocument();
+      expectDuration("0", "30");
     });
     expect(screen.queryByDisplayValue("6.2")).not.toBeInTheDocument();
     expect(screen.queryByText("Route details were prefilled from Maps.")).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("Duration (HH:mm)"), { target: { value: "01:10" } });
+    setDuration("1", "10");
     fireEvent.click(screen.getByRole("button", { name: "OK" }));
 
     await waitFor(() => {
@@ -1067,6 +1086,178 @@ describe("TripDayTravelSegmentDialog", () => {
     await waitFor(() => {
       expect(screen.getByText(manualHelper)).toBeInTheDocument();
     });
+
+    vi.unstubAllGlobals();
+  });
+
+  // --- Story 6.18: one way to enter a time -------------------------------------------------------
+
+  /**
+   * The duration is entered on a Walking leg throughout this block: car is the only mode that also
+   * demands a distance, and a second error would say nothing about the duration.
+   */
+  const openWalkingLeg = async () => {
+    await openTransportMenu();
+    fireEvent.click(await screen.findByRole("option", { name: "Walking" }));
+  };
+
+  const saveCallBody = (fetchMock: ReturnType<typeof stubSaveFetch>) => {
+    const saveCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith("/travel-segments"));
+    return JSON.parse(String((saveCall?.[1] as RequestInit).body));
+  };
+
+  /**
+   * AC3, and the only assertion in the suite that can catch its trap. jsdom renders `type="time"` as
+   * a plain text input, so a duration quietly turned into a clock would leave every other case in
+   * this file green — while a real browser would read "01:30" as half past one and refuse 26:30
+   * outright.
+   */
+  it("models the duration as hours and minutes rather than as a time of day", async () => {
+    stubCsrfOnlyFetch();
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayTravelSegmentDialog {...baseProps} />
+      </I18nProvider>,
+    );
+
+    const hoursBox = await screen.findByLabelText("Duration (h)");
+    const minutesBox = screen.getByLabelText("Duration (min)");
+    for (const box of [hoursBox, minutesBox]) {
+      // One assertion, not two: an element carries a single `type`, so pairing this with
+      // `not.toHaveAttribute("type", "time")` would add a line that cannot fail while this one
+      // passes. `text` is also the load-bearing half — `number` would blank `badInput` to `""` and
+      // let the empty-box-means-zero rule save a silent zero.
+      expect(box).toHaveAttribute("type", "text");
+      expect(box).toHaveAttribute("inputmode", "numeric");
+    }
+    // The free-text field's label is gone from both dictionaries, so neither spelling can return.
+    expect(screen.queryByLabelText("Duration (HH:mm)")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Dauer (HH:mm)")).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("labels the two duration boxes in German too", async () => {
+    stubCsrfOnlyFetch();
+
+    render(
+      <I18nProvider initialLanguage="de">
+        <TripDayTravelSegmentDialog {...baseProps} />
+      </I18nProvider>,
+    );
+
+    expect(await screen.findByLabelText("Dauer (Std.)")).toBeInTheDocument();
+    expect(screen.getByLabelText("Dauer (Min.)")).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * AC5. The single field accepted exactly what `^(\d{1,3}):(\d{2})$` plus an hours-0-999 /
+   * minutes-0-59 range check accepted, and the pair has to accept the same set. No HTML attribute
+   * can carry that: nothing runs constraint validation on submit, which is the lesson the distance
+   * field learned in Story 6.16, so `combineDurationToMinutes` is the only judge.
+   */
+  it.each([
+    ["26", "30", 1590],
+    ["0", "45", 45],
+    ["999", "59", 60_000 - 1],
+    // The one deliberate widening: an empty box counts as zero, where "01:" and ":30" were both
+    // rejected. It is symmetric — a box empties itself on one backspace, and an error over a box
+    // visibly reading 30 is the defect this story exists to remove.
+    ["1", "", 60],
+    ["", "30", 30],
+  ])("saves %s h and %s min as %i minutes", async (hours, minutes, expected) => {
+    const fetchMock = stubSaveFetch();
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayTravelSegmentDialog {...baseProps} />
+      </I18nProvider>,
+    );
+
+    await openWalkingLeg();
+    setDuration(hours, minutes);
+    fireEvent.click(screen.getByRole("button", { name: "OK" }));
+
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/travel-segments"))).toBe(true);
+    });
+    expect(saveCallBody(fetchMock).durationMinutes).toBe(expected);
+
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * The other half of the same set, with the message unchanged from the one-field version. Note the
+   * `findByText`: it throws on more than one match, so it also pins "one error line under the pair"
+   * rather than one under each box.
+   */
+  it.each([
+    // Minutes are minutes; 60 and up belong in the hours box.
+    ["1", "60"],
+    ["1", "99"],
+    // The hours ceiling the old regex's `\d{1,3}` imposed.
+    ["1000", "0"],
+    // A total of zero is not a duration — including the two-empty-boxes spelling of it.
+    ["0", "0"],
+    ["", ""],
+    // Everything `^\d+$` exists for. These reach the validator verbatim because the boxes are
+    // `type="text"`; a `type="number"` box would hand back `""` for the last three, and the
+    // empty-box-means-zero rule would then save 30 minutes without a word. "1e3" is the sharpest:
+    // `Number.parseInt("1e3")` is 1, so without the regex it would be a silently accepted 60.
+    ["-1", "30"],
+    ["1.5", "30"],
+    ["1", "-5"],
+    ["1e3", "30"],
+    ["12abc", "30"],
+    ["1", "1,5"],
+  ])("rejects %s h and %s min with the unchanged duration message", async (hours, minutes) => {
+    const fetchMock = stubSaveFetch();
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayTravelSegmentDialog {...baseProps} />
+      </I18nProvider>,
+    );
+
+    await openWalkingLeg();
+    setDuration(hours, minutes);
+    fireEvent.click(screen.getByRole("button", { name: "OK" }));
+
+    expect(await screen.findByText("Duration is required")).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/travel-segments"))).toBe(false);
+
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * Review pass. One message now paints two boxes, so a stale one is twice as loud: without this,
+   * correcting the value left both boxes red under a message about the value the user had already
+   * fixed, with `aria-describedby` still pointing at it, until the next OK. `TripDayPlanDialog`
+   * clears on change; this dialog's distance field still does not (deferred).
+   */
+  it("clears the duration error as soon as either box is corrected", async () => {
+    stubSaveFetch();
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayTravelSegmentDialog {...baseProps} />
+      </I18nProvider>,
+    );
+
+    await openWalkingLeg();
+    setDuration("0", "0");
+    fireEvent.click(screen.getByRole("button", { name: "OK" }));
+
+    const error = await screen.findByText("Duration is required");
+    expect(screen.getByLabelText("Duration (min)")).toHaveAttribute("aria-describedby", error.id);
+
+    fireEvent.change(screen.getByLabelText("Duration (min)"), { target: { value: "45" } });
+
+    expect(screen.queryByText("Duration is required")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Duration (min)")).not.toHaveAttribute("aria-describedby");
 
     vi.unstubAllGlobals();
   });

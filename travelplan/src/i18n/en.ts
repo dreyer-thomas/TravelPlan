@@ -309,7 +309,11 @@ const en: Dictionary = {
   "trips.travelSegment.fromLabel": "From",
   "trips.travelSegment.toLabel": "To",
   "trips.travelSegment.transportLabel": "Transport",
-  "trips.travelSegment.durationLabel": "Duration (HH:mm)",
+  // Story 6.18 replaced the single "Duration (HH:mm)" field with an hours box and a minutes box, so
+  // there is no longer one label to carry. Both are short on purpose: they sit side by side inside
+  // one column of a dialog that has to fit a 390px phone, and each is its field's accessible name.
+  "trips.travelSegment.durationHoursLabel": "Duration (h)",
+  "trips.travelSegment.durationMinutesLabel": "Duration (min)",
   "trips.travelSegment.distanceLabel": "Distance (km)",
   "trips.travelSegment.distanceOptionalLabel": "Distance (km, optional)",
   "trips.travelSegment.distanceInvalid": "Enter a distance greater than 0, or leave the field empty.",
@@ -448,10 +452,11 @@ const en: Dictionary = {
   "trips.plan.inlineImageAlt": "Plan image",
   "trips.plan.titleLabel": "Title",
   "trips.plan.titleHelper": "Required short title (max 120 characters)",
+  // Story 6.18 deleted `fromTimeHelper` / `toTimeHelper`. They read "Required start time (HH:mm)"
+  // and had no reader in `src/` — dead hints for a free-text field these two labels stopped
+  // belonging to when the day-plan dialog went native `type="time"`.
   "trips.plan.fromTimeLabel": "From",
-  "trips.plan.fromTimeHelper": "Required start time (HH:mm)",
   "trips.plan.toTimeLabel": "To",
-  "trips.plan.toTimeHelper": "Required end time (HH:mm, later than from)",
   "trips.plan.costLabel": "Cost",
   "trips.plan.costHelper": "Optional amount (e.g. 10.00 or 10,00)",
   "trips.plan.costInvalid": "Enter a valid non-negative amount with up to 2 decimals",

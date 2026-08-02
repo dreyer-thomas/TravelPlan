@@ -982,6 +982,57 @@ summary: The link is rendered as `<Button component="a" target="_blank">` with n
 evidence: `target="_blank"` predates 6-17 and the same pattern appears on other external links in the app, so this is a convention question rather than a defect this story introduced. It is recorded because 6-17 shortened the visible text, which is the only thing that was carrying the meaning. Deliberately not patched inside 6-17: adding `aria-label` to the *save* button — the reviewer's suggested fix — would give it an accessible name ("Save travel segment") that does not contain its visible label ("OK"), which is a WCAG 2.5.3 Label-in-Name failure and worse than what it replaces. The right scope is one pass over external links app-wide, deciding a single convention for the new-tab announcement.
 status: open
 
+### DW-120: "Duration is required" names neither the box nor the rule that broke
+
+source_spec: `_bmad-output/implementation-artifacts/6-18-one-way-to-enter-a-time.md`
+origin: incidental to story 6-18 review, 2026-08-02
+location: `travelplan/src/components/features/trips/TripDayTravelSegmentDialog.tsx` — `combineDurationToMinutes`, and `trips.travelSegment.durationRequired` in both dictionaries
+severity: low
+summary: Every way of failing the duration produces the same sentence. 1 h 99 min, 1000 h, a stray letter and two empty boxes all read "Duration is required" over two boxes that in most of those cases visibly contain a duration.
+evidence: The message is pre-existing and story 6.18's AC5 pinned it verbatim ("this story changes how a value is entered, not what is accepted"), so it could not be improved inside that story. Splitting one field into two multiplied the ways to reach it and made the mismatch more visible: with a single `HH:mm` box the message at least described the whole control. The same docblock that defines the accepted set calls "an error over a field that visibly contained a duration" the failure signature it exists to prevent. A story allowed to touch the strings would give the ceiling cases their own message ("Minutes must be under 60") and leave "Duration is required" for the empty case.
+status: open
+
+### DW-121: The duration pair never stacks below `sm`, unlike the two form rows it was modelled on
+
+source_spec: `_bmad-output/implementation-artifacts/6-18-one-way-to-enter-a-time.md`
+origin: incidental to story 6-18 review, 2026-08-02
+location: `travelplan/src/components/features/trips/TripDayTravelSegmentDialog.tsx` — the `Box display="flex" gap={2}` wrapping the two duration boxes
+severity: low
+summary: The two boxes sit side by side at every width. The equivalent pair in `TripAccommodationDialog.tsx:889-895` uses `flexDirection: { xs: "column", sm: "row" }`, and `TripDayPlanDialog.tsx:1064` documents its row as stacking to a column at xs.
+evidence: Deliberate, not overlooked — story 6.18's Task 3 required the pair to gain the dialog no vertical height, which is exactly what stacking would cost, and story 6.17 had just spent itself reclaiming that height. But the trade-off was never seen: at 390px the dialog paper is about 326px, so each box gets roughly 155px for a floating label of "Duration (min)" / "Dauer (Min.)". Whether that reads or crowds is a browser measurement, and story 6.18's browser pass is owed to the operator. Resolve it from that session: if the labels crowd, the cheap first move is `gap={1}`, and stacking is the fallback.
+status: open
+
+### DW-122: A stored duration above 59,999 minutes cannot be edited, and the route import can produce one
+
+source_spec: `_bmad-output/implementation-artifacts/6-18-one-way-to-enter-a-time.md`
+origin: incidental to story 6-18 review, 2026-08-02
+location: `travelplan/src/lib/validation/travelSegmentSchemas.ts` (`durationMinutes: z.number().int().positive()`) against `combineDurationToMinutes`'s 999-hour ceiling in `TripDayTravelSegmentDialog.tsx`
+severity: low
+summary: The server accepts any positive integer; the dialog accepts hours 0-999. A segment stored above 59,999 minutes (about 41 days) opens with hours ≥ 1000 in the box and answers "Duration is required" on save — a segment that cannot be edited without retyping. The route import at `handleGoogleMapsRoute` is unclamped, so a long enough walking route could write one.
+evidence: Pre-existing and unchanged by story 6.18 — the old `^(\d{1,3}):(\d{2})$` regex had exactly the same ceiling, and 6.18's AC5 required the accepted set to stay identical. Recorded because the docblock on `combineDurationToMinutes` presents this failure mode ("the field could reject its own prefill") purely as history, when a narrower version of it survives. Fix is either a `.max()` on the schema that agrees with the form, or clamping the import to the form's ceiling; the two should be one number stated once.
+status: open
+
+### DW-123: The two duration boxes are one value with no programmatic grouping, and the shared error is not announced
+
+source_spec: `_bmad-output/implementation-artifacts/6-18-one-way-to-enter-a-time.md`
+origin: incidental to story 6-18 review, 2026-08-02
+location: `travelplan/src/components/features/trips/TripDayTravelSegmentDialog.tsx` — the duration `Box` and its `FormHelperText`
+severity: low
+summary: The hours and minutes boxes are two independent fields sharing one `aria-describedby` target. There is no `role="group"` or fieldset naming them as one control, and the error is not a live region, so it is announced only if the user happens to be on one of the two inputs when it appears.
+evidence: Each box carries a self-describing label ("Duration (h)", "Duration (min)"), so nothing is unlabelled and the error is correctly associated — this is a polish gap, not a barrier. It is not specific to this dialog either: no error in the app is announced through a live region, and no split control anywhere is grouped. Recorded as the concrete instance of a convention the app has not yet chosen; deciding it once, app-wide, beats grouping one pair.
+status: open
+
+### DW-124: The travel-segment distance field does not clear its error when corrected
+
+source_spec: `_bmad-output/implementation-artifacts/6-18-one-way-to-enter-a-time.md`
+origin: incidental to story 6-18 review, 2026-08-02
+location: `travelplan/src/components/features/trips/TripDayTravelSegmentDialog.tsx` — the distance `TextField`'s `onChange`
+severity: low
+summary: After a failed save, editing the distance leaves the field red under the old message until the next OK press. `TripDayPlanDialog.tsx:1078-1081` clears its field errors on change; this dialog's distance field does not.
+evidence: Pre-existing. Surfaced because story 6.18's review added exactly this clearing to the two new duration boxes — one message painting two boxes made a stale error twice as loud — which leaves the distance field the odd one out inside the same dialog. `handleTransportTypeChange` already clears `distanceKm`, so the pattern is half there; the fix is the same two lines used on the duration boxes.
+status: open
+
+
 ## Note: story 6.16 review decision (2026-08-02)
 
 The one `decision-needed` finding from the 6.16 code review - walking and cycling route import

@@ -308,7 +308,10 @@ const de: Dictionary = {
   "trips.travelSegment.fromLabel": "Von",
   "trips.travelSegment.toLabel": "Nach",
   "trips.travelSegment.transportLabel": "Transport",
-  "trips.travelSegment.durationLabel": "Dauer (HH:mm)",
+  // Story 6.18 replaced the single "Dauer (HH:mm)" field with an hours box and a minutes box — see
+  // the note in `en.ts`.
+  "trips.travelSegment.durationHoursLabel": "Dauer (Std.)",
+  "trips.travelSegment.durationMinutesLabel": "Dauer (Min.)",
   "trips.travelSegment.distanceLabel": "Entfernung (km)",
   "trips.travelSegment.distanceOptionalLabel": "Entfernung (km, optional)",
   "trips.travelSegment.distanceInvalid": "Gib eine Entfernung größer als 0 ein oder lass das Feld leer.",
@@ -446,10 +449,9 @@ const de: Dictionary = {
   "trips.plan.inlineImageAlt": "Planbild",
   "trips.plan.titleLabel": "Titel",
   "trips.plan.titleHelper": "Pflichttitel (maximal 120 Zeichen)",
+  // Story 6.18 deleted `fromTimeHelper` / `toTimeHelper` — see the note in `en.ts`.
   "trips.plan.fromTimeLabel": "Von",
-  "trips.plan.fromTimeHelper": "Erforderliche Startzeit (HH:mm)",
   "trips.plan.toTimeLabel": "Bis",
-  "trips.plan.toTimeHelper": "Erforderliche Endzeit (HH:mm, spaeter als Start)",
   "trips.plan.costLabel": "Kosten",
   "trips.plan.costHelper": "Optionaler Betrag (z. B. 10,00 oder 10.00)",
   "trips.plan.costInvalid": "Bitte einen gueltigen nicht-negativen Betrag mit maximal 2 Dezimalstellen eingeben",
