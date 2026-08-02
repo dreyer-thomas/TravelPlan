@@ -19,7 +19,7 @@ operator_actions:
 
 # Story 6.20: The Trips Link Moves Into the Header Menu
 
-Status: awaiting-operator
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 

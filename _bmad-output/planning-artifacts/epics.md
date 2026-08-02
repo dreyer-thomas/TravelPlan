@@ -2214,6 +2214,35 @@ So that one long hotel name stops making half the strip tall.
 **Then** the value still distinguishes them: `noAccommodation` in the warning colour, or the check-in time or an em dash in ink
 
 
+### Story 6.22: The Activity Dialog in Tabs
+
+As a trip planner on a phone,
+I want the activity dialog split into four tabs instead of one long scroll,
+So that I can see what a section holds without scrolling through everything that comes before it.
+
+**FRs covered:** FR15, FR21 (activity editing) — layout only
+
+**Given** the activity dialog, which measures 1341px of content in a 556px window at 390x844 with 11 input fields
+**When** it opens
+**Then** it carries four tabs — Was (Titel, Beschreibung), Wann & Wo (Von, Bis, Ort), Kosten (Betrag, Zahlungsart, Zahlungszeilen), Medien & Links (Galerie, Link) — and none of them holds a single field
+
+**Given** a validation error on a tab the user is not looking at
+**When** they press save
+**Then** the dialog switches to the first tab carrying an error and focuses that field; every tab with an error is marked, and saving never fails silently
+
+**Given** the map from error key to tab
+**When** a seventh error key is added later
+**Then** the build fails rather than the marker silently going missing
+
+**Given** typed-but-unsaved values, rich-text content, selected files and an in-flight upload
+**When** the user switches tabs and comes back
+**Then** none of it is lost
+
+**Given** the description's own formatting toolbar sits directly below the tab bar
+**When** both render at 390px
+**Then** they are distinguishable at a glance rather than reading as one broken control
+
+
 ## Epic 7: Visual Redesign — Light Cockpit System
 
 Users experience the approved `DESIGN.md`/`EXPERIENCE.md` visual system across every screen instead of the current inconsistent styling. Source of truth: `_bmad-output/planning-artifacts/ux-designs/ux-TravelPlan-2026-07-27/DESIGN.md`, `EXPERIENCE.md`, and `mockups/*.html`. This epic re-skins existing, already-shipped screens — it does not add product capability, so no new FRs are introduced.

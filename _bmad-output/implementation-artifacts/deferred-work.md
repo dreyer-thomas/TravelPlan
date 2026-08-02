@@ -1165,6 +1165,7 @@ location: `travelplan/src/components/features/trips/TripDayView.tsx` — `statVa
 severity: medium
 summary: Story 6.21 removed the accommodation name from cell 4's *label*, which is where a long hotel name grew row 2 and dragged the spend cell up with it. `statValueSx` still carries `overflowWrap: "anywhere"`, and cell 4's value on a day with no accommodation is the sentence "No accommodation" / "Keine Unterkunft" at 21px/900 in a ~130px column at 390px. It wraps to two lines and grows the same row, by the same mechanism, on every gap day — which is a far more common state than "the hotel has a long name".
 evidence: Correctly out of scope: story 6.21's Trap 4 says explicitly that a strip which still does not fit after the labels shorten is "a finding for a new story, not licence to restructure the grid", and AC5 requires the two-state value to keep reading as it does. So nothing here contradicts the story. What the story's Change Log now claims is narrower than it sounds — "no user-supplied text can set the strip's row height" is true, and is not the same as "the strip no longer grows". The fix is a decision about the value, not the label: a shorter string for the empty state (an em dash, matching the "check-in unset" case, loses the distinction AC5 protects), a smaller font for that one value, or letting the cell clip. Worth measuring in a browser first — the manual pass owed by story 6.21's Task 5 is the natural place to confirm it.
+operator_measurement (2026-08-02, Chromium, `cec3505`): **Confirmed, and larger than this entry assumed.** On a day with no accommodation the value "Keine Unterkunft" wraps to **2 lines at 390px** and **3 lines at 600px**, growing the strip's row by **+31px at both widths** (85px -> 117px, and 117px -> 148px). Story 6.21 removed exactly this mechanism from the *label*; it survives untouched in the *value*. Worth raising in priority on frequency alone: a day without a booked stay is far more common than a day whose hotel name is long enough to have triggered the original complaint.
 status: open
 
 ### DW-136: The same number is "Ausgaben" in the stat strip and "Kosten heute" in the card below it
@@ -1205,4 +1206,14 @@ location: `_bmad-output/implementation-artifacts/7-3-day-detail-redesign.md:265`
 severity: low
 summary: Story 6.21 deleted `trips.dayView.statCheckIn` from both dictionaries. Story 7.3's spec, which is the document that defined the stat strip, still lists it with its `{name}` placeholder as one of the strip's four labels.
 evidence: Completed spec files are records of what was decided at the time, not live documentation, so amending 7.3 in place would cost more than it saves — this ledger entry is the pointer. It matters only for the specific case of someone rebuilding the strip from 7.3 and reintroducing the interpolated label along with it. The concrete mitigation is already in place and is the reason `statCheckInGeneric` deliberately kept its now-meaningless suffix: `statCheckIn` was left retired rather than rebound to the short string, so an old reference to it reads as obviously stale instead of silently resolving to something with different semantics.
+status: open
+
+### DW-140: The hamburger trigger announces no menu — no aria-haspopup, aria-expanded or aria-controls
+
+source_spec: `_bmad-output/implementation-artifacts/6-20-trips-link-into-the-header-menu.md`
+origin: operator browser pass for story 6-20, 2026-08-02
+location: `travelplan/src/components/HeaderMenu.tsx:161-174`
+severity: low
+summary: The global menu's `IconButton` carries `aria-label` alone. A screen-reader user is told it is a button named "Menü öffnen" but not that it opens a menu, nor whether that menu is currently open — while the page-local day-hero `⋯` has carried all three attributes since Story 6.11.
+evidence: Measured on 2026-08-02: `trigger.getAttribute("aria-expanded")` is `null` before opening, while open, and after closing. `TripDayView.tsx` sets `aria-haspopup="menu"`, `aria-expanded={Boolean(dayMenuAnchor)}` and `aria-controls` on its own trigger, so the app already has the pattern and this one component diverges. Pre-existing and not introduced by 6.20 — but 6.20 is the story that gave this menu a navigation destination, which makes it the point at which the gap starts to matter. Fix is three attributes plus an `id` on the `Menu`, mirroring what `TripDayView` already does.
 status: open

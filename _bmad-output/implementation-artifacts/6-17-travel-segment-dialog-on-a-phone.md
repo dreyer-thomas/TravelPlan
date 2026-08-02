@@ -20,7 +20,7 @@ operator_actions:
 
 # Story 6.17: Travel Segment Dialog on a Phone
 
-Status: awaiting-operator
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
