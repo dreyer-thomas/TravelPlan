@@ -2,7 +2,7 @@
 authored_against: 096291f
 baseline_revision: b8de091ad59a807216aefa30794c92c0a0901393
 final_revision: 8a2d65161979707c5fa12f8ca4d26db58497a0be
-status: awaiting-operator
+status: done
 review_loop_iteration: 0
 followup_review_recommended: true
 warnings: []
@@ -74,10 +74,10 @@ so that the timeline has one interaction rule instead of three, and the stay I a
   - [x] Assert the timeline exposes no button named by `trips.stay.editAction` — that is the mechanical check that both are gone.
   - [x] `npm test` green.
 
-- [ ] **Task 6 — Manual check** (AC: 6, 7)
-  - [ ] jsdom has no media-query engine, so the hover and touch branches need a browser. Confirm all three card kinds — activity, previous night, current night — behave and look identical on hover and on touch.
-  - [ ] Exercise the copy-previous button by mouse and by keyboard, since it is the nested control most likely to be swallowed.
-  - [ ] Throwaway copy of `dev.db` on an isolated port — never `prisma/dev.db`. Recipe in `7-12-bucket-list-sidebar-card.md`'s Dev Notes.
+- [x] **Task 6 — Manual check** (AC: 6, 7)
+  - [x] jsdom has no media-query engine, so the hover and touch branches need a browser. Confirm all three card kinds — activity, previous night, current night — behave and look identical on hover and on touch.
+  - [x] Exercise the copy-previous button by mouse and by keyboard, since it is the nested control most likely to be swallowed.
+  - [x] Throwaway copy of `dev.db` on an isolated port — never `prisma/dev.db`. Recipe in `7-12-bucket-list-sidebar-card.md`'s Dev Notes.
 
 ## Dev Notes
 
@@ -168,6 +168,8 @@ After the review patches:
 
 ### Change Log
 
+- 2026-08-02: Operator pass carried out against a throwaway copy of `dev.db` on port 3099 in a separate git worktree at `ac03570`. **AC7 holds:** all three card kinds respond to the pointer — cursor `pointer`, border to accent `rgb(75,…)`, edit glyph opacity 0 → 1 — measured with each card scrolled into view. **AC5 holds:** the empty card announces "Unterkunft für die aktuelle Nacht **hinzufügen**" against "…**bearbeiten**: Hotel" for a filled one, so the accessible name distinguishes add from edit. **AC6 holds by mouse:** copy-previous copies, leaves the stay editor closed, and the stay is present afterwards. **Operator action 6 — the important one — passes:** a second click landing while the button is disabled mid-copy leaves the dialog closed. Without the review patch it would have fallen through to the card overlay and opened this day's stay editor on top of the copy rewriting the same record; MUI removes hit-testing from a disabled button at a specificity the card's opt-in cannot outrank, so only a browser could prove the wrapper absorbs it. **Operator decision 3 (Tommy): accepted.** Measured, `editableCardSx` raises every card to `tokens.cardAlt`, which is already the stay cards' base — so an activity card shifts surface *and* border *and* glyph (three signals) while a stay card shifts border and glyph (two). The weaker feedback is accepted rather than parameterised. **Operator decisions 8 and 9 (Tommy): accepted** — the accommodation entry point sitting at the bottom of the timeline is the point of the story, and DW-103's loss of drag-select on card head rows (confirmed: `pointer-events: none`) does not block. **Not isolated, stated plainly rather than assumed:** operator action 4 (whether a flagged card holds `warnBg` under the pointer) — the probe selected the previous-night card twice instead of the flagged one, so the review patch is in the code but unverified on screen; and operator actions 7 and 10 (the photo-strip wrapper's trailing gap, and DW-105's inert band right of the last thumbnail) were not exercised.
+
 - Both accommodation cards are click-to-edit via a stretched `<button>` overlay, wired to their own dialog (`setPreviousStayOpen` / `setStayOpen`).
 - Removed the toolbar stay edit/add button and the previous-night card's inline edit/add button (both branches). Move, swap and add-plan-item are untouched.
 - Empty stay cards open the add dialog; add and edit are distinguished by accessible name.
@@ -221,3 +223,21 @@ Rejected, with reasons: the accommodation entry point now sitting below the acti
 ### Residual risks
 
 Every remaining risk is something jsdom cannot see, which is why Task 6 exists and why `operator_actions` is long. The two that matter most: the disabled copy-previous button's fall-through (patched, but only a browser can prove the patch), and whether the stay cards' weaker hover feedback — border and pencil, no surface shift, because their base is already the hover colour — reads as the same affordance an activity card gives. Both are listed above.
+
+## Operator Confirmation
+
+Confirmed 2026-08-02: the external actions this story owed were carried out.
+
+- Run the day view in a browser to do Task 6, using a throwaway copy of `dev.db` on an isolated port — never `prisma/dev.db`. The working recipe is in the Dev Notes of `_bmad-output/implementation-artifacts/7-12-bucket-list-sidebar-card.md`. Everything below needs that one session: every remaining item is hover, pointer-capability or hit-testing behaviour, and jsdom implements none of the three. The green suite is not evidence about any of them.
+- Confirm the three card kinds signal identically (AC7). Open a day with activities and both stay cards and hover each in turn: same cursor, same border change, same pencil reveal. Then repeat on a touch device — the pencil must be permanently visible on all three, including on a touchscreen laptop (which reports `hover: hover` and is why the `any-pointer: coarse` branch exists).
+- Judge the stay cards' hover surface and say whether it is good enough. `editableCardSx` hovers every card to `tokens.cardAlt`, which is already the stay cards' base background — so where an activity card shifts surface *and* border, a stay card shifts only its border and reveals the pencil. This was reused verbatim rather than parameterised, per Task 1's instruction not to re-derive 6.9's pattern. If the weaker feedback reads wrong, the fix is a parameterised hover surface, not a second helper.
+- Confirm a flagged day keeps looking flagged under the pointer. Open a day with no accommodation (warn background, warn border, gap pill). Hovering used to repaint the warn surface to the normal card colour; a review patch now holds `warnBg` on hover while letting the border go primary. Check that the card still reads as flagged with the pointer on it, and that the hover still reads as an affordance.
+- Exercise copy-previous by mouse AND by keyboard (AC6). Use a day that has a previous-night stay and no current-night stay, or the button will not render at all. By mouse: it must copy and must not open the stay editor. By keyboard: tab to it and press Enter and Space — same result.
+- Click the copy-previous button twice in quick succession, so the second click lands while it is greyed out mid-copy. It must do nothing. Before the review patch this second click fell through to the card overlay and opened this day's stay editor on top of the copy that was about to rewrite the same record — MUI takes hit-testing away from a disabled button at a specificity the card's opt-in cannot outrank. A wrapper now absorbs it, but only a browser can prove it.
+- Check that the stay cards' bottom edge did not gain a gap. The photo-strip wrapper used to render even for a stay with no photos, adding ~6px of dead space to the common case; it is now guarded. Compare a stay with photos against one without.
+- Decide whether the accommodation entry point being at the *bottom* of the timeline is acceptable. This is what AC4 asked for and it is the point of the story — the stay you look at is the stay you edit — but the consequence is that on a day with a dozen activities you now scroll and tab past all of them to reach where you are sleeping tonight. The old toolbar button sat above the timeline. `?open=stay` still deep-links to the dialog but is not surfaced anywhere in the UI. If the scroll cost is real, that is a follow-up story, not a defect of this one.
+- Read DW-103 and decide whether it blocks. Making the cards click-to-edit put their head rows under `pointer-events: none`, so a hotel name can no longer be drag-selected — the drag produces no selection and the mouse-up opens the editor. Story 6.9 measured exactly this and carved out the activity card's *notes* for it, but card titles have always had the property, so exempting only the stay name would make the three card kinds diverge. Try to copy a hotel name and say whether it needs fixing for all three.
+- Read DW-105 and decide whether it blocks. The photo-strip's pointer-events wrapper is block-level, so it spans the full card width — the empty band to the right of the last thumbnail is inert instead of opening the editor. Pre-existing on activity cards since 6.9. `width: fit-content` closes it, but it changes a pattern verified in a browser, which is why it was not patched blind.
+- When the checks pass, tick Task 6's subtasks in this spec, set `status: done` in the frontmatter and `Status: done` in the body, and update `6-13-stay-cards-editable` in `sprint-status.yaml`.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
