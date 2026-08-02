@@ -4,6 +4,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import TripBucketListPanel, { BUCKET_LIST_MAX_HEIGHT_PX } from "@/components/features/trips/TripBucketListPanel";
+import { emotionDeclarations } from "./helpers/emotionStyles";
 import { renderWithProviders } from "./helpers/renderWithProviders";
 
 // MUI's default `md` breakpoint. The height cap is deliberately scoped to the same key the trip
@@ -12,62 +13,6 @@ const MD_MEDIA_CONDITION = "(min-width:900px)";
 // MUI turns an `xs` key into `breakpoints.up("xs")`, i.e. a 0px-floor media query rather than an
 // unconditional declaration - so the "no cap below md" half of AC5 lands here, not in the base rule.
 const XS_MEDIA_CONDITION = "(min-width:0px)";
-
-const CSS_STYLE_RULE = 1;
-const CSS_MEDIA_RULE = 4;
-
-/**
- * Reads one CSS property for an element's Emotion class out of the document's stylesheets, split by
- * the media condition each declaration sits under.
- *
- * jsdom evaluates no media queries and performs no layout, so `getComputedStyle` / `toHaveStyle`
- * cannot see a breakpoint-scoped `sx` value at all - a responsive `maxHeight` is simply invisible to
- * them. Emotion does emit the real rules into `<style>` tags, so read them back through the CSSOM
- * instead of regexing the CSS text, which would be brittle on whitespace, declaration order and
- * vendor prefixes.
- */
-const emotionDeclarations = (element: Element, property: string) => {
-  const selectors = Array.from(element.classList)
-    .filter((name) => name.startsWith("css-"))
-    .map((name) => `.${name}`);
-  const base: string[] = [];
-  const media = new Map<string, string[]>();
-
-  const targetsElement = (selectorText: string) =>
-    selectorText.split(",").some((part) => selectors.includes(part.trim()));
-
-  const visit = (rules: CSSRuleList, condition: string | null) => {
-    Array.from(rules).forEach((rule) => {
-      if (rule.type === CSS_MEDIA_RULE) {
-        const mediaRule = rule as CSSMediaRule;
-        visit(mediaRule.cssRules, mediaRule.media.mediaText.replace(/\s+/g, ""));
-        return;
-      }
-      if (rule.type !== CSS_STYLE_RULE) return;
-      const styleRule = rule as CSSStyleRule;
-      if (!targetsElement(styleRule.selectorText)) return;
-      const value = styleRule.style.getPropertyValue(property).trim();
-      if (!value) return;
-      if (condition === null) {
-        base.push(value);
-        return;
-      }
-      media.set(condition, [...(media.get(condition) ?? []), value]);
-    });
-  };
-
-  Array.from(document.styleSheets).forEach((sheet) => {
-    let rules: CSSRuleList | null = null;
-    try {
-      rules = sheet.cssRules;
-    } catch {
-      rules = null;
-    }
-    if (rules) visit(rules, null);
-  });
-
-  return { base, media };
-};
 
 const buildItem = (overrides: Partial<Record<string, unknown>> = {}) => ({
   id: "item-1",

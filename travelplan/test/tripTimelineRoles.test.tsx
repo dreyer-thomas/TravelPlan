@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import TripTimeline from "@/components/features/trips/TripTimeline";
+import { emotionDeclarations, emotionDeclaredProperties } from "./helpers/emotionStyles";
 import { renderWithProviders } from "./helpers/renderWithProviders";
 
 vi.mock("@/components/features/trips/TripAccommodationDialog", () => ({
@@ -33,6 +34,31 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
 }));
 
+// MUI's default `md` breakpoint - the key the overview grid splits on, so the day column's desktop
+// padding is declared under this condition rather than unconditionally.
+const MD_MEDIA_CONDITION = "(min-width:900px)";
+
+// jsdom performs no layout, so Story 6.10's AC2 - "its rendered width matches a day row's" - cannot
+// be measured. Two properties make it true and both are asserted below: the day column declares the
+// padding that sets the width, and the card declares no width or margin that would override it.
+const WIDTH_AND_SPACING_PROPERTIES = [
+  "width",
+  "min-width",
+  "max-width",
+  "inline-size",
+  "min-inline-size",
+  "max-inline-size",
+  "flex",
+  "flex-basis",
+  "margin",
+  "margin-top",
+  "margin-right",
+  "margin-bottom",
+  "margin-left",
+  "margin-inline",
+  "margin-block",
+];
+
 /**
  * Trip-overview role gating and day-row status rendering.
  *
@@ -43,6 +69,13 @@ vi.mock("next/navigation", () => ({
  * below are the non-feedback half, restored verbatim in intent.
  */
 describe("TripTimeline role gating", () => {
+  // Each case ends with its own `vi.unstubAllGlobals()`, which a failing assertion skips - leaking
+  // the stubbed `fetch` into every case after it and turning one real failure into a cascade of
+  // misleading ones. This runs regardless.
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   type TripOverrides = { name: string; accessRole: "owner" | "contributor" | "viewer" };
 
   const buildDetailResponse = (
@@ -232,6 +265,65 @@ describe("TripTimeline role gating", () => {
     expect(deleteButton.className).not.toMatch(/MuiButton-(outlined|color)(Error|Warning|Info|Success)/);
 
     vi.unstubAllGlobals();
+  });
+
+  it("ends the day column with the controls card, below the last day row", async () => {
+    // Story 6.10 AC1/AC6. Ancestry plus document order, not a sibling index: the card must be inside
+    // the grid's day column (AC1) and be the last thing in it (AC6), while an unrelated insertion
+    // elsewhere in the column leaves the case alone. Membership on its own would pass with the card
+    // rendered above the timeline heading, which is neither of those things.
+    const fetchMock = stubDetailFetch(
+      buildDetailResponse({ name: "Controls Placement", accessRole: "owner" }, { missingAccommodation: true, accommodation: null }),
+    );
+
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/trips/trip-1", expect.anything()));
+
+    const dayColumn = screen.getByTestId("trip-overview-main-column");
+    const card = screen.getByTestId("trip-controls-card");
+    const dayRows = within(dayColumn).getAllByTestId("timeline-day-card");
+
+    expect(dayColumn.contains(card)).toBe(true);
+    expect(dayColumn.lastElementChild).toBe(card);
+    // DOCUMENT_POSITION_FOLLOWING: the card comes after the day rows it has to line up with.
+    expect(dayRows[dayRows.length - 1].compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
+
+  it("lets the day column's padding set the controls card's width, with no constraint on the card", async () => {
+    // Story 6.10 AC2, in two halves, because either one alone passes while the card is misaligned:
+    // the column must still declare the padding that produces the day rows' width, and the card must
+    // declare nothing that overrides it. The trailing 8px `marginBottom` of the last day row is the
+    // column's spacing rhythm, so a margin here would stack a second gap on top of it as well.
+    const fetchMock = stubDetailFetch(
+      buildDetailResponse({ name: "Controls Width", accessRole: "owner" }, { missingAccommodation: true, accommodation: null }),
+    );
+
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/trips/trip-1", expect.anything()));
+
+    const dayColumn = screen.getByTestId("trip-overview-main-column");
+    const card = screen.getByTestId("trip-controls-card");
+
+    // The mechanism: 28px of right padding on the column is what holds every block in it, day rows
+    // and card alike, off the grid's gutter. Drop it and the card silently widens again.
+    const columnPadding = emotionDeclarations(dayColumn, "padding");
+    // `0` comes back as `0px` - the CSSOM normalises it on the way in.
+    expect(columnPadding.media.get(MD_MEDIA_CONDITION)).toEqual(["22px 28px 22px 0px"]);
+
+    const declared = emotionDeclaredProperties(card);
+
+    expect(card.getAttribute("style")).toBeNull();
+    WIDTH_AND_SPACING_PROPERTIES.forEach((property) => {
+      expect(declared.has(property)).toBe(false);
+    });
+    // Story 7.8's treatment is untouched (AC5) - the same rule set still carries it. Also the canary
+    // proving the helper found this element's rules at all, so the absences above are not vacuous.
+    expect(declared.has("border-radius")).toBe(true);
+    expect(declared.has("padding")).toBe(true);
   });
 
   /**

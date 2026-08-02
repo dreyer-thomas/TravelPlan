@@ -459,7 +459,7 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
               gap: { xs: 2, md: 0 },
             }}
           >
-            <Box sx={{ p: { xs: 0, md: "22px 28px 22px 0" } }}>
+            <Box data-testid="trip-overview-main-column" sx={{ p: { xs: 0, md: "22px 28px 22px 0" } }}>
               <Typography variant="labelCaps" component="h5" sx={{ color: tokens.inkSoft, display: "block", mb: 1.5 }}>
                 {t("trips.timeline.title")}
               </Typography>
@@ -702,6 +702,39 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                   );
                 })}
               </Box>
+
+              {/* Last block of the day column, so it lines up with the day rows above it: the
+                  column's own padding sets the width, and adding one here would drift the moment
+                  the grid changes. The rows already end with their 8px `marginBottom`, which is
+                  this column's spacing rhythm - a margin of its own would stack a second gap on
+                  top of it.
+                  Viewers get neither Edit nor Delete, so guarding the container prevents an empty
+                  18px-padded bordered card. Story 7.8 Task 5 covered this explicitly. */}
+              {canEditPlanning || isOwner ? (
+                <Box
+                  data-testid="trip-controls-card"
+                  sx={{
+                    backgroundColor: tokens.card,
+                    border: "1px solid",
+                    borderColor: tokens.borderStrong,
+                    borderRadius: "8px",
+                    padding: "18px",
+                  }}
+                >
+                  <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                    {canEditPlanning ? (
+                      <Button variant="outlined" onClick={() => setEditOpen(true)}>
+                        {t("trips.edit.open")}
+                      </Button>
+                    ) : null}
+                    {isOwner ? (
+                      <Button variant="outlined" onClick={() => setDeleteOpen(true)}>
+                        {t("trips.delete.open")}
+                      </Button>
+                    ) : null}
+                  </Box>
+                </Box>
+              ) : null}
             </Box>
 
             <Box
@@ -794,34 +827,6 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
               ) : null}
             </Box>
           </Box>
-
-          {/* Viewers get neither Edit nor Delete, so guarding the container prevents an empty
-              18px-padded bordered card. Story 7.8 Task 5 covered this explicitly. */}
-          {canEditPlanning || isOwner ? (
-            <Box
-              data-testid="trip-controls-card"
-              sx={{
-                backgroundColor: tokens.card,
-                border: "1px solid",
-                borderColor: tokens.borderStrong,
-                borderRadius: "8px",
-                padding: "18px",
-              }}
-            >
-              <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
-                {canEditPlanning ? (
-                  <Button variant="outlined" onClick={() => setEditOpen(true)}>
-                    {t("trips.edit.open")}
-                  </Button>
-                ) : null}
-                {isOwner ? (
-                  <Button variant="outlined" onClick={() => setDeleteOpen(true)}>
-                    {t("trips.delete.open")}
-                  </Button>
-                ) : null}
-              </Box>
-            </Box>
-          ) : null}
         </>
       )}
 
