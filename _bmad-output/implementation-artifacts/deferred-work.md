@@ -748,3 +748,19 @@ location: `travelplan/package.json` (scripts), `travelplan/test/**`
 severity: low
 reason: `npx tsc --noEmit` reports **143 errors**, identical on the 6-10 branch and on its baseline `e990d3f` — none introduced by this story, and none in application source. They are concentrated in test files, overwhelmingly one shape: hand-rolled `fetch` stubs typed as `{ ok, status, json }` object literals assigned where `Promise<Response>` is expected ("missing the following properties from type 'Response': headers, redirected, statusText, type, and 9 more"). `package.json` has no `typecheck` script — `lint` is the only static gate — so nothing in CI or the dev loop ever surfaces these, and the count is free to grow. The consequence today is nil at runtime (Vitest transpiles without typechecking, and `next build` only checks the app graph), but it means TypeScript cannot be trusted as a signal in the test suite: a genuine type error in a new test is indistinguishable from the 143 already there. Fix is a shared typed `mockFetchResponse` helper in `test/helpers/` plus a `typecheck` script wired into the same gate as `lint`.
 status: open
+
+### DW-96: DESIGN.md's "hero shows one navigation or action button only" rule is now contradicted by the day hero it governs
+
+origin: incidental to story 6-11 review, 2026-08-02
+location: `_bmad-output/planning-artifacts/ux-designs/ux-TravelPlan-2026-07-27/DESIGN.md` — the `hero-photo (with scrim)` component entry
+severity: low
+reason: The design spine states the hero shows "**title, date/breadcrumb, and one navigation or action button only** — never stats". Story 6.9 already put two controls there (back-to-trip plus the owner-gated day-image action); story 6.11 adds a `⋯` overflow and two chevrons, taking the day hero to five. The controls themselves are not the problem — Tommy decided the chevron placement on 2026-08-01 and Epic 6's context records "The hero carries navigation" as the settled pattern — but DESIGN.md was never updated to match, so the approved spine now describes something the flagship screen contradicts, and the next screen built from it will inherit a rule nobody follows. Either restate the rule (e.g. one *labelled* action in each header slot, with photo-edge navigation exempt) or record the exception against the day hero. Not fixed in 6-11: DESIGN.md is an approved design artifact and amending it is a design-authority call, not a side effect of a layout story.
+status: open
+
+### DW-97: The global header menu's trigger announces no popup, on the same defect just fixed on the day hero
+
+origin: incidental to story 6-11 review, 2026-08-02
+location: `travelplan/src/components/HeaderMenu.tsx` — the hamburger `IconButton`
+severity: low
+reason: The trigger carries `aria-label` but no `aria-haspopup`, `aria-expanded` or `aria-controls`, so a screen-reader user hears "Open menu, button" with no indication it opens a menu or whether it is currently open. Story 6.11 introduced a second menu trigger on the day hero and gave it all three, which is what surfaced this — the two now diverge. Not fixed in 6.11 because that story's AC5 explicitly forbids modifying `HeaderMenu.tsx`; the same one-line fix applies there and should be taken with whatever next touches that component.
+status: open

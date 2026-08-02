@@ -1133,12 +1133,25 @@ describe("TripDayView layout", () => {
     const previousLink = screen.getByRole("link", { name: "Go to previous day" });
     const nextLink = screen.getByRole("link", { name: "Go to next day" });
 
+    // Story 6.11: the chevrons carry no visible label, so the test ids are the only handle on which
+    // side each one is. Tying the id to the accessible name here is what catches a left/right swap -
+    // mirrored chevrons read as correct in a screenshot and only the hrefs disagree.
+    expect(screen.getByTestId("day-hero-prev")).toBe(previousLink);
+    expect(screen.getByTestId("day-hero-next")).toBe(nextLink);
     expect(previousLink).toHaveAttribute("href", "/trips/trip-1/days/day-prev");
     expect(nextLink).toHaveAttribute("href", "/trips/trip-1/days/day-next");
+
+    // AC3: the toolbar band below the hero is gone, not emptied. Asserting the chevrons live inside
+    // day-hero is the positive form of that claim - deleting the old assertions only proved the old
+    // labels vanished, which an empty leftover Box would also satisfy.
+    const hero = screen.getByTestId("day-hero");
+    expect(hero).toContainElement(previousLink);
+    expect(hero).toContainElement(nextLink);
+    expect(screen.queryAllByLabelText(/Go to (previous|next) day/)).toHaveLength(2);
     vi.unstubAllGlobals();
   });
 
-  it("renders localized previous and next controls in German", async () => {
+  it("renders localized previous and next chevron labels in German", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
     const fetchMock = withBucketList(async () => {
@@ -1203,14 +1216,18 @@ describe("TripDayView layout", () => {
     const previousLink = screen.getByRole("link", { name: "Zum vorherigen Tag wechseln" });
     const nextLink = screen.getByRole("link", { name: "Zum nächsten Tag wechseln" });
 
-    expect(previousLink).toHaveTextContent("Zurück");
-    expect(nextLink).toHaveTextContent("Weiter");
     expect(previousLink).toHaveAttribute("href", "/trips/trip-1/days/day-prev");
     expect(nextLink).toHaveAttribute("href", "/trips/trip-1/days/day-next");
+
+    // The two strings a German user now needs in order to find print at all. Nothing in this repo
+    // compares the EN and DE key sets, so a missing or wrong DE value is only caught here.
+    const overflow = screen.getByRole("button", { name: "Weitere Aktionen" });
+    await userEvent.click(overflow);
+    expect(await screen.findByRole("menuitem", { name: "Tag drucken" })).toBeInTheDocument();
     vi.unstubAllGlobals();
   });
 
-  it("disables previous on first day and next on last day", async () => {
+  it("renders no previous chevron on the first day and no next chevron on the last day", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
     const fetchMock = withBucketList(async () => {
@@ -1271,14 +1288,23 @@ describe("TripDayView layout", () => {
     const { rerender } = renderWithProviders(<TripDayView tripId="trip-1" dayId="day-prev" />);
 
     expect(await screen.findByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Go to previous day" })).toBeDisabled();
-    expect(screen.getByRole("link", { name: "Go to next day" })).toHaveAttribute("href", "/trips/trip-1/days/day-middle");
+    // Story 6.11 replaced the disabled buttons with nothing at all. Absence has to be asserted three
+    // ways because a regression could bring any one of them back: the test id, the accessible name in
+    // either role a control might take, and the name unbound from role entirely.
+    expect(screen.queryByTestId("day-hero-prev")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Go to previous day" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Go to previous day" })).not.toBeInTheDocument();
+    expect(screen.queryAllByLabelText("Go to previous day")).toHaveLength(0);
+    expect(screen.getByTestId("day-hero-next")).toHaveAttribute("href", "/trips/trip-1/days/day-middle");
 
     rerender(<Providers><TripDayView tripId="trip-1" dayId="day-next" /></Providers>);
 
     expect(await screen.findByRole("heading", { name: "Day 3", level: 5 })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Go to previous day" })).toHaveAttribute("href", "/trips/trip-1/days/day-middle");
-    expect(screen.getByRole("button", { name: "Go to next day" })).toBeDisabled();
+    expect(screen.getByTestId("day-hero-prev")).toHaveAttribute("href", "/trips/trip-1/days/day-middle");
+    expect(screen.queryByTestId("day-hero-next")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Go to next day" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Go to next day" })).not.toBeInTheDocument();
+    expect(screen.queryAllByLabelText("Go to next day")).toHaveLength(0);
     vi.unstubAllGlobals();
   });
 
@@ -3681,7 +3707,7 @@ describe("TripDayView layout", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders a print/export link that navigates to the day print page", async () => {
+  it("opens the hero overflow menu to a print link that navigates to the day print page", async () => {
     navigationMockState.search = "";
     const fetchMock = withBucketList(async (input) => {
       const url = String(input);
@@ -3735,8 +3761,36 @@ describe("TripDayView layout", () => {
 
     await screen.findByRole("heading", { name: "Day 1", level: 5 });
 
-    const printLink = screen.getByRole("link", { name: /print|export/i });
+    // Story 6.11: print moved behind the hero overflow. A closed MUI Menu is not mounted at all, so
+    // nothing is queryable until the trigger is clicked - and AC3 wants the old toolbar link gone,
+    // which is the `link` half of this assertion. The item is queried as a menuitem, not a link:
+    // MUI puts role="menuitem" on MenuItem, which overrides the anchor's implicit role even though
+    // the element it renders is still a real <a href>.
+    expect(screen.queryByRole("menuitem", { name: "Print day" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /print|export/i })).not.toBeInTheDocument();
+
+    // AC6, owner half: this fixture is accessRole "owner", so the right slot must carry both the
+    // owner-only day-image action and the overflow. Scoped to the header row - queried globally the
+    // overflow could drift back below the hero and this would still pass.
+    const headerRow = screen.getByTestId("day-hero-header-row");
+    expect(within(headerRow).getByRole("button", { name: "Edit day details" })).toBeInTheDocument();
+    const overflow = within(headerRow).getByTestId("day-hero-overflow");
+    expect(overflow).toHaveAttribute("aria-haspopup", "menu");
+    expect(overflow).toHaveAttribute("aria-expanded", "false");
+    await userEvent.click(overflow);
+    expect(overflow).toHaveAttribute("aria-expanded", "true");
+
+    // Queried by the visible label, not a loose regex: an aria-label that shadowed "Print day" would
+    // still match /print|export/i via "printable", leaving the label a user actually reads untested.
+    const printLink = await screen.findByRole("menuitem", { name: "Print day" });
+    expect(printLink.tagName).toBe("A");
     expect(printLink).toHaveAttribute("href", "/trips/trip-1/days/day-1/print");
+    expect(printLink).toHaveAttribute("target", "_blank");
+    expect(printLink).toHaveAttribute("rel", "noopener noreferrer");
+
+    // Activating it must dismiss the menu; the tab it opens is a new one, so the day page stays put.
+    await userEvent.click(printLink);
+    await waitFor(() => expect(screen.queryByRole("menuitem", { name: "Print day" })).not.toBeInTheDocument());
 
     vi.unstubAllGlobals();
   });
@@ -4732,6 +4786,33 @@ describe("TripDayView layout", () => {
     expect(screen.getByTestId("coverage-axis-description")).toHaveTextContent(
       "The coverage bar spans the full day, from 00:00 to 24:00.",
     );
+
+    vi.unstubAllGlobals();
+  });
+
+  // --- Story 6.11: print is a read action, not an owner action ---------------------------------
+
+  it("gives a viewer the hero overflow and its print link without the owner-only day-image action", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal("fetch", buildDayResponse({}, { accessRole: "viewer" }));
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    // The overflow shares the right slot with the isOwner-gated day-image action. Putting it inside
+    // that branch would silently take print away from viewers and contributors - a capability loss
+    // wearing a layout change's clothes, which is why this asserts both halves of the slot at once.
+    const headerRow = screen.getByTestId("day-hero-header-row");
+    expect(within(headerRow).queryByRole("button", { name: "Edit day details" })).not.toBeInTheDocument();
+    const overflow = within(headerRow).getByTestId("day-hero-overflow");
+
+    await userEvent.click(overflow);
+
+    const printLink = await screen.findByRole("menuitem", { name: "Print day" });
+    expect(printLink).toHaveAttribute("href", "/trips/trip-1/days/day-1/print");
+    expect(printLink).toHaveAttribute("target", "_blank");
+    expect(printLink).toHaveAttribute("rel", "noopener noreferrer");
 
     vi.unstubAllGlobals();
   });

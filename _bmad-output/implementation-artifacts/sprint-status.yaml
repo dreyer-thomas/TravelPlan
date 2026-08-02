@@ -1,5 +1,5 @@
 # generated: 2026-03-01 13:08:00 CET
-# last_updated: 2026-08-02 (6-10-trip-overview-refinements implemented and reviewed via bmad-dev-auto; spec status is awaiting-operator, held here as in-progress because awaiting-operator is not in this file's status vocabulary. Task 3 is a rendered-layout check and this repo has no browser automation — see operator_actions in the spec. Prior: 2-33-restore-export-entry-point added — there is currently no export entry point in the UI at all: 7.8 removed the button, 2.31 rebuilt the backend without one, 2.32 kept only import. Prior: 2-32 done, verified retroactively; next.config.ts gained proxyClientMaxBodySize)
+# last_updated: 2026-08-02 (6-11-day-nav-chevrons-and-print-menu implemented and reviewed via bmad-dev-auto; spec status is awaiting-operator. Task 6 is a browser pass — chevron legibility over photography, a long note overlapping them, the hero's new phone padding and the reclaimed space — and this repo has no browser automation, so none of it can be agent-verified. See operator_actions in the spec. 10 review findings patched, 2 deferred as DW-96/DW-97. Prior: 6-10-trip-overview-refinements also awaiting-operator. Prior: 2-33-restore-export-entry-point added — there is currently no export entry point in the UI at all: 7.8 removed the button, 2.31 rebuilt the backend without one, 2.32 kept only import.)
 # project: TravelPlan
 # project_key: NOKEY
 # tracking_system: file-system
@@ -123,8 +123,8 @@ development_status:
   6-7-move-or-swap-day-activities-between-dates: done
   6-8-export-day-itinerary-pdf-for-offline-use: done
   6-9-day-detail-refinements: done
-  6-10-trip-overview-refinements: awaiting-operator
-  6-11-day-nav-chevrons-and-print-menu: ready-for-dev
+  6-10-trip-overview-refinements: done
+  6-11-day-nav-chevrons-and-print-menu: awaiting-operator
   6-12-fullscreen-photo-viewer: ready-for-dev
   6-13-stay-cards-editable: ready-for-dev
   epic-6-retrospective: done

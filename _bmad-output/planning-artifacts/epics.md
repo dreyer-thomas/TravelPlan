@@ -1860,6 +1860,47 @@ Everything this needs already exists and was verified in a browser by 6.9: `edit
 **When** the two cards become clickable
 **Then** none of it changes: this story moves an affordance, it does not change what any dialog does
 
+### Story 6.14: Trip Controls Last on a Phone
+
+As a trip planner on a phone,
+I want "Reise bearbeiten" and "Reise löschen" at the very bottom of the trip overview,
+So that two actions I almost never use stop sitting between the day list and the information I actually scrolled for.
+
+**FRs covered:** None (ordering only — no capability, gating or styling change)
+
+**Context:** Story 6.10 moved the trip-controls card into the layout grid's left column so its width would match the day rows'. That fixed the desktop alignment — measured: card and day rows both `left 124 → right 821.3` at 1400px, the ~455px overhang gone.
+
+Below `md` the grid collapses to one column and DOM order becomes visual order, so the card came with it: Edit/Delete now render directly under the day list, **above** the cost summary, the route map, the bucket list and the gap alert. Before 6.10 they were the last thing on the page.
+
+6.10's AC4 only constrained the card's *width* in the single-column layout, and its width is unchanged — so this is a follow-up, not a defect in that story. Its own operator action said as much. Tommy rejected the new order on 2026-08-02: these two controls are rarely used and should not precede four information cards on the surface where vertical space costs the most.
+
+Note the shape of the problem: the card is nested inside the left column, and the sidebar cards inside the right one. A CSS `order` on the card alone cannot move it past its own column's sibling, so the fix is structural rather than a one-property change.
+
+**Acceptance Criteria:**
+
+**Given** the trip overview below the `md` breakpoint, where the layout is a single column
+**When** the page renders
+**Then** the trip-controls card is the **last** block on the page, after the cost summary, the route map, the bucket list and the gap alert
+**And** its width still spans the column exactly as it does today, which is what Story 6.10's AC4 fixed
+
+**Given** the two-column layout at `md` and above
+**When** the page renders
+**Then** nothing changes from what Story 6.10 delivered: the card sits in the left column below the day list, sharing the day rows' edges, with no width, `maxWidth` or margin of its own
+**And** the left column still ends with the controls card and the right with the gap alert
+
+**Given** the card is nested inside the left column, so a CSS `order` cannot lift it past that column's own boundary
+**When** the reordering is implemented
+**Then** the mechanism is chosen deliberately and recorded — whether the card becomes a direct grid child with a breakpoint-dependent `order`, or is rendered in a different position below `md` — and it does not reintroduce a full-width block after the grid, which Story 6.10 removed
+**And** the card is not rendered twice with one copy hidden, since that would duplicate its buttons for assistive technology
+
+**Given** the existing gating (`canEditPlanning || isOwner`) and Story 6.10's test asserting the card is a descendant of the left column
+**When** the ordering changes
+**Then** the gating is unchanged, and that test is updated deliberately rather than deleted — a viewer still sees no card at any width
+
+**Given** every other block on the overview
+**When** the card moves on small screens
+**Then** their order, width and behaviour are unchanged: this story moves one card on one breakpoint
+
 ## Epic 7: Visual Redesign — Light Cockpit System
 
 Users experience the approved `DESIGN.md`/`EXPERIENCE.md` visual system across every screen instead of the current inconsistent styling. Source of truth: `_bmad-output/planning-artifacts/ux-designs/ux-TravelPlan-2026-07-27/DESIGN.md`, `EXPERIENCE.md`, and `mockups/*.html`. This epic re-skins existing, already-shipped screens — it does not add product capability, so no new FRs are introduced.

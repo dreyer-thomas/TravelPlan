@@ -11,6 +11,8 @@ import {
   DialogContent,
   DialogTitle,
   IconButton,
+  Menu,
+  MenuItem,
   Skeleton,
   SvgIcon,
   TextField,
@@ -32,8 +34,11 @@ import {
   type TripDayGanttSegment,
 } from "@/components/features/trips/TripDayGanttSegments";
 import {
+  ChevronLeftIcon,
+  ChevronRightIcon,
   HERO_SCRIM,
   HouseIcon,
+  MoreHorizontalIcon,
   ON_PHOTO_CHROME,
   PencilIcon,
   WarningTriangleIcon,
@@ -338,6 +343,17 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const [transferMode, setTransferMode] = useState<DayActivityTransferMode | null>(null);
   const [transferTargetDayId, setTransferTargetDayId] = useState("");
   const [transferSubmitting, setTransferSubmitting] = useState(false);
+  const [dayMenuAnchor, setDayMenuAnchor] = useState<null | HTMLElement>(null);
+  // Reset-on-prop-change during render rather than in an effect, which is React's own prescription
+  // and keeps this out of the cascading-render lint. The menu's backdrop swallows clicks but not
+  // browser back/forward, so navigating to a sibling day can leave the anchor pointing at the
+  // trigger the loading skeleton just unmounted - a detached node, which Popover then measures as
+  // the viewport's top-left corner.
+  const [dayMenuDayId, setDayMenuDayId] = useState(dayId);
+  if (dayMenuDayId !== dayId) {
+    setDayMenuDayId(dayId);
+    setDayMenuAnchor(null);
+  }
   const planItemsRef = useRef<DayPlanItem[]>([]);
   const handledDeepLinkRef = useRef<string | null>(null);
   const scrollRestoreKey = useMemo(() => `trip-day-scroll:${tripId}:${dayId}`, [dayId, tripId]);
@@ -1702,6 +1718,14 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     }
   }, [scrollRestoreKey]);
 
+  const handleDayMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
+    setDayMenuAnchor(event.currentTarget);
+  };
+
+  const handleDayMenuClose = () => {
+    setDayMenuAnchor(null);
+  };
+
   useEffect(() => {
     const fallbackPolyline = mapData.points.map((point) => point.position);
     setRoutePolyline(fallbackPolyline);
@@ -1820,7 +1844,11 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                 minHeight: 210,
                 display: "flex",
                 flexDirection: "column",
-                padding: "22px 32px 24px",
+                // Responsive below md, matching the panel directly beneath it, because this story put
+                // a second unconditional button in the right slot. At 360px the fixed 32px gutters
+                // left 264px for a nowrap "← Zurück zur Reise" (~180px) plus a now-96px right slot,
+                // which overflows; 16px gutters buy back the 32px that made it fit before.
+                padding: { xs: "22px 16px 24px", md: "22px 32px 24px" },
                 overflow: "hidden",
                 backgroundColor: theme.palette.primary.main,
                 backgroundImage: dayHeroImageCss,
@@ -1870,8 +1898,9 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                     {t("trips.dayView.back")}
                   </Button>
                 </Box>
-                {/* Rendered even when empty so the row keeps two flex children and space-between goes
-                    on pinning the trip button left for a non-owner, rather than centring it. */}
+                {/* Never empty now: the overflow is unconditional, so the row always has its second
+                    flex child and space-between keeps pinning the trip button left for every role.
+                    Only the day-image action beside it is owner-gated. */}
                 <Box display="flex" alignItems="center" gap={1} sx={{ flexShrink: 0 }}>
                   {isOwner ? (
                     <IconButton
@@ -1889,8 +1918,126 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                       </SvgIcon>
                     </IconButton>
                   ) : null}
+                  {/* Outside the isOwner branch above on purpose: printing is a read action, so every
+                      role that can open this day can reach it. Same 44px hit area and on-photo chrome
+                      as its neighbour - see that button's note for why both are spelled out here. */}
+                  <IconButton
+                    aria-label={t("trips.dayView.moreActions")}
+                    title={t("trips.dayView.moreActions")}
+                    aria-haspopup="menu"
+                    aria-expanded={Boolean(dayMenuAnchor)}
+                    aria-controls={dayMenuAnchor ? "day-hero-overflow-menu" : undefined}
+                    onClick={handleDayMenuOpen}
+                    data-testid="day-hero-overflow"
+                    sx={{ ...ON_PHOTO_CHROME, width: 44, height: 44 }}
+                  >
+                    <MoreHorizontalIcon />
+                  </IconButton>
                 </Box>
+                {/* A page-local menu rather than an entry in the global HeaderMenu: that menu is built
+                    from getAuthMenuItems(authState) alone, while print needs this trip and this day,
+                    and a globally visible print entry would dangle on every page that is not a day. */}
+                <Menu
+                  id="day-hero-overflow-menu"
+                  anchorEl={dayMenuAnchor}
+                  open={Boolean(dayMenuAnchor)}
+                  onClose={handleDayMenuClose}
+                  // Right-aligned to its trigger, which HeaderMenu's does not need to be: that one
+                  // anchors mid-header, this one sits at the hero's right edge, where MUI's
+                  // default top-left origin would open the paper rightwards over the trigger and
+                  // leave it to Popover's viewport clamping to drag back.
+                  anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+                  transformOrigin={{ vertical: "top", horizontal: "right" }}
+                  // slotProps.paper, not the deprecated PaperProps (MUI 7) - same call the dialogs
+                  // make. The surface itself is HeaderMenu's, so the two menus read as one idiom.
+                  slotProps={{
+                    paper: {
+                      sx: {
+                        mt: 1,
+                        borderRadius: 3,
+                        px: 1,
+                        backgroundColor: "#ffffff",
+                        border: "1px solid rgba(17, 18, 20, 0.08)",
+                        boxShadow: "0 20px 40px rgba(17, 18, 20, 0.18)",
+                      },
+                    },
+                  }}
+                >
+                  {/* No aria-label: it would replace "Print day" as the accessible name rather than
+                      supplement it, so a voice-control user saying what they see could not reach it.
+                      The visible label is the name. */}
+                  <MenuItem
+                    component={Link}
+                    href={`/trips/${tripId}/days/${day.id}/print`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={handleDayMenuClose}
+                  >
+                    <Typography>{t("trips.dayView.printAction")}</Typography>
+                  </MenuItem>
+                </Menu>
               </Box>
+              {/* Day-to-day navigation used to be a toolbar band below the hero - three controls the
+                  user rarely reaches for, costing a full row above the content they came for. On the
+                  photo it costs nothing.
+
+                  Absolutely positioned rather than flex children of the header row: they must centre
+                  against the hero's whole height, which the bottom-anchored title block grows into
+                  from below, not against the header row's own line box.
+
+                  Placed after the header row rather than before it so tab order follows the eye:
+                  back button (top-left), day-image action and overflow (top-right), then the two
+                  chevrons at the sides. Their position on screen is set by `top`/`left`, not by where
+                  they sit in the DOM, so this costs nothing visually.
+
+                  zIndex 3, one above the title block. The title is bottom-anchored and grows upward
+                  on a long note until it spans this band, and at equal zIndex the later sibling wins
+                  both painting and hit-testing - which would leave the chevrons looking present and
+                  ~20px of each one dead to the touch. A navigation control outranks decorative text.
+
+                  A missing neighbour renders nothing - not a disabled button. There is no row shape
+                  left to preserve, and disabled chrome over arbitrary photography reads as a smudge
+                  rather than as an unavailable control. */}
+              {previousDay ? (
+                <IconButton
+                  component={Link}
+                  href={`/trips/${tripId}/days/${previousDay.id}`}
+                  aria-label={t("trips.dayView.previousAria")}
+                  data-testid="day-hero-prev"
+                  sx={{
+                    ...ON_PHOTO_CHROME,
+                    position: "absolute",
+                    left: 8,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    zIndex: 3,
+                    width: 44,
+                    height: 44,
+                  }}
+                >
+                  <ChevronLeftIcon />
+                </IconButton>
+              ) : null}
+              {nextDay ? (
+                <IconButton
+                  component={Link}
+                  href={`/trips/${tripId}/days/${nextDay.id}`}
+                  aria-label={t("trips.dayView.nextAria")}
+                  data-testid="day-hero-next"
+                  sx={{
+                    ...ON_PHOTO_CHROME,
+                    position: "absolute",
+                    right: 8,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    zIndex: 3,
+                    width: 44,
+                    height: 44,
+                  }}
+                >
+                  <ChevronRightIcon />
+                </IconButton>
+              ) : null}
               {/* mt: auto keeps the title bottom-anchored now that the hero is no longer
                   justify-content: flex-end (the top row is in flow and must stay at the top). */}
               <Box sx={{ position: "relative", zIndex: 2, mt: "auto" }}>
@@ -2056,52 +2203,6 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                 </Typography>
               </Box>
             </Box>
-          </Box>
-
-          {/* Day-to-day navigation and print. Undepicted by the mockup, which shows only the
-              breadcrumb and back button - kept as its own slim toolbar rather than dropped. */}
-          <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
-            {previousDay ? (
-              <Button
-                component={Link}
-                href={`/trips/${tripId}/days/${previousDay.id}`}
-                variant="outlined"
-                size="small"
-                aria-label={t("trips.dayView.previousAria")}
-              >
-                {t("trips.dayView.previousAction")}
-              </Button>
-            ) : (
-              <Button variant="outlined" size="small" disabled aria-label={t("trips.dayView.previousAria")}>
-                {t("trips.dayView.previousAction")}
-              </Button>
-            )}
-            {nextDay ? (
-              <Button
-                component={Link}
-                href={`/trips/${tripId}/days/${nextDay.id}`}
-                variant="outlined"
-                size="small"
-                aria-label={t("trips.dayView.nextAria")}
-              >
-                {t("trips.dayView.nextAction")}
-              </Button>
-            ) : (
-              <Button variant="outlined" size="small" disabled aria-label={t("trips.dayView.nextAria")}>
-                {t("trips.dayView.nextAction")}
-              </Button>
-            )}
-            <Button
-              component={Link}
-              href={`/trips/${tripId}/days/${day.id}/print`}
-              variant="text"
-              size="small"
-              aria-label={t("trips.dayView.printAria")}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              {t("trips.dayView.printAction")}
-            </Button>
           </Box>
 
           <Box

@@ -74,6 +74,27 @@ export function ChevronRightIcon({ sx }: IconProps) {
 }
 
 /**
+ * Chevron-left - `ChevronRightIcon`'s path rotated 180. Same reason as the down/up pair below: the
+ * two day-hero chevrons sit side by side on one photo, so any drift between a hand-written mirror
+ * and the original would show up as an asymmetric pair.
+ */
+export function ChevronLeftIcon({ sx }: IconProps) {
+  return (
+    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={[{ fontSize: 18 }, ...(Array.isArray(sx) ? sx : [sx])]}>
+      <path
+        d="M9 6l6 6-6 6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        transform="rotate(180 12 12)"
+      />
+    </SvgIcon>
+  );
+}
+
+/**
  * The same path as `ChevronRightIcon`, rotated 90deg via `transform`, rather than duplicating a
  * near-identical `d=` string. A second glyph would drift the moment someone tweaked the corner
  * radius on the right chevron and forgot the down copy - see the same convention already applied for
@@ -110,6 +131,21 @@ export function ChevronUpIcon({ sx }: IconProps) {
         strokeLinejoin="round"
         transform="rotate(-90 12 12)"
       />
+    </SvgIcon>
+  );
+}
+
+/**
+ * Horizontal ellipsis for an overflow trigger. Filled dots rather than the stroked outlines the rest
+ * of the set uses: a 2px-stroked ring at this size collapses into a smudge, and a dot has no outline
+ * to draw anyway.
+ */
+export function MoreHorizontalIcon({ sx }: IconProps) {
+  return (
+    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={[{ fontSize: 18 }, ...(Array.isArray(sx) ? sx : [sx])]}>
+      <circle cx="5" cy="12" r="1.8" fill="currentColor" />
+      <circle cx="12" cy="12" r="1.8" fill="currentColor" />
+      <circle cx="19" cy="12" r="1.8" fill="currentColor" />
     </SvgIcon>
   );
 }

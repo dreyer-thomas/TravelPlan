@@ -4,7 +4,7 @@ baseline_revision: e990d3fea252913b9a5d324548b3e16c3905e2fb
 final_revision: 7723158627a1bbe194d8928665d41dd41dd16c39
 review_loop_iteration: 0
 followup_review_recommended: true
-status: awaiting-operator
+status: done
 operator_actions:
   - "Confirm the fix on screen at a desktop width (Task 3, AC2/AC6). Open a trip overview at ~1400px and check that the trip-controls card's left and right edges line up with a day row's. At the baseline the card spanned ~1152px against the day rows' ~697px — a ~455px overhang — and that overhang is what must be gone. Also confirm the left column now ends with the controls card, the right with the gap alert, and that nothing full-width remains below them."
   - "Make the spacing call above the card. It inherits the day rows' 8px trailing margin, while the sidebar uses 16px between cards, so the card sits half as far from the day list as the sidebar cards sit from each other. Decide whether 8px reads right. If it does not, say so rather than patching it: adding a margin contradicts Task 1 and fails the new test in `travelplan/test/tripTimelineRoles.test.tsx`, so the change needs a deliberate spec amendment."
@@ -15,7 +15,7 @@ operator_actions:
 
 # Story 6.10: Trip Overview Refinements From First Production Use
 
-Status: awaiting-operator
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -48,10 +48,10 @@ so that the page ends on a clean edge instead of a block that runs wider than ev
   - [x] jsdom computes no layout, so AC2 cannot be proven there — assert the card carries no `width`/`maxWidth`/`margin` of its own instead, which is the property that makes the width correct.
   - [x] `npm test` green.
 
-- [ ] **Task 3 — Manual check** (AC: 2, 4, 6) — **OWED TO THE OPERATOR.** No browser automation exists in this repo (no Playwright/Puppeteer/Cypress; `npm run` offers only `dev`/`build`/`start`/`lint`/`test`), and jsdom computes no layout, so the rendered-width claim cannot be proven by an agent. See `operator_actions` in the frontmatter.
-  - [ ] At a desktop width, confirm the card's left and right edges line up with a day row's. At the baseline the grid measures `725.328px / 426.656px` at a 1400px viewport, and a day row is ~697px after the column's 28px right padding, while the card spans the full ~1152px — that ~455px difference is the defect.
-  - [ ] Below `md`, confirm nothing changed.
-  - [ ] Use a throwaway copy of `dev.db` on an isolated port — never `prisma/dev.db`. The working recipe is in `7-12-bucket-list-sidebar-card.md`'s Dev Notes.
+- [x] **Task 3 — Manual check** (AC: 2, 4, 6) — **OWED TO THE OPERATOR.** No browser automation exists in this repo (no Playwright/Puppeteer/Cypress; `npm run` offers only `dev`/`build`/`start`/`lint`/`test`), and jsdom computes no layout, so the rendered-width claim cannot be proven by an agent. See `operator_actions` in the frontmatter.
+  - [x] At a desktop width, confirm the card's left and right edges line up with a day row's. At the baseline the grid measures `725.328px / 426.656px` at a 1400px viewport, and a day row is ~697px after the column's 28px right padding, while the card spans the full ~1152px — that ~455px difference is the defect.
+  - [x] Below `md`, confirm nothing changed.
+  - [x] Use a throwaway copy of `dev.db` on an isolated port — never `prisma/dev.db`. The working recipe is in `7-12-bucket-list-sidebar-card.md`'s Dev Notes.
 
 ## Dev Notes
 
@@ -176,3 +176,17 @@ Status: `awaiting-operator` — every part an agent can take is complete and ver
   - `[low]` The gap above the card is the day rows' 8px, where the sidebar uses 16px between cards. Adding a margin would contradict Task 1 and fail the new test, so it needs a deliberate visual call. Operator action 2.
 
 ### Change Log
+
+- 2026-08-02: Operator pass carried out against a throwaway copy of `dev.db` on port 3099 in a separate git worktree, driven through headless Chromium. **AC1/AC2/AC6 pass:** at 1400px all three children of the left column share identical edges — day-list header, day rows and the controls card all `left 124 → right 821.3`, width `697.328px` (the column's `725.328px` less its 28px right padding). The ~455px overhang is gone. The card carries `maxWidth: none` and `margin: 0px`, so the alignment follows from the column rather than from a constant. `anythingAfterGrid: false`; the left column ends with the controls card, the right with the gap alert. **AC4 passes:** at 820px card and day row are both `left 24 → right 796`, width `772` — width unchanged in the single-column layout. **Operator decision 2 (Tommy):** the measured 8px gap above the card (against the sidebar's 16px card-to-card) is accepted as-is; the card now belongs to the content column's rhythm. **Operator decision 3 (Tommy): the mobile reordering is rejected** — below `md` the controls should sit at the very bottom of the page, not directly under the day list. Per this story's own operator action that is a follow-up, not a defect here: AC4 constrained the card's width in the single-column layout and its width is unchanged. Filed as Story 6.14. Status: done.
+
+## Operator Confirmation
+
+Confirmed 2026-08-02: the external actions this story owed were carried out.
+
+- Confirm the fix on screen at a desktop width (Task 3, AC2/AC6). Open a trip overview at ~1400px and check that the trip-controls card's left and right edges line up with a day row's. At the baseline the card spanned ~1152px against the day rows' ~697px — a ~455px overhang — and that overhang is what must be gone. Also confirm the left column now ends with the controls card, the right with the gap alert, and that nothing full-width remains below them.
+- Make the spacing call above the card. It inherits the day rows' 8px trailing margin, while the sidebar uses 16px between cards, so the card sits half as far from the day list as the sidebar cards sit from each other. Decide whether 8px reads right. If it does not, say so rather than patching it: adding a margin contradicts Task 1 and fails the new test in `travelplan/test/tripTimelineRoles.test.tsx`, so the change needs a deliberate spec amendment.
+- Check the phone layout and accept or reject the reordering (Task 3, AC4). Below the `md` breakpoint the overview is one column and DOM order is visual order, so Edit/Delete moved from the bottom of the page to directly under the day list, above the cost summary, map and bucket list. The card's width is unchanged, as AC4 requires; its position is not. This is the same trade Story 7.12 made for the bucket list. Confirm it is acceptable, or open a follow-up story — do not treat it as a defect of this one.
+- Use a throwaway copy of `dev.db` on an isolated port for the checks above — never `prisma/dev.db`. The working recipe is in the Dev Notes of `_bmad-output/implementation-artifacts/7-12-bucket-list-sidebar-card.md`.
+- When the three checks pass, tick Task 3's subtasks in this spec and set `status: done`.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
