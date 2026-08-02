@@ -2,7 +2,7 @@
 authored_against: ac03570
 baseline_revision: 2d62b6792a45ab760600bb4e594eaaec5c6651f4
 final_revision: d3fa451fd77b2a11ff843d3ed51bd17960326df1
-status: awaiting-operator
+status: done
 review_loop_iteration: 0
 followup_review_recommended: true
 warnings: []
@@ -60,10 +60,12 @@ so that two actions I almost never use stop sitting between the day list and the
   - [x] Keep `tripTimelineRoles.test.tsx` green: viewer sees no card, owner sees Edit + Delete, contributor sees Edit only.
   - [x] `npm test` green.
 
-- [ ] **Task 4 — Manual check** (AC: 1, 2, 3, 4)
-  - [ ] jsdom has no media-query engine and computes no layout, so the ordering *is* the story and cannot be proven there.
-  - [ ] At 390px: the controls card is the last thing on the page. At 1400px: it is under the day list, edges matching a day row, and nothing follows the grid.
-  - [ ] Throwaway copy of `dev.db` on an isolated port — never `prisma/dev.db`. Recipe in `7-12-bucket-list-sidebar-card.md`'s Dev Notes.
+- [x] **Task 4 — Manual check** (AC: 1, 2, 3, 4) — operator pass 2026-08-02, against `dcfb859`
+  - [x] jsdom has no media-query engine and computes no layout, so the ordering *is* the story and cannot be proven there. — Measured in Chromium instead, at 390, 899, 900 and 1400px.
+  - [x] At 390px the card is the last thing on the page (AC1): card top `8794.219`, gap alert bottom `8778.219` — **16.0px** apart, from the grid's own gap. Its edges match a day row exactly (AC2): both `x 16 → 374`. At 1400px it is back under the day list inside the left column (AC3), `left 124 → right 821.328`, width `697.328px` — Story 6.10's measured figures reproduced to three decimals. `siblingsAfterGrid: []` at every width (AC4), and the card declares `maxWidth: none`, all four margins `0px`, no inline style.
+  - [x] Exactly one card at every width (AC6): `cardCount: 1` at 390, 899, 900 and 1400. A viewer gets none at either width and no Edit/Delete button (AC7).
+  - [x] **Breakpoint parity, the concern the review pass raised.** At 899px the grid computes `grid-template-columns: 851px` (single) *and* the card is the grid's third child; at 900px it computes `536.438px 315.562px` *and* the card is inside the left column. Both halves of the decision flip at the same width, so there is no window where the layout is stacked and the card is still in the day column — the DW-14 failure mode, excluded in a real browser rather than only in the CSSOM assertion the review added.
+  - [x] Throwaway copy of `dev.db` on an isolated port — never `prisma/dev.db`. — Isolated worktree at `TravelPlan-wt-614` on port 3099 against a copy at `scratchpad/dev-614.db`; `prisma/dev.db` untouched.
 
 ## Dev Notes
 
@@ -208,3 +210,19 @@ Status: `awaiting-operator` — every part an agent can do is done, committed an
 **Verification.** `npm test` → 840 passed, 5 failed; the 5 are `tripImportDialog`/`tripImportRoute` size-limit cases proven pre-existing by stashing this story's changes and re-running them against baseline `2d62b67`. `tripTimelineRoles.test.tsx` 16/16. `npm run lint` byte-identical to baseline (2 errors, 84 warnings, none in changed files). `npx tsc --noEmit` 143 errors, identical count to baseline, none in changed files. Seven mutation checks, all caught, all reverted, green state re-verified after each.
 
 **Residual risks.** AC1, AC2, AC3 and AC4 are claims about rendered layout, and no automated check in this repo can reach them — the suite proves DOM structure and declared CSS conditions, not position on screen. That is the whole of Task 4 and it is owed. DW-106 is the standing one: this file now decides DOM structure from a JS-read media query, against a convention three other components document, and only one declaration is guarded against the two halves drifting apart.
+
+## Operator Confirmation
+
+Confirmed 2026-08-02: the external actions this story owed were carried out.
+
+- Run the trip overview in a browser to do Task 4, using a throwaway copy of `dev.db` on an isolated port — never `prisma/dev.db`. The recipe is in the Dev Notes of `_bmad-output/implementation-artifacts/7-12-bucket-list-sidebar-card.md`. Everything below needs that one session: AC1, AC2, AC3 and AC4 are all claims about computed layout and media-query evaluation, and jsdom implements neither. The green suite is evidence about DOM structure only — it is not evidence that anything is in the right place on screen.
+- At 390px, confirm the trip-controls card is the last thing on the page (AC1). It must sit below the cost summary, the route map, the bucket list and the gap alert — the four blocks it was wrongly sitting above after Story 6.10. There should be about 16px between the gap alert and it, coming from the grid's own `gap`, not from a margin on the card.
+- At 390px, confirm the card's width did not change (AC2). Its left and right edges must line up with a day row's, exactly as before this story. The card declares no width of its own at any breakpoint — it is now the grid's third child and takes the same single `1fr` track both columns take — so if the edges are off, the cause is the track, not the card.
+- At 1400px, confirm nothing changed from Story 6.10 (AC3, AC4). The card is back under the day list inside the left column, sharing the day rows' edges — 6.10's operator pass measured `left 124 → right 821.3`, width `697.328px`. The left column must end on the card, the right column on the gap alert, and nothing may render after the grid.
+- Resize slowly through 900px in both directions and watch the card move between the two positions. Exactly one card at every width, no flicker of two, and no leftover gap in the layout it just left. 900px is the boundary itself — at exactly 900px the desktop position is the correct one.
+- Sign in as a viewer and check both widths (AC7). No controls card at all — not an empty bordered box either. The gate now lives on the shared element rather than beside one of the two mount points, so a viewer should get nothing at every width, but this is the check that proves it.
+- Read DW-106 and decide whether it blocks. This story adds a second `useMediaQuery` to a file where DW-14 has one open against it, and three components carry the comment 'pure sx breakpoints, never useMediaQuery'. The pure-CSS alternative the spec named does not actually work — at `md`+ the card auto-places into grid row 2 and drops below the taller column, opening a gap whenever the sidebar outruns the day list — so the mechanism is right for this story, but the convention is now broken in a place where breaking it moves DOM. The specific escape is closed by a test that pins the CSS and JS breakpoints to one number; the general answer wants a browser-level layout pass.
+- Read DW-107 and decide whether it blocks. Crossing 900px unmounts the card and mounts a new one, so a keyboard user focused on 'Edit trip' while the viewport changes loses focus to the page body. Narrow trigger, and no test in jsdom can reach it — the harness pins one width per case and can never fire a media-query change event. Try it: focus Edit, then resize across 900px.
+- When the checks pass, tick Task 4's subtasks in this spec, set `status: done` in the frontmatter and `Status: done` in the body, and update `6-14-trip-controls-last-on-phone` in `sprint-status.yaml`.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
