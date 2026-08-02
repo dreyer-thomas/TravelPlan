@@ -856,3 +856,15 @@ severity: low
 summary: The card's two mount points are different React positions, so resizing, rotating or split-screening across 900px destroys the card and rebuilds it — a keyboard user focused on "Edit trip" loses focus to `<body>` — and the test harness pins one width per case and can never fire a change event, so nothing automated covers the crossing.
 evidence: `{isTwoColumnLayout ? tripControlsCard : null}` and `{isTwoColumnLayout ? null : tripControlsCard}` are separate slots in the tree; React unmounts one and mounts the other rather than moving the node, and focus does not survive that. Narrow trigger — the viewport has to change while one of the two buttons holds focus — which is why it is deferred rather than patched. The harness half is structural: `setViewportWidth` installs a `matchMedia` whose `addEventListener` is a bare `vi.fn()`, so an implementation that read `window.innerWidth` once at mount would pass all 16 cases identically. Both halves want the same thing DW-14 and DW-106 want: a browser-level layout pass.
 status: open
+
+## Deferred from: 6-15-move-swap-into-overflow (review pass, 2026-08-02)
+
+### DW-108: The import size-cap suite still asserts the old 100 MB ceiling and fails on `main`
+
+source_spec: `_bmad-output/implementation-artifacts/6-15-move-swap-into-overflow.md`
+origin: incidental to story 6-15 review, 2026-08-02
+location: `travelplan/test/tripImportDialog.test.tsx` (four cases) and `travelplan/test/tripImportRoute.test.ts:560`
+severity: medium
+summary: `MAX_IMPORT_PACKAGE_BYTES` was raised from 100 MB to 300 MB, but five tests still spell out `101 * 1024 * 1024` and the string "Backup file is larger than 100 MB."; the fixture is now comfortably *under* the cap, so the route accepts it and fails downstream with `invalid_json`, and `npm test` has been red on `main` since.
+evidence: Not a product defect — the cap enforces correctly at its new value; the assertions are stale. `importLimits.ts` documents the raise ("Raised from 100 MB on 2026-08-02 because it made real backups unrestorable"), and the failures read exactly as a fixture that no longer trips the guard: `expected 'invalid_json' to be 'file_too_large'`. Confirmed pre-existing at `dcfb859` — both files are unmodified by this story and fail identically with story 6-15's changes reverted. A fix was in the working tree at the start of this run (deriving `OVER_LIMIT_BYTES` and the message from `MAX_IMPORT_PACKAGE_BYTES` rather than hard-coding either) and was reverted before it landed; that derive-don't-duplicate shape is the right one, since the same duplication is what `importLimits.ts` exists to prevent. Left to the import story rather than patched here: a red suite on `main` masks real regressions, but it is a different feature and this story must not carry an unrelated fix into its commit.
+status: open

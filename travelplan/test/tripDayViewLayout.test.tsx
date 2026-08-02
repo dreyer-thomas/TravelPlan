@@ -224,6 +224,15 @@ vi.mock("leaflet", () => ({
   divIcon: (options: unknown) => options,
 }));
 
+// Story 6.15: the day-image edit, "Move activities" and "Swap activities" are no longer buttons on
+// the page - they are items inside the hero's `⋯` overflow, and a closed MUI Menu is not mounted at
+// all, so nothing about them is queryable until the trigger is clicked. Every caller that used to
+// do a single `getByRole("button", …)` now needs both halves, which is what this wraps.
+const activateDayOverflowItem = async (name: string) => {
+  await userEvent.click(screen.getByTestId("day-hero-overflow"));
+  await userEvent.click(await screen.findByRole("menuitem", { name }));
+};
+
 describe("TripDayView layout", () => {
   beforeEach(() => {
     bucketListItemsOverride = null;
@@ -1977,7 +1986,7 @@ describe("TripDayView layout", () => {
 
     expect(await screen.findByText("Museum title")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Move activities" }));
+    await activateDayOverflowItem("Move activities");
     expect(await screen.findByRole("heading", { name: "Move activities", level: 2 })).toBeInTheDocument();
 
     await userEvent.selectOptions(screen.getByLabelText("Target day"), "day-2");
@@ -2077,7 +2086,7 @@ describe("TripDayView layout", () => {
 
     expect(await screen.findByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Move activities" }));
+    await activateDayOverflowItem("Move activities");
     await userEvent.selectOptions(screen.getByLabelText("Target day"), "day-2");
     await userEvent.click(screen.getByRole("button", { name: "Confirm move" }));
 
@@ -2227,7 +2236,7 @@ describe("TripDayView layout", () => {
     expect(await screen.findByText("Museum title")).toBeInTheDocument();
     expect(screen.getAllByText("City Hotel").length).toBeGreaterThan(0);
 
-    await userEvent.click(screen.getByRole("button", { name: "Swap activities" }));
+    await activateDayOverflowItem("Swap activities");
     expect(await screen.findByRole("heading", { name: "Swap activities", level: 2 })).toBeInTheDocument();
     await userEvent.selectOptions(screen.getByLabelText("Target day"), "day-2");
     await userEvent.click(screen.getByRole("button", { name: "Confirm swap" }));
@@ -2987,7 +2996,7 @@ describe("TripDayView layout", () => {
     expect(getComputedStyle(hero).backgroundImage).toContain("https://example.com/day-initial.webp");
     expect(screen.getByRole("heading", { name: "Day 1: Flight from FRA to SIN", level: 5 })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit day details" }));
+    await activateDayOverflowItem("Edit day details");
 
     // AC7: the dialog previews the CURRENT day image. Before Story 7.7 it rendered only the selected
     // file's name, so a non-sighted owner had no way to confirm an upload had landed. The hero is
@@ -3017,8 +3026,8 @@ describe("TripDayView layout", () => {
     // the hero background settles before the dialog unmounts.
     expect(await screen.findByRole("heading", { name: "Day 1: Flight from MUC to SIN", level: 5 })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit day details" }));
-    fireEvent.click(screen.getByRole("button", { name: "Remove image" }));
+    await activateDayOverflowItem("Edit day details");
+    fireEvent.click(await screen.findByRole("button", { name: "Remove image" }));
 
     // Removing the image falls the hero back to the placeholder rather than removing an element.
     await waitFor(() =>
@@ -3803,11 +3812,12 @@ describe("TripDayView layout", () => {
     expect(screen.queryByRole("menuitem", { name: "Print day" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /print|export/i })).not.toBeInTheDocument();
 
-    // AC6, owner half: this fixture is accessRole "owner", so the right slot must carry both the
-    // owner-only day-image action and the overflow. Scoped to the header row - queried globally the
-    // overflow could drift back below the hero and this would still pass.
+    // AC6, owner half: this fixture is accessRole "owner". Story 6.15 moved the owner-only
+    // day-image action *into* the menu, so what the right slot must carry is the overflow and
+    // nothing else. Scoped to the header row - queried globally the overflow could drift back
+    // below the hero and this would still pass.
     const headerRow = screen.getByTestId("day-hero-header-row");
-    expect(within(headerRow).getByRole("button", { name: "Edit day details" })).toBeInTheDocument();
+    expect(within(headerRow).queryByRole("button", { name: "Edit day details" })).not.toBeInTheDocument();
     const overflow = within(headerRow).getByTestId("day-hero-overflow");
     expect(overflow).toHaveAttribute("aria-haspopup", "menu");
     expect(overflow).toHaveAttribute("aria-expanded", "false");
@@ -4452,8 +4462,11 @@ describe("TripDayView layout", () => {
 
     expect(screen.queryByTestId("day-plan-item-edit")).not.toBeInTheDocument();
     expect(screen.queryByTestId("day-plan-item-actions")).not.toBeInTheDocument();
-    // The day-image edit action in the hero header stays.
-    expect(screen.getByRole("button", { name: "Edit day details" })).toBeInTheDocument();
+    // The day-image edit action survives - Story 6.15 relocated it into the hero overflow rather
+    // than deleting it, so it is reachable but no longer a button on the page.
+    expect(screen.queryByRole("button", { name: "Edit day details" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("day-hero-overflow"));
+    expect(await screen.findByRole("menuitem", { name: "Edit day details" })).toBeInTheDocument();
 
     vi.unstubAllGlobals();
   });
@@ -5077,9 +5090,8 @@ describe("TripDayView layout", () => {
     // Each stay card's overlay is now its only control - the inline button would be a second one.
     expect(within(screen.getByTestId("timeline-previous-stay")).getAllByRole("button")).toHaveLength(1);
     expect(within(screen.getByTestId("timeline-current-stay")).getAllByRole("button")).toHaveLength(1);
-    // The toolbar keeps everything that has no card of its own.
-    expect(screen.getByRole("button", { name: "Move activities" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Swap activities" })).toBeInTheDocument();
+    // Story 6.15 finished the job this story started: move and swap went into the hero overflow,
+    // so the section header is down to the one action that creates what the section lists.
     expect(screen.getByRole("button", { name: "Add plan item" })).toBeInTheDocument();
 
     vi.unstubAllGlobals();
@@ -5167,6 +5179,184 @@ describe("TripDayView layout", () => {
     expect(screen.queryByTestId("timeline-previous-stay-edit-overlay")).not.toBeInTheDocument();
     expect(screen.queryByTestId("timeline-previous-stay-edit-glyph")).not.toBeInTheDocument();
     expect(screen.getByTestId("timeline-current-stay-edit-overlay")).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  // --- Story 6.15: move, swap and the day-image edit join print in the hero overflow -----------
+
+  // Returns items AND the divider, in DOM order, with the divider as the literal "---". Collecting
+  // only `role="menuitem"` would leave the separator invisible to the order assertion, and the
+  // divider's *position* is the whole of Task 4's decision: a rule floating above "Edit day details",
+  // or dropped between move and swap and splitting the pair, would both read as green.
+  const dayOverflowItemNames = async () => {
+    await userEvent.click(screen.getByTestId("day-hero-overflow"));
+    const menu = await screen.findByRole("menu");
+    return Array.from(menu.querySelectorAll('[role="menuitem"], hr, li.MuiDivider-root')).map((node) =>
+      node.getAttribute("role") === "menuitem" ? node.textContent : "---"
+    );
+  };
+
+  it("gives an owner all four overflow items, planning first, print below a divider (AC1, AC2, AC3)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal("fetch", buildDayResponse({}, { accessRole: "owner" }));
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    // Order is asserted, not just membership: move and swap are a pair and must stay adjacent, and
+    // the divider is only meaningful if everything that changes this day sits above it.
+    expect(await dayOverflowItemNames()).toEqual([
+      "Edit day details",
+      "Move activities",
+      "Swap activities",
+      "---",
+      "Print day",
+    ]);
+    // A <ul> may only contain <li>, so the separator has to be one - as a bare <hr> it validates as
+    // an error and AT rebuilding the list from valid children can drop it.
+    expect(screen.getByTestId("day-hero-overflow-divider").tagName).toBe("LI");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("gives a contributor three overflow items and no day-image edit (AC3)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal("fetch", buildDayResponse({}, { accessRole: "contributor" }));
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    // Still one planning group above print, so the divider still separates two kinds of thing - and
+    // it is still below the pair, not floating at the top of a shorter list.
+    expect(await dayOverflowItemNames()).toEqual(["Move activities", "Swap activities", "---", "Print day"]);
+
+    vi.unstubAllGlobals();
+  });
+
+  it("gives a viewer print alone, with no divider left floating at the top (AC3, AC5)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal("fetch", buildDayResponse({}, { accessRole: "viewer" }));
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    // AC5's live half: the trigger stays for a viewer because print stays for a viewer. Wrapping it
+    // in `isOwner` because the day-image item moved in is the regression 6.11 AC6 was written for.
+    expect(screen.getByTestId("day-hero-overflow")).toBeInTheDocument();
+    expect(await dayOverflowItemNames()).toEqual(["Print day"]);
+    expect(screen.queryByTestId("day-hero-overflow-divider")).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("leaves the hero's right slot holding the overflow alone and the page holding no move, swap or day-image button (AC1, AC2, AC6)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal("fetch", buildDayResponse({}, { accessRole: "owner" }));
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    // Named by the strings the three controls carried, not by their keys: all three keys survive as
+    // menu labels, so a key grep would prove nothing about where they are rendered.
+    expect(screen.queryByRole("button", { name: "Move activities" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Swap activities" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit day details" })).not.toBeInTheDocument();
+
+    // AC2: one 44px control where there were two plus their 8px gap.
+    const rightSlot = screen.getByTestId("day-hero-header-right");
+    const rightSlotControls = within(rightSlot).getAllByRole("button");
+    expect(rightSlotControls).toHaveLength(1);
+    expect(rightSlotControls[0]).toBe(screen.getByTestId("day-hero-overflow"));
+
+    // AC6: the timeline section header is down to its label and the one action that creates what
+    // the section lists. Scoped by testid rather than by the label's `parentElement` so that wrapping
+    // the Typography for any reason cannot silently rescope this to something other than the header
+    // row - and asserted as a count, because an empty leftover wrapper would still satisfy "move and
+    // swap are gone".
+    const timelineHeader = screen.getByTestId("day-timeline-section-header");
+    expect(within(timelineHeader).getByText("Day timeline")).toBeInTheDocument();
+    const timelineHeaderButtons = within(timelineHeader).getAllByRole("button");
+    expect(timelineHeaderButtons).toHaveLength(1);
+    expect(timelineHeaderButtons[0]).toHaveTextContent("Add plan item");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("opens the transfer dialog in move mode from the move item and in swap mode from the swap item (AC4)", async () => {
+    navigationMockState.search = "";
+    // Role pinned rather than left to the `accessRole`-absent default: these two items are gated on
+    // `canEditPlanning`, so the case worth proving is a contributor reaching them, not the fallback
+    // that treats an unknown role as an owner.
+    vi.stubGlobal("fetch", buildTwoDayResponse({ trip: { accessRole: "contributor" } }));
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    // Two items, two modes. Wiring both to one mode reads as correct everywhere except here: the
+    // confirm button is the only place the chosen mode surfaces before the request goes out.
+    await activateDayOverflowItem("Move activities");
+    expect(await screen.findByRole("heading", { name: "Move activities", level: 2 })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm move" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Confirm swap" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Confirm move" })).not.toBeInTheDocument());
+
+    await activateDayOverflowItem("Swap activities");
+    expect(await screen.findByRole("heading", { name: "Swap activities", level: 2 })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm swap" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Confirm move" })).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("opens the day-details dialog from the day-image item (AC2, AC4)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal("fetch", buildDayResponse({}, { accessRole: "owner" }));
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    await activateDayOverflowItem("Edit day details");
+
+    // Story 7.7's surface, reached a new way and otherwise untouched.
+    expect(await screen.findByLabelText("Day note")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save day details" })).toBeInTheDocument();
+
+    // AC4: the menu closes on any selection, including the ones that open something on top of it.
+    await waitFor(() => expect(screen.queryByRole("menuitem", { name: "Edit day details" })).not.toBeInTheDocument());
+
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps print's link props and closes the menu behind it (AC4)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal("fetch", buildDayResponse({}, { accessRole: "viewer" }));
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    await userEvent.click(screen.getByTestId("day-hero-overflow"));
+    const print = await screen.findByRole("menuitem", { name: "Print day" });
+
+    // The one item that keeps them. The three handler items must not, or their dialogs would open
+    // in a tab of their own.
+    expect(print).toHaveAttribute("href", "/trips/trip-1/days/day-1/print");
+    expect(print).toHaveAttribute("target", "_blank");
+    expect(print).toHaveAttribute("rel", "noopener noreferrer");
+    expect(print).not.toHaveAttribute("aria-haspopup");
+
+    // The only item whose closure nothing else would catch: it navigates away in a new tab, so a
+    // missing `handleDayMenuClose` leaves this menu open over the day the user comes back to.
+    await userEvent.click(print);
+    await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
 
     vi.unstubAllGlobals();
   });

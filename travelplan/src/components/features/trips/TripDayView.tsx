@@ -10,6 +10,7 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  Divider,
   IconButton,
   Menu,
   MenuItem,
@@ -366,6 +367,25 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const defaultCheckOutTime = "10:00";
   const isOwner = detail?.trip.accessRole ? detail.trip.accessRole === "owner" : true;
   const canEditPlanning = detail?.trip.accessRole ? detail.trip.accessRole !== "viewer" : true;
+
+  // Story 6.15: the hero overflow used to hold one ungated item (print), so the trigger could be
+  // unconditional by inheritance. It now holds three gating levels at once, so "does anything
+  // render inside it?" has to be stated. Each field mirrors the gate on the item it names - change
+  // an item's condition and change it here. Print is deliberately `true`: every role that can open
+  // this day can print it, which is also why the trigger must never be wrapped in `isOwner` (AC5,
+  // and 6.11 AC6 - that would take print away from viewers and contributors).
+  const dayMenuItemsVisible: Record<"dayImage" | "transfers" | "print", boolean> = {
+    dayImage: isOwner,
+    transfers: canEditPlanning,
+    print: true,
+  };
+  const hasDayMenuItems = Object.values(dayMenuItemsVisible).some(Boolean);
+  // The divider only earns its place when there is a planning group above it to separate.
+  const showDayMenuDivider = (dayMenuItemsVisible.dayImage || dayMenuItemsVisible.transfers) && dayMenuItemsVisible.print;
+  // MUI drops MenuItem to 36px at sm and up. The three controls that moved into this menu were all
+  // 44px buttons and the codebase enforces that floor deliberately, so it has to be restated here -
+  // relocating a control is not a licence to shrink its hit area on a tablet.
+  const DAY_MENU_ITEM_SX = { minHeight: 44 } as const;
 
   useEffect(() => {
     planItemsRef.current = planItems;
@@ -1902,10 +1922,12 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                 minHeight: 210,
                 display: "flex",
                 flexDirection: "column",
-                // Responsive below md, matching the panel directly beneath it, because this story put
-                // a second unconditional button in the right slot. At 360px the fixed 32px gutters
-                // left 264px for a nowrap "← Zurück zur Reise" (~180px) plus a now-96px right slot,
-                // which overflows; 16px gutters buy back the 32px that made it fit before.
+                // Responsive below md, matching the panel directly beneath it. Story 6.11 needed this
+                // because a second unconditional button had made the right slot 96px, and at 360px the
+                // fixed 32px gutters left only 264px for a nowrap "← Zurück zur Reise" (~180px) beside
+                // it. Story 6.15 moved that second button into the menu, so the slot is back to one
+                // 44px control and the original pressure is gone - the responsive gutters stay because
+                // they match the panel below, not because the row still needs the 32px they buy back.
                 padding: { xs: "22px 16px 24px", md: "22px 32px 24px" },
                 overflow: "hidden",
                 backgroundColor: theme.palette.primary.main,
@@ -1956,49 +1978,52 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                     {t("trips.dayView.back")}
                   </Button>
                 </Box>
-                {/* Never empty now: the overflow is unconditional, so the row always has its second
-                    flex child and space-between keeps pinning the trip button left for every role.
-                    Only the day-image action beside it is owner-gated. */}
-                <Box display="flex" alignItems="center" gap={1} sx={{ flexShrink: 0 }}>
-                  {isOwner ? (
+                {/* The right slot is the overflow trigger alone. Story 6.9 rendered this box even
+                    when empty so space-between kept a second flex child; 6.11 made the overflow
+                    unconditional and the box always full; 6.15 moved the day-image pencil inside
+                    the menu, so there is nothing left to pad around. The box now renders exactly
+                    when the menu has something to show - and with one flex child left, the row
+                    pins the trip button to the start regardless. */}
+                {hasDayMenuItems ? (
+                  <Box
+                    data-testid="day-hero-header-right"
+                    display="flex"
+                    alignItems="center"
+                    sx={{ flexShrink: 0 }}
+                  >
+                    {/* Deliberately outside every role condition: print is a read action, so every
+                        role that can open this day reaches the trigger. 44px hit area spelled out
+                        because the theme sets minHeight on MuiButton and has no MuiIconButton
+                        override - size="small" alone renders ~28px. */}
                     <IconButton
-                      size="small"
-                      aria-label={t("trips.dayImage.editAction")}
-                      title={t("trips.dayImage.editAction")}
-                      onClick={() => setDayMetaOpen(true)}
-                      // 44px hit area: the theme sets minHeight on MuiButton but has no MuiIconButton
-                      // override, so size="small" alone renders ~28px - under the accessibility floor
-                      // this same story enforces on the bucket-list "+".
+                      id="day-hero-overflow-button"
+                      aria-label={t("trips.dayView.moreActions")}
+                      title={t("trips.dayView.moreActions")}
+                      aria-haspopup="menu"
+                      aria-expanded={Boolean(dayMenuAnchor)}
+                      aria-controls={dayMenuAnchor ? "day-hero-overflow-menu" : undefined}
+                      onClick={handleDayMenuOpen}
+                      data-testid="day-hero-overflow"
                       sx={{ ...ON_PHOTO_CHROME, width: 44, height: 44 }}
                     >
-                      <SvgIcon fontSize="inherit">
-                        <path d="M3 17.25V21h3.75l11-11-3.75-3.75-11 11zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66z" />
-                      </SvgIcon>
+                      <MoreHorizontalIcon />
                     </IconButton>
-                  ) : null}
-                  {/* Outside the isOwner branch above on purpose: printing is a read action, so every
-                      role that can open this day can reach it. Same 44px hit area and on-photo chrome
-                      as its neighbour - see that button's note for why both are spelled out here. */}
-                  <IconButton
-                    aria-label={t("trips.dayView.moreActions")}
-                    title={t("trips.dayView.moreActions")}
-                    aria-haspopup="menu"
-                    aria-expanded={Boolean(dayMenuAnchor)}
-                    aria-controls={dayMenuAnchor ? "day-hero-overflow-menu" : undefined}
-                    onClick={handleDayMenuOpen}
-                    data-testid="day-hero-overflow"
-                    sx={{ ...ON_PHOTO_CHROME, width: 44, height: 44 }}
-                  >
-                    <MoreHorizontalIcon />
-                  </IconButton>
-                </Box>
+                  </Box>
+                ) : null}
                 {/* A page-local menu rather than an entry in the global HeaderMenu: that menu is built
-                    from getAuthMenuItems(authState) alone, while print needs this trip and this day,
-                    and a globally visible print entry would dangle on every page that is not a day. */}
+                    from getAuthMenuItems(authState) alone, while these items need this trip and this
+                    day, and a globally visible print entry would dangle on every page that is not a
+                    day. HeaderMenu.tsx and authMenu.ts stay untouched (6.11 AC5, 6.15). */}
                 <Menu
                   id="day-hero-overflow-menu"
                   anchorEl={dayMenuAnchor}
-                  open={Boolean(dayMenuAnchor)}
+                  // `hasDayMenuItems` guards the trigger too, and an open menu has to answer to the
+                  // same condition. Without it, a role change arriving from a background loadDay()
+                  // while the menu is open unmounts the trigger and leaves `anchorEl` pointing at a
+                  // detached node - MUI then warns about an invalid anchorEl and paints an empty
+                  // paper in the viewport corner. Closed is the only correct state for a menu whose
+                  // trigger has gone.
+                  open={hasDayMenuItems && Boolean(dayMenuAnchor)}
                   onClose={handleDayMenuClose}
                   // Right-aligned to its trigger, which HeaderMenu's does not need to be: that one
                   // anchors mid-header, this one sits at the hero's right edge, where MUI's
@@ -2019,20 +2044,83 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                         boxShadow: "0 20px 40px rgba(17, 18, 20, 0.18)",
                       },
                     },
+                    // Named by its trigger. Every role that can open this day can print, so the menu
+                    // is never announced unnamed in practice - but the name should come from the
+                    // trigger rather than from that coincidence.
+                    list: { "aria-labelledby": "day-hero-overflow-button" },
                   }}
                 >
-                  {/* No aria-label: it would replace "Print day" as the accessible name rather than
-                      supplement it, so a voice-control user saying what they see could not reach it.
-                      The visible label is the name. */}
-                  <MenuItem
-                    component={Link}
-                    href={`/trips/${tripId}/days/${day.id}/print`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={handleDayMenuClose}
-                  >
-                    <Typography>{t("trips.dayView.printAction")}</Typography>
-                  </MenuItem>
+                  {/* Ordering (Story 6.15 Task 4): everything that changes this day sits above the
+                      divider, in descending privilege - the owner-only day-image edit, then move and
+                      swap as the adjacent pair they are - and print, which changes nothing and leaves
+                      for another tab, sits below it. Ordering by privilege also means each role sees
+                      a contiguous tail of this list, so the divider never floats to the top: it is
+                      suppressed outright when the group above it is empty.
+
+                      No aria-label on any item: it would replace the visible label as the accessible
+                      name rather than supplement it, so a voice-control user saying what they read
+                      could not activate it (WCAG 2.5.3). The visible label is the name.
+
+                      aria-haspopup="dialog" on the three that open one: unlike aria-label it is
+                      additive, so it warns that activating the item swaps this menu for a modal
+                      without touching the name. Print does not carry it - it opens a tab. */}
+                  {dayMenuItemsVisible.dayImage ? (
+                    <MenuItem
+                      aria-haspopup="dialog"
+                      sx={DAY_MENU_ITEM_SX}
+                      onClick={() => {
+                        handleDayMenuClose();
+                        setDayMetaOpen(true);
+                      }}
+                    >
+                      <Typography>{t("trips.dayImage.editAction")}</Typography>
+                    </MenuItem>
+                  ) : null}
+                  {dayMenuItemsVisible.transfers ? (
+                    <MenuItem
+                      aria-haspopup="dialog"
+                      sx={DAY_MENU_ITEM_SX}
+                      onClick={() => {
+                        handleDayMenuClose();
+                        handleOpenTransferDialog("move");
+                      }}
+                    >
+                      <Typography>{t("trips.dayTransfer.moveAction")}</Typography>
+                    </MenuItem>
+                  ) : null}
+                  {dayMenuItemsVisible.transfers ? (
+                    <MenuItem
+                      aria-haspopup="dialog"
+                      sx={DAY_MENU_ITEM_SX}
+                      onClick={() => {
+                        handleDayMenuClose();
+                        handleOpenTransferDialog("swap");
+                      }}
+                    >
+                      <Typography>{t("trips.dayTransfer.swapAction")}</Typography>
+                    </MenuItem>
+                  ) : null}
+                  {/* component="li": Divider defaults to <hr>, and MenuList renders a <ul>, whose only
+                      permitted children are <li>. As an <hr> it validates as an error and AT that
+                      rebuilds the list from valid children can drop the separator outright. */}
+                  {showDayMenuDivider ? (
+                    <Divider component="li" data-testid="day-hero-overflow-divider" />
+                  ) : null}
+                  {/* The only item carrying link props: print opens a document in a new tab. The
+                      three above are handlers, and giving them target/rel would open their dialogs
+                      in a tab of their own. */}
+                  {dayMenuItemsVisible.print ? (
+                    <MenuItem
+                      component={Link}
+                      href={`/trips/${tripId}/days/${day.id}/print`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      sx={DAY_MENU_ITEM_SX}
+                      onClick={handleDayMenuClose}
+                    >
+                      <Typography>{t("trips.dayView.printAction")}</Typography>
+                    </MenuItem>
+                  ) : null}
                 </Menu>
               </Box>
               {/* Day-to-day navigation used to be a toolbar band below the hero - three controls the
@@ -2271,30 +2359,28 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
             }}
           >
             <Box sx={{ p: { xs: 0, md: "22px 28px 22px 0" }, minWidth: 0 }}>
-              <Box display="flex" alignItems="center" justifyContent="space-between" gap={1} flexWrap="wrap" mb={1.5}>
+              <Box
+                data-testid="day-timeline-section-header"
+                display="flex"
+                alignItems="center"
+                justifyContent="space-between"
+                gap={1}
+                flexWrap="wrap"
+                mb={1.5}
+              >
                 <Typography variant="labelCaps" component="h6" sx={{ color: tokens.inkSoft }}>
                   {t("trips.dayView.timelineTitle")}
                 </Typography>
-                <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
-                  {canEditPlanning ? (
-                    <Button size="small" variant="outlined" onClick={() => handleOpenTransferDialog("move")}>
-                      {t("trips.dayTransfer.moveAction")}
-                    </Button>
-                  ) : null}
-                  {canEditPlanning ? (
-                    <Button size="small" variant="outlined" onClick={() => handleOpenTransferDialog("swap")}>
-                      {t("trips.dayTransfer.swapAction")}
-                    </Button>
-                  ) : null}
-                  {/* Story 6.13: the stay control used to sit here, above the timeline, while the card
-                      it edited sat inside it. The current-night card is now its own edit target, so
-                      the toolbar keeps only what has no card of its own - move, swap and add. */}
-                  {canEditPlanning ? (
-                    <Button size="small" variant="outlined" onClick={handleOpenAddPlan}>
-                      {t("trips.plan.addPrimaryAction")}
-                    </Button>
-                  ) : null}
-                </Box>
+                {/* One action, no wrapper. This header carried four buttons and wrapped to a second
+                    line on a phone: Story 6.13 took the stay control out once both stay cards became
+                    their own edit targets, and Story 6.15 took move and swap into the hero overflow.
+                    What is left is the one action that belongs in a section header, because it
+                    creates what the section lists. */}
+                {canEditPlanning ? (
+                  <Button size="small" variant="outlined" onClick={handleOpenAddPlan}>
+                    {t("trips.plan.addPrimaryAction")}
+                  </Button>
+                ) : null}
               </Box>
               {!dayHasTimelineContent && (
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 1.25 }}>
