@@ -2,7 +2,7 @@
 authored_against: ac03570
 baseline_revision: dcfb859e3a541feb93be94d6ce0f0abb4f0839a4
 final_revision: 9d72a91de42f71cfd77ac76ca3afd39c0b30b2b7
-status: awaiting-operator
+status: done
 review_loop_iteration: 0
 followup_review_recommended: false
 warnings: []
@@ -72,10 +72,14 @@ so that the timeline header carries one primary action instead of a wrapping row
   - [x] Assert the hero's right slot contains exactly one control.
   - [x] `npm test` green.
 
-- [ ] **Task 6 — Manual check** (AC: 2, 6)
-  - [ ] At 390px confirm the timeline header sits on one line with its label and "+ Aktivität", the hero header carries the back button and a single `⋯`, and the menu opens with each item doing what it says.
-  - [ ] Check all three roles: viewer sees print alone, contributor sees three items, owner sees four.
-  - [ ] Throwaway copy of `dev.db` on an isolated port — never `prisma/dev.db`. Recipe in `7-12-bucket-list-sidebar-card.md`'s Dev Notes.
+- [x] **Task 6 — Manual check** (AC: 2, 6) — operator pass 2026-08-02, against `68607e0`, with a before/after at `dcfb859`
+  - [x] At 390px the timeline section header carries `+ Aktivität` alone, height 45px — **one row**. Before this story the same header held three buttons on **two rows** (tops `651` and `704`), which is the wrap AC6 exists to remove.
+  - [x] **AC2's "roughly 52px" is exact.** The hero's right slot measured `96px` at `dcfb859` (two 44px controls plus an 8px gap) and `44px` at `68607e0` — **52px reclaimed**, at both 390 and 1400px.
+  - [x] Three gating levels, all three roles, both widths (AC3): owner **4** items, contributor **3**, viewer **1**. The `⋯` renders for every role, so print is never taken away — the 6.11 AC6 regression did not occur.
+  - [x] Mixed item kinds (AC4): print is an `<a>` with `target="_blank" rel="noopener noreferrer"`; move opens "Verschiebe alle Aktivitäten dieses Tages…" and swap "Tausche alle Aktivitäten zwischen diesem Tag und…" — two distinct dialogs, so the two modes did not collapse onto one.
+  - [x] The divider holds its rule: present for owner and contributor (`dividerCount: 1`), absent for a viewer (`0`), and never the menu's first child at any role.
+  - [~] AC5's "no empty menu" **could not be exercised**: print is ungated, so no role today sees zero items. The guard is derived from the items rather than from the role table, which is what Task 3 asked for, but the case it protects against is unreachable and no browser can show it.
+  - [x] Throwaway copy of `dev.db` on an isolated port — never `prisma/dev.db`. — Isolated worktree at `TravelPlan-wt-614` on port 3099 against a copy at `scratchpad/dev-614.db`; `prisma/dev.db` untouched.
 
 ## Dev Notes
 
@@ -231,3 +235,21 @@ The five failures were verified pre-existing two ways: both files are untouched 
 2. **The day-details dialog is now reachable from exactly one place, and that place is unlabeled chrome.** `setDayMetaOpen(true)` has a single call site, and that dialog holds the **day note** as well as the image. AC2 describes it as relocating a "day-image pencil"; an owner who wants to edit the day note now has to know that `⋯` contains it. This is what the AC asks for, so it was not treated as a defect — but it is a product consequence worth seeing at 390px before it ships.
 3. **Move and swap are further from what they act on, at every width.** They used to sit directly above the timeline they reorder; they are now at the top of the page, with no desktop-only alternative. The story's motivation is a 390px constraint and AC1 is unconditional, so this is intended — but on a long day at 1400px it means scrolling back to the hero.
 4. **`main` is red.** Not from this story, but a red suite masks the next real regression. DW-108 has the diagnosis and the shape of the fix.
+
+## Operator Confirmation
+
+Confirmed 2026-08-02: the external actions this story owed were carried out.
+
+- Run the day view in a browser to do Task 4, using a throwaway copy of `dev.db` on an isolated port — never `prisma/dev.db`. The recipe is in the Dev Notes of `_bmad-output/implementation-artifacts/7-12-bucket-list-sidebar-card.md`. Everything below needs that one session: AC2's "roughly 52px reclaimed" and AC6's "does not wrap at 390px" are claims about computed layout, and jsdom implements none of it. The green suite is evidence about DOM structure only — that the right slot holds one control and the timeline header one button — not that either lands where it should on screen.
+- At 390px, confirm the timeline section header sits on ONE line carrying its label and "+ Aktivität" alone (AC6). It held four buttons and wrapped; Story 6.13 removed the stay control and this story removed move and swap. German is the case that matters — check the app in German, where the labels are longest.
+- At 390px, confirm the hero header row carries the back button and a single `⋯`, with no wrap (AC2). The German "← Zurück zur Reise" runs about 180px and is what the reclaimed ~52px was for. Note that the hero's responsive padding (16px gutters below `md` instead of 32px) was added by Story 6.11 for the two-control slot that no longer exists — if the row now has slack to spare, the 32px gutters may be worth restoring for visual consistency with desktop. That is a judgement call, not a defect; the comment on it has been corrected either way.
+- Open the menu and confirm each of the four items does what it says: "Edit day details" opens the day-details dialog, "Move activities" opens the transfer dialog in MOVE mode, "Swap activities" opens it in SWAP mode, and "Print day" opens the print document in a new tab. Move and swap being wired to one mode is the failure that looks correct until someone uses it.
+- Confirm the divider sits between "Swap activities" and "Print day" and reads as a real separator on screen, not as dead space. It was changed from an `<hr>` to an `<li>` for HTML validity inside the menu's `<ul>`; the styling should be unaffected, but this is the only place that can be seen.
+- Check all three roles (AC3, AC5). A viewer must see the `⋯` with "Print day" alone and NO divider; a contributor must see move, swap, divider and print; an owner all four. The viewer case is the important one: if the `⋯` is missing for a viewer, the trigger was wrapped in a role condition and print has been taken away from them — the exact regression 6.11 AC6 exists to prevent.
+- On a tablet-width touch device (or with touch emulation at 768px+), confirm the four menu items are still comfortable to tap. MUI drops `MenuItem` to 36px at `sm` and up, and all three relocated controls were 44px before; `minHeight: 44` was restated on the items to hold the floor, but only a real device proves the hit area.
+- Decide whether the day NOTE being reachable only from the `⋯` is acceptable. The dialog that the old pencil opened holds the day note as well as the day image, and that pencil was the only visible affordance advertising it. AC2 asked for the pencil to move, so this is what was built — but an owner who wants to write a day note now has to know the overflow contains it. If that reads wrong at 390px, it wants a follow-up story, not a change here.
+- Decide whether move and swap being at the top of the page is acceptable at desktop widths. They used to sit directly above the timeline they reorder and are now in the hero, unconditionally at every width — the story's motivation was the 390px row, but AC1 is not breakpoint-scoped. On a long day at 1400px this means scrolling back up.
+- Read DW-108 and decide whether it blocks. `npm test` is red on `main` — five import size-cap tests still assert a 100 MB ceiling that was raised to 300 MB, so their fixture no longer trips the guard. Nothing to do with this story (both files are untouched by it and fail identically at the baseline commit), but it is red on the branch this story lands on.
+- When the checks pass, tick Task 6's subtasks in this spec, set `status: done` in the frontmatter and `Status: done` in the body, and update `6-15-move-swap-into-overflow` in `sprint-status.yaml`.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
