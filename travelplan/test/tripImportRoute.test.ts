@@ -153,6 +153,7 @@ const buildMultipartRequest = (
     strategy?: string;
     targetTripId?: string;
     omitFile?: boolean;
+    contentLength?: string;
   } = {}
 ) => {
   const form = new FormData();
@@ -169,6 +170,9 @@ const buildMultipartRequest = (
 
   const headers: Record<string, string> = {};
   if (options.csrf) headers["x-csrf-token"] = options.csrf;
+  // `FormData` sets no `content-length` of its own, so this is the only way to exercise the header
+  // pre-check. The header is a claim either way - that is precisely why the route re-checks the size.
+  if (options.contentLength) headers["content-length"] = options.contentLength;
   const cookies: string[] = [];
   if (options.session) cookies.push(`session=${options.session}`);
   if (options.csrf) cookies.push(`csrf_token=${options.csrf}`);
@@ -549,17 +553,45 @@ describe("POST /api/trips/import", () => {
       expect(noSession.status).toBe(401);
     });
 
-    it("rejects a package larger than the import size limit before reading it", async () => {
-      const { session } = await createOwner("import-route-oversize@example.com");
+    // Two checks guard the size and only one of them runs before the body is read. `FormData` sets no
+    // `content-length`, so a request built the way a browser builds it reaches the `file.size` check
+    // with the whole body already buffered - which is what the route's own comment says. Both are
+    // covered, each by what it actually is, and both derive their figure from the constant.
+    it("rejects an oversized package on the content-length pre-check, before reading it", async () => {
+      const { session } = await createOwner("import-route-oversize-header@example.com");
 
-      const oversize = Buffer.alloc(100 * 1024 * 1024 + 1);
-      const response = await POST(buildMultipartRequest(oversize, { session, csrf: "csrf-token" }));
+      // A small body with a header that claims otherwise: if the route read the body it would find a
+      // perfectly good package, so a rejection here can only have come from the pre-check.
+      const response = await POST(
+        buildMultipartRequest(v2Package(), {
+          session,
+          csrf: "csrf-token",
+          contentLength: String(MAX_IMPORT_PACKAGE_BYTES + 1),
+        })
+      );
       const payload = (await response.json()) as ApiEnvelope<null>;
 
       expect(response.status).toBe(400);
       expect(payload.error?.code).toBe("file_too_large");
       expect(payload.error?.message).toContain("size limit");
-    }, 60_000);
+    });
+
+    it("rejects an oversized package on the file-size check when no content-length was sent", async () => {
+      const { session } = await createOwner("import-route-oversize@example.com");
+
+      // Allocated for real, because `formData()` re-parses the multipart body into a fresh `File` -
+      // a faked `size` on the one handed in would not survive the round trip.
+      const oversize = Buffer.alloc(MAX_IMPORT_PACKAGE_BYTES + 1);
+      const request = buildMultipartRequest(oversize, { session, csrf: "csrf-token" });
+      expect(request.headers.get("content-length")).toBeNull();
+
+      const response = await POST(request);
+      const payload = (await response.json()) as ApiEnvelope<null>;
+
+      expect(response.status).toBe(400);
+      expect(payload.error?.code).toBe("file_too_large");
+      expect(payload.error?.message).toContain("size limit");
+    }, 120_000);
 
     it("returns a conflict and then overwrites through the multipart path", async () => {
       const { user, session } = await createOwner("import-route-package-overwrite@example.com");

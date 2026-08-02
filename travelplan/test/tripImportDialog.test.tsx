@@ -4,7 +4,16 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import TripImportDialog from "@/components/features/trips/TripImportDialog";
+import { MAX_IMPORT_PACKAGE_BYTES } from "@/lib/trips/importLimits";
 import { renderWithProviders } from "./helpers/renderWithProviders";
+
+// Both derived, never literal. The dialog computes its MB figure from `MAX_IMPORT_PACKAGE_BYTES`, so
+// a suite that spells out "100 MB" fails the moment the ceiling moves - which is a limit change
+// reported as a broken dialog. Deriving here means this suite tests the behaviour, not the number.
+const OVER_LIMIT_BYTES = MAX_IMPORT_PACKAGE_BYTES + 1;
+const TOO_LARGE_MESSAGE = `Backup file is larger than ${Math.floor(
+  MAX_IMPORT_PACKAGE_BYTES / (1024 * 1024)
+)} MB.`;
 
 const MANIFEST = {
   meta: {
@@ -367,10 +376,10 @@ describe("TripImportDialog", () => {
     renderDialog();
 
     const oversize = backupFile("huge.zip");
-    Object.defineProperty(oversize, "size", { value: 101 * 1024 * 1024 });
+    Object.defineProperty(oversize, "size", { value: OVER_LIMIT_BYTES });
     await selectBackup(oversize);
 
-    expect(await screen.findByText("Backup file is larger than 100 MB.")).toBeInTheDocument();
+    expect(await screen.findByText(TOO_LARGE_MESSAGE)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Start import" })).toBeDisabled();
     // Only the CSRF fetch: the file never went to the route.
     expect((fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
@@ -386,16 +395,16 @@ describe("TripImportDialog", () => {
     renderDialog();
 
     const oversize = backupFile("huge.zip");
-    Object.defineProperty(oversize, "size", { value: 101 * 1024 * 1024 });
+    Object.defineProperty(oversize, "size", { value: OVER_LIMIT_BYTES });
     await selectBackup(oversize);
-    expect(await screen.findByText("Backup file is larger than 100 MB.")).toBeInTheDocument();
+    expect(await screen.findByText(TOO_LARGE_MESSAGE)).toBeInTheDocument();
 
     // The input's value is cleared on every change, so a second pick fires `change` even when it is
     // the same path. Without that the dialog kept the error and the disabled button forever.
     await selectBackup(backupFile("huge.zip"));
 
     await waitFor(() => expect(screen.getByRole("button", { name: "Start import" })).toBeEnabled());
-    expect(screen.queryByText("Backup file is larger than 100 MB.")).not.toBeInTheDocument();
+    expect(screen.queryByText(TOO_LARGE_MESSAGE)).not.toBeInTheDocument();
   });
 
   it("names the size limit when the reverse proxy rejects the body before the route sees it", async () => {
@@ -417,7 +426,7 @@ describe("TripImportDialog", () => {
     await selectBackup();
     await userEvent.click(screen.getByRole("button", { name: "Start import" }));
 
-    expect(await screen.findByText("Backup file is larger than 100 MB.")).toBeInTheDocument();
+    expect(await screen.findByText(TOO_LARGE_MESSAGE)).toBeInTheDocument();
   });
 
   it("does not report a non-JSON gateway error as a generic import failure", async () => {
@@ -485,6 +494,6 @@ describe("TripImportDialog", () => {
     await selectBackup();
     await userEvent.click(screen.getByRole("button", { name: "Start import" }));
 
-    expect(await screen.findByText("Backup file is larger than 100 MB.")).toBeInTheDocument();
+    expect(await screen.findByText(TOO_LARGE_MESSAGE)).toBeInTheDocument();
   });
 });
