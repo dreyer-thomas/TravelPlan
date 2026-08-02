@@ -2,7 +2,7 @@
 authored_against: dcfb859
 baseline_revision: 86b252663997c28fde52c31b89ab2a1ac4c2de85
 final_revision: cc72a92b7d534b4729d820d0d3cf43190436c87a
-status: awaiting-operator
+status: done
 review_loop_iteration: 0
 followup_review_recommended: false
 warnings: []
@@ -125,6 +125,17 @@ Independent of 6.19 and 6.20. It touches `TripDayView.tsx` like 6.19 does, but a
 - [Source: travelplan/src/i18n/de.ts:245-248] — the three labels
 - [Source: travelplan/src/components/features/trips/TripDayView.tsx:1038,1727] — where the stay name still appears
 
+## Operator Pass — 2026-08-02, against `cec3505`
+
+Chromium, German, at 390px **and 600px**, isolated worktree on port 3099 against a copy of `dev.db`.
+
+- **AC7 at 390px** (2 columns, 178px cells): all four labels are a single line box and **none is clipped** — checked explicitly, because with `overflowWrap` removed and the wrapper's `overflow: hidden` a label that no longer fits would be cut off silently rather than spilling.
+- **AC7 at 600px** (4 columns, **137.5px** cells — tighter than the phone, and covered by no acceptance criterion or test): also single-line, also unclipped. The gap the operator action flagged is closed.
+- **The original defect is gone:** with an accommodation named "Grandhotel Schloss Bergblick am Wasserfall" the cells measure 86/85px — the same as any other day — and the spend cell beside check-in no longer grows in sympathy. This is the direct proof AC2 was written for.
+- **AC5:** the two states still differ in the *value*: a booked stay shows "21:00" in ink `rgb(43,42,38)`, a day without one shows "Keine Unterkunft" in the warning tone `rgb(138,90,43)`.
+
+**DW-135 confirmed, and larger than the entry assumed.** On a day with no accommodation the value "Keine Unterkunft" wraps to **2 lines at 390px** and **3 lines at 600px**, growing the row by **+31px at both widths**. That is the same mechanism this story removed from the label, surviving in the value — and a day without a stay is far more common than a very long hotel name, so it is arguably the bigger remaining trigger of the original complaint.
+
 ## Dev Agent Record
 
 ### Agent Model Used
@@ -229,3 +240,18 @@ Status: awaiting-operator — every part an agent can do is complete and committ
 **Verification.** `npm test` → 105 files, 984 tests, all passing. Both new guards mutation-checked: re-adding `overflowWrap: "anywhere"` and lengthening a German label each fail with a message naming the real problem. `npm run lint` → 2 errors, 83 warnings, byte-identical to the documented baseline (both errors are the pre-existing `react/no-children-prop` pair in `theme.ts`, DW-134). `npx tsc --noEmit` → 143 errors, unchanged from baseline, verified by stash-and-rerun. Grep confirms `statCheckIn` has no reader left anywhere in `src/`, `test/` or e2e.
 
 **Residual risks.** AC7 is unverified and cannot be verified here — jsdom computes no layout, so nothing in the suite can see whether a label wraps. The arithmetic says it fits with ~44px of room at 390px, but the arithmetic was wrong once already in this story. The tighter case is a 600px viewport, where the grid goes to four columns and each cell is ~89px against a ~86px label; no AC covers it. Separately, the strip can still grow on a day with no accommodation (DW-135) — the story's claim is that no *user-supplied text* can set the row height, which is true and narrower than "the strip no longer grows".
+
+## Operator Confirmation
+
+Confirmed 2026-08-02: the external actions this story owed were carried out.
+
+- Run the app in a browser to do Task 5, on a throwaway copy of dev.db on an isolated port — never prisma/dev.db. The recipe is in the Dev Notes of _bmad-output/implementation-artifacts/7-12-bucket-list-sidebar-card.md. AC7 is the only one of the seven acceptance criteria that needs that session, and nothing in the suite can substitute: jsdom computes no layout at all, so no test can see whether a label wraps.
+- At a 390px viewport, open a day and look at the four-cell strip under the photo. Confirm none of the four labels wraps to a second line and that both grid rows are the height of their content. Check German first — it has the longer words and is the language this turns on.
+- Note what a failure looks like, because it is quiet: overflowWrap: "anywhere" was deliberately removed from the labels, and the strip's wrapper sets overflow: hidden, so a label that no longer fits is clipped at the cell edge with no ellipsis rather than visibly spilling. Look for a label that reads as cut off. If you see one, that is a copy fix or a new story — per Trap 4 it is not licence to restructure the grid.
+- Open a day whose accommodation has a long name — the case that started this — and confirm the strip does not react to it at all. Specifically watch the spend cell next to check-in: it used to grow in sympathy because a grid row is as tall as its tallest cell, and that is the defect this story exists to remove. This is the only direct proof it is gone.
+- Confirm the check-in cell still tells its two states apart in the browser: a booked stay shows the check-in time in ink, a day with no accommodation shows "Keine Unterkunft" in the warning tone. The label is now identical in both cases by design (AC2) — it is the value that must still differ.
+- While on a day with no accommodation, look at whether "Keine Unterkunft" itself wraps and grows row 2. It is 16 characters at 21px in a ~130px cell, so it probably does. That is DW-135, deliberately out of scope here, but this is the cheapest moment to confirm or dismiss it — and it is arguably a more common trigger of the original complaint than a long hotel name.
+- Also check the strip at a 600px viewport, not only at 390px. At sm the grid goes to four columns, which makes each cell about 89px — narrower than on the phone. That is the tightest point for "TRAVEL TIME" (~86px) and no acceptance criterion or test covers it.
+- If every check passes, tick Task 5 in this spec, set status: done in the frontmatter and Status: done in the body, and set 6-21-shorter-day-stat-labels to done in sprint-status.yaml.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
