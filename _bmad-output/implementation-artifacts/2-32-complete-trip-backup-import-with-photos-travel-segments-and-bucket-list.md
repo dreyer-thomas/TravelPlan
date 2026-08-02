@@ -1,13 +1,11 @@
 ---
 authored_against: 4dfef44
-baseline_revision: ec461525c06b91461f6cf298da02151b97e21c14
-review_loop_iteration: 0
-status: in-review
+status: ready-for-dev
 ---
 
 # Story 2.32: Complete Trip Backup Import With Photos, Travel Segments, and Bucket List
 
-Status: in-progress
+Status: ready-for-dev
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
