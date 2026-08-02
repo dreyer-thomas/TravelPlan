@@ -1273,7 +1273,9 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     fontVariantNumeric: "tabular-nums",
     whiteSpace: "nowrap",
   } as const;
-  // The whole activity card opens its editor, so it needs the affordances the pencil used to supply.
+  // The whole card opens its editor, so it needs the affordances the pencil used to supply. Shared by
+  // all three timeline card kinds - activity (6.9), previous night and current night (6.13) - because
+  // a second near-identical copy is how two card kinds drift apart later.
   //
   // Split by pointer capability rather than by breakpoint. On a pointer device the glyph is a hover
   // reveal, so the card is not permanently decorated with an icon; on a touch device there is no hover
@@ -1282,7 +1284,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   //
   // `opacity` rather than conditional rendering: the glyph holds its space in the head row at all
   // times, so the cost pill beside it does not jump left when the pointer arrives.
-  const editableActivityCardSx = canEditPlanning
+  const editableCardSx = canEditPlanning
     ? {
         transition: theme.transitions.create(["border-color", "background-color"], {
           duration: theme.transitions.duration.shortest,
@@ -1317,7 +1319,13 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
         // Keyboard reaches the overlay, not the glyph, so the hover reveal never fires for it. Without
         // this a keyboard user on a pointer device gets a focus ring around a card with no indication
         // of what activating it does. Outranks the `opacity: 0` above on specificity, not order.
-        "&:has(:focus-visible)": {
+        //
+        // Scoped to the overlay rather than any descendant: every card kind now contains other
+        // focusable children - links, photo thumbnails (6.12), and on the current-night card the copy
+        // button sitting in the same row as the glyph (6.13). A bare `:has(:focus-visible)` lights the
+        // pencil for all of them, telling a keyboard user that activating what they have focused
+        // edits the card when it copies a stay or opens a photo.
+        '&:has([data-testid$="-edit-overlay"]:focus-visible)': {
           [`& .${EDIT_GLYPH_CLASS}`]: { opacity: 1, color: theme.palette.primary.main },
         },
       }
@@ -1346,6 +1354,52 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const capLabel = (label: string) =>
     label.length <= EDIT_LABEL_MAX_CHARS ? label : `${label.slice(0, EDIT_LABEL_MAX_CHARS - 1).trimEnd()}…`;
   const editLabelFor = (label: string) => formatMessage(t("trips.plan.editItemAria"), { title: capLabel(label) });
+  // An accommodation card, unlike an activity, can be on screen with nothing on record - and an empty
+  // card looks exactly like a filled one to a screen reader once the name is all it has. So add and
+  // edit get different names, and the name is the only place that distinction lives.
+  const stayLabelFor = (stayName: string | null | undefined, editKey: string, addKey: string) =>
+    stayName ? formatMessage(t(editKey), { title: capLabel(stayName) }) : t(addKey);
+  // The stretched control itself, shared by all three card kinds. A real `<button>`, so Enter and
+  // Space are the browser's job: no `onKeyDown`, no `preventDefault`, and therefore no way for this to
+  // swallow a keystroke meant for a link or a nested button inside the card.
+  //
+  // `inset: 0` puts it exactly on the card's border box, so its own focus ring at `outline-offset: 2`
+  // draws where a ring on the card would. It owns the ring rather than the card, so focus stays
+  // visible even where `:has()` does not resolve.
+  const editOverlaySx = {
+    position: "absolute",
+    inset: 0,
+    zIndex: 1,
+    borderRadius: "8px",
+    border: 0,
+    padding: 0,
+    background: "none",
+    appearance: "none",
+    // Deliberately inherited: the pointer affordance is authored once on the card, inside
+    // `@media (hover: hover)`, so a touch device does not get a cursor rule it has no cursor for.
+    cursor: "inherit",
+    "&:focus-visible": {
+      outline: `2px solid ${theme.palette.primary.main}`,
+      outlineOffset: 2,
+    },
+  } as const;
+  // The decorative pencil that says the card is editable. Never a control: the overlay already carries
+  // the role, the name and the tab stop, and on a pointer device this is invisible until hover, so a
+  // tab stop here would land on nothing the user can see.
+  const renderEditGlyph = (testId: string) => (
+    <Box
+      aria-hidden
+      data-testid={testId}
+      className={EDIT_GLYPH_CLASS}
+      sx={{ display: "flex", alignItems: "center", color: tokens.inkMuted }}
+    >
+      <PencilIcon />
+    </Box>
+  );
+  // Two-part, and not the same condition as the current-night card's: with no previous day there is no
+  // accommodation to edit and nothing for the add dialog to attach to, so the card stays inert even for
+  // someone who can otherwise plan.
+  const canEditPreviousStay = Boolean(previousDay) && canEditPlanning;
   // The continuous rail: a 2px rule the dots sit on top of, inset so it stops short of both ends.
   //
   // The rule's centre is fixed at x=16 (left 15 + half of 2px) at every breakpoint, because that is
@@ -2232,20 +2286,9 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                       {t("trips.dayTransfer.swapAction")}
                     </Button>
                   ) : null}
-                  {canEditPlanning ? (
-                    <Button size="small" variant="outlined" onClick={() => setStayOpen(true)}>
-                      {day.accommodation ? (
-                        <>
-                          {t("trips.stay.editAction")}
-                          <SvgIcon fontSize="small" sx={{ ml: 0.75 }}>
-                            <path d="M3 17.25V21h3.75l11-11-3.75-3.75-11 11zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66z" />
-                          </SvgIcon>
-                        </>
-                      ) : (
-                        t("trips.stay.addAction")
-                      )}
-                    </Button>
-                  ) : null}
+                  {/* Story 6.13: the stay control used to sit here, above the timeline, while the card
+                      it edited sat inside it. The current-night card is now its own edit target, so
+                      the toolbar keeps only what has no card of its own - move, swap and add. */}
                   {canEditPlanning ? (
                     <Button size="small" variant="outlined" onClick={handleOpenAddPlan}>
                       {t("trips.plan.addPrimaryAction")}
@@ -2264,8 +2307,36 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                   <Box aria-hidden sx={stayDotSx}>
                     <HouseIcon sx={{ color: theme.palette.primary.main }} />
                   </Box>
-                  <Box sx={{ ...tlCardSx, backgroundColor: tokens.cardAlt }}>
-                  <Box sx={tlCardTopSx}>
+                  {/* Story 6.13: the card is the edit target, exactly as an activity card is - same
+                      stretched `<button>`, same reason it is not `role="button"` on the card itself
+                      (ARIA's Children Presentational: True would collapse the stay name, the pill and
+                      the status chip into one announced label). The empty card is deliberately in
+                      scope: with both stay buttons gone it is the only way left to add an
+                      accommodation. */}
+                  <Box
+                    sx={{
+                      ...tlCardSx,
+                      backgroundColor: tokens.cardAlt,
+                      position: "relative",
+                      ...(canEditPreviousStay ? editableCardSx : {}),
+                    }}
+                  >
+                  {canEditPreviousStay ? (
+                    <Box
+                      component="button"
+                      type="button"
+                      data-testid="timeline-previous-stay-edit-overlay"
+                      aria-label={stayLabelFor(
+                        previousStay?.name,
+                        "trips.stay.editPreviousNightAria",
+                        "trips.stay.addPreviousNightAria",
+                      )}
+                      aria-haspopup="dialog"
+                      onClick={() => setPreviousStayOpen(true)}
+                      sx={editOverlaySx}
+                    />
+                  ) : null}
+                  <Box sx={{ ...tlCardTopSx, ...(canEditPreviousStay ? overlaidContentSx : {}) }}>
                     <Box sx={{ minWidth: 0 }}>
                       {renderTimePill(previousStayRange, previousStayRangeIsAssumed)}
                       <Typography variant="cardTitle" component="p" sx={{ color: tokens.ink, m: 0 }}>
@@ -2275,23 +2346,15 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                         {t("trips.dayView.previousNightTitle")}
                       </Typography>
                     </Box>
-                    {previousDay && canEditPlanning ? (
-                      previousStay ? (
-                        <Button size="small" variant="text" onClick={() => setPreviousStayOpen(true)}>
-                          {t("trips.stay.editAction")}
-                          <SvgIcon fontSize="small" sx={{ ml: 0.75 }}>
-                            <path d="M3 17.25V21h3.75l11-11-3.75-3.75-11 11zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66z" />
-                          </SvgIcon>
-                        </Button>
-                      ) : (
-                        <Button size="small" variant="text" onClick={() => setPreviousStayOpen(true)}>
-                          {t("trips.stay.addAction")}
-                        </Button>
-                      )
-                    ) : null}
+                    {canEditPreviousStay ? renderEditGlyph("timeline-previous-stay-edit-glyph") : null}
                   </Box>
                   {previousStay ? (
-                    <Box display="flex" flexDirection="column" gap={0.75}>
+                    <Box
+                      display="flex"
+                      flexDirection="column"
+                      gap={0.75}
+                      sx={canEditPreviousStay ? overlaidContentSx : undefined}
+                    >
                       <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
                         <Chip
                           label={previousStay.status === "booked" ? t("trips.stay.statusBooked") : t("trips.stay.statusPlanned")}
@@ -2300,18 +2363,25 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                           variant="outlined"
                         />
                       </Box>
-                      {/* Last child: DESIGN.md's photo-strip runs along the bottom of the card. */}
-                      <MiniImageStrip
-                        variant="strip"
-                        images={previousAccommodationImages}
-                        altPrefix={previousStay.name}
-                        onImageClick={(index) =>
-                          setFullscreenPhotos({
-                            images: toViewerImages(previousAccommodationImages, previousStay.name),
-                            index,
-                          })
-                        }
-                      />
+                      {/* Last child: DESIGN.md's photo-strip runs along the bottom of the card.
+                          The wrapper restores pointer events for the strip's gaps as well as its
+                          thumbnails, so a near-miss between two of them does not fall through to the
+                          overlay and open the stay editor instead. */}
+                      {previousAccommodationImages.length > 0 ? (
+                        <Box sx={{ pointerEvents: "auto" }}>
+                          <MiniImageStrip
+                            variant="strip"
+                            images={previousAccommodationImages}
+                            altPrefix={previousStay.name}
+                            onImageClick={(index) =>
+                              setFullscreenPhotos({
+                                images: toViewerImages(previousAccommodationImages, previousStay.name),
+                                index,
+                              })
+                            }
+                          />
+                        </Box>
+                      ) : null}
                     </Box>
                   ) : null}
                   </Box>
@@ -2374,22 +2444,14 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                               the link would collapse into a single node announced as the card's
                               label. A viewer, who gets no role, would hear the whole card while a
                               contributor heard one line of it.
-                              `editableActivityCardSx` / `overlaidContentSx` are both empty without
+                              `editableCardSx` / `overlaidContentSx` are both empty without
                               planning rights, and the overlay does not render, so a reader gets a
                               plain inert card. */}
                           <Box
                             data-testid="day-plan-item-card"
-                            sx={{ ...tlCardSx, position: "relative", ...editableActivityCardSx }}
+                            sx={{ ...tlCardSx, position: "relative", ...editableCardSx }}
                           >
                             {canEditPlanning ? (
-                              // A real `<button>`, so Enter and Space are the browser's job: no
-                              // `onKeyDown`, no `preventDefault`, and therefore no way for this to
-                              // swallow a keystroke meant for the link inside the card.
-                              //
-                              // `inset: 0` puts it exactly on the card's border box, so its own focus
-                              // ring at `outline-offset: 2` draws where a ring on the card would. It
-                              // owns the ring rather than the card, so focus stays visible even where
-                              // `:has()` does not resolve.
                               <Box
                                 component="button"
                                 type="button"
@@ -2397,24 +2459,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                                 aria-label={editLabelFor(title)}
                                 aria-haspopup="dialog"
                                 onClick={() => handleOpenEditPlan(item)}
-                                sx={{
-                                  position: "absolute",
-                                  inset: 0,
-                                  zIndex: 1,
-                                  borderRadius: "8px",
-                                  border: 0,
-                                  padding: 0,
-                                  background: "none",
-                                  appearance: "none",
-                                  // Deliberately inherited: the pointer affordance is authored once on
-                                  // the card, inside `@media (hover: hover)`, so a touch device does
-                                  // not get a cursor rule it has no cursor for.
-                                  cursor: "inherit",
-                                  "&:focus-visible": {
-                                    outline: `2px solid ${theme.palette.primary.main}`,
-                                    outlineOffset: 2,
-                                  },
-                                }}
+                                sx={editOverlaySx}
                               />
                             ) : null}
                             {/* tl-card-top's head row: time on the left, money and the edit glyph
@@ -2443,21 +2488,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                                       {formatCost(item.costCents)}
                                     </Box>
                                   ) : null}
-                                  {canEditPlanning ? (
-                                    // Decoration, never a control: the overlay already carries the
-                                    // role, the name and the tab stop. A button here would rebuild the
-                                    // nested control this story removed - and on a pointer device it
-                                    // is invisible until hover, so the tab stop would land on nothing
-                                    // the user can see.
-                                    <Box
-                                      aria-hidden
-                                      data-testid="day-plan-item-edit-glyph"
-                                      className={EDIT_GLYPH_CLASS}
-                                      sx={{ display: "flex", alignItems: "center", color: tokens.inkMuted }}
-                                    >
-                                      <PencilIcon />
-                                    </Box>
-                                  ) : null}
+                                  {canEditPlanning ? renderEditGlyph("day-plan-item-edit-glyph") : null}
                                 </Box>
                               </Box>
                             ) : null}
@@ -2551,14 +2582,42 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                       <HouseIcon sx={{ color: theme.palette.primary.main }} />
                     )}
                   </Box>
+                  {/* Story 6.13: same overlay as the activity and previous-night cards, wired to
+                      `setStayOpen` - *this* day's accommodation. The two stay dialogs look alike and
+                      edit different days, so crossing the wires here would be a silent data bug no
+                      visual check catches. */}
                   <Box
-                    sx={
-                      isDayGap
+                    sx={{
+                      ...(isDayGap
                         ? { ...tlCardSx, backgroundColor: tokens.warnBg, borderColor: tokens.warnBorder }
-                        : { ...tlCardSx, backgroundColor: tokens.cardAlt }
-                    }
+                        : { ...tlCardSx, backgroundColor: tokens.cardAlt }),
+                      position: "relative",
+                      ...editableCardSx,
+                      // `editableCardSx` hovers every card to `tokens.cardAlt`, which on a flagged day
+                      // would repaint the warn surface away under the pointer - dropping one of
+                      // DESIGN.md's warn cues exactly while the user is aiming at the card to fix what
+                      // it is flagging. Media queries add no specificity, so this later, unwrapped
+                      // `&:hover` wins on source order; the border still goes primary, so hover
+                      // feedback survives.
+                      ...(isDayGap && canEditPlanning ? { "&:hover": { backgroundColor: tokens.warnBg } } : {}),
+                    }}
                   >
-                  <Box sx={tlCardTopSx}>
+                  {canEditPlanning ? (
+                    <Box
+                      component="button"
+                      type="button"
+                      data-testid="timeline-current-stay-edit-overlay"
+                      aria-label={stayLabelFor(
+                        currentStay?.name,
+                        "trips.stay.editCurrentNightAria",
+                        "trips.stay.addCurrentNightAria",
+                      )}
+                      aria-haspopup="dialog"
+                      onClick={() => setStayOpen(true)}
+                      sx={editOverlaySx}
+                    />
+                  ) : null}
+                  <Box sx={{ ...tlCardTopSx, ...overlaidContentSx }}>
                     <Box sx={{ minWidth: 0 }}>
                       {renderTimePill(currentStayRange, currentStayRangeIsAssumed)}
                       <Typography variant="cardTitle" component="p" sx={{ color: tokens.ink, m: 0 }}>
@@ -2568,10 +2627,29 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                         {t("trips.dayView.currentNightTitle")}
                       </Typography>
                     </Box>
-                    {canCopyPreviousStay && canEditPlanning ? (
-                      <Button size="small" variant="text" disabled={copyingStay} onClick={() => void handleCopyPreviousStay()}>
-                        {t("trips.stay.copyPreviousAction")}
-                      </Button>
+                    {canEditPlanning ? (
+                      <Box display="flex" alignItems="center" gap={0.75}>
+                        {/* The one nested control in either stay card. It needs no `stopPropagation`:
+                            `overlaidContentSx` gives real `<button>`s their pointer events back and
+                            raises them above the overlay, so the click lands here and the overlay
+                            never sees it - on pointer and on keyboard alike.
+
+                            The wrapper covers the one state where that is not enough. While the copy
+                            is in flight the button is `disabled`, and MUI's ButtonBase sets
+                            `&.Mui-disabled { pointer-events: none }` at a higher specificity than
+                            `overlaidContentSx`'s `& button` opt-in. The button then stops hit-testing
+                            and the second, impatient click falls straight through to the overlay,
+                            opening this day's stay editor on top of a copy that is about to rewrite
+                            the same record. A wrapper that keeps its own pointer events absorbs it. */}
+                        {canCopyPreviousStay ? (
+                          <Box sx={{ pointerEvents: "auto", display: "flex" }}>
+                            <Button size="small" variant="text" disabled={copyingStay} onClick={() => void handleCopyPreviousStay()}>
+                              {t("trips.stay.copyPreviousAction")}
+                            </Button>
+                          </Box>
+                        ) : null}
+                        {renderEditGlyph("timeline-current-stay-edit-glyph")}
+                      </Box>
                     ) : null}
                   </Box>
                   {/* State Patterns: on a flagged day the accommodation slot names what is missing, in
@@ -2591,6 +2669,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                         borderRadius: "6px",
                         fontSize: "11.5px",
                         fontWeight: 700,
+                        ...overlaidContentSx,
                       }}
                     >
                       <WarningTriangleIcon />
@@ -2598,7 +2677,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                     </Box>
                   ) : null}
                   {currentStay ? (
-                    <Box display="flex" flexDirection="column" gap={0.75}>
+                    <Box display="flex" flexDirection="column" gap={0.75} sx={overlaidContentSx}>
                       <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
                         <Chip
                           label={currentStay.status === "booked" ? t("trips.stay.statusBooked") : t("trips.stay.statusPlanned")}
@@ -2610,18 +2689,25 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                           <Typography sx={tlCostSx}>{formatCost(currentStay.costCents)}</Typography>
                         ) : null}
                       </Box>
-                      {/* Last child: DESIGN.md's photo-strip runs along the bottom of the card. */}
-                      <MiniImageStrip
-                        variant="strip"
-                        images={accommodationImages}
-                        altPrefix={currentStay.name}
-                        onImageClick={(index) =>
-                          setFullscreenPhotos({
-                            images: toViewerImages(accommodationImages, currentStay.name),
-                            index,
-                          })
-                        }
-                      />
+                      {/* Last child: DESIGN.md's photo-strip runs along the bottom of the card.
+                          The wrapper restores pointer events for the strip's gaps as well as its
+                          thumbnails, so a near-miss between two of them does not fall through to the
+                          overlay and open the stay editor instead. */}
+                      {accommodationImages.length > 0 ? (
+                        <Box sx={{ pointerEvents: "auto" }}>
+                          <MiniImageStrip
+                            variant="strip"
+                            images={accommodationImages}
+                            altPrefix={currentStay.name}
+                            onImageClick={(index) =>
+                              setFullscreenPhotos({
+                                images: toViewerImages(accommodationImages, currentStay.name),
+                                index,
+                              })
+                            }
+                          />
+                        </Box>
+                      ) : null}
                     </Box>
                   ) : null}
                   </Box>

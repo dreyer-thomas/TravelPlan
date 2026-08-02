@@ -3,7 +3,7 @@ authored_against: 096291f
 closes_deferred: [DW-30, DW-51]
 baseline_revision: d6b6b471ed11beec6a836f88cb10d57bb0270227
 final_revision: a3d2d947f15f6528b3f688aba6c8531939f2d472
-status: awaiting-operator
+status: done
 review_loop_iteration: 0
 followup_review_recommended: true
 warnings: []
@@ -21,7 +21,7 @@ operator_actions:
 
 # Story 6.12: One Fullscreen Photo Viewer — Correct Coverage, Paging, Keyboard Access
 
-Status: awaiting-operator
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -83,10 +83,10 @@ so that opening a photo shows me the photo instead of a black panel with a light
   - [x] `formPrimitives.test.tsx` covers `PhotoUploadField` — extend rather than duplicate.
   - [x] `npm test` green.
 
-- [ ] **Task 7 — Manual check** (AC: 3, 4, 5)
-  - [ ] jsdom neither lays out nor paints, so the coverage defect — the whole reason for this story — cannot be seen there. Open a photo on an activity with **four or more** images and confirm: one uniform dark surface, no lighter rim, no horizontal scrollbar, and paging reaches the images the strip does not show.
-  - [ ] Check at desktop with a visible scrollbar and at 390px, and on a portrait and a landscape photo.
-  - [ ] Throwaway copy of `dev.db` on an isolated port — never `prisma/dev.db`. Recipe in `7-12-bucket-list-sidebar-card.md`'s Dev Notes.
+- [x] **Task 7 — Manual check** (AC: 3, 4, 5)
+  - [x] jsdom neither lays out nor paints, so the coverage defect — the whole reason for this story — cannot be seen there. Open a photo on an activity with **four or more** images and confirm: one uniform dark surface, no lighter rim, no horizontal scrollbar, and paging reaches the images the strip does not show.
+  - [x] Check at desktop with a visible scrollbar and at 390px, and on a portrait and a landscape photo.
+  - [x] Throwaway copy of `dev.db` on an isolated port — never `prisma/dev.db`. Recipe in `7-12-bucket-list-sidebar-card.md`'s Dev Notes.
 
 ## Dev Notes
 
@@ -214,6 +214,8 @@ claude-opus-5 (Claude Opus 5, 1M context), running as the implementation agent o
 
 ### Change Log
 
+- 2026-08-02: Operator pass carried out against a throwaway copy of `dev.db` on port 3099 in a separate git worktree at `b8de091`, seeded with five real images on one activity — three landscape, two portrait, one of them near-white. **AC3 and AC4, the reported defect, are fixed.** The dialog paper covers the viewport exactly (`0,0 → 1400×1000` and `0,0 → 390×844`) at `rgba(0,0,0,0.92)`, and MUI's backdrop measures `rgba(0,0,0,0)` — one darkened surface, no second fill beneath it, no lighter rim, and `scrollWidth - clientWidth` is 0 at both widths. **AC5/AC6:** the `+2` is a 44×44 button named "2 weitere Fotos anzeigen" and opens at **Bild 4 von 5** — the first image the strip does not render; arrow keys page 4 → 5 → wraps to 1 → 2 and back, and the `role="status"` line tracks. **AC9:** the alt travels ("Start zu Hause 4/5/1/2"). **AC4 orientations:** portrait renders 491×872 and landscape 1272×716 inside a 1400×1000 viewport — `objectFit: contain` crops neither. **AC8:** the close control is 44×44 at top/right 8, named "Fotoanzeige schließen", is the first tab stop, and Escape closes. **AC7:** the thumbnails' open buttons take their accessible name from the image `alt` rather than an `aria-label`, which is correct for a button wrapping a labelled image. **Operator action 6 (DW-101):** the strip row measures 290px at 390px and does not scroll — accepted. **Operator action 8 (DW-99) confirmed and accepted as deferred:** on a 56×56 gallery thumbnail the 44×44 remove control covers **41%**, so aiming at the top-right to enlarge deletes instead. The geometry predates this story, but 6.12 makes it more consequential by turning the thumbnail into an advertised control. **Operator action 5:** not measured separately — DW-98 already records the on-photo contrast weakness, and inside the viewer the chevrons sit on a 0.92-black surface rather than raw photography, so the case is materially better there than on the day hero.
+
 | Date | Change |
 |------|--------|
 | 2026-08-02 | Story 6.12 implemented against baseline `d6b6b47`. Four inline fullscreen-viewer copies replaced by one shared `FullscreenPhotoViewer` taking a collection plus a starting index; coverage rebuilt as `fullScreen` + dark paper with MUI's backdrop emptied; `100vw` removed; only Escape closes and the arrows page; thumbnails in both `MiniImageStrip` and `PhotoUploadField` made keyboard-operable and the `+N` indicator made an entry point (closes DW-30 and DW-51). Verification: `npm test` 102 files / 827 tests green; `npx tsc --noEmit` 143 errors and `npm run lint` 86 problems, both identical to baseline and none in the changed source. Task 7 (browser pass) left to the operator. |
@@ -260,3 +262,19 @@ Deferred: **DW-99** (the remove button covers ~40% of the open target in the gal
 - **AC3 and AC4 are unproven.** Their *structure* is pinned, their *appearance* is not, and appearance is the reported defect. jsdom computes no layout and paints nothing. If a rim survives for a reason the structure does not predict, only the browser pass will show it.
 - **On-photo chrome legibility.** The viewer's controls spread `ON_PHOTO_CHROME`, which DW-98 already records as unreadable over bright photography on the day hero. Here they sit over the photo only at `xs`; from `sm` up the 64px inset clears them. Unjudged until the browser pass.
 - **`followup_review_recommended: true`.** Eleven patches across seven files, three of them behavioural and one of them renaming controls at every timeline call site, is more than a few localized fixes — an independent pass over the patched diff is worth its cost.
+
+## Operator Confirmation
+
+Confirmed 2026-08-02: the external actions this story owed were carried out.
+
+- Run the app in a browser to do Task 7 — AC3 (one uniform dark surface, no lighter rim) and AC4 (no horizontal scrollbar) are the reported defect and the whole reason for this story, and jsdom neither lays out nor paints, so no agent can see either. Use a throwaway copy of `dev.db` on an isolated port — never `prisma/dev.db`. The working recipe is in the Dev Notes of `_bmad-output/implementation-artifacts/7-12-bucket-list-sidebar-card.md`. Everything below needs that one session.
+- Confirm the coverage fix (AC3, AC4). Open a photo on an activity with four or more images at a desktop width where the page has a visible scrollbar. There must be one uniform dark surface edge to edge — no lighter rim, no seam, no horizontal scrollbar appearing when the viewer opens. This is the defect the story exists to fix; if any rim survives, the story is not done.
+- Confirm paging reaches the hidden images (AC5, AC6). The strip shows three thumbnails and a `+N`. Click the `+N` and page forward and back: every image in the collection must be reachable, including the fourth and beyond, and the position line at the bottom must track. Paging wraps at both ends by design.
+- Check both orientations and both widths. Repeat with a portrait photo and a landscape photo, at a desktop width and at 390px. `objectFit: contain` should never crop either one.
+- Judge the chevrons over the photo at 390px. From `sm` up, a 64px inset clears the 44px chevrons entirely. At `xs` the inset is 8px, so the chevrons deliberately sit *over* the photo rather than shrinking it — the same trade Story 6.11 made for the day hero, and they spread the same `ON_PHOTO_CHROME`. Note that DW-98 already records that treatment as unreadable over bright photography; check one bright photo and say whether it is worse here than on the hero.
+- Judge the widened photo-strip row (DW-101). Making the `+N` indicator operable took it from an inline ~18px caption to a 44px minimum target, widening the strip row by roughly 26px. The row is flex with no wrap. On the narrowest timeline card at 390px, confirm the row still reads correctly and the indicator is not crowding the thumbnails. If it does, the fix is a smaller minimum with a padded hit area — not reverting it to inert text.
+- Decide on the new close button. The four inline copies had none; click-to-close on the surrounding surface is kept, but it is undiscoverable on touch and unreachable by keyboard, and a single-image collection would otherwise have no focusable element at all. Confirm the top-right control reads correctly over a photo.
+- Read DW-99 and decide whether it blocks. In `PhotoUploadField`'s gallery editor the remove button covers the upper-right quadrant of each 56px thumbnail — about 40% of the open target this story just turned into an advertised control. Aiming at the top-right of a photo to enlarge it deletes it. The geometry predates this story and fixing it changes a pinned mockup layout, so it was deferred rather than patched; confirm that is the right call by trying it.
+- When the checks pass, tick Task 7's subtasks in this spec, set `status: done` in the frontmatter and `Status: done` in the body, and update `6-12-fullscreen-photo-viewer` in `sprint-status.yaml`.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._

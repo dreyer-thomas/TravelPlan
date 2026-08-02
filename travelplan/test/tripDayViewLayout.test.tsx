@@ -27,8 +27,25 @@ const navigationMockState = vi.hoisted(() => ({
   search: "",
 }));
 
+// Story 6.13: both stay cards are now edit targets, and they open *different* dialogs - previous
+// night edits yesterday's accommodation from today's screen. The mock therefore has to record which
+// instance was opened; a single shared `stay-dialog` testid could not tell the two apart, and wiring
+// both cards to one handler is a silent data bug no visual check catches.
+const stayDialogMockState = vi.hoisted(() => ({
+  current: false,
+  previous: false,
+}));
+
 vi.mock("@/components/features/trips/TripAccommodationDialog", () => ({
-  default: () => <div data-testid="stay-dialog" />,
+  default: (props: { open: boolean; stayType: "current" | "previous" }) => {
+    if (props.stayType === "previous") {
+      stayDialogMockState.previous = props.open;
+    } else {
+      stayDialogMockState.current = props.open;
+    }
+    if (!props.open) return null;
+    return <div data-testid={`stay-dialog-${props.stayType}`} />;
+  },
 }));
 
 vi.mock("@/components/features/trips/TripDayPlanDialog", () => ({
@@ -210,6 +227,8 @@ vi.mock("leaflet", () => ({
 describe("TripDayView layout", () => {
   beforeEach(() => {
     bucketListItemsOverride = null;
+    stayDialogMockState.current = false;
+    stayDialogMockState.previous = false;
   });
   it("renders the day gantt bar in the header overview area", async () => {
     planDialogMockState.lastProps = null;
@@ -337,7 +356,10 @@ describe("TripDayView layout", () => {
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
     expect(await screen.findByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Add stay" })).not.toBeInTheDocument();
+    // Story 6.13: the stay control is no longer a toolbar button but the card's own overlay, so the
+    // viewer gate shows up as the overlay being absent.
+    expect(screen.queryByTestId("timeline-current-stay-edit-overlay")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("timeline-previous-stay-edit-overlay")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add item" })).not.toBeInTheDocument();
     // Story 6.9: the pencil is gone; a viewer's activity card is inert instead of pencil-less.
     expect(screen.queryByTestId("day-plan-item-edit-overlay")).not.toBeInTheDocument();
@@ -427,7 +449,9 @@ describe("TripDayView layout", () => {
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
     expect(await screen.findByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Edit stay" })).toBeInTheDocument();
+    // Story 6.13: a contributor edits the stay by clicking its card, so the gate shows up as the
+    // stretched overlay on the current-night card rather than a toolbar button.
+    expect(screen.getByTestId("timeline-current-stay-edit-overlay")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add plan item" })).toBeInTheDocument();
     // Story 6.9: a contributor edits by clicking the card, so the gate shows up as the stretched edit
     // overlay. canEditPlanning, not isOwner - a contributor keeps this.
@@ -1643,7 +1667,10 @@ describe("TripDayView layout", () => {
     expect(screen.getAllByText("City Hotel").length).toBeGreaterThan(0);
     expect(screen.getByText("Costs today")).toBeInTheDocument();
     expect(screen.getByTestId("day-cost-total")).toHaveTextContent("€160.00");
-    expect(screen.getAllByRole("button", { name: "Edit stay" }).length).toBeGreaterThan(0);
+    // Story 6.13: both stay cards carry their own stretched edit overlay; neither the toolbar button
+    // nor the previous-night card's inline button exists any more.
+    expect(screen.getByTestId("timeline-previous-stay-edit-overlay")).toBeInTheDocument();
+    expect(screen.getByTestId("timeline-current-stay-edit-overlay")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add plan item" })).toBeInTheDocument();
     // Story 6.9: the card is the edit target and its overlay is the only control on the activity -
     // the pencil and the wrapper that existed only to hold it are gone.
@@ -2454,6 +2481,13 @@ describe("TripDayView layout", () => {
     fireEvent.click(screen.getByRole("button", { name: "Copy previous night" }));
 
     await waitFor(() => expect(screen.getAllByText("Copied Stay").length).toBeGreaterThan(0));
+
+    // Story 6.13 AC6: copy-previous is the one nested control inside a stay card, and the card around
+    // it is now an edit target. `overlaidContentSx` raises real <button>s above the overlay and gives
+    // them their pointer events back, so this click ran the copy and nothing else - no stay editor.
+    expect(stayDialogMockState.current).toBe(false);
+    expect(stayDialogMockState.previous).toBe(false);
+    expect(screen.queryByTestId("stay-dialog-current")).not.toBeInTheDocument();
 
     vi.unstubAllGlobals();
   });
@@ -4814,6 +4848,325 @@ describe("TripDayView layout", () => {
     expect(printLink).toHaveAttribute("href", "/trips/trip-1/days/day-1/print");
     expect(printLink).toHaveAttribute("target", "_blank");
     expect(printLink).toHaveAttribute("rel", "noopener noreferrer");
+
+    vi.unstubAllGlobals();
+  });
+
+  // --- Story 6.13: the accommodation cards edit like activity cards ----------------------------
+
+  const stayFixture = (id: string, name: string) => ({
+    id,
+    name,
+    notes: null,
+    status: "planned",
+    costCents: null,
+    payments: [],
+    link: null,
+    checkInTime: null,
+    checkOutTime: null,
+    location: null,
+  });
+
+  // `buildDayResponse` serves a single day, which leaves `previousDay` null - and a null previous day
+  // is precisely the case in which the previous-night card must stay inert. Anything asserting on that
+  // card needs a trip that actually has a day before the one on screen.
+  const buildTwoDayResponse = (
+    options: {
+      previousAccommodation?: Record<string, unknown> | null;
+      accommodation?: Record<string, unknown> | null;
+      trip?: Record<string, unknown>;
+    } = {},
+  ) =>
+    withBucketList(async (input) => {
+      const url = String(input);
+      if (url.includes("/accommodations/images") || url.includes("/day-plan-items/images")) {
+        return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-11-30T00:00:00.000Z",
+              endDate: "2026-12-01T00:00:00.000Z",
+              dayCount: 2,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+              ...options.trip,
+            },
+            days: [
+              {
+                id: "day-prev",
+                date: "2026-11-30T00:00:00.000Z",
+                dayIndex: 0,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: options.previousAccommodation ?? null,
+                dayPlanItems: [],
+                travelSegments: [],
+              },
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: options.accommodation ?? null,
+                dayPlanItems: [],
+                travelSegments: [],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+  it("opens the previous-night dialog - not the current-night one - from the previous-night card (AC1, AC2)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal(
+      "fetch",
+      buildTwoDayResponse({
+        previousAccommodation: stayFixture("stay-prev", "Airport Hotel"),
+        accommodation: stayFixture("stay-current", "City Hotel"),
+      }),
+    );
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    const overlay = within(screen.getByTestId("timeline-previous-stay")).getByTestId(
+      "timeline-previous-stay-edit-overlay",
+    );
+    // The same mechanism 6.9 settled on: a stretched <button>, not `role="button"` on the card. ARIA
+    // gives `button` Children Presentational: True, which would collapse the stay name, the time pill
+    // and the status chip into the overlay's single accessible name.
+    expect(overlay.tagName.toLowerCase()).toBe("button");
+    expect(overlay.parentElement).not.toHaveAttribute("role");
+    expect(overlay).toHaveAccessibleName("Edit previous-night accommodation: Airport Hotel");
+    expect(overlay).toHaveAttribute("aria-haspopup", "dialog");
+    // The card's own content is still in the accessibility tree, which the presentational-children
+    // collapse would have taken away.
+    expect(within(screen.getByTestId("timeline-previous-stay")).getByText("Airport Hotel")).toBeInTheDocument();
+
+    fireEvent.click(overlay);
+
+    // The two stay dialogs edit different days. Wiring this card to `setStayOpen` would overwrite
+    // today's accommodation while the screen said "previous night", so both halves are asserted.
+    await waitFor(() => expect(stayDialogMockState.previous).toBe(true));
+    expect(stayDialogMockState.current).toBe(false);
+    expect(screen.getByTestId("stay-dialog-previous")).toBeInTheDocument();
+    expect(screen.queryByTestId("stay-dialog-current")).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("opens the current-night dialog - not the previous-night one - from the current-night card (AC1, AC2)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal(
+      "fetch",
+      buildTwoDayResponse({
+        previousAccommodation: stayFixture("stay-prev", "Airport Hotel"),
+        accommodation: stayFixture("stay-current", "City Hotel"),
+      }),
+    );
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    const overlay = within(screen.getByTestId("timeline-current-stay")).getByTestId(
+      "timeline-current-stay-edit-overlay",
+    );
+    expect(overlay.tagName.toLowerCase()).toBe("button");
+    expect(overlay.parentElement).not.toHaveAttribute("role");
+    expect(overlay).toHaveAccessibleName("Edit current-night accommodation: City Hotel");
+
+    fireEvent.click(overlay);
+
+    await waitFor(() => expect(stayDialogMockState.current).toBe(true));
+    expect(stayDialogMockState.previous).toBe(false);
+    expect(screen.getByTestId("stay-dialog-current")).toBeInTheDocument();
+    expect(screen.queryByTestId("stay-dialog-previous")).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("opens the add dialog from an empty stay card and says so in the name (AC5)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal("fetch", buildTwoDayResponse({ previousAccommodation: null, accommodation: null }));
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    // Removing both buttons removed the only "add accommodation" entry point, so the empty card has to
+    // be the new one - and an empty card looks like a filled one to a screen reader unless the name
+    // carries the difference.
+    expect(screen.getByText("No previous-night accommodation set.")).toBeInTheDocument();
+    const previousOverlay = screen.getByTestId("timeline-previous-stay-edit-overlay");
+    expect(previousOverlay).toHaveAccessibleName("Add previous-night accommodation");
+    const currentOverlay = screen.getByTestId("timeline-current-stay-edit-overlay");
+    expect(currentOverlay).toHaveAccessibleName("Add current-night accommodation");
+
+    // Both empty cards are activated, not just named. Trap 2 - the two dialogs edit different days -
+    // applies to the add path exactly as it does to the edit path, and asserting the name alone would
+    // still pass if the empty previous-night branch were wired to `setStayOpen`.
+    fireEvent.click(previousOverlay);
+    await waitFor(() => expect(stayDialogMockState.previous).toBe(true));
+    expect(stayDialogMockState.current).toBe(false);
+
+    fireEvent.click(currentOverlay);
+    await waitFor(() => expect(stayDialogMockState.current).toBe(true));
+
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps the copy-previous button hit-testable while it is disabled (AC6)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal(
+      "fetch",
+      buildTwoDayResponse({
+        previousAccommodation: stayFixture("stay-prev", "Airport Hotel"),
+        accommodation: null,
+      }),
+    );
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    // `overlaidContentSx` gives real <button>s their pointer events back, but MUI's ButtonBase sets
+    // `&.Mui-disabled { pointer-events: none }` at a higher specificity - so while a copy is in flight
+    // the button stops hit-testing and a second, impatient click would land on the stretched overlay
+    // beneath it and open this day's stay editor on top of the copy. The wrapper is what absorbs it.
+    // jsdom has no hit testing, so the fall-through itself is browser-only (Task 6); what is checkable
+    // here is that the button is not a direct child of the pointer-events-none head row.
+    const copyButton = screen.getByRole("button", { name: "Copy previous night" });
+    const wrapper = copyButton.parentElement as HTMLElement;
+    expect(window.getComputedStyle(wrapper).pointerEvents).toBe("auto");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("removes the toolbar stay button and the previous-night card's inline stay button (AC3, AC4)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal(
+      "fetch",
+      buildTwoDayResponse({
+        previousAccommodation: stayFixture("stay-prev", "Airport Hotel"),
+        accommodation: stayFixture("stay-current", "City Hotel"),
+      }),
+    );
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    // The mechanical check that both are gone: nothing anywhere is named by what the two buttons said.
+    // `trips.stay.editAction` / `addAction` were removed along with their only call sites, so this
+    // asserts on the strings they carried rather than on the keys.
+    expect(screen.queryByRole("button", { name: "Edit stay" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add stay" })).not.toBeInTheDocument();
+    // Each stay card's overlay is now its only control - the inline button would be a second one.
+    expect(within(screen.getByTestId("timeline-previous-stay")).getAllByRole("button")).toHaveLength(1);
+    expect(within(screen.getByTestId("timeline-current-stay")).getAllByRole("button")).toHaveLength(1);
+    // The toolbar keeps everything that has no card of its own.
+    expect(screen.getByRole("button", { name: "Move activities" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Swap activities" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add plan item" })).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("signals editability on stay cards exactly as it does on activity cards (AC7)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal(
+      "fetch",
+      buildTwoDayResponse({
+        previousAccommodation: stayFixture("stay-prev", "Airport Hotel"),
+        accommodation: stayFixture("stay-current", "City Hotel"),
+      }),
+    );
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    // The reveal is a media-query behaviour and jsdom implements no media-query matching, so what is
+    // checkable here is that all three card kinds are driven by the *same* authored rules: the glyph
+    // carries the shared EDIT_GLYPH_CLASS, which is the only selector those rules target.
+    for (const testId of ["timeline-previous-stay-edit-glyph", "timeline-current-stay-edit-glyph"]) {
+      const glyph = screen.getByTestId(testId);
+      expect(glyph).toHaveAttribute("aria-hidden", "true");
+      expect(glyph.tagName.toLowerCase()).not.toBe("button");
+      expect(glyph).not.toHaveAttribute("tabindex");
+      expect(glyph.className).toContain("day-plan-item-edit-glyph");
+    }
+
+    const css = Array.from(document.querySelectorAll("style"))
+      .map((node) => node.textContent ?? "")
+      .join("");
+    expect(css).toContain("@media (hover: hover)");
+    expect(css).toContain("@media (hover: none)");
+    expect(css).toContain("@media (any-pointer: coarse)");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("gives a viewer no overlay, no glyph and no click-to-edit on either stay card (AC8)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal(
+      "fetch",
+      buildTwoDayResponse({
+        previousAccommodation: stayFixture("stay-prev", "Airport Hotel"),
+        accommodation: stayFixture("stay-current", "City Hotel"),
+        trip: { accessRole: "viewer" },
+      }),
+    );
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    // The control must be absent, not merely inert: the cursor and the hover treatment live inside
+    // `@media (hover: hover)`, which jsdom does not apply, so reading them off the card proves nothing.
+    const previousCard = screen.getByTestId("timeline-previous-stay");
+    const currentCard = screen.getByTestId("timeline-current-stay");
+    expect(within(previousCard).queryByTestId("timeline-previous-stay-edit-overlay")).not.toBeInTheDocument();
+    expect(within(currentCard).queryByTestId("timeline-current-stay-edit-overlay")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("timeline-previous-stay-edit-glyph")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("timeline-current-stay-edit-glyph")).not.toBeInTheDocument();
+    expect(within(previousCard).queryByRole("button")).toBeNull();
+    expect(within(currentCard).queryByRole("button")).toBeNull();
+
+    fireEvent.click(previousCard);
+    fireEvent.click(currentCard);
+    expect(stayDialogMockState.previous).toBe(false);
+    expect(stayDialogMockState.current).toBe(false);
+
+    vi.unstubAllGlobals();
+  });
+
+  it("leaves the previous-night card inert on a day with no previous day (AC8)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal("fetch", buildDayResponse({}));
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    // Two-part condition: planning rights alone are not enough. With no day before this one there is
+    // no accommodation to edit and nothing for the add dialog to attach to.
+    expect(screen.queryByTestId("timeline-previous-stay-edit-overlay")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("timeline-previous-stay-edit-glyph")).not.toBeInTheDocument();
+    expect(screen.getByTestId("timeline-current-stay-edit-overlay")).toBeInTheDocument();
 
     vi.unstubAllGlobals();
   });

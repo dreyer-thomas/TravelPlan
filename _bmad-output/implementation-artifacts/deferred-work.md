@@ -806,3 +806,33 @@ location: `travelplan/test/tripDayPlanDialog.test.tsx` — the `MUI_ONLY_PROPS` 
 severity: low
 reason: One more increment of [[DW-53]]. Story 6.12 taught the mocked `Dialog` to honour `open` — strictly more faithful than before, and the reason that file's suite still passes — but `slotProps` remains in `MUI_ONLY_PROPS`, so under this mock `FullscreenPhotoViewer` renders as a bare `<div>`: no `role="dialog"`, no `aria-label`, no dark paper, no click-to-close, no backdrop. Every structural claim the viewer's own suite makes is untestable in the file that pins the most day-plan-dialog contracts, and a future assertion about the viewer there would pass or fail for reasons unrelated to the real component. Not separately actionable: it closes when DW-53 does, by deleting the wholesale mock and rendering against real MUI through `renderWithProviders`. Recorded so the growth is visible rather than absorbed.
 status: open
+
+### DW-103: The stay name — the most copy-worthy string on a stay card — is no longer drag-selectable
+
+source_spec: `_bmad-output/implementation-artifacts/6-13-stay-cards-editable.md`
+origin: incidental to story 6-13 review, 2026-08-02
+location: `travelplan/src/components/features/trips/TripDayView.tsx` — both stay cards' head rows (`tlCardTopSx` + `overlaidContentSx`)
+severity: medium
+summary: Making the stay cards click-to-edit put their head rows under `pointerEvents: "none"`, so dragging across a hotel name starts no selection and the mouse-up lands on the edit overlay instead.
+evidence: `overlaidContentSx` sets `pointerEvents: "none"` on the content layer and re-enables only `a` and `button`. Story 6.9 measured this exact effect and judged it unacceptable for prose — the activity card's comment records that "the drag never reaches the text and the mouse-up lands on the overlay, so the reader gets an edit dialog instead of a selection" — and carved the notes block out with `pointerEvents: "auto"` for that reason. Stay cards got no equivalent carve-out, and their head row holds precisely the class of string that exception exists for: hotel names, and through them addresses and booking references. Not patched here because activity card *titles* have the same property, so exempting only the stay name would make the three card kinds diverge on text selection — the drift Task 1 exists to prevent. The fix is one decision applied to all three: either card titles become selectable everywhere, or they do not.
+status: open
+
+### DW-104: `i18nDictionaries.test.ts` does not enforce en/de parity, and dictionary keys are untyped
+
+source_spec: `_bmad-output/implementation-artifacts/6-13-stay-cards-editable.md`
+origin: incidental to story 6-13 review, 2026-08-02
+location: `travelplan/test/i18nDictionaries.test.ts`, `travelplan/src/i18n/index.ts`
+severity: medium
+summary: Story 6.13's spec assumed `i18nDictionaries.test.ts` enforces en/de key parity; it does not, and `Dictionary = Record<string, string>` means a mistyped key type-checks and degrades to the key string as a user-visible accessible name.
+evidence: The suite asserts only that both modules export objects. Parity for the four keys this story added was verified by hand (519/519 keys, no gaps) — which is exactly the manual step a test should be doing. `translate` is `dictionary[key] ?? key`, so renaming `trips.stay.editCurrentNightAria` in the dictionaries but not at the call site yields a stay card whose screen-reader name is the literal string `trips.stay.editCurrentNightAria`, with nothing failing. Two independent fixes, both cheap: a real parity assertion over `Object.keys`, and a `keyof typeof en` key type so call sites are checked at compile time. Pre-existing; surfaced because 6.13 is the first story to make a dictionary key the *only* signal distinguishing two controls (add vs edit on a card that looks identical either way).
+status: open
+
+### DW-105: The photo-strip's pointer-events wrapper spans the card's full width, so the band right of the last thumbnail swallows clicks
+
+source_spec: `_bmad-output/implementation-artifacts/6-13-stay-cards-editable.md`
+origin: incidental to story 6-13 review, 2026-08-02
+location: `travelplan/src/components/features/trips/TripDayView.tsx` — the `<Box sx={{ pointerEvents: "auto" }}>` around each `MiniImageStrip` (activity card, both stay cards)
+severity: low
+summary: The wrapper that restores pointer events for the photo strip is block-level, so it claims the full card width; clicking the empty band to the right of the last thumbnail hits a dead zone instead of opening the editor.
+evidence: The wrapper exists to stop a near-miss between two thumbnails falling through to the overlay, and for that it is correct. But a `Box` in a column flex container stretches to the card's width, and the strip itself is only as wide as its thumbnails, so on a card with one or two photos most of that row is wrapper and nothing else — an inert strip across the bottom of an otherwise fully clickable card. Introduced for stay cards by 6.13, pre-existing on activity cards since 6.9. `width: "fit-content"` on all three closes it, but it is a one-line change to a pattern 6.9 verified in a browser, and this repo has no way to re-verify it there; folded into the next browser pass rather than patched blind.
+status: open

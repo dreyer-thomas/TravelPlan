@@ -463,9 +463,13 @@ const de: Dictionary = {
   "trips.payments.amountRequired": "Betrag ist erforderlich",
   "trips.payments.minRows": "Für die Aufteilung sind mindestens zwei Zahlungen nötig",
   "trips.payments.costRequired": "Bitte zuerst eine Gesamtsumme eingeben",
-  "trips.stay.addAction": "Unterkunft hinzufügen",
-  "trips.stay.editAction": "Unterkunft",
   "trips.stay.copyPreviousAction": "Vorherige Nacht kopieren",
+  // Story 6.13: Namen der aufgespannten Bearbeiten-Schaltfläche auf den Unterkunftskarten. Hinzufügen
+  // und Bearbeiten sind bewusst getrennt - eine leere und eine gefüllte Karte klingen sonst gleich.
+  "trips.stay.editPreviousNightAria": "Unterkunft der vorherigen Nacht bearbeiten: {title}",
+  "trips.stay.addPreviousNightAria": "Unterkunft für die vorherige Nacht hinzufügen",
+  "trips.stay.editCurrentNightAria": "Unterkunft der aktuellen Nacht bearbeiten: {title}",
+  "trips.stay.addCurrentNightAria": "Unterkunft für die aktuelle Nacht hinzufügen",
   "trips.stay.addTitle": "Unterkunft hinzufügen",
   "trips.stay.editTitle": "Unterkunft bearbeiten",
   "trips.stay.nameLabel": "Name der Unterkunft",

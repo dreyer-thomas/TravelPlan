@@ -468,9 +468,14 @@ const en: Dictionary = {
   "trips.payments.amountRequired": "Payment amount is required",
   "trips.payments.minRows": "Add at least two payments for a split schedule",
   "trips.payments.costRequired": "Enter a total cost before adding payments",
-  "trips.stay.addAction": "Add stay",
-  "trips.stay.editAction": "Edit stay",
   "trips.stay.copyPreviousAction": "Copy previous night",
+  // Story 6.13: the stay cards are their own edit target, so these name the stretched overlay rather
+  // than a visible button. Add and edit are separate strings on purpose - an empty accommodation card
+  // and a filled one are indistinguishable to a screen reader once the name is all it has.
+  "trips.stay.editPreviousNightAria": "Edit previous-night accommodation: {title}",
+  "trips.stay.addPreviousNightAria": "Add previous-night accommodation",
+  "trips.stay.editCurrentNightAria": "Edit current-night accommodation: {title}",
+  "trips.stay.addCurrentNightAria": "Add current-night accommodation",
   "trips.stay.addTitle": "Add stay",
   "trips.stay.editTitle": "Edit stay",
   "trips.stay.nameLabel": "Stay name",
