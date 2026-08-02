@@ -298,6 +298,225 @@ describe("trip backup round trip", () => {
     expect(await prisma.travelSegment.count({ where: { tripDayId: newDays[0].id } })).toBe(1);
   });
 
+  /**
+   * Story 6.16 / AC7. The backup format carries `transportType`, and both new values have to survive
+   * export *and* import - the export mapper and the import mapper are separate switches, so one of
+   * them silently falling back to FLIGHT is exactly the failure this catches.
+   *
+   * The cycling leg keeps a distance and the walking leg does not, which is also the AC6 rule
+   * travelling through the backup format intact.
+   */
+  it("round-trips walking and cycling travel segments", async () => {
+    const user = await prisma.user.create({
+      data: { email: "round-trip-modes@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const session = await createSessionJwt({ sub: user.id, role: user.role });
+
+    const { trip: sourceTrip } = await createTripWithDays({
+      userId: user.id,
+      name: "Modes Round Trip",
+      startDate: "2026-10-01T00:00:00.000Z",
+      endDate: "2026-10-01T00:00:00.000Z",
+    });
+    const [sourceDay] = await prisma.tripDay.findMany({ where: { tripId: sourceTrip.id } });
+
+    const sourceStay = await prisma.accommodation.create({
+      data: { tripDayId: sourceDay.id, name: "Trailhead Lodge", status: "PLANNED" },
+    });
+    const firstStop = await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: sourceDay.id,
+        title: "Viewpoint",
+        contentJson: JSON.stringify({ type: "doc", content: [] }),
+      },
+    });
+    const secondStop = await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: sourceDay.id,
+        title: "Lake",
+        contentJson: JSON.stringify({ type: "doc", content: [] }),
+      },
+    });
+
+    await prisma.travelSegment.create({
+      data: {
+        tripDayId: sourceDay.id,
+        fromItemType: "ACCOMMODATION",
+        fromItemId: sourceStay.id,
+        toItemType: "DAY_PLAN_ITEM",
+        toItemId: firstStop.id,
+        transportType: "WALKING",
+        durationMinutes: 15,
+        distanceKm: null,
+      },
+    });
+    await prisma.travelSegment.create({
+      data: {
+        tripDayId: sourceDay.id,
+        fromItemType: "DAY_PLAN_ITEM",
+        fromItemId: firstStop.id,
+        toItemType: "DAY_PLAN_ITEM",
+        toItemId: secondStop.id,
+        transportType: "CYCLING",
+        durationMinutes: 75,
+        distanceKm: 22.4,
+      },
+    });
+
+    const exportResponse = await EXPORT(
+      new NextRequest(`http://localhost/api/trips/${sourceTrip.id}/export`, {
+        method: "GET",
+        headers: { cookie: `session=${session}` },
+      }),
+      { params: Promise.resolve({ id: sourceTrip.id }) }
+    );
+    expect(exportResponse.status).toBe(200);
+    const archive = Buffer.from(await exportResponse.arrayBuffer());
+
+    const form = new FormData();
+    form.set("file", new File([new Uint8Array(archive)], "backup.zip", { type: "application/zip" }));
+    form.set("strategy", "createNew");
+
+    const importResponse = await IMPORT(
+      new NextRequest("http://localhost/api/trips/import", {
+        method: "POST",
+        headers: { cookie: `session=${session}; csrf_token=csrf-token`, "x-csrf-token": "csrf-token" },
+        body: form,
+      })
+    );
+    const imported = (await importResponse.json()) as ApiEnvelope<ImportResponse>;
+
+    expect(importResponse.status).toBe(200);
+    expect(imported.error).toBeNull();
+    expect(imported.data?.travelSegmentCount).toBe(2);
+
+    const newTripId = imported.data!.trip.id;
+    const [newDay] = await prisma.tripDay.findMany({ where: { tripId: newTripId } });
+    const newSegments = await prisma.travelSegment.findMany({
+      where: { tripDayId: newDay.id },
+      orderBy: { durationMinutes: "asc" },
+    });
+
+    expect(newSegments.map((segment) => segment.transportType)).toEqual(["WALKING", "CYCLING"]);
+    expect(newSegments[0].distanceKm).toBeNull();
+    expect(newSegments[1].distanceKm).toBe(22.4);
+    // Endpoints are remapped onto the restored rows, not left pointing at the source trip's.
+    const sourceIds = [sourceStay.id, firstStop.id, secondStop.id];
+    for (const segment of newSegments) {
+      expect(sourceIds).not.toContain(segment.fromItemId);
+      expect(sourceIds).not.toContain(segment.toItemId);
+    }
+  });
+
+  /**
+   * The other direction of AC7, and the one that could actually regress: a backup written *before*
+   * this story - so carrying only CAR / SHIP / FLIGHT - must still import cleanly. The change to the
+   * import schema is accept-more, so this is a guard against someone later "tidying" the enum into
+   * only the modes the current dialog offers.
+   */
+  it("imports a backup written before walking and cycling existed", async () => {
+    const user = await prisma.user.create({
+      data: { email: "round-trip-legacy@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const session = await createSessionJwt({ sub: user.id, role: user.role });
+
+    const { trip: sourceTrip } = await createTripWithDays({
+      userId: user.id,
+      name: "Legacy Backup Trip",
+      startDate: "2026-04-01T00:00:00.000Z",
+      endDate: "2026-04-01T00:00:00.000Z",
+    });
+    const [sourceDay] = await prisma.tripDay.findMany({ where: { tripId: sourceTrip.id } });
+
+    const legacyStay = await prisma.accommodation.create({
+      data: { tripDayId: sourceDay.id, name: "Legacy Hotel", status: "PLANNED" },
+    });
+    const legacyStops = [];
+    for (const title of ["Port", "Airport", "Hotel"]) {
+      legacyStops.push(
+        await prisma.dayPlanItem.create({
+          data: {
+            tripDayId: sourceDay.id,
+            title,
+            contentJson: JSON.stringify({ type: "doc", content: [] }),
+          },
+        })
+      );
+    }
+
+    // The exact three modes a pre-6.16 build could write, in the order the timeline puts them.
+    await prisma.travelSegment.create({
+      data: {
+        tripDayId: sourceDay.id,
+        fromItemType: "ACCOMMODATION",
+        fromItemId: legacyStay.id,
+        toItemType: "DAY_PLAN_ITEM",
+        toItemId: legacyStops[0].id,
+        transportType: "CAR",
+        durationMinutes: 25,
+        distanceKm: 18,
+      },
+    });
+    await prisma.travelSegment.create({
+      data: {
+        tripDayId: sourceDay.id,
+        fromItemType: "DAY_PLAN_ITEM",
+        fromItemId: legacyStops[0].id,
+        toItemType: "DAY_PLAN_ITEM",
+        toItemId: legacyStops[1].id,
+        transportType: "SHIP",
+        durationMinutes: 120,
+        distanceKm: null,
+      },
+    });
+    await prisma.travelSegment.create({
+      data: {
+        tripDayId: sourceDay.id,
+        fromItemType: "DAY_PLAN_ITEM",
+        fromItemId: legacyStops[1].id,
+        toItemType: "DAY_PLAN_ITEM",
+        toItemId: legacyStops[2].id,
+        transportType: "FLIGHT",
+        durationMinutes: 300,
+        distanceKm: null,
+      },
+    });
+
+    const exportResponse = await EXPORT(
+      new NextRequest(`http://localhost/api/trips/${sourceTrip.id}/export`, {
+        method: "GET",
+        headers: { cookie: `session=${session}` },
+      }),
+      { params: Promise.resolve({ id: sourceTrip.id }) }
+    );
+    const archive = Buffer.from(await exportResponse.arrayBuffer());
+
+    const form = new FormData();
+    form.set("file", new File([new Uint8Array(archive)], "legacy-backup.zip", { type: "application/zip" }));
+    form.set("strategy", "createNew");
+
+    const importResponse = await IMPORT(
+      new NextRequest("http://localhost/api/trips/import", {
+        method: "POST",
+        headers: { cookie: `session=${session}; csrf_token=csrf-token`, "x-csrf-token": "csrf-token" },
+        body: form,
+      })
+    );
+    const imported = (await importResponse.json()) as ApiEnvelope<ImportResponse>;
+
+    expect(importResponse.status).toBe(200);
+    expect(imported.error).toBeNull();
+    expect(imported.data?.travelSegmentCount).toBe(3);
+
+    const [newDay] = await prisma.tripDay.findMany({ where: { tripId: imported.data!.trip.id } });
+    const newSegments = await prisma.travelSegment.findMany({
+      where: { tripDayId: newDay.id },
+      orderBy: { durationMinutes: "asc" },
+    });
+    expect(newSegments.map((segment) => segment.transportType)).toEqual(["CAR", "SHIP", "FLIGHT"]);
+    expect(newSegments[0].distanceKm).toBe(18);
+  });
+
   it("round-trips a trip with no photos at all", async () => {
     const user = await prisma.user.create({
       data: { email: "round-trip-no-photos@example.com", passwordHash: "hashed", role: "OWNER" },

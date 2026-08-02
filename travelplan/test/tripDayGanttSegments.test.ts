@@ -69,6 +69,33 @@ describe("TripDayGanttSegments", () => {
     ]);
   });
 
+  /**
+   * Story 6.16 / AC3 - a guard, not a feature. The coverage bar collapses every transport mode into
+   * one `"travel"` kind, and adding WALKING and CYCLING must not introduce a per-mode distinction.
+   *
+   * `TravelSegmentTimes` has no `transportType` field at all, so this holds by construction; the
+   * assertion exists so that anyone who adds one has to delete this test on purpose.
+   */
+  it("reports one travel kind regardless of transport mode", () => {
+    const modes = ["car", "ship", "flight", "walking", "cycling"];
+    const segments = buildTravelSegments({
+      travelSegments: modes.map((mode, index) => ({
+        id: `seg-${mode}`,
+        fromItemType: "dayPlanItem" as const,
+        fromItemId: `item-${index}`,
+        durationMinutes: 30,
+        transportType: mode,
+      })),
+      accommodationEndTimes: {},
+      planItemEndTimes: Object.fromEntries(modes.map((_mode, index) => [`item-${index}`, "09:00"])),
+    });
+
+    expect(segments).toHaveLength(modes.length);
+    expect(new Set(segments.map((segment) => segment.kind))).toEqual(new Set(["travel"]));
+    // No segment carries the mode forward either - the bar's output shape is unchanged.
+    expect(Object.keys(segments[0]).sort()).toEqual(["endMinute", "kind", "startMinute"]);
+  });
+
   it("skips travel segments when duration or previous item time is missing", () => {
     const segments = buildTravelSegments({
       travelSegments: [

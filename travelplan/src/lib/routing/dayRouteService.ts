@@ -9,7 +9,20 @@ export type DayRouteResult = {
   durationSeconds: number | null;
 };
 
-export type RoutingErrorCode = "routing_unavailable" | "routing_invalid_response";
+/**
+ * OSRM's `{profile}` path segment. `driving` is what every caller used before Story 6.16; `walking`
+ * and `cycling` back the two travel modes it added.
+ */
+export type RoutingProfile = "driving" | "walking" | "cycling";
+
+export const DEFAULT_ROUTING_PROFILE: RoutingProfile = "driving";
+
+/**
+ * `routing_no_route` is deliberately separate from `routing_unavailable`. Cycling coverage is patchy
+ * in large parts of the world, and "there is no bicycle route between these two points" is a normal,
+ * correct answer - not a failure of the service or of the feature. Callers must be able to say so.
+ */
+export type RoutingErrorCode = "routing_unavailable" | "routing_invalid_response" | "routing_no_route";
 
 export class DayRouteError extends Error {
   readonly code: RoutingErrorCode;
@@ -50,10 +63,12 @@ const toPolyline = (coordinates: [number, number][]) =>
 
 export const getDayRouteFromOsrm = async ({
   points,
+  profile = DEFAULT_ROUTING_PROFILE,
   fetchImpl = fetch,
   timeoutMs = 3500,
 }: {
   points: RoutingPoint[];
+  profile?: RoutingProfile;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
 }): Promise<DayRouteResult> => {
@@ -62,7 +77,7 @@ export const getDayRouteFromOsrm = async ({
   }
 
   const coordinatePath = toOsrmCoordinatePath(points);
-  const url = `https://router.project-osrm.org/route/v1/driving/${coordinatePath}?alternatives=false&overview=full&geometries=geojson`;
+  const url = `https://router.project-osrm.org/route/v1/${profile}/${coordinatePath}?alternatives=false&overview=full&geometries=geojson`;
   const controller = new AbortController();
   const timeout = setTimeout(() => {
     controller.abort();
@@ -83,13 +98,19 @@ export const getDayRouteFromOsrm = async ({
     }
 
     const payload = (await response.json()) as OsrmResponse;
+    // OSRM answers "the graph for this profile connects nothing here" with `NoRoute`. That is an
+    // answer, not an outage - see `routing_no_route`.
+    if (payload.code === "NoRoute") {
+      throw new DayRouteError("routing_no_route", "No route available for this travel mode");
+    }
     if (payload.code !== "Ok") {
       throw new DayRouteError("routing_unavailable", "Routing service unavailable");
     }
 
     const route = payload.routes?.[0];
     if (!route) {
-      throw new DayRouteError("routing_invalid_response", "Invalid routing geometry");
+      // `code: "Ok"` with an empty route list means the same thing as `NoRoute`.
+      throw new DayRouteError("routing_no_route", "No route available for this travel mode");
     }
     const coordinates = route?.geometry?.coordinates;
     if (!Array.isArray(coordinates) || coordinates.length < 2) {

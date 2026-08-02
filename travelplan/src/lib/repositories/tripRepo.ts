@@ -78,6 +78,13 @@ export type TripHeroSummary = {
   updatedAt: Date;
 };
 
+/**
+ * Lowercase wire vocabulary for `TravelTransportType`. Spelled out here rather than imported from
+ * `travelSegmentRepo.ts` for the same reason its mapping helpers are duplicated below: neither
+ * repository may depend on the other's internals.
+ */
+export type TransportTypeInput = "car" | "ship" | "flight" | "walking" | "cycling";
+
 export type TripDaySummary = {
   id: string;
   date: Date;
@@ -117,7 +124,7 @@ export type TripDaySummary = {
     fromItemId: string;
     toItemType: "accommodation" | "dayPlanItem";
     toItemId: string;
-    transportType: "car" | "ship" | "flight";
+    transportType: TransportTypeInput;
     durationMinutes: number;
     distanceKm: number | null;
     linkUrl: string | null;
@@ -229,7 +236,7 @@ export type TripExportTravelSegment = {
   fromItemId: string;
   toItemType: "accommodation" | "dayPlanItem";
   toItemId: string;
-  transportType: "car" | "ship" | "flight";
+  transportType: TransportTypeInput;
   durationMinutes: number;
   distanceKm: number | null;
   linkUrl: string | null;
@@ -898,7 +905,9 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
           fromItemId: segment.fromItemId,
           toItemType: segment.toItemType === "ACCOMMODATION" ? "accommodation" : "dayPlanItem",
           toItemId: segment.toItemId,
-          transportType: segment.transportType === "CAR" ? "car" : segment.transportType === "SHIP" ? "ship" : "flight",
+          // Same reason as `mapTransportType` below: the old ternary chain funnelled anything that
+          // was not CAR or SHIP into "flight".
+          transportType: toExportTransportType(segment.transportType),
           durationMinutes: segment.durationMinutes,
           distanceKm: segment.distanceKm,
           linkUrl: segment.linkUrl,
@@ -1165,8 +1174,10 @@ export const getTripDayPrintPayloadForUser = async ({
   }
 
   const mapFromItemType = (t: string) => (t === "ACCOMMODATION" ? "accommodation" : "dayPlanItem");
-  const mapTransportType = (t: string) =>
-    t === "CAR" ? "car" : t === "SHIP" ? "ship" : ("flight" as const);
+  // Delegates to the one exhaustive mapper instead of a ternary chain over `string`: the chain
+  // collapsed every unknown member onto "flight", so WALKING and CYCLING would have printed as
+  // flights on this surface without the compiler saying a word.
+  const mapTransportType = toExportTransportType;
 
   const segmentsByKey = new Map(
     targetDay.travelSegments.map((segment) => [
@@ -1273,7 +1284,7 @@ const toExportSegmentItemType = (value: TravelSegmentItemType): "accommodation" 
   }
 };
 
-const toExportTransportType = (value: TravelTransportType): "car" | "ship" | "flight" => {
+const toExportTransportType = (value: TravelTransportType): TransportTypeInput => {
   switch (value) {
     case "CAR":
       return "car";
@@ -1281,6 +1292,10 @@ const toExportTransportType = (value: TravelTransportType): "car" | "ship" | "fl
       return "ship";
     case "FLIGHT":
       return "flight";
+    case "WALKING":
+      return "walking";
+    case "CYCLING":
+      return "cycling";
     default: {
       // Exhaustive: a new `TravelTransportType` member must not be exported under an existing
       // spelling. Story 2.32 remaps by this vocabulary, so a silent mislabel would restore the
@@ -1709,14 +1724,24 @@ const sortImportDays = (days: TripImportPayloadInput["days"]) =>
 const toPrismaSegmentItemType = (value: "accommodation" | "dayPlanItem"): TravelSegmentItemType =>
   value === "accommodation" ? "ACCOMMODATION" : "DAY_PLAN_ITEM";
 
-const toPrismaTransportType = (value: "car" | "ship" | "flight"): TravelTransportType => {
+const toPrismaTransportType = (value: TransportTypeInput): TravelTransportType => {
   switch (value) {
     case "car":
       return "CAR";
     case "ship":
       return "SHIP";
-    default:
+    case "flight":
       return "FLIGHT";
+    case "walking":
+      return "WALKING";
+    case "cycling":
+      return "CYCLING";
+    default: {
+      // Exhaustive for the same reason as the export direction: a `default` would have restored
+      // every mode added after FLIGHT as a flight.
+      const unhandled: never = value;
+      throw new Error(`Unhandled travel transport type: ${String(unhandled)}`);
+    }
   }
 };
 

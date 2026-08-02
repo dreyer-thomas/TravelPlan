@@ -3651,6 +3651,161 @@ describe("TripDayView layout", () => {
     vi.unstubAllGlobals();
   });
 
+  /**
+   * Story 6.16 / AC1, AC2 and AC3 on one render.
+   *
+   * AC2: each new mode gets its own glyph rather than inheriting the car one, so the two SVGs must
+   * differ from each other and from car's.
+   * AC1: both roll into the day's travel total exactly like any other mode.
+   * AC3: the coverage legend still names four kinds and says "Travel" once - the bar must not have
+   * grown a per-mode distinction while the modes were being added.
+   */
+  it("renders walking and cycling segments with their own glyphs and rolls them into the travel total", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const fetchMock = withBucketList(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/day-plan-items/images") || url.includes("/accommodations/images")) {
+        return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-02T00:00:00.000Z",
+              dayCount: 2,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: true,
+                accommodation: {
+                  id: "stay-prev",
+                  name: "Prev Stay",
+                  notes: null,
+                  status: "planned",
+                  costCents: null,
+                  link: null,
+                  checkInTime: null,
+                  checkOutTime: "09:00",
+                  location: null,
+                },
+                dayPlanItems: [],
+              },
+              {
+                id: "day-2",
+                date: "2026-12-02T00:00:00.000Z",
+                dayIndex: 2,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: null,
+                dayPlanItems: [
+                  {
+                    id: "item-1",
+                    title: "Morning",
+                    fromTime: "10:00",
+                    toTime: "11:00",
+                    contentJson: JSON.stringify({
+                      type: "doc",
+                      content: [{ type: "paragraph", content: [{ type: "text", text: "Plan" }] }],
+                    }),
+                    costCents: null,
+                    linkUrl: null,
+                    location: null,
+                  },
+                  {
+                    id: "item-2",
+                    title: "Noon",
+                    fromTime: "13:00",
+                    toTime: "14:00",
+                    contentJson: JSON.stringify({
+                      type: "doc",
+                      content: [{ type: "paragraph", content: [{ type: "text", text: "Plan 2" }] }],
+                    }),
+                    costCents: null,
+                    linkUrl: null,
+                    location: null,
+                  },
+                ],
+                travelSegments: [
+                  {
+                    id: "segment-walk",
+                    fromItemType: "accommodation",
+                    fromItemId: "stay-prev",
+                    toItemType: "dayPlanItem",
+                    toItemId: "item-1",
+                    transportType: "walking",
+                    durationMinutes: 20,
+                    distanceKm: 1.5,
+                    linkUrl: null,
+                  },
+                  {
+                    id: "segment-bike",
+                    fromItemType: "dayPlanItem",
+                    fromItemId: "item-1",
+                    toItemType: "dayPlanItem",
+                    toItemId: "item-2",
+                    transportType: "cycling",
+                    durationMinutes: 40,
+                    distanceKm: 12,
+                    linkUrl: null,
+                  },
+                ],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-2" />);
+
+    await screen.findByRole("heading", { name: "Day 2", level: 5 });
+
+    const segments = screen.getAllByTestId("travel-segment");
+    const walkSegment = segments.find((segment) => segment.getAttribute("data-to-id") === "item-1");
+    const bikeSegment = segments.find((segment) => segment.getAttribute("data-to-id") === "item-2");
+    expect(walkSegment).toBeTruthy();
+    expect(bikeSegment).toBeTruthy();
+
+    // AC2 - distinct glyphs. The SVGs are `aria-hidden` decoration, so they are compared by markup.
+    const walkGlyph = (walkSegment as HTMLElement).querySelector("svg");
+    const bikeGlyph = (bikeSegment as HTMLElement).querySelector("svg");
+    expect(walkGlyph).toBeTruthy();
+    expect(bikeGlyph).toBeTruthy();
+    expect(walkGlyph?.innerHTML).not.toBe(bikeGlyph?.innerHTML);
+
+    // Meaning is not carried by the glyph alone: the row names the mode in text as well, and the
+    // distance the new modes are now allowed to carry is shown.
+    expect(within(walkSegment as HTMLElement).getByText("Walking · 20m · 1.5 km")).toBeInTheDocument();
+    expect(within(bikeSegment as HTMLElement).getByText("Cycling · 40m · 12 km")).toBeInTheDocument();
+
+    // AC1 - both roll into the day's travel total (20 + 40).
+    expect(within(screen.getByTestId("day-stat-travel-time")).getByText("1h")).toBeInTheDocument();
+
+    // AC3 - four kinds, one "Travel", no per-mode entries.
+    expect(screen.getByText("Travel")).toBeInTheDocument();
+    expect(screen.queryByText("Walking", { selector: "span" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Cycling", { selector: "span" })).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
   it("hides travel segment time tags when the previous item has no end time", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";

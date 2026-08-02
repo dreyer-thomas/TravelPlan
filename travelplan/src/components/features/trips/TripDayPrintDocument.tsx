@@ -9,6 +9,8 @@ const TRANSPORT_LABELS: Record<string, string> = {
   car: "Car",
   ship: "Ship",
   flight: "Flight",
+  walking: "Walking",
+  cycling: "Cycling",
 };
 
 const formatDuration = (minutes: number) => {

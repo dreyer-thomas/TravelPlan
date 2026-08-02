@@ -80,7 +80,7 @@ type TripDay = {
     fromItemId: string;
     toItemType: "accommodation" | "dayPlanItem";
     toItemId: string;
-    transportType: "car" | "ship" | "flight";
+    transportType: "car" | "ship" | "flight" | "walking" | "cycling";
     durationMinutes: number;
     distanceKm: number | null;
     linkUrl: string | null;

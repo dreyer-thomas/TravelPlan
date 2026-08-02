@@ -41,4 +41,43 @@ describe("travelSegmentMutationSchema", () => {
     });
     expect(result.success).toBe(false);
   });
+
+  // --- Story 6.16: walking and cycling ---------------------------------------------------------
+
+  it("accepts walking and cycling as transport types", () => {
+    for (const transportType of ["walking", "cycling"] as const) {
+      const result = travelSegmentMutationSchema.safeParse({ ...basePayload, transportType, distanceKm: null });
+      expect(result.success).toBe(true);
+    }
+  });
+
+  /**
+   * AC6, in both directions. Distance is *allowed* on walking and cycling so a 40 km ride keeps its
+   * number, and *not required* so a two-minute walk is not a form error. Only car still demands one.
+   */
+  it("allows but does not require a distance for walking and cycling", () => {
+    for (const transportType of ["walking", "cycling"] as const) {
+      expect(travelSegmentMutationSchema.safeParse({ ...basePayload, transportType, distanceKm: null }).success).toBe(
+        true,
+      );
+      expect(travelSegmentMutationSchema.safeParse({ ...basePayload, transportType, distanceKm: 42.5 }).success).toBe(
+        true,
+      );
+    }
+  });
+
+  it("still requires a distance for car only", () => {
+    expect(travelSegmentMutationSchema.safeParse({ ...basePayload, distanceKm: null }).success).toBe(false);
+    expect(
+      travelSegmentMutationSchema.safeParse({ ...basePayload, transportType: "walking", distanceKm: null }).success,
+    ).toBe(true);
+  });
+
+  it("still rejects a distance on ship and flight", () => {
+    for (const transportType of ["ship", "flight"] as const) {
+      const result = travelSegmentMutationSchema.safeParse({ ...basePayload, transportType, distanceKm: 12 });
+      expect(result.success).toBe(false);
+      expect(result.error?.issues[0]?.message).toBe("Distance is only allowed for car, walking and cycling travel");
+    }
+  });
 });

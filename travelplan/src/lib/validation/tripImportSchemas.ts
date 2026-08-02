@@ -178,7 +178,10 @@ const travelSegmentImportSchema = z
     fromItemId: z.string().trim().min(1),
     toItemType: z.enum(["accommodation", "dayPlanItem"]),
     toItemId: z.string().trim().min(1),
-    transportType: z.enum(["car", "ship", "flight"]),
+    // Story 6.16 widened this. It is an *accept-more* change, so every backup written before that
+    // story still parses; only the reverse (a v2 backup carrying "walking"/"cycling" opened by a
+    // pre-6.16 build) is unsupported, which the story accepts.
+    transportType: z.enum(["car", "ship", "flight", "walking", "cycling"]),
     durationMinutes: z.number().int().positive(),
     // `positive`, not `nonnegative`: `travelSegmentMutationSchema` rejects `0`, so a zero-distance
     // row imported here could never be saved again from the dialog that owns it.

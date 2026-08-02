@@ -1,6 +1,9 @@
 import { prisma } from "@/lib/db/prisma";
 import type { TravelSegmentItemType, TravelTransportType } from "@/generated/prisma/enums";
 
+/** Lowercase wire vocabulary for `TravelTransportType`, mirroring `TravelSegmentItemTypeInput`. */
+export type TransportTypeInput = "car" | "ship" | "flight" | "walking" | "cycling";
+
 export type TravelSegmentDetail = {
   id: string;
   tripDayId: string;
@@ -8,7 +11,7 @@ export type TravelSegmentDetail = {
   fromItemId: string;
   toItemType: "accommodation" | "dayPlanItem";
   toItemId: string;
-  transportType: "car" | "ship" | "flight";
+  transportType: TransportTypeInput;
   durationMinutes: number;
   distanceKm: number | null;
   linkUrl: string | null;
@@ -43,7 +46,7 @@ type TravelSegmentMutationParams = {
   fromItemId: string;
   toItemType: TravelSegmentItemTypeInput;
   toItemId: string;
-  transportType: "car" | "ship" | "flight";
+  transportType: TransportTypeInput;
   durationMinutes: number;
   distanceKm?: number | null;
   linkUrl?: string | null;
@@ -66,28 +69,47 @@ type SegmentTimelineItem = {
 const toPrismaItemType = (value: TravelSegmentItemTypeInput): TravelSegmentItemType =>
   value === "accommodation" ? "ACCOMMODATION" : "DAY_PLAN_ITEM";
 
-const toPrismaTransportType = (value: "car" | "ship" | "flight"): TravelTransportType => {
+// Both directions are exhaustive rather than `default`-terminated: a `default` here would have
+// quietly stored every mode added after FLIGHT *as* FLIGHT. Story 6.16 added two, so the compiler
+// has to be the one that notices the next one.
+const toPrismaTransportType = (value: TransportTypeInput): TravelTransportType => {
   switch (value) {
     case "car":
       return "CAR";
     case "ship":
       return "SHIP";
-    default:
+    case "flight":
       return "FLIGHT";
+    case "walking":
+      return "WALKING";
+    case "cycling":
+      return "CYCLING";
+    default: {
+      const unhandled: never = value;
+      throw new Error(`Unhandled travel transport type: ${String(unhandled)}`);
+    }
   }
 };
 
 const fromPrismaItemType = (value: TravelSegmentItemType): TravelSegmentItemTypeInput =>
   value === "ACCOMMODATION" ? "accommodation" : "dayPlanItem";
 
-const fromPrismaTransportType = (value: TravelTransportType): "car" | "ship" | "flight" => {
+const fromPrismaTransportType = (value: TravelTransportType): TransportTypeInput => {
   switch (value) {
     case "CAR":
       return "car";
     case "SHIP":
       return "ship";
-    default:
+    case "FLIGHT":
       return "flight";
+    case "WALKING":
+      return "walking";
+    case "CYCLING":
+      return "cycling";
+    default: {
+      const unhandled: never = value;
+      throw new Error(`Unhandled travel transport type: ${String(unhandled)}`);
+    }
   }
 };
 

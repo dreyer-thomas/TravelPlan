@@ -310,6 +310,7 @@ const de: Dictionary = {
   "trips.travelSegment.transportLabel": "Transport",
   "trips.travelSegment.durationLabel": "Dauer (HH:mm)",
   "trips.travelSegment.distanceLabel": "Entfernung (km)",
+  "trips.travelSegment.distanceOptionalLabel": "Entfernung (km, optional)",
   "trips.travelSegment.linkLabel": "Link (optional)",
   "trips.travelSegment.linkHelper": "Google-Maps- oder Routenlink einfügen",
   "trips.travelSegment.linkInvalid": "Bitte einen gültigen http(s)-Link eingeben",
@@ -319,8 +320,10 @@ const de: Dictionary = {
     "Öffne die Route in Google Maps und übertrage Dauer und Entfernung anschließend manuell in dieses Formular.",
   "trips.travelSegment.googleMapsUnavailableHelper":
     "Füge beiden benachbarten Einträgen Orte hinzu, um eine Google-Maps-Route zu berechnen.",
-  "trips.travelSegment.googleMapsCarOnlyHelper":
-    "Der automatische Routenimport ist nur für Auto-Abschnitte verfügbar. Google Maps kannst du weiterhin für die manuelle Prüfung öffnen.",
+  "trips.travelSegment.googleMapsManualModeHelper":
+    "Der automatische Routenimport deckt Auto, zu Fuß und Fahrrad ab. Schiff und Flug trägst du manuell ein - Google Maps kannst du weiterhin zum Nachschlagen öffnen.",
+  "trips.travelSegment.googleMapsNoRouteForMode":
+    "Für diese Reiseart gibt es zwischen diesen beiden Orten keine Route. Trage Dauer und Entfernung manuell ein.",
   "trips.travelSegment.googleMapsFallbackActive":
     "Der automatische Routenimport ist in diesem Build nicht verfügbar. Nutze Google Maps und übertrage die Werte manuell.",
   "trips.travelSegment.googleMapsPrefillSuccess":
@@ -334,6 +337,8 @@ const de: Dictionary = {
   "trips.travelSegment.transport.car": "Auto",
   "trips.travelSegment.transport.ship": "Schiff",
   "trips.travelSegment.transport.flight": "Flug",
+  "trips.travelSegment.transport.walking": "Zu Fuß",
+  "trips.travelSegment.transport.cycling": "Fahrrad",
   "trips.dayImage.title": "Tagesbild",
   "trips.dayImage.empty": "Noch kein Tagesbild ausgewählt.",
   "trips.dayImage.editAction": "Tagesdetails bearbeiten",

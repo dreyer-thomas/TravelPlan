@@ -311,6 +311,7 @@ const en: Dictionary = {
   "trips.travelSegment.transportLabel": "Transport",
   "trips.travelSegment.durationLabel": "Duration (HH:mm)",
   "trips.travelSegment.distanceLabel": "Distance (km)",
+  "trips.travelSegment.distanceOptionalLabel": "Distance (km, optional)",
   "trips.travelSegment.linkLabel": "Link (optional)",
   "trips.travelSegment.linkHelper": "Paste a Google Maps or other directions link",
   "trips.travelSegment.linkInvalid": "Enter a valid http(s) link",
@@ -320,8 +321,10 @@ const en: Dictionary = {
     "Open the route in Google Maps, then copy the duration and distance into this form.",
   "trips.travelSegment.googleMapsUnavailableHelper":
     "Add locations to both adjacent items to calculate a Google Maps route.",
-  "trips.travelSegment.googleMapsCarOnlyHelper":
-    "Automatic route import is only available for car segments. You can still open Google Maps for manual lookup.",
+  "trips.travelSegment.googleMapsManualModeHelper":
+    "Automatic route import covers car, walking and cycling. Ship and flight are entered manually - you can still open Google Maps for a lookup.",
+  "trips.travelSegment.googleMapsNoRouteForMode":
+    "No route is available for this travel mode between these two places. Enter the duration and distance manually.",
   "trips.travelSegment.googleMapsFallbackActive":
     "Automatic route import is not available in this build. Use Google Maps and copy the values manually.",
   "trips.travelSegment.googleMapsPrefillSuccess":
@@ -335,6 +338,8 @@ const en: Dictionary = {
   "trips.travelSegment.transport.car": "Car",
   "trips.travelSegment.transport.ship": "Ship",
   "trips.travelSegment.transport.flight": "Flight",
+  "trips.travelSegment.transport.walking": "Walking",
+  "trips.travelSegment.transport.cycling": "Cycling",
   "trips.dayImage.title": "Day image",
   "trips.dayImage.empty": "No day image selected yet.",
   "trips.dayImage.editAction": "Edit day details",

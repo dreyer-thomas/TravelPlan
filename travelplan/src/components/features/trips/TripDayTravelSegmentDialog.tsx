@@ -30,6 +30,35 @@ type SegmentItem = {
   location: { lat: number; lng: number; label?: string | null } | null;
 };
 
+type TransportType = "car" | "ship" | "flight" | "walking" | "cycling";
+
+/**
+ * The modes a router can answer for, and the Google `travelmode` each maps onto. Ship and flight are
+ * absent on purpose - Google has no equivalent - so they fall through to the manual path instead of
+ * producing an error.
+ */
+const GOOGLE_TRAVEL_MODE_BY_TRANSPORT = {
+  car: "driving",
+  walking: "walking",
+  cycling: "bicycling",
+} as const satisfies Partial<Record<TransportType, string>>;
+
+type RoutableTransportType = keyof typeof GOOGLE_TRAVEL_MODE_BY_TRANSPORT;
+
+const isRoutableTransportType = (value: TransportType): value is RoutableTransportType =>
+  value in GOOGLE_TRAVEL_MODE_BY_TRANSPORT;
+
+/**
+ * Story 6.16 / AC6: distance is offered for every ground mode but required only for car - the same
+ * rule `travelSegmentSchemas.ts` enforces server-side, and the reason `distanceRequired` still names
+ * car alone.
+ */
+const TRANSPORT_TYPES_WITH_DISTANCE: readonly TransportType[] = ["car", "walking", "cycling"];
+
+const allowsDistance = (value: TransportType) => TRANSPORT_TYPES_WITH_DISTANCE.includes(value);
+
+const requiresDistance = (value: TransportType) => value === "car";
+
 type TravelSegment = {
   id: string;
   tripDayId?: string;
@@ -37,7 +66,7 @@ type TravelSegment = {
   fromItemId: string;
   toItemType: "accommodation" | "dayPlanItem";
   toItemId: string;
-  transportType: "car" | "ship" | "flight";
+  transportType: TransportType;
   durationMinutes: number;
   distanceKm: number | null;
   linkUrl: string | null;
@@ -142,6 +171,7 @@ const buildGoogleMapsRouteLink = (
   from: SegmentItem | null,
   to: SegmentItem | null,
   polyline: [number, number][],
+  transportType: RoutableTransportType,
 ) => {
   const origin = buildCoordinateParam(from?.location ?? null) ?? buildLocationParam(from?.location ?? null);
   const destination = buildCoordinateParam(to?.location ?? null) ?? buildLocationParam(to?.location ?? null);
@@ -151,7 +181,10 @@ const buildGoogleMapsRouteLink = (
     api: "1",
     origin,
     destination,
-    travelmode: "driving",
+    // Google's own spelling: `bicycling`, not `cycling`. Only the plain "Open Maps" link stays
+    // mode-agnostic - it is memoised on the two items and feeds the form's initial link, so making
+    // it depend on the transport type would reset the form every time the mode changed.
+    travelmode: GOOGLE_TRAVEL_MODE_BY_TRANSPORT[transportType],
   });
 
   const waypoints = sampleRouteWaypoints(polyline, 8);
@@ -178,7 +211,7 @@ export default function TripDayTravelSegmentDialog({
   const [serverError, setServerError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [routeLoading, setRouteLoading] = useState(false);
-  const [transportType, setTransportType] = useState<"car" | "ship" | "flight">("car");
+  const [transportType, setTransportType] = useState<TransportType>("car");
   const [durationInput, setDurationInput] = useState<string>("00:30");
   const [distanceKm, setDistanceKm] = useState<string>("");
   const [linkUrl, setLinkUrl] = useState<string>("");
@@ -251,7 +284,7 @@ export default function TripDayTravelSegmentDialog({
       nextErrors.durationMinutes = t("trips.travelSegment.durationRequired");
     }
 
-    if (transportType === "car") {
+    if (requiresDistance(transportType)) {
       const distanceValue = Number.parseFloat(distanceKm);
       if (!Number.isFinite(distanceValue) || distanceValue <= 0) {
         nextErrors.distanceKm = t("trips.travelSegment.distanceRequired");
@@ -273,8 +306,10 @@ export default function TripDayTravelSegmentDialog({
     setServerError(null);
     setRouteHelper(null);
 
-    if (transportType !== "car") {
-      setRouteHelper(t("trips.travelSegment.googleMapsCarOnlyHelper"));
+    if (!isRoutableTransportType(transportType)) {
+      // Ship and flight: no router has a profile for them, so this is the manual path by design and
+      // must never read as an error.
+      setRouteHelper(t("trips.travelSegment.googleMapsManualModeHelper"));
       return;
     }
 
@@ -290,6 +325,7 @@ export default function TripDayTravelSegmentDialog({
         originLng: String(fromItem.location.lng),
         destinationLat: String(toItem.location.lat),
         destinationLng: String(toItem.location.lng),
+        mode: transportType,
       });
       const response = await fetch(`/api/trips/${tripId}/travel-segments/route-preview?${params.toString()}`, {
         method: "GET",
@@ -298,6 +334,12 @@ export default function TripDayTravelSegmentDialog({
       });
       const body = (await response.json()) as ApiEnvelope<{ route: RoutePreview }>;
       const route = body.data?.route;
+      // Bicycle coverage is patchy in much of the world. "There is no route for this mode here" is a
+      // correct answer and gets its own message rather than the generic "import unavailable" one.
+      if (body.error?.code === "routing_no_route") {
+        setRouteHelper(t("trips.travelSegment.googleMapsNoRouteForMode"));
+        return;
+      }
       if (!response.ok || body.error || !route) {
         setRouteHelper(t("trips.travelSegment.googleMapsFallbackActive"));
         return;
@@ -314,7 +356,7 @@ export default function TripDayTravelSegmentDialog({
 
       setDurationInput(formatMinutesToTime(Math.max(1, Math.round(durationSeconds / 60))));
       setDistanceKm(formatDistanceKmInput(distanceMeters));
-      setLinkUrl(buildGoogleMapsRouteLink(fromItem, toItem, route.polyline) ?? mapsLink);
+      setLinkUrl(buildGoogleMapsRouteLink(fromItem, toItem, route.polyline, transportType) ?? mapsLink);
       setRouteHelper(t("trips.travelSegment.googleMapsPrefillSuccess"));
     } catch {
       setRouteHelper(t("trips.travelSegment.googleMapsFallbackActive"));
@@ -344,6 +386,12 @@ export default function TripDayTravelSegmentDialog({
     if (!validate()) return;
 
     const normalizedLink = linkUrl.trim();
+    // Walking and cycling may carry a distance but are not obliged to, so an empty or unparseable
+    // field becomes `null` rather than a `NaN` the API would reject. Car is unaffected: `validate()`
+    // has already guaranteed a positive number for it.
+    const parsedDistance = Number.parseFloat(distanceKm);
+    const distanceValue =
+      allowsDistance(transportType) && Number.isFinite(parsedDistance) && parsedDistance > 0 ? parsedDistance : null;
     const payload = {
       tripDayId,
       fromItemType: fromItem.type,
@@ -352,7 +400,7 @@ export default function TripDayTravelSegmentDialog({
       toItemId: toItem.id,
       transportType,
       durationMinutes: parseTimeToMinutes(durationInput) ?? 0,
-      distanceKm: transportType === "car" ? Number.parseFloat(distanceKm) : null,
+      distanceKm: distanceValue,
       linkUrl: normalizedLink.length > 0 ? normalizedLink : null,
     };
 
@@ -422,9 +470,11 @@ export default function TripDayTravelSegmentDialog({
               labelId="travel-transport-label"
               label={t("trips.travelSegment.transportLabel")}
               value={transportType}
-              onChange={(event) => setTransportType(event.target.value as "car" | "ship" | "flight")}
+              onChange={(event) => setTransportType(event.target.value as TransportType)}
             >
               <MenuItem value="car">{t("trips.travelSegment.transport.car")}</MenuItem>
+              <MenuItem value="walking">{t("trips.travelSegment.transport.walking")}</MenuItem>
+              <MenuItem value="cycling">{t("trips.travelSegment.transport.cycling")}</MenuItem>
               <MenuItem value="ship">{t("trips.travelSegment.transport.ship")}</MenuItem>
               <MenuItem value="flight">{t("trips.travelSegment.transport.flight")}</MenuItem>
             </Select>
@@ -442,9 +492,13 @@ export default function TripDayTravelSegmentDialog({
             FormHelperTextProps={{ sx: { minHeight: 0 } }}
           />
 
-          {transportType === "car" ? (
+          {allowsDistance(transportType) ? (
             <TextField
-              label={t("trips.travelSegment.distanceLabel")}
+              label={
+                requiresDistance(transportType)
+                  ? t("trips.travelSegment.distanceLabel")
+                  : t("trips.travelSegment.distanceOptionalLabel")
+              }
               value={distanceKm}
               onChange={(event) => setDistanceKm(event.target.value)}
               type="number"
@@ -472,9 +526,9 @@ export default function TripDayTravelSegmentDialog({
           {!isEditing ? (
             <Typography variant="body2" color="text.secondary">
               {mapsLink
-                ? transportType === "car"
+                ? isRoutableTransportType(transportType)
                   ? t("trips.travelSegment.googleMapsFallbackHelper")
-                  : t("trips.travelSegment.googleMapsCarOnlyHelper")
+                  : t("trips.travelSegment.googleMapsManualModeHelper")
                 : t("trips.travelSegment.googleMapsUnavailableHelper")}
             </Typography>
           ) : null}

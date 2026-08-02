@@ -52,7 +52,9 @@ export type TravelSegmentItemType = (typeof TravelSegmentItemType)[keyof typeof 
 export const TravelTransportType = {
   CAR: 'CAR',
   SHIP: 'SHIP',
-  FLIGHT: 'FLIGHT'
+  FLIGHT: 'FLIGHT',
+  WALKING: 'WALKING',
+  CYCLING: 'CYCLING'
 } as const
 
 export type TravelTransportType = (typeof TravelTransportType)[keyof typeof TravelTransportType]
