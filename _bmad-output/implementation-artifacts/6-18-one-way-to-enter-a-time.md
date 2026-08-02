@@ -2,7 +2,7 @@
 authored_against: ac03570
 baseline_revision: 0ab5e0e328e917a9c429812acfb1a6adf6aef337
 final_revision: 825aee37368cfd1a4de9c5c517217892b6cac6c5
-status: awaiting-operator
+status: done
 review_loop_iteration: 0
 followup_review_recommended: true
 warnings: []
@@ -135,6 +135,23 @@ Vitest 3.2 + Testing Library, jsdom opted in per file via `// @vitest-environmen
 - [Source: travelplan/src/components/features/trips/TripDayPlanDialog.tsx:1074-1095] — the pattern to copy
 - [Source: travelplan/src/components/features/trips/TripDayTravelSegmentDialog.tsx:582-592] — the duration field
 - [Source: travelplan/src/components/forms/FormField.tsx:76] — the spread that already forwards `type`
+
+## Operator Pass — 2026-08-02, against `d146125`
+
+Chromium at 390px, German and English, isolated worktree on port 3099 against a copy of `dev.db`.
+
+- **The reported defect is fixed (AC1):** the check-in field is `type="time"` with **no `inputMode`**. The digits-only keypad that could not produce a colon is gone.
+- **Stored format unchanged (AC4):** entering 16:00 yields `"16:00"`.
+- **Half-filled picker:** typing only the hour yields `""` — exactly as the operator action predicted. Judged acceptable and recorded; see below.
+- **Duration pair (AC3):** two boxes on the **same top (413)**, 130px each, labels single-line and not clipped, no horizontal scrollbar. English — `Duration (h)` / `Duration (min)`, the longer pair — is identical.
+- **Both boxes are `type="text"` + `inputMode="numeric"`**, not `type="number"`: the correct construction for a digits-only keypad without punctuation.
+- **Existing segment:** 330 minutes opens as **5** and **30**.
+- **Route import lands in both boxes:** a walking import wrote **106** h and **3** min with one alert. This also proves why `type="time"` was rejected for a duration — it could not hold 106 hours at all.
+- **Invalid input (0 and 0):** **one** error message, "Dauer ist erforderlich" / "Duration is required", not one per box; two red borders, one per box of the invalid pair. Entering a valid value clears both **without** pressing OK again.
+
+**Not verified:** Safari. The WebKit build hangs indefinitely on this machine (Darwin 27) — no error, no response. Operator action 3 remains open and is worth 30 seconds from a human. Also device-only and therefore unverified here: the actual OS picker and the actual keypad.
+
+**Judgement on the half-filled picker:** acceptable. A partial value is *defined* as no value for `type="time"`, so every native-control implementation has it; the field visibly reads empty rather than hiding anything; and the alternative — a custom picker — is what this story deliberately rejected.
 
 ## Dev Agent Record
 
@@ -416,3 +433,20 @@ Status: **awaiting-operator** — every part an agent can take is complete and c
 2. **The duration pair does not stack below `sm`** (`DW-121`). At 390px each box gets roughly 155px for a floating label. Deliberate — stacking would cost the vertical height Story 6.17 spent itself reclaiming — but unmeasured.
 3. **A partial time entry silently clears the value.** Inherent to `type="time"`, pinned by a test, and in the operator actions below. It is a narrow regression against a control that was previously unusable, so the story is still a large net win.
 4. **`trips.stay.timeInvalid` is now unreachable from the dialog.** Kept because AC5 says so. Whether an unreachable message and its rule should survive is a decision for a story allowed to change what is accepted.
+
+## Operator Confirmation
+
+Confirmed 2026-08-02: the external actions this story owed were carried out.
+
+- Run the app in a browser to do Task 5, on a throwaway copy of dev.db on an isolated port — never prisma/dev.db. The recipe is in the Dev Notes of _bmad-output/implementation-artifacts/7-12-bucket-list-sidebar-card.md. Everything below needs that one session: AC1 and AC3 are claims about what a phone offers the user, and jsdom renders type="time" as a plain text input, draws no picker and computes no layout.
+- On a real phone or a phone-sized viewport, open a stay and enter a check-in time. This is the reported defect and the point of the whole story: before this change the keypad had no colon and 16:00 could not be typed at all. Confirm the OS offers its own time picker. Repeat for a previous-night stay's check-out time — it is the other half of the same pair and only one of the two renders at a time.
+- Check the same two fields in Safari and in Chrome. Browsers render type="time" more differently from each other than they do most controls, and these two differ most.
+- In the check-in field, deliberately half-fill the picker — set the hour and leave the minutes blank — then save. Expect the time to end up cleared, with no error, and the day view to fall back to its assumed 16:00. That is a known consequence of the native control (a partial entry reports as empty) and it is pinned by a test; the question for you is whether it is acceptable in practice or wants its own follow-up story.
+- At 390px, open a travel segment and look at the duration row: two boxes, Dauer (Std.) and Dauer (Min.), side by side. Confirm neither label is clipped or wrapped and the dialog shows no horizontal scrollbar. They deliberately do not stack — stacking would give back the vertical height Story 6.17 spent itself reclaiming — so if they crowd, say so and DW-121 becomes the fix (gap={1} first, stacking as the fallback).
+- Tap into both duration boxes on a phone and confirm you get a digits-only keypad with no colon and no punctuation. This is what type="text" plus inputMode="numeric" is for; bare type="number" would have given iOS the numbers-and-punctuation keyboard instead.
+- Edit an existing long travel segment — anything over an hour — and confirm it opens with the right split, e.g. 90 minutes as 1 and 30. Then press Plan on a routable leg and confirm the imported duration lands in both boxes.
+- Enter something invalid in a duration box (0 and 0, or 1 and 99) and press OK. Expect exactly ONE error line under the pair — not one under each box — reading "Dauer ist erforderlich". Then type a valid value and confirm the error and both red borders clear immediately, without pressing OK again.
+- Do the 390px duration checks in English as well as German. The English labels, Duration (h) and Duration (min), are the longer pair.
+- If every check passes, tick Task 5 in this spec, set status: done in the frontmatter and Status: done in the body, and set 6-18-one-way-to-enter-a-time to done in sprint-status.yaml.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
