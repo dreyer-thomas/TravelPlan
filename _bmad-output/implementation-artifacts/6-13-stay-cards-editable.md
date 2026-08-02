@@ -22,7 +22,7 @@ operator_actions:
 
 # Story 6.13: Accommodation Cards Editable Like Activities
 
-Status: awaiting-operator
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
