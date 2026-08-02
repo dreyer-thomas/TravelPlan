@@ -761,6 +761,54 @@ Import stays where it is. This story restores **only** the export control, and o
 **When** the export control is added
 **Then** none of it changes: this story adds one button and its gating, nothing else
 
+### Story 2.34: Read the Import Archive From Disk
+
+As the maintainer of TravelPlan,
+I want the import to read a backup from disk instead of holding it in memory,
+So that the size of a restorable backup is a policy decision rather than a function of how much RAM the server happens to have.
+
+**FRs covered:** FR34 (backup restore) — the same capability, made to scale; no format, schema or UI change
+
+**Context:** The import buffers the archive four times over. Next buffers the body for the middleware (`/api/trips/:path*` is in `middleware.ts:66`'s matcher), `request.formData()` materialises it again as a `File`, `readZipMembers(bytes)` (`importPackage.ts:89`) takes it as one `Buffer`, and each extracted member is copied out of that with `Buffer.from(raw)`. Peak resident memory runs roughly 3–4× the archive.
+
+Measured on 2026-08-02: the production trips hold **113 MB** and **217 MB** of photos, and a STORE-only archive is essentially the sum of those bytes. At the original 100 MB ceiling neither was restorable. The ceiling was raised to 300 MB as a stopgap — with 2.9 GB available on a 3.8 GB box and no swap, a 217 MB import peaks around 700–870 MB, which fits but does not scale. At roughly 600 MB the peak would exceed the box no matter what the constant says.
+
+**The export already does this correctly.** `createZipStream` (`zipArchive.ts:199-206`) is a `ReadableStream` whose `pull` reads one member at a time — its own comment reads *"One member resident at a time — read, hash, emit, release."* So the pattern exists in this codebase and is proven; only the reading half is missing it.
+
+`zipReader.ts` is structurally close: its own docblock records that *"Every read is bounds-checked before it happens"*, so it already treats the archive as a random-access medium rather than a stream it must trust.
+
+**Acceptance Criteria:**
+
+**Given** the archive is currently resident as a `Buffer` for the whole import
+**When** the import runs
+**Then** the request body is written to a temporary file and the ZIP is read from that file, so peak memory is bounded by the largest single member rather than by the archive
+**And** the temporary file is removed on every exit path, including a failed or rejected import
+
+**Given** `readZipMembers` takes a `Buffer` today
+**When** it reads from disk instead
+**Then** its bounds checking is preserved exactly — every offset validated before the read, the same `ZipReadError` on a malformed archive, the same refusal of names that escape the archive root
+**And** the existing zip-reader tests still pass, or are extended rather than replaced
+
+**Given** Next buffers the body for the middleware before the handler sees it
+**When** the archive is read from disk
+**Then** that buffer is addressed too — either the route is taken out of the middleware matcher, or the body is streamed to disk without a second full copy. A disk-backed reader behind a memory-backed body buffer solves half the problem and is not enough
+
+**Given** `MAX_IMPORT_PACKAGE_BYTES`, `proxyClientMaxBodySize` and nginx's `client_max_body_size` are currently set to a value chosen for memory rather than for policy
+**When** the memory ceiling is gone
+**Then** the comment in `importLimits.ts` explaining the 3–4× multiplier is corrected, and the limit's new rationale is stated — whatever value is chosen, it should be chosen for a reason other than "what fits in RAM"
+
+**Given** the export path already streams
+**When** this story lands
+**Then** it is unchanged: `createZipStream` is the reference for how this should look, not a target for edits
+
+**Given** a 217 MB backup and the production box
+**When** the import is exercised end to end
+**Then** it completes, the photos land under the new trip's own directory, and peak process memory stays well below what the archive would have cost — measured, not assumed
+
+**Given** every existing import behaviour — v1 JSON backups, the createNew and overwrite strategies, the photo-missing warnings and the rollback on failure
+**When** the reading mechanism changes
+**Then** none of it changes: this story changes where the bytes live while they are read
+
 ## Epic 3: Route & Map-Based Planning
 
 Users can visualize trips and days on maps and seed a trip from Google start + destination.
@@ -1922,10 +1970,15 @@ Story **6.11** built the destination: a page-local `⋯` overflow in the hero he
 **Then** they appear as items in the existing `⋯` overflow menu, and the two buttons are gone from the header
 **And** no second menu is introduced — this is the menu Story 6.11 created, extended
 
-**Given** print is available to every role that can open the day, while move and swap are `canEditPlanning`-gated
-**When** the menu renders for a viewer
-**Then** it contains print only, and neither move nor swap
-**And** for an owner or contributor it contains all three, in an order that keeps the two related actions together
+**Given** the day-image edit action sits beside the `⋯` as a second 44px control in the hero's right slot, `isOwner`-gated (`TripDayView.tsx:1963-1977`)
+**When** it moves into the menu as well
+**Then** the right slot holds the `⋯` alone, freeing roughly 52px in the header row — decided by Tommy on 2026-08-02, and worth most on a phone
+**And** the comment above that slot explaining it is "rendered even when empty" is finally correct or gone: with only an unconditional trigger left, the workaround it describes has no remaining purpose
+
+**Given** the menu now carries three different gating levels — day-image edit (`isOwner`), move and swap (`canEditPlanning`), print (every role that can open the day)
+**When** it renders
+**Then** each item appears only for a role the server would accept, so a viewer sees print alone, a contributor sees print with move and swap, and an owner sees all four
+**And** the items are grouped so the two transfer actions stay adjacent and the read action does not sit between two write actions
 
 **Given** print is a link that opens a new tab, while move and swap open dialogs
 **When** the menu holds both kinds
@@ -1944,6 +1997,141 @@ Story **6.11** built the destination: a page-local `⋯` overflow in the hero he
 **Given** the day timeline, the transfer dialogs, the print document, the stay cards and every gating rule
 **When** the two actions move
 **Then** none of it changes: this story relocates two controls
+
+### Story 6.16: Walking and Cycling as Travel Modes
+
+As a trip planner,
+I want to record a leg as walked or cycled,
+So that the day's travel reflects how we actually get between places instead of forcing every leg into car, ship or flight.
+
+**FRs covered:** FR23 (travel segments) — extends the mode set; no change to how segments are timed, drawn or rolled up
+
+**Context:** `TravelTransportType` in `prisma/schema.prisma:36-40` is `CAR | SHIP | FLIGHT`. There is no walking and no cycling, so a leg on foot has to be recorded as one of the three or not at all — and the coverage bar, the day's travel total and the Gantt all read from it.
+
+This is a **schema change**, not a UI addition: the enum is a Prisma enum backed by a database column, so it needs a migration. `TripIcons.tsx:334`'s `transportIconFor` is typed `"car" | "ship" | "flight"` and returns one of three glyphs; two more are needed.
+
+One consequence worth deciding up front: `trips.travelSegment.googleMapsCarOnlyHelper` records that automatic route import works for car only. Walking and cycling would either gain Google Maps' own `walking`/`bicycling` modes, or stay manual like ship and flight.
+
+**Acceptance Criteria:**
+
+**Given** `TravelTransportType` offers only `CAR`, `SHIP` and `FLIGHT`
+**When** the mode set is extended
+**Then** walking and cycling are available wherever a transport type is chosen, and the migration adds them without touching existing rows
+**And** every existing segment keeps its current type — this is additive only
+
+**Given** `transportIconFor` is typed to three literals and returns three glyphs
+**When** the new modes land
+**Then** each has its own glyph in `TripIcons.tsx`, consistent with the existing stroke set, and the function's type widens rather than falling back to a default
+
+**Given** the coverage bar, the Gantt segments, the day's travel total and the trip's cost roll-up all read the transport type
+**When** a leg is walked or cycled
+**Then** each surface treats it as travel exactly as it treats the other modes — no new segment kind, no new colour, no special case
+
+**Given** automatic route import is car-only today, and its helper text says so
+**When** a walking or cycling leg is edited
+**Then** the import runs for those modes too, using Google's `walking` and `bicycling` travel modes — decided by Tommy on 2026-08-02
+**And** ship and flight stay manual, since Google offers no equivalent, so the helper text is rewritten to name the modes that *do* import rather than saying "nur für Auto-Abschnitte"
+**And** a mode Google cannot route for degrades to the existing manual path rather than erroring
+
+**Given** the day coverage bar reads `kind: "accommodation" | "planItem" | "travel" | "gap"` (`TripDayGanttSegments.ts:4`) and never reads the transport type at all
+**When** the new modes land
+**Then** they continue to fall into the single `"travel"` kind under the legend's "Fahrt", and no per-mode distinction is introduced there — the bar is a coarse overview of the day and the manner of travel is deliberately not part of it
+
+**Given** the distance field is required for car (`trips.travelSegment.distanceRequired`)
+**When** a walking or cycling leg is saved
+**Then** the rule is stated deliberately for the new modes rather than inherited by accident
+
+**Given** the export and import formats carry the transport type
+**When** a backup is written or read
+**Then** the new values round-trip, and a v2 backup containing them imports cleanly — Story 2.31/2.32's format is bound to the enum
+
+### Story 6.17: Travel Segment Dialog on a Phone
+
+As a trip planner adding a leg on my phone,
+I want short button labels and less explanatory prose,
+So that the dialog fits the screen instead of wrapping its controls.
+
+**FRs covered:** FR23 — presentation only; no field, validation or route change
+
+**Context:** The travel-segment dialog carries the app's longest control labels and a paragraph of helper text. On a phone the buttons wrap and the prose pushes the fields below the fold. Tommy asked for four specific changes on 2026-08-02:
+
+| Key | Today | Wanted |
+|---|---|---|
+| `trips.travelSegment.openLink` | "Open Maps" | "Maps" |
+| `calculateGoogleMapsRoute` / `refreshGoogleMapsRoute` | "Plan with Maps" | "Plan" |
+| `common.save` | "Speichern" | "OK" |
+| `googleMapsFallbackHelper` | "Öffne die Route in Google Maps und übertrage Dauer und Entfernung anschließend manuell in dieses Formular." | removed |
+
+Note that `common.save` has exactly one reader — this dialog (`TripDayTravelSegmentDialog.tsx`). Renaming its *value* therefore changes nothing else today, but the key's **name** claims to be shared. Leaving a key called `common.save` reading "OK" is a trap for the next dialog that reaches for it.
+
+**Acceptance Criteria:**
+
+**Given** the four strings above
+**When** the dialog renders
+**Then** each reads as Tommy specified, in **both** dictionaries — `i18nDictionaries.test.ts` enforces key parity
+**And** the removed helper's key is deleted rather than left orphaned, and any assertion pinning it is updated
+
+**Given** `common.save` is named as a shared key but has exactly one reader
+**When** its value becomes "OK"
+**Then** it is either renamed to something dialog-specific, or the change is recorded where the next reader will see it — a key called `common.save` that says "OK" will be reused by a dialog that meant "Speichern"
+
+**Given** the remaining helper texts — `googleMapsUnavailableHelper`, `googleMapsCarOnlyHelper`, `googleMapsFallbackActive`, `googleMapsPrefillSuccess`
+**When** the dialog renders on a phone
+**Then** each is reviewed for the same problem, and any that is prose rather than instruction is shortened or dropped
+**And** whichever are kept still say what the user needs at the moment they appear
+
+**Given** the dialog at 390px
+**When** it renders
+**Then** its controls sit on one row where they fit, no label wraps mid-word, and no horizontal scrollbar appears
+
+**Given** every field, validation rule, route call and save path
+**When** the copy changes
+**Then** none of it changes: this story edits strings and layout
+
+### Story 6.18: One Way to Enter a Time
+
+As a trip planner on a phone,
+I want every time field to use the same control I can actually operate,
+So that entering a check-in time stops being impossible.
+
+**FRs covered:** FR15, FR21, FR23 (accommodation times, activity times, segment duration) — input mechanism only
+
+**Context:** The app has three different time inputs, and one of them cannot be used on a phone at all:
+
+| Where | Today | On a phone |
+|---|---|---|
+| `TripDayPlanDialog.tsx:1083,1094` | native `type="time"` | the OS wheel — works |
+| `TripAccommodationDialog.tsx:900,908` | `FormField` + `inputMode: "numeric"` | **digits-only keypad, no colon — the value cannot be typed** |
+| `TripDayTravelSegmentDialog.tsx:437` | free text, `placeholder="HH:mm"` | ordinary keyboard; it is a **duration**, not a clock time |
+
+The middle row is a real defect: `inputMode="numeric"` asks the OS for a numeric keypad, which on iOS and Android has no `:`. A user cannot enter "16:00". Tommy hit this in production use.
+
+The third is a different problem wearing the same mask. A duration is a span, so a native `type="time"` would model it wrongly — it would offer a clock, and "01:30" would mean half past one rather than ninety minutes.
+
+**Acceptance Criteria:**
+
+**Given** `TripAccommodationDialog`'s check-in and check-out fields ask for `HH:mm` behind a numeric keypad
+**When** they are reworked
+**Then** they use the same native `type="time"` control `TripDayPlanDialog` already uses, so a phone offers its own time picker
+**And** the existing validation, defaults (`DEFAULT_CHECK_IN` / `DEFAULT_CHECK_OUT`) and "assumed time" behaviour are preserved
+
+**Given** every time-of-day field in the app
+**When** this story lands
+**Then** they all use one control, and a grep for `inputMode: "numeric"` on a time field returns nothing
+**And** any `HH:mm` hint that only existed to explain a free-text field is removed with it
+
+**Given** the travel segment's duration is a span rather than a clock time
+**When** it is reworked
+**Then** it uses a control that models a duration — separate hours and minutes, or an explicit minutes field — and **not** `type="time"`, which would silently reinterpret "01:30" as a time of day
+**And** whatever is chosen is operable on a phone without typing a colon, which is the whole point of this story
+
+**Given** `type="time"` renders differently across browsers and its value is always `HH:mm` regardless of the display locale
+**When** the fields are converted
+**Then** the stored and validated format is unchanged, so no migration and no data rewrite is needed
+
+**Given** the accommodation, plan-item and travel-segment dialogs
+**When** the controls change
+**Then** every existing validation message, required rule and default still applies: this story changes how a value is entered, not what is accepted
 
 ## Epic 7: Visual Redesign — Light Cockpit System
 

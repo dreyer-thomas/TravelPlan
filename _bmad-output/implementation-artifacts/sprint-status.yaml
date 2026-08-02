@@ -1,5 +1,5 @@
 # generated: 2026-03-01 13:08:00 CET
-# last_updated: 2026-08-02 (6-13-stay-cards-editable implemented and reviewed via bmad-dev-auto; spec status is awaiting-operator. Both accommodation cards are now click-to-edit via 6.9's stretched-button overlay, wired to their own dialog; the toolbar stay button and the previous-night card's inline button are gone, so the empty card is the only remaining way to add an accommodation. Task 6 is a browser pass — hover, pointer-capability and hit-testing, none of which jsdom implements. See operator_actions in the spec. Review: 0 intent_gap, 0 bad_spec, 6 patched (2 medium), 3 deferred as DW-103…DW-105, 3 rejected; followup_review_recommended is true. Prior: 6-12-fullscreen-photo-viewer confirmed done by operator.)
+# last_updated: 2026-08-02 (2-34 + 6-16..6-18 specced. Import limit raised 100->300MB with proxyClientMaxBodySize 320mb and nginx 320m, because the production trips measure 113MB and 217MB of photos and neither was restorable; 2-34 removes the memory coupling that makes that a stopgap. Epic 6 stories 6-10..6-13 done and operator-verified.)
 # prior_note: 2026-08-02 (6-12-fullscreen-photo-viewer implemented and reviewed via bmad-dev-auto; spec status was awaiting-operator, now done. Four inline fullscreen-viewer copies replaced by one shared FullscreenPhotoViewer taking a collection plus an index; closes DW-30 and DW-51. Task 7 is a browser pass — AC3's "one dark surface, no lighter rim" and AC4's "no horizontal scrollbar" ARE the reported defect, and jsdom neither lays out nor paints, so neither can be agent-verified. See operator_actions in the spec. 11 review findings patched, 4 deferred as DW-99…DW-102; followup_review_recommended is true. Prior: 6-11-day-nav-chevrons-and-print-menu now done. Prior: 6-10-trip-overview-refinements also awaiting-operator. Prior: 2-33-restore-export-entry-point added — there is currently no export entry point in the UI at all: 7.8 removed the button, 2.31 rebuilt the backend without one, 2.32 kept only import.)
 # project: TravelPlan
 # project_key: NOKEY
@@ -87,6 +87,7 @@ development_status:
   2-31-complete-trip-backup-export-with-photos-travel-segments-and-bucket-list: done
   2-32-complete-trip-backup-import-with-photos-travel-segments-and-bucket-list: done
   2-33-restore-export-entry-point: ready-for-dev
+  2-34-import-archive-from-disk: ready-for-dev
   epic-2-retrospective: optional
 
   epic-3: backlog
@@ -128,6 +129,11 @@ development_status:
   6-11-day-nav-chevrons-and-print-menu: done
   6-12-fullscreen-photo-viewer: done
   6-13-stay-cards-editable: done
+  6-14-trip-controls-last-on-phone: ready-for-dev
+  6-15-move-swap-into-overflow: ready-for-dev
+  6-16-walking-and-cycling-travel-modes: ready-for-dev
+  6-17-travel-segment-dialog-on-a-phone: ready-for-dev
+  6-18-one-way-to-enter-a-time: ready-for-dev
   epic-6-retrospective: done
 
   epic-7: in-progress

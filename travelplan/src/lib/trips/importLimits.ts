@@ -11,13 +11,26 @@
 /**
  * Ceiling on an uploaded backup.
  *
- * The App Router has no `bodyParser.sizeLimit` equivalent, so nothing caps a request body unless
- * the handler does.
+ * **Not just a policy number — a memory ceiling.** The import buffers the whole archive: Next
+ * buffers the body for the middleware (`/api/trips/:path*` is in its matcher), `request.formData()`
+ * materialises it again as a `File`, `readZipMembers` takes it as one `Buffer`, and each extracted
+ * member is copied out of that. Peak resident memory runs roughly 3–4× the archive. The export does
+ * *not* share this shape — `createZipStream` reads one member at a time — so the two directions have
+ * very different ceilings.
  *
- * Deployment note: the reverse proxy in front of this app caps request bodies at 1 MB by default.
- * A photo-bearing import will 413 before it reaches Node unless `client_max_body_size` is raised.
+ * Raised from 100 MB on 2026-08-02 because it made real backups unrestorable: the production trips
+ * measured 113 MB and 217 MB of photos, and a STORE-only archive is essentially the sum of those
+ * bytes. 300 MB covers them with headroom on a 3.8 GB box (2.9 GB available, no swap) while leaving
+ * room for the second application sharing it. It is not a number that scales — at ~600 MB the peak
+ * would exceed the box regardless of this constant. The durable fix is to read the archive from disk
+ * instead of from memory, which is filed as its own story.
+ *
+ * Three limits must agree, and this is the smallest of them:
+ *   - this constant                                  300 MB  (what the handler accepts)
+ *   - `next.config.ts` `proxyClientMaxBodySize`      320 MB  (multipart adds boundaries and headers)
+ *   - the reverse proxy's `client_max_body_size`     320m    (nginx defaults to 1 MB)
  */
-export const MAX_IMPORT_PACKAGE_BYTES = 100 * 1024 * 1024;
+export const MAX_IMPORT_PACKAGE_BYTES = 300 * 1024 * 1024;
 
 /**
  * Ceiling on one restored photo: the **maximum** of the four upload routes' own
