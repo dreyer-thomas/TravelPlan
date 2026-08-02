@@ -5,7 +5,15 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TripDayView from "@/components/features/trips/TripDayView";
 import type { ReactNode } from "react";
+import theme from "@/theme";
 import { Providers, renderWithProviders } from "./helpers/renderWithProviders";
+
+// jsdom reports computed colours as `rgb(r, g, b)`; the palette stores hex. Converting here lets colour
+// assertions name the token they mean instead of a literal triple nobody can trace back to the theme.
+const toRgb = (hex: string) => {
+  const value = parseInt(hex.replace("#", ""), 16);
+  return `rgb(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255})`;
+};
 
 const planDialogMockState = vi.hoisted(() => ({
   lastProps: null as null | {
@@ -4161,20 +4169,146 @@ describe("TripDayView layout", () => {
     await screen.findByRole("heading", { name: "Day 1", level: 5 });
 
     // All four labels, and each value asserted against its own cell - not against whichever element in
-    // the document happens to carry the same text. Cell 3 in particular is the stat strip's "Spend
-    // today", which is a different element from the sidebar cost card's total.
+    // the document happens to carry the same text. Cell 3 in particular is the stat strip's spend
+    // figure, which is a different element from the sidebar cost card's total.
+    //
+    // Story 6.21 shortened three of the four labels: "Total travel time" and "Spend today" each dropped
+    // a qualifier ("gesamt"/"heute") that the strip's position under the day photo already supplies.
     expect(screen.getByText("Day")).toBeInTheDocument();
-    expect(screen.getByText("Total travel time")).toBeInTheDocument();
-    expect(screen.getByText("Spend today")).toBeInTheDocument();
+    expect(screen.getByText("Travel time")).toBeInTheDocument();
+    expect(screen.getByText("Spend")).toBeInTheDocument();
     expect(screen.getByTestId("day-stat-day")).toHaveTextContent("1 / 4");
     expect(screen.getByTestId("day-stat-travel-time")).toHaveTextContent("2h 10m");
     expect(screen.getByTestId("day-stat-spend-today")).toHaveTextContent("€230.00");
-    expect(screen.getByText("Check-in Quinta")).toBeInTheDocument();
+    // The stay's name has left the label. It is still on screen - on its timeline segment - so this is
+    // a narrower label, not lost information.
+    expect(screen.getByText("Check-in")).toBeInTheDocument();
+    expect(screen.queryByText("Check-in Quinta")).not.toBeInTheDocument();
     expect(screen.getByTestId("day-stat-check-in")).toHaveTextContent("16:00");
     expect(screen.getByTestId("day-cost-total")).toHaveTextContent("€230.00");
 
     // An activity with a recorded cost shows it on its own card, not only in the sidebar breakdown.
     expect(screen.getByTestId("day-plan-item-cost")).toHaveTextContent("€45.00");
+
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * Story 6.21, AC2 and AC5. The strip is a two-column grid at `xs`, and a grid row is as tall as its
+   * tallest cell - so an accommodation name in the check-in *label* did not just grow that cell, it
+   * grew the spend cell beside it. The label is now a constant, and this is the assertion that would
+   * have caught the original problem: it compares the rendered label across both states rather than
+   * checking each one against its own expected string, which is what let two different labels pass.
+   *
+   * The second half is the trap the collapse invites. `statStay` still drives the value and its colour;
+   * deleting it because "the label no longer needs it" would silently merge "no accommodation" into
+   * "check-in unset", and a label-only test would stay green through that.
+   */
+  it("uses one check-in label for both states while the value keeps them apart", async () => {
+    navigationMockState.search = "";
+
+    // The cell carries no test id of its own - the value does, and the label is the cell's first child.
+    // Read positionally, not via getByText("Check-in"): a query that names the expected text cannot
+    // observe a label that is wrong, which is precisely what AC2 is about.
+    const readCheckInCell = () => {
+      const value = screen.getByTestId("day-stat-check-in");
+      const cell = value.parentElement as HTMLElement;
+      const label = cell.firstElementChild as HTMLElement;
+      return {
+        label: label.textContent ?? "",
+        labelOverflowWrap: getComputedStyle(label).overflowWrap,
+        value: value.textContent ?? "",
+        color: getComputedStyle(value).color,
+      };
+    };
+
+    // The case that motivated the story: a name no cell can absorb.
+    const longName = "Quinta do Vale Abraão Boutique Hotel and Vineyard Retreat";
+    vi.stubGlobal(
+      "fetch",
+      buildDayResponse({
+        accommodation: {
+          id: "stay-1",
+          name: longName,
+          notes: null,
+          status: "booked",
+          costCents: null,
+          link: null,
+          checkInTime: "16:00",
+          checkOutTime: null,
+          location: null,
+        },
+      }),
+    );
+    const staying = renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+    const withStay = readCheckInCell();
+    staying.unmount();
+    vi.unstubAllGlobals();
+
+    vi.stubGlobal("fetch", buildDayResponse({ missingAccommodation: true }));
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+    const withoutStay = readCheckInCell();
+    vi.unstubAllGlobals();
+
+    // AC2: no user-supplied text reaches the label, so nothing a user types can set the row's height.
+    expect(withStay.label).toBe("Check-in");
+    expect(withoutStay.label).toBe(withStay.label);
+    expect(withStay.label).not.toContain("Quinta");
+
+    // AC5: the two states still read differently, in text and in colour - warn for the gap, ink for a
+    // booked stay. Colour is asserted as a pair as well as by token, so a theme change that collapses
+    // both to one tone fails here rather than shipping a cell that looks the same either way. Derived
+    // from the palette rather than written as raw rgb: a retuned token should move this test's
+    // expectation with it, and only an actual collapse of the two should fail it.
+    expect(withStay.value).toBe("16:00");
+    expect(withoutStay.value).toBe("No accommodation");
+    expect(withStay.color).toBe(toRgb(theme.palette.tokens.ink));
+    expect(withoutStay.color).toBe(toRgb(theme.palette.warning.main));
+    expect(withoutStay.color).not.toBe(withStay.color);
+
+    // Story 6.21, Task 3. `overflowWrap: "anywhere"` was removed from the labels deliberately - it was
+    // there so a hotel name could break mid-word, and breaking mid-word is what grew the row. Pinned so
+    // that re-adding it to make some future long label "fit" has to argue with this line first. The
+    // value keeps its own wrap rule, which is why both are asserted.
+    expect(withStay.labelOverflowWrap).not.toBe("anywhere");
+    expect(getComputedStyle(screen.getByTestId("day-stat-check-in")).overflowWrap).toBe("anywhere");
+  });
+
+  it("renders the shortened stat labels in German", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal(
+      "fetch",
+      buildDayResponse({
+        accommodation: {
+          id: "stay-1",
+          name: "Quinta",
+          notes: null,
+          status: "booked",
+          costCents: null,
+          link: null,
+          checkInTime: "16:00",
+          checkOutTime: null,
+          location: null,
+        },
+      }),
+    );
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />, { language: "de" });
+
+    await screen.findByRole("heading", { name: "Tag 1", level: 5 });
+    // German carries the longer words, so it is the language the 390px check turns on. "Fahrzeit
+    // gesamt" and "Ausgaben heute" must not come back.
+    expect(within(screen.getByTestId("day-stat-travel-time")).getByText("Fahrzeit")).toBeInTheDocument();
+    expect(within(screen.getByTestId("day-stat-spend-today")).getByText("Ausgaben")).toBeInTheDocument();
+    expect(screen.queryByText("Fahrzeit gesamt")).not.toBeInTheDocument();
+    expect(screen.queryByText("Ausgaben heute")).not.toBeInTheDocument();
+    // Scoped to the cell like the two above. German has other "Check-in…" strings on this screen
+    // (`trips.stay.checkInLabel` is "Check-in-Zeit"), and the one label this story is actually about
+    // should not be the one read with a document-wide query.
+    const checkInCell = screen.getByTestId("day-stat-check-in").parentElement as HTMLElement;
+    expect((checkInCell.firstElementChild as HTMLElement).textContent).toBe("Check-in");
 
     vi.unstubAllGlobals();
   });

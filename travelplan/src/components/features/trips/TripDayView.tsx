@@ -1371,11 +1371,23 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     fontWeight: 900,
     fontVariantNumeric: "tabular-nums",
     color: tokens.ink,
-    // Cell 4 can hold an accommodation name in its label and the "No accommodation" sentence as its
-    // value; without this the overflow is clipped by the hero wrapper's overflow: hidden.
+    // Cell 4's value carries the "No accommodation" sentence; without this the overflow is clipped by
+    // the hero wrapper's overflow: hidden.
     overflowWrap: "anywhere",
   } as const;
-  const statLabelSx = { color: tokens.inkSoft, display: "block", mb: 0.75, overflowWrap: "anywhere" } as const;
+  // Story 6.21: no `overflowWrap: "anywhere"` here, deliberately. It existed so cell 4's label could
+  // break mid-word rather than overflow when it held an accommodation name - and breaking mid-word is
+  // what turned one long name into a taller grid *row*, spend cell included. Every label is now a short
+  // dictionary constant, so the rule has nothing left to act on: the widest is "TRAVEL TIME" at ~86px
+  // against a ~130px column at 390px ((390 - 32 container gutters - 2 borders) / 2 - 48 cell padding).
+  // Be honest about the trade: the wrapper at :2034 sets `overflow: hidden`, so a label that did
+  // outgrow its cell is *clipped*, not shown overflowing. Clipping one label is still preferable to a
+  // wrap that grows the row and drags the spend cell up with it, which is the defect this story exists
+  // to remove - but it is a quiet failure, so the dictionary is what holds the line: the label guard in
+  // i18nDictionaries.test.ts caps the longest word in each of these four strings. Do not reach for this
+  // rule again to make a long label fit; shorten the string, or give the labels nowrap + ellipsis so the
+  // truncation is at least visible (see DW-138).
+  const statLabelSx = { color: tokens.inkSoft, display: "block", mb: 0.75 } as const;
   const statCellSx = { p: "16px 24px", minWidth: 0 } as const;
   const tlCardSx = {
     backgroundColor: tokens.card,
@@ -2451,10 +2463,14 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                 </Typography>
               </Box>
               <Box sx={statCellSx}>
+                {/* Story 6.21: the label is a constant, never the stay's name. Grid rows size to their
+                    tallest cell, so a long accommodation name here grew the spend cell alongside it on a
+                    phone. `statStay` still drives the value and its colour below - only the label stops
+                    varying. The name is not lost: it is on the stay's own timeline card unconditionally,
+                    and in the cost breakdown too when the stay has a recorded cost (that list filters on
+                    `amountCents !== null`, so an un-priced stay shows the name once, not twice). */}
                 <Typography variant="labelCaps" sx={statLabelSx}>
-                  {statStay
-                    ? formatMessage(t("trips.dayView.statCheckIn"), { name: statStay.name })
-                    : t("trips.dayView.statCheckInGeneric")}
+                  {t("trips.dayView.statCheckInGeneric")}
                 </Typography>
                 <Typography
                   data-testid="day-stat-check-in"

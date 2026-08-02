@@ -1156,3 +1156,53 @@ every page, so the day error screen does have one route out. DW-126's substance 
 is back to the *parent trip* (`/trips/{id}`), which the global menu still does not and should not
 offer — but its severity is lower than when it was written. Story 6.20 applied the analogous fix to
 `TripTimeline`'s own error branch, which is the model DW-126 asks for.
+
+### DW-135: The stat strip's row-growth defect survives in cell 4's *value*, on every day without a stay
+
+source_spec: `_bmad-output/implementation-artifacts/6-21-shorter-day-stat-labels.md`
+origin: incidental to story 6-21 review, 2026-08-02
+location: `travelplan/src/components/features/trips/TripDayView.tsx` — `statValueSx` and the `checkInStatValue` render in cell 4
+severity: medium
+summary: Story 6.21 removed the accommodation name from cell 4's *label*, which is where a long hotel name grew row 2 and dragged the spend cell up with it. `statValueSx` still carries `overflowWrap: "anywhere"`, and cell 4's value on a day with no accommodation is the sentence "No accommodation" / "Keine Unterkunft" at 21px/900 in a ~130px column at 390px. It wraps to two lines and grows the same row, by the same mechanism, on every gap day — which is a far more common state than "the hotel has a long name".
+evidence: Correctly out of scope: story 6.21's Trap 4 says explicitly that a strip which still does not fit after the labels shorten is "a finding for a new story, not licence to restructure the grid", and AC5 requires the two-state value to keep reading as it does. So nothing here contradicts the story. What the story's Change Log now claims is narrower than it sounds — "no user-supplied text can set the strip's row height" is true, and is not the same as "the strip no longer grows". The fix is a decision about the value, not the label: a shorter string for the empty state (an em dash, matching the "check-in unset" case, loses the distinction AC5 protects), a smaller font for that one value, or letting the cell clip. Worth measuring in a browser first — the manual pass owed by story 6.21's Task 5 is the natural place to confirm it.
+status: open
+
+### DW-136: The same number is "Ausgaben" in the stat strip and "Kosten heute" in the card below it
+
+source_spec: `_bmad-output/implementation-artifacts/6-21-shorter-day-stat-labels.md`
+origin: incidental to story 6-21 review, 2026-08-02
+location: `travelplan/src/i18n/de.ts` — `trips.dayView.statSpendToday` vs `trips.dayView.costCardTitle`; same pair in `en.ts`
+severity: low
+summary: `dayTotalCents` is rendered twice on the day screen — once in stat cell 3, now labelled "Ausgaben" / "Spend", and once as the cost card's title "Kosten heute" / "Costs today" with the subtitle "bisher erfasste Ausgaben, Tag {index}". Two nouns for one figure, and the subtitle uses the other one.
+evidence: Recorded because story 6.21's Dev Notes call for it by name and its reasoning is worth keeping: the two were already inconsistent before the story, and shortening one of them does not create the ambiguity — the card's own subtitle already says which day it means. So this is a vocabulary decision ("does this app call day money Ausgaben or Kosten?"), not a defect, and it should be settled once across the strip, the card and the cost overview rather than renamed inside a copy story. The key `statSpendToday` also still says "today" after the copy dropped it; fold that rename in when the word is decided.
+status: open
+
+### DW-137: On a day with two stays, the check-in cell no longer says which one it means
+
+source_spec: `_bmad-output/implementation-artifacts/6-21-shorter-day-stat-labels.md`
+origin: incidental to story 6-21 review, 2026-08-02
+location: `travelplan/src/components/features/trips/TripDayView.tsx` — stat cell 4, and `previousStay` / `currentStay`
+severity: low
+summary: A moving day has a `previousStay` being checked out of and a `currentStay` being checked into. The cell used to read "Check-in <name>"; it now reads "Check-in" over a bare time, so the strip states a check-in time without naming which of the day's two accommodations it belongs to.
+evidence: Real but small, and the fix is explicitly not "put the name back" — story 6.21 AC2 requires the label to be the same string in both states, which is the entire point of the change. The information is still on screen: the timeline card for the arriving stay carries its name and the same time. If the strip should disambiguate, the place is the value's accessible name (an `aria-label` on the value carrying the stay's name), which costs the layout nothing because it is not rendered text. Worth doing at the same time as any other accessible-name work on the strip — the four cells currently expose label and value as two unassociated text nodes to a screen reader.
+status: open
+
+### DW-138: The stat labels now clip silently instead of truncating visibly
+
+source_spec: `_bmad-output/implementation-artifacts/6-21-shorter-day-stat-labels.md`
+origin: incidental to story 6-21 review, 2026-08-02
+location: `travelplan/src/components/features/trips/TripDayView.tsx` — `statLabelSx`, inside the wrapper that sets `overflow: hidden`
+severity: low
+summary: Story 6.21 dropped `overflowWrap: "anywhere"` from the stat labels for a good reason — mid-word breaking is what converted one long string into a taller grid row. But the strip sits inside a wrapper with `overflow: hidden`, so the failure mode it leaves behind is a label cut off at the cell edge with no ellipsis and no other signal, rather than a label visibly spilling. `whiteSpace: nowrap` + `textOverflow: ellipsis` + `overflow: hidden` on the label would give all three properties at once: no row growth, no silent loss, and a visible "…" that says the string is too long.
+evidence: Not a defect today — all four labels are short dictionary constants, a computed-style test pins the decision, and `i18nDictionaries.test.ts` caps the longest word in each at 10 characters. It is recorded because the character cap is a proxy for a pixel constraint measured on text that is uppercased at render, and because the narrowest cell is not the phone: at `sm` the grid goes to four columns, so a 600px viewport gives each cell roughly 89px against ~130px at 390px. An ellipsis would make the guard's inevitable eventual miss visible instead of silent. Deliberately not done inside a copy story whose AC6 says the label typography is untouched.
+status: open
+
+### DW-139: A shipped spec still names `trips.dayView.statCheckIn` as the stat strip's key set
+
+source_spec: `_bmad-output/implementation-artifacts/6-21-shorter-day-stat-labels.md`
+origin: incidental to story 6-21 review, 2026-08-02
+location: `_bmad-output/implementation-artifacts/7-3-day-detail-redesign.md:265`, and the same key quoted in 7-11
+severity: low
+summary: Story 6.21 deleted `trips.dayView.statCheckIn` from both dictionaries. Story 7.3's spec, which is the document that defined the stat strip, still lists it with its `{name}` placeholder as one of the strip's four labels.
+evidence: Completed spec files are records of what was decided at the time, not live documentation, so amending 7.3 in place would cost more than it saves — this ledger entry is the pointer. It matters only for the specific case of someone rebuilding the strip from 7.3 and reintroducing the interpolated label along with it. The concrete mitigation is already in place and is the reason `statCheckInGeneric` deliberately kept its now-meaningless suffix: `statCheckIn` was left retired rather than rebound to the short string, so an old reference to it reads as obviously stale instead of silently resolving to something with different semantics.
+status: open
