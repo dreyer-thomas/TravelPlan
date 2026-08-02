@@ -2,7 +2,7 @@
 authored_against: dcfb859
 baseline_revision: d146125553ead80e1825d2702b25bf23a9ccec69
 final_revision: 23fe4330ef4566739fa60e5c38d14ab35f9e1d86
-status: awaiting-operator
+status: done
 review_loop_iteration: 0
 followup_review_recommended: true
 warnings: []
@@ -154,6 +154,32 @@ One component: `src/components/features/trips/TripDayView.tsx`, plus its suite. 
 - [Source: travelplan/src/components/features/trips/TripIcons.tsx:347] — `HERO_SCRIM`, the four stops
 - [Source: _bmad-output/implementation-artifacts/6-11-day-nav-chevrons-and-print-menu.md] — the menu, the chevrons, and DW-98
 - [Source: _bmad-output/implementation-artifacts/6-15-move-swap-into-overflow.md] — the story this follows
+
+## Operator Pass — 2026-08-02, against `cfa015f`, with a before/after at `d146125`
+
+Chromium at 390px and 1400px, a day carrying the full 280-character note, over generated test photos; isolated worktree on port 3099 against a copy of `dev.db`.
+
+- **AC1:** exactly **three** controls on the photo at both widths.
+- **AC3:** the right edges of the `⋯` and the next-day chevron differ by **0.00px** at 390px *and* at 1400px. Before this story they were 8px and 24px apart.
+- **AC5:** with the full 280-character note, **no** title or date text intersects any of the three controls at either width, and the date line ("15. Dez. 2026") is still the last visible line — the title block is not clipped.
+- **AC9:** DOM order is prev → next → `⋯`.
+- **Menu:** owner sees Zurück zur Reise / Tagesdetails / Verschieben / Tauschen / divider / Drucken; a viewer sees Zurück zur Reise and Drucken with **no stranded divider**.
+
+**AC6, measured in pixels over a photo of (250,250,248) with the scrim applied — the hard case:**
+
+| control | before | after | |
+|---|---|---|---|
+| previous-day chevron | 1.78:1 | **2.24:1** | +26% |
+| next-day chevron | 1.43:1 | **2.24:1** | +57% |
+| `⋯` | 1.20:1 | **3.06:1** | +155%, crosses 3:1 |
+
+AC6 asks for "no worse than today" and every control is better, so it is met. The spec's arithmetic was right that the chevrons lose ~45% of the scrim behind them at the top; the implementation compensated by changing the chrome from a white fill to a dark one, which more than covers the loss.
+
+The measurement also confirms the scrim asymmetry the spec computed: the old `⋯` sat where the scrim is weakest (sampled backdrop 198) and was the worst control on the hero at 1.20:1.
+
+**Still open:** neither chevron reaches WCAG 1.4.11's 3:1 for non-text controls — 2.24:1 over a bright photo, 2.29:1 over a dark one (where the dark fill sinks to 1.01:1 and only the white border carries it). Only the `⋯` clears the bar. **DW-98 is improved, not closed.**
+
+The dev record's 3.64:1 is arithmetic, as its own operator note says; measured against a real bright photo with the scrim the figure is 2.24:1.
 
 ## Dev Agent Record
 
@@ -328,3 +354,18 @@ The day hero now carries exactly three interactive controls, one per corner: the
 - **AC3, AC5 and AC6 are the three ACs this story exists for, and all three are rendered-pixel claims.** jsdom computes no layout and does not resolve MUI's responsive `sx`, so the suite holds their inputs — declared offsets, the un-clipped 280-char title, the arithmetic — and not their output. They are the operator actions below.
 - **The 60px ceiling assumes a 44px control at an 8px inset.** It is derived from those constants rather than written as a literal, so it follows them, but a control that grows past 44px without the band following would reopen AC5.
 - **Back to the trip is now two taps** and there is no other in-app route to it from this screen (see DW-126 for the error state, where there is none at all). That is the trade the story asked for and is not re-opened here.
+
+## Operator Confirmation
+
+Confirmed 2026-08-02: the external actions this story owed were carried out.
+
+- Run the app in a browser to do Task 5 — Task 6 in this spec — on a throwaway copy of dev.db on an isolated port, never prisma/dev.db. The recipe is in the Dev Notes of _bmad-output/implementation-artifacts/7-12-bucket-list-sidebar-card.md. Everything below needs that one session: AC3, AC5 and AC6 are the three acceptance criteria this story exists for and all three are rendered-pixel claims, which jsdom cannot make. It computes no layout and does not resolve MUI's responsive sx at all.
+- At 390px and again at 1400px, open any middle day and measure the right edge of the ⋯ button and the right edge of the next-day chevron. Confirm they are equal to the pixel. This is AC3 and the whole reason the story was raised: the two were 8px apart on a phone and 24px apart on a desktop because the ⋯ inherited the hero's padding. All three controls now read one shared 8px constant, so they should agree by construction — measure it anyway, because construction is exactly what the suite already checked.
+- Open a day whose note runs to the full 280 characters, at 390px and at 1400px. Confirm no part of the title or the date line renders underneath any of the three controls — the two top corners and the bottom-right. This is AC5. The clearance is bought with the hero's 60px top padding and a responsive right padding on the title, neither of which jsdom resolves, so the browser is the only place the claim can be checked. Confirm too that the whole note is still visible and the date line is not cut off: the alternative implementation would have clipped the title block, and the date is its last line.
+- Over a genuinely bright photo — sky, snow, sunlit rock — look at all three controls on the same day. This is AC6 and the story warns it is the one that can be satisfied by accident and still look fine. The two chevrons now carry a dark translucent fill instead of the white one, which the arithmetic puts at 3.64:1 against 1.98:1 today; confirm they read as controls rather than as smudges, and that the ⋯ at the bottom does too.
+- Check the same day over a dark photo as well. The dark fill is expected to sink into a dark backdrop — what should still delineate each chevron is its white border. Confirm the controls are still findable; if they are not, that is the trade-off going the wrong way and wants its own follow-up story rather than a change here.
+- Open the ⋯ menu as an owner and confirm the order reads: Back to trip, Edit day details, Move activities, Swap activities, a divider, Print day. Then confirm a viewer sees only Back to trip and Print day, with no divider stranded between them.
+- Confirm the arrow glyph decision reads correctly to you. "← Back to trip" is now "Back to trip" in both English and German, because the arrow pointed at a top-left button that no longer exists. The same key is shared by the day-not-found card, which also loses its arrow — glance at that screen too. If you want the arrow kept, say so: it is one string per locale plus three tests.
+- If every check passes, tick Task 6 in this spec, set status: done in the frontmatter and Status: done in the body, and set 6-19-day-hero-three-surfaces to done in sprint-status.yaml.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
