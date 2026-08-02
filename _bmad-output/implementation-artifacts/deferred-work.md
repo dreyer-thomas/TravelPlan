@@ -855,6 +855,7 @@ location: `travelplan/src/components/features/trips/TripTimeline.tsx:752` and `:
 severity: low
 summary: The card's two mount points are different React positions, so resizing, rotating or split-screening across 900px destroys the card and rebuilds it — a keyboard user focused on "Edit trip" loses focus to `<body>` — and the test harness pins one width per case and can never fire a change event, so nothing automated covers the crossing.
 evidence: `{isTwoColumnLayout ? tripControlsCard : null}` and `{isTwoColumnLayout ? null : tripControlsCard}` are separate slots in the tree; React unmounts one and mounts the other rather than moving the node, and focus does not survive that. Narrow trigger — the viewport has to change while one of the two buttons holds focus — which is why it is deferred rather than patched. The harness half is structural: `setViewportWidth` installs a `matchMedia` whose `addEventListener` is a bare `vi.fn()`, so an implementation that read `window.innerWidth` once at mount would pass all 16 cases identically. Both halves want the same thing DW-14 and DW-106 want: a browser-level layout pass.
+operator_measurement (2026-08-02, Chromium, `dcfb859`): **Confirmed, in both directions.** With "Reise bearbeiten" focused at 1400px, resizing to 820px moves `document.activeElement` to `<body>`; resizing back to 1400px leaves it on `<body>`. The reviewer called the trigger narrow, and for a mouse user it is — but **tablet rotation crosses 900px** (1024x768 landscape to 768x1024 portrait), so it is reachable without anyone deliberately resizing a window. Consequence is bounded: focus is lost, nothing else, and one Tab recovers. Judged **non-blocking** for story 6.14 on that basis; the entry stays open because the fix (one mount point, or restoring focus after the swap) is still worth doing.
 status: open
 
 ## Deferred from: 6-15-move-swap-into-overflow (review pass, 2026-08-02)
@@ -909,6 +910,16 @@ location: `travelplan/src/lib/repositories/tripRepo.ts:1424`
 severity: low
 summary: A literal NUL in a template string (`` `${sortOrder}\x00${imageUrl}` ``) makes `file` report the source as `data`, so `grep -r` treats it as binary and omits it without saying so — and that file held three of the five silently-defaulting transport mappers story 6-16 had to fix.
 evidence: Pre-existing at baseline `68607e0`, and nothing was actually missed — the dev found and fixed all five mappers. The hazard is the audit method, not the code: story 6-16's Task 5 mandates "grep for the three literals across `src/`", and the mandated sweep cannot see the file it most needed to see unless the operator happens to pass `-a`. Worth either replacing the NUL with a delimiter that is not a NUL, or recording `grep -a` as the convention for repo-wide sweeps.
+status: open
+
+### DW-113: A route OSRM cannot find is reported as a successful import of zero
+
+source_spec: `_bmad-output/implementation-artifacts/6-16-walking-and-cycling-travel-modes.md`
+origin: operator browser pass for story 6-16, 2026-08-02
+location: `travelplan/src/lib/routing/dayRouteService.ts` (the `code: "Ok"` success path)
+severity: low
+summary: When no routable network exists near either point, OSRM snaps both to the same node and answers `code: "Ok"` with `distance: 0, duration: 0`. The service passes that straight through, so the dialog shows "Route erfolgreich importiert" with 00:00 and 0 km — the one situation `routing_no_route` was added for, and it does not fire.
+evidence: Measured through the app's own request shape on 2026-08-02. Cycling from 30,-40 to 31,-41 (mid-Atlantic) returned HTTP 200 with `{"distanceMeters":0,"durationSeconds":0}` and a two-point polyline at 39.376475,-31.248047 — the Azores, roughly 1000 km from both requested coordinates. Upstream confirms it: `routed-bike` answers `{"code":"Ok","routes":[{"distance":0,"duration":0}]}`. The saved value is caught one step later by the distance rule the same review added ("Gib eine Entfernung größer als 0 ein"), so nothing wrong is stored — but the *import* claims success, and the snapped polyline is silently a thousand kilometres away. A zero-length route between two distinct requested points is a reliable "no route for this mode" signal and is what `routing_no_route` should key on, alongside the `NoRoute`/`NoSegment` codes the review already wired. Not a regression: this path was unreachable before 6.16 because only car could import.
 status: open
 
 ## Note: story 6.16 review decision (2026-08-02)

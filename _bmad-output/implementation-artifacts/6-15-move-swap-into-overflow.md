@@ -22,7 +22,7 @@ operator_actions:
 
 # Story 6.15: Move, Swap and Day-Image Edit Into the Day Overflow Menu
 
-Status: awaiting-operator
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 

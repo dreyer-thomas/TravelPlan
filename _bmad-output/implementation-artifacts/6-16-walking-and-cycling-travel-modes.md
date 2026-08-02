@@ -1,14 +1,14 @@
 ---
 authored_against: ac03570
 baseline_revision: 68607e045cfbc3e304b591d1d95e43798303dd6e
-status: awaiting-operator
+status: done
 review_loop_iteration: 0
 warnings: []
 ---
 
 # Story 6.16: Walking and Cycling as Travel Modes
 
-Status: awaiting-operator
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -62,10 +62,11 @@ so that the day's travel reflects how we actually get between places instead of 
   - [x] Assert a round trip through export and import preserves both new values, and that a pre-change backup still imports.
   - [x] `npm test` green, `npm run check:migrations` green. — **Qualified:** at commit `20b8041` the suite was 878 passed / 5 failed. The 5 are the pre-existing DW-108 import size-cap assertions, unrelated to this story and fixed in the following commit `8228ce0`. Zero new failures were introduced; the subtask as literally worded was not met at this commit.
 
-- [ ] **Task 7 — Manual check** (AC: 4)
-  - [ ] Route import for a walking leg and a cycling leg between two located points, and confirm the duration and distance prefill.
-  - [ ] A cycling leg somewhere Google has no bicycle data, to see the empty-result path.
-  - [ ] Throwaway copy of `dev.db` on an isolated port — never `prisma/dev.db`. Recipe in `7-12-bucket-list-sidebar-card.md`'s Dev Notes.
+- [x] **Task 7 — Manual check** (AC: 4) — operator pass 2026-08-02, against `a4effdd`
+  - [x] Route import for a walking leg and a cycling leg between two located points, and confirm the duration and distance prefill. — **AC4 delivered.** Through the app's own `/travel-segments/route-preview`, same Dresden pair: car 3.90 km / 7.9 min (29.7 km/h), walking 2.30 km / 32.5 min (4.2 km/h), cycling 3.20 km / 13.6 min (14.1 km/h). Three *different distances*, so three distinct graphs — not one graph queried three times, which is what the pre-review code did. Walking takes the shortest path (footpaths), car the longest (one-ways). In the dialog, a walking import prefilled 465 km / 106:03 (4.39 km/h) with `travelmode=walking` on the link. `mode` absent and `mode` empty both fall back to car (the `|| undefined` fix).
+  - [x] The three review patches, confirmed in the browser: switching Zu Fuß → Fahrrad after an import resets duration, distance and link to the segment's saved values and clears the success alert; a distance of `-3` on an optional-distance mode now raises "Gib eine Entfernung größer als 0 ein oder lass das Feld leer." and holds the dialog open; the field is labelled "Entfernung (km)" for car and "Entfernung (km, optional)" for walking and cycling.
+  - [~] A cycling leg somewhere Google has no bicycle data, to see the empty-result path. — **Could not be exercised, and the reason is now recorded.** These OSRM instances snap almost anything and answer `Ok`: Berlin→New York by bike returns 3434.8 km, Iceland→Sicily on foot 3941.0 km. The one case that does degrade — mid-Atlantic, where both points snap to the *same* node in the Azores — comes back HTTP 200 with distance 0 and duration 0 and is reported as a successful import. That is **DW-113**. An invalid coordinate pair returns 502 `routing_unavailable`, so `routing_no_route` remains defensive rather than reachable, exactly as the review's closing note predicted.
+  - [x] Throwaway copy of `dev.db` on an isolated port — never `prisma/dev.db`. — Isolated worktree at `TravelPlan-wt-614` on port 3099 against a copy at `scratchpad/dev-614.db`; `prisma/dev.db` untouched throughout.
 
 ### Review Findings
 

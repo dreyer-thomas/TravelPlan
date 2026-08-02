@@ -2133,6 +2133,87 @@ The third is a different problem wearing the same mask. A duration is a span, so
 **When** the controls change
 **Then** every existing validation message, required rule and default still applies: this story changes how a value is entered, not what is accepted
 
+### Story 6.19: Three Surfaces on the Day Hero
+
+As a trip planner on a phone,
+I want the day hero to carry three controls in three corners instead of a row of buttons,
+So that the photo reads as a photo and the controls stop competing with the title for the same band.
+
+**FRs covered:** FR21, FR22 (day navigation, day actions) — placement only
+
+**Given** the day hero
+**When** it renders
+**Then** it carries exactly three interactive controls: previous day (top-left), next day (top-right) and the `⋯` overflow (bottom-right)
+
+**Given** the "← Zurück zur Reise" button
+**When** this story lands
+**Then** it is the first item of the `⋯` menu, and the header row is removed rather than left as an empty flex container
+
+**Given** the `⋯` and the next-day chevron
+**When** measured at any breakpoint
+**Then** their right edges are identical — today the `⋯` inherits the hero's 16/32px padding while the chevron sits at `right: 8`, so they differ by 8px on a phone and 24px on a desktop
+
+**Given** a day whose note runs to the full 280 characters
+**When** the title block grows upward with no header row above it and the `⋯` below it
+**Then** no title text renders under a control and no control is made un-tappable
+
+**Given** the chevrons moving from the vertical centre to the top corners
+**When** measured against `HERO_SCRIM`
+**Then** they read no worse than today — the scrim behind them drops from ~0.35 to ~0.19 alpha, on controls DW-98 already measured at 2.41:1
+
+**Given** every role
+**When** the back action moves into the menu
+**Then** each can still reach print and still get back to the trip — the trigger stays ungated
+
+### Story 6.20: The Trips Link Moves Into the Header Menu
+
+As a trip planner,
+I want the way back to all my trips in the hamburger menu instead of as a breadcrumb above the page,
+So that the trip overview starts with the trip rather than with a link away from it.
+
+**FRs covered:** FR3 (trip navigation) — placement only
+
+**Given** the trip detail page
+**When** it renders
+**Then** the `← Zurück zu Reisen` control is gone and the page's first block is the trip itself
+
+**Given** an authenticated user on any page
+**When** they open the header menu
+**Then** it carries an entry leading to `/trips`; an anonymous visitor does not see it, because `/trips` is not reachable for them
+
+**Given** the "trip not found" panels in `TripTimeline` and `TripCostOverview`
+**When** this story lands
+**Then** they keep their own button — a menu is not a recovery path from a page that failed to load
+
+**Given** the removed markup is a `<Link>` wrapping a `<Button>`
+**When** the menu entry is written
+**Then** the invalid `<a>`-containing-`<button>` nesting is not reproduced
+
+### Story 6.21: Shorter Labels on the Day Stat Strip
+
+As a trip planner on a phone,
+I want the four stat cells under the day photo to carry short labels,
+So that one long hotel name stops making half the strip tall.
+
+**FRs covered:** FR21 (day overview) — labels only
+
+**Given** the stat strip
+**When** it renders
+**Then** the labels read "Fahrzeit", "Ausgaben" and "Check-in" — the accommodation name leaves the label entirely
+
+**Given** a stay with a long name
+**When** the day is opened at 390px
+**Then** the strip does not react to it: the check-in cell shares its grid row with the spend cell, so a wrapping label made both cells tall
+
+**Given** `trips.dayView.statCheckInGeneric` already holds exactly "Check-in"
+**When** the label is collapsed
+**Then** that key becomes the only label and `statCheckIn` is deleted from both dictionaries rather than left orphaned
+
+**Given** the cell's two states
+**When** the label stops varying
+**Then** the value still distinguishes them: `noAccommodation` in the warning colour, or the check-in time or an em dash in ink
+
+
 ## Epic 7: Visual Redesign — Light Cockpit System
 
 Users experience the approved `DESIGN.md`/`EXPERIENCE.md` visual system across every screen instead of the current inconsistent styling. Source of truth: `_bmad-output/planning-artifacts/ux-designs/ux-TravelPlan-2026-07-27/DESIGN.md`, `EXPERIENCE.md`, and `mockups/*.html`. This epic re-skins existing, already-shipped screens — it does not add product capability, so no new FRs are introduced.
