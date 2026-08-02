@@ -3,6 +3,12 @@ import type { Dictionary } from "@/i18n";
 const en: Dictionary = {
   "app.brand": "TravelPlan",
   "header.openMenu": "Open menu",
+  // Story 6.20. A new key rather than a reuse of `trips.detail.back`: that one reads "← Back to
+  // trips" and keeps both of its readers (the two "trip not found" recovery panels), where the arrow
+  // still describes an edge-anchored back link. This row sits in a vertical menu between "Language"
+  // and "Sign out", where a leading arrow points at nothing, and it is a destination rather than a
+  // way back - so it is named for where it goes.
+  "header.trips": "All trips",
   "language.label": "Language",
   "language.saveError": "Unable to save language preference.",
   "language.en": "English",

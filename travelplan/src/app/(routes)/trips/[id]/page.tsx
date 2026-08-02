@@ -1,7 +1,5 @@
-import { Box, Button, Container, Typography } from "@mui/material";
-import Link from "next/link";
+import { Box, Container } from "@mui/material";
 import TripTimeline from "@/components/features/trips/TripTimeline";
-import { getServerT } from "@/i18n/server";
 
 type TripDetailPageProps = {
   params: Promise<{
@@ -9,21 +7,19 @@ type TripDetailPageProps = {
   }>;
 };
 
+/**
+ * The trip detail shell: a `Container` and the timeline, nothing above it.
+ *
+ * Story 6.20 removed a breadcrumb from the top of this page; the way back to all trips is a row in
+ * the global `HeaderMenu` now. Keep the timeline the first block - the top spacing comes from the
+ * `Container`'s own `py`, so a wrapper is not needed to produce it.
+ */
 export default async function TripDetailPage({ params }: TripDetailPageProps) {
   const { id } = await params;
-  const t = await getServerT();
   return (
     <Box sx={{ minHeight: "100vh" }}>
       <Container maxWidth="lg" sx={{ py: { xs: 4, md: 6 } }}>
-        <Box display="flex" flexDirection="column" gap={4}>
-          <Link href="/trips" style={{ alignSelf: "flex-start", textDecoration: "none" }}>
-            <Button variant="text" sx={{ alignSelf: "flex-start" }}>
-              {t("trips.detail.back")}
-            </Button>
-          </Link>
-
-          <TripTimeline tripId={id} />
-        </Box>
+        <TripTimeline tripId={id} />
       </Container>
     </Box>
   );

@@ -1066,3 +1066,93 @@ severity: medium
 summary: When the day fetch fails for any reason other than 404, the page renders an `Alert` and nothing else. The hero does not render, so neither does the `⋯` menu that now holds back-to-trip, and the user's only way out is the browser's own back gesture.
 evidence: Pre-existing — the back button lived inside the same `detail && day` branch before story 6.19 moved it into the menu, so the error state has never carried a route out. Surfaced by 6.19 because that story made the hero menu the *sole* route to the parent trip: `AppHeader.tsx` renders the brand as a `Typography` rather than a link, `getAuthMenuItems` returns only `logout` for an authenticated user, and the 6.9 breadcrumb is gone, so on this screen `document.querySelectorAll('a[href="/trips/{id}"]')` returns zero outside the open menu. The 404 branch already renders its own back link and is the model; the error branch wants the same one.
 status: open
+
+### DW-127: A future menu action without an `href` renders a dead `#` anchor instead of failing to compile
+
+source_spec: `_bmad-output/implementation-artifacts/6-20-trips-link-into-the-header-menu.md`
+origin: incidental to story 6-20 review, 2026-08-02
+location: `travelplan/src/lib/navigation/authMenu.ts` (`href?: string`) against `travelplan/src/components/HeaderMenu.tsx:209-223`
+severity: medium
+summary: `HeaderMenu` decides link-versus-action by the literal `item.key === "logout"`, and renders everything else as `MenuItem component={Link} href={item.href ?? "#"}`. `href` stays optional on a union that now contains a destination, so the invariant the menu depends on — a non-logout item always carries an href — is enforced by nothing. The next *action* item added to the list renders as an anchor to `#` and silently does nothing.
+evidence: Not introduced by 6-20 — the `?? "#"` fallback and the `key === "logout"` branch both predate it, and every item shipping today satisfies the invariant, so nothing is broken now. Surfaced because 6-20 widened the union for the first time and deliberately left `HeaderMenu.tsx` untouched (the story's whole point was that the existing href branch already handled a destination). The fix is a discriminated union — `{ kind: "destination"; href: string } | { kind: "action" }` or equivalent — which turns the failure into a compile error and lets the renderer branch on shape rather than on a key literal; the unreachable `?? "#"` then goes away with it. Touching a global component that three stories have warned against extending, so it wants its own scoped change rather than a drive-by.
+status: open
+
+### DW-128: The header menu never revalidates its auth state, and now carries navigation rather than only session actions
+
+source_spec: `_bmad-output/implementation-artifacts/6-20-trips-link-into-the-header-menu.md`
+origin: incidental to story 6-20 review, 2026-08-02
+location: `travelplan/src/components/HeaderMenu.tsx` — `authState`, seeded from the `isAuthenticated` prop
+severity: medium
+summary: `authState` is seeded from a server-rendered prop and only ever changes on prop change or an explicit logout. A tab left open past session expiry keeps offering "All trips", which `middleware.ts`'s `isProtectedPath` then bounces to the login screen — the outcome story 6-20's AC3 calls "worse than none".
+evidence: Pre-existing staleness: the menu has always been able to show "Sign out" to an expired session. Surfaced by 6-20 because it changed what a stale row costs — a stale session *action* is a failed click on something the user was finishing anyway, while a stale *navigation* row is a broken promise about where the app can take them. Cheap mitigation: the menu already fetches `/api/auth/csrf` when it opens, so a `401` there is a ready signal to flip `authState` to false without any new endpoint. Not urgent — the bounce lands on a login screen that then returns the user to the app — but it is the one hole in AC3's guarantee, and AC3 is stated absolutely.
+status: open
+
+### DW-129: The global menu's trips row is not marked as the current page when it already is
+
+source_spec: `_bmad-output/implementation-artifacts/6-20-trips-link-into-the-header-menu.md`
+origin: incidental to story 6-20 review, 2026-08-02
+location: `travelplan/src/components/HeaderMenu.tsx:209-223`, decision recorded at `travelplan/src/lib/navigation/authMenu.ts`
+severity: low
+summary: On `/trips` the row links to the page already shown. Story 6-20 AC4 decided deliberately to keep it visible there, but nothing marks it as current: a screen-reader user gets an identical announcement on `/trips` as on a trip page, and activating it produces no perceptible change.
+evidence: The self-link is intentional and argued (the global menu is a function of auth state alone, and route-awareness is the coupling stories 6.11 and 6.15 refused), so this is not a defect in the decision — it is the one piece of polish the decision leaves owing. `aria-current="page"` plus MUI's `selected` would signpost it without making menu *content* route-dependent, but both need `usePathname()`, which is exactly the dependency AC4 declined; whether that trade is worth making is a design call, not a patch. Worth deciding once for the whole menu rather than for this row.
+status: open
+
+### DW-130: One breadcrumb moved into the menu; its three structural twins stayed above the content
+
+source_spec: `_bmad-output/implementation-artifacts/6-20-trips-link-into-the-header-menu.md`
+origin: incidental to story 6-20 review, 2026-08-02
+location: `travelplan/src/app/(routes)/trips/[id]/costs/page.tsx:20` (`TripDayMapBackButton`), plus the `trips.overviewMap.back` and `trips.dayView.mapBack` readers
+severity: low
+summary: The costs page still renders a back link as the first child of the same `Container` → `Box` → column shell that 6-20 just dismantled on the trip detail page, and the two full-page map screens do the same. As of this commit the app holds two idioms for "the way out of this page": a menu row on one screen, a breadcrumb above the content on three others.
+evidence: Correctly out of scope — 6-20's argument is specifically that a *global constant* destination (`/trips`) belongs in the global menu, while a trip- or day-scoped one (`/trips/{id}`) must not be pushed into a component built from auth state alone, and all three survivors are trip-scoped. So the rule is consistent; what is missing is a stated scope, because a reader who sees only the diff will read it as "breadcrumbs are wrong" and apply it to the wrong screens. Either write the scope down where those pages can see it, or decide the trip-scoped back links belong in their pages' own overflow menus the way story 6.19 did for the day hero.
+status: open
+
+### DW-131: The trip detail page's full-height wrapper now holds one child and guarantees a scrollbar
+
+source_spec: `_bmad-output/implementation-artifacts/6-20-trips-link-into-the-header-menu.md`
+origin: incidental to story 6-20 review, 2026-08-02
+location: `travelplan/src/app/(routes)/trips/[id]/page.tsx` — the outer `<Box sx={{ minHeight: "100vh" }}>`
+severity: low
+summary: `minHeight: "100vh"` plus `AppHeader`'s `minHeight: 72` Toolbar makes the document at least 100vh + 72px, so even a one-day trip scrolls. The Box also wraps a single child and paints nothing — unlike the costs page's equivalent, which at least sets a background.
+evidence: Pre-existing arithmetic; the Box and the Toolbar both predate this story. Recorded because 6-20 audited the *inner* wrapper for exactly this reason (single child, no effect) and removed it, which leaves the adjacent wrapper — the one with an actual layout consequence — as the arbitrary survivor. The sibling day page renders a bare `Container` with no such Box, so the app already disagrees with itself. The fix is either `minHeight: "calc(100vh - 72px)"` against a shared header-height constant or dropping the Box, and it should be decided for every page that carries this pattern at once.
+status: open
+
+### DW-132: The "trip not found" panel is duplicated verbatim, and the cost overview reads `trips.detail.*` keys
+
+source_spec: `_bmad-output/implementation-artifacts/6-20-trips-link-into-the-header-menu.md`
+origin: incidental to story 6-20 review, 2026-08-02
+location: `travelplan/src/components/features/trips/TripTimeline.tsx:286-302` and `TripCostOverview.tsx:335-349`
+severity: low
+summary: Both components render the same panel — `Paper` → column `Box` → title `Typography` → body `Typography` → `Button component={Link} href="/trips"` — reading the same three keys, including `trips.detail.notFoundTitle/Body/back` inside a *cost overview*, where that namespace does not belong.
+evidence: Story 6-20 correctly protected both from deletion (AC5) and now pins each with its own test, so the duplication is held in place by two tests as well as two components. Nothing is broken; the cost is that a copy change to the panel has to be made twice and the keys mis-describe one of their readers. Fix is a small shared `TripNotFoundPanel` with its own key namespace, which also gives the third caller — `TripDayView`'s day-not-found card — somewhere to go.
+status: open
+
+### DW-133: The home page offers Register and Sign in to a signed-in user
+
+source_spec: `_bmad-output/implementation-artifacts/6-20-trips-link-into-the-header-menu.md`
+origin: incidental to story 6-20 review, 2026-08-02
+location: `travelplan/src/components/HomeHero.tsx:24-32`, called from `travelplan/src/app/page.tsx:32`
+severity: low
+summary: `HomeHero` renders its two CTAs — "Create account" (`/auth/register`) and "Sign in" (`/auth/login`) — unconditionally. `app/page.tsx` passes only `showHowItWorks={!isAuthenticated}`, so an authenticated visitor on `/` is invited to register while the header menu beside it offers "All trips" and "Sign out".
+evidence: Pre-existing and untouched by story 6-20. Surfaced by it because `/` is now one of the pages where the new menu row pays off ("reachable from every page an authenticated user can open"), which makes the contradiction on the same screen visible: the menu knows who the user is and the hero does not. The prop to thread already exists — `resolveAuthState()` is called two lines above the `HomeHero` render — so the fix is small; what it needs is a decision about what the hero should say instead ("Open my trips", or no CTA block at all).
+status: open
+
+### DW-134: Two `react/no-children-prop` errors in `theme.ts` block a clean `npm run lint`
+
+source_spec: `_bmad-output/implementation-artifacts/6-20-trips-link-into-the-header-menu.md`
+origin: incidental to story 6-20 review, 2026-08-02
+location: `travelplan/src/theme.ts:120` and `:137`
+severity: low
+summary: `npm run lint` ends at "2 errors, 83 warnings" on a clean tree — both errors are `Do not pass children as props` in `theme.ts`, in component slots that pass `children` inside a props object. Lint is the repo's only static gate (see DW-95: there is no `typecheck` script), and it exits non-zero regardless of what a story changed.
+evidence: Confirmed pre-existing: the same two errors and the same 83 warnings appear before and after story 6-20's changes, and neither line is in any file this story touched. The consequence is that "is lint clean?" cannot be used as a signal — every story has to diff the output by hand to tell its own findings from the baseline, which is precisely the trap DW-95 describes for `tsc`. Fix is small and local (pass the children as an argument rather than a prop in both slots), and it is worth doing at the same time as wiring the typecheck gate.
+status: open
+
+### Note: story 6.20 partially reduces DW-126 (2026-08-02)
+
+DW-126 argues that a non-404 failure on the *day* screen leaves no in-app route out, and cites
+`getAuthMenuItems` returning only `logout` for an authenticated user as part of its evidence. That
+clause is no longer true as of story 6.20: the global header menu now carries an "All trips" row on
+every page, so the day error screen does have one route out. DW-126's substance stands — its target
+is back to the *parent trip* (`/trips/{id}`), which the global menu still does not and should not
+offer — but its severity is lower than when it was written. Story 6.20 applied the analogous fix to
+`TripTimeline`'s own error branch, which is the model DW-126 asks for.

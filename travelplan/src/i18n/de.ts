@@ -3,6 +3,9 @@ import type { Dictionary } from "@/i18n";
 const de: Dictionary = {
   "app.brand": "TravelPlan",
   "header.openMenu": "Menü öffnen",
+  // Story 6.20 - see the note on this key in `en.ts`. No leading "←": in the menu the label names a
+  // destination, not a way back.
+  "header.trips": "Alle Reisen",
   "language.label": "Sprache",
   "language.saveError": "Spracheinstellung konnte nicht gespeichert werden.",
   "language.en": "Englisch",

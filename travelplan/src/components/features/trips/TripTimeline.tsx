@@ -375,6 +375,20 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
     <Box display="flex" flexDirection="column" gap={2}>
       {error && <Alert severity="error">{error}</Alert>}
 
+      {/*
+       * Story 6.20: when the load failed outright there is no trip to render, so this alert is the
+       * whole page. It gets the same recovery button as the not-found panel above, for the same
+       * reason that one keeps its own: the way back to all trips used to sit above this component as
+       * a breadcrumb on the trip detail page, and hunting through the header menu is a poor thing to
+       * ask of someone whose page did not load. A transient error over an already-rendered trip
+       * (`detail` present) does not get one - the trip's own chrome is still there.
+       */}
+      {error && !detail && (
+        <Button component={Link} href="/trips" variant="outlined" sx={{ alignSelf: "flex-start" }}>
+          {t("trips.detail.back")}
+        </Button>
+      )}
+
       {detail && (
         <>
           <Box sx={{ borderRadius: "8px", overflow: "hidden", border: "1px solid", borderColor: tokens.border }}>
