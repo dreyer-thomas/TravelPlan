@@ -120,7 +120,9 @@ describe("FormField", () => {
 });
 
 describe("PhotoUploadField", () => {
-  const renderStrip = (images = IMAGES) =>
+  // `null` (not `undefined`) means "this surface has no viewer" — `undefined` would fall through to
+  // the default and re-add the handler this case is asserting the absence of.
+  const renderStrip = (images = IMAGES, onImageOpen: ((index: number) => void) | null = vi.fn()) =>
     renderWithProviders(
       <PhotoUploadField
         id="gallery"
@@ -129,9 +131,12 @@ describe("PhotoUploadField", () => {
         accept={IMAGE_UPLOAD_ACCEPT}
         multiple
         onFilesSelected={() => undefined}
-        images={images.map((image) => ({ ...image, onRemove: vi.fn(), onOpen: vi.fn() }))}
+        images={images.map((image) => ({ ...image, onRemove: vi.fn() }))}
+        onImageOpen={onImageOpen ?? undefined}
       />,
     );
+
+  const removeButtons = () => screen.getAllByRole("button", { name: /^Remove image/ });
 
   it("renders one thumbnail per image with an indexed, meaning-bearing alt string", () => {
     renderStrip();
@@ -149,8 +154,9 @@ describe("PhotoUploadField", () => {
     renderStrip();
 
     // The defect this replaces: three buttons all named "Remove", indistinguishable to a screen
-    // reader user deciding which photo to delete.
-    const names = screen.getAllByRole("button").map((button) => button.getAttribute("aria-label"));
+    // reader user deciding which photo to delete. Scoped to the remove controls — Story 6.12 added a
+    // second button per thumbnail (the one that opens the viewer), named by the image itself.
+    const names = removeButtons().map((button) => button.getAttribute("aria-label"));
     expect(names).toEqual(["Remove image 1 of 3", "Remove image 2 of 3", "Remove image 3 of 3"]);
     expect(new Set(names).size).toBe(names.length);
     expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
@@ -166,14 +172,16 @@ describe("PhotoUploadField", () => {
     // Photography is always sharp, whatever the radius of the surface holding it.
     expect(style.borderRadius).toBe("0px");
     expect(style.objectFit).toBe("cover");
-    // Uniform, not stretched to fill the row (EXPERIENCE.md:67).
-    expect(getComputedStyle(thumb.parentElement as HTMLElement).flex).toContain("0 0 56px");
+    // Uniform, not stretched to fill the row (EXPERIENCE.md:67). The image now sits inside a
+    // `<button>` (Story 6.12), so the fixed basis is two levels up rather than one.
+    const cell = thumb.closest("div") as HTMLElement;
+    expect(getComputedStyle(cell).flex).toContain("0 0 56px");
   });
 
   it("sizes each remove affordance to the 44px touch floor", () => {
     renderStrip();
 
-    for (const button of screen.getAllByRole("button")) {
+    for (const button of removeButtons()) {
       const style = getComputedStyle(button);
       expect(Number.parseInt(style.width, 10)).toBeGreaterThanOrEqual(44);
       expect(Number.parseInt(style.height, 10)).toBeGreaterThanOrEqual(44);
@@ -225,6 +233,40 @@ describe("PhotoUploadField", () => {
 
     expect(screen.getByAltText("Current day image")).toBeInTheDocument();
     expect(screen.queryAllByRole("button")).toHaveLength(0);
+  });
+
+  // --- Story 6.12 / DW-51: thumbnails are keyboard-operable ------------------------------------
+
+  it("wraps each thumbnail in a real button named by the image it opens", async () => {
+    const onImageOpen = vi.fn();
+    renderStrip(IMAGES, onImageOpen);
+
+    // The defect: `<Box component="img" onClick={image.onOpen}>` with `cursor: pointer` and no
+    // `tabIndex`, `role` or key handler — click-only, on three surfaces at once. A real `<button>`
+    // wraps the image rather than `role="button"` on it, which would make its contents
+    // presentational (the construction Story 6.9 had to rebuild).
+    for (let index = 1; index <= 3; index += 1) {
+      const button = screen.getByRole("button", { name: `Image ${index} of 3` });
+      expect(button.tagName).toBe("BUTTON");
+      expect(button).toHaveAttribute("type", "button");
+      expect(within(button).getByAltText(`Image ${index} of 3`)).toBeInTheDocument();
+      button.focus();
+      expect(button).toHaveFocus();
+    }
+
+    fireEvent.click(screen.getByRole("button", { name: "Image 2 of 3" }));
+    // The index into the collection, not a per-image closure over one URL: the viewer takes the
+    // whole collection plus a starting index.
+    expect(onImageOpen).toHaveBeenCalledWith(1);
+  });
+
+  it("renders no thumbnail button when the surface has no viewer", () => {
+    // The day-details preview passes no `onImageOpen`; a control that does nothing is worse than no
+    // control, so none is rendered and the tab order is unchanged.
+    renderStrip(IMAGES, null);
+
+    expect(screen.queryByRole("button", { name: "Image 1 of 3" })).toBeNull();
+    expect(removeButtons()).toHaveLength(3);
   });
 });
 

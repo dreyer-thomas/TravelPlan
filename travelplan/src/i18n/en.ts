@@ -507,6 +507,17 @@ const en: Dictionary = {
   "trips.gallery.imageAlt": "Image {index} of {total}",
   "trips.gallery.removeImage": "Remove image {index} of {total}",
   "trips.gallery.uploadZoneTitle": "Choose photos",
+  // Story 6.12: the shared fullscreen viewer and the two thumbnail strips that open it. The position
+  // line inside the viewer reuses `trips.gallery.imageAlt` rather than restating "{index} of {total}".
+  // This one is read aloud rather than seen — it is the `+N` control's only accessible name — so it
+  // takes the codebase's singular-twin treatment rather than a written-out "(s)" a screen reader
+  // would spell out. `formatMessage` has no plural support.
+  "trips.gallery.showMoreImages": "Show {count} more photos",
+  "trips.gallery.showMoreImagesOne": "Show 1 more photo",
+  "trips.gallery.viewer.title": "Photo viewer",
+  "trips.gallery.viewer.close": "Close photo viewer",
+  "trips.gallery.viewer.previous": "Previous photo",
+  "trips.gallery.viewer.next": "Next photo",
   "trips.location.latLabel": "Latitude",
   "trips.location.lngLabel": "Longitude",
   "trips.location.labelLabel": "Location label (optional)",

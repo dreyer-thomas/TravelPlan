@@ -1901,6 +1901,50 @@ Note the shape of the problem: the card is nested inside the left column, and th
 **When** the card moves on small screens
 **Then** their order, width and behaviour are unchanged: this story moves one card on one breakpoint
 
+### Story 6.15: Move and Swap Into the Day Overflow Menu
+
+As a trip planner on a phone,
+I want "Aktivitäten verschieben" and "Aktivitäten tauschen" behind the `⋯` menu that already holds print,
+So that the timeline header carries one primary action instead of a wrapping row of four.
+
+**FRs covered:** FR16 (move/swap day activities — placement only; the dialogs and their behaviour are unchanged)
+
+**Context:** The timeline section header (`TripDayView.tsx:2225-2253`) holds four `canEditPlanning`-gated buttons: move, swap, the accommodation edit/add, and "+ Aktivität". On a phone they wrap to two rows above the content.
+
+Two stories already reduce this. **6.13** removes the accommodation button, since both stay cards become clickable. This story removes the other two, leaving "+ Aktivität" alone — the one action that genuinely belongs in a section header, because it creates what the section lists.
+
+Story **6.11** built the destination: a page-local `⋯` overflow in the hero header (`:1930-1936`), holding print today. It is deliberately *not* the global `HeaderMenu` — that one is built from `getAuthMenuItems(authState)` and knows nothing about this trip or this day.
+
+**Acceptance Criteria:**
+
+**Given** move and swap render as outlined buttons in the timeline section header
+**When** they are relocated
+**Then** they appear as items in the existing `⋯` overflow menu, and the two buttons are gone from the header
+**And** no second menu is introduced — this is the menu Story 6.11 created, extended
+
+**Given** print is available to every role that can open the day, while move and swap are `canEditPlanning`-gated
+**When** the menu renders for a viewer
+**Then** it contains print only, and neither move nor swap
+**And** for an owner or contributor it contains all three, in an order that keeps the two related actions together
+
+**Given** print is a link that opens a new tab, while move and swap open dialogs
+**When** the menu holds both kinds
+**Then** each item behaves as its kind requires — print keeps `target="_blank"` and `rel="noopener noreferrer"`, move and swap open their existing dialogs — and the menu closes on any selection
+**And** the dialogs themselves are unchanged: this story changes how they are reached, not what they do
+
+**Given** the menu could end up holding nothing for a role that can neither print nor plan
+**When** no item would render
+**Then** the `⋯` trigger does not render either, rather than opening an empty menu
+
+**Given** the timeline section header after this story and Story 6.13
+**When** it renders for a planner
+**Then** it carries the section label and "+ Aktivität" alone
+**And** the header no longer wraps to a second row at 390px, which is the reason for the change
+
+**Given** the day timeline, the transfer dialogs, the print document, the stay cards and every gating rule
+**When** the two actions move
+**Then** none of it changes: this story relocates two controls
+
 ## Epic 7: Visual Redesign — Light Cockpit System
 
 Users experience the approved `DESIGN.md`/`EXPERIENCE.md` visual system across every screen instead of the current inconsistent styling. Source of truth: `_bmad-output/planning-artifacts/ux-designs/ux-TravelPlan-2026-07-27/DESIGN.md`, `EXPERIENCE.md`, and `mockups/*.html`. This epic re-skins existing, already-shipped screens — it does not add product capability, so no new FRs are introduced.

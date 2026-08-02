@@ -15,9 +15,11 @@ import { useI18n } from "@/i18n/provider";
  * geometry and the accessible-name scheme are declared once rather than three times.
  *
  * `MiniImageStrip` (`TripDayPlanItemContent.tsx`) ships the same 56px values for *display* surfaces
- * and is deliberately not imported here: it caps at three images with a "+N" overflow and has a
- * keyboard-access defect deferred at `deferred-work.md:57`. An editing surface must show and address
- * every image, so this is its own component reusing the same numbers.
+ * and is deliberately not imported here: it caps at three images behind a "+N" overflow, and an
+ * editing surface must show and address every image at once. That cap is now the only reason the two
+ * exist separately — the keyboard-access defect this docblock used to cite (DW-30, the twin of this
+ * component's own DW-51) was closed alongside DW-51 by Story 6.12, and both strips now open the one
+ * shared `FullscreenPhotoViewer`.
  *
  * There is no shared size-limit string. The three call sites state three different limits today
  * (5MB hero, 15MB day image, none on the galleries), so the hint is a prop and each passes its own
@@ -32,7 +34,6 @@ export type PhotoPreview = {
   alt?: string;
   /** Omit to render a read-only preview with no remove affordance. */
   onRemove?: () => void;
-  onOpen?: () => void;
 };
 
 export type PhotoUploadFieldProps = {
@@ -52,6 +53,14 @@ export type PhotoUploadFieldProps = {
   /** Rendered in place of the strip when `images` is empty. */
   emptyLabel?: string;
   images: PhotoPreview[];
+  /**
+   * Opens the shared fullscreen viewer at `index` into `images`. Field-level and index-based rather
+   * than `PhotoPreview.onOpen`'s former per-image closure: the viewer takes the whole collection plus
+   * a starting index, so a per-image callback had nothing left to close over. Still optional — a
+   * read-only preview (the day-details dialog) has no viewer, and then no thumbnail button is
+   * rendered at all.
+   */
+  onImageOpen?: (index: number) => void;
   /** The explicit upload action of a two-step flow, plus any busy/error chrome the caller owns. */
   action?: ReactNode;
 };
@@ -68,6 +77,7 @@ export default function PhotoUploadField({
   selectionLabel,
   emptyLabel,
   images,
+  onImageOpen,
   action,
 }: PhotoUploadFieldProps) {
   const { tokens, primary } = useTheme().palette;
@@ -208,27 +218,59 @@ export default function PhotoUploadField({
             const indexValues = { index: index + 1, total };
             const alt = image.alt ?? formatMessage(t("trips.gallery.imageAlt"), indexValues);
 
+            const thumbnail = (
+              <Box
+                component="img"
+                src={image.imageUrl}
+                alt={alt}
+                loading="lazy"
+                sx={{
+                  // Fixed basis, never flex: 1 — thumbnails are uniform, not stretched (EXPERIENCE.md:67).
+                  width: 56,
+                  height: 56,
+                  objectFit: "cover",
+                  objectPosition: "center",
+                  // Photography is always sharp, whatever the radius of the surface holding it.
+                  borderRadius: 0,
+                  border: "1px solid rgba(0,0,0,0.06)",
+                  display: "block",
+                }}
+              />
+            );
+
             return (
               <Box key={image.key} sx={{ position: "relative", flex: "0 0 56px", width: 56, height: 56 }}>
-                <Box
-                  component="img"
-                  src={image.imageUrl}
-                  alt={alt}
-                  loading="lazy"
-                  onClick={image.onOpen}
-                  sx={{
-                    // Fixed basis, never flex: 1 — thumbnails are uniform, not stretched (EXPERIENCE.md:67).
-                    width: 56,
-                    height: 56,
-                    objectFit: "cover",
-                    objectPosition: "center",
-                    // Photography is always sharp, whatever the radius of the surface holding it.
-                    borderRadius: 0,
-                    border: "1px solid rgba(0,0,0,0.06)",
-                    display: "block",
-                    cursor: image.onOpen ? "pointer" : "default",
-                  }}
-                />
+                {/*
+                  DW-51: this was a bare `<img onClick>` with `cursor: pointer` and no `tabIndex`,
+                  `role` or key handler, so three surfaces' galleries could not be opened from a
+                  keyboard. A real `<button>` wraps the image rather than `role="button"` on it — the
+                  role makes the element's contents presentational, the trap Story 6.9 rebuilt a card
+                  over. The button is named by the image's own indexed alt.
+                */}
+                {onImageOpen ? (
+                  <Box
+                    component="button"
+                    type="button"
+                    // Honours `disabled` like the file input and the remove button do, so a strip
+                    // locked mid-upload does not leave one enabled control among disabled ones.
+                    disabled={disabled}
+                    onClick={() => onImageOpen(index)}
+                    sx={{
+                      width: 56,
+                      height: 56,
+                      padding: 0,
+                      border: "none",
+                      background: "none",
+                      display: "block",
+                      cursor: disabled ? "default" : "pointer",
+                      "&:focus-visible": { outline: `2px solid ${tokens.ink}`, outlineOffset: "2px" },
+                    }}
+                  >
+                    {thumbnail}
+                  </Box>
+                ) : (
+                  thumbnail
+                )}
                 {image.onRemove ? (
                   <Box
                     component="button"

@@ -3,7 +3,8 @@
 import { Alert, Box, Chip, Dialog, DialogContent, DialogTitle, List, ListItem, Skeleton, Typography, useTheme } from "@mui/material";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import TripDayLeafletMap from "@/components/features/trips/TripDayLeafletMap";
-import { MiniImageStrip, PlanItemRichContent, parsePlanText } from "@/components/features/trips/TripDayPlanItemContent";
+import { MiniImageStrip, PlanItemRichContent, parsePlanText, toViewerImages } from "@/components/features/trips/TripDayPlanItemContent";
+import FullscreenPhotoViewer, { type FullscreenPhoto } from "@/components/ui/FullscreenPhotoViewer";
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
 import { buildDayMapPanelData, buildTripDayMapItems } from "@/lib/trips/dayMapData";
@@ -122,7 +123,11 @@ export default function TripDayMapFullPage({ tripId, dayId }: TripDayMapFullPage
   const [accommodationImages, setAccommodationImages] = useState<GalleryImage[]>([]);
   const [previousAccommodationImages, setPreviousAccommodationImages] = useState<GalleryImage[]>([]);
   const [planItemImagesById, setPlanItemImagesById] = useState<Record<string, GalleryImage[]>>({});
-  const [fullscreenImage, setFullscreenImage] = useState<{ imageUrl: string; alt: string } | null>(null);
+  // The whole collection plus a starting index, not a single URL. Story 7.9 AC5 left the marker
+  // dialog above unrestyled and it stays that way — only how the viewer is invoked from it changes.
+  const [fullscreenPhotos, setFullscreenPhotos] = useState<{ images: FullscreenPhoto[]; index: number } | null>(
+    null,
+  );
 
   const loadDay = useCallback(async () => {
     setLoading(true);
@@ -483,7 +488,15 @@ export default function TripDayMapFullPage({ tripId, dayId }: TripDayMapFullPage
                   <MiniImageStrip
                     images={planItemImagesById[mapDialogItem.planItem.id] ?? []}
                     altPrefix={mapDialogItem.label}
-                    onImageClick={(imageUrl, alt) => setFullscreenImage({ imageUrl, alt })}
+                    onImageClick={(index) =>
+                      setFullscreenPhotos({
+                        images: toViewerImages(
+                          planItemImagesById[mapDialogItem.planItem.id] ?? [],
+                          mapDialogItem.label,
+                        ),
+                        index,
+                      })
+                    }
                   />
                 </>
               ) : (
@@ -496,7 +509,15 @@ export default function TripDayMapFullPage({ tripId, dayId }: TripDayMapFullPage
                   <MiniImageStrip
                     images={mapDialogItem.kind === "previousStay" ? previousAccommodationImages : accommodationImages}
                     altPrefix={mapDialogItem.label}
-                    onImageClick={(imageUrl, alt) => setFullscreenImage({ imageUrl, alt })}
+                    onImageClick={(index) =>
+                      setFullscreenPhotos({
+                        images: toViewerImages(
+                          mapDialogItem.kind === "previousStay" ? previousAccommodationImages : accommodationImages,
+                          mapDialogItem.label,
+                        ),
+                        index,
+                      })
+                    }
                   />
                 </>
               )}
@@ -504,46 +525,12 @@ export default function TripDayMapFullPage({ tripId, dayId }: TripDayMapFullPage
           ) : null}
         </DialogContent>
       </Dialog>
-      <Dialog
-        open={Boolean(fullscreenImage)}
-        onClose={() => setFullscreenImage(null)}
-        maxWidth={false}
-        sx={{
-          "& .MuiDialog-paper": {
-            backgroundColor: "transparent",
-            boxShadow: "none",
-            m: 0,
-          },
-        }}
-        onKeyDown={() => setFullscreenImage(null)}
-      >
-        {fullscreenImage ? (
-          <DialogContent
-            onClick={() => setFullscreenImage(null)}
-            sx={{
-              p: 0,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              minWidth: "100vw",
-              minHeight: "100vh",
-              backgroundColor: "rgba(0, 0, 0, 0.85)",
-              cursor: "zoom-out",
-            }}
-          >
-            <Box
-              component="img"
-              src={fullscreenImage.imageUrl}
-              alt={fullscreenImage.alt}
-              sx={{
-                maxWidth: "96vw",
-                maxHeight: "96vh",
-                objectFit: "contain",
-              }}
-            />
-          </DialogContent>
-        ) : null}
-      </Dialog>
+      <FullscreenPhotoViewer
+        open={Boolean(fullscreenPhotos)}
+        images={fullscreenPhotos?.images ?? []}
+        startIndex={fullscreenPhotos?.index ?? 0}
+        onClose={() => setFullscreenPhotos(null)}
+      />
     </Box>
   );
 }

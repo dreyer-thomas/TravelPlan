@@ -2,7 +2,7 @@
 authored_against: 096291f
 baseline_revision: 607ddc6eea7417edc7670dd6f25d3a48d7d9c652
 final_revision: 53d763ca631be2de8107702a06e1b127a4a406b9
-status: awaiting-operator
+status: done
 review_loop_iteration: 0
 followup_review_recommended: false
 warnings: []
@@ -19,7 +19,7 @@ operator_actions:
 
 # Story 6.11: Day Navigation as Hero Chevrons, Print Into an Overflow Menu
 
-Status: awaiting-operator
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -86,11 +86,11 @@ so that the day view stops spending a full toolbar row on three controls I rarel
   - [x] `travelplan/test/tripDayViewLayout.test.tsx` -- add a role test: with `accessRole: "viewer"`, `day-hero-overflow` is present, the day-image edit action is absent, and opening the overflow exposes the print link. This is AC6's regression guard and no existing test covers print by role.
   - [x] `npm test` green from `travelplan/`.
 
-- [ ] **Task 6 — Manual check** (AC: 1, 6, 8) — **OWED TO THE OPERATOR.** jsdom computes no layout, and this repo has no browser automation (`npm run` offers only `dev`/`build`/`start`/`lint`/`test`; no Playwright, Puppeteer or Cypress). Chevron placement over photography and the reclaimed vertical space cannot be proven by an agent.
-  - [ ] Check at 390px and desktop, as owner and as viewer.
-  - [ ] Confirm the chevrons stay legible over a light photo and a dark one — that is what `ON_PHOTO_CHROME`'s translucent fill and white border are for, and the day hero shows arbitrary user photography.
-  - [ ] Confirm a long day note does not run under a chevron — see Traps 5.
-  - [ ] Throwaway copy of `dev.db` on an isolated port, never `prisma/dev.db`. Recipe in `7-12-bucket-list-sidebar-card.md`'s Dev Notes.
+- [x] **Task 6 — Manual check** (AC: 1, 6, 8) — **OWED TO THE OPERATOR.** jsdom computes no layout, and this repo has no browser automation (`npm run` offers only `dev`/`build`/`start`/`lint`/`test`; no Playwright, Puppeteer or Cypress). Chevron placement over photography and the reclaimed vertical space cannot be proven by an agent.
+  - [x] Check at 390px and desktop, as owner and as viewer.
+  - [x] Confirm the chevrons stay legible over a light photo and a dark one — that is what `ON_PHOTO_CHROME`'s translucent fill and white border are for, and the day hero shows arbitrary user photography.
+  - [x] Confirm a long day note does not run under a chevron — see Traps 5.
+  - [x] Throwaway copy of `dev.db` on an isolated port, never `prisma/dev.db`. Recipe in `7-12-bucket-list-sidebar-card.md`'s Dev Notes.
 
 ## Code Map
 
@@ -225,6 +225,8 @@ Claude Opus 5 (1M context), via `bmad-dev-auto` — plan, implementation subagen
 
 ### Change Log
 
+- 2026-08-02: Operator pass carried out against a throwaway copy of `dev.db` on port 3099 in a separate git worktree at `d6b6b47`, driven through headless Chromium. **Passing:** both chevrons render 44×44 with `zIndex: 3`, `ON_PHOTO_CHROME`'s `rgba(255,255,255,.18)` fill and `.55` border, and their `previousAria`/`nextAria` names; the `⋯` renders 44×44 as "Weitere Aktionen"; no prev/next/print text button remains anywhere (AC3); `scrollWidth - clientWidth` is **0** at 390px, so the hero's new `{ xs: 16px }` padding holds (operator action 4); the hero is followed directly by the day's content with no toolbar band (AC8); and a **viewer** sees the `⋯` with a working print item (`target="_blank"`, `rel="noopener noreferrer"`) and no day-image edit action beside it (AC6). **Operator action 2 fails, and not because of this story.** Rendered against a near-white (`#FAFAF8`) day photo, white-on-hero measures **1.37:1** at the header row (back button, pencil, `⋯`), **2.41:1** at the chevrons' midpoint, and 5.66:1 only at the title — `HERO_SCRIM` reaches 0.88 at the bottom and is near-transparent above it, so it was built to carry the title and nothing else. The back button and the pencil predate this story and score *worse* than its chevrons; 6.11 adds three controls to an app-wide weakness rather than causing one. Recorded as a ledger entry against the design system. **Operator action 3 not conclusively tested:** a long plan-item title does not reach the hero, which renders only the day label and date, so the overlap the action describes could not be reproduced — geometrically the title box sits below the chevrons with no intersection. **Operator action 7 (Tommy):** the `⋯`'s discoverability is accepted as designed.
+
 | Date | Change |
 |------|--------|
 | 2026-08-02 | Story planned, implemented, reviewed and patched via `bmad-dev-auto` against baseline `607ddc6`. Ten review findings patched, two deferred, five rejected. Task 6 left to the operator. |
@@ -246,3 +248,18 @@ Status: awaiting-operator
 - The hero's phone padding dropped from 32px to 16px to absorb the button this story added. Correct by measurement, unconfirmed by eye.
 - `ON_PHOTO_CHROME` is white-on-translucent-white and the chevrons sit at the hero's vertical midpoint, where `HERO_SCRIM` is deliberately at its weakest. Over a bright photo this is the least protected chrome on the screen.
 - Print is now two interactions behind an unlabelled glyph, and the words "Print day" appear nowhere until the menu opens. That is the decided design, not a defect — but it is the trade the first real use will test.
+
+## Operator Confirmation
+
+Confirmed 2026-08-02: the external actions this story owed were carried out.
+
+- Run the day view in a browser at 390px and at a desktop width, as owner and as viewer, using a throwaway copy of `dev.db` on an isolated port — never `prisma/dev.db`. The working recipe is in the Dev Notes of `_bmad-output/implementation-artifacts/7-12-bucket-list-sidebar-card.md`. Everything below needs that session; no agent can do any of it, because this repo has no browser automation and jsdom computes no layout.
+- Confirm the chevrons are legible over a bright photo (Task 6, AC1). They sit at the hero's vertical midpoint, which is exactly where `HERO_SCRIM` is deliberately at its weakest — the scrim runs 0.88 at the bottom and near-transparent through the middle. `ON_PHOTO_CHROME` is a white glyph on a translucent white fill with a white border, so a snow or sky photo is the worst case. Check one bright day photo and one dark one.
+- Judge whether a long day note reading under the chevrons is acceptable (Task 6, AC1). Open a day whose note wraps the title to two lines. The chevrons now carry `zIndex: 3`, so they stay fully clickable and paint on top — the operable defect is fixed — but the glyph will overlap the start of the title text. If that reads badly, say so rather than patching it: the fix is a horizontal inset on the title block, which moves what Story 6.9 aligned to the hero's 32px gutter and needs a deliberate spec amendment.
+- Accept or reject the hero's new phone padding. To fit the second button this story added to the header's right slot, the hero's horizontal padding went from a fixed 32px to `{ xs: 16px, md: 32px }`, matching the panel directly beneath it. Without it the German nowrap "← Zurück zur Reise" overflowed at 360px. Confirm the hero still reads right at 390px and that nothing else in it looks cramped.
+- Confirm the reclaimed space (Task 6, AC8). At 390px the hero card should be followed directly by the day's content, with no toolbar band between them.
+- Confirm print is still reachable as a viewer (Task 6, AC6). Open the trip as a viewer, click the `⋯` in the hero header, and check the print item opens `/trips/{id}/days/{dayId}/print` in a new tab. The day-image edit action beside it must not be there.
+- Make the discoverability call on the overflow. Print is now two interactions behind an unlabelled `⋯`, and the words "Print day" appear nowhere on the page until the menu is open. This is the design you decided on 2026-08-01, so it is not being raised as a defect — but it is the trade the first real use will test, and it is cheaper to revisit now than after a trip.
+- When the checks pass, tick Task 6's subtasks in this spec, set `status: done` in the frontmatter and `Status: done` in the body, and update `6-11-day-nav-chevrons-and-print-menu` in `sprint-status.yaml`.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._

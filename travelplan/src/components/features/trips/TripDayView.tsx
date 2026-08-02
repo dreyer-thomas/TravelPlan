@@ -24,6 +24,7 @@ import { useSearchParams } from "next/navigation";
 import FormField from "@/components/forms/FormField";
 import PhotoUploadField from "@/components/forms/PhotoUploadField";
 import DialogShell from "@/components/ui/DialogShell";
+import FullscreenPhotoViewer, { type FullscreenPhoto } from "@/components/ui/FullscreenPhotoViewer";
 import TripAccommodationDialog from "@/components/features/trips/TripAccommodationDialog";
 import TripDayGanttBar, { buildGanttPalette } from "@/components/features/trips/TripDayGanttBar";
 import {
@@ -51,7 +52,7 @@ import TripDayMapPanel, {
 import TripDayBucketListPanel from "@/components/features/trips/TripDayBucketListPanel";
 import TripDayPlanDialog from "@/components/features/trips/TripDayPlanDialog";
 import TripDayTravelSegmentDialog from "@/components/features/trips/TripDayTravelSegmentDialog";
-import { MiniImageStrip, PlanItemRichContent, isSafeLink, parsePlanText } from "@/components/features/trips/TripDayPlanItemContent";
+import { MiniImageStrip, PlanItemRichContent, isSafeLink, parsePlanText, toViewerImages } from "@/components/features/trips/TripDayPlanItemContent";
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
 import { buildDayMapPanelData, buildTripDayMapItems } from "@/lib/trips/dayMapData";
@@ -339,7 +340,11 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const [planItemImagesById, setPlanItemImagesById] = useState<Record<string, GalleryImage[]>>({});
   const [routePolyline, setRoutePolyline] = useState<[number, number][]>([]);
   const [routingUnavailable, setRoutingUnavailable] = useState(false);
-  const [fullscreenImage, setFullscreenImage] = useState<{ imageUrl: string; alt: string } | null>(null);
+  // The whole collection plus a starting index, not a single URL: that is what lets the shared
+  // viewer page to the images the three-thumbnail strip does not render (DW-30).
+  const [fullscreenPhotos, setFullscreenPhotos] = useState<{ images: FullscreenPhoto[]; index: number } | null>(
+    null,
+  );
   const [transferMode, setTransferMode] = useState<DayActivityTransferMode | null>(null);
   const [transferTargetDayId, setTransferTargetDayId] = useState("");
   const [transferSubmitting, setTransferSubmitting] = useState(false);
@@ -1338,10 +1343,9 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   // An untitled activity falls back to its whole note body for a title, and that string becomes the
   // overlay's accessible name - a screen reader would read the entire note on every focus. The card
   // still shows the full text; only the name is capped.
-  const editLabelFor = (label: string) =>
-    formatMessage(t("trips.plan.editItemAria"), {
-      title: label.length <= EDIT_LABEL_MAX_CHARS ? label : `${label.slice(0, EDIT_LABEL_MAX_CHARS - 1).trimEnd()}…`,
-    });
+  const capLabel = (label: string) =>
+    label.length <= EDIT_LABEL_MAX_CHARS ? label : `${label.slice(0, EDIT_LABEL_MAX_CHARS - 1).trimEnd()}…`;
+  const editLabelFor = (label: string) => formatMessage(t("trips.plan.editItemAria"), { title: capLabel(label) });
   // The continuous rail: a 2px rule the dots sit on top of, inset so it stops short of both ends.
   //
   // The rule's centre is fixed at x=16 (left 15 + half of 2px) at every breakpoint, because that is
@@ -2301,7 +2305,12 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                         variant="strip"
                         images={previousAccommodationImages}
                         altPrefix={previousStay.name}
-                        onImageClick={(imageUrl, alt) => setFullscreenImage({ imageUrl, alt })}
+                        onImageClick={(index) =>
+                          setFullscreenPhotos({
+                            images: toViewerImages(previousAccommodationImages, previousStay.name),
+                            index,
+                          })
+                        }
                       />
                     </Box>
                   ) : null}
@@ -2492,17 +2501,29 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                               {/* Last child: DESIGN.md's photo-strip runs along the bottom of the card.
                                   The strip is shared with four other call sites, so the wrapper is
                                   here rather than inside it.
-                                  Thumbnails are `<img>` with a click handler, not `<a>` or `<button>`,
-                                  so `overlaidContentSx`'s opt-in does not reach them and they need
-                                  their pointer events back explicitly - otherwise the strip is a dead
-                                  zone that opens the editor instead of the viewer. */}
+                                  The wrapper is kept even though the thumbnails are now real
+                                  `<button>`s that `overlaidContentSx`'s `"& a, & button"` opt-in
+                                  reaches on its own: it also restores pointer events for the strip's
+                                  gaps, and it is what stops a near-miss between two thumbnails from
+                                  falling through to the overlay and opening the editor.
+
+                                  `altPrefix` is the activity's own title, not the section heading. It
+                                  is now a control name, not just an `<img alt>` - a day with three
+                                  photo-bearing activities would otherwise present nine buttons sharing
+                                  three names, and AC7 wants a name that says which photo it opens.
+                                  Capped, because an untitled activity falls back to its whole note. */}
                               {itemImages.length > 0 ? (
                                 <Box sx={{ pointerEvents: "auto" }}>
                                   <MiniImageStrip
                                     variant="strip"
                                     images={itemImages}
-                                    altPrefix={t("trips.dayView.timelineTitle")}
-                                    onImageClick={(imageUrl, alt) => setFullscreenImage({ imageUrl, alt })}
+                                    altPrefix={capLabel(title)}
+                                    onImageClick={(index) =>
+                                      setFullscreenPhotos({
+                                        images: toViewerImages(itemImages, capLabel(title)),
+                                        index,
+                                      })
+                                    }
                                   />
                                 </Box>
                               ) : null}
@@ -2594,7 +2615,12 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                         variant="strip"
                         images={accommodationImages}
                         altPrefix={currentStay.name}
-                        onImageClick={(imageUrl, alt) => setFullscreenImage({ imageUrl, alt })}
+                        onImageClick={(index) =>
+                          setFullscreenPhotos({
+                            images: toViewerImages(accommodationImages, currentStay.name),
+                            index,
+                          })
+                        }
                       />
                     </Box>
                   ) : null}
@@ -2871,46 +2897,12 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
               />
             </Box>
           </DialogShell>
-          <Dialog
-            open={Boolean(fullscreenImage)}
-            onClose={() => setFullscreenImage(null)}
-            maxWidth={false}
-            sx={{
-              "& .MuiDialog-paper": {
-                backgroundColor: "transparent",
-                boxShadow: "none",
-                m: 0,
-              },
-            }}
-            onKeyDown={() => setFullscreenImage(null)}
-          >
-            {fullscreenImage ? (
-              <DialogContent
-                onClick={() => setFullscreenImage(null)}
-                sx={{
-                  p: 0,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  minWidth: "100vw",
-                  minHeight: "100vh",
-                  backgroundColor: "rgba(0, 0, 0, 0.85)",
-                  cursor: "zoom-out",
-                }}
-              >
-                <Box
-                  component="img"
-                  src={fullscreenImage.imageUrl}
-                  alt={fullscreenImage.alt}
-                  sx={{
-                    maxWidth: "96vw",
-                    maxHeight: "96vh",
-                    objectFit: "contain",
-                  }}
-                />
-              </DialogContent>
-            ) : null}
-          </Dialog>
+          <FullscreenPhotoViewer
+            open={Boolean(fullscreenPhotos)}
+            images={fullscreenPhotos?.images ?? []}
+            startIndex={fullscreenPhotos?.index ?? 0}
+            onClose={() => setFullscreenPhotos(null)}
+          />
           <Dialog open={Boolean(mapDialogItem)} onClose={() => setMapDialogItem(null)} fullWidth maxWidth="sm">
             <DialogTitle>{mapDialogItem?.label ?? ""}</DialogTitle>
             <DialogContent>
@@ -2924,8 +2916,16 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                       />
                       <MiniImageStrip
                         images={planItemImagesById[mapDialogItem.planItem.id] ?? []}
-                        altPrefix={mapDialogItem.label}
-                        onImageClick={(imageUrl, alt) => setFullscreenImage({ imageUrl, alt })}
+                        altPrefix={capLabel(mapDialogItem.label)}
+                        onImageClick={(index) =>
+                          setFullscreenPhotos({
+                            images: toViewerImages(
+                              planItemImagesById[mapDialogItem.planItem.id] ?? [],
+                              capLabel(mapDialogItem.label),
+                            ),
+                            index,
+                          })
+                        }
                       />
                     </>
                   ) : (
@@ -2939,8 +2939,18 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                         images={
                           mapDialogItem.kind === "previousStay" ? previousAccommodationImages : accommodationImages
                         }
-                        altPrefix={mapDialogItem.label}
-                        onImageClick={(imageUrl, alt) => setFullscreenImage({ imageUrl, alt })}
+                        altPrefix={capLabel(mapDialogItem.label)}
+                        onImageClick={(index) =>
+                          setFullscreenPhotos({
+                            images: toViewerImages(
+                              mapDialogItem.kind === "previousStay"
+                                ? previousAccommodationImages
+                                : accommodationImages,
+                              capLabel(mapDialogItem.label),
+                            ),
+                            index,
+                          })
+                        }
                       />
                     </>
                   )}

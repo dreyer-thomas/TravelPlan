@@ -40,6 +40,7 @@ vi.mock("@mui/material", () => {
     "flexWrap",
     "flexDirection",
     "fullWidth",
+    "fullScreen",
     "maxWidth",
     "divider",
     "dividers",
@@ -78,7 +79,18 @@ vi.mock("@mui/material", () => {
       <button {...omitLayoutProps(rest as Record<string, unknown>)}>{children}</button>
     ),
     CircularProgress: () => <div role="progressbar" />,
-    Dialog: Simple,
+    // Story 6.12's shared viewer renders its close/paging controls as `IconButton`s. This mock is
+    // exhaustive by design — an undeclared export throws rather than falling back.
+    IconButton: ({ children, ...rest }: { children?: ReactNode }) => (
+      <button type="button" {...omitLayoutProps(rest as Record<string, unknown>)}>
+        {children}
+      </button>
+    ),
+    // Honours `open`, unlike the other `Simple` slots: MUI's real Modal renders nothing at all while
+    // closed, and Story 6.12's viewer is now always mounted with the whole collection in hand. A
+    // mock that ignored `open` would leave the viewer's <img> in the DOM permanently.
+    Dialog: ({ children, open = true, ...rest }: { children?: ReactNode; open?: boolean }) =>
+      open ? <div {...omitLayoutProps(rest as Record<string, unknown>)}>{children}</div> : null,
     DialogTitle: Simple,
     DialogContent: Simple,
     DialogActions: Simple,

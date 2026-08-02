@@ -6,8 +6,6 @@ import {
   Box,
   Button,
   CircularProgress,
-  Dialog,
-  DialogContent,
   FormControl,
   FormControlLabel,
   FormHelperText,
@@ -23,6 +21,7 @@ import FormField from "@/components/forms/FormField";
 import FormNotice from "@/components/forms/FormNotice";
 import PhotoUploadField from "@/components/forms/PhotoUploadField";
 import DialogShell from "@/components/ui/DialogShell";
+import FullscreenPhotoViewer from "@/components/ui/FullscreenPhotoViewer";
 import { formatMessage } from "@/i18n";
 import { useI18n } from "@/i18n/provider";
 import { IMAGE_UPLOAD_ACCEPT, isSupportedImageUpload } from "@/lib/trips/imageUploads";
@@ -159,7 +158,8 @@ export default function TripAccommodationDialog({
   const [galleryImages, setGalleryImages] = useState<GalleryImage[]>([]);
   const [galleryFiles, setGalleryFiles] = useState<File[]>([]);
   const [galleryBusy, setGalleryBusy] = useState(false);
-  const [fullscreenImage, setFullscreenImage] = useState<{ imageUrl: string; alt: string } | null>(null);
+  // The index into `galleryPreviews`, not a URL — the shared viewer pages through the collection.
+  const [fullscreenIndex, setFullscreenIndex] = useState<number | null>(null);
   const defaultDueDate = useMemo(() => toDateOnly(day?.date), [day?.date]);
 
   const {
@@ -247,6 +247,9 @@ export default function TripAccommodationDialog({
     setCsrfToken(null);
     setIsDeleting(false);
     setIsGeocoding(false);
+    // Matches `TripDayPlanDialog`'s reset: a stale index left behind by a programmatic close would
+    // otherwise spring the viewer open on top of the dialog the next time it is shown.
+    setFullscreenIndex(null);
     reset({
       name: day?.accommodation?.name ?? "",
       notes: day?.accommodation?.notes ?? "",
@@ -716,6 +719,21 @@ export default function TripAccommodationDialog({
     [galleryImages],
   );
 
+  // Built once and handed to both the strip and the viewer, so the alt a thumbnail announces is the
+  // one the viewer announces for the same image.
+  const galleryPreviews = useMemo(
+    () =>
+      sortedGalleryImages.map((image, index) => ({
+        key: image.id,
+        imageUrl: image.imageUrl,
+        alt: formatMessage(t("trips.gallery.imageAlt"), {
+          index: index + 1,
+          total: sortedGalleryImages.length,
+        }),
+      })),
+    [sortedGalleryImages, t],
+  );
+
   const nameRules = useMemo(
     () => ({
       required: t("trips.stay.nameRequired"),
@@ -1066,64 +1084,25 @@ export default function TripAccommodationDialog({
                     {t("trips.gallery.uploadAction")}
                   </Button>
                 }
-                images={sortedGalleryImages.map((image, index) => ({
-                  key: image.id,
-                  imageUrl: image.imageUrl,
-                  onRemove: () => void deleteGalleryImage(image.id),
-                  onOpen: () =>
-                    setFullscreenImage({
-                      imageUrl: image.imageUrl,
-                      alt: formatMessage(t("trips.gallery.imageAlt"), {
-                        index: index + 1,
-                        total: sortedGalleryImages.length,
-                      }),
-                    }),
+                images={galleryPreviews.map((preview) => ({
+                  ...preview,
+                  // Keyed by the image id `preview.key` carries, not by position in a second array: the
+                  // strip and `sortedGalleryImages` agree today, and an index would delete the wrong photo
+                  // silently on the day any filtering or async insertion makes them disagree.
+                  onRemove: () => void deleteGalleryImage(preview.key),
                 }))}
+                onImageOpen={setFullscreenIndex}
               />
             )}
           </Box>
         </Box>
     </DialogShell>
-      <Dialog
-        open={Boolean(fullscreenImage)}
-        onClose={() => setFullscreenImage(null)}
-        maxWidth={false}
-        sx={{
-          "& .MuiDialog-paper": {
-            backgroundColor: "transparent",
-            boxShadow: "none",
-            m: 0,
-          },
-        }}
-        onKeyDown={() => setFullscreenImage(null)}
-      >
-        {fullscreenImage ? (
-          <DialogContent
-            onClick={() => setFullscreenImage(null)}
-            sx={{
-              p: 0,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              minWidth: "100vw",
-              minHeight: "100vh",
-              backgroundColor: "rgba(0, 0, 0, 0.85)",
-              cursor: "zoom-out",
-            }}
-          >
-            <Box
-              component="img"
-              src={fullscreenImage.imageUrl}
-              alt={fullscreenImage.alt}
-              sx={{
-                maxWidth: "96vw",
-                maxHeight: "96vh",
-                objectFit: "contain",
-              }}
-            />
-          </DialogContent>
-        ) : null}
-      </Dialog>
+      <FullscreenPhotoViewer
+        open={fullscreenIndex !== null}
+        images={galleryPreviews}
+        startIndex={fullscreenIndex ?? 0}
+        onClose={() => setFullscreenIndex(null)}
+      />
     </>
   );
 }

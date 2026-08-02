@@ -2550,7 +2550,7 @@ describe("TripDayView layout", () => {
     await waitFor(() => {
       expect(screen.getByText("+1")).toBeInTheDocument();
     });
-    expect(screen.getAllByAltText(/Gallery thumbnail|Hotel|Day timeline/i).length).toBeGreaterThanOrEqual(4);
+    expect(screen.getAllByAltText(/Gallery thumbnail|Hotel|Museum/i).length).toBeGreaterThanOrEqual(4);
 
     vi.unstubAllGlobals();
   });
@@ -4303,7 +4303,8 @@ describe("TripDayView layout", () => {
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
     // Meaning-bearing, so it keeps a real alt - nothing else on screen says which photo this is.
-    const photo = await screen.findByRole("img", { name: "Day timeline 1" });
+    // Named after the activity, not the section: the alt is now a control name too (Story 6.12).
+    const photo = await screen.findByRole("img", { name: "Museum visit 1" });
     const style = getComputedStyle(photo);
     expect(style.width).toBe("56px");
     expect(style.height).toBe("56px");
@@ -4546,7 +4547,7 @@ describe("TripDayView layout", () => {
     // The "open link" action opens the link and nothing else. The editor's absence is read off the DOM
     // rather than off the mock's recorded props: the mock renders nothing while closed, and the props
     // are re-recorded on every render, so the DOM is the honest signal here.
-    const thumbnail = await screen.findByRole("img", { name: "Day timeline 1" });
+    const thumbnail = await screen.findByRole("img", { name: "Museum visit 1" });
     fireEvent.click(screen.getByRole("link", { name: "Open link" }));
     expect(screen.queryByTestId("plan-dialog")).toBeNull();
 
@@ -4555,7 +4556,7 @@ describe("TripDayView layout", () => {
     fireEvent.click(thumbnail);
     expect(screen.queryByTestId("plan-dialog")).toBeNull();
     const viewer = await screen.findByRole("dialog");
-    expect(within(viewer).getByRole("img", { name: "Day timeline 1" })).toBeInTheDocument();
+    expect(within(viewer).getByRole("img", { name: "Museum visit 1" })).toBeInTheDocument();
 
     vi.unstubAllGlobals();
   });

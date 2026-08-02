@@ -230,7 +230,8 @@ decision: 2026-08-01 Exclude untimed segments from the stat as well — Make the
 origin: migrated from legacy ledger ("Deferred from: code review of 7-3-day-detail-redesign (2026-07-31)"), 2026-08-01
 location: `TripDayPlanItemContent.tsx:170-197`
 reason: The images carry `onClick` and `cursor: pointer` but no `role`, `tabIndex` or key handler, so the lightbox cannot be opened from the keyboard; the "+N" overflow indicator is plain caption text and the 4th and later photos are unreachable by any input. Pre-existing and untouched by 7.3's `variant` addition — but that story promoted the strip to the timeline's primary photo affordance on Day Detail, so the blast radius grew. Fix belongs with a photo-viewer story covering this plus the two map-dialog call sites and `TripDayMapFullPage`; see DW-51, which is the same defect in the newer shared `PhotoUploadField` primitive.
-status: open
+status: done 2026-08-02
+resolution: resolved by story 6-12-fullscreen-photo-viewer
 
 ### DW-31: The day-detail route has no `h1`-`h4`
 
@@ -388,7 +389,8 @@ status: open
 origin: migrated from legacy ledger ("Deferred from: code review of 7-7-trip-create-and-add-entry-dialog-redesign (2026-08-01)"), 2026-08-01
 location: `travelplan/src/components/forms/PhotoUploadField.tsx:196-213`
 reason: The `<Box component="img">` carries `onClick={image.onOpen}` and `cursor: pointer` but no `tabIndex`, no `role="button"` and no key handler. Pre-existing: HEAD's gallery blocks had the identical pattern, and the Dev Notes explicitly place the `MiniImageStrip` keyboard defect (DW-30) out of scope. What changed is the blast radius and the location — the defect now lives in a new shared primitive used by three surfaces (accommodation gallery, day-plan gallery, day-details preview) rather than in one display component, and the component's own docblock at `:17-21` cites exactly this defect in `MiniImageStrip` as the reason not to reuse it. Fix both together in the photo-viewer story that already owns DW-30: `PhotoUploadField`, `MiniImageStrip`, the two map-dialog call sites and `TripDayMapFullPage`.
-status: open
+status: done 2026-08-02
+resolution: resolved by story 6-12-fullscreen-photo-viewer
 
 ### DW-52: The file input is never reset, so the same file cannot be re-selected after an upload-then-remove cycle
 
@@ -763,4 +765,44 @@ origin: incidental to story 6-11 review, 2026-08-02
 location: `travelplan/src/components/HeaderMenu.tsx` — the hamburger `IconButton`
 severity: low
 reason: The trigger carries `aria-label` but no `aria-haspopup`, `aria-expanded` or `aria-controls`, so a screen-reader user hears "Open menu, button" with no indication it opens a menu or whether it is currently open. Story 6.11 introduced a second menu trigger on the day hero and gave it all three, which is what surfaced this — the two now diverge. Not fixed in 6.11 because that story's AC5 explicitly forbids modifying `HeaderMenu.tsx`; the same one-line fix applies there and should be taken with whatever next touches that component.
+status: open
+
+### DW-98: On-photo chrome is unreadable over bright photography — the scrim only protects the title
+
+origin: operator verification of story 6-11, 2026-08-02
+location: `travelplan/src/components/features/trips/TripIcons.tsx` (`HERO_SCRIM`, `ON_PHOTO_CHROME`), applied in `TripDayView.tsx` and `TripTimeline.tsx`
+severity: medium
+reason: `ON_PHOTO_CHROME` is a white glyph on `rgba(255,255,255,.18)` with a `rgba(255,255,255,.55)` border, and `HERO_SCRIM` is a four-stop gradient reaching 0.88 only at the **bottom** of the hero. Everything above the title therefore sits on the raw photograph. Measured against a near-white (`#FAFAF8`) day image, rendered pixels: header row (back button, day-image edit, the new overflow) composites to `rgb(220,220,217)` — **white on it is 1.37:1**; the chevrons' midpoint to `rgb(168,167,164)` — **2.41:1**; only the title's band reaches 5.66:1. A snow, sky or sand photo makes the entire control row invisible. Not introduced by 6.11: the back button and the day-image pencil predate it and score worse than its chevrons, and the same treatment carries the trip overview's share action. The fix is a design-system decision, not a story-level patch — either the scrim gains coverage at the top (which changes every hero's look), or on-photo controls take a dark translucent fill with a light glyph instead of the current light-on-light. Same class as DW-71 and the standing contrast pass: it is about what the tokens promise, not about who applied them.
+status: open
+
+### DW-99: `PhotoUploadField`'s remove button covers ~40% of the open button that Story 6.12 just made an advertised affordance
+
+origin: incidental to story 6-12 review, 2026-08-02
+location: `travelplan/src/components/forms/PhotoUploadField.tsx` — the thumbnail cell
+severity: medium
+reason: The remove control is a 44×44 transparent target at `top: -8px; right: -8px` over a 56×56 thumbnail, so it occupies x∈[20,56], y∈[0,36] — 1296 of the cell's 3136 px², the whole upper-right quadrant. Aiming at the top-right of a photo to enlarge it deletes it instead. The geometry predates this story (the thumbnail already carried a click-to-open handler), but Story 6.12 turned that handler into a real `<button>` with a focus ring and an accessible name, which is what promotes a latent mis-click into a control users are now told to use. Keyboard order is unaffected — the two are separate tab stops. The fix is a geometry decision, not a patch: either the remove disc moves fully outside the 56px cell, or the open target is inset to the area the remove button does not claim, and both change a layout `mockups/forms-authoring.html:346-395` pins. Same class as the standing 44px-target work.
+status: open
+
+### DW-100: In the two gallery dialogs the fullscreen viewer announces its position twice, once as the photo and once as the caption
+
+origin: incidental to story 6-12 review, 2026-08-02
+location: `travelplan/src/components/features/trips/TripAccommodationDialog.tsx` and `TripDayPlanDialog.tsx` (their `galleryPreviews` memos), against `travelplan/src/components/ui/FullscreenPhotoViewer.tsx`
+severity: low
+reason: Both dialogs build each preview's `alt` from `trips.gallery.imageAlt` ("Image 3 of 4"), and the viewer renders that same key as its position line. An assistive-tech user browsing the open viewer therefore hears "Image 3 of 4" from the graphic and "Image 3 of 4" again from the status text, with nothing distinguishing the photo from its caption. Reusing the key inside the viewer is right — it is the sentence that states the position, and composing a second one would be worse. The real defect is upstream: a positional string is a poor `alt` for a photograph in the first place, which is why `MiniImageStrip` synthesises `"<activity> <n>"` instead and reads correctly in the same viewer. Fixing it means deciding what a gallery photo's alt should say when the surface has no per-image caption to draw on — a content question that outlives this story.
+status: open
+
+### DW-101: The `+N` overflow control widens the timeline photo-strip row by ~26px to meet the 44px target floor
+
+origin: incidental to story 6-12 review, 2026-08-02
+location: `travelplan/src/components/features/trips/TripDayPlanItemContent.tsx` — `MiniImageStrip`'s overflow indicator
+severity: low
+reason: Making the indicator operable (AC6, DW-30) turned an inline ~18px caption into a real `<button>` with `minWidth: 44` / `minHeight: 44`. The height was chosen to stay under the 56px thumbnails so the row's height is unchanged, and it is; the width is new. On a four-photo activity the strip row goes from roughly 204px to 230px, and the row is `display: flex` with no wrap, so on the narrowest timeline card the overflow indicator is what gets squeezed. Story 6.12's AC10 asks that the strip's layout not change, and this is the one place it does — unavoidably, since an 18px tap target is its own accessibility defect. jsdom lays nothing out, so whether it actually crowds at 390px is a browser observation, folded into that story's operator pass. If it does, the answer is a smaller minimum with a padded hit area rather than reverting to inert text.
+status: open
+
+### DW-102: `tripDayPlanDialog.test.tsx`'s `@mui/material` mock now also hides the shared photo viewer
+
+origin: incidental to story 6-12 review, 2026-08-02
+location: `travelplan/test/tripDayPlanDialog.test.tsx` — the `MUI_ONLY_PROPS` / `Dialog` mock
+severity: low
+reason: One more increment of [[DW-53]]. Story 6.12 taught the mocked `Dialog` to honour `open` — strictly more faithful than before, and the reason that file's suite still passes — but `slotProps` remains in `MUI_ONLY_PROPS`, so under this mock `FullscreenPhotoViewer` renders as a bare `<div>`: no `role="dialog"`, no `aria-label`, no dark paper, no click-to-close, no backdrop. Every structural claim the viewer's own suite makes is untestable in the file that pins the most day-plan-dialog contracts, and a future assertion about the viewer there would pass or fail for reasons unrelated to the real component. Not separately actionable: it closes when DW-53 does, by deleting the wholesale mock and rendering against real MUI through `renderWithProviders`. Recorded so the growth is visible rather than absorbed.
 status: open

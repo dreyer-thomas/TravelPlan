@@ -2,6 +2,8 @@
 
 import { Box, Typography } from "@mui/material";
 import type { ReactNode } from "react";
+import type { FullscreenPhoto } from "@/components/ui/FullscreenPhotoViewer";
+import { formatMessage } from "@/i18n";
 import { useI18n } from "@/i18n/provider";
 
 type RichDocNode = {
@@ -12,7 +14,7 @@ type RichDocNode = {
   content?: RichDocNode[];
 };
 
-type ImageStripItem = {
+export type ImageStripItem = {
   id: string;
   imageUrl: string;
 };
@@ -141,10 +143,33 @@ export const PlanItemRichContent = ({ contentJson, fallbackText }: { contentJson
   return <Box display="flex" flexDirection="column" gap={0.75}>{rendered}</Box>;
 };
 
+/** The strip's per-image alt, shared with the viewer so the two cannot drift. */
+export const stripImageAlt = (altPrefix: string, index: number) => `${altPrefix} ${index + 1}`;
+
+/**
+ * The collection the strip hands `FullscreenPhotoViewer` — **every** image, not the three the strip
+ * renders. The strip's three-thumbnail cap is the mockup's photo-strip rule and stays; paging inside
+ * the viewer is what makes the fourth image and beyond reachable at all (DW-30).
+ */
+export const toViewerImages = (
+  images: readonly ImageStripItem[],
+  altPrefix: string,
+): FullscreenPhoto[] =>
+  images.map((image, index) => ({
+    key: image.id,
+    imageUrl: image.imageUrl,
+    alt: stripImageAlt(altPrefix, index),
+  }));
+
 /**
  * `variant="strip"` is DESIGN.md's `photo-strip`: uniform, fixed-width, left-aligned, centre-cropped,
  * sharp-cornered 56px squares along the bottom of a timeline card. `variant="gallery"` keeps the
  * larger rounded treatment used by the full-page map dialog, which is not part of the Epic 7 redesign.
+ *
+ * Each thumbnail is a real `<button>` wrapping the `<img>` rather than an `<img>` carrying
+ * `role="button"`: the role makes an element's contents presentational, which is the trap Story 6.9
+ * had to rebuild a card out of. `onImageClick` takes the **index** into `images`, not a URL — the
+ * caller owns the collection and hands the whole of it to the viewer.
  */
 export const MiniImageStrip = ({
   images,
@@ -154,9 +179,11 @@ export const MiniImageStrip = ({
 }: {
   images: ImageStripItem[];
   altPrefix: string;
-  onImageClick: (imageUrl: string, alt: string) => void;
+  onImageClick: (index: number) => void;
   variant?: "strip" | "gallery";
 }) => {
+  const { t } = useI18n();
+
   if (images.length === 0) {
     return null;
   }
@@ -164,34 +191,79 @@ export const MiniImageStrip = ({
   const visible = images.slice(0, 3);
   const remaining = images.length - visible.length;
   const isStrip = variant === "strip";
+  const size = isStrip ? 56 : 96;
 
   return (
     <Box display="flex" alignItems="center" gap={isStrip ? "6px" : 0.75} justifyContent="flex-start" mt={0.75}>
       {visible.map((image, index) => (
         <Box
           key={image.id}
-          component="img"
-          src={image.imageUrl}
-          alt={`${altPrefix} ${index + 1}`}
+          component="button"
+          type="button"
+          // No `aria-label`: the button is named by the image it contains, which already carries the
+          // indexed alt. A label here would shadow that name with a second wording of the same thing.
+          onClick={() => onImageClick(index)}
           sx={{
             // Fixed basis, never flex: 1 - thumbnails are uniform, not stretched to fill the card.
-            flex: isStrip ? "0 0 56px" : undefined,
-            width: isStrip ? 56 : 96,
-            height: isStrip ? 56 : 96,
-            objectFit: "cover",
-            objectPosition: "center",
-            // Photography is always sharp, independent of the radius of the card containing it.
-            borderRadius: isStrip ? 0 : 1,
-            border: "1px solid",
-            borderColor: isStrip ? "rgba(0,0,0,0.06)" : "divider",
+            flex: isStrip ? `0 0 ${size}px` : undefined,
+            width: size,
+            height: size,
+            padding: 0,
+            border: "none",
+            background: "none",
+            display: "block",
             cursor: "pointer",
+            borderRadius: isStrip ? 0 : 1,
+            "&:focus-visible": { outline: "2px solid", outlineColor: "text.primary", outlineOffset: "2px" },
           }}
-          loading="lazy"
-          onClick={() => onImageClick(image.imageUrl, `${altPrefix} ${index + 1}`)}
-        />
+        >
+          <Box
+            component="img"
+            src={image.imageUrl}
+            alt={stripImageAlt(altPrefix, index)}
+            sx={{
+              // Restated rather than `100%`: the thumbnail's own geometry is what DESIGN.md pins,
+              // and it must not become a function of whatever the wrapper button resolves to.
+              width: size,
+              height: size,
+              objectFit: "cover",
+              objectPosition: "center",
+              // Photography is always sharp, independent of the radius of the card containing it.
+              borderRadius: isStrip ? 0 : 1,
+              border: "1px solid",
+              borderColor: isStrip ? "rgba(0,0,0,0.06)" : "divider",
+              display: "block",
+            }}
+            loading="lazy"
+          />
+        </Box>
       ))}
       {remaining > 0 ? (
-        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+        // Was inert caption text, which left the 4th image and beyond unreachable by any input
+        // (DW-30). It opens the viewer at the first image the strip does not show — index 3.
+        <Typography
+          component="button"
+          type="button"
+          variant="caption"
+          color="text.secondary"
+          aria-label={
+            remaining === 1
+              ? t("trips.gallery.showMoreImagesOne")
+              : formatMessage(t("trips.gallery.showMoreImages"), { count: remaining })
+          }
+          onClick={() => onImageClick(visible.length)}
+          sx={{
+            fontWeight: 600,
+            // The 44px touch floor, below the 56px thumbnails so the row's height is unchanged.
+            minWidth: 44,
+            minHeight: 44,
+            padding: 0,
+            border: "none",
+            background: "none",
+            cursor: "pointer",
+            "&:focus-visible": { outline: "2px solid", outlineColor: "text.primary", outlineOffset: "2px" },
+          }}
+        >
           +{remaining}
         </Typography>
       ) : null}
