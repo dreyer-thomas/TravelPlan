@@ -2,7 +2,7 @@
 authored_against: ac03570
 baseline_revision: 72825cbacae80476ee15aab09d7e30360267abb0
 final_revision: 01d072721333a996df5e71e73d8ad5d2a88dea5f
-status: awaiting-operator
+status: done
 review_loop_iteration: 0
 warnings: []
 followup_review_recommended: false
@@ -114,6 +114,20 @@ Vitest 3.2 + Testing Library, jsdom, via `test/helpers/renderWithProviders.tsx`.
 - [Source: travelplan/src/i18n/de.ts:303-330] — the travel-segment string block
 - [Source: travelplan/src/i18n/de.ts:532] — `common.save`, one reader
 - [Source: _bmad-output/planning-artifacts/epics.md#Story 6.16] — the other story touching `googleMapsCarOnlyHelper`
+
+## Operator Pass — 2026-08-02, against `0ab5e0e`
+
+Chromium at 390px, isolated worktree on port 3099 against a copy of `dev.db`; `prisma/dev.db` untouched.
+
+- **Action row, German (AC5):** `Maps` `Plan` `Abbrechen` `OK` on **one row** (tops 654/655), each label a single line box, none overflowing. Page 390/390 — no horizontal scrollbar, in the dialog or on the page.
+- **Edit dialog** (the only place `refreshGoogleMapsRoute` renders): identical.
+- **English:** `Maps` `Plan` `Cancel` `OK` — same result. `Abbrechen`, flagged as the likely wrapper because it is `common.cancel` and out of scope, fits at 84px.
+- **No locations:** "Füge beiden Nachbareinträgen einen Ort hinzu." renders **once, on one line**; `Plan` is disabled; the `Maps` link is absent.
+- **After Plan:** "Die Routendaten wurden aus Maps übernommen." appears **exactly once**; duration and distance filled (04:44 / 484.4).
+- **Ship/Flight (AC4):** the manual-mode helper renders **exactly once**, never twice — 3 lines as standing grey text in the *add* dialog, 4 lines as an info alert in the *edit* dialog after pressing Plan. The review's split holds.
+- **New car segment:** no standing grey text besides the link-field helper. The removed "Öffne die Route in Google Maps und übertrage…" is gone.
+
+Coordination with 6.16 confirmed: `googleMapsCarOnlyHelper` is now `googleMapsManualModeHelper` and reads "deckt Auto, zu Fuß und Fahrrad ab" — 6.17 shortened against that version rather than reverting it. `common.save` was **renamed** to `trips.travelSegment.save`, with a test pinning its absence.
 
 ## Dev Agent Record
 
@@ -241,3 +255,19 @@ Status: **awaiting-operator** — every part an agent can take is complete and c
 1. **AC5 is unproven, and the arithmetic is marginal.** ~330px of buttons against ~310px of usable row (Completion Note 7). The change is a large improvement over the ~430px before it and may still not fit on one line. If it wraps, the expected culprit is "Abbrechen" — `common.cancel`, genuinely shared, and out of scope here. That would be a finding for a follow-up story, not licence to restructure this dialog.
 2. **`googleMapsFallbackActive` now says "Route import failed"** at a call site where nothing failed — two neighbours pinned at the same coordinates return a legitimate zero-length route. More truthful than the text it replaced at three of four sites, less so at the fourth. Tracked as `DW-116`.
 3. **Two reachable helper states were left as they are** on purpose, because fixing them changes behaviour a copy story promised not to change: `DW-114` and `DW-115`.
+
+## Operator Confirmation
+
+Confirmed 2026-08-02: the external actions this story owed were carried out.
+
+- Start the app against a throwaway copy of dev.db on an isolated port — never prisma/dev.db. The recipe is in 7-12-bucket-list-sidebar-card.md's Dev Notes.
+- At a 390px viewport, in German, open a travel segment between two items that both have locations. Confirm Maps, Plan, Abbrechen and OK sit on one row, no label wraps mid-word, and neither the dialog nor the page shows a horizontal scrollbar. If the row wraps, record which label wrapped — the expected culprit is Abbrechen, which is common.cancel and out of this story's scope.
+- Repeat the same 390px check on the edit dialog of an existing segment: it is the only place refreshGoogleMapsRoute renders, and only a browser shows the two keys at their real widths.
+- Repeat both checks at 390px in English.
+- Open a segment where neither neighbour has a location. Confirm exactly one line under the form — 'Füge beiden Nachbareinträgen einen Ort hinzu.' — that it does not wrap to three lines, and that the Plan button is disabled.
+- With both neighbours placed, choose Auto or Zu Fuß and press Plan. Confirm the alert 'Die Routendaten wurden aus Maps übernommen.' appears once and that duration and distance are filled in.
+- With both neighbours placed, switch the mode to Schiff or Flug. Confirm the manual-mode helper appears exactly once — not both as grey text under the form and again as an info alert — and note how many lines it takes at 390px; at 103 characters it is the longest surviving helper.
+- Add a new car segment between two placed items and confirm there is now no standing grey text under the link field at all — the removed 'Öffne die Route in Google Maps und übertrage…' line.
+- If every check passes, tick Task 6 in this spec, set status: done in the frontmatter and Status: done in the body, and set 6-17-travel-segment-dialog-on-a-phone to done in sprint-status.yaml.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
