@@ -7,6 +7,18 @@ import type { TravelSegmentItemType, TravelTransportType } from "@/generated/pri
 import type { TripAccessRole } from "@/lib/auth/tripAccess";
 import { buildDayMapPanelData, buildTripDayMapItems, type TripDayMapPanelData } from "@/lib/trips/dayMapData";
 import { getTripUploadDir, resolvePublicFilePath } from "@/lib/trips/uploadPaths";
+import { sniffPhotoContentType } from "@/lib/trips/importPackage";
+import {
+  discardStashedTripUploadDir,
+  planAccommodationGalleryPhoto,
+  planDayPlanItemGalleryPhoto,
+  planTripDayPhoto,
+  planTripHeroPhoto,
+  restoreStashedTripUploadDir,
+  stashTripUploadDir,
+  writeImportedPhotos,
+  type PlannedPhotoWrite,
+} from "@/lib/trips/importPhotos";
 import type { TripImportConflictStrategy, TripImportPayloadInput } from "@/lib/validation/tripImportSchemas";
 
 export type CreateTripParams = {
@@ -333,6 +345,11 @@ type ImportTripSuccessResult = {
     heroImageUrl: string | null;
   };
   dayCount: number;
+  /** Counts the UI confirms a complete restore against - see Story 2.32 Task 4. */
+  travelSegmentCount: number;
+  bucketListItemCount: number;
+  /** Photo *files* written to upload storage, not pool entries: one per restored image slot. */
+  photoCount: number;
 };
 
 export type ImportTripResult = ImportTripConflictResult | ImportTripSuccessResult;
@@ -1683,25 +1700,121 @@ const sortImportDays = (days: TripImportPayloadInput["days"]) =>
     return new Date(left.date).getTime() - new Date(right.date).getTime();
   });
 
+/**
+ * Lowercase wire vocabulary up to Prisma's enums. Same shape as `travelSegmentRepo.ts`'s helpers,
+ * duplicated rather than imported because importing from a sibling repository would make one
+ * repository depend on another's private mapping - and there must not be a third spelling of this.
+ */
+const toPrismaSegmentItemType = (value: "accommodation" | "dayPlanItem"): TravelSegmentItemType =>
+  value === "accommodation" ? "ACCOMMODATION" : "DAY_PLAN_ITEM";
+
+const toPrismaTransportType = (value: "car" | "ship" | "flight"): TravelTransportType => {
+  switch (value) {
+    case "car":
+      return "CAR";
+    case "ship":
+      return "SHIP";
+    default:
+      return "FLIGHT";
+  }
+};
+
+/** `cleanOptionalString` semantics from `bucketListRepo.ts`: blank is stored as absent. */
+const cleanImportedOptionalString = (value?: string | null) => {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+};
+
+type ImportPhotoPool = TripImportPayloadInput["photos"];
+
+/**
+ * Look up a pool entry that validation has already proven exists.
+ *
+ * The root `superRefine` rejects any dangling `photoId` before the transaction opens, so reaching
+ * the throw means a caller bypassed the schema. Better a rolled-back transaction than a row whose
+ * `imageUrl` points at a file nobody will ever write.
+ */
+const requirePooledPhoto = (photos: ImportPhotoPool, photoId: string) => {
+  const photo = photos[photoId];
+  if (!photo) {
+    throw new Error("photo_reference_missing");
+  }
+  return photo;
+};
+
+/**
+ * Drops a v1 `/uploads/…` string that names a file this import is about to delete.
+ *
+ * Overwrite stashes and then removes the target trip's whole upload directory, so a payload with no
+ * pooled replacement for a URL pointing *into that directory* would restore a row whose file no
+ * longer exists - the orphaned rows AC5 rules out. Storing `null` is the honest answer: the image is
+ * genuinely gone, and a null renders as "no image" rather than as a broken one.
+ *
+ * `replacedUploadPrefix` is `null` in create-new mode, which is what keeps that path byte-identical:
+ * there the URL names some *other* trip's directory, nothing on disk is touched, and AC2 requires
+ * the string back verbatim.
+ */
+const dropReplacedUploadUrl = (imageUrl: string | null, replacedUploadPrefix: string | null) => {
+  if (!imageUrl || !replacedUploadPrefix) return imageUrl;
+  return imageUrl.startsWith(replacedUploadPrefix) ? null : imageUrl;
+};
+
+/** The prefix every stored URL under one trip's upload directory begins with. */
+const tripUploadUrlPrefix = (tripId: string) => `/uploads/trips/${tripId}/`;
+
+type ImportedDaysResult = {
+  dayIdBySourceId: Map<string, string>;
+  accommodationIdBySourceId: Map<string, string>;
+  dayPlanItemIdBySourceId: Map<string, string>;
+  /** Files to create once the transaction commits; the rows already carry their URLs. */
+  photoWrites: PlannedPhotoWrite[];
+  travelSegmentCount: number;
+};
+
 const createImportedDays = async ({
   tx,
   tripId,
   sortedDays,
+  photos,
+  takenFileNames,
+  replacedUploadPrefix,
 }: {
   tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
   tripId: string;
   sortedDays: TripImportPayloadInput["days"];
-}) => {
+  photos: ImportPhotoPool;
+  takenFileNames: Set<string>;
+  /** See `dropReplacedUploadUrl`. Only ever set in overwrite mode. */
+  replacedUploadPrefix: string | null;
+}): Promise<ImportedDaysResult> => {
+  const dayIdBySourceId = new Map<string, string>();
+  const accommodationIdBySourceId = new Map<string, string>();
+  const dayPlanItemIdBySourceId = new Map<string, string>();
+  const photoWrites: PlannedPhotoWrite[] = [];
+  let travelSegmentCount = 0;
+
   for (const day of sortedDays) {
     const createdDay = await tx.tripDay.create({
       data: {
         tripId,
         date: new Date(day.date),
         dayIndex: day.dayIndex,
-        imageUrl: day.imageUrl ?? null,
+        imageUrl: dropReplacedUploadUrl(day.imageUrl ?? null, replacedUploadPrefix),
         note: day.note ?? null,
       },
     });
+    dayIdBySourceId.set(day.id, createdDay.id);
+
+    // Precedence: a pooled photo always wins over the v1 `imageUrl` string. Keeping the old
+    // `/uploads/trips/<sourceTripId>/...` value when bytes are available is a dead link on another
+    // system, and on this one it points into a different trip's directory - one that disappears
+    // with that trip.
+    if (day.imagePhotoId) {
+      const photo = requirePooledPhoto(photos, day.imagePhotoId);
+      const placement = planTripDayPhoto(tripId, createdDay.id, photo.contentType);
+      photoWrites.push({ filePath: placement.filePath, archivePath: photo.archivePath });
+      await tx.tripDay.update({ where: { id: createdDay.id }, data: { imageUrl: placement.imageUrl } });
+    }
 
     if (day.accommodation) {
       const accommodation = await tx.accommodation.create({
@@ -1719,6 +1832,29 @@ const createImportedDays = async ({
           locationLabel: day.accommodation.location?.label ?? null,
         },
       });
+      accommodationIdBySourceId.set(day.accommodation.id, accommodation.id);
+
+      for (const image of day.accommodation.images) {
+        const photo = requirePooledPhoto(photos, image.photoId);
+        const placement = planAccommodationGalleryPhoto(
+          {
+            tripId,
+            tripDayId: createdDay.id,
+            accommodationId: accommodation.id,
+            contentType: photo.contentType,
+          },
+          takenFileNames,
+        );
+        photoWrites.push({ filePath: placement.filePath, archivePath: photo.archivePath });
+        await tx.accommodationImage.create({
+          data: {
+            accommodationId: accommodation.id,
+            imageUrl: placement.imageUrl,
+            sortOrder: image.sortOrder,
+          },
+        });
+      }
+
       const accommodationPayments =
         day.accommodation.payments && day.accommodation.payments.length > 0
           ? day.accommodation.payments
@@ -1742,6 +1878,8 @@ const createImportedDays = async ({
       }
     }
 
+    // Insertion order is the package's array order and must stay that way: import does not preserve
+    // `createdAt`, so plan-item ordering - which travel segments now depend on - is insertion order.
     for (const item of day.dayPlanItems) {
       const createdItem = await tx.dayPlanItem.create({
         data: {
@@ -1757,6 +1895,29 @@ const createImportedDays = async ({
           locationLabel: item.location?.label ?? null,
         },
       });
+      dayPlanItemIdBySourceId.set(item.id, createdItem.id);
+
+      for (const image of item.images) {
+        const photo = requirePooledPhoto(photos, image.photoId);
+        const placement = planDayPlanItemGalleryPhoto(
+          {
+            tripId,
+            tripDayId: createdDay.id,
+            dayPlanItemId: createdItem.id,
+            contentType: photo.contentType,
+          },
+          takenFileNames,
+        );
+        photoWrites.push({ filePath: placement.filePath, archivePath: photo.archivePath });
+        await tx.dayPlanItemImage.create({
+          data: {
+            dayPlanItemId: createdItem.id,
+            imageUrl: placement.imageUrl,
+            sortOrder: image.sortOrder,
+          },
+        });
+      }
+
       const itemPayments =
         item.payments && item.payments.length > 0
           ? item.payments
@@ -1779,7 +1940,82 @@ const createImportedDays = async ({
         });
       }
     }
+
+    // Travel segments come last, once this day's accommodation and every plan item exist and their
+    // new cuids are known. `fromItemId` / `toItemId` in the package are the *source* ids; written
+    // through unchanged they would point at nothing. This remap is the whole reason the export
+    // carries record ids at all.
+    //
+    // Written with `tx.travelSegment.create` rather than `createTravelSegmentForTripDay`: that
+    // function re-runs adjacency validation against live ordering and takes its own user/trip guard,
+    // neither of which is meaningful - or usable - inside an import transaction.
+    for (const segment of day.travelSegments) {
+      const fromItemId =
+        segment.fromItemType === "accommodation"
+          ? accommodationIdBySourceId.get(segment.fromItemId)
+          : dayPlanItemIdBySourceId.get(segment.fromItemId);
+      const toItemId =
+        segment.toItemType === "accommodation"
+          ? accommodationIdBySourceId.get(segment.toItemId)
+          : dayPlanItemIdBySourceId.get(segment.toItemId);
+
+      if (!fromItemId || !toItemId) {
+        // Validation rejects a segment whose endpoints are not on its own day, so this is only
+        // reachable when the schema was bypassed. Rolling the transaction back beats persisting a
+        // segment that renders as a broken leg of the timeline.
+        throw new Error("travel_segment_reference_missing");
+      }
+
+      await tx.travelSegment.create({
+        data: {
+          tripDayId: createdDay.id,
+          fromItemType: toPrismaSegmentItemType(segment.fromItemType),
+          fromItemId,
+          toItemType: toPrismaSegmentItemType(segment.toItemType),
+          toItemId,
+          transportType: toPrismaTransportType(segment.transportType),
+          durationMinutes: segment.durationMinutes,
+          distanceKm: segment.distanceKm,
+          linkUrl: segment.linkUrl,
+        },
+      });
+      travelSegmentCount += 1;
+    }
   }
+
+  return {
+    dayIdBySourceId,
+    accommodationIdBySourceId,
+    dayPlanItemIdBySourceId,
+    photoWrites,
+    travelSegmentCount,
+  };
+};
+
+const createImportedBucketListItems = async ({
+  tx,
+  tripId,
+  items,
+}: {
+  tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+  tripId: string;
+  items: TripImportPayloadInput["trip"]["bucketListItems"];
+}) => {
+  if (items.length === 0) return 0;
+
+  await tx.tripBucketListItem.createMany({
+    data: items.map((item) => ({
+      tripId,
+      title: item.title.trim(),
+      description: cleanImportedOptionalString(item.description),
+      positionText: cleanImportedOptionalString(item.positionText),
+      locationLat: item.location?.lat ?? null,
+      locationLng: item.location?.lng ?? null,
+      locationLabel: cleanImportedOptionalString(item.location?.label),
+    })),
+  });
+
+  return items.length;
 };
 
 export const importTripFromExportForUser = async ({
@@ -1787,11 +2023,17 @@ export const importTripFromExportForUser = async ({
   payload,
   strategy,
   targetTripId,
+  photoBytes,
 }: {
   userId: string;
   payload: TripImportPayloadInput;
   strategy?: TripImportConflictStrategy;
   targetTripId?: string;
+  /**
+   * Archive member path to bytes, from `parseImportPackage`. Omitted by the legacy JSON wire path,
+   * which can only carry a v1 payload or a v2 manifest with an empty pool.
+   */
+  photoBytes?: Map<string, Buffer>;
 }): Promise<ImportTripResult> => {
   const sameNameTrips = await prisma.trip.findMany({
     where: {
@@ -1813,8 +2055,52 @@ export const importTripFromExportForUser = async ({
   }
 
   const sortedDays = sortImportDays(payload.days);
+  const availablePhotoBytes = photoBytes ?? new Map<string, Buffer>();
+  // Gallery file names are generated in a single tick, so `Date.now()` is constant across the whole
+  // import; this set is what keeps two photos in one gallery from colliding on it.
+  const takenFileNames = new Set<string>();
 
-  if (strategy === "overwrite") {
+  // AC3, applied before a single row is written: a pool entry whose bytes never arrived cannot be
+  // restored, and discovering that after the commit would leave rows pointing at absent files. The
+  // route validates the same thing with a better message; this guard is what makes a direct caller
+  // - including the legacy JSON wire path, which carries no bytes at all - fail safely.
+  for (const photo of Object.values(payload.photos)) {
+    if (!availablePhotoBytes.has(photo.archivePath)) {
+      throw new Error("photo_bytes_missing");
+    }
+  }
+
+  /**
+   * The pool, with every `contentType` replaced by what the bytes actually are.
+   *
+   * The manifest's value is a hint and nothing more: `trips/[id]/hero-image/route.ts` derives the
+   * stored extension from the client-supplied `file.type` without sniffing, so a perfectly genuine
+   * export can declare `image/jpeg` for PNG bytes. The extension written to disk has to describe
+   * the file's real contents, or the app serves a `.jpg` that is not one.
+   *
+   * `validatePackagePhotos` has already rejected anything matching no signature, so a `null` here
+   * means a caller bypassed it - the declared type is kept in that case so `extensionFor` fails
+   * loudly instead of inventing an extension.
+   */
+  const photos: ImportPhotoPool = Object.fromEntries(
+    Object.entries(payload.photos).map(([photoId, photo]) => {
+      const bytes = availablePhotoBytes.get(photo.archivePath);
+      const sniffed = bytes ? sniffPhotoContentType(bytes) : null;
+      return [photoId, sniffed === null ? photo : { ...photo, contentType: sniffed }];
+    }),
+  );
+
+  type CommittedImport = {
+    trip: ImportTripSuccessResult["trip"];
+    photoWrites: PlannedPhotoWrite[];
+    travelSegmentCount: number;
+    bucketListItemCount: number;
+  };
+
+  const mode: "overwrite" | "createNew" = strategy === "overwrite" ? "overwrite" : "createNew";
+  let committed: CommittedImport;
+
+  if (mode === "overwrite") {
     if (!targetTripId) {
       throw new Error("target_trip_required");
     }
@@ -1822,7 +2108,7 @@ export const importTripFromExportForUser = async ({
       throw new Error("target_trip_not_conflict");
     }
 
-    return prisma.$transaction(async (tx) => {
+    committed = await prisma.$transaction(async (tx): Promise<CommittedImport> => {
       const targetTrip = await tx.trip.findFirst({
         where: {
           id: targetTripId,
@@ -1834,13 +2120,23 @@ export const importTripFromExportForUser = async ({
         throw new Error("target_trip_not_found");
       }
 
+      // Hero placement is computable before the update here: overwrite already knows the trip id.
+      const heroPhoto = payload.trip.heroPhotoId
+        ? requirePooledPhoto(photos, payload.trip.heroPhotoId)
+        : null;
+      const heroPlacement = heroPhoto ? planTripHeroPhoto(targetTrip.id, heroPhoto.contentType) : null;
+      // This trip's own files are about to be deleted, so any restored URL naming one is dead.
+      const replacedUploadPrefix = tripUploadUrlPrefix(targetTrip.id);
+
       const updatedTrip = await tx.trip.update({
         where: { id: targetTrip.id },
         data: {
           name: payload.trip.name,
           startDate: new Date(payload.trip.startDate),
           endDate: new Date(payload.trip.endDate),
-          heroImageUrl: payload.trip.heroImageUrl,
+          heroImageUrl: heroPlacement
+            ? heroPlacement.imageUrl
+            : dropReplacedUploadUrl(payload.trip.heroImageUrl, replacedUploadPrefix),
           ...(payload.trip.startLocation === undefined
             ? {}
             : {
@@ -1859,15 +2155,26 @@ export const importTripFromExportForUser = async ({
       });
 
       await tx.tripDay.deleteMany({ where: { tripId: targetTrip.id } });
-      await createImportedDays({
+      // Days cascade to accommodations, plan items, travel segments, images and payments. Bucket
+      // list items hang off `Trip`, not `TripDay`, so nothing above reaches them - without this
+      // they would survive the overwrite and double up (AC5).
+      await tx.tripBucketListItem.deleteMany({ where: { tripId: targetTrip.id } });
+
+      const days = await createImportedDays({
         tx,
         tripId: targetTrip.id,
         sortedDays,
+        photos,
+        takenFileNames,
+        replacedUploadPrefix,
+      });
+      const bucketListItemCount = await createImportedBucketListItems({
+        tx,
+        tripId: targetTrip.id,
+        items: payload.trip.bucketListItems,
       });
 
       return {
-        outcome: "imported",
-        mode: "overwrite",
         trip: {
           id: updatedTrip.id,
           name: updatedTrip.name,
@@ -1875,47 +2182,118 @@ export const importTripFromExportForUser = async ({
           endDate: updatedTrip.endDate,
           heroImageUrl: updatedTrip.heroImageUrl,
         },
-        dayCount: sortedDays.length,
+        photoWrites: heroPhoto && heroPlacement
+          ? [{ filePath: heroPlacement.filePath, archivePath: heroPhoto.archivePath }, ...days.photoWrites]
+          : days.photoWrites,
+        travelSegmentCount: days.travelSegmentCount,
+        bucketListItemCount,
+      };
+    });
+  } else {
+    committed = await prisma.$transaction(async (tx): Promise<CommittedImport> => {
+      const createdTrip = await tx.trip.create({
+        data: {
+          userId,
+          name: payload.trip.name,
+          startDate: new Date(payload.trip.startDate),
+          endDate: new Date(payload.trip.endDate),
+          heroImageUrl: payload.trip.heroImageUrl,
+          startLocationLat: payload.trip.startLocation?.lat ?? null,
+          startLocationLng: payload.trip.startLocation?.lng ?? null,
+          startLocationLabel: payload.trip.startLocation?.label ?? null,
+          destinationLocationLat: payload.trip.destinationLocation?.lat ?? null,
+          destinationLocationLng: payload.trip.destinationLocation?.lng ?? null,
+          destinationLocationLabel: payload.trip.destinationLocation?.label ?? null,
+        },
+      });
+
+      // The hero URL contains the trip id, which only exists once the row does - hence create, then
+      // update. Same precedence as day images: a pooled photo replaces the v1 string outright.
+      let heroImageUrl = createdTrip.heroImageUrl;
+      const heroWrites: PlannedPhotoWrite[] = [];
+      if (payload.trip.heroPhotoId) {
+        const heroPhoto = requirePooledPhoto(photos, payload.trip.heroPhotoId);
+        const placement = planTripHeroPhoto(createdTrip.id, heroPhoto.contentType);
+        heroWrites.push({ filePath: placement.filePath, archivePath: heroPhoto.archivePath });
+        heroImageUrl = placement.imageUrl;
+        await tx.trip.update({ where: { id: createdTrip.id }, data: { heroImageUrl } });
+      }
+
+      const days = await createImportedDays({
+        tx,
+        tripId: createdTrip.id,
+        sortedDays,
+        photos,
+        takenFileNames,
+        // Create-new touches no existing file, so every v1 URL is restored verbatim (AC2).
+        replacedUploadPrefix: null,
+      });
+      const bucketListItemCount = await createImportedBucketListItems({
+        tx,
+        tripId: createdTrip.id,
+        items: payload.trip.bucketListItems,
+      });
+
+      return {
+        trip: {
+          id: createdTrip.id,
+          name: createdTrip.name,
+          startDate: createdTrip.startDate,
+          endDate: createdTrip.endDate,
+          heroImageUrl,
+        },
+        photoWrites: [...heroWrites, ...days.photoWrites],
+        travelSegmentCount: days.travelSegmentCount,
+        bucketListItemCount,
       };
     });
   }
 
-  return prisma.$transaction(async (tx) => {
-    const createdTrip = await tx.trip.create({
-      data: {
-        userId,
-        name: payload.trip.name,
-        startDate: new Date(payload.trip.startDate),
-        endDate: new Date(payload.trip.endDate),
-        heroImageUrl: payload.trip.heroImageUrl,
-        startLocationLat: payload.trip.startLocation?.lat ?? null,
-        startLocationLng: payload.trip.startLocation?.lng ?? null,
-        startLocationLabel: payload.trip.startLocation?.label ?? null,
-        destinationLocationLat: payload.trip.destinationLocation?.lat ?? null,
-        destinationLocationLng: payload.trip.destinationLocation?.lng ?? null,
-        destinationLocationLabel: payload.trip.destinationLocation?.label ?? null,
-      },
-    });
+  // --- post-commit disk phase ------------------------------------------------------------------
+  // Files are written only now, because every URL above contains an id Prisma generated on insert.
+  //
+  // Overwrite moves the target's existing upload directory aside first rather than deleting it: the
+  // rows are already replaced, so those files are the only thing left to restore if a write fails
+  // (AC5). It is deleted for real once every new file is safely down.
+  const stashedUploads = mode === "overwrite" ? await stashTripUploadDir(committed.trip.id) : null;
+  try {
+    await writeImportedPhotos(committed.photoWrites, availablePhotoBytes);
+  } catch (error) {
+    // `writeImportedPhotos` already removed everything it wrote.
+    //
+    // The branch is on the *mode*, never on whether there is a stash: `stashTripUploadDir` returns
+    // `null` for a trip that had no upload directory, which is the ordinary case for a photo-free
+    // trip. Branching on the stash therefore sent exactly that overwrite into the delete below and
+    // destroyed the trip the user was replacing.
+    if (mode === "createNew") {
+      // Create-new owns everything it just made, so dropping the trip really does return the system
+      // to its prior state.
+      await prisma.trip.delete({ where: { id: committed.trip.id } }).catch(() => undefined);
+    } else {
+      // Overwrite deliberately does *not* delete: the transaction has committed the restored rows,
+      // and deleting the target would destroy the trip the user was replacing rather than leave it
+      // recoverable by re-running the import. A restore that itself fails must not replace the
+      // original error either - `photo_write_failed` is what actually went wrong.
+      await restoreStashedTripUploadDir(stashedUploads).catch(() => undefined);
+    }
+    throw new Error("photo_write_failed", { cause: error });
+  }
+  // Every file is down and the rows are committed, so the import has succeeded whatever happens to
+  // the stash. Letting `fs.rm` fail here - a held handle, a scanner mid-scan - would report that
+  // success as a 500 and send the user back to re-import against a trip that restored perfectly.
+  // The stash is named `<tripDir>.import-<timestamp>-<random>`, so leaving one behind is untidy,
+  // not harmful.
+  await discardStashedTripUploadDir(stashedUploads).catch(() => undefined);
 
-    await createImportedDays({
-      tx,
-      tripId: createdTrip.id,
-      sortedDays,
-    });
-
-    return {
-      outcome: "imported",
-      mode: "createNew",
-      trip: {
-        id: createdTrip.id,
-        name: createdTrip.name,
-        startDate: createdTrip.startDate,
-        endDate: createdTrip.endDate,
-        heroImageUrl: createdTrip.heroImageUrl,
-      },
-      dayCount: sortedDays.length,
-    };
-  });
+  return {
+    outcome: "imported",
+    mode,
+    trip: committed.trip,
+    dayCount: sortedDays.length,
+    travelSegmentCount: committed.travelSegmentCount,
+    bucketListItemCount: committed.bucketListItemCount,
+    photoCount: committed.photoWrites.length,
+  };
 };
 
 export const deleteTripForUser = async (userId: string, tripId: string) => {

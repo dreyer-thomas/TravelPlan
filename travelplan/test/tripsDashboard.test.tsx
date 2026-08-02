@@ -166,6 +166,105 @@ describe("TripsDashboard", () => {
     expect(dialogScope.getByLabelText(/end date/i)).toBeInTheDocument();
   });
 
+  describe("import entry point", () => {
+    // Story 2.32 AC6. The control lives here rather than on the trip overview: an import creates or
+    // replaces a whole trip, and Story 7.8 removed the overview's copy deliberately.
+    const importButton = () => screen.getByRole("button", { name: /^import backup$/i });
+
+    it("offers an Import backup control beside Add trip, with no dialog mounted until it is used", async () => {
+      renderDashboard();
+
+      await waitFor(() => expect(importButton()).toBeInTheDocument());
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/backup file/i)).not.toBeInTheDocument();
+    });
+
+    it("keeps the control off the individual trip rows", async () => {
+      mockTripsResponse = { data: { trips: FOUR_STATE_TRIPS }, error: null };
+      renderDashboard();
+
+      const rows = await screen.findAllByTestId("trip-row");
+      for (const row of rows) {
+        // A row is a link into one trip; import is not a per-trip action, and putting it here would
+        // make "overwrite" look like it targets the row it sits on.
+        expect(within(row).queryByRole("button", { name: /import/i })).not.toBeInTheDocument();
+      }
+      expect(screen.getAllByRole("button", { name: /^import backup$/i })).toHaveLength(1);
+    });
+
+    it("opens the import dialog on click", async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      renderDashboard();
+
+      await waitFor(() => expect(importButton()).toBeInTheDocument());
+      await user.click(importButton());
+
+      const dialogScope = within(screen.getByRole("dialog"));
+      expect(dialogScope.getByText("Import trip backup")).toBeInTheDocument();
+      expect(dialogScope.getByLabelText("Backup file")).toBeInTheDocument();
+      expect(dialogScope.getByRole("button", { name: "Start import" })).toBeInTheDocument();
+    });
+
+    it("refetches the trip list once an import reports success", async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      const baseFetch = global.fetch;
+      let listFetches = 0;
+
+      global.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url.includes("/api/trips/import")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              data: {
+                trip: {
+                  id: "imported",
+                  name: "Restored Lofoten",
+                  startDate: "2026-09-12T00:00:00.000Z",
+                  endDate: "2026-09-24T00:00:00.000Z",
+                  heroImageUrl: null,
+                },
+                dayCount: 13,
+                mode: "createNew",
+                travelSegmentCount: 2,
+                bucketListItemCount: 1,
+                photoCount: 4,
+              },
+              error: null,
+            }),
+          } as Response;
+        }
+        if (url.includes("/api/trips") && (init?.method ?? "GET") === "GET") {
+          listFetches += 1;
+        }
+        return baseFetch(input, init);
+      }) as unknown as typeof fetch;
+
+      renderDashboard();
+      await waitFor(() => expect(listFetches).toBe(1));
+
+      await user.click(importButton());
+      const dialogScope = within(screen.getByRole("dialog"));
+      await user.upload(
+        dialogScope.getByLabelText("Backup file"),
+        new File(["PK"], "backup.zip", { type: "application/zip" }),
+      );
+      // The restored trip only exists from the refetch onwards - the import response does not carry
+      // the derived per-row figures the list renders.
+      mockTripsResponse = {
+        data: { trips: [trip({ id: "imported", name: "Restored Lofoten" })] },
+        error: null,
+      };
+      await user.click(dialogScope.getByRole("button", { name: "Start import" }));
+
+      await waitFor(() => expect(listFetches).toBe(2));
+      expect(await screen.findByText("Restored Lofoten")).toBeInTheDocument();
+
+      global.fetch = baseFetch;
+    });
+  });
+
   const createOsloTrip = async (user: ReturnType<typeof userEvent.setup>) => {
     const [addButton] = await screen.findAllByRole("button", { name: /add trip/i });
     await user.click(addButton);

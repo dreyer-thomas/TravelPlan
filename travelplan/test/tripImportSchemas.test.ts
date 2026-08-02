@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { MAX_IMPORT_PHOTO_WRITES } from "@/lib/trips/importLimits";
 import {
   tripImportRequestSchema,
   tripImportPayloadSchema,
@@ -74,6 +75,96 @@ const validPayload = {
     },
   ],
 };
+
+const STAMP = "2026-02-14T12:00:00.000Z";
+
+/** A v2 travel segment wired to the ids `v2Day` exports, which is what the importer remaps. */
+const v2Segment = {
+  id: "seg-1",
+  fromItemType: "accommodation",
+  fromItemId: "stay-1",
+  toItemType: "dayPlanItem",
+  toItemId: "plan-1",
+  transportType: "car",
+  durationMinutes: 30,
+  distanceKm: 12,
+  linkUrl: null,
+  createdAt: STAMP,
+  updatedAt: STAMP,
+};
+
+const v2Day = {
+  id: "day-1",
+  date: "2026-03-01T00:00:00.000Z",
+  dayIndex: 1,
+  imageUrl: null,
+  imagePhotoId: "p2",
+  note: null,
+  createdAt: STAMP,
+  updatedAt: STAMP,
+  accommodation: {
+    id: "stay-1",
+    name: "Dockside Hotel",
+    notes: null,
+    status: "booked",
+    costCents: null,
+    link: null,
+    checkInTime: null,
+    checkOutTime: null,
+    location: null,
+    createdAt: STAMP,
+    updatedAt: STAMP,
+    images: [{ sortOrder: 0, photoId: "p1" }],
+  },
+  dayPlanItems: [
+    {
+      id: "plan-1",
+      contentJson: "{\"type\":\"doc\"}",
+      linkUrl: null,
+      location: null,
+      createdAt: STAMP,
+      updatedAt: STAMP,
+      images: [{ sortOrder: 0, photoId: "p2" }],
+    },
+  ],
+  travelSegments: [v2Segment],
+};
+
+const v2Payload = {
+  meta: { exportedAt: STAMP, appVersion: "0.1.0", formatVersion: 2, warnings: [] },
+  photos: {
+    p1: { contentType: "image/jpeg", archivePath: "photos/p1.jpg" },
+    p2: { contentType: "image/png", archivePath: "photos/p2.png" },
+  },
+  trip: {
+    id: "trip-export-id",
+    name: "V2 Trip",
+    startDate: "2026-03-01T00:00:00.000Z",
+    endDate: "2026-03-01T00:00:00.000Z",
+    heroImageUrl: null,
+    heroPhotoId: "p1",
+    createdAt: STAMP,
+    updatedAt: STAMP,
+    bucketListItems: [
+      {
+        id: "bucket-1",
+        title: "Fjord cruise",
+        description: "Book early",
+        positionText: "North",
+        location: { lat: 60.1, lng: 5.3, label: "Bergen" },
+        createdAt: STAMP,
+        updatedAt: STAMP,
+      },
+    ],
+  },
+  days: [v2Day],
+};
+
+/** Replaces fields on the single day of `v2Payload`, keeping the trip's date range coverage valid. */
+const withFirstDay = (overrides: Record<string, unknown>) => ({
+  ...v2Payload,
+  days: [{ ...v2Day, ...overrides }],
+});
 
 describe("tripImportSchemas", () => {
   it("accepts exported payload format", () => {
@@ -225,5 +316,296 @@ describe("tripImportSchemas", () => {
     });
 
     expect(result.success).toBe(true);
+  });
+
+  describe("v2 manifest", () => {
+    it("accepts a complete v2 manifest", () => {
+      const result = tripImportPayloadSchema.safeParse(v2Payload);
+
+      expect(result.success).toBe(true);
+    });
+
+    it("fills v2 defaults so a v1 payload is unchanged after parsing (AC2)", () => {
+      const result = tripImportPayloadSchema.safeParse(validPayload);
+
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+      expect(result.data.photos).toEqual({});
+      expect(result.data.meta.warnings).toEqual([]);
+      expect(result.data.trip.heroPhotoId).toBeNull();
+      expect(result.data.trip.bucketListItems).toEqual([]);
+      expect(result.data.days[0].imagePhotoId).toBeNull();
+      expect(result.data.days[0].travelSegments).toEqual([]);
+      expect(result.data.days[0].accommodation?.images).toEqual([]);
+      expect(result.data.days[0].dayPlanItems[0].images).toEqual([]);
+    });
+
+    it("accepts any non-empty photo content type, because the bytes are what decide", () => {
+      // The export's `application/octet-stream` fallback used to fail the whole payload here. It
+      // is now just a hint: `validatePackagePhotos` sniffs the member and the importer derives the
+      // stored extension from the sniffed type. Resolves DW-83.
+      const result = tripImportPayloadSchema.safeParse({
+        ...v2Payload,
+        photos: {
+          ...v2Payload.photos,
+          p1: { contentType: "application/octet-stream", archivePath: "photos/p1.bin" },
+        },
+      });
+
+      expect(result.success).toBe(true);
+    });
+
+    it("still requires a photo entry to name a content type and a member", () => {
+      const result = tripImportPayloadSchema.safeParse({
+        ...v2Payload,
+        photos: { ...v2Payload.photos, p1: { contentType: "  ", archivePath: "photos/p1.jpg" } },
+      });
+
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects a dangling heroPhotoId", () => {
+      const result = tripImportPayloadSchema.safeParse({
+        ...v2Payload,
+        trip: { ...v2Payload.trip, heroPhotoId: "p99" },
+      });
+
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects a dangling gallery photoId", () => {
+      const result = tripImportPayloadSchema.safeParse(
+        withFirstDay({ accommodation: { ...v2Day.accommodation, images: [{ sortOrder: 0, photoId: "p42" }] } }),
+      );
+
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects duplicate gallery sortOrder values", () => {
+      const result = tripImportPayloadSchema.safeParse(
+        withFirstDay({
+          accommodation: {
+            ...v2Day.accommodation,
+            images: [
+              { sortOrder: 0, photoId: "p1" },
+              { sortOrder: 0, photoId: "p2" },
+            ],
+          },
+        }),
+      );
+
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects a travel segment referencing an id that is not on its own day", () => {
+      const result = tripImportPayloadSchema.safeParse(
+        withFirstDay({
+          travelSegments: [{ ...v2Segment, toItemId: "plan-on-another-day" }],
+        }),
+      );
+
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects a travel segment whose endpoint has the wrong item type", () => {
+      const result = tripImportPayloadSchema.safeParse(
+        withFirstDay({
+          // `stay-1` exists on this day, but as the accommodation, not as a plan item.
+          travelSegments: [{ ...v2Segment, fromItemType: "dayPlanItem", fromItemId: "stay-1" }],
+        }),
+      );
+
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects a duplicate travel segment endpoint tuple within a day", () => {
+      const result = tripImportPayloadSchema.safeParse(
+        withFirstDay({
+          travelSegments: [v2Segment, { ...v2Segment, id: "seg-2", durationMinutes: 99 }],
+        }),
+      );
+
+      expect(result.success).toBe(false);
+    });
+
+    it("accepts two segments that share one endpoint but not the whole tuple", () => {
+      const result = tripImportPayloadSchema.safeParse(
+        withFirstDay({
+          dayPlanItems: [v2Day.dayPlanItems[0], { ...v2Day.dayPlanItems[0], id: "plan-2" }],
+          travelSegments: [v2Segment, { ...v2Segment, id: "seg-2", toItemId: "plan-2" }],
+        }),
+      );
+
+      expect(result.success).toBe(true);
+    });
+
+    it("rejects a non-positive travel segment duration", () => {
+      const result = tripImportPayloadSchema.safeParse(
+        withFirstDay({ travelSegments: [{ ...v2Segment, durationMinutes: 0 }] }),
+      );
+
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects a travel segment that loops back to the record it starts from", () => {
+      // `travelSegmentMutationSchema` refuses this, so an imported self-loop could never be edited
+      // or re-saved from the dialog that owns it.
+      const result = tripImportPayloadSchema.safeParse(
+        withFirstDay({
+          travelSegments: [{ ...v2Segment, fromItemType: "dayPlanItem", fromItemId: "plan-1" }],
+        }),
+      );
+
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects a zero travel segment distance, which the mutation schema calls non-positive", () => {
+      const result = tripImportPayloadSchema.safeParse(
+        withFirstDay({ travelSegments: [{ ...v2Segment, distanceKm: 0 }] }),
+      );
+
+      expect(result.success).toBe(false);
+    });
+
+    it("accepts a car segment with no distance, which the mutation schema would reject", () => {
+      // Deliberate: the export emits whatever is in the database, and enforcing the
+      // transportType/distanceKm coupling would make legitimate backups unrestorable.
+      const result = tripImportPayloadSchema.safeParse(
+        withFirstDay({ travelSegments: [{ ...v2Segment, transportType: "car", distanceKm: null }] }),
+      );
+
+      expect(result.success).toBe(true);
+    });
+
+    it("rejects a travel segment link that is not http or https", () => {
+      // Import is the only writer that could put a `javascript:` URL in this column - the mutation
+      // route applies `isSafeExternalUrl`, and `z.string().url()` alone does not.
+      for (const linkUrl of ["javascript:alert(1)", "data:text/html,<script>alert(1)</script>"]) {
+        const result = tripImportPayloadSchema.safeParse(
+          withFirstDay({ travelSegments: [{ ...v2Segment, linkUrl }] }),
+        );
+        expect(result.success).toBe(false);
+      }
+    });
+
+    it("rejects a travel segment link over the 2000 character cap", () => {
+      const result = tripImportPayloadSchema.safeParse(
+        withFirstDay({
+          travelSegments: [{ ...v2Segment, linkUrl: `https://example.com/${"a".repeat(2000)}` }],
+        }),
+      );
+
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects two records on one day that share a source id", () => {
+      // The importer remaps travel segments through a `Map` keyed on these ids, so a duplicate
+      // silently overwrites its twin and any segment naming it wires to the wrong row.
+      const result = tripImportPayloadSchema.safeParse(
+        withFirstDay({
+          dayPlanItems: [v2Day.dayPlanItems[0], { ...v2Day.dayPlanItems[0] }],
+          travelSegments: [],
+        }),
+      );
+
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects a plan item whose id collides with the day's accommodation", () => {
+      const result = tripImportPayloadSchema.safeParse(
+        withFirstDay({
+          dayPlanItems: [{ ...v2Day.dayPlanItems[0], id: "stay-1" }],
+          travelSegments: [],
+        }),
+      );
+
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects a payload planning more photo files than one import may write", () => {
+      // One pooled photo, thousands of gallery slots naming it: the archive stays tiny while the
+      // planned write count does not. Every slot is a separate file on disk.
+      const images = Array.from({ length: MAX_IMPORT_PHOTO_WRITES + 1 }, (_, index) => ({
+        sortOrder: index,
+        photoId: "p1",
+      }));
+      const result = tripImportPayloadSchema.safeParse(
+        withFirstDay({ accommodation: { ...v2Day.accommodation, images } }),
+      );
+
+      expect(result.success).toBe(false);
+      expect(JSON.stringify(result.error?.issues)).toContain("photo files");
+    });
+
+    it("accepts a payload sitting exactly on the planned-write cap", () => {
+      const images = Array.from({ length: MAX_IMPORT_PHOTO_WRITES - 2 }, (_, index) => ({
+        sortOrder: index,
+        photoId: "p1",
+      }));
+      // Plus the hero and the day image, which are references too: exactly at the cap.
+      const result = tripImportPayloadSchema.safeParse(
+        withFirstDay({
+          accommodation: { ...v2Day.accommodation, images },
+          dayPlanItems: [{ ...v2Day.dayPlanItems[0], images: [] }],
+        }),
+      );
+
+      expect(result.success).toBe(true);
+    });
+
+    it("rejects bucket list fields that the live API would refuse to save again", () => {
+      const overLength = [
+        { title: "a".repeat(121) },
+        { title: "Fine", description: "b".repeat(1001) },
+        { title: "Fine", positionText: "c".repeat(201) },
+      ];
+
+      for (const item of overLength) {
+        const result = tripImportPayloadSchema.safeParse({
+          ...v2Payload,
+          trip: { ...v2Payload.trip, bucketListItems: [item] },
+        });
+        expect(result.success).toBe(false);
+      }
+    });
+
+    it("accepts bucket list fields exactly on the live API's caps", () => {
+      const result = tripImportPayloadSchema.safeParse({
+        ...v2Payload,
+        trip: {
+          ...v2Payload.trip,
+          bucketListItems: [
+            { title: "a".repeat(120), description: "b".repeat(1000), positionText: "c".repeat(200) },
+          ],
+        },
+      });
+
+      expect(result.success).toBe(true);
+    });
+
+    it("rejects a bucket list item with a blank title", () => {
+      const result = tripImportPayloadSchema.safeParse({
+        ...v2Payload,
+        trip: { ...v2Payload.trip, bucketListItems: [{ id: "b1", title: "   " }] },
+      });
+
+      expect(result.success).toBe(false);
+    });
+
+    it("accepts a bucket list item with only a title", () => {
+      const result = tripImportPayloadSchema.safeParse({
+        ...v2Payload,
+        trip: { ...v2Payload.trip, bucketListItems: [{ title: "Northern lights" }] },
+      });
+
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+      expect(result.data.trip.bucketListItems[0]).toMatchObject({
+        title: "Northern lights",
+        description: null,
+        positionText: null,
+        location: null,
+      });
+    });
   });
 });

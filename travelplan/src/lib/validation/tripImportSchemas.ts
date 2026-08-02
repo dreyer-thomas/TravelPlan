@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_IMPORT_PHOTO_WRITES } from "@/lib/trips/importLimits";
 import { isValidDateOnly } from "@/lib/validation/dateOnly";
 
 const ISO_UTC_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
@@ -52,6 +53,33 @@ const urlOrNull = z
   .union([z.string().trim().url("URL must be valid"), z.null()])
   .transform((value) => (typeof value === "string" ? value.trim() : value));
 
+/**
+ * `urlOrNull` plus the guards `travelSegmentSchemas.ts` puts on the same column.
+ *
+ * `z.string().url()` parses `javascript:` and `data:` happily - it only asks whether `new URL()`
+ * succeeds. The mutation route never lets such a value into `TravelSegment.linkUrl`, so import is
+ * the only writer that could, and a column with one trusted writer and one untrusted one is a
+ * column with an untrusted writer. The 2000-character cap comes from the same schema.
+ */
+const externalLinkOrNull = z
+  .union([
+    z
+      .string()
+      .trim()
+      .url("Link must be a valid URL")
+      .refine((value) => {
+        try {
+          const protocol = new URL(value).protocol;
+          return protocol === "http:" || protocol === "https:";
+        } catch {
+          return false;
+        }
+      }, "Link must use http or https")
+      .max(2000, "Link must be at most 2000 characters"),
+    z.null(),
+  ])
+  .transform((value) => (typeof value === "string" ? value.trim() : value));
+
 const dayImageUrlOrNull = z
   .union([z.string().trim(), z.null()])
   .refine(
@@ -70,6 +98,130 @@ const locationSchema = z.object({
   lat: z.number().min(-90).max(90),
   lng: z.number().min(-180).max(180),
   label: optionalLabelSchema,
+});
+
+/**
+ * Everything below this line is v2 (Story 2.32). Every field is `.optional()` with a null/[]/{}
+ * default, which is what keeps a v1 backup parsing unchanged - AC2 in one sentence.
+ */
+
+/**
+ * One entry of the manifest's photo pool.
+ *
+ * The bytes are *not* here: `archivePath` names the archive member that carries them, so per-photo
+ * byte checks (size, magic bytes) cannot live in Zod at all. They run in `validatePackagePhotos`
+ * against the same request, before the transaction, and report through the same 400.
+ *
+ * `contentType` is any non-empty string on purpose - it is a hint, not a decision. The bytes are
+ * what `sniffPhotoContentType` allow-lists, and they are also what picks the extension on disk, so
+ * an enum here would only reject packages whose bytes are perfectly fine: the export falls back to
+ * `application/octet-stream` for a stored URL with an unrecognised extension, and this very
+ * importer can create such a row (a v1 `imageUrl` is written verbatim, so `/uploads/.../day.jfif`
+ * survives a round trip and comes back out as octet-stream).
+ */
+const photoSchema = z.object({
+  contentType: z.string().trim().min(1),
+  archivePath: z.string().trim().min(1),
+});
+
+const photoIdOrNull = z.union([z.string().trim().min(1), z.null()]).optional().default(null);
+
+/**
+ * Gallery references. `sortOrder` uniqueness is checked per owner because
+ * `@@unique([accommodationId, sortOrder])` / `@@unique([dayPlanItemId, sortOrder])` would otherwise
+ * surface as a P2002 halfway through the import transaction - a 500 for something the payload
+ * states plainly.
+ */
+const imagesSchema = z
+  .array(
+    z.object({
+      sortOrder: z.number().int().min(0),
+      photoId: z.string().trim().min(1),
+    }),
+  )
+  .optional()
+  .default([])
+  .superRefine((images, ctx) => {
+    const seen = new Set<number>();
+    for (const image of images) {
+      if (seen.has(image.sortOrder)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Duplicate image sortOrder detected: ${image.sortOrder}`,
+        });
+        return;
+      }
+      seen.add(image.sortOrder);
+    }
+  });
+
+/**
+ * Travel segments carry the **API-level lowercase** vocabulary (see `TravelSegmentDetail`), not
+ * Prisma's enum spellings; the repository maps them up.
+ *
+ * `fromItemId` / `toItemId` are the *source* record ids and are checked against the same day's
+ * records in the root `superRefine` - a segment pointing at nothing is a validation error, never a
+ * row to skip.
+ */
+const travelSegmentImportSchema = z
+  .object({
+    id: z.string().trim().min(1),
+    fromItemType: z.enum(["accommodation", "dayPlanItem"]),
+    fromItemId: z.string().trim().min(1),
+    toItemType: z.enum(["accommodation", "dayPlanItem"]),
+    toItemId: z.string().trim().min(1),
+    transportType: z.enum(["car", "ship", "flight"]),
+    durationMinutes: z.number().int().positive(),
+    // `positive`, not `nonnegative`: `travelSegmentMutationSchema` rejects `0`, so a zero-distance
+    // row imported here could never be saved again from the dialog that owns it.
+    distanceKm: z.union([z.number().positive(), z.null()]).optional().default(null),
+    linkUrl: externalLinkOrNull.optional().default(null),
+    // Accepted but unused: Prisma owns `created_at` / `updated_at` on insert, exactly as v1 import
+    // already did for every other record.
+    createdAt: isoUtcDate.optional(),
+    updatedAt: isoUtcDate.optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.fromItemType === value.toItemType && value.fromItemId === value.toItemId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["toItemId"],
+        message: "Travel segment must connect two different items",
+      });
+    }
+
+    // Deliberately **not** enforced: `travelSegmentSchemas.ts` couples `transportType` to
+    // `distanceKm` (car requires a distance, non-car forbids one). The export emits whatever is in
+    // the database, so enforcing the coupling here would make legitimate backups unrestorable over
+    // a rule that was added after those rows were written. See Completion Note 4 in the story.
+  });
+
+/**
+ * Lengths match `bucketListSchemas.ts` exactly (120 / 1000 / 200), measured after trimming just as
+ * the live schema measures them.
+ *
+ * Import is the only writer that could exceed them, and an over-length item is worse than a
+ * rejected one: it renders fine and then fails every save from the panel that owns it, with no hint
+ * that the length is what the API objects to.
+ */
+const bucketListItemImportSchema = z.object({
+  id: z.string().trim().min(1).optional(),
+  title: z
+    .string()
+    .trim()
+    .min(1, "Bucket list title is required")
+    .max(120, "Bucket list title must be at most 120 characters"),
+  description: z
+    .union([z.string().trim().max(1000, "Bucket list description must be at most 1000 characters"), z.null()])
+    .optional()
+    .default(null),
+  positionText: z
+    .union([z.string().trim().max(200, "Bucket list position text must be at most 200 characters"), z.null()])
+    .optional()
+    .default(null),
+  location: z.union([locationSchema, z.null()]).optional().default(null),
+  createdAt: isoUtcDate.optional(),
+  updatedAt: isoUtcDate.optional(),
 });
 
 const accommodationImportSchema = z.object({
@@ -92,6 +244,7 @@ const accommodationImportSchema = z.object({
   location: z.union([locationSchema, z.null()]),
   createdAt: isoUtcDate,
   updatedAt: isoUtcDate,
+  images: imagesSchema,
 }).superRefine((value, ctx) => {
   const payments = value.payments ?? [];
   if (payments.length === 0) return;
@@ -133,6 +286,7 @@ const dayPlanItemImportSchema = z
     location: z.union([locationSchema, z.null()]),
     createdAt: isoUtcDate,
     updatedAt: isoUtcDate,
+    images: imagesSchema,
   })
   .superRefine((value, ctx) => {
     const hasFromTime = typeof value.fromTime === "string";
@@ -184,11 +338,13 @@ const tripDayImportSchema = z.object({
   date: isoUtcDate,
   dayIndex: z.number().int().min(1),
   imageUrl: dayImageUrlOrNull.optional().default(null),
+  imagePhotoId: photoIdOrNull,
   note: z.union([z.string().trim().max(280), z.null()]).optional().default(null),
   createdAt: isoUtcDate,
   updatedAt: isoUtcDate,
   accommodation: z.union([accommodationImportSchema, z.null()]),
   dayPlanItems: z.array(dayPlanItemImportSchema),
+  travelSegments: z.array(travelSegmentImportSchema).optional().default([]),
 });
 
 const tripImportSchema = z
@@ -198,10 +354,13 @@ const tripImportSchema = z
     startDate: isoUtcDate,
     endDate: isoUtcDate,
     heroImageUrl: z.union([z.string().trim(), z.null()]),
+    heroPhotoId: photoIdOrNull,
     startLocation: z.union([locationSchema, z.null()]).optional(),
     destinationLocation: z.union([locationSchema, z.null()]).optional(),
     createdAt: isoUtcDate,
     updatedAt: isoUtcDate,
+    // Trip-scoped, so it lives inside `trip` and mirrors where the export puts it.
+    bucketListItems: z.array(bucketListItemImportSchema).optional().default([]),
   })
   .refine((data) => new Date(data.startDate).getTime() <= new Date(data.endDate).getTime(), {
     message: "Start date must be before or equal to end date",
@@ -213,7 +372,11 @@ export const tripImportPayloadSchema = z.object({
     exportedAt: isoUtcDate,
     appVersion: z.string().trim().min(1),
     formatVersion: z.number().int().positive(),
+    // Present in every v2 manifest (`[]` when clean), absent in v1. Read for reporting only - a
+    // warning records what the *export* skipped and is never a reason to fail an import.
+    warnings: z.array(z.string()).optional().default([]),
   }),
+  photos: z.record(z.string().min(1), photoSchema).optional().default({}),
   trip: tripImportSchema,
   days: z.array(tripDayImportSchema).min(1, "At least one day is required"),
 }).superRefine((input, ctx) => {
@@ -239,6 +402,120 @@ export const tripImportPayloadSchema = z.object({
       break;
     }
     seenDayIndexes.add(day.dayIndex);
+  }
+
+  // --- v2 cross-reference checks -------------------------------------------------------------
+  // All of these are AC3 validation errors on purpose. Each one describes a package that would
+  // otherwise fail *inside* the transaction - as a null dereference, a P2002, or a travel segment
+  // silently wired to nothing - which is a 500 for a problem the payload states in plain sight.
+
+  /**
+   * One planned file per *reference*, which is exactly what the repository goes on to write: the
+   * pool is deduplicated, the references into it are not. Counting here rather than in
+   * `validatePackagePhotos` is what puts the cap before the transaction - that function only sees
+   * the pool and the archive members, neither of which says how many times a photo is used.
+   */
+  let plannedPhotoWrites = 0;
+
+  const requirePooledPhoto = (photoId: string | null, path: (string | number)[]) => {
+    if (photoId === null) return;
+    plannedPhotoWrites += 1;
+    if (!Object.prototype.hasOwnProperty.call(input.photos, photoId)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Unknown photo reference: ${photoId}`,
+        path,
+      });
+    }
+  };
+
+  requirePooledPhoto(input.trip.heroPhotoId, ["trip", "heroPhotoId"]);
+
+  input.days.forEach((day, dayIndex) => {
+    requirePooledPhoto(day.imagePhotoId, ["days", dayIndex, "imagePhotoId"]);
+
+    day.accommodation?.images.forEach((image, imageIndex) => {
+      requirePooledPhoto(image.photoId, ["days", dayIndex, "accommodation", "images", imageIndex, "photoId"]);
+    });
+    day.dayPlanItems.forEach((item, itemIndex) => {
+      item.images.forEach((image, imageIndex) => {
+        requirePooledPhoto(image.photoId, [
+          "days",
+          dayIndex,
+          "dayPlanItems",
+          itemIndex,
+          "images",
+          imageIndex,
+          "photoId",
+        ]);
+      });
+    });
+
+    // Source record ids are the keys travel segments are remapped through, and the map is built as
+    // the records are created. Two records on one day sharing an id therefore do not merely
+    // duplicate data: the second overwrites the first in that map, and every segment naming the id
+    // wires itself to whichever row happened to be written last. Checked on every day, segments or
+    // not - a payload that cannot name its own records unambiguously is not restorable.
+    const seenRecordIds = new Set<string>();
+    if (day.accommodation) {
+      seenRecordIds.add(day.accommodation.id);
+    }
+    day.dayPlanItems.forEach((item, itemIndex) => {
+      if (seenRecordIds.has(item.id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Duplicate record id within a day: ${item.id}`,
+          path: ["days", dayIndex, "dayPlanItems", itemIndex, "id"],
+        });
+      }
+      seenRecordIds.add(item.id);
+    });
+
+    if (day.travelSegments.length === 0) return;
+
+    // A segment's endpoints must be records of *this* day: `TravelSegment.tripDayId` scopes the row,
+    // and the importer resolves the ids through a per-day map built as those records are created.
+    const accommodationId = day.accommodation?.id ?? null;
+    const planItemIds = new Set(day.dayPlanItems.map((item) => item.id));
+    const resolves = (itemType: "accommodation" | "dayPlanItem", itemId: string) =>
+      itemType === "accommodation" ? itemId === accommodationId : planItemIds.has(itemId);
+
+    const seenPairs = new Set<string>();
+    day.travelSegments.forEach((segment, segmentIndex) => {
+      if (!resolves(segment.fromItemType, segment.fromItemId)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Travel segment fromItemId does not match any record on this day: ${segment.fromItemId}`,
+          path: ["days", dayIndex, "travelSegments", segmentIndex, "fromItemId"],
+        });
+      }
+      if (!resolves(segment.toItemType, segment.toItemId)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Travel segment toItemId does not match any record on this day: ${segment.toItemId}`,
+          path: ["days", dayIndex, "travelSegments", segmentIndex, "toItemId"],
+        });
+      }
+
+      // Mirrors `idx_travel_segments_pair`.
+      const pair = `${segment.fromItemType}:${segment.fromItemId}->${segment.toItemType}:${segment.toItemId}`;
+      if (seenPairs.has(pair)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Duplicate travel segment endpoints detected within a day",
+          path: ["days", dayIndex, "travelSegments", segmentIndex],
+        });
+      }
+      seenPairs.add(pair);
+    });
+  });
+
+  if (plannedPhotoWrites > MAX_IMPORT_PHOTO_WRITES) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `Backup plans ${plannedPhotoWrites} photo files, more than the ${MAX_IMPORT_PHOTO_WRITES} one import may write`,
+      path: ["photos"],
+    });
   }
 });
 
@@ -271,3 +548,31 @@ export const tripImportRequestSchema = z
 export type TripImportPayloadInput = z.infer<typeof tripImportPayloadSchema>;
 export type TripImportConflictStrategy = z.infer<typeof tripImportConflictStrategySchema>;
 export type TripImportRequestInput = z.infer<typeof tripImportRequestSchema>;
+
+/**
+ * How many files each pool id will produce, keyed by photo id.
+ *
+ * The same walk the root `superRefine` does to count planned writes, exposed so the byte-volume cap
+ * in `validatePackagePhotos` can price each reference by the size of the member behind it. Kept
+ * here rather than duplicated there because this module already owns the shape of a payload; a
+ * second walk somewhere else is a second thing to update when the shape gains a photo field.
+ */
+export const countPhotoReferences = (payload: TripImportPayloadInput): Map<string, number> => {
+  const counts = new Map<string, number>();
+
+  const record = (photoId: string | null) => {
+    if (photoId === null) return;
+    counts.set(photoId, (counts.get(photoId) ?? 0) + 1);
+  };
+
+  record(payload.trip.heroPhotoId);
+  for (const day of payload.days) {
+    record(day.imagePhotoId);
+    day.accommodation?.images.forEach((image) => record(image.photoId));
+    for (const item of day.dayPlanItems) {
+      item.images.forEach((image) => record(image.photoId));
+    }
+  }
+
+  return counts;
+};

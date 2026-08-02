@@ -12,8 +12,10 @@ import {
   ChevronRightIcon,
   ClockIcon,
   PlusIcon,
+  UploadIcon,
   WarningTriangleIcon,
 } from "@/components/features/trips/TripIcons";
+import TripImportDialog from "@/components/features/trips/TripImportDialog";
 import { withImageCacheBuster } from "@/lib/trips/imageUploads";
 import { formatCost } from "@/lib/trips/formatCost";
 import { deriveTripStatus, startOfTodayUtc, type TripStatus } from "@/lib/trips/tripStatus";
@@ -66,6 +68,7 @@ export default function TripsDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   // Computed once for the whole render, not per row. Held in state rather than a bare `useMemo` so
   // it can be refreshed: a memo with an empty dep array pins "today" to mount time, and a dashboard
@@ -163,6 +166,18 @@ export default function TripsDashboard() {
   const handleCloseCreate = useCallback(() => {
     setCreateOpen(false);
   }, []);
+  const handleOpenImport = useCallback(() => {
+    setImportOpen(true);
+  }, []);
+  const handleCloseImport = useCallback(() => {
+    setImportOpen(false);
+  }, []);
+  // An import creates or replaces a whole trip, so the list is refetched rather than patched: the
+  // response names the trip but not the derived per-row figures (open days, plan items, cost), and
+  // an overwrite mutates a row that is already on screen.
+  const handleImported = useCallback(() => {
+    void loadTrips();
+  }, [loadTrips]);
 
   const statuses = useMemo(
     () => new Map(trips.map((trip) => [trip.id, deriveTripStatus(trip, todayUtc)] as const)),
@@ -304,17 +319,31 @@ export default function TripsDashboard() {
             )
           )}
         </Box>
-        <Button
-          variant="contained"
-          onClick={handleOpenCreate}
-          startIcon={<PlusIcon />}
-          // MUI's `ButtonStartIcon` sets `& > *:nth-of-type(1) { font-size: 20px }` at a higher
-          // specificity than the `sx` on the icon itself, so the glyph has to be sized from here to
-          // reach the mockup's 15px.
-          sx={{ "& .MuiButton-startIcon > *:nth-of-type(1)": { fontSize: 15 } }}
-        >
-          {t("trips.dashboard.addTrip")}
-        </Button>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+          {/* Restoring a backup creates or replaces an entire trip, so it belongs beside "Add trip"
+              on the list of trips rather than inside one of them - Story 7.8 removed the trip
+              overview's copy of this control deliberately. Outlined so the primary action on the
+              surface stays singular. */}
+          <Button
+            variant="outlined"
+            onClick={handleOpenImport}
+            startIcon={<UploadIcon />}
+            sx={{ "& .MuiButton-startIcon > *:nth-of-type(1)": { fontSize: 15 } }}
+          >
+            {t("trips.import.open")}
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleOpenCreate}
+            startIcon={<PlusIcon />}
+            // MUI's `ButtonStartIcon` sets `& > *:nth-of-type(1) { font-size: 20px }` at a higher
+            // specificity than the `sx` on the icon itself, so the glyph has to be sized from here to
+            // reach the mockup's 15px.
+            sx={{ "& .MuiButton-startIcon > *:nth-of-type(1)": { fontSize: 15 } }}
+          >
+            {t("trips.dashboard.addTrip")}
+          </Button>
+        </Box>
       </Box>
 
       <Box
@@ -638,6 +667,7 @@ export default function TripsDashboard() {
       </Box>
 
       <TripCreateDialog open={createOpen} onClose={handleCloseCreate} onCreated={handleTripCreated} />
+      <TripImportDialog open={importOpen} onClose={handleCloseImport} onImported={handleImported} />
     </Box>
   );
 }

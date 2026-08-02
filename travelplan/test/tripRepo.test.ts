@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/prisma";
 import {
   getAccommodationImageUploadDir,
   getDayPlanItemImageUploadDir,
+  getTripDayUploadDir,
   getTripUploadDir,
   getTripsUploadRoot,
 } from "@/lib/trips/uploadPaths";
@@ -19,27 +20,39 @@ import {
   updateTripWithDays,
 } from "@/lib/repositories/tripRepo";
 import type { TripImportPayloadInput } from "@/lib/validation/tripImportSchemas";
-import { writeUploadFile } from "./helpers/uploadFixtures";
+import { jpegBytes, pngBytes, webpBytes, writeUploadFile } from "./helpers/uploadFixtures";
 
 const VALID_RANGE = {
   startDate: "2026-04-01T00:00:00.000Z",
   endDate: "2026-04-02T00:00:00.000Z",
 };
 
+/**
+ * The v1 payload shape, spelled out with the defaults the v2 schema fills in.
+ *
+ * `importTripFromExportForUser` is typed against the schema's *output*, so a fixture that omits the
+ * v2 fields is not a v1 payload - it is a payload that never went through Zod. The AC2 regression
+ * guard that a real v1 file still parses lives in `test/tripImportSchemas.test.ts`, where the input
+ * side is what is under test.
+ */
 const IMPORT_PAYLOAD: TripImportPayloadInput = {
   meta: {
     exportedAt: "2026-02-14T12:00:00.000Z",
     appVersion: "0.1.0",
     formatVersion: 1,
+    warnings: [],
   },
+  photos: {},
   trip: {
     id: "export-trip",
     name: "Imported Trip",
     startDate: "2026-11-01T00:00:00.000Z",
     endDate: "2026-11-02T00:00:00.000Z",
     heroImageUrl: null,
+    heroPhotoId: null,
     createdAt: "2026-02-14T12:00:00.000Z",
     updatedAt: "2026-02-14T12:00:00.000Z",
+    bucketListItems: [],
   },
   days: [
     {
@@ -47,6 +60,7 @@ const IMPORT_PAYLOAD: TripImportPayloadInput = {
       date: "2026-11-02T00:00:00.000Z",
       dayIndex: 2,
       imageUrl: "/uploads/trips/export-trip/days/export-day-2/day.webp",
+      imagePhotoId: null,
       note: "Arrival and city walk",
       createdAt: "2026-02-14T12:00:00.000Z",
       updatedAt: "2026-02-14T12:00:00.000Z",
@@ -62,32 +76,174 @@ const IMPORT_PAYLOAD: TripImportPayloadInput = {
         location: { lat: 48.14, lng: 11.58, label: "Dockside" },
         createdAt: "2026-02-14T12:00:00.000Z",
         updatedAt: "2026-02-14T12:00:00.000Z",
+        images: [],
       },
       dayPlanItems: [
         {
           id: "export-plan-2",
+          title: null,
+          fromTime: null,
+          toTime: null,
           contentJson: "{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"Museum\"}]}]}",
           costCents: 1800,
           linkUrl: "https://example.com/museum",
           location: { lat: 48.141, lng: 11.581, label: "Museum" },
           createdAt: "2026-02-14T12:00:00.000Z",
           updatedAt: "2026-02-14T12:00:00.000Z",
+          images: [],
         },
       ],
+      travelSegments: [],
     },
     {
       id: "export-day-1",
       date: "2026-11-01T00:00:00.000Z",
       dayIndex: 1,
       imageUrl: null,
+      imagePhotoId: null,
       note: null,
       createdAt: "2026-02-14T12:00:00.000Z",
       updatedAt: "2026-02-14T12:00:00.000Z",
       accommodation: null,
       dayPlanItems: [],
+      travelSegments: [],
     },
   ],
 };
+
+/**
+ * A complete v2 backup: pooled photos on every surface, an accommodation and a plan-item gallery, a
+ * travel segment wired to the *source* record ids, and bucket list items.
+ *
+ * The v1 `heroImageUrl` / `imageUrl` strings deliberately point into a foreign trip's directory, so
+ * a test can prove the pooled photo took precedence rather than the old dead link surviving.
+ */
+const V2_IMPORT_PAYLOAD: TripImportPayloadInput = {
+  meta: {
+    exportedAt: "2026-02-14T12:00:00.000Z",
+    appVersion: "0.1.0",
+    formatVersion: 2,
+    warnings: [],
+  },
+  photos: {
+    p1: { contentType: "image/jpeg", archivePath: "photos/p1.jpg" },
+    p2: { contentType: "image/png", archivePath: "photos/p2.png" },
+    p3: { contentType: "image/webp", archivePath: "photos/p3.webp" },
+    p4: { contentType: "image/jpeg", archivePath: "photos/p4.jpg" },
+  },
+  trip: {
+    id: "source-trip",
+    name: "Complete Backup Trip",
+    startDate: "2026-12-01T00:00:00.000Z",
+    endDate: "2026-12-02T00:00:00.000Z",
+    heroImageUrl: "/uploads/trips/source-trip/hero.jpg",
+    heroPhotoId: "p1",
+    createdAt: "2026-02-14T12:00:00.000Z",
+    updatedAt: "2026-02-14T12:00:00.000Z",
+    bucketListItems: [
+      {
+        id: "source-bucket-1",
+        title: "Northern lights",
+        description: "  Away from town  ",
+        positionText: "   ",
+        location: { lat: 69.65, lng: 18.95, label: "Tromso" },
+        createdAt: "2026-02-14T12:00:00.000Z",
+        updatedAt: "2026-02-14T12:00:00.000Z",
+      },
+      {
+        id: "source-bucket-2",
+        title: "Fjord cruise",
+        description: null,
+        positionText: null,
+        location: null,
+        createdAt: "2026-02-14T12:00:00.000Z",
+        updatedAt: "2026-02-14T12:00:00.000Z",
+      },
+    ],
+  },
+  days: [
+    {
+      id: "source-day-1",
+      date: "2026-12-01T00:00:00.000Z",
+      dayIndex: 1,
+      imageUrl: "/uploads/trips/source-trip/days/source-day-1/day.png",
+      imagePhotoId: "p2",
+      note: null,
+      createdAt: "2026-02-14T12:00:00.000Z",
+      updatedAt: "2026-02-14T12:00:00.000Z",
+      accommodation: {
+        id: "source-stay-1",
+        name: "Harbour Inn",
+        notes: null,
+        status: "booked",
+        costCents: null,
+        link: null,
+        checkInTime: null,
+        checkOutTime: null,
+        location: null,
+        createdAt: "2026-02-14T12:00:00.000Z",
+        updatedAt: "2026-02-14T12:00:00.000Z",
+        images: [{ sortOrder: 0, photoId: "p3" }],
+      },
+      dayPlanItems: [
+        {
+          id: "source-plan-1",
+          title: "Ferry terminal",
+          fromTime: null,
+          toTime: null,
+          contentJson: "{\"type\":\"doc\"}",
+          costCents: null,
+          linkUrl: null,
+          location: null,
+          createdAt: "2026-02-14T12:00:00.000Z",
+          updatedAt: "2026-02-14T12:00:00.000Z",
+          // Two slots, one of them sharing a pool entry with the accommodation gallery: a pooled
+          // photo referenced twice must land as two files, one per slot.
+          images: [
+            { sortOrder: 0, photoId: "p4" },
+            { sortOrder: 1, photoId: "p3" },
+          ],
+        },
+      ],
+      travelSegments: [
+        {
+          id: "source-seg-1",
+          fromItemType: "accommodation",
+          fromItemId: "source-stay-1",
+          toItemType: "dayPlanItem",
+          toItemId: "source-plan-1",
+          transportType: "ship",
+          durationMinutes: 45,
+          distanceKm: null,
+          linkUrl: "https://example.com/ferry",
+          createdAt: "2026-02-14T12:00:00.000Z",
+          updatedAt: "2026-02-14T12:00:00.000Z",
+        },
+      ],
+    },
+    {
+      id: "source-day-2",
+      date: "2026-12-02T00:00:00.000Z",
+      dayIndex: 2,
+      imageUrl: null,
+      imagePhotoId: null,
+      note: null,
+      createdAt: "2026-02-14T12:00:00.000Z",
+      updatedAt: "2026-02-14T12:00:00.000Z",
+      accommodation: null,
+      dayPlanItems: [],
+      travelSegments: [],
+    },
+  ],
+};
+
+const v2PhotoBytes = () =>
+  new Map([
+    ["photos/p1.jpg", jpegBytes()],
+    ["photos/p2.png", pngBytes()],
+    ["photos/p3.webp", webpBytes()],
+    ["photos/p4.jpg", jpegBytes(128)],
+  ]);
 
 describe("tripRepo", () => {
   const uploadsRoot = getTripsUploadRoot();
@@ -1627,12 +1783,15 @@ describe("tripRepo", () => {
         role: "OWNER",
       },
     });
+    // Driven with the v2 payload so the rollback covers the rows this story added as well: the
+    // first day carries photos, a gallery, a travel segment and bucket list items, and the second
+    // day is what fails.
     const invalidPayload = {
-      ...IMPORT_PAYLOAD,
+      ...V2_IMPORT_PAYLOAD,
       days: [
-        IMPORT_PAYLOAD.days[0],
+        V2_IMPORT_PAYLOAD.days[0],
         {
-          ...IMPORT_PAYLOAD.days[1],
+          ...V2_IMPORT_PAYLOAD.days[1],
           date: "not-a-date",
         },
       ],
@@ -1643,6 +1802,7 @@ describe("tripRepo", () => {
         userId: user.id,
         payload: invalidPayload,
         strategy: "createNew",
+        photoBytes: v2PhotoBytes(),
       })
     ).rejects.toBeDefined();
 
@@ -1650,5 +1810,321 @@ describe("tripRepo", () => {
     expect(await prisma.tripDay.count()).toBe(0);
     expect(await prisma.accommodation.count()).toBe(0);
     expect(await prisma.dayPlanItem.count()).toBe(0);
+    expect(await prisma.travelSegment.count()).toBe(0);
+    expect(await prisma.tripBucketListItem.count()).toBe(0);
+    expect(await prisma.accommodationImage.count()).toBe(0);
+    expect(await prisma.dayPlanItemImage.count()).toBe(0);
+    // AC3 covers the disk too: photos are written only after the commit, so a failed transaction
+    // must leave the uploads root untouched.
+    expect(await fs.readdir(uploadsRoot).catch(() => [])).toEqual([]);
+  });
+
+  it("restores photos, galleries, travel segments and bucket list items from a v2 backup", async () => {
+    const user = await prisma.user.create({
+      data: { email: "trip-import-v2@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+
+    const result = await importTripFromExportForUser({
+      userId: user.id,
+      payload: V2_IMPORT_PAYLOAD,
+      strategy: "createNew",
+      photoBytes: v2PhotoBytes(),
+    });
+
+    expect(result.outcome).toBe("imported");
+    if (result.outcome !== "imported") return;
+    expect(result.dayCount).toBe(2);
+    expect(result.travelSegmentCount).toBe(1);
+    expect(result.bucketListItemCount).toBe(2);
+    // Hero + day image + one accommodation slot + two plan-item slots.
+    expect(result.photoCount).toBe(5);
+
+    const tripId = result.trip.id;
+    const day = await prisma.tripDay.findFirstOrThrow({ where: { tripId, dayIndex: 1 } });
+    const accommodation = await prisma.accommodation.findFirstOrThrow({ where: { tripDayId: day.id } });
+    const planItem = await prisma.dayPlanItem.findFirstOrThrow({ where: { tripDayId: day.id } });
+
+    // --- travel segment id remapping -----------------------------------------------------------
+    const segment = await prisma.travelSegment.findFirstOrThrow({ where: { tripDayId: day.id } });
+    expect(segment.fromItemId).toBe(accommodation.id);
+    expect(segment.toItemId).toBe(planItem.id);
+    expect(segment.fromItemId).not.toBe("source-stay-1");
+    expect(segment.toItemId).not.toBe("source-plan-1");
+    expect(segment.fromItemType).toBe("ACCOMMODATION");
+    expect(segment.toItemType).toBe("DAY_PLAN_ITEM");
+    expect(segment.transportType).toBe("SHIP");
+    expect(segment.durationMinutes).toBe(45);
+    expect(segment.linkUrl).toBe("https://example.com/ferry");
+
+    // --- bucket list ---------------------------------------------------------------------------
+    const bucketItems = await prisma.tripBucketListItem.findMany({
+      where: { tripId },
+      orderBy: { title: "asc" },
+    });
+    expect(bucketItems.map((item) => item.title)).toEqual(["Fjord cruise", "Northern lights"]);
+    // `cleanOptionalString` semantics: trimmed, and a blank string becomes null.
+    expect(bucketItems[1].description).toBe("Away from town");
+    expect(bucketItems[1].positionText).toBeNull();
+    expect(bucketItems[1].locationLabel).toBe("Tromso");
+
+    // --- image rows carry the new ids ----------------------------------------------------------
+    const stayImages = await prisma.accommodationImage.findMany({
+      where: { accommodationId: accommodation.id },
+      orderBy: { sortOrder: "asc" },
+    });
+    const planImages = await prisma.dayPlanItemImage.findMany({
+      where: { dayPlanItemId: planItem.id },
+      orderBy: { sortOrder: "asc" },
+    });
+    expect(stayImages.map((image) => image.sortOrder)).toEqual([0]);
+    expect(planImages.map((image) => image.sortOrder)).toEqual([0, 1]);
+    expect(stayImages[0].imageUrl).toMatch(
+      new RegExp(`^/uploads/trips/${tripId}/days/${day.id}/accommodations/${accommodation.id}/img-`),
+    );
+    expect(planImages[0].imageUrl).toMatch(
+      new RegExp(`^/uploads/trips/${tripId}/days/${day.id}/day-plan-items/${planItem.id}/img-`),
+    );
+    // A pool entry referenced twice is written once per slot, never shared between rows.
+    expect(planImages[1].imageUrl).not.toBe(stayImages[0].imageUrl);
+
+    // --- hero / day image precedence -----------------------------------------------------------
+    const trip = await prisma.trip.findFirstOrThrow({ where: { id: tripId } });
+    expect(trip.heroImageUrl).toBe(`/uploads/trips/${tripId}/hero.jpg`);
+    expect(day.imageUrl).toBe(`/uploads/trips/${tripId}/days/${day.id}/day.png`);
+    expect(trip.heroImageUrl).not.toContain("source-trip");
+
+    // --- files really landed, under the *new* trip's directory ---------------------------------
+    expect(await fs.readFile(path.join(getTripUploadDir(tripId), "hero.jpg"))).toEqual(jpegBytes());
+    expect(await fs.readFile(path.join(getTripDayUploadDir(tripId, day.id), "day.png"))).toEqual(pngBytes());
+    const stayDir = getAccommodationImageUploadDir(tripId, day.id, accommodation.id);
+    const planDir = getDayPlanItemImageUploadDir(tripId, day.id, planItem.id);
+    expect(await fs.readdir(stayDir)).toHaveLength(1);
+    expect(await fs.readdir(planDir)).toHaveLength(2);
+    expect(await fs.readFile(path.join(stayDir, path.basename(stayImages[0].imageUrl)))).toEqual(webpBytes());
+  });
+
+  it("keeps the v1 image strings when a backup carries no pooled photos", async () => {
+    const user = await prisma.user.create({
+      data: { email: "trip-import-v1-urls@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+
+    const result = await importTripFromExportForUser({
+      userId: user.id,
+      payload: IMPORT_PAYLOAD,
+      strategy: "createNew",
+    });
+
+    expect(result.outcome).toBe("imported");
+    if (result.outcome !== "imported") return;
+    expect(result.photoCount).toBe(0);
+    expect(result.travelSegmentCount).toBe(0);
+    expect(result.bucketListItemCount).toBe(0);
+
+    const day = await prisma.tripDay.findFirstOrThrow({ where: { tripId: result.trip.id, dayIndex: 2 } });
+    expect(day.imageUrl).toBe("/uploads/trips/export-trip/days/export-day-2/day.webp");
+  });
+
+  it("replaces bucket list items and leaves no orphaned segment or image rows on overwrite", async () => {
+    const user = await prisma.user.create({
+      data: { email: "trip-import-overwrite-v2@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+
+    const target = await createTripWithDays({
+      userId: user.id,
+      name: V2_IMPORT_PAYLOAD.trip.name,
+      startDate: "2026-10-10T00:00:00.000Z",
+      endDate: "2026-10-11T00:00:00.000Z",
+    });
+    const targetDay = await prisma.tripDay.findFirstOrThrow({
+      where: { tripId: target.trip.id, dayIndex: 1 },
+    });
+    const oldAccommodation = await prisma.accommodation.create({
+      data: { tripDayId: targetDay.id, name: "Old Accommodation" },
+    });
+    const oldPlanItem = await prisma.dayPlanItem.create({
+      data: { tripDayId: targetDay.id, contentJson: "{\"type\":\"doc\"}" },
+    });
+    await prisma.accommodationImage.create({
+      data: {
+        accommodationId: oldAccommodation.id,
+        imageUrl: `/uploads/trips/${target.trip.id}/days/${targetDay.id}/accommodations/${oldAccommodation.id}/old.jpg`,
+        sortOrder: 0,
+      },
+    });
+    await prisma.travelSegment.create({
+      data: {
+        tripDayId: targetDay.id,
+        fromItemType: "ACCOMMODATION",
+        fromItemId: oldAccommodation.id,
+        toItemType: "DAY_PLAN_ITEM",
+        toItemId: oldPlanItem.id,
+        transportType: "CAR",
+        durationMinutes: 15,
+      },
+    });
+    await prisma.tripBucketListItem.create({
+      data: { tripId: target.trip.id, title: "Stale bucket entry" },
+    });
+    // A file the previous import left behind: AC5 says the overwrite must clear the disk too.
+    await writeUploadFile(getTripUploadDir(target.trip.id), "stale.jpg", jpegBytes());
+
+    const result = await importTripFromExportForUser({
+      userId: user.id,
+      payload: V2_IMPORT_PAYLOAD,
+      strategy: "overwrite",
+      targetTripId: target.trip.id,
+      photoBytes: v2PhotoBytes(),
+    });
+
+    expect(result.outcome).toBe("imported");
+    if (result.outcome !== "imported") return;
+    expect(result.mode).toBe("overwrite");
+    expect(result.trip.id).toBe(target.trip.id);
+
+    const bucketItems = await prisma.tripBucketListItem.findMany({ where: { tripId: target.trip.id } });
+    expect(bucketItems.map((item) => item.title).sort()).toEqual(["Fjord cruise", "Northern lights"]);
+
+    // `tripDay.deleteMany` cascades days -> accommodations / plan items / segments / images, so the
+    // only rows left must belong to the freshly imported day.
+    const segments = await prisma.travelSegment.findMany();
+    expect(segments).toHaveLength(1);
+    expect(segments[0].transportType).toBe("SHIP");
+    const stayImages = await prisma.accommodationImage.findMany();
+    expect(stayImages).toHaveLength(1);
+    expect(stayImages[0].imageUrl).not.toContain(oldAccommodation.id);
+
+    expect(await fs.readdir(getTripUploadDir(target.trip.id))).not.toContain("stale.jpg");
+    expect(await fs.readFile(path.join(getTripUploadDir(target.trip.id), "hero.jpg"))).toEqual(jpegBytes());
+    // The rename-aside directory must not survive as a sibling of the trip's own.
+    expect((await fs.readdir(uploadsRoot)).filter((entry) => entry.includes(".import-"))).toEqual([]);
+  });
+
+  it("clears v1 image urls that name files the overwrite just deleted", async () => {
+    const user = await prisma.user.create({
+      data: { email: "trip-import-overwrite-v1-urls@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+
+    const target = await createTripWithDays({
+      userId: user.id,
+      name: IMPORT_PAYLOAD.trip.name,
+      startDate: "2026-10-10T00:00:00.000Z",
+      endDate: "2026-10-11T00:00:00.000Z",
+    });
+    await writeUploadFile(getTripUploadDir(target.trip.id), "hero.jpg", jpegBytes());
+
+    // A v1 backup of this very trip: no photo pool, only verbatim `/uploads/…` strings that name
+    // files inside the directory the overwrite is about to delete.
+    const selfReferentialV1: TripImportPayloadInput = {
+      ...IMPORT_PAYLOAD,
+      trip: { ...IMPORT_PAYLOAD.trip, heroImageUrl: `/uploads/trips/${target.trip.id}/hero.jpg` },
+      days: [
+        {
+          ...IMPORT_PAYLOAD.days[0],
+          imageUrl: `/uploads/trips/${target.trip.id}/days/old-day/day.webp`,
+        },
+        IMPORT_PAYLOAD.days[1],
+      ],
+    };
+
+    const result = await importTripFromExportForUser({
+      userId: user.id,
+      payload: selfReferentialV1,
+      strategy: "overwrite",
+      targetTripId: target.trip.id,
+    });
+
+    expect(result.outcome).toBe("imported");
+    if (result.outcome !== "imported") return;
+
+    // AC5 wants no orphaned rows, and those files are genuinely gone - a null renders as "no
+    // image" instead of as a broken one.
+    const trip = await prisma.trip.findFirstOrThrow({ where: { id: target.trip.id } });
+    expect(trip.heroImageUrl).toBeNull();
+    const day = await prisma.tripDay.findFirstOrThrow({ where: { tripId: target.trip.id, dayIndex: 2 } });
+    expect(day.imageUrl).toBeNull();
+    expect(await fs.readdir(getTripUploadDir(target.trip.id)).catch(() => [])).not.toContain("hero.jpg");
+  });
+
+  it("keeps a v1 url pointing at another trip's directory, which an overwrite does not touch", async () => {
+    const user = await prisma.user.create({
+      data: { email: "trip-import-overwrite-foreign-urls@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+
+    const target = await createTripWithDays({
+      userId: user.id,
+      name: IMPORT_PAYLOAD.trip.name,
+      startDate: "2026-10-10T00:00:00.000Z",
+      endDate: "2026-10-11T00:00:00.000Z",
+    });
+
+    const result = await importTripFromExportForUser({
+      userId: user.id,
+      // `IMPORT_PAYLOAD`'s day image names `export-trip`, not the target - nothing deletes it here.
+      payload: IMPORT_PAYLOAD,
+      strategy: "overwrite",
+      targetTripId: target.trip.id,
+    });
+
+    expect(result.outcome).toBe("imported");
+    const day = await prisma.tripDay.findFirstOrThrow({ where: { tripId: target.trip.id, dayIndex: 2 } });
+    expect(day.imageUrl).toBe("/uploads/trips/export-trip/days/export-day-2/day.webp");
+  });
+
+  it("names a restored file for what its bytes are, not for what the manifest declared", async () => {
+    const user = await prisma.user.create({
+      data: { email: "trip-import-sniffed-extension@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+
+    // Exactly what `hero-image/route.ts` produces from a PNG uploaded as `image/jpeg`: it names the
+    // stored file from the client-supplied `file.type` without sniffing, and the export repeats the
+    // claim. Writing `hero.jpg` here would serve PNG bytes under a jpg extension.
+    const mislabelled: TripImportPayloadInput = {
+      ...V2_IMPORT_PAYLOAD,
+      photos: { p1: { contentType: "image/jpeg", archivePath: "photos/p1.jpg" } },
+      trip: { ...V2_IMPORT_PAYLOAD.trip, heroPhotoId: "p1", bucketListItems: [] },
+      days: [
+        {
+          ...V2_IMPORT_PAYLOAD.days[0],
+          imagePhotoId: null,
+          accommodation: null,
+          dayPlanItems: [],
+          travelSegments: [],
+        },
+        V2_IMPORT_PAYLOAD.days[1],
+      ],
+    };
+
+    const result = await importTripFromExportForUser({
+      userId: user.id,
+      payload: mislabelled,
+      strategy: "createNew",
+      photoBytes: new Map([["photos/p1.jpg", pngBytes()]]),
+    });
+
+    expect(result.outcome).toBe("imported");
+    if (result.outcome !== "imported") return;
+    expect(result.trip.heroImageUrl).toBe(`/uploads/trips/${result.trip.id}/hero.png`);
+    expect(await fs.readFile(path.join(getTripUploadDir(result.trip.id), "hero.png"))).toEqual(pngBytes());
+  });
+
+  it("refuses to write anything when a referenced photo's bytes are missing", async () => {
+    const user = await prisma.user.create({
+      data: { email: "trip-import-missing-bytes@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+
+    const bytes = v2PhotoBytes();
+    bytes.delete("photos/p3.webp");
+
+    await expect(
+      importTripFromExportForUser({
+        userId: user.id,
+        payload: V2_IMPORT_PAYLOAD,
+        strategy: "createNew",
+        photoBytes: bytes,
+      })
+    ).rejects.toThrow("photo_bytes_missing");
+
+    expect(await prisma.trip.count()).toBe(0);
+    expect(await fs.readdir(uploadsRoot).catch(() => [])).toEqual([]);
   });
 });
