@@ -1,7 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, Box, Button, Divider, Paper, Skeleton, Typography, useMediaQuery, useTheme } from "@mui/material";
+import {
+  Alert,
+  Box,
+  Button,
+  CircularProgress,
+  Divider,
+  Paper,
+  Skeleton,
+  Typography,
+  useMediaQuery,
+  useTheme,
+} from "@mui/material";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import TripDeleteDialog from "@/components/features/trips/TripDeleteDialog";
@@ -97,6 +108,60 @@ type TripTimelineProps = {
   tripId: string;
 };
 
+// A blob URL carries no name, so a download driven from one saves the archive under the object
+// URL's uuid unless the name is set explicitly. The export route sends it in `content-disposition`
+// (`attachment; filename="trip-<slug>-<date>.zip"`), so read it back from there rather than
+// rebuilding the server's naming rule on the client and letting the two drift.
+//
+// Restored from the helper Story 7.8 deleted together with the old export button. The RFC 5987
+// `filename*=UTF-8''…` branch is defensive only: this route cannot currently emit it, because
+// `toSafeSlug` (`export/route.ts`) reduces the trip name to `[a-z0-9-]` before it reaches the
+// header, so even a non-ASCII name arrives as a plain `filename="…"`. It is kept because the
+// branch is free and the day the route starts sending real names is not the day to discover the
+// client mangles them - but do not read it as a path that runs today.
+const extractAttachmentFilename = (headerValue: string | null) => {
+  if (!headerValue) return null;
+
+  const utf8Match = /filename\*=UTF-8''([^;]+)/i.exec(headerValue);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch {
+      return utf8Match[1];
+    }
+  }
+
+  const simpleMatch = /filename="?([^";]+)"?/i.exec(headerValue);
+  return simpleMatch?.[1] ?? null;
+};
+
+// Only reached when the header is absent or unparseable - the route always sends one, so this is
+// the "something upstream changed" name, not the normal one.
+const EXPORT_FILENAME_FALLBACK = "trip-backup.zip";
+
+// Saves a blob without navigating: a detached anchor is clicked and removed again, so the trip
+// overview stays mounted and no tab opens. The object URL is revoked on the next tick rather than
+// immediately - Safari has historically cancelled a download whose URL was revoked inside the same
+// task as the click.
+const triggerBlobDownload = (blob: Blob, filename: string) => {
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = filename;
+  anchor.style.display = "none";
+  document.body.append(anchor);
+
+  // `finally`, so a throw out of `click()` cannot strand the object URL. Nothing observed throws
+  // there, but the thing being leaked is the whole archive - ~16 MB in verification - pinned for
+  // the lifetime of the tab, and it would accumulate across retries.
+  try {
+    anchor.click();
+  } finally {
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+  }
+};
+
 export default function TripTimeline({ tripId }: TripTimelineProps) {
   const { language, t } = useI18n();
   const theme = useTheme();
@@ -108,6 +173,17 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  // Export gets its own error slot rather than reusing `error` above. `error` is the load-failure
+  // slot: it renders at the very top of the page and drives the `error && !detail` branch that
+  // replaces the whole trip with a "Back to trips" button. A failed export leaves a perfectly good
+  // trip on screen, so it belongs beside the button that produced it, inside the controls card.
+  // Same split, and the same reason, as `loadError` vs. `serverError` in `TripShareDialog`.
+  //
+  // The *key* is held rather than the resolved sentence, and resolved at render. A message resolved
+  // once at failure time would still be on screen in the previous language after a language switch,
+  // which this app supports without a reload.
+  const [exportErrorKey, setExportErrorKey] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
   const router = useRouter();
   const isNarrowLayout = useMediaQuery(theme.breakpoints.down("sm"));
   // The overview grid's own key (`gridTemplateColumns: { xs: "1fr", md: "1.7fr 1fr" }`), not a new
@@ -156,6 +232,10 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
     setLoading(true);
     setError(null);
     setNotFound(false);
+    // A past export failure must not outlive the trip it was about. Without this the alert sits in
+    // the controls card indefinitely - through a reload, through an edit - reporting a failure that
+    // is no longer true of anything on screen.
+    setExportErrorKey(null);
 
     try {
       const response = await fetch(`/api/trips/${tripId}`, { method: "GET", credentials: "include", cache: "no-store" });
@@ -319,6 +399,70 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
     router.push("/trips");
   };
 
+  // Fetched into a blob rather than handed to an `<a download>` pointing at the route. The route
+  // reports every failure as a JSON `{data,error}` envelope - 401 unauthenticated, 403
+  // `password_change_required`, 404 for a non-owner or a missing trip, 500 `server_error` - and an
+  // anchor cannot see a status code: it would save that envelope to disk as a file called `export`
+  // and the user would find out by opening it. Going through `fetch` is what makes `response.ok`,
+  // and therefore the error path below, reachable at all; it is also what makes the pending state
+  // possible, and a photo-heavy archive takes long enough to build that the pending state matters.
+  //
+  // The trade-off is that the whole archive is resident in memory as a blob before it reaches disk,
+  // where a plain anchor would have streamed it. A trip's photos are the bulk of it and the largest
+  // seen in verification was ~16 MB, which is not a size a browser struggles with - but this is the
+  // ceiling to revisit if exports ever grow into the hundreds of megabytes.
+  //
+  // No CSRF token: this app validates CSRF per-route inside the mutating handlers rather than in
+  // middleware, and this GET has no `validateCsrf` call. (`middleware.ts` checks the session cookie
+  // and nothing else.)
+  const handleExport = async () => {
+    setExportErrorKey(null);
+    setIsExporting(true);
+
+    try {
+      const response = await fetch(`/api/trips/${tripId}/export`, {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        // Read the envelope rather than reporting one sentence for every failure. Two of these are
+        // states where "please try again" is actively wrong advice: an expired session (401, from
+        // middleware) and a trip that was deleted or was never yours (404) both repeat forever, and
+        // only the first has a way out. Existing keys, deliberately - no new i18n contract for a
+        // control whose own strings are the only ones this story adds.
+        const body = (await response.json().catch(() => null)) as ApiEnvelope<unknown> | null;
+
+        switch (body?.error?.code) {
+          case "unauthorized":
+            setExportErrorKey("errors.unauthorized");
+            break;
+          case "not_found":
+            setExportErrorKey("trips.detail.notFoundBody");
+            break;
+          case "server_error":
+            setExportErrorKey("errors.server");
+            break;
+          default:
+            setExportErrorKey("trips.export.error");
+        }
+
+        return;
+      }
+
+      const filename = extractAttachmentFilename(response.headers.get("content-disposition")) ?? EXPORT_FILENAME_FALLBACK;
+      triggerBlobDownload(await response.blob(), filename);
+    } catch {
+      // A thrown request, or a `blob()` that rejected because the archive failed mid-stream. Not the
+      // network key: a truncated archive is not an unreachable server, and this branch cannot tell
+      // the two apart.
+      setExportErrorKey("trips.export.error");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   // The hero is versioned at *read* time, not just at upload time. The upload route replaces
   // `hero.<ext>` in place, so without a version the URL is byte-identical before and after and the
   // browser keeps serving whatever it already cached for that key - which is why a freshly uploaded
@@ -367,7 +511,41 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
               {t("trips.delete.open")}
             </Button>
           ) : null}
+          {/* `isOwner`, not `canEditPlanning`: the route gates on `hasTripOwnerAccess` and answers
+              404 - not 403 - to everyone else, so a contributor pressing this would get a bare "not
+              found". That mismatch is exactly the defect Story 7.8 removed the old button over, so
+              this one sits with Delete rather than with Edit. Whether a contributor *should* be
+              able to export is a question about the route's gate, not about this button.
+
+              No `color`, `size` or `startIcon`: the Epic 7 outlined treatment comes from
+              `theme.ts`, and anything declared here would make this button the odd one of three. */}
+          {isOwner ? (
+            <Button
+              variant="outlined"
+              onClick={() => void handleExport()}
+              disabled={isExporting}
+              // The spinner replaces the label, which would otherwise take the accessible name with
+              // it: mid-flight the button would drop out of `getByRole("button", { name })` and go
+              // unnamed to a screen reader at the one moment it has something to say. `aria-busy`
+              // is what says *why* it is disabled rather than leaving it silently inert.
+              aria-label={t("trips.export.open")}
+              aria-busy={isExporting}
+              // The spinner is much narrower than the label it replaces, and this row wraps. Without
+              // a floor the button collapses to spinner width for the whole export and Edit/Delete
+              // re-flow around it - on a phone, where the row is already close to wrapping, the
+              // controls visibly rearrange themselves and then rearrange back.
+              sx={{ minWidth: 148 }}
+            >
+              {isExporting ? <CircularProgress size={22} /> : t("trips.export.open")}
+            </Button>
+          ) : null}
         </Box>
+        {/* Inside the card, under the row that produced it - see the note on `exportErrorKey`. */}
+        {exportErrorKey && (
+          <Alert severity="error" sx={{ mt: 1.5 }}>
+            {t(exportErrorKey)}
+          </Alert>
+        )}
       </Box>
     ) : null;
 

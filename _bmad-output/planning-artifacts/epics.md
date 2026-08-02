@@ -2243,6 +2243,39 @@ So that I can see what a section holds without scrolling through everything that
 **Then** they are distinguishable at a glance rather than reading as one broken control
 
 
+### Story 6.23: Move a Single Activity to Another Day
+
+As a trip planner,
+I want to move one activity to a different day,
+So that a plan that turned out to fit better elsewhere can be rearranged instead of retyped.
+
+**FRs covered:** FR21, FR23 (day planning, activity management)
+
+**Given** an existing activity
+**When** its dialog is open
+**Then** it offers "Auf anderen Tag verschieben" — absent while creating one, and absent for a viewer
+
+**Given** a target day that already has activities
+**When** one is moved onto it
+**Then** they are untouched: this appends, unlike the day-level move which deletes the target day's activities
+
+**Given** an activity with images, a cost with split payments, a link, a location and times
+**When** it is moved
+**Then** all of it arrives on the new day unchanged — not retyping is the whole point
+
+**Given** travel segments referencing the moved activity
+**When** it leaves the day
+**Then** they are removed and the user is told, because a segment holds a duration, a distance and sometimes a link that someone typed
+
+**Given** the activity's arrival on the target day
+**When** it has no neighbours it is connected to
+**Then** no travel segment is invented — transport mode and duration are the user's knowledge, not the app's
+
+**Given** an activity being deleted rather than moved
+**When** the same cleanup is needed
+**Then** it happens there too: today the segments survive and `totalTravelMinutes` keeps counting them, measured at 5h 30m before and after deleting the activity the segment pointed at
+
+
 ## Epic 7: Visual Redesign — Light Cockpit System
 
 Users experience the approved `DESIGN.md`/`EXPERIENCE.md` visual system across every screen instead of the current inconsistent styling. Source of truth: `_bmad-output/planning-artifacts/ux-designs/ux-TravelPlan-2026-07-27/DESIGN.md`, `EXPERIENCE.md`, and `mockups/*.html`. This epic re-skins existing, already-shipped screens — it does not add product capability, so no new FRs are introduced.

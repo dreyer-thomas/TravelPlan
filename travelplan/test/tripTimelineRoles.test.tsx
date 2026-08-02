@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import TripTimeline from "@/components/features/trips/TripTimeline";
 import { emotionDeclarations, emotionDeclaredProperties, emotionPropertyConditions } from "./helpers/emotionStyles";
@@ -121,6 +122,40 @@ const SINGLE_COLUMN_WIDTHS = [PHONE_WIDTH, TABLET_WIDTH];
 
 const controlsCards = () => document.querySelectorAll("[data-testid='trip-controls-card']");
 
+// The strings the two new keys resolve to in the test locale (`en`). Named rather than inlined,
+// because Story 2.33's whole point about the assertions it replaces is that they queried labels no
+// dictionary contained - a constant next to the dictionary's own wording is harder to drift from.
+const EXPORT_LABEL = "Export backup";
+const IMPORT_LABEL = "Import backup";
+const EXPORT_ERROR = "Trip export failed. Please try again.";
+// The two envelope codes the export path maps to something better than the generic sentence above.
+const EXPORT_NOT_FOUND = "This trip might have been deleted or you may not have access to it.";
+const EXPORT_UNAUTHORIZED = "Authentication required. Please sign in.";
+// What the export route sends in `content-disposition`; the client reads the saved name out of it.
+const EXPORT_FILENAME = "trip-owner-trip-2026-08-03.zip";
+// Only reached when the header is missing, which the route never does - so this is the client's own
+// fallback, and the assertion that it is still wired is the only thing standing between a changed
+// header name and every archive landing on disk under an object-URL uuid.
+const EXPORT_FILENAME_FALLBACK = "trip-backup.zip";
+
+/**
+ * jsdom implements neither `URL.createObjectURL` nor `URL.revokeObjectURL`, and the export button's
+ * save path calls both. Assigned onto the `URL` constructor rather than installed with
+ * `vi.stubGlobal`, which reaches `globalThis` properties only, and deliberately left in place for
+ * the whole file instead of being torn down per case: the component revokes on a `setTimeout(0)`
+ * that can outlive the case that started it, and a removed stub would then surface as an unhandled
+ * error inside a timer rather than as a test failure. Each case clears the calls it cares about.
+ */
+// What the save path was handed, recorded as it goes by. Read from here rather than from
+// `createObjectURL.mock.calls`, whose tuple type is empty for a zero-arg mock and cannot be indexed.
+const objectUrlSources: Blob[] = [];
+const createObjectURL = vi.fn((blob: Blob) => {
+  objectUrlSources.push(blob);
+  return "blob:trip-export";
+});
+const revokeObjectURL = vi.fn();
+Object.assign(URL, { createObjectURL, revokeObjectURL });
+
 /**
  * Trip-overview role gating and day-row status rendering.
  *
@@ -180,13 +215,69 @@ describe("TripTimeline role gating", () => {
     error: null,
   });
 
-  const stubDetailFetch = (body: ReturnType<typeof buildDetailResponse>) => {
+  /**
+   * `exportResponse` is what `GET /api/trips/trip-1/export` answers. It is optional so that every
+   * case predating Story 2.33 keeps its exact behaviour, and so that a case which never presses the
+   * export button still trips the `Unhandled fetch` throw below if the component starts calling the
+   * route on its own.
+   *
+   * `gate` is awaited before the export response resolves, which is the only way to observe the
+   * in-flight state: without it the request settles inside the same click that started it and the
+   * disabled/spinner window never exists for an assertion to see.
+   *
+   * `throws` models a request that never produced a response at all - offline, DNS failure, the
+   * connection dropped mid-archive. It is a distinct branch in the component (`catch`, not
+   * `!response.ok`) and AC5 names it, so it needs a way in here.
+   *
+   * `errorCode` is the envelope code a failing response carries; the component maps it to a
+   * message. `withoutFilename` drops `content-disposition` so the client's fallback name is
+   * reachable.
+   */
+  type ExportStub = {
+    ok: boolean;
+    status: number;
+    gate?: Promise<unknown>;
+    throws?: boolean;
+    errorCode?: string;
+    withoutFilename?: boolean;
+  };
+
+  const stubDetailFetch = (body: ReturnType<typeof buildDetailResponse>, exportResponse?: ExportStub) => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = init?.method ?? "GET";
 
       if (url.endsWith("/api/trips/trip-1") && method === "GET") {
         return { ok: true, status: 200, json: async () => body };
+      }
+
+      if (exportResponse && url.endsWith("/api/trips/trip-1/export") && method === "GET") {
+        await exportResponse.gate;
+
+        if (exportResponse.throws) {
+          throw new TypeError("Failed to fetch");
+        }
+
+        return {
+          ok: exportResponse.ok,
+          status: exportResponse.status,
+          // Only `content-disposition` is read; anything else answers null the way a real `Headers`
+          // does for an absent header, so a lookup that drifts fails loudly rather than silently.
+          headers: {
+            get: (name: string) =>
+              name.toLowerCase() === "content-disposition" && !exportResponse.withoutFilename
+                ? `attachment; filename="${EXPORT_FILENAME}"`
+                : null,
+          },
+          blob: async () => new Blob(["PK"], { type: "application/zip" }),
+          // The failure envelope the route really sends, and the component now reads it: the code
+          // decides which message the user gets, so a stub returning the wrong shape here shows up
+          // as the generic fallback rather than passing quietly.
+          json: async () => ({
+            data: null,
+            error: { code: exportResponse.errorCode ?? "not_found", message: "Trip not found" },
+          }),
+        };
       }
 
       throw new Error(`Unhandled fetch ${method} ${url}`);
@@ -208,11 +299,15 @@ describe("TripTimeline role gating", () => {
     expect(screen.queryByRole("button", { name: "Share trip" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Edit trip" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Delete trip" })).not.toBeInTheDocument();
-    // Story 7.8: the Import/Export UI entry points were removed for every role. The label the
-    // component used to render was `trips.import.action` = "Import JSON" (not "Import trip", which
-    // was the vacuous name the pre-7.8 assertion queried), so query by the real strings.
-    expect(screen.queryByRole("button", { name: "Import JSON" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Export JSON" })).not.toBeInTheDocument();
+    // Story 2.33 AC3/AC4: Export is back on the overview, gated on `isOwner`, so a viewer must not
+    // see it - and gets no controls card to hold it either. Import never came here; Story 2.32 left
+    // it on the trips list, and its absence is asserted for all three roles (AC6).
+    //
+    // Queried by the strings the dictionary actually holds. Until Story 2.33 these two lines asked
+    // for "Import JSON" and "Export JSON", which are in neither `en.ts` nor `de.ts` - the
+    // assertions could not have failed, whatever the component rendered.
+    expect(screen.queryByRole("button", { name: IMPORT_LABEL })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: EXPORT_LABEL })).not.toBeInTheDocument();
     expect(screen.queryByTestId("bucket-list-panel")).not.toBeInTheDocument();
 
     // A viewer still gets the read-only overview itself.
@@ -264,17 +359,23 @@ describe("TripTimeline role gating", () => {
     expect(screen.getByRole("button", { name: "Edit trip" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Share trip" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Delete trip" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Import JSON" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Export JSON" })).not.toBeInTheDocument();
+    // Story 2.33 AC3: a contributor gets the card and its Edit button, but Export sits with Delete
+    // on `isOwner` - the route answers 404 to a contributor, so a visible button would only produce
+    // a bare "not found", which is what Story 7.8 removed the old one over.
+    expect(screen.queryByRole("button", { name: EXPORT_LABEL })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: IMPORT_LABEL })).not.toBeInTheDocument();
     expect(screen.queryByTestId("bucket-list-panel")).not.toBeInTheDocument();
 
     vi.unstubAllGlobals();
   });
 
-  it("hides Import and Export from an owner as well - the assertion AC3/AC4 actually turn on", async () => {
-    // The old two role tests (viewer, contributor) would both have passed even if Import/Export
-    // still rendered for owners; the queried "Import trip" name never existed. This owner case is
-    // the missing anchor that fails the moment either button comes back.
+  it("shows Export to an owner beside Edit and Delete, and still no Import", async () => {
+    // Story 2.33 AC1/AC3/AC4, and the deliberate inversion of what Story 7.8 asserted here. 7.8
+    // pinned the *absence* of both controls for every role because the export button of the day was
+    // ungated and handed a contributor or viewer a bare 404. Story 2.33 gates the button on
+    // `isOwner`, so the reason for the absence is gone and the owner half of the assertion flips to
+    // presence. The two non-owner halves above stay as they were. Import does not flip: Story 2.32
+    // put it on the trips list and this story does not move it (AC6).
     const fetchMock = stubDetailFetch(
       buildDetailResponse({ name: "Owner Trip", accessRole: "owner" }, { missingAccommodation: true, accommodation: null }),
     );
@@ -283,8 +384,191 @@ describe("TripTimeline role gating", () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/trips/trip-1", expect.anything()));
 
-    expect(screen.queryByRole("button", { name: "Import JSON" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Export JSON" })).not.toBeInTheDocument();
+    const card = screen.getByTestId("trip-controls-card");
+
+    // AC1: three buttons in the one existing row, in one card - not a second card and not a toolbar.
+    expect(within(card).getByRole("button", { name: "Edit trip" })).toBeInTheDocument();
+    expect(within(card).getByRole("button", { name: "Delete trip" })).toBeInTheDocument();
+    expect(within(card).getByRole("button", { name: EXPORT_LABEL })).toBeInTheDocument();
+    expect(controlsCards()).toHaveLength(1);
+    // The same outlined treatment as its two siblings, carried by the class MUI puts on `variant`.
+    expect(within(card).getByRole("button", { name: EXPORT_LABEL }).className).toMatch(/MuiButton-outlined/);
+    expect(screen.queryByRole("button", { name: IMPORT_LABEL })).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("exports the trip being viewed, saves it under the server's filename, and stays on the overview", async () => {
+    // Story 2.33 AC2, and the save path in full. Two claims are mechanical here and neither is
+    // observable as an actual file, because jsdom writes none:
+    //
+    //   1. The id in the request path. A wrong one hands the owner a 404 or somebody else's archive.
+    //   2. The name on the anchor. Without it the browser falls back to the object URL's uuid, and
+    //      an archive called `a3f1e0c2-...` is not a backup anyone can find again. This is asserted
+    //      by spying on the click and reading the element it fired on - the earlier version of this
+    //      case asserted only that `createObjectURL` was called, which a mutation proved would keep
+    //      passing with `anchor.download` deleted outright.
+    createObjectURL.mockClear();
+    revokeObjectURL.mockClear();
+    objectUrlSources.length = 0;
+    // The anchor is captured at click time rather than read off `clickSpy.mock.instances`, whose
+    // vitest typing follows the spied method's `void` return and cannot be narrowed to the element.
+    const clickedAnchors: HTMLAnchorElement[] = [];
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      clickedAnchors.push(this);
+    });
+    const fetchMock = stubDetailFetch(
+      buildDetailResponse({ name: "Export Owner", accessRole: "owner" }, { missingAccommodation: true, accommodation: null }),
+      { ok: true, status: 200 },
+    );
+    const user = userEvent.setup();
+
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/trips/trip-1", expect.anything()));
+
+    await user.click(screen.getByRole("button", { name: EXPORT_LABEL }));
+
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1));
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/trips/trip-1/export",
+      expect.objectContaining({ method: "GET", credentials: "include", cache: "no-store" }),
+    );
+    // The blob handed to the object URL is the archive, not something rebuilt on the way.
+    expect(objectUrlSources[0]).toBeInstanceOf(Blob);
+
+    const anchor = clickedAnchors[0];
+    expect(anchor.download).toBe(EXPORT_FILENAME);
+    expect(anchor.href).toContain("blob:trip-export");
+    // Detached again straight after the click, and the object URL released on the next tick, so a
+    // repeated export cannot pin one archive per attempt for the lifetime of the tab.
+    expect(anchor.isConnected).toBe(false);
+    await waitFor(() => expect(revokeObjectURL).toHaveBeenCalledWith("blob:trip-export"));
+
+    // AC2: the trip is still mounted afterwards - no navigation, no new tab, and the button is back
+    // to its resting state rather than stuck disabled.
+    expect(screen.getByRole("heading", { name: "Export Owner", level: 4 })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: EXPORT_LABEL })).toBeEnabled();
+    expect(screen.queryByText(EXPORT_ERROR)).not.toBeInTheDocument();
+
+    clickSpy.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
+  it("falls back to a fixed archive name when the response carries no content-disposition", async () => {
+    // The other half of the filename path. The route always sends the header, so this branch only
+    // runs if something upstream changes - which is exactly when a silent fall-through to an
+    // object-URL uuid would go unnoticed.
+    const clickedAnchors: HTMLAnchorElement[] = [];
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      clickedAnchors.push(this);
+    });
+    const fetchMock = stubDetailFetch(
+      buildDetailResponse({ name: "Nameless Export", accessRole: "owner" }, { missingAccommodation: true, accommodation: null }),
+      { ok: true, status: 200, withoutFilename: true },
+    );
+    const user = userEvent.setup();
+
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/trips/trip-1", expect.anything()));
+
+    await user.click(screen.getByRole("button", { name: EXPORT_LABEL }));
+
+    await waitFor(() => expect(clickSpy).toHaveBeenCalledTimes(1));
+    expect(clickedAnchors[0].download).toBe(EXPORT_FILENAME_FALLBACK);
+
+    clickSpy.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
+  it("reports a request that never produced a response", async () => {
+    // AC5's second failure mode: offline, DNS failure, the connection dropped mid-archive. It is a
+    // different branch in the component from a non-2xx response - `catch`, not `!response.ok` - and
+    // nothing else in the suite reaches it.
+    const fetchMock = stubDetailFetch(
+      buildDetailResponse({ name: "Offline Export", accessRole: "owner" }, { missingAccommodation: true, accommodation: null }),
+      { ok: false, status: 0, throws: true },
+    );
+    const user = userEvent.setup();
+
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/trips/trip-1", expect.anything()));
+
+    await user.click(screen.getByRole("button", { name: EXPORT_LABEL }));
+
+    const card = screen.getByTestId("trip-controls-card");
+    await waitFor(() => expect(within(card).getByText(EXPORT_ERROR)).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: EXPORT_LABEL })).toBeEnabled();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("tells an expired session apart from a generic export failure", async () => {
+    // A tab left open past session expiry: middleware answers 401 `unauthorized` for every
+    // `/api/trips/*` request. Reporting "please try again" there sends the user to press a button
+    // that can never work; the envelope code is read so they are told to sign in instead.
+    const fetchMock = stubDetailFetch(
+      buildDetailResponse({ name: "Expired Export", accessRole: "owner" }, { missingAccommodation: true, accommodation: null }),
+      { ok: false, status: 401, errorCode: "unauthorized" },
+    );
+    const user = userEvent.setup();
+
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/trips/trip-1", expect.anything()));
+
+    await user.click(screen.getByRole("button", { name: EXPORT_LABEL }));
+
+    const card = screen.getByTestId("trip-controls-card");
+    await waitFor(() => expect(within(card).getByText(EXPORT_UNAUTHORIZED)).toBeInTheDocument());
+    expect(within(card).queryByText(EXPORT_ERROR)).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("disables the export button while the request is in flight and reports a failure inside the card", async () => {
+    // Story 2.33 AC5, both halves, in one case because they are two points on one request: the
+    // pending state exists only between the click and the response, so the gate that lets the
+    // pending state be observed is the same gate that delays the failure.
+    //
+    // 404 rather than 500: that is what the route answers for a trip that vanished between load and
+    // press, and for a non-owner - the realistic failure. The message asserted below is the
+    // not-found one rather than the generic export sentence, because the component reads the
+    // envelope code; "please try again" would be wrong advice for a trip that is gone.
+    let releaseExport = () => {};
+    const gate = new Promise<void>((resolve) => {
+      releaseExport = resolve;
+    });
+    const fetchMock = stubDetailFetch(
+      buildDetailResponse({ name: "Failing Export", accessRole: "owner" }, { missingAccommodation: true, accommodation: null }),
+      { ok: false, status: 404, gate },
+    );
+    const user = userEvent.setup();
+
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/trips/trip-1", expect.anything()));
+
+    await user.click(screen.getByRole("button", { name: EXPORT_LABEL }));
+
+    // Mid-flight: disabled, and still findable by its accessible name even though the label has been
+    // replaced by a spinner - `aria-label` is what keeps it reachable here and to a screen reader.
+    await waitFor(() => expect(screen.getByRole("button", { name: EXPORT_LABEL })).toBeDisabled());
+    expect(within(screen.getByRole("button", { name: EXPORT_LABEL })).getByRole("progressbar")).toBeInTheDocument();
+
+    releaseExport();
+
+    const card = screen.getByTestId("trip-controls-card");
+    await waitFor(() => expect(within(card).getByText(EXPORT_NOT_FOUND)).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: EXPORT_LABEL })).toBeEnabled();
+
+    // The failure lands in the card's own slot, not the page-level one: the trip is still rendered
+    // and the `error && !detail` recovery branch - a "Back to trips" button above everything - has
+    // not been triggered. Wiring this into `error` would have replaced a working page with it.
+    expect(screen.getByRole("heading", { name: "Failing Export", level: 4 })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "← Back to trips" })).not.toBeInTheDocument();
 
     vi.unstubAllGlobals();
   });

@@ -164,6 +164,11 @@ const en: Dictionary = {
   "trips.delete.body": "This will remove “{name}” and all of its days. This action cannot be undone.",
   "trips.delete.submit": "Delete trip",
   "trips.delete.open": "Delete trip",
+  // `.open` rather than the `.action` Story 7.8 retired: across this block `.action` is a dialog's
+  // submit label ("Start import") while `.open` is the trigger that sits in a card ("Import backup",
+  // "Edit trip", "Delete trip"). Export opens no dialog, so it is a trigger.
+  "trips.export.open": "Export backup",
+  "trips.export.error": "Trip export failed. Please try again.",
   "trips.import.open": "Import backup",
   "trips.import.action": "Start import",
   "trips.import.title": "Import trip backup",

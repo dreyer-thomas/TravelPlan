@@ -160,6 +160,9 @@ const de: Dictionary = {
   "trips.delete.body": "„{name}“ und alle Tage werden entfernt. Diese Aktion kann nicht rückgängig gemacht werden.",
   "trips.delete.submit": "Reise löschen",
   "trips.delete.open": "Reise löschen",
+  // Siehe en.ts: `.open` ist der Auslöser in der Karte, `.action` der Absende-Button eines Dialogs.
+  "trips.export.open": "Backup exportieren",
+  "trips.export.error": "Reiseexport fehlgeschlagen. Bitte erneut versuchen.",
   "trips.import.open": "Backup importieren",
   "trips.import.action": "Import starten",
   "trips.import.title": "Reise-Backup importieren",
