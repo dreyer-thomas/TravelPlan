@@ -316,21 +316,25 @@ const en: Dictionary = {
   "trips.travelSegment.linkLabel": "Link (optional)",
   "trips.travelSegment.linkHelper": "Paste a Google Maps or other directions link",
   "trips.travelSegment.linkInvalid": "Enter a valid http(s) link",
-  "trips.travelSegment.calculateGoogleMapsRoute": "Plan with Maps",
-  "trips.travelSegment.refreshGoogleMapsRoute": "Plan with Maps",
-  "trips.travelSegment.googleMapsFallbackHelper":
-    "Open the route in Google Maps, then copy the duration and distance into this form.",
+  // Story 6.17: the three dialog-action labels are deliberately identical in both dictionaries.
+  // "Maps", "Plan" and "OK" are words German uses unchanged, and the dialog's action row has to fit
+  // a 390px phone, where "Plan with Maps" / "Speichern" wrapped mid-row.
+  "trips.travelSegment.calculateGoogleMapsRoute": "Plan",
+  "trips.travelSegment.refreshGoogleMapsRoute": "Plan",
+  // Story 6.17: `trips.travelSegment.save`, not `common.save`. This is the one dialog whose save
+  // button says "OK"; a `common.` key with that value would hand the next dialog an OK button.
+  "trips.travelSegment.save": "OK",
   "trips.travelSegment.googleMapsUnavailableHelper":
-    "Add locations to both adjacent items to calculate a Google Maps route.",
+    "Add a location to both adjacent items.",
   "trips.travelSegment.googleMapsManualModeHelper":
-    "Automatic route import covers car, walking and cycling. Ship and flight are entered manually - you can still open Google Maps for a lookup.",
+    "Automatic route import covers car, walking and cycling. Ship and flight are entered manually.",
   "trips.travelSegment.googleMapsNoRouteForMode":
     "No route is available for this travel mode between these two places. Enter the duration and distance manually.",
   "trips.travelSegment.googleMapsFallbackActive":
-    "Automatic route import is not available in this build. Use Google Maps and copy the values manually.",
+    "Route import failed. Enter duration and distance manually.",
   "trips.travelSegment.googleMapsPrefillSuccess":
-    "Route details were prefilled from the current adjacent locations. You can still edit them before saving.",
-  "trips.travelSegment.openLink": "Open Maps",
+    "Route details were prefilled from Maps.",
+  "trips.travelSegment.openLink": "Maps",
   "trips.travelSegment.durationRequired": "Duration is required",
   "trips.travelSegment.distanceRequired": "Distance is required for car travel",
   "trips.travelSegment.initError": "Unable to initialize travel segment editor. Please refresh.",
@@ -547,8 +551,11 @@ const en: Dictionary = {
   "trips.location.latInvalid": "Latitude must be between -90 and 90",
   "trips.location.lngInvalid": "Longitude must be between -180 and 180",
   "common.cancel": "Cancel",
-  "common.close": "Close",
-  "common.save": "Save"
+  // Story 6.17 removed `common.save`. It was named as though it were shared and had exactly one
+  // reader — the travel-segment dialog — whose button now says "OK". That value lives on
+  // `trips.travelSegment.save` instead, so the next dialog needing a save button adds its own key
+  // rather than inheriting an OK button from a `common.` name.
+  "common.close": "Close"
 };
 
 export default en;

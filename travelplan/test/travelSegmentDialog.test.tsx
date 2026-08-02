@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import TripDayTravelSegmentDialog from "@/components/features/trips/TripDayTravelSegmentDialog";
 import { I18nProvider } from "@/i18n/provider";
 
@@ -26,7 +26,37 @@ const baseProps = {
   onSaved: vi.fn(),
 };
 
+/**
+ * Story 6.17 shortened this one. Named rather than inlined because four cases assert on it and the
+ * point of the rename was that the old text claimed a cause ("not available in this build") that
+ * only one of its four call sites actually had.
+ */
+const ROUTE_IMPORT_FAILED = "Route import failed. Enter duration and distance manually.";
+
+/**
+ * Story 6.17 deleted `trips.travelSegment.googleMapsFallbackHelper` outright. These are the exact
+ * strings it used to render, in both languages, kept here so the suite can assert they appear
+ * nowhere — a query for a key that no longer exists would silently pass forever.
+ */
+const REMOVED_FALLBACK_HELPER_EN =
+  "Open the route in Google Maps, then copy the duration and distance into this form.";
+const REMOVED_FALLBACK_HELPER_DE =
+  "Öffne die Route in Google Maps und übertrage Dauer und Entfernung anschließend manuell in dieses Formular.";
+
+const placedItems = (props: typeof baseProps) => ({
+  fromItem: { ...props.fromItem, location: { lat: 52.52, lng: 13.405, label: "Berlin" } },
+  toItem: { ...props.toItem, location: { lat: 48.137, lng: 11.575, label: "Munich" } },
+});
+
 describe("TripDayTravelSegmentDialog", () => {
+  // Every case in this file ends with its own `vi.unstubAllGlobals()`, which is skipped whenever an
+  // assertion throws - so one genuine failure used to leave the stubbed `fetch` installed and take
+  // the next case down with it, burying the real cause. This runs regardless of outcome; the
+  // trailing calls are now belt-and-braces.
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("validates distance for car travel", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -52,7 +82,7 @@ describe("TripDayTravelSegmentDialog", () => {
       </I18nProvider>,
     );
 
-    const saveButton = await screen.findByRole("button", { name: "Save" });
+    const saveButton = await screen.findByRole("button", { name: "OK" });
     fireEvent.click(saveButton);
 
     await waitFor(() => {
@@ -97,8 +127,8 @@ describe("TripDayTravelSegmentDialog", () => {
       </I18nProvider>,
     );
 
-    expect(await screen.findByRole("button", { name: "Plan with Maps" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open Maps" })).toHaveAttribute(
+    expect(await screen.findByRole("button", { name: "Plan" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Maps" })).toHaveAttribute(
       "href",
       expect.stringContaining("origin=52.52%2C13.405"),
     );
@@ -121,8 +151,8 @@ describe("TripDayTravelSegmentDialog", () => {
       </I18nProvider>,
     );
 
-    expect(await screen.findByRole("button", { name: "Plan with Maps" })).toBeDisabled();
-    expect(screen.getByText("Add locations to both adjacent items to calculate a Google Maps route.")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Plan" })).toBeDisabled();
+    expect(screen.getByText("Add a location to both adjacent items.")).toBeInTheDocument();
 
     vi.unstubAllGlobals();
   });
@@ -186,7 +216,7 @@ describe("TripDayTravelSegmentDialog", () => {
       </I18nProvider>,
     );
 
-    const routeAction = await screen.findByRole("button", { name: "Plan with Maps" });
+    const routeAction = await screen.findByRole("button", { name: "Plan" });
     fireEvent.click(routeAction);
 
     await waitFor(() => {
@@ -195,9 +225,7 @@ describe("TripDayTravelSegmentDialog", () => {
     expect(screen.getByDisplayValue("346.5")).toBeInTheDocument();
     expect((screen.getByDisplayValue(/google\.com\/maps\/dir/) as HTMLInputElement).value).toContain("waypoints=");
     expect(
-      screen.getByText(
-        "Route details were prefilled from the current adjacent locations. You can still edit them before saving.",
-      ),
+      screen.getByText("Route details were prefilled from Maps."),
     ).toBeInTheDocument();
 
     vi.unstubAllGlobals();
@@ -249,12 +277,12 @@ describe("TripDayTravelSegmentDialog", () => {
       </I18nProvider>,
     );
 
-    const routeAction = await screen.findByRole("button", { name: "Plan with Maps" });
+    const routeAction = await screen.findByRole("button", { name: "Plan" });
     fireEvent.click(routeAction);
 
     await waitFor(() => {
       expect(
-        screen.getByText("Automatic route import is not available in this build. Use Google Maps and copy the values manually."),
+        screen.getByText(ROUTE_IMPORT_FAILED),
       ).toBeInTheDocument();
     });
     expect(screen.getByDisplayValue("01:35")).toBeInTheDocument();
@@ -313,12 +341,12 @@ describe("TripDayTravelSegmentDialog", () => {
       </I18nProvider>,
     );
 
-    const routeAction = await screen.findByRole("button", { name: "Plan with Maps" });
+    const routeAction = await screen.findByRole("button", { name: "Plan" });
     fireEvent.click(routeAction);
 
     await waitFor(() => {
       expect(
-        screen.getByText("Automatic route import is not available in this build. Use Google Maps and copy the values manually."),
+        screen.getByText(ROUTE_IMPORT_FAILED),
       ).toBeInTheDocument();
     });
     expect(screen.getByDisplayValue("01:35")).toBeInTheDocument();
@@ -416,7 +444,7 @@ describe("TripDayTravelSegmentDialog", () => {
     // Offered, and labelled as optional so the difference from car is visible without trying to save.
     expect(await screen.findByLabelText("Distance (km, optional)")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(screen.getByRole("button", { name: "OK" }));
 
     await waitFor(() => {
       expect(onSaved).toHaveBeenCalled();
@@ -443,7 +471,7 @@ describe("TripDayTravelSegmentDialog", () => {
     await openTransportMenu();
     fireEvent.click(await screen.findByRole("option", { name: "Cycling" }));
     fireEvent.change(await screen.findByLabelText("Distance (km, optional)"), { target: { value: "40" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(screen.getByRole("button", { name: "OK" }));
 
     await waitFor(() => {
       expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/travel-segments"))).toBe(true);
@@ -511,7 +539,7 @@ describe("TripDayTravelSegmentDialog", () => {
 
     await openTransportMenu();
     fireEvent.click(await screen.findByRole("option", { name: label }));
-    fireEvent.click(screen.getByRole("button", { name: "Plan with Maps" }));
+    fireEvent.click(screen.getByRole("button", { name: "Plan" }));
 
     await waitFor(() => {
       expect(screen.getByDisplayValue("00:30")).toBeInTheDocument();
@@ -544,16 +572,17 @@ describe("TripDayTravelSegmentDialog", () => {
 
     await openTransportMenu();
     fireEvent.click(await screen.findByRole("option", { name: "Flight" }));
-    fireEvent.click(screen.getByRole("button", { name: "Plan with Maps" }));
+    fireEvent.click(screen.getByRole("button", { name: "Plan" }));
 
     const manualHelper =
-      "Automatic route import covers car, walking and cycling. Ship and flight are entered manually - you can still open Google Maps for a lookup.";
+      "Automatic route import covers car, walking and cycling. Ship and flight are entered manually.";
+    // Exactly one copy - see "does not repeat the manual-mode helper" below.
     await waitFor(() => {
-      expect(screen.getAllByText(manualHelper).length).toBeGreaterThan(0);
+      expect(screen.getByText(manualHelper)).toBeInTheDocument();
     });
     // Degraded, not failed: the generic error message must not appear.
     expect(
-      screen.queryByText("Automatic route import is not available in this build. Use Google Maps and copy the values manually."),
+      screen.queryByText(ROUTE_IMPORT_FAILED),
     ).not.toBeInTheDocument();
 
     vi.unstubAllGlobals();
@@ -602,13 +631,13 @@ describe("TripDayTravelSegmentDialog", () => {
 
     await openTransportMenu();
     fireEvent.click(await screen.findByRole("option", { name: "Walking" }));
-    fireEvent.click(screen.getByRole("button", { name: "Plan with Maps" }));
+    fireEvent.click(screen.getByRole("button", { name: "Plan" }));
 
     await waitFor(() => {
       expect(screen.getByDisplayValue("26:30")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(screen.getByRole("button", { name: "OK" }));
 
     await waitFor(() => {
       expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/travel-segments"))).toBe(true);
@@ -664,12 +693,12 @@ describe("TripDayTravelSegmentDialog", () => {
 
     await openTransportMenu();
     fireEvent.click(await screen.findByRole("option", { name: "Walking" }));
-    fireEvent.click(screen.getByRole("button", { name: "Plan with Maps" }));
+    fireEvent.click(screen.getByRole("button", { name: "Plan" }));
 
     await waitFor(() => {
       expect(screen.getByDisplayValue("00:45")).toBeInTheDocument();
     });
-    expect(screen.getByText("Route details were prefilled from the current adjacent locations. You can still edit them before saving.")).toBeInTheDocument();
+    expect(screen.getByText("Route details were prefilled from Maps.")).toBeInTheDocument();
 
     await openTransportMenu();
     fireEvent.click(await screen.findByRole("option", { name: "Cycling" }));
@@ -679,10 +708,10 @@ describe("TripDayTravelSegmentDialog", () => {
       expect(screen.queryByDisplayValue("00:45")).not.toBeInTheDocument();
     });
     expect(screen.queryByDisplayValue("6.2")).not.toBeInTheDocument();
-    expect(screen.queryByText("Route details were prefilled from the current adjacent locations. You can still edit them before saving.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Route details were prefilled from Maps.")).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Duration (HH:mm)"), { target: { value: "01:10" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(screen.getByRole("button", { name: "OK" }));
 
     await waitFor(() => {
       expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/travel-segments"))).toBe(true);
@@ -740,7 +769,7 @@ describe("TripDayTravelSegmentDialog", () => {
     await openTransportMenu();
     fireEvent.click(await screen.findByRole("option", { name: "Cycling" }));
     fireEvent.change(await screen.findByLabelText("Distance (km, optional)"), { target: { value } });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(screen.getByRole("button", { name: "OK" }));
 
     expect(await screen.findByText("Enter a distance greater than 0, or leave the field empty.")).toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/travel-segments"))).toBe(false);
@@ -774,7 +803,7 @@ describe("TripDayTravelSegmentDialog", () => {
 
     await openTransportMenu();
     fireEvent.click(await screen.findByRole("option", { name: "Cycling" }));
-    fireEvent.click(screen.getByRole("button", { name: "Plan with Maps" }));
+    fireEvent.click(screen.getByRole("button", { name: "Plan" }));
 
     await waitFor(() => {
       expect(
@@ -784,8 +813,260 @@ describe("TripDayTravelSegmentDialog", () => {
       ).toBeInTheDocument();
     });
     expect(
-      screen.queryByText("Automatic route import is not available in this build. Use Google Maps and copy the values manually."),
+      screen.queryByText(ROUTE_IMPORT_FAILED),
     ).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  // --- Story 6.17: shorter copy so the dialog fits a phone ---------------------------------------
+
+  /**
+   * AC1 and AC3, in the *add* state, where the route action reads
+   * `trips.travelSegment.calculateGoogleMapsRoute`. Both languages, because before this story
+   * `openLink` and the two route keys held untranslated English in `de.ts` and the save button read
+   * "Speichern" — the three labels are now identical in the two dictionaries on purpose, and this is
+   * what says so.
+   */
+  it.each(["en", "de"] as const)("labels the add-dialog actions Maps / Plan / OK in %s", async (language) => {
+    stubCsrfOnlyFetch();
+
+    render(
+      <I18nProvider initialLanguage={language}>
+        <TripDayTravelSegmentDialog {...baseProps} {...placedItems(baseProps)} />
+      </I18nProvider>,
+    );
+
+    expect(await screen.findByRole("link", { name: "Maps" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Plan" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "OK" })).toBeInTheDocument();
+
+    // The strings these replaced, so a partial revert of either dictionary fails here.
+    expect(screen.queryByRole("link", { name: "Open Maps" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Plan with Maps" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Speichern" })).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * The same three labels in the *edit* state, which is the only place
+   * `trips.travelSegment.refreshGoogleMapsRoute` is read. Without this case that key could keep
+   * saying "Plan with Maps" with the whole suite green — the two keys are separate and only one of
+   * them is reachable at a time.
+   */
+  it.each(["en", "de"] as const)("labels the edit-dialog actions Maps / Plan / OK in %s", async (language) => {
+    stubCsrfOnlyFetch();
+
+    render(
+      <I18nProvider initialLanguage={language}>
+        <TripDayTravelSegmentDialog
+          {...baseProps}
+          {...placedItems(baseProps)}
+          segment={{
+            id: "segment-1",
+            fromItemType: "dayPlanItem",
+            fromItemId: "item-1",
+            toItemType: "accommodation",
+            toItemId: "stay-1",
+            transportType: "car",
+            durationMinutes: 95,
+            distanceKm: 320.5,
+            linkUrl: "https://example.com/old-link",
+          }}
+        />
+      </I18nProvider>,
+    );
+
+    expect(await screen.findByRole("link", { name: "Maps" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Plan" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "OK" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Plan with Maps" })).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * AC1 and AC2: `googleMapsFallbackHelper` is deleted, and this is the exact state that used to
+   * render it — adding a leg, a routable mode, both neighbours placed. Nothing standing is left
+   * under the form in that state, which is the whole point of the story. Asserted in both languages
+   * against the literal old strings rather than against a key, because `translate()` falls back to
+   * returning the key itself, so a query for a deleted key would pass whatever happened.
+   */
+  it.each(["en", "de"] as const)(
+    "renders no standing helper for a routable leg between two placed items (%s)",
+    async (language) => {
+    stubCsrfOnlyFetch();
+
+    render(
+      <I18nProvider initialLanguage={language}>
+        <TripDayTravelSegmentDialog {...baseProps} {...placedItems(baseProps)} />
+      </I18nProvider>,
+    );
+
+    await screen.findByRole("button", { name: "Plan" });
+
+    // Both languages, not just the rendered one: the key is gone from both dictionaries, so neither
+    // string can reach the DOM by any route.
+    expect(screen.queryByText(REMOVED_FALLBACK_HELPER_EN)).not.toBeInTheDocument();
+    expect(screen.queryByText(REMOVED_FALLBACK_HELPER_DE)).not.toBeInTheDocument();
+    // No other standing helper stepped into its place either.
+    expect(screen.queryByText(/Add a location to both adjacent items/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Füge beiden Nachbareinträgen/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Automatic route import covers/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Der automatische Routenimport deckt/)).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+    },
+  );
+
+  /**
+   * The removed helper was only ever rendered in the add state, so the edit state is where a
+   * careless "put it back somewhere" would hide. Also covers the surviving keys not leaking into a
+   * state they do not belong to.
+   */
+  it("renders no standing helper at all when editing an existing segment", async () => {
+    stubCsrfOnlyFetch();
+
+    render(
+      <I18nProvider initialLanguage="de">
+        <TripDayTravelSegmentDialog
+          {...baseProps}
+          {...placedItems(baseProps)}
+          segment={{
+            id: "segment-1",
+            fromItemType: "dayPlanItem",
+            fromItemId: "item-1",
+            toItemType: "accommodation",
+            toItemId: "stay-1",
+            transportType: "car",
+            durationMinutes: 95,
+            distanceKm: 320.5,
+            linkUrl: "https://example.com/old-link",
+          }}
+        />
+      </I18nProvider>,
+    );
+
+    await screen.findByRole("button", { name: "Plan" });
+
+    expect(screen.queryByText(REMOVED_FALLBACK_HELPER_DE)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Füge beiden Nachbareinträgen/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Der automatische Routenimport deckt/)).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * AC4: the two helpers that survived because they are actionable, in German, which is the length
+   * constraint at 390px. The unavailable one is the state the operator has to reproduce for AC5
+   * (neither neighbour placed); the manual-mode one still names the modes that *do* import, which is
+   * Story 6.16's AC5 and must not be undone by shortening it.
+   */
+  it("keeps the two actionable helpers, shortened, in German", async () => {
+    stubCsrfOnlyFetch();
+
+    const { unmount } = render(
+      <I18nProvider initialLanguage="de">
+        <TripDayTravelSegmentDialog {...baseProps} />
+      </I18nProvider>,
+    );
+
+    expect(await screen.findByText("Füge beiden Nachbareinträgen einen Ort hinzu.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Plan" })).toBeDisabled();
+    unmount();
+
+    render(
+      <I18nProvider initialLanguage="de">
+        <TripDayTravelSegmentDialog {...baseProps} {...placedItems(baseProps)} />
+      </I18nProvider>,
+    );
+
+    fireEvent.mouseDown(await screen.findByLabelText("Transport"));
+    fireEvent.click(await screen.findByRole("option", { name: "Flug" }));
+
+    const manualHelper =
+      "Der automatische Routenimport deckt Auto, zu Fuß und Fahrrad ab. Schiff und Flug trägst du manuell ein.";
+    // `getByText`, not `getAllByText`: exactly one copy. The standing helper and the Alert that
+    // "Plan" leaves behind used to carry this same sentence at the same time.
+    // Story 6.16's AC5 - that this wording names the modes that do import and never claims
+    // car-only - is pinned against the dictionary in `i18nDictionaries.test.ts`, which is the only
+    // place it can be asserted without comparing this local literal to itself.
+    await waitFor(() => {
+      expect(screen.getByText(manualHelper)).toBeInTheDocument();
+    });
+
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * Story 6.17 review. Add mode, ship or flight, both neighbours placed: the standing helper
+   * already says this, and `handleGoogleMapsRoute` used to set the identical string as an Alert on
+   * top of it. Two copies of the dialog's longest helper is the opposite of what this story is for.
+   */
+  it("does not repeat the manual-mode helper when Plan is pressed in the add dialog", async () => {
+    stubCsrfOnlyFetch();
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayTravelSegmentDialog {...baseProps} {...placedItems(baseProps)} />
+      </I18nProvider>,
+    );
+
+    await openTransportMenu();
+    fireEvent.click(await screen.findByRole("option", { name: "Ship" }));
+
+    const manualHelper =
+      "Automatic route import covers car, walking and cycling. Ship and flight are entered manually.";
+    expect(screen.getByText(manualHelper)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Plan" }));
+
+    await waitFor(() => {
+      expect(screen.getAllByText(manualHelper)).toHaveLength(1);
+    });
+
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * The edit dialog renders no standing helper, so there the Alert is the only thing that explains
+   * why pressing "Plan" imported nothing. Suppressing the duplicate above must not suppress this.
+   */
+  it("still explains the manual path as an alert when editing a ship or flight leg", async () => {
+    stubCsrfOnlyFetch();
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayTravelSegmentDialog
+          {...baseProps}
+          {...placedItems(baseProps)}
+          segment={{
+            id: "segment-1",
+            fromItemType: "dayPlanItem",
+            fromItemId: "item-1",
+            toItemType: "accommodation",
+            toItemId: "stay-1",
+            transportType: "flight",
+            durationMinutes: 95,
+            distanceKm: null,
+            linkUrl: "https://example.com/old-link",
+          }}
+        />
+      </I18nProvider>,
+    );
+
+    const manualHelper =
+      "Automatic route import covers car, walking and cycling. Ship and flight are entered manually.";
+    expect(await screen.findByRole("button", { name: "Plan" })).toBeInTheDocument();
+    expect(screen.queryByText(manualHelper)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Plan" }));
+
+    await waitFor(() => {
+      expect(screen.getByText(manualHelper)).toBeInTheDocument();
+    });
 
     vi.unstubAllGlobals();
   });

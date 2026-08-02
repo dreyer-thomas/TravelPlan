@@ -386,7 +386,12 @@ export default function TripDayTravelSegmentDialog({
     if (!isRoutableTransportType(transportType)) {
       // Ship and flight: no router has a profile for them, so this is the manual path by design and
       // must never read as an error.
-      setRouteHelper(t("trips.travelSegment.googleMapsManualModeHelper"));
+      // Story 6.17 review: in the *add* dialog this exact sentence is already standing under the
+      // form as `staticRouteHelper`, so setting it here too rendered the longest surviving helper
+      // twice - roughly four extra wrapped lines in the dialog this story exists to fit onto a
+      // 390px phone. The edit dialog renders no standing helper, so there it is still the only
+      // thing that explains why nothing was imported.
+      if (isEditing) setRouteHelper(t("trips.travelSegment.googleMapsManualModeHelper"));
       return;
     }
 
@@ -445,7 +450,7 @@ export default function TripDayTravelSegmentDialog({
     } finally {
       setRouteLoading(false);
     }
-  }, [fromItem, mapsLink, t, toItem, transportType, tripId]);
+  }, [fromItem, isEditing, mapsLink, t, toItem, transportType, tripId]);
 
   useEffect(() => {
     if (!open) {
@@ -512,6 +517,18 @@ export default function TripDayTravelSegmentDialog({
       setSaving(false);
     }
   };
+
+  /**
+   * The standing helper under the form, as opposed to `routeHelper`, which is the Alert a route
+   * attempt leaves behind. `null` for the whole common case — see the comment at its render site.
+   */
+  const staticRouteHelper = isEditing
+    ? null
+    : mapsLink
+      ? isRoutableTransportType(transportType)
+        ? null
+        : t("trips.travelSegment.googleMapsManualModeHelper")
+      : t("trips.travelSegment.googleMapsUnavailableHelper");
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
@@ -605,13 +622,17 @@ export default function TripDayTravelSegmentDialog({
             FormHelperTextProps={{ sx: { minHeight: 0 } }}
           />
 
-          {!isEditing ? (
+          {/*
+            Story 6.17: the routable-with-locations branch used to render
+            `googleMapsFallbackHelper` ("Open the route in Google Maps, then copy the duration and
+            distance into this form"), which described a workflow the user was already performing.
+            It is gone, key and all, so the common case — adding a car/walking/cycling leg between
+            two placed items — now renders no static helper at all. The two surviving branches both
+            say something the user has to act on, so the block renders only when there is one.
+          */}
+          {staticRouteHelper ? (
             <Typography variant="body2" color="text.secondary">
-              {mapsLink
-                ? isRoutableTransportType(transportType)
-                  ? t("trips.travelSegment.googleMapsFallbackHelper")
-                  : t("trips.travelSegment.googleMapsManualModeHelper")
-                : t("trips.travelSegment.googleMapsUnavailableHelper")}
+              {staticRouteHelper}
             </Typography>
           ) : null}
           {routeHelper ? <Alert severity="info">{routeHelper}</Alert> : null}
@@ -629,6 +650,12 @@ export default function TripDayTravelSegmentDialog({
           onClick={() => void handleGoogleMapsRoute()}
           disabled={!mapsLink || routeLoading}
         >
+          {/*
+            Both arms are reachable — edit vs. add — and since Story 6.17 both resolve to "Plan", so
+            this ternary renders the same word either way. The two keys are kept deliberately: they
+            are the labels of two different actions that happen to share a word today, and collapsing
+            them would make re-splitting them a dictionary change in two files instead of one.
+          */}
           {isEditing
             ? t("trips.travelSegment.refreshGoogleMapsRoute")
             : t("trips.travelSegment.calculateGoogleMapsRoute")}
@@ -638,7 +665,7 @@ export default function TripDayTravelSegmentDialog({
           {t("common.cancel")}
         </Button>
         <Button variant="contained" onClick={() => void handleSave()} disabled={saving || !tripDayId || !fromItem || !toItem}>
-          {t("common.save")}
+          {t("trips.travelSegment.save")}
         </Button>
       </DialogActions>
     </Dialog>

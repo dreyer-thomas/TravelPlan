@@ -922,6 +922,66 @@ summary: When no routable network exists near either point, OSRM snaps both to t
 evidence: Measured through the app's own request shape on 2026-08-02. Cycling from 30,-40 to 31,-41 (mid-Atlantic) returned HTTP 200 with `{"distanceMeters":0,"durationSeconds":0}` and a two-point polyline at 39.376475,-31.248047 — the Azores, roughly 1000 km from both requested coordinates. Upstream confirms it: `routed-bike` answers `{"code":"Ok","routes":[{"distance":0,"duration":0}]}`. The saved value is caught one step later by the distance rule the same review added ("Gib eine Entfernung größer als 0 ein"), so nothing wrong is stored — but the *import* claims success, and the snapped polyline is silently a thousand kilometres away. A zero-length route between two distinct requested points is a reliable "no route for this mode" signal and is what `routing_no_route` should key on, alongside the `NoRoute`/`NoSegment` codes the review already wired. Not a regression: this path was unreachable before 6.16 because only car could import.
 status: open
 
+### DW-114: The standing helper tests for a Maps link before it tests routability, so ship and flight are told to add locations that cannot help them
+
+source_spec: `_bmad-output/implementation-artifacts/6-17-travel-segment-dialog-on-a-phone.md`
+origin: incidental to story 6-17 review, 2026-08-02
+location: `travelplan/src/components/features/trips/TripDayTravelSegmentDialog.tsx:520-526` (`staticRouteHelper`)
+severity: low
+summary: Add mode, transport = ship or flight, one or both neighbours unplaced: the outer `mapsLink` arm wins, so the dialog renders "Add a location to both adjacent items." The user complies and the helper flips to "Automatic route import covers car, walking and cycling. Ship and flight are entered manually" — the instruction bought them nothing.
+evidence: The branch order predates story 6-17 (the same ternary sat under the old `!isEditing ?` guard), so this is not a regression, but 6-17 removed the clause that made the sentence conditionally true: it used to read "…to calculate a Google Maps route", which scoped the promise. Fix is to test routability first — `!isRoutableTransportType(transportType) ? manualModeHelper : mapsLink ? null : unavailableHelper` — plus a case for add-mode + Flight + unplaced neighbours, which no test currently covers (the new 6-17 no-location cases all run under the default `car`). Not patched inside 6-17 because that story's AC6 is "nothing functional changes" and its Dev Notes forbid restructuring the dialog; changing which of two helpers appears in a reachable state is a behaviour change a copy story should not make unannounced.
+status: open
+
+### DW-115: In the edit dialog a permanently disabled "Plan" button has no explanation at all
+
+source_spec: `_bmad-output/implementation-artifacts/6-17-travel-segment-dialog-on-a-phone.md`
+origin: incidental to story 6-17 review, 2026-08-02
+location: `travelplan/src/components/features/trips/TripDayTravelSegmentDialog.tsx:520` (the `isEditing ? null :` arm) with the button state at `:643-647`
+severity: low
+summary: Open an existing segment whose neighbours have since lost their locations: `mapsLink` is null, so the "Maps" link is not rendered and "Plan" is disabled — and because the standing helper is suppressed entirely when editing, nothing says why. The identical state in the add dialog gets `googleMapsUnavailableHelper`.
+evidence: Carried over from the pre-6.17 `!isEditing ?` guard rather than introduced by it, but 6-17's new "renders no standing helper at all when editing an existing segment" case now pins the gap shut, so a future fix has to argue with a test. Cheapest correct shape is to let the unavailable branch through in edit mode too, since it is the one helper that is actionable in both states. Left out of 6-17 for the same reason as DW-114: a copy story that promises no functional change.
+status: open
+
+### DW-116: A zero-length route, or one missing only its distance, is reported as "Route import failed"
+
+source_spec: `_bmad-output/implementation-artifacts/6-17-travel-segment-dialog-on-a-phone.md`
+origin: incidental to story 6-17 review, 2026-08-02
+location: `travelplan/src/components/features/trips/TripDayTravelSegmentDialog.tsx:425-432`
+severity: medium
+summary: The `> 0` guards collapse three different outcomes into one message. Two neighbours pinned at the same coordinates — a hotel and a restaurant inside it, an everyday case — produce `distance: 0 / duration: 0`, and the user is told the import failed and that retrying is worth trying, which it never is. A route that returned a valid duration but a non-numeric distance discards the duration that did arrive.
+evidence: Same root as DW-113 (OSRM answers `code: "Ok"` with zeros where no network exists), but a different surface and a different symptom: DW-113 describes the pre-6.16-review behaviour where zeros were reported as *success*; the `> 0` guards added in that review turned it into a reported *failure*. Story 6-17 sharpened the wording from "Automatic route import is not available in this build" to "Route import failed", which is more truthful at three of the four call sites and less truthful at this one — the shortening made the message assert an event that did not occur. What is owed is to split the branch: a genuinely zero-length route between two distinct requested points is `routing_no_route`, and a partial route should fill in the field it did receive.
+status: open
+
+### DW-117: `googleMapsNoRouteForMode` is the dialog's longest helper and was outside story 6-17's review list
+
+source_spec: `_bmad-output/implementation-artifacts/6-17-travel-segment-dialog-on-a-phone.md`
+origin: incidental to story 6-17 review, 2026-08-02
+location: `travelplan/src/i18n/de.ts:333-334` and `travelplan/src/i18n/en.ts:333-334`
+severity: low
+summary: At 108 characters in German and 110 in English it is longer than every helper story 6-17 shortened, and it renders in exactly the state cycling produces most often — a walking or cycling leg where OSRM answers `NoRoute`/`NoSegment`. AC4 enumerated four keys by name and this one, added by story 6-16, was not among them.
+evidence: Measured from the dictionaries; reachable via `TripDayTravelSegmentDialog.tsx:416-419` on the 404 `routing_no_route` path. It is now bounded at its current length by the per-key budget test 6-17's review added to `i18nDictionaries.test.ts`, so it cannot grow silently — but it was never judged against the "actionable, not explanatory" standard the other four were, and the second sentence ("Trage Dauer und Entfernung manuell ein" / "Enter the duration and distance manually") is the only part the user must act on. Worth one pass with the same standard, together with DW-116, since both live on the failure branches of the same import.
+status: open
+
+### DW-118: Pressing "Plan" on a ship or flight leg discards a hand-pasted link before returning without a route
+
+source_spec: `_bmad-output/implementation-artifacts/6-17-travel-segment-dialog-on-a-phone.md`
+origin: incidental to story 6-17 review, 2026-08-02
+location: `travelplan/src/components/features/trips/TripDayTravelSegmentDialog.tsx:379-381`, above the non-routable early return at `:386`
+severity: low
+summary: `setLinkUrl(modeAwareMapsLink)` runs unconditionally at the top of `handleGoogleMapsRoute`, so a URL the user typed into the link field is replaced by a generated Google directions link even on the paths that import nothing — ship and flight, no locations, no route for this mode.
+evidence: Pre-existing, from story 6-16's "point the fallback link at the mode being imported" change, and deliberate for the paths that go on to import. On the early-return paths it is a silent overwrite of user input with no undo, and story 6-17 makes it marginally easier to hit by accident: the action row is now three short words, so "Plan" is a smaller and less deliberate target than "Plan with Maps" was. Fix is to move the assignment below the early returns, or to skip it when `linkUrl` differs from `seededLinkRef.current`, which is exactly the "user typed this" signal the ref already tracks.
+status: open
+
+### DW-119: The travel-segment dialog's external Maps action has a two-word accessible name and no new-tab announcement
+
+source_spec: `_bmad-output/implementation-artifacts/6-17-travel-segment-dialog-on-a-phone.md`
+origin: incidental to story 6-17 review, 2026-08-02
+location: `travelplan/src/components/features/trips/TripDayTravelSegmentDialog.tsx:638-642`
+severity: low
+summary: The link is rendered as `<Button component="a" target="_blank">` with no `aria-label` and no `title`, and since story 6-17 its whole accessible name is "Maps". A screen-reader user hears "Maps, link" and gets a new browser tab with no warning.
+evidence: `target="_blank"` predates 6-17 and the same pattern appears on other external links in the app, so this is a convention question rather than a defect this story introduced. It is recorded because 6-17 shortened the visible text, which is the only thing that was carrying the meaning. Deliberately not patched inside 6-17: adding `aria-label` to the *save* button — the reviewer's suggested fix — would give it an accessible name ("Save travel segment") that does not contain its visible label ("OK"), which is a WCAG 2.5.3 Label-in-Name failure and worse than what it replaces. The right scope is one pass over external links app-wide, deciding a single convention for the new-tab announcement.
+status: open
+
 ## Note: story 6.16 review decision (2026-08-02)
 
 The one `decision-needed` finding from the 6.16 code review - walking and cycling route import

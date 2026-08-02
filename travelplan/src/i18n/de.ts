@@ -315,21 +315,28 @@ const de: Dictionary = {
   "trips.travelSegment.linkLabel": "Link (optional)",
   "trips.travelSegment.linkHelper": "Google-Maps- oder Routenlink einfügen",
   "trips.travelSegment.linkInvalid": "Bitte einen gültigen http(s)-Link eingeben",
-  "trips.travelSegment.calculateGoogleMapsRoute": "Plan with Maps",
-  "trips.travelSegment.refreshGoogleMapsRoute": "Plan with Maps",
-  "trips.travelSegment.googleMapsFallbackHelper":
-    "Öffne die Route in Google Maps und übertrage Dauer und Entfernung anschließend manuell in dieses Formular.",
+  // Story 6.17: the three dialog-action labels are deliberately identical in both dictionaries.
+  // "Maps", "Plan" und "OK" sind im Deutschen unverändert gebräuchlich, und die Aktionszeile des
+  // Dialogs muss auf ein 390px-Telefon passen, wo "Plan with Maps" / "Speichern" umbrachen. Vor 6.17
+  // standen in diesen beiden Keys unübersetzte englische Strings ("Plan with Maps"); dass sie jetzt
+  // dasselbe Wort tragen, ist eine Entscheidung, kein Versäumnis.
+  "trips.travelSegment.calculateGoogleMapsRoute": "Plan",
+  "trips.travelSegment.refreshGoogleMapsRoute": "Plan",
+  // Story 6.17: `trips.travelSegment.save`, nicht `common.save`. Nur dieser eine Dialog beschriftet
+  // sein Speichern mit "OK"; ein `common.`-Key mit diesem Wert würde dem nächsten Dialog einen
+  // OK-Button unterschieben.
+  "trips.travelSegment.save": "OK",
   "trips.travelSegment.googleMapsUnavailableHelper":
-    "Füge beiden benachbarten Einträgen Orte hinzu, um eine Google-Maps-Route zu berechnen.",
+    "Füge beiden Nachbareinträgen einen Ort hinzu.",
   "trips.travelSegment.googleMapsManualModeHelper":
-    "Der automatische Routenimport deckt Auto, zu Fuß und Fahrrad ab. Schiff und Flug trägst du manuell ein - Google Maps kannst du weiterhin zum Nachschlagen öffnen.",
+    "Der automatische Routenimport deckt Auto, zu Fuß und Fahrrad ab. Schiff und Flug trägst du manuell ein.",
   "trips.travelSegment.googleMapsNoRouteForMode":
     "Für diese Reiseart gibt es zwischen diesen beiden Orten keine Route. Trage Dauer und Entfernung manuell ein.",
   "trips.travelSegment.googleMapsFallbackActive":
-    "Der automatische Routenimport ist in diesem Build nicht verfügbar. Nutze Google Maps und übertrage die Werte manuell.",
+    "Routenimport fehlgeschlagen. Trage Dauer und Entfernung manuell ein.",
   "trips.travelSegment.googleMapsPrefillSuccess":
-    "Die Routendaten wurden aus den aktuellen benachbarten Orten vorausgefüllt. Du kannst sie vor dem Speichern weiter bearbeiten.",
-  "trips.travelSegment.openLink": "Open Maps",
+    "Die Routendaten wurden aus Maps übernommen.",
+  "trips.travelSegment.openLink": "Maps",
   "trips.travelSegment.durationRequired": "Dauer ist erforderlich",
   "trips.travelSegment.distanceRequired": "Entfernung ist für Auto erforderlich",
   "trips.travelSegment.initError": "Reiseabschnitt konnte nicht geladen werden. Bitte aktualisieren.",
@@ -534,8 +541,9 @@ const de: Dictionary = {
   "trips.location.latInvalid": "Breitengrad muss zwischen -90 und 90 liegen",
   "trips.location.lngInvalid": "Längengrad muss zwischen -180 und 180 liegen",
   "common.cancel": "Abbrechen",
-  "common.close": "Schließen",
-  "common.save": "Speichern"
+  // Story 6.17 hat `common.save` entfernt — siehe die Notiz in `en.ts`. Der einzige Leser nutzt
+  // jetzt `trips.travelSegment.save`.
+  "common.close": "Schließen"
 };
 
 export default de;
