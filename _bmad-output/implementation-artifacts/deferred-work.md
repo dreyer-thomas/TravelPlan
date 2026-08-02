@@ -1046,3 +1046,23 @@ Standing hazard worth carrying forward: the routing backend is a community servi
 It is fine at one request per explicit user action. Anything that routes automatically or in bulk -
 a background prefill, a per-day batch, a map that re-routes on pan - needs a self-hosted OSRM behind
 `OSRM_BASE_URL` first.
+
+### DW-125: The day-hero overflow menu can outlive its trigger and anchor to a detached node
+
+source_spec: `_bmad-output/implementation-artifacts/6-19-day-hero-three-surfaces.md`
+origin: incidental to story 6-19 review, 2026-08-02
+location: `travelplan/src/components/features/trips/TripDayView.tsx` — `dayMenuAnchor`, the `Menu`'s `open` prop, and `loadDay()`
+severity: low
+summary: Anything that re-enters the day's loading state without changing `dayId` — a transfer submit, an accommodation dialog's `onSaved`, or `notFound` — unmounts the hero and its `⋯` trigger while the menu is open, leaving `anchorEl` on a node no longer in the document. MUI then warns about an invalid `anchorEl` and paints an empty paper in the viewport corner.
+evidence: Pre-existing, and the guard that appeared to cover it never did. Until 6.19 the menu read `open={hasDayMenuItems && Boolean(dayMenuAnchor)}`, with a comment attributing exactly this protection to the first conjunct — but `hasDayMenuItems` was `Object.values({ dayImage, transfers, print: true }).some(Boolean)` and `print` is a literal `true`, so it was tautologically true for every role and suppressed nothing. Story 6.19 removed the conjunct (the trigger is unconditional now that back-to-trip is ungated), which is a behavioural no-op and neither introduces nor worsens the hole. The only reset that clears the anchor fires on a `dayId` change, and none of the three paths above change `dayId`. The fix is to clear `dayMenuAnchor` where the hero unmounts — alongside `setLoading(true)` in `loadDay()` and `setNotFound(true)` — not to add a term to `open`.
+status: open
+
+### DW-126: A non-404 failure on the day screen leaves no in-app route back to the trip
+
+source_spec: `_bmad-output/implementation-artifacts/6-19-day-hero-three-surfaces.md`
+origin: incidental to story 6-19 review, 2026-08-02
+location: `travelplan/src/components/features/trips/TripDayView.tsx` — the `error && !detail` branch
+severity: medium
+summary: When the day fetch fails for any reason other than 404, the page renders an `Alert` and nothing else. The hero does not render, so neither does the `⋯` menu that now holds back-to-trip, and the user's only way out is the browser's own back gesture.
+evidence: Pre-existing — the back button lived inside the same `detail && day` branch before story 6.19 moved it into the menu, so the error state has never carried a route out. Surfaced by 6.19 because that story made the hero menu the *sole* route to the parent trip: `AppHeader.tsx` renders the brand as a `Typography` rather than a link, `getAuthMenuItems` returns only `logout` for an authenticated user, and the 6.9 breadcrumb is gone, so on this screen `document.querySelectorAll('a[href="/trips/{id}"]')` returns zero outside the open menu. The 404 branch already renders its own back link and is the model; the error branch wants the same one.
+status: open

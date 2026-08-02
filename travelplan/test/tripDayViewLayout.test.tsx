@@ -1665,7 +1665,11 @@ describe("TripDayView layout", () => {
     expect(await screen.findByTestId("trip-day-view-page")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
     expect(screen.getByText("Dec 1, 2026")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "← Back to trip" })).toBeInTheDocument();
+    // Story 6.19: the back-to-trip button left the hero for the first row of the `⋯` menu, and a
+    // closed MUI Menu is not mounted, so nothing named by it is on the page until the trigger is
+    // clicked. Its presence in the menu is asserted by the 6.19 block below; here the claim is that
+    // the page no longer paints it anywhere on its own - which an empty leftover slot would fail.
+    expect(screen.queryByRole("link", { name: "Back to trip" })).not.toBeInTheDocument();
     expect(screen.getByText("Previous night accommodation")).toBeInTheDocument();
     expect(screen.getAllByText("Airport Hotel").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Museum title").length).toBeGreaterThanOrEqual(1);
@@ -3968,12 +3972,13 @@ describe("TripDayView layout", () => {
     expect(screen.queryByRole("link", { name: /print|export/i })).not.toBeInTheDocument();
 
     // AC6, owner half: this fixture is accessRole "owner". Story 6.15 moved the owner-only
-    // day-image action *into* the menu, so what the right slot must carry is the overflow and
-    // nothing else. Scoped to the header row - queried globally the overflow could drift back
-    // below the hero and this would still pass.
-    const headerRow = screen.getByTestId("day-hero-header-row");
-    expect(within(headerRow).queryByRole("button", { name: "Edit day details" })).not.toBeInTheDocument();
-    const overflow = within(headerRow).getByTestId("day-hero-overflow");
+    // day-image action *into* the menu, so what the hero must carry is the overflow and nothing
+    // else. Scoped to the hero - queried globally the overflow could drift below the hero and this
+    // would still pass. (Story 6.19 removed the header row this used to scope to; the hero itself is
+    // the enclosing surface now that the three controls are positioned against it directly.)
+    const hero = screen.getByTestId("day-hero");
+    expect(within(hero).queryByRole("button", { name: "Edit day details" })).not.toBeInTheDocument();
+    const overflow = within(hero).getByTestId("day-hero-overflow");
     expect(overflow).toHaveAttribute("aria-haspopup", "menu");
     expect(overflow).toHaveAttribute("aria-expanded", "false");
     await userEvent.click(overflow);
@@ -4909,7 +4914,10 @@ describe("TripDayView layout", () => {
     vi.unstubAllGlobals();
   });
 
-  it("drops the hero breadcrumb and moves the trip button into the left slot (AC8)", async () => {
+  // Story 6.9 dropped the hero breadcrumb and put the trip button in the header row's left slot;
+  // Story 6.19 removed the row and moved the button into the `⋯` menu. What survives of 6.9's AC8 is
+  // the half about the breadcrumb - the slot assertions belong to the 6.19 block below now.
+  it("drops the hero breadcrumb, leaving one route back to the trip rather than two (AC8)", async () => {
     navigationMockState.search = "";
     vi.stubGlobal("fetch", buildDayResponse({}));
 
@@ -4922,17 +4930,14 @@ describe("TripDayView layout", () => {
     expect(screen.queryByRole("link", { name: "Test Trip" })).not.toBeInTheDocument();
     expect(screen.queryByText("/")).not.toBeInTheDocument();
 
-    const headerRow = screen.getByTestId("day-hero-header-row");
-    const backLink = within(headerRow).getByRole("link", { name: "← Back to trip" });
-    const leftSlot = within(headerRow).getByTestId("day-hero-header-left");
-    expect(leftSlot).toContainElement(backLink);
-    // Enlarged for touch: it is now the primary way out of this screen.
-    expect(Number.parseInt(getComputedStyle(backLink).minHeight, 10)).toBeGreaterThanOrEqual(44);
+    // And the route it duplicated is still exactly one route, now the menu's first row.
+    await userEvent.click(screen.getByTestId("day-hero-overflow"));
+    expect(await screen.findAllByRole("menuitem", { name: "Back to trip" })).toHaveLength(1);
 
     vi.unstubAllGlobals();
   });
 
-  it("keeps the trip button in the left slot for a non-owner with no day-image action (AC8)", async () => {
+  it("gives a non-owner the same single route back to the trip (AC8)", async () => {
     navigationMockState.search = "";
     vi.stubGlobal("fetch", buildDayResponse({}, { accessRole: "contributor" }));
 
@@ -4945,10 +4950,11 @@ describe("TripDayView layout", () => {
     // the absence of an element that never existed.
     expect(screen.queryByRole("button", { name: "Edit day details" })).not.toBeInTheDocument();
 
-    const leftSlot = screen.getByTestId("day-hero-header-left");
-    expect(within(leftSlot).getByRole("link", { name: "← Back to trip" })).toBeInTheDocument();
-    // The row still distributes rather than centring or right-snapping the lone remaining control.
-    expect(getComputedStyle(screen.getByTestId("day-hero-header-row")).justifyContent).toBe("space-between");
+    await userEvent.click(screen.getByTestId("day-hero-overflow"));
+    expect(await screen.findByRole("menuitem", { name: "Back to trip" })).toHaveAttribute(
+      "href",
+      "/trips/trip-1",
+    );
 
     vi.unstubAllGlobals();
   });
@@ -5003,12 +5009,13 @@ describe("TripDayView layout", () => {
 
     await screen.findByRole("heading", { name: "Day 1", level: 5 });
 
-    // The overflow shares the right slot with the isOwner-gated day-image action. Putting it inside
+    // The overflow used to share a slot with the isOwner-gated day-image action. Putting it inside
     // that branch would silently take print away from viewers and contributors - a capability loss
-    // wearing a layout change's clothes, which is why this asserts both halves of the slot at once.
-    const headerRow = screen.getByTestId("day-hero-header-row");
-    expect(within(headerRow).queryByRole("button", { name: "Edit day details" })).not.toBeInTheDocument();
-    const overflow = within(headerRow).getByTestId("day-hero-overflow");
+    // wearing a layout change's clothes, which is why this asserts both halves at once. Scoped to the
+    // hero since Story 6.19 removed the header row.
+    const hero = screen.getByTestId("day-hero");
+    expect(within(hero).queryByRole("button", { name: "Edit day details" })).not.toBeInTheDocument();
+    const overflow = within(hero).getByTestId("day-hero-overflow");
 
     await userEvent.click(overflow);
 
@@ -5361,8 +5368,10 @@ describe("TripDayView layout", () => {
     await screen.findByRole("heading", { name: "Day 1", level: 5 });
 
     // Order is asserted, not just membership: move and swap are a pair and must stay adjacent, and
-    // the divider is only meaningful if everything that changes this day sits above it.
+    // the divider is only meaningful if everything that changes this day sits above it. Story 6.19
+    // prepends back-to-trip - the way off the screen, ahead of everything that keeps you on it.
     expect(await dayOverflowItemNames()).toEqual([
+      "Back to trip",
       "Edit day details",
       "Move activities",
       "Swap activities",
@@ -5386,12 +5395,18 @@ describe("TripDayView layout", () => {
 
     // Still one planning group above print, so the divider still separates two kinds of thing - and
     // it is still below the pair, not floating at the top of a shorter list.
-    expect(await dayOverflowItemNames()).toEqual(["Move activities", "Swap activities", "---", "Print day"]);
+    expect(await dayOverflowItemNames()).toEqual([
+      "Back to trip",
+      "Move activities",
+      "Swap activities",
+      "---",
+      "Print day",
+    ]);
 
     vi.unstubAllGlobals();
   });
 
-  it("gives a viewer print alone, with no divider left floating at the top (AC3, AC5)", async () => {
+  it("gives a viewer back-to-trip and print, with no divider left floating at the top (AC3, AC5)", async () => {
     navigationMockState.search = "";
     vi.stubGlobal("fetch", buildDayResponse({}, { accessRole: "viewer" }));
 
@@ -5400,15 +5415,18 @@ describe("TripDayView layout", () => {
     await screen.findByRole("heading", { name: "Day 1", level: 5 });
 
     // AC5's live half: the trigger stays for a viewer because print stays for a viewer. Wrapping it
-    // in `isOwner` because the day-image item moved in is the regression 6.11 AC6 was written for.
+    // in `isOwner` because the day-image item moved in is the regression 6.11 AC6 was written for -
+    // and after Story 6.19 it would also strand the viewer, since back-to-trip lives in here too.
     expect(screen.getByTestId("day-hero-overflow")).toBeInTheDocument();
-    expect(await dayOverflowItemNames()).toEqual(["Print day"]);
+    expect(await dayOverflowItemNames()).toEqual(["Back to trip", "Print day"]);
+    // Two items, no rule between them: the divider marks off the day-changing group, and a viewer has
+    // none. A separator drawn between a viewer's only two entries would be noise, not structure.
     expect(screen.queryByTestId("day-hero-overflow-divider")).not.toBeInTheDocument();
 
     vi.unstubAllGlobals();
   });
 
-  it("leaves the hero's right slot holding the overflow alone and the page holding no move, swap or day-image button (AC1, AC2, AC6)", async () => {
+  it("leaves the hero holding the overflow alone and the page holding no move, swap or day-image button (AC1, AC2, AC6)", async () => {
     navigationMockState.search = "";
     vi.stubGlobal("fetch", buildDayResponse({}, { accessRole: "owner" }));
 
@@ -5422,11 +5440,13 @@ describe("TripDayView layout", () => {
     expect(screen.queryByRole("button", { name: "Swap activities" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Edit day details" })).not.toBeInTheDocument();
 
-    // AC2: one 44px control where there were two plus their 8px gap.
-    const rightSlot = screen.getByTestId("day-hero-header-right");
-    const rightSlotControls = within(rightSlot).getAllByRole("button");
-    expect(rightSlotControls).toHaveLength(1);
-    expect(rightSlotControls[0]).toBe(screen.getByTestId("day-hero-overflow"));
+    // AC2: one 44px control where there were two plus their 8px gap. Story 6.19 removed the slot this
+    // used to scope to, so it is scoped to the hero - and this fixture is a single-day trip, so there
+    // is no chevron on the hero either and the overflow is genuinely the only button on the photo.
+    const hero = screen.getByTestId("day-hero");
+    const heroButtons = within(hero).getAllByRole("button");
+    expect(heroButtons).toHaveLength(1);
+    expect(heroButtons[0]).toBe(screen.getByTestId("day-hero-overflow"));
 
     // AC6: the timeline section header is down to its label and the one action that creates what
     // the section lists. Scoped by testid rather than by the label's `parentElement` so that wrapping
@@ -5515,4 +5535,318 @@ describe("TripDayView layout", () => {
 
     vi.unstubAllGlobals();
   });
+
+  // --- Story 6.19: three surfaces on the day hero ----------------------------------------------
+
+  // `buildDayResponse` serves a single day, which leaves both neighbours null - and a day with no
+  // neighbours has no chevrons, so it cannot say anything about the three-control claim or about the
+  // order they are reached in. These are the three days AC1, AC7 and AC9 all need at once.
+  //
+  // Options object, not positionals, and deliberately unlike `buildDayResponse(day, trip)` above:
+  // both take `Record<string, unknown>` first, so had this one kept a bare `trip` parameter the same
+  // leading argument would mean "the day" in one and "the trip" in the other, with the compiler
+  // content either way. `buildThreeDayResponse({ note })` would then have written `note` onto the
+  // trip and silently rendered a day with no note - exactly the call the AC5 case below needs.
+  const buildThreeDayResponse = ({
+    trip = {},
+    day = {},
+  }: { trip?: Record<string, unknown>; day?: Record<string, unknown> } = {}) =>
+    withBucketList(async (input) => {
+      const url = String(input);
+      if (url.includes("/accommodations/images") || url.includes("/day-plan-items/images")) {
+        return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-03T00:00:00.000Z",
+              dayCount: 3,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+              ...trip,
+            },
+            days: [1, 2, 3].map((index) => ({
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: null,
+              dayPlanItems: [],
+              travelSegments: [],
+              ...day,
+              // Identity last, after the spread: `day` carries per-day *content* such as a note, and
+              // every one of the three is meant to receive it, but an `id` arriving that way would
+              // collapse all three onto one - and a fixture whose days share an id has no neighbours,
+              // which is the single thing this builder exists to provide.
+              id: `day-${index}`,
+              date: `2026-12-0${index}T00:00:00.000Z`,
+              dayIndex: index,
+            })),
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+  // Every anchor and every button the hero paints, in DOM order. Both roles matter: the chevrons are
+  // `IconButton component={Link}`, so they are links, and the `⋯` is a real button - counting only one
+  // role would let the other kind multiply unnoticed.
+  const heroControls = () =>
+    Array.from(screen.getByTestId("day-hero").querySelectorAll("a[href], button"));
+
+  it("carries exactly three interactive controls on the photo, in the order the corners read (AC1, AC9)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal("fetch", buildThreeDayResponse({ trip: { accessRole: "owner" } }));
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-2" />);
+
+    await screen.findByRole("heading", { name: "Day 2", level: 5 });
+
+    // AC1. Asserted as a count of *everything* focusable in the hero rather than as three positive
+    // lookups: a fourth control added later would pass three getBy calls and fail only this.
+    expect(heroControls()).toHaveLength(3);
+
+    // AC9. Tab order is DOM order here - nothing in the hero carries a tabindex - and DOM order must
+    // match the eye: top-left, top-right, bottom-right. Position comes from top/left/right/bottom, so
+    // a regression that reorders these is invisible in a screenshot and only shows up on a keyboard.
+    expect(heroControls()).toEqual([
+      screen.getByTestId("day-hero-prev"),
+      screen.getByTestId("day-hero-next"),
+      screen.getByTestId("day-hero-overflow"),
+    ]);
+
+    vi.unstubAllGlobals();
+  });
+
+  it("pins all three hero controls to the same 8px inset (AC3, as far as jsdom can see)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal("fetch", buildThreeDayResponse({ trip: { accessRole: "owner" } }));
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-2" />);
+
+    await screen.findByRole("heading", { name: "Day 2", level: 5 });
+
+    const previous = getComputedStyle(screen.getByTestId("day-hero-prev"));
+    const next = getComputedStyle(screen.getByTestId("day-hero-next"));
+    const overflow = getComputedStyle(screen.getByTestId("day-hero-overflow"));
+
+    // AC3 is a rendered-pixel claim and jsdom computes no layout, so what is pinned here is the input
+    // to it: the `⋯` and the next-day chevron declare the same `right`, off the same containing block.
+    // The bug being fixed was the `⋯` inheriting the hero's padding (16px at xs, 32px at md) from a
+    // flex row while the chevron was absolutely positioned at 8 - the equality below is what that
+    // could not satisfy. The operator's browser pass owns the measured half.
+    // The containing block first. `right: 8px` on all three only means "the same edge" while the hero
+    // is what they resolve against; drop `position: relative` from the hero and they fall through to
+    // whatever positioned ancestor is next, or to the initial containing block - the `⋯` and the
+    // chevron stop sharing any edge at all and every assertion below still passes.
+    expect(getComputedStyle(screen.getByTestId("day-hero")).position).toBe("relative");
+
+    expect(next.right).toBe("8px");
+    expect(overflow.right).toBe("8px");
+    expect(previous.left).toBe("8px");
+    expect(previous.position).toBe("absolute");
+    expect(next.position).toBe("absolute");
+    expect(overflow.position).toBe("absolute");
+
+    // Corners, not edges: the chevrons no longer hang off the vertical midpoint, and the `⋯` is at the
+    // bottom. `top: 50%` with a `translateY(-50%)` left behind would still look plausible.
+    expect(previous.top).toBe("8px");
+    expect(next.top).toBe("8px");
+    expect(overflow.bottom).toBe("8px");
+    expect(previous.transform).toBe("");
+    expect(next.transform).toBe("");
+
+    // All three one rung above the title block, which the long-note case grows into from below. At
+    // equal zIndex the later sibling wins hit-testing, and the title is the later sibling.
+    expect(previous.zIndex).toBe("3");
+    expect(next.zIndex).toBe("3");
+    expect(overflow.zIndex).toBe("3");
+    const titleBlock = getComputedStyle(
+      screen.getByRole("heading", { name: "Day 2", level: 5 }).parentElement as HTMLElement,
+    );
+    expect(titleBlock.zIndex).toBe("2");
+    // Still bottom-anchored - the premise AC5's clearance is built on. Its actual clearance (the
+    // hero's 60px top padding and the title block's right padding) is declared through MUI's
+    // responsive breakpoints, which jsdom does not resolve, so those two are the operator's to check.
+    expect(titleBlock.marginTop).toBe("auto");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("renders no chevron for a missing neighbour, leaving the overflow alone on the photo (AC1, AC7)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal("fetch", buildThreeDayResponse({ trip: { accessRole: "owner" } }));
+
+    const { rerender } = renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    // 6.11's rule survives the move: nothing at all, not a disabled control. Asserted through the
+    // hero's own control count as well as by test id, because a disabled button still renders.
+    expect(screen.queryByTestId("day-hero-prev")).not.toBeInTheDocument();
+    expect(heroControls()).toHaveLength(2);
+    expect(heroControls()).toEqual([
+      screen.getByTestId("day-hero-next"),
+      screen.getByTestId("day-hero-overflow"),
+    ]);
+
+    rerender(<Providers><TripDayView tripId="trip-1" dayId="day-3" /></Providers>);
+
+    await screen.findByRole("heading", { name: "Day 3", level: 5 });
+    expect(screen.queryByTestId("day-hero-next")).not.toBeInTheDocument();
+    expect(heroControls()).toEqual([
+      screen.getByTestId("day-hero-prev"),
+      screen.getByTestId("day-hero-overflow"),
+    ]);
+
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps the whole 280-character title and its date line alongside all three controls (AC5)", async () => {
+    navigationMockState.search = "";
+    // The longest note the field allows. A short title hides this case entirely: the title block is
+    // bottom-anchored and only reaches the chevrons' band when it is tall enough to fill the hero.
+    const longestNote = "N".repeat(280);
+    // The middle of three days, not a lone one. A single-day fixture leaves both neighbours null and
+    // therefore paints no chevrons at all - which would leave this case asserting "alongside all three
+    // controls" against a hero carrying exactly one, and the two top corners the 60px band exists to
+    // protect would be tested by nothing anywhere in the suite.
+    vi.stubGlobal(
+      "fetch",
+      buildThreeDayResponse({ trip: { accessRole: "owner" }, day: { note: longestNote } }),
+    );
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-2" />);
+
+    // AC5's testable half: the clearance is bought with padding, not with a `maxHeight`/`overflow`
+    // on the title block - and this is what tells the two apart. A clip sized to keep the title off
+    // the chevrons would eat the *date* first, because the date is the block's last line, and it
+    // would truncate the note in the accessible name without changing anything a screenshot shows.
+    const heading = await screen.findByRole("heading", { level: 5 });
+    expect(heading).toHaveTextContent(`Day 2: ${longestNote}`);
+    expect(screen.getByText("Dec 2, 2026")).toBeInTheDocument();
+
+    // And the controls the title now grows past are all three still there, still above it, and still
+    // in their corners - the arrangement whose clearance the operator then measures.
+    expect(heroControls()).toEqual([
+      screen.getByTestId("day-hero-prev"),
+      screen.getByTestId("day-hero-next"),
+      screen.getByTestId("day-hero-overflow"),
+    ]);
+    // Whether any of it *visually* overlaps is a rendered-pixel question jsdom cannot answer; the
+    // 60px top padding and the title's right padding are the operator's browser pass to confirm.
+
+    vi.unstubAllGlobals();
+  });
+
+  it("moves back-to-trip off the photo and into the menu, and removes the row it sat in (AC2, AC4)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal("fetch", buildThreeDayResponse({ trip: { accessRole: "owner" } }));
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-2" />);
+
+    await screen.findByRole("heading", { name: "Day 2", level: 5 });
+
+    // AC4: gone, not emptied. An empty flex container would keep reserving `mb: 2` and a line box, and
+    // every "the button is not in the hero" assertion below would still pass with it in place.
+    expect(screen.queryByTestId("day-hero-header-row")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("day-hero-header-left")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("day-hero-header-right")).not.toBeInTheDocument();
+
+    // AC2, negative half. Both roles, because the control was a `Button component={Link}` and a
+    // regression could bring it back as either.
+    const hero = screen.getByTestId("day-hero");
+    expect(within(hero).queryByRole("link", { name: "Back to trip" })).not.toBeInTheDocument();
+    expect(within(hero).queryByRole("button", { name: "Back to trip" })).not.toBeInTheDocument();
+
+    // AC2, positive half: exactly one, first, still a real anchor to the trip. `getAllBy` rather than
+    // `getBy` so a duplicated item fails here rather than at some later ambiguous-query error.
+    await userEvent.click(screen.getByTestId("day-hero-overflow"));
+    const menu = await screen.findByRole("menu");
+    const backItems = within(menu).getAllByRole("menuitem", { name: "Back to trip" });
+    expect(backItems).toHaveLength(1);
+    expect(backItems[0]).toBe(within(menu).getAllByRole("menuitem")[0]);
+    expect(backItems[0].tagName).toBe("A");
+    expect(backItems[0]).toHaveAttribute("href", "/trips/trip-1");
+    // An in-app link. Print's props stay on print; here they would leave the trip in a second tab.
+    expect(backItems[0]).not.toHaveAttribute("target");
+    expect(backItems[0]).not.toHaveAttribute("rel");
+
+    // The touch target survives the move. The hero button this replaced carried an explicit
+    // `minHeight: 48` because it is the way off the screen and is reached with a thumb; relocating a
+    // control is not a licence to shrink its hit area, which is the whole point of `DAY_MENU_ITEM_SX`
+    // - MUI drops MenuItem to 36px at sm and up on its own. The old assertion left with the button,
+    // and without a replacement every item in this menu could quietly fall to 36px with the suite
+    // still green. Asserted across all of them, not just this one: the floor is the menu's, not the
+    // item's.
+    for (const item of within(menu).getAllByRole("menuitem")) {
+      expect(Number.parseInt(getComputedStyle(item).minHeight, 10)).toBeGreaterThanOrEqual(44);
+    }
+
+    // And it dismisses the menu on its way out, like every other item.
+    await userEvent.click(backItems[0]);
+    await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+
+    vi.unstubAllGlobals();
+  });
+
+  it("renders the German back label without the arrow glyph the hero button carried (AC2)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal("fetch", buildThreeDayResponse({ trip: { accessRole: "viewer" } }));
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-2" />, { language: "de" });
+
+    await screen.findByRole("heading", { name: "Tag 2", level: 5 });
+
+    // The glyph was dropped deliberately (Story 6.19 Task 1) and in both locales at once. Pinning the
+    // DE string as well as the EN one is what stops the two drifting apart - nothing in this repo
+    // compares the two key sets.
+    await userEvent.click(screen.getByRole("button", { name: "Weitere Aktionen" }));
+    expect(await screen.findByRole("menuitem", { name: "Zurück zur Reise" })).toHaveAttribute(
+      "href",
+      "/trips/trip-1",
+    );
+    expect(screen.queryByRole("menuitem", { name: "← Zurück zur Reise" })).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it.each(["owner", "contributor", "viewer"] as const)(
+    "leaves %s able to reach both print and the way back to the trip (AC8)",
+    async (accessRole) => {
+      navigationMockState.search = "";
+      vi.stubGlobal("fetch", buildThreeDayResponse({ trip: { accessRole } }));
+
+      renderWithProviders(<TripDayView tripId="trip-1" dayId="day-2" />);
+
+      await screen.findByRole("heading", { name: "Day 2", level: 5 });
+
+      // Trap 4: the trigger must never be gated now that the only route off this screen is behind it.
+      // A viewer losing it does not lose a menu - it loses the day screen.
+      const trigger = screen.getByTestId("day-hero-overflow");
+      expect(trigger).toBeInTheDocument();
+      await userEvent.click(trigger);
+
+      expect(await screen.findByRole("menuitem", { name: "Back to trip" })).toHaveAttribute(
+        "href",
+        "/trips/trip-1",
+      );
+      expect(screen.getByRole("menuitem", { name: "Print day" })).toBeInTheDocument();
+
+      // And the 6.15 gates are still gates: only the two roles that can edit planning see move/swap,
+      // only the owner sees the day-image edit.
+      const gatedVisible = screen.queryAllByRole("menuitem", { name: /Move activities|Swap activities/ });
+      expect(gatedVisible).toHaveLength(accessRole === "viewer" ? 0 : 2);
+      expect(screen.queryAllByRole("menuitem", { name: "Edit day details" })).toHaveLength(
+        accessRole === "owner" ? 1 : 0,
+      );
+
+      vi.unstubAllGlobals();
+    },
+  );
 });

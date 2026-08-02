@@ -217,7 +217,9 @@ const de: Dictionary = {
   "trips.share.error": "Mitwirkender konnte nicht hinzugefügt werden. Bitte erneut versuchen.",
   "trips.share.removeError": "Person konnte nicht entfernt werden. Bitte erneut versuchen.",
   "trips.share.initError": "Freigabe konnte nicht geladen werden. Bitte aktualisieren.",
-  "trips.dayView.back": "← Zurück zur Reise",
+  // Glyph dropped in lockstep with en.ts - see the note there. A locale keeping the arrow while the
+  // other drops it would give the same menu row two different shapes.
+  "trips.dayView.back": "Zurück zur Reise",
   "trips.dayView.mapBack": "← Zurück zum Tag",
   "trips.dayView.title": "Tag {index}",
   "trips.dayView.titleWithNote": "Tag {index}: {note}",

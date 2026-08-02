@@ -106,6 +106,109 @@ const VISUALLY_HIDDEN = {
   border: 0,
 } as const;
 
+/**
+ * The one offset every control on the day hero reads (Story 6.19, AC3).
+ *
+ * All three - the previous-day chevron top-left, the next-day chevron top-right and the `⋯`
+ * bottom-right - are absolutely positioned against the hero's padding box, so they share a right edge
+ * only if they share this number. Before 6.19 the `⋯` lived in a flex header row and inherited the
+ * hero's own inline padding instead (16px at xs, 32px at md), which left it 8px off the chevron on a
+ * phone and 24px off on a desktop: the misalignment the story was raised for. Writing `8` at one call
+ * site and `theme.spacing(1)` at another would reintroduce it the next time the spacing scale moves,
+ * so all three read this constant and AC3 holds by construction rather than by inspection.
+ */
+const HERO_CONTROL_INSET = 8;
+
+/** The app's touch-target floor, spelled out because the title's clearance is derived from it. */
+const HERO_CONTROL_SIZE = 44;
+
+/** Visible breathing room between a hero control and the nearest title text. */
+const HERO_CONTROL_GAP = 8;
+
+/**
+ * 8 + 44 + 8 = 60px - the band a hero control claims at any corner, plus a gap (Story 6.19, AC5).
+ *
+ * The title block is bottom-anchored (`mt: auto`) and grows upward on a long note - the title is
+ * "Day N: {note}" at 28px/900 and notes run to 280 characters - so it needs a real ceiling, not a
+ * `zIndex`. Until 6.19 the header row provided one by occupying the top of the hero in normal flow;
+ * that row is gone, and the chevrons that replaced it are out of flow and reserve nothing.
+ *
+ * The ceiling is the hero's own `padding-top`. Padding, not `maxHeight`/`overflow`: the title block
+ * holds the title *and* the date line beneath it, and any clip applied to the block would eat the date
+ * first, since it is the block's last line. Padding cannot clip anything - a title long enough to fill
+ * the hero simply makes the hero taller, which is what it already did before this story. And because
+ * `mt: auto` absorbs all the slack while the title is short, raising the top padding from 22px to 60px
+ * is invisible on every day whose title does not actually reach the top.
+ */
+const HERO_CONTROL_BAND = HERO_CONTROL_INSET + HERO_CONTROL_SIZE + HERO_CONTROL_GAP;
+
+/**
+ * Responsive below md to match the panel directly beneath the hero, not because a control needs it.
+ *
+ * The panel reads this too rather than repeating the numbers. The two are one continuous left edge
+ * down the page, and the only reason the hero is responsive at all is to keep that edge straight -
+ * so a change here that the panel did not follow would break the very thing the value exists for.
+ */
+const HERO_PADDING_INLINE = { xs: 16, md: 32 } as const;
+
+/**
+ * The `⋯` sits at `right: 8` off the hero's *padding box*, so it reaches 8 + 44 = 52px inward from the
+ * inner right edge while the title block stops at the hero's inline padding. What the title has to give
+ * back is the difference plus a gap: 60 - 16 = 44px at xs, 60 - 32 = 28px at md.
+ *
+ * Clamped at 0 because this is a subtraction between two constants that are free to move independently.
+ * Inline padding wider than the control band is a perfectly reasonable future value - it would mean the
+ * title already clears the `⋯` on its own - but the naive difference goes negative there, and a negative
+ * `padding-right` is not a small error: the declaration is invalid, the CSS parser drops it silently,
+ * and the title loses its clearance entirely at that breakpoint with nothing raised. jsdom does not
+ * resolve responsive `sx`, so no test in this suite would catch it either.
+ */
+const HERO_TITLE_RIGHT_CLEARANCE = {
+  xs: `${Math.max(0, HERO_CONTROL_BAND - HERO_PADDING_INLINE.xs)}px`,
+  md: `${Math.max(0, HERO_CONTROL_BAND - HERO_PADDING_INLINE.md)}px`,
+} as const;
+
+/**
+ * A darker fill for the two chevrons alone (Story 6.19, AC6).
+ *
+ * `HERO_SCRIM`'s four stops are `.88` at the bottom, `.54` at 38%, `.10` at 66% and `.26` at the top,
+ * so moving a control changes how much backing it has. Over a 210px hero the chevrons' centre drops
+ * from ~0.351 alpha at the vertical midpoint to ~0.193 at `top: 8`.
+ *
+ * Every figure below is the *rendered* one: photo -> scrim -> the button's own fill -> white glyph.
+ * That last step matters and is easy to drop. DW-98's headline 2.41:1 is white against the scrimmed
+ * photo with no button on it; the chevron actually paints `rgba(255,255,255,.18)` over that first,
+ * which lightens its own backdrop and costs it more contrast than the move does. Over the near-white
+ * (`#FAFAF8`) photo DW-98 measured:
+ *
+ *   chevron, vertical centre, white fill  backdrop rgb(169,168,166) -> disc rgb(185,184,182)  1.98:1
+ *   chevron, `top: 8`, white fill         backdrop rgb(206,205,203) -> disc rgb(215,214,212)  1.45:1
+ *   chevron, `top: 8`, dark fill          backdrop rgb(206,205,203) -> disc rgb(135,134,131)  3.64:1
+ *
+ * So the white fill is not merely failing to save the control, it is the larger of the two problems:
+ * light-on-light. The chevrons take a dark translucent fill instead, which is the second of the two
+ * fixes DW-98 itself names. Replacing the fill rather than layering over it keeps the arithmetic
+ * single-valued. 3.64:1 at the glyph's centre, 3.31:1 at the weakest point of the band the button
+ * spans - better than the 1.98:1 they read today, and past the 3:1 non-text floor they have never met.
+ *
+ * Over a *dark* photo the dark fill sinks the disc into the backdrop (disc-vs-backdrop 1.58:1 -> 1.03:1)
+ * while the glyph improves (13.05:1 -> 19.91:1). What delineates the control there is not the fill in
+ * either version - at 1.58:1 the white one never did - but `ON_PHOTO_CHROME`'s `rgba(255,255,255,.55)`
+ * border, which composites to rgb(142,142,141) and reads at 6.26:1 against that backdrop. It and the
+ * white focus ring are kept for exactly that reason.
+ *
+ * The fill is local to the chevrons on purpose. `HERO_SCRIM` is shared with the trip hero and its stops
+ * are pinned in DESIGN.md, and the `⋯` needs nothing: at `bottom: 8` it sits at ~0.752 alpha, so even
+ * with its white fill it composites to rgb(109,108,105) / 5.26:1 - already clear of the floor. That
+ * also keeps the three controls from diverging as much as swapping one fill suggests: after this change
+ * the chevrons read rgb(135,134,131) and the `⋯` rgb(109,108,105) over the same light photo, both
+ * mid-dark discs with white glyphs, no polarity split between the corners.
+ */
+const HERO_CHEVRON_BACKING = {
+  backgroundColor: "rgba(20,18,14,.38)",
+  "&:hover": { backgroundColor: "rgba(20,18,14,.52)" },
+} as const;
+
 type TripSummary = {
   id: string;
   name: string;
@@ -375,12 +478,16 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   // an item's condition and change it here. Print is deliberately `true`: every role that can open
   // this day can print it, which is also why the trigger must never be wrapped in `isOwner` (AC5,
   // and 6.11 AC6 - that would take print away from viewers and contributors).
+  //
+  // Story 6.19: back-to-trip is *not* a field here, because it has no gate to mirror. It is the way
+  // off this screen and it renders for every role, which is also what retires the `hasDayMenuItems`
+  // guard this record used to feed: the menu can no longer be empty, so the trigger is unconditional
+  // (6.19 AC8, and its trap 4 - gating the trigger now would strand a viewer on the day screen).
   const dayMenuItemsVisible: Record<"dayImage" | "transfers" | "print", boolean> = {
     dayImage: isOwner,
     transfers: canEditPlanning,
     print: true,
   };
-  const hasDayMenuItems = Object.values(dayMenuItemsVisible).some(Boolean);
   // The divider only earns its place when there is a planning group above it to separate.
   const showDayMenuDivider = (dayMenuItemsVisible.dayImage || dayMenuItemsVisible.transfers) && dayMenuItemsVisible.print;
   // MUI drops MenuItem to 36px at sm and up. The three controls that moved into this menu were all
@@ -1925,13 +2032,15 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                 minHeight: 210,
                 display: "flex",
                 flexDirection: "column",
-                // Responsive below md, matching the panel directly beneath it. Story 6.11 needed this
-                // because a second unconditional button had made the right slot 96px, and at 360px the
-                // fixed 32px gutters left only 264px for a nowrap "← Zurück zur Reise" (~180px) beside
-                // it. Story 6.15 moved that second button into the menu, so the slot is back to one
-                // 44px control and the original pressure is gone - the responsive gutters stay because
-                // they match the panel below, not because the row still needs the 32px they buy back.
-                padding: { xs: "22px 16px 24px", md: "22px 32px 24px" },
+                // Inline padding is responsive below md to match the panel directly beneath the hero.
+                // The top padding is not decoration: with the header row gone (Story 6.19) it is the
+                // only thing standing between a 280-character note and the two chevrons at the top
+                // corners, so it is `HERO_CONTROL_BAND` and derived from their geometry. See that
+                // constant for why a ceiling in padding beats a `maxHeight` on the title block.
+                padding: {
+                  xs: `${HERO_CONTROL_BAND}px ${HERO_PADDING_INLINE.xs}px 24px`,
+                  md: `${HERO_CONTROL_BAND}px ${HERO_PADDING_INLINE.md}px 24px`,
+                },
                 overflow: "hidden",
                 backgroundColor: theme.palette.primary.main,
                 backgroundImage: dayHeroImageCss,
@@ -1940,213 +2049,32 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
               }}
             >
               <Box aria-hidden sx={{ position: "absolute", inset: 0, background: HERO_SCRIM }} />
-              {/* In normal flow, not absolutely positioned. Out of flow it reserved no height, so a day
-                  with a note - the title is "Day N: {note}" at 28px/900, and notes run to 280 chars -
-                  grew the title block upward until its first line ran under the header row.
+              {/* Story 6.19: three controls, three corners, and nothing else on the photo. The
+                  two-slot header row that used to sit here in normal flow is gone rather than
+                  emptied - its last child, the "back to trip" button, is now the first item of the
+                  `⋯` menu below, and an empty flex container would go on reserving `mb: 2` plus a
+                  line box of height for nothing.
 
-                  The breadcrumb that used to hold the left slot is gone. It duplicated navigation the
-                  row already had on the right: both its trip link and the "back to trip" button led to
-                  the same place, and its day label repeated the title 28px below it in the same block.
-                  So the button takes the slot and the row carries one route out instead of two. */}
-              <Box
-                data-testid="day-hero-header-row"
-                sx={{
-                  position: "relative",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "flex-start",
-                  zIndex: 2,
-                  gap: 2,
-                  mb: 2,
-                }}
-              >
-                <Box data-testid="day-hero-header-left" sx={{ display: "flex", alignItems: "center", minWidth: 0 }}>
-                  {/* No leading icon: trips.dayView.back already opens with an arrow glyph, and an
-                      existing test pins that exact accessible name.
+                  All three are absolutely positioned against the hero's padding box and all three
+                  read `HERO_CONTROL_INSET`, which is what makes the `⋯` and the next-day chevron
+                  share a right edge at every breakpoint (AC3). The row's inherited padding was the
+                  discrepancy; none of them may reintroduce it.
 
-                      Enlarged past the theme's 44px floor because it is now the only way off this
-                      screen from the header, and on a phone it is reached with a thumb. */}
-                  <Button
-                    component={Link}
-                    href={`/trips/${tripId}`}
-                    variant="text"
-                    sx={{
-                      ...ON_PHOTO_CHROME,
-                      whiteSpace: "nowrap",
-                      minHeight: 48,
-                      paddingInline: "22px",
-                      fontSize: 15,
-                    }}
-                  >
-                    {t("trips.dayView.back")}
-                  </Button>
-                </Box>
-                {/* The right slot is the overflow trigger alone. Story 6.9 rendered this box even
-                    when empty so space-between kept a second flex child; 6.11 made the overflow
-                    unconditional and the box always full; 6.15 moved the day-image pencil inside
-                    the menu, so there is nothing left to pad around. The box now renders exactly
-                    when the menu has something to show - and with one flex child left, the row
-                    pins the trip button to the start regardless. */}
-                {hasDayMenuItems ? (
-                  <Box
-                    data-testid="day-hero-header-right"
-                    display="flex"
-                    alignItems="center"
-                    sx={{ flexShrink: 0 }}
-                  >
-                    {/* Deliberately outside every role condition: print is a read action, so every
-                        role that can open this day reaches the trigger. 44px hit area spelled out
-                        because the theme sets minHeight on MuiButton and has no MuiIconButton
-                        override - size="small" alone renders ~28px. */}
-                    <IconButton
-                      id="day-hero-overflow-button"
-                      aria-label={t("trips.dayView.moreActions")}
-                      title={t("trips.dayView.moreActions")}
-                      aria-haspopup="menu"
-                      aria-expanded={Boolean(dayMenuAnchor)}
-                      aria-controls={dayMenuAnchor ? "day-hero-overflow-menu" : undefined}
-                      onClick={handleDayMenuOpen}
-                      data-testid="day-hero-overflow"
-                      sx={{ ...ON_PHOTO_CHROME, width: 44, height: 44 }}
-                    >
-                      <MoreHorizontalIcon />
-                    </IconButton>
-                  </Box>
-                ) : null}
-                {/* A page-local menu rather than an entry in the global HeaderMenu: that menu is built
-                    from getAuthMenuItems(authState) alone, while these items need this trip and this
-                    day, and a globally visible print entry would dangle on every page that is not a
-                    day. HeaderMenu.tsx and authMenu.ts stay untouched (6.11 AC5, 6.15). */}
-                <Menu
-                  id="day-hero-overflow-menu"
-                  anchorEl={dayMenuAnchor}
-                  // `hasDayMenuItems` guards the trigger too, and an open menu has to answer to the
-                  // same condition. Without it, a role change arriving from a background loadDay()
-                  // while the menu is open unmounts the trigger and leaves `anchorEl` pointing at a
-                  // detached node - MUI then warns about an invalid anchorEl and paints an empty
-                  // paper in the viewport corner. Closed is the only correct state for a menu whose
-                  // trigger has gone.
-                  open={hasDayMenuItems && Boolean(dayMenuAnchor)}
-                  onClose={handleDayMenuClose}
-                  // Right-aligned to its trigger, which HeaderMenu's does not need to be: that one
-                  // anchors mid-header, this one sits at the hero's right edge, where MUI's
-                  // default top-left origin would open the paper rightwards over the trigger and
-                  // leave it to Popover's viewport clamping to drag back.
-                  anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
-                  transformOrigin={{ vertical: "top", horizontal: "right" }}
-                  // slotProps.paper, not the deprecated PaperProps (MUI 7) - same call the dialogs
-                  // make. The surface itself is HeaderMenu's, so the two menus read as one idiom.
-                  slotProps={{
-                    paper: {
-                      sx: {
-                        mt: 1,
-                        borderRadius: 3,
-                        px: 1,
-                        backgroundColor: "#ffffff",
-                        border: "1px solid rgba(17, 18, 20, 0.08)",
-                        boxShadow: "0 20px 40px rgba(17, 18, 20, 0.18)",
-                      },
-                    },
-                    // Named by its trigger. Every role that can open this day can print, so the menu
-                    // is never announced unnamed in practice - but the name should come from the
-                    // trigger rather than from that coincidence.
-                    list: { "aria-labelledby": "day-hero-overflow-button" },
-                  }}
-                >
-                  {/* Ordering (Story 6.15 Task 4): everything that changes this day sits above the
-                      divider, in descending privilege - the owner-only day-image edit, then move and
-                      swap as the adjacent pair they are - and print, which changes nothing and leaves
-                      for another tab, sits below it. Ordering by privilege also means each role sees
-                      a contiguous tail of this list, so the divider never floats to the top: it is
-                      suppressed outright when the group above it is empty.
+                  DOM order is previous, next, `⋯` - the reading order of the three corners they
+                  occupy, so the keyboard follows the eye (AC9). Position comes entirely from
+                  `top`/`left`/`right`/`bottom`, so ordering them for the keyboard costs nothing
+                  visually.
 
-                      No aria-label on any item: it would replace the visible label as the accessible
-                      name rather than supplement it, so a voice-control user saying what they read
-                      could not activate it (WCAG 2.5.3). The visible label is the name.
+                  `zIndex: 3` on all three, one above the title block. The title is bottom-anchored
+                  and grows upward on a long note, and at equal `zIndex` the later sibling wins both
+                  painting and hit-testing - which would leave a control looking present and partly
+                  dead to the touch. The title's own clearance is `HERO_CONTROL_BAND`, not this
+                  stacking order: `zIndex` decides who paints on top, not whether text runs visibly
+                  under a translucent button.
 
-                      aria-haspopup="dialog" on the three that open one: unlike aria-label it is
-                      additive, so it warns that activating the item swaps this menu for a modal
-                      without touching the name. Print does not carry it - it opens a tab. */}
-                  {dayMenuItemsVisible.dayImage ? (
-                    <MenuItem
-                      aria-haspopup="dialog"
-                      sx={DAY_MENU_ITEM_SX}
-                      onClick={() => {
-                        handleDayMenuClose();
-                        setDayMetaOpen(true);
-                      }}
-                    >
-                      <Typography>{t("trips.dayImage.editAction")}</Typography>
-                    </MenuItem>
-                  ) : null}
-                  {dayMenuItemsVisible.transfers ? (
-                    <MenuItem
-                      aria-haspopup="dialog"
-                      sx={DAY_MENU_ITEM_SX}
-                      onClick={() => {
-                        handleDayMenuClose();
-                        handleOpenTransferDialog("move");
-                      }}
-                    >
-                      <Typography>{t("trips.dayTransfer.moveAction")}</Typography>
-                    </MenuItem>
-                  ) : null}
-                  {dayMenuItemsVisible.transfers ? (
-                    <MenuItem
-                      aria-haspopup="dialog"
-                      sx={DAY_MENU_ITEM_SX}
-                      onClick={() => {
-                        handleDayMenuClose();
-                        handleOpenTransferDialog("swap");
-                      }}
-                    >
-                      <Typography>{t("trips.dayTransfer.swapAction")}</Typography>
-                    </MenuItem>
-                  ) : null}
-                  {/* component="li": Divider defaults to <hr>, and MenuList renders a <ul>, whose only
-                      permitted children are <li>. As an <hr> it validates as an error and AT that
-                      rebuilds the list from valid children can drop the separator outright. */}
-                  {showDayMenuDivider ? (
-                    <Divider component="li" data-testid="day-hero-overflow-divider" />
-                  ) : null}
-                  {/* The only item carrying link props: print opens a document in a new tab. The
-                      three above are handlers, and giving them target/rel would open their dialogs
-                      in a tab of their own. */}
-                  {dayMenuItemsVisible.print ? (
-                    <MenuItem
-                      component={Link}
-                      href={`/trips/${tripId}/days/${day.id}/print`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      sx={DAY_MENU_ITEM_SX}
-                      onClick={handleDayMenuClose}
-                    >
-                      <Typography>{t("trips.dayView.printAction")}</Typography>
-                    </MenuItem>
-                  ) : null}
-                </Menu>
-              </Box>
-              {/* Day-to-day navigation used to be a toolbar band below the hero - three controls the
-                  user rarely reaches for, costing a full row above the content they came for. On the
-                  photo it costs nothing.
-
-                  Absolutely positioned rather than flex children of the header row: they must centre
-                  against the hero's whole height, which the bottom-anchored title block grows into
-                  from below, not against the header row's own line box.
-
-                  Placed after the header row rather than before it so tab order follows the eye:
-                  back button (top-left), day-image action and overflow (top-right), then the two
-                  chevrons at the sides. Their position on screen is set by `top`/`left`, not by where
-                  they sit in the DOM, so this costs nothing visually.
-
-                  zIndex 3, one above the title block. The title is bottom-anchored and grows upward
-                  on a long note until it spans this band, and at equal zIndex the later sibling wins
-                  both painting and hit-testing - which would leave the chevrons looking present and
-                  ~20px of each one dead to the touch. A navigation control outranks decorative text.
-
-                  A missing neighbour renders nothing - not a disabled button. There is no row shape
-                  left to preserve, and disabled chrome over arbitrary photography reads as a smudge
-                  rather than as an unavailable control. */}
+                  A missing neighbour renders nothing - not a disabled button (6.11). There is no row
+                  shape left to preserve, and disabled chrome over arbitrary photography reads as a
+                  smudge rather than as an unavailable control. */}
               {previousDay ? (
                 <IconButton
                   component={Link}
@@ -2155,13 +2083,13 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                   data-testid="day-hero-prev"
                   sx={{
                     ...ON_PHOTO_CHROME,
+                    ...HERO_CHEVRON_BACKING,
                     position: "absolute",
-                    left: 8,
-                    top: "50%",
-                    transform: "translateY(-50%)",
+                    top: HERO_CONTROL_INSET,
+                    left: HERO_CONTROL_INSET,
                     zIndex: 3,
-                    width: 44,
-                    height: 44,
+                    width: HERO_CONTROL_SIZE,
+                    height: HERO_CONTROL_SIZE,
                   }}
                 >
                   <ChevronLeftIcon />
@@ -2175,21 +2103,199 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                   data-testid="day-hero-next"
                   sx={{
                     ...ON_PHOTO_CHROME,
+                    ...HERO_CHEVRON_BACKING,
                     position: "absolute",
-                    right: 8,
-                    top: "50%",
-                    transform: "translateY(-50%)",
+                    top: HERO_CONTROL_INSET,
+                    right: HERO_CONTROL_INSET,
                     zIndex: 3,
-                    width: 44,
-                    height: 44,
+                    width: HERO_CONTROL_SIZE,
+                    height: HERO_CONTROL_SIZE,
                   }}
                 >
                   <ChevronRightIcon />
                 </IconButton>
               ) : null}
-              {/* mt: auto keeps the title bottom-anchored now that the hero is no longer
-                  justify-content: flex-end (the top row is in flow and must stay at the top). */}
-              <Box sx={{ position: "relative", zIndex: 2, mt: "auto" }}>
+              {/* Deliberately outside every role condition, and no longer behind a "does the menu
+                  hold anything?" test either: the menu's first item is the way back to the trip and
+                  it is ungated, so the trigger can never be empty and gating it would strand a
+                  viewer on the day screen with no route off it (6.19 AC8; 6.15 trap 1b). The 44px
+                  hit area is spelled out because the theme sets `minHeight` on MuiButton and has no
+                  MuiIconButton override - `size="small"` alone renders ~28px. */}
+              <IconButton
+                id="day-hero-overflow-button"
+                aria-label={t("trips.dayView.moreActions")}
+                title={t("trips.dayView.moreActions")}
+                aria-haspopup="menu"
+                aria-expanded={Boolean(dayMenuAnchor)}
+                aria-controls={dayMenuAnchor ? "day-hero-overflow-menu" : undefined}
+                onClick={handleDayMenuOpen}
+                data-testid="day-hero-overflow"
+                sx={{
+                  ...ON_PHOTO_CHROME,
+                  position: "absolute",
+                  bottom: HERO_CONTROL_INSET,
+                  right: HERO_CONTROL_INSET,
+                  zIndex: 3,
+                  width: HERO_CONTROL_SIZE,
+                  height: HERO_CONTROL_SIZE,
+                }}
+              >
+                <MoreHorizontalIcon />
+              </IconButton>
+              {/* A page-local menu rather than an entry in the global HeaderMenu: that menu is built
+                  from getAuthMenuItems(authState) alone, while these items need this trip and this
+                  day, and a globally visible print entry would dangle on every page that is not a
+                  day. HeaderMenu.tsx and authMenu.ts stay untouched (6.11 AC5, 6.15). `/trips/{id}`
+                  needs the trip id too, which is why 6.19 put back-to-trip here and not there. */}
+              <Menu
+                id="day-hero-overflow-menu"
+                anchorEl={dayMenuAnchor}
+                // The anchor alone. Until 6.19 this read `hasDayMenuItems && Boolean(dayMenuAnchor)`,
+                // against a role change unmounting a gated trigger while the menu was open and
+                // leaving `anchorEl` on a detached node. Dropping the conjunct is a no-op, and not
+                // because 6.19 made the trigger unconditional: `hasDayMenuItems` was
+                // `some(dayImage, transfers, print)` with `print` a literal `true`, so it was
+                // tautologically true for every role and never suppressed anything. It read as a
+                // guard without being one.
+                //
+                // The hole it was written for is real and still open, which is why it is recorded in
+                // deferred-work rather than papered over here: `loadDay()` sets `loading` with the
+                // dayId unchanged (a transfer submit, an accommodation save), and `notFound` swaps
+                // the hero out the same way - either unmounts the trigger under an open menu, and
+                // the `dayId`-change reset does not fire because the day did not change. Fixing it
+                // means clearing the anchor where the hero unmounts, not adding a term here.
+                open={Boolean(dayMenuAnchor)}
+                onClose={handleDayMenuClose}
+                // Right-aligned to its trigger, which HeaderMenu's does not need to be: that one
+                // anchors mid-header, this one sits at the hero's right edge, where MUI's
+                // default top-left origin would open the paper rightwards over the trigger and
+                // leave it to Popover's viewport clamping to drag back.
+                anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+                transformOrigin={{ vertical: "top", horizontal: "right" }}
+                // slotProps.paper, not the deprecated PaperProps (MUI 7) - same call the dialogs
+                // make. The surface itself is HeaderMenu's, so the two menus read as one idiom.
+                slotProps={{
+                  paper: {
+                    sx: {
+                      mt: 1,
+                      borderRadius: 3,
+                      px: 1,
+                      backgroundColor: "#ffffff",
+                      border: "1px solid rgba(17, 18, 20, 0.08)",
+                      boxShadow: "0 20px 40px rgba(17, 18, 20, 0.18)",
+                    },
+                  },
+                  // Named by its trigger. Every role that can open this day can print, so the menu
+                  // is never announced unnamed in practice - but the name should come from the
+                  // trigger rather than from that coincidence.
+                  list: { "aria-labelledby": "day-hero-overflow-button" },
+                }}
+              >
+                {/* Ordering (Story 6.15 Task 4): everything that changes this day sits above the
+                    divider, in descending privilege - the owner-only day-image edit, then move and
+                    swap as the adjacent pair they are - and print, which changes nothing and leaves
+                    for another tab, sits below it. Ordering by privilege also means each role sees
+                    a contiguous tail of this list, so the divider never floats to the top: it is
+                    suppressed outright when the group above it is empty.
+
+                    Story 6.19 puts back-to-trip above all of it. It is the way off the screen and
+                    the first thing a thumb should reach, and it is the only item every role gets.
+                    It is deliberately not part of either group the divider separates, and does not
+                    feed `showDayMenuDivider`: giving it a rule of its own would draw a separator
+                    between the only two entries a viewer sees, which is noise, not structure.
+
+                    No aria-label on any item: it would replace the visible label as the accessible
+                    name rather than supplement it, so a voice-control user saying what they read
+                    could not activate it (WCAG 2.5.3). The visible label is the name.
+
+                    aria-haspopup="dialog" on the three that open one: unlike aria-label it is
+                    additive, so it warns that activating the item swaps this menu for a modal
+                    without touching the name. Print does not carry it - it opens a tab. */}
+                {/* An in-app link, so no target/rel - those belong to print alone, and giving them
+                    to this one would leave the trip open in a second tab behind the day. */}
+                <MenuItem
+                  component={Link}
+                  href={`/trips/${tripId}`}
+                  sx={DAY_MENU_ITEM_SX}
+                  onClick={handleDayMenuClose}
+                >
+                  <Typography>{t("trips.dayView.back")}</Typography>
+                </MenuItem>
+                {dayMenuItemsVisible.dayImage ? (
+                  <MenuItem
+                    aria-haspopup="dialog"
+                    sx={DAY_MENU_ITEM_SX}
+                    onClick={() => {
+                      handleDayMenuClose();
+                      setDayMetaOpen(true);
+                    }}
+                  >
+                    <Typography>{t("trips.dayImage.editAction")}</Typography>
+                  </MenuItem>
+                ) : null}
+                {dayMenuItemsVisible.transfers ? (
+                  <MenuItem
+                    aria-haspopup="dialog"
+                    sx={DAY_MENU_ITEM_SX}
+                    onClick={() => {
+                      handleDayMenuClose();
+                      handleOpenTransferDialog("move");
+                    }}
+                  >
+                    <Typography>{t("trips.dayTransfer.moveAction")}</Typography>
+                  </MenuItem>
+                ) : null}
+                {dayMenuItemsVisible.transfers ? (
+                  <MenuItem
+                    aria-haspopup="dialog"
+                    sx={DAY_MENU_ITEM_SX}
+                    onClick={() => {
+                      handleDayMenuClose();
+                      handleOpenTransferDialog("swap");
+                    }}
+                  >
+                    <Typography>{t("trips.dayTransfer.swapAction")}</Typography>
+                  </MenuItem>
+                ) : null}
+                {/* component="li": Divider defaults to <hr>, and MenuList renders a <ul>, whose only
+                    permitted children are <li>. As an <hr> it validates as an error and AT that
+                    rebuilds the list from valid children can drop the separator outright. */}
+                {showDayMenuDivider ? (
+                  <Divider component="li" data-testid="day-hero-overflow-divider" />
+                ) : null}
+                {/* The only item carrying link props: print opens a document in a new tab. The
+                    three above are handlers, and giving them target/rel would open their dialogs
+                    in a tab of their own. */}
+                {dayMenuItemsVisible.print ? (
+                  <MenuItem
+                    component={Link}
+                    href={`/trips/${tripId}/days/${day.id}/print`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    sx={DAY_MENU_ITEM_SX}
+                    onClick={handleDayMenuClose}
+                  >
+                    <Typography>{t("trips.dayView.printAction")}</Typography>
+                  </MenuItem>
+                ) : null}
+              </Menu>
+              {/* The hero's only in-flow child, and `mt: auto` is what keeps it pinned to the bottom
+                  now that it is alone in the column.
+
+                  `pr` is the second half of AC5's clearance, and the half `zIndex` cannot give: the
+                  `⋯` is a translucent 44px disc at the bottom-right corner, and the title's last line
+                  would otherwise run visibly beneath it. Stacking order only decides who paints on
+                  top. The ceiling for the *other* end - the two chevrons in the top corners, which
+                  the header row used to keep a long title away from just by being in flow - is the
+                  hero's `padding-top`, `HERO_CONTROL_BAND`. */}
+              <Box
+                sx={{
+                  position: "relative",
+                  zIndex: 2,
+                  mt: "auto",
+                  pr: HERO_TITLE_RIGHT_CLEARANCE,
+                }}
+              >
                 {/* component="h5" is not optional: custom typography variants carry no variantMapping,
                     so without it this renders as a <span> and the page loses its only heading. */}
                 <Typography
@@ -2210,7 +2316,13 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                 backgroundColor: tokens.card,
                 borderBottom: "1px solid",
                 borderColor: tokens.border,
-                padding: { xs: "16px 16px 18px", md: "16px 32px 18px" },
+                // Inline padding from the same constant the hero reads: this panel is the reason the
+                // hero's gutters are responsive at all, and the pair only earns that if they cannot
+                // drift apart. Block padding is this panel's own and stays literal.
+                padding: {
+                  xs: `16px ${HERO_PADDING_INLINE.xs}px 18px`,
+                  md: `16px ${HERO_PADDING_INLINE.md}px 18px`,
+                },
               }}
             >
               <Box

@@ -218,7 +218,15 @@ const en: Dictionary = {
   "trips.share.error": "Unable to add collaborator. Please try again.",
   "trips.share.removeError": "Unable to remove collaborator. Please try again.",
   "trips.share.initError": "Unable to load sharing controls. Please refresh.",
-  "trips.dayView.back": "← Back to trip",
+  // No leading "←" glyph, unlike its siblings here. Story 6.19 moved this label out of a button in
+  // the day hero's top-left corner and into the first row of the hero's `⋯` menu, where the arrow
+  // pointed at a shape that no longer exists: menu rows read as a vertical list of destinations, not
+  // as a back affordance anchored to an edge. The wording is unchanged, so the command is still named
+  // the same thing - only the decoration went. The day-not-found card shares this key and loses the
+  // glyph with it, which is correct for the same reason: it is a standalone action in a card, not a
+  // back link pinned to the top-left of a page. `trips.detail.back`, `trips.costOverview.back` and
+  // `trips.overviewMap.back` keep theirs - those are still edge-anchored back links.
+  "trips.dayView.back": "Back to trip",
   "trips.dayView.mapBack": "← Back to day",
   "trips.dayView.title": "Day {index}",
   "trips.dayView.titleWithNote": "Day {index}: {note}",
