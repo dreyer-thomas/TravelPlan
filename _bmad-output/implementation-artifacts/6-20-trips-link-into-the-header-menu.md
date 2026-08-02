@@ -2,7 +2,7 @@
 authored_against: dcfb859
 baseline_revision: cfa015f6d74ff0ac4cde39e9ef016dbff4001e20
 final_revision: 723c5395c01621765915bd251eabfa8eed217a1e
-status: awaiting-operator
+status: done
 review_loop_iteration: 0
 followup_review_recommended: true
 warnings: []
@@ -148,6 +148,22 @@ Independent of 6.19 — different files entirely — but the two share the rule 
 - [Source: travelplan/src/lib/navigation/authMenu.ts] — the item source
 - [Source: travelplan/src/components/HeaderMenu.tsx:209-223] — the renderer that already handles href items
 - [Source: _bmad-output/implementation-artifacts/6-19-day-hero-three-surfaces.md] — the other half of the rule
+
+## Operator Pass — 2026-08-02, against `86b2526`
+
+Chromium at 390px and 1400px, isolated worktree on port 3099 against a copy of `dev.db`.
+
+- **AC1:** no breadcrumb; the only `/trips` link reachable from the trip page is the menu entry. The hero starts at y=107 (390px) and y=115 (1400px) — the Container's own `py` of 4/6, unchanged.
+- **AC2:** the row reads "Alle Reisen", links to `/trips`, and sits **between Sprache and Abmelden**. Identical from the trip page, a day page and `/trips` itself.
+- **AC3:** signed out the menu holds Language, Login, Register and **no** trips row.
+- **AC4:** the row is present on `/trips` itself, as decided.
+- **AC5:** the "Reise nicht gefunden" panel keeps **"← Zurück zu Reisen"**, arrow included.
+- **Selecting it** navigates to `/trips` **and closes the menu**.
+- **The review's addition works:** a non-404 load failure (forced 500 on `/api/trips/<id>`) renders the error alert **and** a "← Zurück zu Reisen" link. Before this story the breadcrumb was that state's only way out.
+
+**A false finding worth recording so it is not re-found:** a naive "is a `[role=menu]` in the DOM" check reports the menu as open even before it is first opened, because `HeaderMenu` uses `keepMounted`. The reliable signals are the modal root's computed `visibility` (`hidden` → `visible` → `hidden`) and `aria-hidden`.
+
+**Found while measuring, pre-existing, not a blocker:** the hamburger trigger carries `aria-label` alone — no `aria-haspopup`, `aria-expanded` or `aria-controls`, all three of which the day-hero `⋯` has carried since 6.11. Recorded as DW-140.
 
 ## Dev Agent Record
 
@@ -362,3 +378,18 @@ The `← Zurück zu Reisen` breadcrumb is gone from the top of the trip detail p
 - **The self-link is a deliberate no-op.** If it reads as broken rather than as harmless when Tommy tries it, the fix is `usePathname()` in `HeaderMenu` — a route-awareness the epic has refused three times, so it should become its own story rather than a follow-up patch, with DW-129 as its starting point.
 - **`/trips` is now one tap deeper on every screen than the breadcrumb was on one screen.** That is the trade the story asked for, but it applies to the error and not-found states too, which is why all three keep or gain their own in-page button.
 - **DW-127 and DW-128 are the two open items closest to this change.** Neither affects any shipping item today; both are about what the next item added to this menu, or an expired session, will do.
+
+## Operator Confirmation
+
+Confirmed 2026-08-02: the external actions this story owed were carried out.
+
+- Run the app in a browser to do Task 6, on a throwaway copy of dev.db on an isolated port — never prisma/dev.db. The recipe is in the Dev Notes of _bmad-output/implementation-artifacts/7-12-bucket-list-sidebar-card.md. Two of the eight acceptance criteria need that session: AC1's spacing judgement and AC4's real behaviour are the only claims in this story that jsdom cannot make, because it computes no layout and does not resolve MUI's responsive sx at all.
+- Open a trip and confirm the page now starts with the trip: no link, no button, nothing above the hero. Then look at the top spacing at 390px and again at 1400px and say whether it still reads as intentional. The breadcrumb and the flex wrapper that held it are both gone; the padding that remains is the Container's own py of 4 at xs and 6 at md, which is unchanged — but that gap used to be filled by a control, so the judgement is yours.
+- Open the hamburger menu from a trip page and confirm the row reads "Alle Reisen" ("All trips" in English), sits between Sprache and Abmelden, and lands on the trips list. Then confirm selecting it also closes the menu rather than leaving it open over the new page.
+- Open the menu from a day page too, and then from /trips itself. On /trips the row is deliberately still there and links to the page you are already on — that is Story 6.20 AC4, decided rather than overlooked, because hiding it would make the global menu's contents depend on the current route and that coupling has been refused three times in this epic. Try it and say whether it reads as harmless or as broken; if it reads as broken, the fix is its own story and DW-129 in deferred-work.md is its starting point.
+- Sign out and confirm the row is absent while Login and Register are both still present and working. Then sign back in and confirm it returns.
+- Check the label in both languages. "Alle Reisen" and "All trips" are a new key with no leading arrow, because in a vertical menu the breadcrumb's ← pointed at nothing. The old key keeps its arrow and its two readers, so glance at a "trip not found" screen too and confirm "← Zurück zu Reisen" still looks right there.
+- Force a trip load failure that is not a 404 — stop the dev server after the page loads, then reload, or open /trips/<a-valid-id-you-then-break>. You should see an error alert AND a "← Zurück zu Reisen" button under it. That button is new: the breadcrumb used to be that state's only way out, so the review pass gave the error state its own, matching the not-found panel. Confirm it does not appear when the trip loads normally.
+- If every check passes, tick Task 6 in this spec, set status: done in the frontmatter and Status: done in the body, and set 6-20-trips-link-into-the-header-menu to done in sprint-status.yaml.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
