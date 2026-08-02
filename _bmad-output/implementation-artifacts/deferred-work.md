@@ -723,3 +723,20 @@ location: `travelplan/src/components/features/trips/TripImportDialog.tsx` — th
 severity: low
 reason: Overwrite commits its rows and only then writes photos, and on a write failure it deliberately does **not** delete the trip (destroying the trip the user was replacing would be strictly worse — see the story's Completion Notes, decision 2). So a `photo_write_failed` 500 means the database *has* been replaced while the response says the import failed. The dialog calls `onImported()` only on success, so the list behind it is never refetched and keeps showing the pre-import trip until the user reloads. The row state is correct and recoverable by re-running the import; only the client's view of it is stale. Fix is to refetch on the overwrite-error path too, which is a few lines, but "the request failed, therefore refresh the list" is confusing enough to be worth pairing with copy that explains the trip was replaced but its photos were not written.
 status: open
+
+### DW-93: Next's 10MB body cap makes the 100MB import limit unreachable — every photo-bearing import fails
+
+origin: retroactive operator verification of story 2-32, 2026-08-02
+location: `travelplan/next.config.ts` (empty), `travelplan/src/lib/trips/importLimits.ts:14`, `travelplan/src/middleware.ts:66`
+severity: critical
+reason: `MAX_IMPORT_PACKAGE_BYTES` is 100 MB, but `middleware.ts:66`'s matcher includes `/api/trips/:path*`, so Next buffers the import request for the middleware and caps that buffer at **10 MB** by default. A 13.4 MB export (one trip, four photos) is truncated mid-body; `request.formData()` then throws and the route answers `400 invalid_form_data` — "this backup could not be read, it may be incomplete or damaged" — for a backup that is perfectly intact. Next logs the real cause server-side ("Request body exceeded 10MB for /api/trips/import"), which no user sees. `importLimits.ts:14` states the wrong premise: "The App Router has no bodyParser.sizeLimit equivalent, so nothing caps a request body unless the handler does." That is false for Next 16 whenever the route is in the middleware matcher. **Verified empirically 2026-08-02**: the same import returns 400 with the stock config and 200 with `experimental: { proxyClientMaxBodySize: "110mb" }` in `next.config.ts` (note the key moved — `middlewareClientMaxBodySize`, which Next's own error message still names, is deprecated in this version). Raising nginx's `client_max_body_size` is necessary but not sufficient; the app's own cap sits behind it. This blocks story 2-32's core purpose.
+status: open
+
+### DW-94: A skipped photo's URL is carried into the imported trip, pointing back at the source trip's directory
+
+origin: retroactive operator verification of story 2-32, 2026-08-02
+location: `travelplan/src/lib/trips/importPhotos.ts`
+severity: low
+reason: When the export skips an image whose file is missing on disk (it warns, correctly), the import still writes the *original* `image_url` onto the new trip's row. Measured after a `createNew` import: the copy carried `/uploads/trips/<SOURCE-ID>/days/<SOURCE-DAY>/day.png` alongside its own correctly-rewritten `/uploads/trips/<NEW-ID>/…` paths. Nothing renders either way — the file never existed — so no pixel is lost. But the row is a dangling cross-trip reference, and after the source trip is deleted it points into a removed directory. Nulling the URL when the photo is skipped would be the honest write. Everything else verified clean: byte-identical copies under the new trip's own ids, the source's upload dir removed on delete, the copy surviving that delete, a v1 (`formatVersion: 1`) backup importing with no error, and overwrite replacing rather than duplicating (41 days not 82, 2 bucket items not 4, zero orphan rows).
+status: done 2026-08-02
+resolution: fixed in `travelplan/next.config.ts` with `experimental.proxyClientMaxBodySize = \"110mb\"`; proven by a 16.0 MB round-trip returning HTTP 200 with 5 photos written and no truncation warning, where the stock config returned 400 invalid_form_data
