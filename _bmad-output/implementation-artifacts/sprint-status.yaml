@@ -1,5 +1,5 @@
 # generated: 2026-03-01 13:08:00 CET
-# last_updated: 2026-08-02 (6-13-stay-cards-editable added — 6.9 left the timeline with three interaction rules; this makes both accommodation cards match the activities and drops two buttons. Prior: 6-12 ready-for-dev; 7-13 ready-for-dev)
+# last_updated: 2026-08-02 (2-33-restore-export-entry-point added — there is currently no export entry point in the UI at all: 7.8 removed the button, 2.31 rebuilt the backend without one, 2.32 kept only import. Prior: 2-32 done, verified retroactively; next.config.ts gained proxyClientMaxBodySize)
 # project: TravelPlan
 # project_key: NOKEY
 # tracking_system: file-system
@@ -85,6 +85,7 @@ development_status:
   2-30-day-plan-gannt-overview: done
   2-31-complete-trip-backup-export-with-photos-travel-segments-and-bucket-list: done
   2-32-complete-trip-backup-import-with-photos-travel-segments-and-bucket-list: done
+  2-33-restore-export-entry-point: ready-for-dev
   epic-2-retrospective: optional
 
   epic-3: backlog

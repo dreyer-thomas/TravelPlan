@@ -722,6 +722,45 @@ So that I can fully restore a trip, including its media, on this or another syst
 **When** I import a complete backup
 **Then** I am prompted to confirm overwrite or create a new trip, consistent with the existing import behavior
 
+### Story 2.33: Restore the Export Entry Point on the Trip Overview
+
+As a trip owner,
+I want an export button back among the trip controls at the bottom of the trip overview,
+So that I can download a backup without typing an API URL with an internal trip id.
+
+**FRs covered:** FR25, FR34 (backup export — UI entry point only; no route, format or capability change)
+
+**Context:** There is currently **no way to export from the UI at all.** Story 7.8 removed "Import JSON" and "Export JSON" from the trip-controls card, correctly: the export button was ungated, so a viewer or contributor who pressed it got a bare 404. Story 2.31 then rebuilt the export as a real ZIP archive, and its Dev Notes record "no UI entry point" as a deliberate deferral. Story 2.32 kept the *import* reachable — "Backup importieren" sits on the trips list (`TripsDashboard.tsx:329`) — so the two halves are now asymmetric: import has a button, export has a URL.
+
+The only way to export today is `GET /api/trips/{id}/export` typed by hand, with an internal cuid in it. That is not a usable backup tool, and it leaves 2.31's work unreachable.
+
+Import stays where it is. This story restores **only** the export control, and only where it belongs — beside "Reise bearbeiten" and "Reise löschen", the card those actions already share.
+
+**Acceptance Criteria:**
+
+**Given** the trip-controls card at the bottom of the trip overview, which Story 6.10 moves into the layout grid's left column
+**When** an export control is added
+**Then** it sits in that card alongside the existing edit and delete actions, using the same outlined button treatment, and adds no second card or toolbar
+**And** it downloads the archive rather than navigating away from the trip
+
+**Given** `GET /api/trips/{id}/export` gates on `hasTripOwnerAccess` and answers **404** — not 403 — to anyone else (`export/route.ts:43-44`), deliberately, so a stranger cannot learn that a trip exists
+**When** the control renders
+**Then** it renders **only** for a user who would pass that gate, so no one can reach a 404 by pressing a button the app showed them — the exact defect Story 7.8 removed the old button to fix
+**And** a contributor sees no export control, because the server does not grant them one
+
+**Given** `test/tripTimelineRoles.test.tsx` currently asserts the **absence** of both import and export controls for every role — an assertion Story 7.8 added on purpose
+**When** export returns
+**Then** that assertion is deliberately rewritten: export present for an owner, absent for a contributor and a viewer; import still absent for all three, since it stays on the trips list
+**And** the change is called out in the story's record, so a reader does not mistake it for an accidental weakening of 7.8's guard
+
+**Given** an export can take a moment for a photo-heavy trip and produces a file rather than a page
+**When** the control is pressed
+**Then** the user gets feedback that something is happening, and a failure surfaces a message rather than failing silently
+
+**Given** every other trip-control behaviour — edit, delete, their confirmation dialogs, and the role gating around them
+**When** the export control is added
+**Then** none of it changes: this story adds one button and its gating, nothing else
+
 ## Epic 3: Route & Map-Based Planning
 
 Users can visualize trips and days on maps and seed a trip from Google start + destination.
