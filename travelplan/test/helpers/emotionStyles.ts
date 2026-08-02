@@ -86,6 +86,35 @@ export const emotionDeclarations = (element: Element, property: string) => {
 };
 
 /**
+ * Which conditions declare a property, without reading its value.
+ *
+ * jsdom's CSSOM parses some shorthands into the rule's property list but implements no getter for
+ * them - `grid-template-columns` is one: it shows up in `Array.from(rule.style)` while
+ * `getPropertyValue` returns `""`, so `emotionDeclarations` reports nothing for it. When the
+ * question is *at which breakpoint* a declaration lives rather than what it says, this answers it
+ * from the property list instead and sidesteps the gap.
+ *
+ * Story 6.14 needs it to pin the overview grid's `gridTemplateColumns` breakpoint to the same `md`
+ * the trip-controls card's mount point is keyed to - two halves of one decision that nothing else
+ * in jsdom can hold together (DW-14).
+ */
+export const emotionPropertyConditions = (element: Element, property: string) => {
+  let base = false;
+  const media: string[] = [];
+
+  visitRulesFor(element, (styleRule, condition) => {
+    if (!Array.from(styleRule.style).includes(property)) return;
+    if (condition === null) {
+      base = true;
+      return;
+    }
+    if (!media.includes(condition)) media.push(condition);
+  });
+
+  return { base, media };
+};
+
+/**
  * Every CSS property Emotion declares for an element, flattened across whatever conditions the
  * declarations sit under. Use when the question is *whether* a property is set at all rather than
  * what it is set to.

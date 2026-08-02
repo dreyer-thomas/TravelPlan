@@ -109,6 +109,10 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
   const [shareOpen, setShareOpen] = useState(false);
   const router = useRouter();
   const isNarrowLayout = useMediaQuery(theme.breakpoints.down("sm"));
+  // The overview grid's own key (`gridTemplateColumns: { xs: "1fr", md: "1.7fr 1fr" }`), not a new
+  // value: this decides *where* the single trip-controls card is mounted, and any other breakpoint
+  // would open a window where the layout is stacked but the ordering is not.
+  const isTwoColumnLayout = useMediaQuery(theme.breakpoints.up("md"));
   const isOwner = detail?.trip.accessRole ? detail.trip.accessRole === "owner" : true;
   const canEditPlanning = detail?.trip.accessRole ? detail.trip.accessRole !== "viewer" : true;
 
@@ -331,6 +335,41 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
   const accommodationCostTotal = detail?.trip.accommodationCostTotalCents ?? 0;
   const activitiesCostTotal = Math.max((detail?.trip.plannedCostTotal ?? 0) - accommodationCostTotal, 0);
 
+  // One card, two possible parents - never two cards. Story 6.14: below `md` the grid stacks and DOM
+  // order is visual order, so a card living inside the day column lands between the day list and the
+  // sidebar's information. It has to move past the whole sidebar there, and a CSS `order` cannot do
+  // that: it reorders siblings, and the card's siblings are the day rows, not the sidebar's cards.
+  // So the element is built once here and mounted in exactly one of two positions (see the grid
+  // below); duplicating it and hiding one copy would double Edit/Delete in the accessibility tree.
+  // The guard travels with it - viewers get neither button, and a bare 18px-padded bordered card is
+  // the defect Story 7.8 Task 5 fixed.
+  const tripControlsCard =
+    canEditPlanning || isOwner ? (
+      <Box
+        data-testid="trip-controls-card"
+        sx={{
+          backgroundColor: tokens.card,
+          border: "1px solid",
+          borderColor: tokens.borderStrong,
+          borderRadius: "8px",
+          padding: "18px",
+        }}
+      >
+        <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+          {canEditPlanning ? (
+            <Button variant="outlined" onClick={() => setEditOpen(true)}>
+              {t("trips.edit.open")}
+            </Button>
+          ) : null}
+          {isOwner ? (
+            <Button variant="outlined" onClick={() => setDeleteOpen(true)}>
+              {t("trips.delete.open")}
+            </Button>
+          ) : null}
+        </Box>
+      </Box>
+    ) : null;
+
   return (
     <Box display="flex" flexDirection="column" gap={2}>
       {error && <Alert severity="error">{error}</Alert>}
@@ -453,6 +492,7 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
           </Box>
 
           <Box
+            data-testid="trip-overview-grid"
             sx={{
               display: "grid",
               gridTemplateColumns: { xs: "1fr", md: "1.7fr 1fr" },
@@ -703,38 +743,13 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                 })}
               </Box>
 
-              {/* Last block of the day column, so it lines up with the day rows above it: the
-                  column's own padding sets the width, and adding one here would drift the moment
-                  the grid changes. The rows already end with their 8px `marginBottom`, which is
-                  this column's spacing rhythm - a margin of its own would stack a second gap on
-                  top of it.
-                  Viewers get neither Edit nor Delete, so guarding the container prevents an empty
-                  18px-padded bordered card. Story 7.8 Task 5 covered this explicitly. */}
-              {canEditPlanning || isOwner ? (
-                <Box
-                  data-testid="trip-controls-card"
-                  sx={{
-                    backgroundColor: tokens.card,
-                    border: "1px solid",
-                    borderColor: tokens.borderStrong,
-                    borderRadius: "8px",
-                    padding: "18px",
-                  }}
-                >
-                  <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
-                    {canEditPlanning ? (
-                      <Button variant="outlined" onClick={() => setEditOpen(true)}>
-                        {t("trips.edit.open")}
-                      </Button>
-                    ) : null}
-                    {isOwner ? (
-                      <Button variant="outlined" onClick={() => setDeleteOpen(true)}>
-                        {t("trips.delete.open")}
-                      </Button>
-                    ) : null}
-                  </Box>
-                </Box>
-              ) : null}
+              {/* Two-column layout only: last block of the day column, so it lines up with the day
+                  rows above it. The column's own padding sets the width - a `width`/`maxWidth`/
+                  margin here would drift the moment the grid changes - and the rows already end
+                  with their 8px `marginBottom`, this column's spacing rhythm, so a margin would
+                  stack a second gap on top of it. Below `md` this position is empty and the same
+                  element mounts after the side column instead. */}
+              {isTwoColumnLayout ? tripControlsCard : null}
             </Box>
 
             <Box
@@ -826,6 +841,16 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                 </Box>
               ) : null}
             </Box>
+
+            {/* Single-column layout only: a third grid child, after the side column, so the two
+                actions nobody reaches for end the page instead of interrupting it. Staying inside
+                the grid is deliberate - the card gets the grid's own `1fr` track and its own
+                `gap: { xs: 2 }`, so it is width-constrained exactly the way the columns are
+                (both carry `p: { xs: 0 }`) and needs no width, margin or wrapper of its own.
+                Rendering it after the grid instead would reintroduce the loose full-width block
+                Stories 7.12 and 6.10 removed. At `md` and above this position is empty, so nothing
+                follows the side column and the desktop tree is exactly what Story 6.10 left. */}
+            {isTwoColumnLayout ? null : tripControlsCard}
           </Box>
         </>
       )}

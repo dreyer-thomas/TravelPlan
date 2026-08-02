@@ -836,3 +836,23 @@ severity: low
 summary: The wrapper that restores pointer events for the photo strip is block-level, so it claims the full card width; clicking the empty band to the right of the last thumbnail hits a dead zone instead of opening the editor.
 evidence: The wrapper exists to stop a near-miss between two thumbnails falling through to the overlay, and for that it is correct. But a `Box` in a column flex container stretches to the card's width, and the strip itself is only as wide as its thumbnails, so on a card with one or two photos most of that row is wrapper and nothing else — an inert strip across the bottom of an otherwise fully clickable card. Introduced for stay cards by 6.13, pre-existing on activity cards since 6.9. `width: "fit-content"` on all three closes it, but it is a one-line change to a pattern 6.9 verified in a browser, and this repo has no way to re-verify it there; folded into the next browser pass rather than patched blind.
 status: open
+
+### DW-106: `useMediaQuery` now decides DOM structure, not just a `data-` attribute — DW-14 escalated
+
+source_spec: `_bmad-output/implementation-artifacts/6-14-trip-controls-last-on-phone.md`
+origin: incidental to story 6-14 review, 2026-08-02
+location: `travelplan/src/components/features/trips/TripTimeline.tsx:115`
+severity: medium
+summary: Three components carry the comment "pure sx breakpoints, never `useMediaQuery` (deferred finding from 7.2)", and DW-14 is open against this file's existing `isNarrowLayout` for exactly that reason; Story 6.14 adds a second instance and promotes the pattern from a cosmetic attribute to where an element mounts.
+evidence: `DialogShell.tsx:113` and `TripCreateForm.tsx:434` state the convention; DW-14 states the failure mode ("change one breakpoint and the attribute reports 'inline' while the CSS renders stacked — and the test still passes"). With the new mount point that failure is no longer cosmetic: a mismatch puts the trip-controls card back between the day list and the sidebar at some widths, which is the defect 6.14 exists to remove. The story's Task 1 named a pure-`sx` alternative (direct grid child with `order` + `gridColumn`), and it does not hold: at `md`+ the card auto-places into grid row 2, so it sits below the *taller* column and opens a visible gap whenever the sidebar outruns the day list; every fix for that (`gridRow` spanning, `alignItems: start`) redistributes row height back into row 1 and re-opens the same gap, and none of it is checkable without a browser. So the mechanism is right for this story and the convention is still owed a real answer. The review closed the specific escape by asserting the grid's own `grid-template-columns` media condition (`tripTimelineRoles.test.tsx`, "declares the grid's own column split…"), which pins the CSS and JS halves to one number — but that is one declaration guarded by hand, not the convention. Natural home: the browser-level layout-assertion pass (Playwright) DW-14 already reserves.
+status: open
+
+### DW-107: Crossing `md` unmounts and remounts the trip-controls card, and jsdom cannot test the transition
+
+source_spec: `_bmad-output/implementation-artifacts/6-14-trip-controls-last-on-phone.md`
+origin: incidental to story 6-14 review, 2026-08-02
+location: `travelplan/src/components/features/trips/TripTimeline.tsx:752` and `:853`, `travelplan/test/tripTimelineRoles.test.tsx` (`setViewportWidth`)
+severity: low
+summary: The card's two mount points are different React positions, so resizing, rotating or split-screening across 900px destroys the card and rebuilds it — a keyboard user focused on "Edit trip" loses focus to `<body>` — and the test harness pins one width per case and can never fire a change event, so nothing automated covers the crossing.
+evidence: `{isTwoColumnLayout ? tripControlsCard : null}` and `{isTwoColumnLayout ? null : tripControlsCard}` are separate slots in the tree; React unmounts one and mounts the other rather than moving the node, and focus does not survive that. Narrow trigger — the viewport has to change while one of the two buttons holds focus — which is why it is deferred rather than patched. The harness half is structural: `setViewportWidth` installs a `matchMedia` whose `addEventListener` is a bare `vi.fn()`, so an implementation that read `window.innerWidth` once at mount would pass all 16 cases identically. Both halves want the same thing DW-14 and DW-106 want: a browser-level layout pass.
+status: open

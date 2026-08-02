@@ -3,7 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import TripTimeline from "@/components/features/trips/TripTimeline";
-import { emotionDeclarations, emotionDeclaredProperties } from "./helpers/emotionStyles";
+import { emotionDeclarations, emotionDeclaredProperties, emotionPropertyConditions } from "./helpers/emotionStyles";
 import { renderWithProviders } from "./helpers/renderWithProviders";
 
 vi.mock("@/components/features/trips/TripAccommodationDialog", () => ({
@@ -37,6 +37,9 @@ vi.mock("next/navigation", () => ({
 // MUI's default `md` breakpoint - the key the overview grid splits on, so the day column's desktop
 // padding is declared under this condition rather than unconditionally.
 const MD_MEDIA_CONDITION = "(min-width:900px)";
+// MUI emits an `xs` value in a responsive object as `(min-width:0px)`, not as an unconditional
+// declaration - so a rule set that covers `{ xs, md }` shows up as these two conditions and no base.
+const XS_MEDIA_CONDITION = "(min-width:0px)";
 
 // jsdom performs no layout, so Story 6.10's AC2 - "its rendered width matches a day row's" - cannot
 // be measured. Two properties make it true and both are asserted below: the day column declares the
@@ -60,6 +63,65 @@ const WIDTH_AND_SPACING_PROPERTIES = [
 ];
 
 /**
+ * Story 6.14: the trip-controls card is one element mounted in one of two positions, chosen by the
+ * overview grid's own `md` key. jsdom 28 ships no `matchMedia` at all - not on `window`, not on its
+ * prototype - so MUI takes its `supportMatchMedia === false` path and every `useMediaQuery` in the
+ * tree answers `defaultMatches`, i.e. `false`, i.e. the single-column layout. A case that means
+ * "desktop" therefore has to say so, and a case that means "phone" pins it anyway rather than
+ * riding on that default.
+ *
+ * Installed with `vi.stubGlobal`, so the file's existing `vi.unstubAllGlobals()` in `afterEach`
+ * removes it again and no width leaks into the cases that follow.
+ */
+const setViewportWidth = (width: number) => {
+  vi.stubGlobal("matchMedia", (query: string) => {
+    const maxWidthMatch = /max-width:\s*(\d+(\.\d+)?)px/.exec(query);
+    const minWidthMatch = /min-width:\s*(\d+(\.\d+)?)px/.exec(query);
+    // A query with neither bound is not about width - `(prefers-color-scheme: dark)`, `(hover:
+    // none)`, `print`. Answering `true` to all of those would quietly put the four cases that call
+    // this helper into a different rendering mode than the rest of the file, so they get `false`.
+    if (!maxWidthMatch && !minWidthMatch) {
+      return buildMediaQueryList(query, false);
+    }
+    const maxWidth = maxWidthMatch ? Number(maxWidthMatch[1]) : Infinity;
+    const minWidth = minWidthMatch ? Number(minWidthMatch[1]) : 0;
+
+    return buildMediaQueryList(query, width >= minWidth && width <= maxWidth);
+  });
+};
+
+const buildMediaQueryList = (query: string, matches: boolean) => ({
+  matches,
+  media: query,
+  onchange: null,
+  // Never fired: this helper pins one width per case rather than moving between them. Crossing the
+  // breakpoint at runtime - and the focus loss that comes with the remount - is DW-107, and belongs
+  // to the browser-level pass DW-14 already reserves for it.
+  addEventListener: vi.fn(),
+  removeEventListener: vi.fn(),
+  dispatchEvent: vi.fn(),
+  addListener: vi.fn(),
+  removeListener: vi.fn(),
+});
+
+// The widths Story 6.14's manual check uses, so the automated cases and the operator's check talk
+// about the same two viewports.
+const DESKTOP_WIDTH = 1400;
+const PHONE_WIDTH = 390;
+// 900px is the `md` breakpoint itself, where `up("md")` first answers true. Included because the
+// whole story hinges on that number, and because it is the width that fails if the mount point
+// drifts *upward* - keyed to `lg` (1200px), 1400px alone would still pass.
+const MD_BOUNDARY_WIDTH = 900;
+const TWO_COLUMN_WIDTHS = [MD_BOUNDARY_WIDTH, DESKTOP_WIDTH];
+// 820px is stacked too - below `md` (900px) but above `sm` (600px), so it is the width that fails
+// if the mount point drifts *downward*, to `sm`. It is also the width Story 6.10's operator pass
+// measured the single-column layout at.
+const TABLET_WIDTH = 820;
+const SINGLE_COLUMN_WIDTHS = [PHONE_WIDTH, TABLET_WIDTH];
+
+const controlsCards = () => document.querySelectorAll("[data-testid='trip-controls-card']");
+
+/**
  * Trip-overview role gating and day-row status rendering.
  *
  * These cases were rescued from `tripTimelineFeedback.test.tsx`, which Story 5.9 deleted as
@@ -73,6 +135,8 @@ describe("TripTimeline role gating", () => {
   // the stubbed `fetch` into every case after it and turning one real failure into a cascade of
   // misleading ones. This runs regardless.
   afterEach(() => {
+    // Also removes the `matchMedia` `setViewportWidth` stubs, returning it to jsdom's own state of
+    // not defining it at all.
     vi.unstubAllGlobals();
   });
 
@@ -228,6 +292,11 @@ describe("TripTimeline role gating", () => {
   it("renders no trip-controls card at all for a viewer (empty-card guard)", async () => {
     // Task 5's edge case: with Export removed, a viewer would otherwise see an empty 18px-padded
     // bordered card. The whole block is now guarded on `canEditPlanning || isOwner`.
+    //
+    // Pinned at the desktop width by Story 6.14: before that pin this case rode on jsdom's absent
+    // `matchMedia` and so silently exercised only the phone mount point. The phone side has its own
+    // viewer case below; this one is the desktop half it used to be.
+    setViewportWidth(DESKTOP_WIDTH);
     const fetchMock = stubDetailFetch(
       buildDetailResponse({ name: "Viewer Card Trip", accessRole: "viewer" }, { missingAccommodation: true, accommodation: null }),
     );
@@ -239,7 +308,7 @@ describe("TripTimeline role gating", () => {
     // Neither Edit nor Delete is rendered, and there is no empty container either.
     expect(screen.queryByRole("button", { name: "Edit trip" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Delete trip" })).not.toBeInTheDocument();
-    expect(document.querySelector("[data-testid='trip-controls-card']")).toBeNull();
+    expect(controlsCards()).toHaveLength(0);
 
     vi.unstubAllGlobals();
   });
@@ -248,6 +317,10 @@ describe("TripTimeline role gating", () => {
     // AC2's only mechanical assertion: Delete stays outlined-secondary, never `color="error"`.
     // MUI marks non-default color buttons with `MuiButton-{outlined,color}{Error,Warning,Info,Success}`
     // classes - the assertion is that none of those apply to the Delete button.
+    //
+    // Pinned at the desktop width for the same reason as the viewer case above: Story 6.14 gave the
+    // card two mount points, and without a pin this would only ever check the phone one.
+    setViewportWidth(DESKTOP_WIDTH);
     const fetchMock = stubDetailFetch(
       buildDetailResponse({ name: "Owner Controls", accessRole: "owner" }, { missingAccommodation: true, accommodation: null }),
     );
@@ -261,35 +334,170 @@ describe("TripTimeline role gating", () => {
 
     expect(editButton).toBeInTheDocument();
     expect(deleteButton).toBeInTheDocument();
-    expect(document.querySelector("[data-testid='trip-controls-card']")).not.toBeNull();
+    expect(controlsCards()).toHaveLength(1);
     expect(deleteButton.className).not.toMatch(/MuiButton-(outlined|color)(Error|Warning|Info|Success)/);
 
     vi.unstubAllGlobals();
   });
 
-  it("ends the day column with the controls card, below the last day row", async () => {
-    // Story 6.10 AC1/AC6. Ancestry plus document order, not a sibling index: the card must be inside
-    // the grid's day column (AC1) and be the last thing in it (AC6), while an unrelated insertion
-    // elsewhere in the column leaves the case alone. Membership on its own would pass with the card
-    // rendered above the timeline heading, which is neither of those things.
+  it.each(TWO_COLUMN_WIDTHS)(
+    "ends the day column with the controls card, below the last day row, in the two-column layout at %ipx",
+    async (width) => {
+      // Story 6.10 AC1/AC6, now scoped to the layout it was always about, per Story 6.14 AC3. Ancestry
+      // plus document order, not a sibling index: the card must be inside the grid's day column (AC1)
+      // and be the last thing in it (AC6), while an unrelated insertion elsewhere in the column leaves
+      // the case alone. Membership on its own would pass with the card rendered above the timeline
+      // heading, which is neither of those things.
+      //
+      // Story 6.14 kept the ancestry assertion rather than replacing it with a position among the
+      // grid's children: "in the content column" is the claim that makes the width right, and it
+      // survives the sidebar or the day list gaining blocks.
+      setViewportWidth(width);
+      const fetchMock = stubDetailFetch(
+        buildDetailResponse({ name: "Controls Placement", accessRole: "owner" }, { missingAccommodation: true, accommodation: null }),
+      );
+
+      renderWithProviders(<TripTimeline tripId="trip-1" />);
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/trips/trip-1", expect.anything()));
+
+      const dayColumn = screen.getByTestId("trip-overview-main-column");
+      const card = screen.getByTestId("trip-controls-card");
+      const dayRows = within(dayColumn).getAllByTestId("timeline-day-card");
+
+      expect(dayColumn.contains(card)).toBe(true);
+      expect(dayColumn.lastElementChild).toBe(card);
+      // DOCUMENT_POSITION_FOLLOWING: the card comes after the day rows it has to line up with.
+      expect(dayRows[dayRows.length - 1].compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+
+      // Story 6.14 AC4: the grid still holds exactly its two columns here - the phone position is a
+      // third grid child, and if it rendered at this width the card would be duplicated or displaced.
+      // Identity per child, not `toEqual` on the collection: `toEqual` compares DOM nodes
+      // structurally, so a *clone* of the day column would satisfy it - and AC6 is precisely about
+      // a second copy of a node.
+      const grid = screen.getByTestId("trip-overview-grid");
+      const sideColumn = screen.getByTestId("trip-overview-side-column");
+      expect(grid.children).toHaveLength(2);
+      expect(grid.children[0]).toBe(dayColumn);
+      expect(grid.children[1]).toBe(sideColumn);
+      // AC6: one card, not one visible and one hidden.
+      expect(controlsCards()).toHaveLength(1);
+      // AC4: no loose full-width block after the grid. Stated as "every controls card in the
+      // document is inside the grid" rather than as `grid.nextElementSibling === null`, because the
+      // grid's real siblings are the dialogs, which this file mocks as bare divs - that assertion
+      // would fail on the mocks while saying nothing about layout.
+      expect(Array.from(controlsCards()).every((node) => grid.contains(node))).toBe(true);
+    },
+  );
+
+  it("declares the grid's own column split under the same `md` condition the mount point is keyed to", async () => {
+    // Story 6.14 Trap 3, and the half the placement cases structurally cannot reach. The card's
+    // position is chosen in JS (`useMediaQuery(theme.breakpoints.up("md"))`) while the stacking it
+    // has to agree with is chosen in CSS (`gridTemplateColumns: { xs, md }`). jsdom evaluates no
+    // media query, so every other case in this file reads only the JS half: move the *CSS* half to
+    // `lg` and they all stay green while a real browser at 1000px stacks the layout and still mounts
+    // the card inside the day column - the exact defect this story exists to remove. Reading the
+    // emitted rule pins the two halves to one number. This is DW-14's failure mode, closed for the
+    // one declaration that now carries structural weight.
+    setViewportWidth(DESKTOP_WIDTH);
     const fetchMock = stubDetailFetch(
-      buildDetailResponse({ name: "Controls Placement", accessRole: "owner" }, { missingAccommodation: true, accommodation: null }),
+      buildDetailResponse({ name: "Grid Breakpoint", accessRole: "owner" }, { missingAccommodation: true, accommodation: null }),
     );
 
     renderWithProviders(<TripTimeline tripId="trip-1" />);
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/trips/trip-1", expect.anything()));
 
-    const dayColumn = screen.getByTestId("trip-overview-main-column");
-    const card = screen.getByTestId("trip-controls-card");
-    const dayRows = within(dayColumn).getAllByTestId("timeline-day-card");
+    const columns = emotionPropertyConditions(screen.getByTestId("trip-overview-grid"), "grid-template-columns");
 
-    expect(dayColumn.contains(card)).toBe(true);
-    expect(dayColumn.lastElementChild).toBe(card);
-    // DOCUMENT_POSITION_FOLLOWING: the card comes after the day rows it has to line up with.
-    expect(dayRows[dayRows.length - 1].compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING,
+    // MUI emits `xs` as `(min-width:0px)` rather than as an unconditional rule, so the whole
+    // responsive object shows up as exactly two conditions. Listing both, in order, is what makes
+    // this fail if the split moves to `lg`, or if a third breakpoint is bolted on beside it.
+    expect(columns.base).toBe(false);
+    expect(columns.media).toEqual([XS_MEDIA_CONDITION, MD_MEDIA_CONDITION]);
+  });
+
+  it.each(SINGLE_COLUMN_WIDTHS)("puts the controls card last on the page at %ipx, after the sidebar's cards", async (width) => {
+    // Story 6.14 AC1/AC4/AC6. Below `md` the grid stacks and DOM order is visual order, so "last on
+    // the page" is a document-order claim about the card against the sidebar's content - stated as
+    // ancestry plus `compareDocumentPosition`, not a sibling index, so it survives the sidebar
+    // gaining or losing a card.
+    //
+    // The card stays *inside* the grid as a third child: that is what gives it the grid's `1fr`
+    // track and its `gap: { xs: 2 }` without a width, margin or wrapper of its own, and it is why
+    // no loose full-width block reappears after the grid (AC4).
+    setViewportWidth(width);
+    const fetchMock = stubDetailFetch(
+      buildDetailResponse({ name: "Controls Last", accessRole: "owner" }, { missingAccommodation: true, accommodation: null }),
     );
+
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/trips/trip-1", expect.anything()));
+
+    const grid = screen.getByTestId("trip-overview-grid");
+    const dayColumn = screen.getByTestId("trip-overview-main-column");
+    const sideColumn = screen.getByTestId("trip-overview-side-column");
+    const card = screen.getByTestId("trip-controls-card");
+
+    // AC6: exactly one card exists - the two mount points are alternatives, never both.
+    expect(controlsCards()).toHaveLength(1);
+
+    // Inside the grid, but in neither column: it is the grid's own last child.
+    expect(grid.contains(card)).toBe(true);
+    expect(dayColumn.contains(card)).toBe(false);
+    expect(sideColumn.contains(card)).toBe(false);
+    expect(grid.lastElementChild).toBe(card);
+
+    // AC1: after everything the sidebar holds - the cost summary, the map, the bucket list and the
+    // gap alert - which is the ordering Story 6.10 broke and this story restores.
+    [sideColumn, screen.getByTestId("overview-map-panel"), screen.getByTestId("bucket-list-panel")].forEach((node) => {
+      expect(node.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    });
+    // The gap alert carries no test id; it is the side column's last block, so assert against that.
+    // Guarded, because a side column that lost its last child would otherwise throw here and the
+    // failure would read as a crash rather than as the missing gap alert it is.
+    const gapAlert = sideColumn.lastElementChild;
+    expect(gapAlert).not.toBeNull();
+    expect(gapAlert).toHaveTextContent("Action needed: Day 1");
+    expect(gapAlert!.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+
+    // AC4: no loose full-width block after the grid. The card is the grid's own last child rather
+    // than a block following it, which is what keeps it in the grid's `1fr` track and its `gap`
+    // without a wrapper of its own. Phrased against the cards rather than `grid.nextElementSibling`,
+    // whose real value here is a mocked dialog stub.
+    expect(Array.from(controlsCards()).every((node) => grid.contains(node))).toBe(true);
+
+    // AC2/AC7 hold at this width too: still no constraint of its own, still gated.
+    const declared = emotionDeclaredProperties(card);
+    WIDTH_AND_SPACING_PROPERTIES.forEach((property) => {
+      expect(declared.has(property)).toBe(false);
+    });
+    expect(within(card).getByRole("button", { name: "Edit trip" })).toBeInTheDocument();
+    expect(within(card).getByRole("button", { name: "Delete trip" })).toBeInTheDocument();
+  });
+
+  it("renders no controls card for a viewer in the single-column layout either", async () => {
+    // Story 6.14 AC7. The guard travels with the element rather than sitting beside one of its two
+    // mount points, so moving the card must not open a width at which a viewer gets an empty
+    // bordered card - the defect Story 7.8 Task 5 fixed.
+    setViewportWidth(PHONE_WIDTH);
+    const fetchMock = stubDetailFetch(
+      buildDetailResponse({ name: "Viewer Phone", accessRole: "viewer" }, { missingAccommodation: true, accommodation: null }),
+    );
+
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/trips/trip-1", expect.anything()));
+
+    expect(controlsCards()).toHaveLength(0);
+    expect(screen.queryByRole("button", { name: "Edit trip" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete trip" })).not.toBeInTheDocument();
+    // The grid is back to its two columns, with nothing appended in the card's place.
+    const grid = screen.getByTestId("trip-overview-grid");
+    expect(grid.children).toHaveLength(2);
   });
 
   it("lets the day column's padding set the controls card's width, with no constraint on the card", async () => {
@@ -297,6 +505,10 @@ describe("TripTimeline role gating", () => {
     // the column must still declare the padding that produces the day rows' width, and the card must
     // declare nothing that overrides it. The trailing 8px `marginBottom` of the last day row is the
     // column's spacing rhythm, so a margin here would stack a second gap on top of it as well.
+    //
+    // Story 6.14 AC2/AC3: pinned at the desktop width, because that is where the card is a child of
+    // this column and where the two properties below combine into the day rows' width.
+    setViewportWidth(DESKTOP_WIDTH);
     const fetchMock = stubDetailFetch(
       buildDetailResponse({ name: "Controls Width", accessRole: "owner" }, { missingAccommodation: true, accommodation: null }),
     );
