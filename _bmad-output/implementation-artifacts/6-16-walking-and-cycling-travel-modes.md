@@ -1,14 +1,14 @@
 ---
 authored_against: ac03570
 baseline_revision: 68607e045cfbc3e304b591d1d95e43798303dd6e
-status: in-review
+status: awaiting-operator
 review_loop_iteration: 0
 warnings: []
 ---
 
 # Story 6.16: Walking and Cycling as Travel Modes
 
-Status: review
+Status: awaiting-operator
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -32,7 +32,7 @@ so that the day's travel reflects how we actually get between places instead of 
 
 - [x] **Task 1 — Schema and migration** (AC: 1)
   - [x] `prisma/schema.prisma:36-40` — `enum TravelTransportType { CAR SHIP FLIGHT }`. Add the two new members.
-  - [x] Generate a migration. On SQLite Prisma has no native enum, so check what the existing migration actually produced before assuming a simple `ALTER TYPE` — an enum backed by a `TEXT` column with a check constraint needs the constraint widened, which on SQLite means a table rebuild.
+  - [x] ~~Generate a migration.~~ **No migration was generated, deliberately** — the check this subtask asked for came back "no DDL needed". On SQLite Prisma has no native enum, so check what the existing migration actually produced before assuming a simple `ALTER TYPE` — an enum backed by a `TEXT` column with a check constraint needs the constraint widened, which on SQLite means a table rebuild. It is not: `20260301105118_add_travel_segments/migration.sql:9` is a bare `TEXT NOT NULL`. See Completion Note 1.
   - [x] `scripts/check-migration-immutability.sh` guards this directory; run `npm run check:migrations` before and after.
   - [x] Additive only: no existing row's value changes.
 
@@ -60,12 +60,86 @@ so that the day's travel reflects how we actually get between places instead of 
   - [x] Add a travel segment of each new type and assert it renders with its own glyph and rolls into the day's travel total.
   - [x] Assert the coverage bar still reports one `"travel"` kind regardless of mode.
   - [x] Assert a round trip through export and import preserves both new values, and that a pre-change backup still imports.
-  - [x] `npm test` green, `npm run check:migrations` green.
+  - [x] `npm test` green, `npm run check:migrations` green. — **Qualified:** at commit `20b8041` the suite was 878 passed / 5 failed. The 5 are the pre-existing DW-108 import size-cap assertions, unrelated to this story and fixed in the following commit `8228ce0`. Zero new failures were introduced; the subtask as literally worded was not met at this commit.
 
 - [ ] **Task 7 — Manual check** (AC: 4)
   - [ ] Route import for a walking leg and a cycling leg between two located points, and confirm the duration and distance prefill.
   - [ ] A cycling leg somewhere Google has no bicycle data, to see the empty-result path.
   - [ ] Throwaway copy of `dev.db` on an isolated port — never `prisma/dev.db`. Recipe in `7-12-bucket-list-sidebar-card.md`'s Dev Notes.
+
+### Review Findings
+
+Code review 2026-08-02 against commit `20b8041`. Three parallel layers (adversarial, edge-case, acceptance). 13 findings kept, 5 dismissed as noise.
+
+- [x] [Review][Decision] **RESOLVED 2026-08-02 — see "Decision resolved" below. AC4 was not delivered against the configured router — walking and cycling imports return car numbers** — `dayRouteService.ts:80` hardcodes `https://router.project-osrm.org`, whose public demo instance is built from a single (car) profile and *discards* the `{profile}` path segment. Verified live during review: `driving`, `walking`, `cycling` and the nonsense profile `foobar` all return byte-identical geometry for the same coordinate pair (582.9 m / 68.3 s — a 30 km/h car speed). So `ROUTING_PROFILE_BY_MODE`, `RoutingProfile` and the new `mode` query parameter are a correct end-to-end no-op: a 1.9 km walk prefills ~4 minutes and the dialog reports "Route imported successfully". There is no env or config override for the host anywhere in `src/`, and no Google Directions key in the repo — Google is only ever the link the user opens. Completion Note 3 asserts a per-mode route the backend cannot produce. Every test asserts only the URL/argument shape against a mocked service, which is why the suite is green. Task 7's unticked manual check is exactly what would have caught this. **The choice is human:** self-host OSRM with walking/cycling profiles, move to a router that serves them (e.g. a keyed Google Directions or GraphHopper), or scope AC4 back to "car imports, the other modes are manual" and delete the mode plumbing.
+
+- [x] [Review][Patch] `routing_no_route` is unreachable in production — `!response.ok` rejects before the payload code is read [travelplan/src/lib/routing/dayRouteService.ts:96] — OSRM answers every non-`Ok` code with HTTP 400 (verified: an invalid coordinate returns `400 {"code":"InvalidValue"}`), so the `if (!response.ok) throw routing_unavailable` guard fires before `NoRoute` is ever inspected. The only surviving path is `code:"Ok"` with an empty `routes` array, which OSRM does not emit. `NoSegment` — the code a stop pinned off the pedestrian/cycle network actually produces — is not special-cased either and also lands on `routing_unavailable`. Net effect: the 404 branch, the `googleMapsNoRouteForMode` key and Trap 3 are all dead code, and the user is told "Automatic route import is not available in this build" when the correct answer is "no route for this mode here". `dayRouteService.test.ts:106` mocks `{ok: true, code:"NoRoute"}` and so encodes the wrong assumption.
+- [x] [Review][Patch] Switching transport mode after a route import keeps the previous mode's duration, distance, link and success alert [travelplan/src/components/features/trips/TripDayTravelSegmentDialog.tsx:224-242] — the reset effect's deps are `[open, segment, mapsLink]`, so `setTransportType` clears nothing. Pick Walking → *Plan with Maps* → switch to Cycling → Save, and the row persists as `cycling` carrying the walking duration, the walking distance and a link that literally reads `travelmode=walking`, with "Route imported successfully" still on screen. Before this story only `car` could prefill, so the state was unreachable; two routable modes make it a one-click mistake.
+- [x] [Review][Patch] A saved walking or cycling link opens driving directions unless a route import happened to succeed [travelplan/src/components/features/trips/TripDayTravelSegmentDialog.tsx:221,240] — `mapsLink` is mode-agnostic and is what seeds `linkUrl` on open and what is re-set at the top of every import attempt; only the post-success path at `:359` sets a `travelmode`. A manually entered walking leg therefore stores a link with no mode, and tapping it on a phone gives car directions. Completion Note 4's memoisation reasoning is sound (making `mapsLink` depend on the mode would reset the form), but the fix does not require breaking it: derive the `travelmode` at save/render time for a link the user has not edited.
+- [x] [Review][Patch] A zero, negative or unparseable distance on walking/cycling is silently discarded, while the same input on car raises a field error [travelplan/src/components/features/trips/TripDayTravelSegmentDialog.tsx:392-394] — `inputProps={{ min: 0 }}` is not enforced on submit (nothing runs constraint validation), `validate()` skips the field unless `requiresDistance`, and `parsedDistance > 0` then collapses `0` and negatives to `null`. Type `-3` into "Distance (km, optional)", save, and the value vanishes with a success close. The server would have rejected it too (`travelSegmentSchemas.ts:48` is `.positive()`), so the client is hiding a value the API considers invalid rather than reporting it.
+- [x] [Review][Patch] The day-route endpoint returns the new `routing_no_route` code under HTTP 502 "Routing service unavailable" [travelplan/src/app/api/trips/[id]/days/[dayId]/route/route.ts:63] — this second consumer of `RoutingErrorCode` passes `error.code` through with a fixed message and status, and this commit re-coded the empty-`routes` case from `routing_invalid_response` to `routing_no_route`. The contract now says "this is a normal answer, not an outage" inside the status and prose for the opposite. No user-visible breakage today (both callers read only `details.fallbackPolyline`), but it is self-contradictory for the next reader who switches on the code.
+- [x] [Review][Patch] `?mode=` present-but-empty is a 400 instead of defaulting to car [travelplan/src/app/api/trips/[id]/travel-segments/route-preview/route.ts:50] — `searchParams.get("mode")` returns `""`, not `null`, for `&mode=` and for a bare `&mode`. `"" ?? undefined` yields `""`, which `z.enum` rejects, so `.default("car")` never applies. The `?? undefined` guard was written to keep pre-6.16 callers working and misses the empty-value boundary. `|| undefined` fixes it.
+- [x] [Review][Patch] The distance rule lives in three unlinked copies, none typed against the enum [travelplan/src/lib/validation/travelSegmentSchemas.ts:34, travelplan/src/components/features/trips/TripDayTravelSegmentDialog.tsx:56, travelplan/src/components/features/trips/TripDayView.tsx:70] — `TRANSPORT_TYPES_ALLOWING_DISTANCE` and `transportTypeAllowsDistance` are exported and imported by nothing outside their own module; the two UI files each re-spell the list, one of them as `readonly string[]`. This is the one discipline the commit spends the most comment lines defending ("the compiler has to be the one that notices the next one"). Add a sixth mode and all four enum mappers plus `transportIconFor` fail to compile as designed, while the three distance lists, `TripDayPrintDocument`'s `Record<string, string>` label map and `GOOGLE_TRAVEL_MODE_BY_TRANSPORT` (a `Partial<Record<…>>`, structurally exempt) compile clean and quietly do the wrong thing. Note the shared home should be a plain module, not the zod one — no client component currently imports from `@/lib/validation`, and doing so would pull zod into the client bundle.
+- [x] [Review][Patch] Two subtask checkboxes in this file are ticked against work that was not done [`6-16-walking-and-cycling-travel-modes.md` Task 1, Task 6] — Task 1's "Generate a migration" is ticked and no migration was generated. The *decision* is correct and Completion Note 1 is accurate (`20260301105118_add_travel_segments/migration.sql:9` is bare `TEXT NOT NULL`, the only CHECK in the directory is `cost_payments_one_target_check`, and `check:migrations` passes) — the checkbox is what contradicts it. Task 6's "`npm test` green" is ticked at a commit the message itself records as 878 passed / 5 failed; the 5 are pre-existing DW-108 and were fixed in `8228ce0`, but the subtask as worded was not satisfied here.
+
+- [x] [Review][Defer] The print sheet shows a distance for ship and flight while the day view now hides it [travelplan/src/components/features/trips/TripDayPrintDocument.tsx:180 vs TripDayView.tsx:1177] — deferred, pre-existing (DW-109)
+- [x] [Review][Defer] A prefilled duration of 24 h or more is written by the form and then rejected by it [travelplan/src/components/features/trips/TripDayTravelSegmentDialog.tsx:105-114,357] — deferred, pre-existing (DW-110)
+- [x] [Review][Defer] No rollback path: `WALKING`/`CYCLING` rows are unreadable by a pre-6.16 build [travelplan/prisma/schema.prisma:36-45] — deferred, inherent to the accepted one-way compatibility (DW-111)
+- [x] [Review][Defer] A NUL byte in `tripRepo.ts` makes plain `grep -r` skip the file that held three of the five defaulting mappers [travelplan/src/lib/repositories/tripRepo.ts:1424] — deferred, pre-existing (DW-112)
+
+#### Decision resolved, 2026-08-02 — per-profile OSRM endpoints
+
+**Chosen: point each mode at its own OSRM instance, host overridable via `OSRM_BASE_URL`.**
+
+The diagnosis was slightly off in a way that made the fix much smaller than expected. The `{profile}`
+segment was never a selector: an OSRM deployment serves exactly one graph, fixed at `osrm-extract`
+time by a Lua profile, and answers any `{profile}` in the path from that one graph. Selecting a
+profile means selecting an **endpoint**. FOSSGIS runs one public instance per profile, so no API key,
+no signup, no new response shape and no self-hosting were needed — `ROUTING_PROFILE_BY_MODE` became a
+profile→path map and everything downstream already worked.
+
+Verified live end to end, same 2.9 km of central Berlin, through the app's own request shape:
+
+| mode | endpoint | result | speed |
+| --- | --- | --- | --- |
+| car | `routed-car/route/v1/driving` | 2.65 km / 5 min | 29.6 km/h |
+| cycling | `routed-bike/route/v1/bike` | 2.99 km / 18 min | 9.9 km/h |
+| walking | `routed-foot/route/v1/foot` | 2.94 km / 39 min | 4.5 km/h |
+
+Three graphs, three plausible speeds — against the demo host all four profiles, including a nonsense
+one, returned byte-identical car numbers. **AC4 is now delivered.**
+
+Two things a future reader should know:
+
+1. **This is a community service under fair use.** Fine at one request per explicit user action, not
+   something to poll. `OSRM_BASE_URL` points the whole thing at a self-hosted deployment mirroring the
+   same three paths when that stops being true. Documented at the use site, matching how `APP_BASE_URL`
+   is handled; `.env` is gitignored and there is no example file to update.
+2. **Trap 3's "no route for this mode here" path is still mostly defensive.** These instances snap
+   almost anything and answer `Ok` — a Berlin→New York bike request returns a 3,434 km "route" rather
+   than `NoRoute`. The `NoRoute`/`NoSegment` handling is correctly wired now (it was unreachable
+   before), but it fires rarely in practice. Not a defect; worth knowing before anyone hunts for the
+   message in the wild.
+
+**DW-110 was unmasked by this fix and closed in the same pass**, exactly as its ledger entry said it
+should be. At real walking speed a ~110 km leg exceeds 24 h, and `parseTimeToMinutes` capped hours at
+23 while `formatMinutesToTime` happily wrote `26:30` — so the form rejected its own prefill with
+"Duration is required". A duration is not a time of day: hours now accept three digits. This also
+fixes multi-day ship crossings, which could never be entered by hand.
+
+#### Patch pass, 2026-08-02
+
+All 8 `patch` findings applied. The one `decision-needed` finding is untouched and still open — it is why this story is `in-progress` rather than `done`.
+
+New in this pass:
+
+- `travelplan/src/lib/trips/transportTypes.ts` — the single home for the transport vocabulary and the per-mode distance rule. Zod-free and dependency-free on purpose: client components import it, and reaching into `travelSegmentSchemas.ts` for a string array would drag zod into the browser bundle. `travelSegmentSchemas.ts` now derives its `z.enum` from `TRANSPORT_TYPES`, and both repositories, `TripDayView`, `TripTimeline` and the dialog take the type and the rule from here. The three duplicated distance lists are gone.
+- `trips.travelSegment.distanceInvalid` in both dictionaries, for a distance that is filled in but not positive.
+- 15 regression tests (13 from the patch pass, 2 from the decision) across `dayRouteService.test.ts`, `travelSegmentRoutePreview.test.ts`, `tripDayRoute.test.ts` and `travelSegmentDialog.test.tsx`, each pinning a finding.
+
+Verification after the pass: `npx vitest run` **898 passed / 102 files / 0 failed** (was 883 total with 5 failing at `20b8041`; +13 from this pass). `npx tsc --noEmit` zero errors in `src/`. `npm run lint` 2 errors / 84 warnings — identical to the baseline, both errors in the untouched `src/theme.ts`. `npm run check:migrations` passes.
+
+**Dismissed as noise (5):** `transportIconFor`'s trailing `return CarIcon` vs Trap 2 — compile-time exhaustiveness *is* present via `const unhandled: never`, and the trailing return is documented defensive rendering for a row that bypassed validation, not the silent default the trap forbids. Backup `FORMAT_VERSION` left at 2 — AC7 explicitly specifies "a **v2** backup containing them imports cleanly", so staying at 2 is spec-mandated, not an oversight. `prefillRouteOnOpen`'s stale `transportType` closure — the prop has no caller anywhere in `src/` or `test/`, so it is unreachable. Completion Note 4's "noted in a comment at the call site" pointing at `:184` rather than `:221` — trivia. Task 7 unticked — a known human gate, not a defect.
 
 ## Dev Notes
 

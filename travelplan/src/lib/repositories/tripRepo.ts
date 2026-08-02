@@ -8,6 +8,7 @@ import type { TripAccessRole } from "@/lib/auth/tripAccess";
 import { buildDayMapPanelData, buildTripDayMapItems, type TripDayMapPanelData } from "@/lib/trips/dayMapData";
 import { getTripUploadDir, resolvePublicFilePath } from "@/lib/trips/uploadPaths";
 import { sniffPhotoContentType } from "@/lib/trips/importPackage";
+import type { TransportType } from "@/lib/trips/transportTypes";
 import {
   discardStashedTripUploadDir,
   planAccommodationGalleryPhoto,
@@ -79,11 +80,11 @@ export type TripHeroSummary = {
 };
 
 /**
- * Lowercase wire vocabulary for `TravelTransportType`. Spelled out here rather than imported from
- * `travelSegmentRepo.ts` for the same reason its mapping helpers are duplicated below: neither
- * repository may depend on the other's internals.
+ * Lowercase wire vocabulary for `TravelTransportType`. Taken from the shared vocabulary module
+ * rather than from `travelSegmentRepo.ts` - neither repository may depend on the other's internals,
+ * but both may depend on the one place the vocabulary is written down.
  */
-export type TransportTypeInput = "car" | "ship" | "flight" | "walking" | "cycling";
+export type TransportTypeInput = TransportType;
 
 export type TripDaySummary = {
   id: string;

@@ -181,6 +181,55 @@ describe("GET /api/trips/[id]/days/[dayId]/route", () => {
     expect(body.error?.code).toBe("not_found");
   });
 
+  /**
+   * Review of story 6.16: `getDayRouteFromOsrm` gained `routing_no_route`, and this endpoint - the
+   * second consumer of `RoutingErrorCode` - was flattening it into the 502 "Routing service
+   * unavailable" the outage path uses. A code meaning "this is a normal answer" must not arrive
+   * under the status and prose for the opposite.
+   */
+  it("answers routing_no_route with 404 and its own message, keeping the fallback polyline", async () => {
+    const user = await prisma.user.create({
+      data: { email: "day-route-no-route@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const session = await createSessionJwt({ sub: user.id, role: user.role });
+
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "No Route Trip",
+      startDate: "2026-09-20T00:00:00.000Z",
+      endDate: "2026-09-21T00:00:00.000Z",
+    });
+    const [day1, day2] = await prisma.tripDay.findMany({
+      where: { tripId: trip.id },
+      orderBy: { dayIndex: "asc" },
+    });
+    await prisma.accommodation.create({
+      data: { tripDayId: day1.id, name: "Start", status: "PLANNED", locationLat: 48.3538, locationLng: 11.7861 },
+    });
+    await prisma.accommodation.create({
+      data: { tripDayId: day2.id, name: "End", status: "PLANNED", locationLat: 48.145, locationLng: 11.582 },
+    });
+
+    vi.mocked(getDayRouteFromOsrm).mockRejectedValue(
+      new DayRouteError("routing_no_route", "No route available for this travel mode"),
+    );
+
+    const response = await GET(buildRequest(trip.id, day2.id, session), {
+      params: Promise.resolve({ id: trip.id, dayId: day2.id }),
+    });
+    const body = (await response.json()) as ApiEnvelope<null>;
+
+    expect(response.status).toBe(404);
+    expect(body.error?.code).toBe("routing_no_route");
+    expect(body.error?.message).not.toBe("Routing service unavailable");
+    expect(body.error?.details).toEqual({
+      fallbackPolyline: [
+        [48.3538, 11.7861],
+        [48.145, 11.582],
+      ],
+    });
+  });
+
   it("returns stable error envelope on routing failure", async () => {
     const user = await prisma.user.create({
       data: {

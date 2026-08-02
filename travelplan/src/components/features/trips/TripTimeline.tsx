@@ -23,6 +23,7 @@ import {
   toCssUrl,
 } from "@/components/features/trips/TripIcons";
 import { withImageCacheBuster } from "@/lib/trips/imageUploads";
+import type { TransportType } from "@/lib/trips/transportTypes";
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
 
@@ -80,7 +81,7 @@ type TripDay = {
     fromItemId: string;
     toItemType: "accommodation" | "dayPlanItem";
     toItemId: string;
-    transportType: "car" | "ship" | "flight" | "walking" | "cycling";
+    transportType: TransportType;
     durationMinutes: number;
     distanceKm: number | null;
     linkUrl: string | null;

@@ -60,6 +60,12 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
     });
   } catch (error) {
     if (error instanceof DayRouteError) {
+      // Same split as the travel-segment route-preview sibling: "no route between these points" is a
+      // fact about the request, not a broken upstream, so it must not arrive under a 502 labelled
+      // "Routing service unavailable". Everything else stays a 502.
+      if (error.code === "routing_no_route") {
+        return fail(apiError(error.code, "No route available between these points", { fallbackPolyline }), 404);
+      }
       return fail(apiError(error.code, "Routing service unavailable", { fallbackPolyline }), 502);
     }
     return fail(apiError("server_error", "Unable to build day route"), 500);

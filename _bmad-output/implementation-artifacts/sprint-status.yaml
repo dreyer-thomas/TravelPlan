@@ -1,5 +1,5 @@
 # generated: 2026-03-01 13:08:00 CET
-# last_updated: 2026-08-02 (2-34 + 6-16..6-18 specced. Import limit raised 100->300MB with proxyClientMaxBodySize 320mb and nginx 320m, because the production trips measure 113MB and 217MB of photos and neither was restorable; 2-34 removes the memory coupling that makes that a stopgap. Epic 6 stories 6-10..6-13 done and operator-verified.)
+# last_updated: 2026-08-02 (6-16 code-reviewed and the decision resolved in-session: the public OSRM demo host serves one car graph and ignores the {profile} path segment, so walking/cycling import was returning car durations. Each mode now has its own FOSSGIS endpoint (routed-car/routed-bike/routed-foot), overridable via OSRM_BASE_URL - verified live at 29.6/9.9/4.5 km/h. AC4 delivered. 8 patches applied, DW-110 closed, DW-109/111/112 logged. Suite 898 passed / 0 failed. Only Task 7's browser pass is owed. Prior: 2-34 + 6-16..6-18 specced. Import limit raised 100->300MB with proxyClientMaxBodySize 320mb and nginx 320m, because the production trips measure 113MB and 217MB of photos and neither was restorable; 2-34 removes the memory coupling that makes that a stopgap. Epic 6 stories 6-10..6-13 done and operator-verified.)
 # prior_note: 2026-08-02 (6-12-fullscreen-photo-viewer implemented and reviewed via bmad-dev-auto; spec status was awaiting-operator, now done. Four inline fullscreen-viewer copies replaced by one shared FullscreenPhotoViewer taking a collection plus an index; closes DW-30 and DW-51. Task 7 is a browser pass — AC3's "one dark surface, no lighter rim" and AC4's "no horizontal scrollbar" ARE the reported defect, and jsdom neither lays out nor paints, so neither can be agent-verified. See operator_actions in the spec. 11 review findings patched, 4 deferred as DW-99…DW-102; followup_review_recommended is true. Prior: 6-11-day-nav-chevrons-and-print-menu now done. Prior: 6-10-trip-overview-refinements also awaiting-operator. Prior: 2-33-restore-export-entry-point added — there is currently no export entry point in the UI at all: 7.8 removed the button, 2.31 rebuilt the backend without one, 2.32 kept only import.)
 # project: TravelPlan
 # project_key: NOKEY
@@ -131,7 +131,7 @@ development_status:
   6-13-stay-cards-editable: done
   6-14-trip-controls-last-on-phone: awaiting-operator
   6-15-move-swap-into-overflow: awaiting-operator
-  6-16-walking-and-cycling-travel-modes: review
+  6-16-walking-and-cycling-travel-modes: awaiting-operator
   6-17-travel-segment-dialog-on-a-phone: ready-for-dev
   6-18-one-way-to-enter-a-time: ready-for-dev
   epic-6-retrospective: done

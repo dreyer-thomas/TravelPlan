@@ -1,8 +1,9 @@
 import { prisma } from "@/lib/db/prisma";
 import type { TravelSegmentItemType, TravelTransportType } from "@/generated/prisma/enums";
+import type { TransportType } from "@/lib/trips/transportTypes";
 
 /** Lowercase wire vocabulary for `TravelTransportType`, mirroring `TravelSegmentItemTypeInput`. */
-export type TransportTypeInput = "car" | "ship" | "flight" | "walking" | "cycling";
+export type TransportTypeInput = TransportType;
 
 export type TravelSegmentDetail = {
   id: string;

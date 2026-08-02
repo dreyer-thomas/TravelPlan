@@ -58,17 +58,12 @@ import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
 import { buildDayMapPanelData, buildTripDayMapItems } from "@/lib/trips/dayMapData";
 import { IMAGE_UPLOAD_ACCEPT, isSupportedImageUpload } from "@/lib/trips/imageUploads";
+import { transportTypeAllowsDistance, type TransportType } from "@/lib/trips/transportTypes";
 
 type ApiEnvelope<T> = {
   data: T | null;
   error: { code: string; message: string; details?: unknown } | null;
 };
-
-/**
- * Ground modes, which are the ones a distance means anything for. Mirrors the rule
- * `travelSegmentSchemas.ts` enforces server-side (Story 6.16 / AC6).
- */
-const TRANSPORT_TYPES_WITH_DISTANCE: readonly string[] = ["car", "walking", "cycling"];
 
 /**
  * Styling hook for the activity card's edit glyph.
@@ -162,7 +157,7 @@ type TripDay = {
     fromItemId: string;
     toItemType: "accommodation" | "dayPlanItem";
     toItemId: string;
-    transportType: "car" | "ship" | "flight" | "walking" | "cycling";
+    transportType: TransportType;
     durationMinutes: number;
     distanceKm: number | null;
     linkUrl: string | null;
@@ -1174,7 +1169,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
       // Walking and cycling may carry a distance too (Story 6.16 / AC6); ship and flight still
       // cannot, so a stored value on them would be data the schema forbids and is not shown.
       const distance =
-        TRANSPORT_TYPES_WITH_DISTANCE.includes(segment.transportType) && typeof segment.distanceKm === "number"
+        transportTypeAllowsDistance(segment.transportType) && typeof segment.distanceKm === "number"
           ? `${segment.distanceKm} ${t("trips.travelSegment.kmSuffix")}`
           : null;
       return [transport, duration, distance].filter(Boolean).join(" · ");

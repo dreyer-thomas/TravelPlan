@@ -17,6 +17,11 @@ import {
   Typography,
 } from "@mui/material";
 import { useI18n } from "@/i18n/provider";
+import {
+  transportTypeAllowsDistance,
+  transportTypeRequiresDistance,
+  type TransportType,
+} from "@/lib/trips/transportTypes";
 
 type ApiEnvelope<T> = {
   data: T | null;
@@ -29,8 +34,6 @@ type SegmentItem = {
   label: string;
   location: { lat: number; lng: number; label?: string | null } | null;
 };
-
-type TransportType = "car" | "ship" | "flight" | "walking" | "cycling";
 
 /**
  * The modes a router can answer for, and the Google `travelmode` each maps onto. Ship and flight are
@@ -48,16 +51,11 @@ type RoutableTransportType = keyof typeof GOOGLE_TRAVEL_MODE_BY_TRANSPORT;
 const isRoutableTransportType = (value: TransportType): value is RoutableTransportType =>
   value in GOOGLE_TRAVEL_MODE_BY_TRANSPORT;
 
-/**
- * Story 6.16 / AC6: distance is offered for every ground mode but required only for car - the same
- * rule `travelSegmentSchemas.ts` enforces server-side, and the reason `distanceRequired` still names
- * car alone.
- */
-const TRANSPORT_TYPES_WITH_DISTANCE: readonly TransportType[] = ["car", "walking", "cycling"];
+// The distance rule itself lives in `@/lib/trips/transportTypes` alongside the enum, so the form and
+// the schema that will judge its payload cannot drift apart.
+const allowsDistance = transportTypeAllowsDistance;
 
-const allowsDistance = (value: TransportType) => TRANSPORT_TYPES_WITH_DISTANCE.includes(value);
-
-const requiresDistance = (value: TransportType) => value === "car";
+const requiresDistance = transportTypeRequiresDistance;
 
 type TravelSegment = {
   id: string;
@@ -102,14 +100,21 @@ const formatDistanceKmInput = (distanceMeters: number) => {
   return Number.isInteger(km) ? String(km) : km.toFixed(1);
 };
 
+/**
+ * This is a *duration*, not a time of day, so hours are not capped at 23. They were, and the field
+ * could therefore reject its own prefill: `formatMinutesToTime` happily writes "39:00" and the old
+ * `\d{1,2}` / `hours > 23` pair then answered "Duration is required" over a field that visibly
+ * contained a duration. Once route import started returning real walking speeds (~4.5 km/h) a ~110 km
+ * leg was enough to reach it, and a multi-day ship crossing always could.
+ */
 const parseTimeToMinutes = (value: string): number | null => {
   const trimmed = value.trim();
   if (!trimmed) return null;
-  const match = trimmed.match(/^(\d{1,2}):(\d{2})$/);
+  const match = trimmed.match(/^(\d{1,3}):(\d{2})$/);
   if (!match) return null;
   const hours = Number.parseInt(match[1], 10);
   const minutes = Number.parseInt(match[2], 10);
-  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  if (hours < 0 || hours > 999 || minutes < 0 || minutes > 59) return null;
   return hours * 60 + minutes;
 };
 
@@ -139,11 +144,21 @@ const buildCoordinateParam = (location: SegmentItem["location"]) => {
   return null;
 };
 
-const buildGoogleMapsLink = (from: SegmentItem | null, to: SegmentItem | null) => {
+/**
+ * The plain "open this leg in Maps" link. `transportType` is optional because `mapsLink` below is
+ * memoised on the two items alone and feeds the effect that seeds the form - making that memo depend
+ * on the mode would reset the form on every dropdown change. The mode is applied where the link is
+ * handed to the field instead, which is enough: a link for a walking leg that opens driving
+ * directions is wrong on the one surface the user actually taps.
+ */
+const buildGoogleMapsLink = (from: SegmentItem | null, to: SegmentItem | null, transportType?: TransportType) => {
   const origin = buildLocationParam(from?.location ?? null);
   const destination = buildLocationParam(to?.location ?? null);
   if (!origin || !destination) return null;
   const params = new URLSearchParams({ api: "1", origin, destination });
+  if (transportType && isRoutableTransportType(transportType)) {
+    params.set("travelmode", GOOGLE_TRAVEL_MODE_BY_TRANSPORT[transportType]);
+  }
   return `https://www.google.com/maps/dir/?${params.toString()}`;
 };
 
@@ -220,6 +235,16 @@ export default function TripDayTravelSegmentDialog({
   const isEditing = Boolean(segment?.id);
   const mapsLink = useMemo(() => buildGoogleMapsLink(fromItem, toItem), [fromItem, toItem]);
   const autoPrefillTriggeredRef = useRef(false);
+  /** The last link this component wrote into the field, so a link the user typed is never stomped. */
+  const seededLinkRef = useRef<string>("");
+  /** True while the form holds the output of a route import, which belongs to one mode only. */
+  const routePrefilledRef = useRef(false);
+  /** What the form held when it opened, so discarding a stale import restores rather than blanks. */
+  const openSnapshotRef = useRef<{ duration: string; distance: string; link: string }>({
+    duration: "00:30",
+    distance: "",
+    link: "",
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -227,19 +252,57 @@ export default function TripDayTravelSegmentDialog({
     setFieldErrors({});
     setCsrfToken(null);
     setRouteHelper(null);
+    routePrefilledRef.current = false;
 
-    if (segment) {
-      setTransportType(segment.transportType);
-      setDurationInput(formatMinutesToTime(segment.durationMinutes));
-      setDistanceKm(segment.distanceKm !== null && segment.distanceKm !== undefined ? String(segment.distanceKm) : "");
-      setLinkUrl(segment.linkUrl ?? "");
-    } else {
-      setTransportType("car");
-      setDurationInput("00:30");
-      setDistanceKm("");
-      setLinkUrl(mapsLink ?? "");
-    }
+    const opened = segment
+      ? {
+          duration: formatMinutesToTime(segment.durationMinutes),
+          distance: segment.distanceKm !== null && segment.distanceKm !== undefined ? String(segment.distanceKm) : "",
+          link: segment.linkUrl ?? "",
+        }
+      : { duration: "00:30", distance: "", link: mapsLink ?? "" };
+
+    setTransportType(segment ? segment.transportType : "car");
+    setDurationInput(opened.duration);
+    setDistanceKm(opened.distance);
+    setLinkUrl(opened.link);
+    openSnapshotRef.current = opened;
+    seededLinkRef.current = segment ? "" : opened.link;
   }, [open, segment, mapsLink]);
+
+  /**
+   * Changing the mode discards a route imported for the *previous* one. Without this, picking
+   * Walking, importing, then switching to Cycling saved the walking duration, the walking distance
+   * and a link reading `travelmode=walking` under a cycling segment, with "Route imported
+   * successfully" still on screen. Before Story 6.16 only car could prefill, so the state could not
+   * be reached; two routable modes make it one click.
+   */
+  const handleTransportTypeChange = (next: TransportType) => {
+    if (next === transportType) return;
+    setTransportType(next);
+    setRouteHelper(null);
+    setFieldErrors((errors) => ({ ...errors, distanceKm: undefined }));
+
+    if (routePrefilledRef.current) {
+      const opened = openSnapshotRef.current;
+      // Re-point the link only if it is still the one this component seeded; a link the user pasted
+      // is theirs to keep.
+      const restoredLink =
+        opened.link === (mapsLink ?? "") ? (buildGoogleMapsLink(fromItem, toItem, next) ?? "") : opened.link;
+      setDurationInput(opened.duration);
+      setDistanceKm(opened.distance);
+      setLinkUrl(restoredLink);
+      seededLinkRef.current = restoredLink;
+      routePrefilledRef.current = false;
+      return;
+    }
+
+    if (linkUrl === seededLinkRef.current) {
+      const reseeded = buildGoogleMapsLink(fromItem, toItem, next) ?? "";
+      setLinkUrl(reseeded);
+      seededLinkRef.current = reseeded;
+    }
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -289,6 +352,15 @@ export default function TripDayTravelSegmentDialog({
       if (!Number.isFinite(distanceValue) || distanceValue <= 0) {
         nextErrors.distanceKm = t("trips.travelSegment.distanceRequired");
       }
+    } else if (allowsDistance(transportType) && distanceKm.trim().length > 0) {
+      // Optional is not the same as silently discarded. `inputProps.min` is not enforced on submit -
+      // nothing runs constraint validation - so `0` and `-3` reach here, and the API rejects both
+      // (`travelSegmentSchemas.ts` is `.positive()`). Saying so beats dropping the number the user
+      // typed and closing on a success.
+      const distanceValue = Number.parseFloat(distanceKm);
+      if (!Number.isFinite(distanceValue) || distanceValue <= 0) {
+        nextErrors.distanceKm = t("trips.travelSegment.distanceInvalid");
+      }
     }
 
     const normalizedLink = linkUrl.trim();
@@ -302,7 +374,12 @@ export default function TripDayTravelSegmentDialog({
 
   const handleGoogleMapsRoute = useCallback(async () => {
     if (!mapsLink) return;
-    setLinkUrl(mapsLink);
+    // Point the fallback link at the mode being imported, so the link is right even on the paths
+    // that return below without a route (ship and flight, no locations, no route for this mode).
+    const modeAwareMapsLink = buildGoogleMapsLink(fromItem, toItem, transportType) ?? mapsLink;
+    setLinkUrl(modeAwareMapsLink);
+    seededLinkRef.current = modeAwareMapsLink;
+    routePrefilledRef.current = false;
     setServerError(null);
     setRouteHelper(null);
 
@@ -354,9 +431,14 @@ export default function TripDayTravelSegmentDialog({
         return;
       }
 
+      const routeLink = buildGoogleMapsRouteLink(fromItem, toItem, route.polyline, transportType) ?? modeAwareMapsLink;
       setDurationInput(formatMinutesToTime(Math.max(1, Math.round(durationSeconds / 60))));
       setDistanceKm(formatDistanceKmInput(distanceMeters));
-      setLinkUrl(buildGoogleMapsRouteLink(fromItem, toItem, route.polyline, transportType) ?? mapsLink);
+      setLinkUrl(routeLink);
+      seededLinkRef.current = routeLink;
+      // These three values belong to `transportType` and to no other mode - see
+      // `handleTransportTypeChange`.
+      routePrefilledRef.current = true;
       setRouteHelper(t("trips.travelSegment.googleMapsPrefillSuccess"));
     } catch {
       setRouteHelper(t("trips.travelSegment.googleMapsFallbackActive"));
@@ -386,9 +468,9 @@ export default function TripDayTravelSegmentDialog({
     if (!validate()) return;
 
     const normalizedLink = linkUrl.trim();
-    // Walking and cycling may carry a distance but are not obliged to, so an empty or unparseable
-    // field becomes `null` rather than a `NaN` the API would reject. Car is unaffected: `validate()`
-    // has already guaranteed a positive number for it.
+    // Walking and cycling may carry a distance but are not obliged to, so an *empty* field becomes
+    // `null` rather than a `NaN` the API would reject. A field that is filled in but not positive no
+    // longer reaches here - `validate()` now reports it instead of discarding it.
     const parsedDistance = Number.parseFloat(distanceKm);
     const distanceValue =
       allowsDistance(transportType) && Number.isFinite(parsedDistance) && parsedDistance > 0 ? parsedDistance : null;
@@ -470,7 +552,7 @@ export default function TripDayTravelSegmentDialog({
               labelId="travel-transport-label"
               label={t("trips.travelSegment.transportLabel")}
               value={transportType}
-              onChange={(event) => setTransportType(event.target.value as TransportType)}
+              onChange={(event) => handleTransportTypeChange(event.target.value as TransportType)}
             >
               <MenuItem value="car">{t("trips.travelSegment.transport.car")}</MenuItem>
               <MenuItem value="walking">{t("trips.travelSegment.transport.walking")}</MenuItem>

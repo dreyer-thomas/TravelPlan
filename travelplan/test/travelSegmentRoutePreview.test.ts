@@ -180,6 +180,33 @@ describe("GET /api/trips/[id]/travel-segments/route-preview", () => {
   });
 
   /**
+   * `searchParams.get` returns `""`, not `null`, for `&mode=` and for a bare `&mode`, so a `??`
+   * guard lets the empty string through to the enum and the `.default("car")` never fires. Pre-6.16
+   * callers are exactly the ones that would send a stripped parameter.
+   */
+  it.each(["", "&mode"])("defaults to driving for an empty mode parameter (%s)", async (suffix) => {
+    const { session, trip } = await createUserWithTrip(`segment-route-empty${suffix.length}@example.com`);
+
+    vi.mocked(getDayRouteFromOsrm).mockResolvedValue({
+      polyline: [
+        [52.52, 13.405],
+        [48.137, 11.575],
+      ],
+      distanceMeters: 1,
+      durationSeconds: 1,
+    });
+
+    const query = "originLat=52.52&originLng=13.405&destinationLat=48.137&destinationLng=11.575";
+    const url = `http://localhost/api/trips/${trip.id}/travel-segments/route-preview?${query}${suffix || "&mode="}`;
+    const response = await GET(new NextRequest(url, { method: "GET", headers: { cookie: `session=${session}` } }), {
+      params: Promise.resolve({ id: trip.id }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(vi.mocked(getDayRouteFromOsrm)).toHaveBeenCalledWith(expect.objectContaining({ profile: "driving" }));
+  });
+
+  /**
    * Ship and flight have no routing profile, so they must never reach this endpoint - the dialog
    * sends them down the manual path instead. Rejecting them at the boundary keeps that contract
    * from decaying into a silent car route.

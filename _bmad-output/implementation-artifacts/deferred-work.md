@@ -868,3 +868,59 @@ severity: medium
 summary: `MAX_IMPORT_PACKAGE_BYTES` was raised from 100 MB to 300 MB, but five tests still spell out `101 * 1024 * 1024` and the string "Backup file is larger than 100 MB."; the fixture is now comfortably *under* the cap, so the route accepts it and fails downstream with `invalid_json`, and `npm test` has been red on `main` since.
 evidence: Not a product defect — the cap enforces correctly at its new value; the assertions are stale. `importLimits.ts` documents the raise ("Raised from 100 MB on 2026-08-02 because it made real backups unrestorable"), and the failures read exactly as a fixture that no longer trips the guard: `expected 'invalid_json' to be 'file_too_large'`. Confirmed pre-existing at `dcfb859` — both files are unmodified by this story and fail identically with story 6-15's changes reverted. A fix was in the working tree at the start of this run (deriving `OVER_LIMIT_BYTES` and the message from `MAX_IMPORT_PACKAGE_BYTES` rather than hard-coding either) and was reverted before it landed; that derive-don't-duplicate shape is the right one, since the same duplication is what `importLimits.ts` exists to prevent. Left to the import story rather than patched here: a red suite on `main` masks real regressions, but it is a different feature and this story must not carry an unrelated fix into its commit.
 status: open
+
+## Deferred from: code review of 6-16-walking-and-cycling-travel-modes (2026-08-02)
+
+### DW-109: The print sheet shows a distance for ship and flight while the day view hides it
+
+source_spec: `_bmad-output/implementation-artifacts/6-16-walking-and-cycling-travel-modes.md`
+origin: incidental to story 6-16 review, 2026-08-02
+location: `travelplan/src/components/features/trips/TripDayPrintDocument.tsx:180` and `travelplan/src/components/features/trips/TripDayView.tsx:1177`
+severity: medium
+summary: The same stored row renders "Flight · 5h" in the day view and "Flight · 5h · 800 km" on the printed day sheet, because the print document shows any non-null `distanceKm` regardless of mode while the day view now gates on a mode list.
+evidence: Reachable because `tripImportSchemas.ts:184-207` deliberately does *not* enforce the transport/distance coupling on import, so a backup carrying `{transportType: "flight", distanceKm: 800}` restores intact. The divergence predates story 6-16 — the day view previously gated on `=== "car"` and the print doc already did not gate at all — but 6-16 is what made the day view's rule explicit and list-driven (`TRANSPORT_TYPES_WITH_DISTANCE`) without bringing the fourth surface along. Natural fix is the same one DW-112's sibling finding wants: one shared mode list all four surfaces import, rather than a fourth copy. Left out of 6-16's patch set because the print document is not otherwise touched by the story and the mismatch is not new.
+status: open
+
+### DW-110: A prefilled duration of 24 h or more is written by the form and then rejected by it
+
+source_spec: `_bmad-output/implementation-artifacts/6-16-walking-and-cycling-travel-modes.md`
+origin: incidental to story 6-16 review, 2026-08-02
+location: `travelplan/src/components/features/trips/TripDayTravelSegmentDialog.tsx:105-114` (`parseTimeToMinutes`) and `:357`
+severity: low
+summary: `formatMinutesToTime` happily writes `"120:00"` into the duration field and reports "Route imported successfully", but `parseTimeToMinutes` caps at `\d{1,2}` and `hours > 23`, so Save answers "Duration is required" over a field that visibly contains a duration and the user cannot proceed without hand-editing.
+evidence: Pre-existing — car could already reach it, but only on a ~2000 km leg. Walking and cycling reach it at ordinary distances (a 120 km walk is ~24 h), so story 6-16 widens the door rather than opening it. Currently masked by the open decision finding in the 6-16 story file (the OSRM demo host serves car times for every profile): while that holds, a walking leg gets the car duration and stays under the cap. It becomes reachable the moment per-mode routing actually works, so it should be fixed in the same pass that resolves the routing decision rather than before it. The fix is a decision as much as a patch — either widen the field's format to accept `HHH:mm`, or treat a multi-day leg as an input the segment model should reject explicitly instead of via a misleading "required" message.
+status: **closed 2026-08-02** - fixed in the story 6.16 review's decision pass, as this entry said it should be. Unmasked the moment per-mode routing started returning real walking speeds (~4.5 km/h makes a ~110 km leg exceed 24 h, where car speed needed ~700 km). `parseTimeToMinutes` now accepts three digits of hours: a duration is not a time of day. Also fixes multi-day ship crossings, which could never be entered by hand. Pinned by "accepts a prefilled duration longer than a day" in `travelSegmentDialog.test.tsx`.
+
+### DW-111: No rollback path — WALKING/CYCLING rows are unreadable by a pre-6.16 build
+
+source_spec: `_bmad-output/implementation-artifacts/6-16-walking-and-cycling-travel-modes.md`
+origin: incidental to story 6-16 review, 2026-08-02
+location: `travelplan/prisma/schema.prisma:36-45`
+severity: low
+summary: The enum widening ships no migration because `transport_type` is bare `TEXT` with no CHECK — correct for rolling forward, but it also means a rollback to a pre-6.16 build leaves values in the column that the older generated enum does not contain, and Prisma validates enum values on deserialization.
+evidence: The failure would not be scoped to the offending row: every `travelSegment` include on that trip day throws, taking the day view, the export and the print payload with it. The schema comment reasons only about the additive direction. Deferred rather than patched because the story's Dev Notes already accept one-way compatibility explicitly for the backup format and this is the same trade in the database, and because the deployment is single-operator self-hosted where a rollback is a deliberate act. What is owed is a line in the schema comment or the deploy notes saying so, not code.
+status: open
+
+### DW-112: A NUL byte in tripRepo.ts makes plain `grep -r` skip the file silently
+
+source_spec: `_bmad-output/implementation-artifacts/6-16-walking-and-cycling-travel-modes.md`
+origin: incidental to story 6-16 review, 2026-08-02
+location: `travelplan/src/lib/repositories/tripRepo.ts:1424`
+severity: low
+summary: A literal NUL in a template string (`` `${sortOrder}\x00${imageUrl}` ``) makes `file` report the source as `data`, so `grep -r` treats it as binary and omits it without saying so — and that file held three of the five silently-defaulting transport mappers story 6-16 had to fix.
+evidence: Pre-existing at baseline `68607e0`, and nothing was actually missed — the dev found and fixed all five mappers. The hazard is the audit method, not the code: story 6-16's Task 5 mandates "grep for the three literals across `src/`", and the mandated sweep cannot see the file it most needed to see unless the operator happens to pass `-a`. Worth either replacing the NUL with a delimiter that is not a NUL, or recording `grep -a` as the convention for repo-wide sweeps.
+status: open
+
+## Note: story 6.16 review decision (2026-08-02)
+
+The one `decision-needed` finding from the 6.16 code review - walking and cycling route import
+returning car numbers - was resolved in the same session and is **not** deferred. The public
+`router.project-osrm.org` demo host serves a single car graph and ignores the `{profile}` path
+segment; each mode now has its own FOSSGIS endpoint (`routed-car` / `routed-bike` / `routed-foot`),
+overridable via `OSRM_BASE_URL`. Verified live: 29.6 / 9.9 / 4.5 km/h over the same 2.9 km. Full
+detail in the story file under "Decision resolved".
+
+Standing hazard worth carrying forward: the routing backend is a community service under fair use.
+It is fine at one request per explicit user action. Anything that routes automatically or in bulk -
+a background prefill, a per-day batch, a map that re-routes on pan - needs a self-hosted OSRM behind
+`OSRM_BASE_URL` first.

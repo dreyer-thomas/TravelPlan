@@ -1,5 +1,11 @@
 import { z } from "zod";
 
+import {
+  TRANSPORT_TYPES,
+  transportTypeAllowsDistance,
+  transportTypeRequiresDistance,
+} from "@/lib/trips/transportTypes";
+
 const isSafeExternalUrl = (value: string): boolean => {
   try {
     const parsed = new URL(value);
@@ -17,24 +23,10 @@ const linkSchema = z
   .max(2000, "Link must be at most 2000 characters");
 
 export const travelSegmentItemTypeSchema = z.enum(["accommodation", "dayPlanItem"]);
-export const travelTransportTypeSchema = z.enum(["car", "ship", "flight", "walking", "cycling"]);
-
-/**
- * Story 6.16 / AC6 - the distance rule, stated rather than inherited.
- *
- * Distance is *allowed* for every ground mode (car, walking, cycling) and *required* for car alone.
- *
- * Requiring it for the new modes would turn a two-minute walk between two adjacent stops into a form
- * error over a number nobody has. Forbidding it - the rule ship and flight live under - would throw
- * away the 40 km of a cycled leg, and would also make the route import for those modes pointless,
- * since it prefills exactly duration *and* distance. Allowed-but-optional is the only rule that
- * keeps both cases usable. Car keeps its stricter rule untouched, so no stored row and no existing
- * caller changes behaviour.
- */
-export const TRANSPORT_TYPES_ALLOWING_DISTANCE = ["car", "walking", "cycling"] as const;
-
-export const transportTypeAllowsDistance = (value: string): boolean =>
-  (TRANSPORT_TYPES_ALLOWING_DISTANCE as readonly string[]).includes(value);
+// The enum and the per-mode distance rule both come from `@/lib/trips/transportTypes`, which is the
+// one place either is written down. Deriving the schema from `TRANSPORT_TYPES` means adding a mode
+// there widens this schema automatically instead of leaving a second list to forget.
+export const travelTransportTypeSchema = z.enum(TRANSPORT_TYPES);
 
 export const travelSegmentMutationSchema = z
   .object({
@@ -57,7 +49,7 @@ export const travelSegmentMutationSchema = z
       });
     }
 
-    if (value.transportType === "car" && (value.distanceKm === null || value.distanceKm === undefined)) {
+    if (transportTypeRequiresDistance(value.transportType) && (value.distanceKm === null || value.distanceKm === undefined)) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["distanceKm"],

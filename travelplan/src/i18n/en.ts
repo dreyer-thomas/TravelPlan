@@ -312,6 +312,7 @@ const en: Dictionary = {
   "trips.travelSegment.durationLabel": "Duration (HH:mm)",
   "trips.travelSegment.distanceLabel": "Distance (km)",
   "trips.travelSegment.distanceOptionalLabel": "Distance (km, optional)",
+  "trips.travelSegment.distanceInvalid": "Enter a distance greater than 0, or leave the field empty.",
   "trips.travelSegment.linkLabel": "Link (optional)",
   "trips.travelSegment.linkHelper": "Paste a Google Maps or other directions link",
   "trips.travelSegment.linkInvalid": "Enter a valid http(s) link",

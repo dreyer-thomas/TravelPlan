@@ -559,6 +559,195 @@ describe("TripDayTravelSegmentDialog", () => {
     vi.unstubAllGlobals();
   });
 
+  /**
+   * DW-110, unmasked by the routing fix: a duration is not a time of day. A walking leg long enough
+   * to pass 24 h used to be prefilled and then rejected by the same form, with "Duration is required"
+   * over a field that plainly held a duration.
+   */
+  it("accepts a prefilled duration longer than a day", async () => {
+    const fetchMock = stubFetch(async (input) => {
+      if (String(input).includes("/api/auth/csrf")) return csrfResponse;
+      if (String(input).includes("route-preview")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            // ~110 km on foot: 26 h 30 m.
+            data: {
+              route: {
+                durationSeconds: 95400,
+                distanceMeters: 110000,
+                polyline: [
+                  [52.52, 13.405],
+                  [48.137, 11.575],
+                ],
+              },
+            },
+            error: null,
+          }),
+        };
+      }
+      return { ok: true, status: 200, json: async () => ({ data: { segment: { id: "segment-1" } }, error: null }) };
+    });
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayTravelSegmentDialog
+          {...baseProps}
+          fromItem={{ ...baseProps.fromItem, location: { lat: 52.52, lng: 13.405, label: "Berlin" } }}
+          toItem={{ ...baseProps.toItem, location: { lat: 48.137, lng: 11.575, label: "Munich" } }}
+        />
+      </I18nProvider>,
+    );
+
+    await openTransportMenu();
+    fireEvent.click(await screen.findByRole("option", { name: "Walking" }));
+    fireEvent.click(screen.getByRole("button", { name: "Plan with Maps" }));
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue("26:30")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/travel-segments"))).toBe(true);
+    });
+    expect(screen.queryByText("Duration is required")).not.toBeInTheDocument();
+    const saveCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith("/travel-segments"));
+    expect(JSON.parse(String((saveCall?.[1] as RequestInit).body)).durationMinutes).toBe(1590);
+
+    vi.unstubAllGlobals();
+  });
+
+  // --- Review of story 6.16 ---------------------------------------------------------------------
+
+  /**
+   * Two routable modes made this reachable in one click: import a route for Walking, switch to
+   * Cycling, save - and the cycling row carried the walking duration, the walking distance and a
+   * link reading `travelmode=walking`, with "Route imported successfully" still on screen.
+   */
+  it("discards a route imported for the previous mode when the mode changes", async () => {
+    const fetchMock = stubFetch(async (input) => {
+      if (String(input).includes("/api/auth/csrf")) return csrfResponse;
+      if (String(input).includes("route-preview")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: {
+              route: {
+                durationSeconds: 2700,
+                distanceMeters: 6200,
+                polyline: [
+                  [52.52, 13.405],
+                  [48.137, 11.575],
+                ],
+              },
+            },
+            error: null,
+          }),
+        };
+      }
+      return { ok: true, status: 200, json: async () => ({ data: { segment: { id: "segment-1" } }, error: null }) };
+    });
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayTravelSegmentDialog
+          {...baseProps}
+          fromItem={{ ...baseProps.fromItem, location: { lat: 52.52, lng: 13.405, label: "Berlin" } }}
+          toItem={{ ...baseProps.toItem, location: { lat: 48.137, lng: 11.575, label: "Munich" } }}
+        />
+      </I18nProvider>,
+    );
+
+    await openTransportMenu();
+    fireEvent.click(await screen.findByRole("option", { name: "Walking" }));
+    fireEvent.click(screen.getByRole("button", { name: "Plan with Maps" }));
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue("00:45")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Route details were prefilled from the current adjacent locations. You can still edit them before saving.")).toBeInTheDocument();
+
+    await openTransportMenu();
+    fireEvent.click(await screen.findByRole("option", { name: "Cycling" }));
+
+    // The walking numbers are gone, not carried over onto a cycling leg.
+    await waitFor(() => {
+      expect(screen.queryByDisplayValue("00:45")).not.toBeInTheDocument();
+    });
+    expect(screen.queryByDisplayValue("6.2")).not.toBeInTheDocument();
+    expect(screen.queryByText("Route details were prefilled from the current adjacent locations. You can still edit them before saving.")).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Duration (HH:mm)"), { target: { value: "01:10" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/travel-segments"))).toBe(true);
+    });
+    const saveCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith("/travel-segments"));
+    const body = JSON.parse(String((saveCall?.[1] as RequestInit).body));
+    expect(body.transportType).toBe("cycling");
+    expect(body.durationMinutes).toBe(70);
+    expect(body.distanceKm).toBeNull();
+    expect(String(body.linkUrl ?? "")).not.toContain("travelmode=walking");
+
+    vi.unstubAllGlobals();
+  });
+
+  /** An untouched auto-seeded link must not send a cyclist down driving directions. */
+  it("re-points the seeded Maps link at the mode the user picked", async () => {
+    stubCsrfOnlyFetch();
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayTravelSegmentDialog
+          {...baseProps}
+          fromItem={{ ...baseProps.fromItem, location: { lat: 52.52, lng: 13.405, label: "Berlin" } }}
+          toItem={{ ...baseProps.toItem, location: { lat: 48.137, lng: 11.575, label: "Munich" } }}
+        />
+      </I18nProvider>,
+    );
+
+    await openTransportMenu();
+    fireEvent.click(await screen.findByRole("option", { name: "Cycling" }));
+
+    await waitFor(() => {
+      expect((screen.getByDisplayValue(/google\.com\/maps\/dir/) as HTMLInputElement).value).toContain(
+        "travelmode=bicycling",
+      );
+    });
+
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * "Optional" must not mean "silently discarded". `inputProps.min` is not enforced on submit and the
+   * API rejects a non-positive distance, so dropping it to `null` and closing on a success threw away
+   * the number the user typed and told them it had been saved.
+   */
+  it.each(["0", "-3"])("reports a distance of %s on a cycling leg instead of dropping it", async (value) => {
+    const fetchMock = stubSaveFetch();
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayTravelSegmentDialog {...baseProps} />
+      </I18nProvider>,
+    );
+
+    await openTransportMenu();
+    fireEvent.click(await screen.findByRole("option", { name: "Cycling" }));
+    fireEvent.change(await screen.findByLabelText("Distance (km, optional)"), { target: { value } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText("Enter a distance greater than 0, or leave the field empty.")).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/travel-segments"))).toBe(false);
+
+    vi.unstubAllGlobals();
+  });
+
   /** AC4: an empty result reads as "no route for this mode here", not as a failure. */
   it("reports an empty cycling result as no route for this mode", async () => {
     stubFetch(async (input) => {

@@ -45,9 +45,10 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
     originLng: request.nextUrl.searchParams.get("originLng"),
     destinationLat: request.nextUrl.searchParams.get("destinationLat"),
     destinationLng: request.nextUrl.searchParams.get("destinationLng"),
-    // `?? undefined` rather than the raw `null`: the schema defaults an *absent* mode to car, and a
-    // null would be a type error instead.
-    mode: request.nextUrl.searchParams.get("mode") ?? undefined,
+    // `|| undefined`, not `?? undefined`: the schema defaults an *absent* mode to car, but
+    // `searchParams.get` returns `""` - not `null` - for both `&mode=` and a bare `&mode`, and `""`
+    // fails the enum rather than falling through to the default.
+    mode: request.nextUrl.searchParams.get("mode") || undefined,
   });
   if (!parsedQuery.success) {
     return fail(apiError("validation_error", "Invalid route lookup query", parsedQuery.error.flatten()), 400);
