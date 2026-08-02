@@ -1,11 +1,21 @@
 ---
 authored_against: 4dfef44
-status: ready-for-dev
+baseline_revision: ec461525c06b91461f6cf298da02151b97e21c14
+final_revision: 4c69f2dff6c44416fe6812744af7cd536c9c3cf1
+review_loop_iteration: 0
+followup_review_recommended: true
+status: awaiting-operator
+operator_actions:
+  - "Raise the reverse proxy's request body limit before announcing this feature: set `client_max_body_size 100m;` in the Nginx server block fronting this app, matching MAX_IMPORT_PACKAGE_BYTES, then reload Nginx. Until this is done every photo-bearing import is rejected by the proxy with a 413 and never reaches Node."
+  - "Round-trip one trip end to end in a browser: create a trip carrying a hero image, a day image, an accommodation gallery, a plan-item gallery, at least one travel segment and two bucket list items, export it, then import it as 'Create new trip' and confirm every photo renders and every travel segment shows the correct endpoints."
+  - "Delete the source trip after that import, then reopen the imported copy and confirm its photos still render. This is the point of the story: it proves the import copied the bytes instead of re-pointing at the original trip's uploads directory."
+  - "Import a v1 backup (any .json export produced before Story 2.31) and confirm it restores with no error and no missing fields."
+  - "Exercise the overwrite path in a browser: import a backup over an existing same-name trip, then confirm on disk that the old trip's upload directory is gone and that no stale days, accommodations, plan items, travel segments or bucket list items remain."
 ---
 
 # Story 2.32: Complete Trip Backup Import With Photos, Travel Segments, and Bucket List
 
-Status: ready-for-dev
+Status: awaiting-operator
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -171,6 +181,7 @@ Why multipart and not JSON-in-body: a ZIP is binary and cannot go in a JSON body
 - [x] **Task 1 — Extend the import validation schema to v2** (AC: 1, 2, 3)
   - [x] Edit `travelplan/src/lib/validation/tripImportSchemas.ts`. Every new field is `.optional()` with a `null`/`[]` default so a v1 payload still parses — this is AC2 and it is enforced by keeping `test/tripImportSchemas.test.ts`'s existing cases green.
   - [x] `photoSchema`: `{ contentType: z.enum(["image/jpeg","image/png","image/webp"]), archivePath: z.string().min(1) }`. Allow-list matches `ALLOWED_TYPES` in the three upload routes exactly — do not widen it. Note the export's `application/octet-stream` / `.bin` fallback (`tripRepo.ts:1231`) is therefore **rejected**: it only arises from a stored URL the upload routes could not have produced, and AC3 wants that surfaced rather than written to disk unvalidated. Record it in `deferred-work.md`.
+    - **Superseded, deliberately — see Open Question 5 and DW-83 (both resolved).** As shipped, `photoSchema.contentType` is `z.string().trim().min(1)`; the *bytes* carry the allow-list instead (`sniffPhotoContentType` in `importPackage.ts`, enforced by `validatePackagePhotos`). The enum was rejecting backups this app produces — `hero-image/route.ts:86` derives the stored extension from the client-supplied `file.type` without sniffing — so it failed AC1/AC2 while adding nothing to AC3. Verified 2026-08-02 against `tripImportSchemas.ts:122-125` and `importPackage.ts:138-167`.
   - [x] `photos: z.record(z.string().min(1), photoSchema).optional().default({})` on the payload root.
   - [x] `meta.warnings: z.array(z.string()).optional().default([])` — present in every v2 manifest, absent in v1.
   - [x] The **bytes** are not in the manifest, so per-photo byte checks cannot live in Zod. They belong in the archive-level validation of Task 2, which runs on the same request before the transaction and reports through the same `validation_error` 400.
@@ -188,6 +199,7 @@ Why multipart and not JSON-in-body: a ZIP is binary and cannot go in a JSON body
   - [x] Add `travelplan/src/lib/trips/zipReader.ts` — the production ZIP reader described under § Package Format Contract v2 → "Reading the archive". Do not import `test/helpers/zipReader.ts` from `src/`.
   - [x] Add `travelplan/src/lib/trips/importPackage.ts` — magic-byte sniff, then either `{ manifest, photoBytes: Map<archivePath, Buffer> }` from the ZIP (manifest = the `trip.json` member, required; a missing or non-JSON `trip.json` is a `validation_error`) or `{ manifest, photoBytes: new Map() }` from a bare v1 JSON file.
   - [x] Archive-level photo validation, **before** the transaction: every `photos[id].archivePath` has exactly one matching member; every member under `photos/` is registered in the pool (mirrors export AC4 in reverse); each member is `> 0` and `<= 5 * 1024 * 1024` bytes (`MAX_FILE_SIZE_BYTES`, identical in all three upload routes); and each member's leading magic bytes agree with its declared `contentType` (JPEG `FF D8 FF`, PNG `89 50 4E 47 0D 0A 1A 0A`, WebP `RIFF` + `WEBP` at offset 8). The magic-byte check is what makes AC3's "photo data that cannot be decoded" a real check rather than a claim. All of these are `validation_error` 400.
+    - **Two adjustments, both verified against the code 2026-08-02.** (a) The per-photo ceiling shipped as `MAX_IMPORT_PHOTO_BYTES = 15 MB` (`importLimits.ts:33`), not 5 MB: the premise "identical in all three upload routes" is false — there are **four** upload routes and `trips/[id]/days/[dayId]/image/route.ts:15` allows `15 * 1024 * 1024`, so a 5 MB import cap would make a legitimately uploaded day image unrestorable from its own backup. (b) The magic bytes are checked against the *allow-list*, not against the declared `contentType`; a member matching no signature is still a `validation_error`, and the sniffed type — not the declared one — picks the on-disk extension. Same reasoning as the Task 1 note above.
   - [x] Add `travelplan/src/lib/trips/importPhotos.ts`. Do **not** add a new upload-path convention — reuse `getTripUploadDir`, `getTripDayUploadDir`, `getAccommodationImageUploadDir`, `getDayPlanItemImageUploadDir` from `src/lib/trips/uploadPaths.ts`. Those resolve through `UPLOADS_PUBLIC_ROOT`, which is what keeps `npm test` from deleting the developer's real uploads (see the docstring at `uploadPaths.ts:3-18` — this has already destroyed live files once).
   - [x] **Security: never use a filename from the package.** Generate server-side with the exact existing convention: `` `img-${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${extension}` `` where `extension` comes from the `contentType` allow-list (`image/jpeg`→`jpg`, `image/png`→`png`, `image/webp`→`webp`). A package-supplied name is attacker-controlled path-traversal input.
   - [x] Write files **after** the DB transaction commits, because the final URL contains the newly generated `tripId` / `dayId` / `accommodationId`. Track every written absolute path in an array; on any write failure, `fs.rm(…, { force: true })` every path already written **and** delete the created/updated trip so AC3's "no partial data" holds for the disk-write phase too.
@@ -291,12 +303,13 @@ Files expected to change:
 - `travelplan/src/lib/trips/zipReader.ts` *(new)*
 - `travelplan/src/lib/trips/importPackage.ts` *(new)*
 - `travelplan/src/lib/trips/importPhotos.ts` *(new)*
+- `travelplan/src/lib/trips/importLimits.ts` *(new — added during implementation; the dialog needs the package cap and cannot import the server modules that hold it)*
 - `travelplan/src/app/api/trips/import/route.ts`
 - `travelplan/src/components/features/trips/TripImportDialog.tsx`
 - `travelplan/src/components/features/trips/TripsDashboard.tsx`
 - `travelplan/src/i18n/en.ts`, `travelplan/src/i18n/de.ts`
 - `travelplan/test/tripImportSchemas.test.ts`, `tripImportRoute.test.ts`, `tripRepo.test.ts`, `tripImportDialog.test.tsx`, `tripsDashboard.test.tsx`
-- `travelplan/test/tripImportPackage.test.ts`, `tripImportPhotos.test.ts`, `tripBackupRoundTrip.test.ts` *(new)*
+- `travelplan/test/tripImportPackage.test.ts`, `tripImportPhotos.test.ts`, `tripBackupRoundTrip.test.ts`, `tripImportRollback.test.ts` *(new)*
 - `_bmad-output/implementation-artifacts/deferred-work.md`
 
 Not changed: `travelplan/src/app/api/trips/[id]/export/route.ts` and `travelplan/src/lib/trips/zipArchive.ts` — both shipped by Story 2.31.
@@ -380,10 +393,23 @@ None. No debug session was needed.
 
 ### Completion Notes List
 
-**Verified facts, not assumptions** (re-run by the orchestrator after both subagents returned, not taken on report):
+**Verified facts, not assumptions** (re-run 2026-08-02 by the verification session against the code on disk — every task checkbox below was re-checked as a fact, not carried over as a claim):
 
-- `npm test` → **100 test files passed, 755 tests passed, 0 failed.** Baseline before this story was 748.
-- `npm run lint` → **86 problems (2 errors, 84 warnings)**, byte-identical to the pre-story baseline. Both errors are pre-existing `react/no-children-prop` in `src/theme.ts:120` and `:137` — a file this story never touched (`git status` confirms it unmodified). No lint finding lands in any file added or edited here.
+- `npm test` → **101 test files passed, 801 tests passed, 0 failed.** (Measured after the review pass, which added 11 regression tests. Earlier notes in this file recorded 100/755 and then 101/790; both were accurate when written and are superseded.)
+- `npm run lint` → **86 problems (2 errors, 84 warnings)**. Both errors are pre-existing `react/no-children-prop` in `src/theme.ts:120` and `:137` — a file this story never touched. Every warning landing in a story-touched file was confirmed pre-existing by diffing against `f52d17e^`: `TripImportDialog.tsx:98` is the scoped `react-hooks/set-state-in-effect` downgrade Task 6 forbids widening (`deferred-work.md:20`), `TripsDashboard.tsx:118/121` are the untouched `loadTrips` callback/effect, `test/tripImportSchemas.test.ts:180` is the same `_imageUrl`/`_note` destructure that sat at `:89` before the story, and `test/tripImportRoute.test.ts:14` is the pre-existing `consistent-type-definitions` disable. **No lint finding is new in any file this story added or edited.**
+- `npx tsc --noEmit` (not wired to an npm script in this repo, run manually) reports errors only under `test/**` and none under `src/**`. The one such error that belonged to this story — a `validatePackagePhotos` call in `test/tripImportPackage.test.ts` missing its `referenceCounts` argument — was fixed in the verification session; the remaining ~120 are the suite's long-standing `fetch` mock casts and un-narrowed discriminated unions, present before this story.
+- Wire compatibility: `test/tripImportRoute.test.ts` carried **nine** pre-existing JSON-body cases, not the seven this spec names. All nine were diffed against `f52d17e^` and are byte-identical; the multipart work was added alongside them plus one new JSON-path case (`rejects an oversized json body before reading it`, which closes a genuinely unbounded `request.json()`).
+
+**Per-AC evidence** (each traced to a named test, 2026-08-02):
+
+| AC | Evidence |
+|---|---|
+| 1 | `test/tripBackupRoundTrip.test.ts` "exports a fully populated trip and imports it back as an independent copy" — drives the **real** export route into the **real** import route, then deletes the source trip and asserts the copy's photos survive. Plus `test/tripRepo.test.ts` "restores photos, galleries, travel segments and bucket list items from a v2 backup". |
+| 2 | `test/tripImportSchemas.test.ts` "fills v2 defaults so a v1 payload is unchanged after parsing (AC2)"; `test/tripImportRoute.test.ts` "imports a bare v1 json file uploaded as multipart"; `test/tripRepo.test.ts` "keeps the v1 image strings when a backup carries no pooled photos"; and the nine untouched JSON-body cases. |
+| 3 | `test/tripImportRoute.test.ts` "rejects a package whose photo bytes decode as no image at all" asserts **both** `prisma.trip.count() === 0` and an empty uploads root. `test/tripImportPackage.test.ts` (40 cases) covers CRC, ZIP64, traversal, zip-bomb and pool↔member checks; `test/tripImportRollback.test.ts` covers the post-commit disk phase. |
+| 4 | `test/tripImportRoute.test.ts` "returns a conflict and then overwrites through the multipart path"; "rejects overwrite target that is not part of same-name conflicts" (Story 2.10's review fix, preserved). |
+| 5 | `test/tripRepo.test.ts` "replaces bucket list items and leaves no orphaned segment or image rows on overwrite" and "clears v1 image urls that name files the overwrite just deleted"; `test/tripBackupRoundTrip.test.ts` "overwrites the source trip in place and removes its previous files"; `test/tripImportPhotos.test.ts` "moves an overwrite target's upload directory aside and only deletes it on success". |
+| 6 | `test/tripsDashboard.test.tsx` → `describe("import entry point")`: control present beside "Add trip", absent from individual trip rows, opens the dialog, and refetches the list on success. |
 
 **The contract correction.** This spec was authored assuming a single JSON file with a base64 photo pool. Story 2.31 shipped a ZIP archive instead. Manifest field names matched exactly; only the container and the photo-pool entry shape diverged. The importer was written against the shipped format and § Package Format Contract v2 was rewritten to match — see the Blocking Dependency section and the 2026-08-02 Change Log entry for the full reasoning.
 
@@ -411,12 +437,14 @@ None. No debug session was needed.
 - `travelplan/src/lib/trips/zipReader.ts`
 - `travelplan/src/lib/trips/importPackage.ts`
 - `travelplan/src/lib/trips/importPhotos.ts`
+- `travelplan/src/lib/trips/importLimits.ts` — the numeric ceilings (`MAX_IMPORT_PACKAGE_BYTES`, `MAX_IMPORT_PHOTO_BYTES`, `MAX_IMPORT_PHOTO_WRITES`, `MAX_IMPORT_PHOTO_TOTAL_BYTES`, and from the review pass `MAX_SUPPORTED_FORMAT_VERSION`, `MAX_IMPORT_DAYS`, `MAX_IMPORT_SEGMENTS_PER_DAY`, `MAX_IMPORT_BUCKET_LIST_ITEMS`, `MAX_IMPORT_WARNINGS`, `MAX_IMPORT_WARNING_LENGTH`). Its own module because `TripImportDialog` needs the package cap and can import neither the route nor `importPackage.ts` without dragging Prisma / `node:zlib` into the browser bundle.
 
 **New — test**
 - `travelplan/test/helpers/zipBuilder.ts`
 - `travelplan/test/tripImportPackage.test.ts`
 - `travelplan/test/tripImportPhotos.test.ts`
 - `travelplan/test/tripBackupRoundTrip.test.ts`
+- `travelplan/test/tripImportRollback.test.ts` — the post-commit disk-phase failure paths (stash restored, create-new trip deleted, `photo_write_failed` preserved when the restore itself fails, success reported when only the stash cleanup fails).
 
 **Modified — production**
 - `travelplan/src/lib/validation/tripImportSchemas.ts`
@@ -441,7 +469,60 @@ None. No debug session was needed.
 
 **Deliberately not modified** — `travelplan/src/app/api/trips/[id]/export/route.ts`, `travelplan/src/lib/trips/zipArchive.ts` (both shipped by Story 2.31), `travelplan/src/theme.ts`.
 
+## Auto Run Result
+
+Status: **awaiting-operator** — Tasks 1–7 are complete, reviewed and committed. Task 8 is manual verification that needs a browser and a running dev server, and there is one deployment prerequisite only an operator can satisfy. Both are enumerated under `operator_actions` in the frontmatter.
+
+**What was implemented.** The import half of the v2 trip backup format: a production ZIP reader (`zipReader.ts`) that is the matching half of Story 2.31's hand-rolled writer and parses attacker-supplied bytes defensively; a package layer (`importPackage.ts`) that sniffs ZIP vs bare v1 JSON and validates the archive against the manifest before anything is written; a photo-staging layer (`importPhotos.ts`) with all-or-nothing cleanup; a v2 validation schema with cross-reference and ceiling checks; a repository path that remaps travel-segment endpoints onto newly generated ids, restores bucket list items and gallery image rows, and replaces the target's upload directory on overwrite; a multipart branch on the import route that keeps the pre-existing JSON wire contract byte-for-byte; and a reachable import entry point on the trips list.
+
+**Files changed.** See § File List for the full inventory. The review pass touched `tripRepo.ts` (stash error contract, transaction timeouts, create-new directory cleanup), `tripImportSchemas.ts` + `importLimits.ts` (row-count ceilings, format-version gate), `import/route.ts` (`file_too_large` code, `target_trip_required` mapping, body-read guard), `TripImportDialog.tsx` (file re-selection, non-JSON/413 handling, error-code mapping, list keys), both i18n dictionaries (one new key), and three test files.
+
+**Review findings.** 12 patches applied, 7 deferred (DW-86 … DW-92), 6 rejected, 0 intent gaps, 0 spec defects. Breakdown and reasoning in § Review Triage Log.
+
+**Verification performed.** Every figure below was run by the orchestrator after the patches, not taken from a subagent report.
+
+- `npm test` → **101 test files passed, 801 tests passed, 0 failed.**
+- `npm run lint` → **86 problems (2 errors, 84 warnings)** — identical to the pre-story baseline. Both errors are pre-existing `react/no-children-prop` in `src/theme.ts`, a file this story never touched.
+- `npx tsc --noEmit` → clean across all of `src/**`. (Pre-existing type errors in unrelated test files are untouched and predate this story.)
+
+**Residual risks.**
+
+- The concurrency and filesystem-locality issues in DW-86 and DW-87 are real and unfixed: two simultaneous overwrites of one trip can corrupt each other's files, and a failed stash cleanup leaves replaced photos readable at a guessable public path. Neither has a drive-by fix.
+- Overwrite commits rows before writing photos, so a disk failure mid-overwrite leaves a trip whose images 404. This is a deliberate, documented trade-off (Completion Notes, decision 2) — the alternative destroys the trip the user was replacing — but it is a real state a user can reach.
+- Until the reverse proxy's `client_max_body_size` is raised, every photo-bearing import fails at the proxy. The dialog now reports that accurately instead of blaming the file, but the import genuinely does not work until the operator acts.
+
+**Follow-up review recommended: true.** The patch set is not a handful of localized cosmetic fixes: it spans four layers (repository transaction semantics, validation ceilings, route error contract, client error handling), five of the twelve are medium-severity behaviour changes, and it introduces a new API error code, a new i18n key and explicit transaction bounds. Volume and breadth together justify an independent pass.
+
+## Review Triage Log
+
+### 2026-08-02 — Review pass
+
+- intent_gap: 0
+- bad_spec: 0
+- patch: 12: (high 0, medium 5, low 7)
+- defer: 7: (high 0, medium 3, low 4)
+- reject: 6
+- addressed_findings:
+  - `[medium]` `[patch]` `stashTripUploadDir` was called *above* the disk phase's `try`, so a rename failing with anything but `ENOENT` (`EACCES`, `EPERM`, `EBUSY`) escaped as an unmapped `Error` — generic 500, no restore attempted, rows already replaced. Now inside its own `try` and mapped to `photo_write_failed`.
+  - `[medium]` `[patch]` Both import transactions ran on Prisma's default 5s interactive-transaction timeout. An import is the heaviest write this app performs — every day, item, payment, image row and segment is a separate awaited round trip — so a long trip hit P2028 and answered a bare 500 after rolling back. Now `{ timeout: 120_000, maxWait: 15_000 }`.
+  - `[medium]` `[patch]` Nothing bounded the *row* count a manifest could declare (the photo caps bound only disk). The day count is pinned to the declared date range, so an absurd range was a schema-legal way to ask for six figures of rows in one transaction. Added `MAX_IMPORT_DAYS` / `MAX_IMPORT_SEGMENTS_PER_DAY` / `MAX_IMPORT_BUCKET_LIST_ITEMS`, all far above any real backup.
+  - `[medium]` `[patch]` `meta.formatVersion` was validated only as a positive integer, so a future v3 manifest would import, report **success**, and silently drop every field zod had no rule for — the one failure mode a backup tool must not have. Gated at `MAX_SUPPORTED_FORMAT_VERSION`. Closes DW-84.
+  - `[medium]` `[patch]` Re-selecting a file after one was rejected did nothing: the input's value was never cleared, so the browser fired no `change` event for an unchanged path. The error and the disabled submit button stuck and the dialog looked frozen. Value is now cleared on every change.
+  - `[medium]` `[patch]` A reverse-proxy 413 (HTML body, no envelope) made `response.json()` throw, and the catch reported the generic "import failed" — and until `client_max_body_size` is raised that is what *every* photo-bearing import gets. The dialog now handles a non-JSON response and names the size limit on 413.
+  - `[low]` `[patch]` The route's oversize rejection used a bare `validation_error`, which the dialog maps to "this backup could not be read, it may be incomplete or damaged" — sending a user with a perfectly good but oversized file to investigate a file that is fine. Now its own `file_too_large` code, mapped to the size message.
+  - `[low]` `[patch]` `invalid_json` mapped to "request could not be processed, please try again", telling a user who picked the wrong file to repeat the one thing that cannot help. New `trips.import.invalidFile` string (EN + DE) naming the real problem.
+  - `[low]` `[patch]` `target_trip_required` was thrown by the repository and unmapped by the route — dead today because the request schema shadows it, but a 500 for a missing parameter the moment that changes. Mapped to 400, like its five siblings.
+  - `[low]` `[patch]` An unanticipated throw inside `readRequestBody` (`file.arrayBuffer()`, the ZIP reader) escaped the handler, so Next answered with its own error page instead of the `{ data, error }` envelope and the dialog's `response.json()` threw. Wrapped.
+  - `[low]` `[patch]` A failed create-new unlinked the files it wrote but not the directories it created to write them, so every failed import left a permanent skeleton of empty directories under `uploads/trips/`. Now removes the tree.
+  - `[low]` `[patch]` Diagnostic and warning lines were keyed by content, and both lists arrive from the package — a manifest repeating a warning verbatim dropped one of the two lines. Keyed by position.
+
+Deferred as DW-86 … DW-92: concurrent-overwrite file corruption, the stash living inside the public uploads root, create-new restoring a v1 URL that cross-links another trip's directory, the package reader's diagnostics never reaching the user, folder-prefixed re-zips being rejected, the whole package re-uploading to answer a conflict prompt, and the trips list going stale after an overwrite whose rows committed but whose photos did not.
+
+Rejected: the failed-overwrite trade-off and the v1-overwrite file deletion (both deliberate, documented decisions with the reasoning recorded in Completion Notes and DW-85); the claim that the rollback test masks the first of those (by that decision there is no invariant to test); caps being enforced above the repository rather than inside it (no such caller exists); peak memory being ~4× the upload (inherent to the wire format the spec chose, already stated in the route's own comments); and chunked transfer-encoding bypassing the `content-length` pre-check (the proxy body cap is the enforcement layer, and raising it is already an enumerated operator action).
+
 ## Change Log
 
 - 2026-08-01: Created Story 2.32 ready-for-dev context file — v2 package format contract, travel-segment id remapping, photo restore with filesystem cleanup, v1 backward compatibility, and UI entry-point restoration.
+- 2026-08-02 (verification session): Re-verified Tasks 1–7 against the code on disk rather than against the prior attempt's checkmarks. All seven hold. Corrections made to this file: test/lint figures replaced with measured ones (101 files / 790 tests; lint findings individually traced to `f52d17e^` to prove none is new); `importLimits.ts` and `test/tripImportRollback.test.ts` added to the File List and Project Structure Notes, where the prior attempt had omitted them; per-AC evidence table added; the two Task 1/Task 2 subtasks whose literal text the shipped code deliberately departs from (`contentType` enum, 5 MB photo cap) annotated in place with the reason and the superseding decision. One code fix: a missing `referenceCounts` argument in `test/tripImportPackage.test.ts` (type error only — the call passed at runtime because the cap it feeds is unreachable on that path). Task 8 left unchecked; it is operator-owned.
+- 2026-08-02 (review pass): Adversarial and edge-case review of the full `ec46152..HEAD` diff. 12 patches applied, 7 findings deferred (DW-86 … DW-92), 6 rejected — see § Review Triage Log. Five of the patches change behaviour rather than copy: the disk phase's stash is now inside its error contract, both import transactions carry explicit timeouts instead of Prisma's 5s default, the manifest gained row-count ceilings, `formatVersion` is gated at 2 (closing DW-84), and the dialog survives a reverse-proxy 413 with an HTML body. 11 regression tests added across `tripImportSchemas.test.ts` and `tripImportDialog.test.tsx`; two existing assertions updated for the new `file_too_large` code (both tests are new in this story — verified absent from `ec46152`). Suite 101 files / 801 tests, lint unchanged at 86 problems (2 errors, 84 warnings).
 - 2026-08-02: **Package Format Contract v2 rewritten to the format Story 2.31 actually shipped.** This spec was authored before 2.31 was specced and assumed a single JSON file with a base64 photo pool; 2.31 shipped a ZIP archive (`trip.json` manifest + real `photos/*` members, pool entries carry `archivePath` not `data`, `meta.warnings` added). All manifest field names and shapes are unchanged — 2.31's AC2 bound itself to this document — so only the container and the photo-pool entry shape moved. Consequent edits: Blocking Dependency section (now records the resolution), § Package Format Contract v2, the wire-format note, Task 1 (`photoSchema`, `meta.warnings`, byte checks moved out of Zod), Task 2 (new production `zipReader.ts` and `importPackage.ts`, archive-level photo validation incl. magic-byte check), Task 4 (multipart reads bytes not text), Task 5 (**closed — done by 2.31**), Task 6 (`accept` widened to `.zip`, client-side JSON parse deleted), Task 7 (new package and round-trip suites), Task 8 (marked operator-owned), Dev Notes tables and line numbers, dependency note (`node:zlib`, no zip library), Open Questions 1/3 answered and 4/5 added.

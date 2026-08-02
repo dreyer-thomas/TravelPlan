@@ -375,4 +375,116 @@ describe("TripImportDialog", () => {
     // Only the CSRF fetch: the file never went to the route.
     expect((fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
   });
+
+  it("lets the user pick a different file after one was rejected as too large", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(csrfResponse)
+      .mockResolvedValueOnce(successResponse(importedTrip("createNew", "trip-after-retry"))) as unknown as typeof fetch;
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderDialog();
+
+    const oversize = backupFile("huge.zip");
+    Object.defineProperty(oversize, "size", { value: 101 * 1024 * 1024 });
+    await selectBackup(oversize);
+    expect(await screen.findByText("Backup file is larger than 100 MB.")).toBeInTheDocument();
+
+    // The input's value is cleared on every change, so a second pick fires `change` even when it is
+    // the same path. Without that the dialog kept the error and the disabled button forever.
+    await selectBackup(backupFile("huge.zip"));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Start import" })).toBeEnabled());
+    expect(screen.queryByText("Backup file is larger than 100 MB.")).not.toBeInTheDocument();
+  });
+
+  it("names the size limit when the reverse proxy rejects the body before the route sees it", async () => {
+    // Nginx answers an oversized body itself, with an HTML page and no `{ data, error }` envelope.
+    // Until `client_max_body_size` is raised this is what every photo-bearing import gets.
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(csrfResponse)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 413,
+        json: async () => {
+          throw new SyntaxError("Unexpected token < in JSON at position 0");
+        },
+      }) as unknown as typeof fetch;
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderDialog();
+    await selectBackup();
+    await userEvent.click(screen.getByRole("button", { name: "Start import" }));
+
+    expect(await screen.findByText("Backup file is larger than 100 MB.")).toBeInTheDocument();
+  });
+
+  it("does not report a non-JSON gateway error as a generic import failure", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(csrfResponse)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 502,
+        json: async () => {
+          throw new SyntaxError("Unexpected token < in JSON at position 0");
+        },
+      }) as unknown as typeof fetch;
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderDialog();
+    await selectBackup();
+    await userEvent.click(screen.getByRole("button", { name: "Start import" }));
+
+    expect(
+      await screen.findByText("The upload did not arrive complete. Please try sending the file again."),
+    ).toBeInTheDocument();
+  });
+
+  it("tells the user to pick a different file when the one they chose is not a backup", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(csrfResponse)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        json: async () => ({
+          data: null,
+          error: { code: "invalid_json", message: "Request body must be valid JSON" },
+        }),
+      }) as unknown as typeof fetch;
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderDialog();
+    // A `.json` the server could not parse at all - notes, a half-downloaded file, the wrong export.
+    await selectBackup(backupFile("notes.json", "application/json"));
+    await userEvent.click(screen.getByRole("button", { name: "Start import" }));
+
+    // Not "request could not be processed, please try again" - retrying the request cannot help.
+    expect(
+      await screen.findByText("That file is not a TravelPlan backup. Select a .zip or .json export."),
+    ).toBeInTheDocument();
+  });
+
+  it("names the size limit when the route itself rejects the package as oversized", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(csrfResponse)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        json: async () => ({
+          data: null,
+          error: { code: "file_too_large", message: "Backup file exceeds the import size limit" },
+        }),
+      }) as unknown as typeof fetch;
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderDialog();
+    await selectBackup();
+    await userEvent.click(screen.getByRole("button", { name: "Start import" }));
+
+    expect(await screen.findByText("Backup file is larger than 100 MB.")).toBeInTheDocument();
+  });
 });

@@ -279,7 +279,8 @@ describe("POST /api/trips/import", () => {
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(400);
-    expect(payload.error?.code).toBe("validation_error");
+    // Its own code, so the dialog can say "larger than 100 MB" instead of "incomplete or damaged".
+    expect(payload.error?.code).toBe("file_too_large");
     expect(payload.error?.message).toContain("size limit");
     expect(await prisma.trip.count()).toBe(0);
   });
@@ -556,7 +557,7 @@ describe("POST /api/trips/import", () => {
       const payload = (await response.json()) as ApiEnvelope<null>;
 
       expect(response.status).toBe(400);
-      expect(payload.error?.code).toBe("validation_error");
+      expect(payload.error?.code).toBe("file_too_large");
       expect(payload.error?.message).toContain("size limit");
     }, 60_000);
 

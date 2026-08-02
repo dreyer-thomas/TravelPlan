@@ -1,5 +1,13 @@
 import { z } from "zod";
-import { MAX_IMPORT_PHOTO_WRITES } from "@/lib/trips/importLimits";
+import {
+  MAX_IMPORT_BUCKET_LIST_ITEMS,
+  MAX_IMPORT_DAYS,
+  MAX_IMPORT_PHOTO_WRITES,
+  MAX_IMPORT_SEGMENTS_PER_DAY,
+  MAX_IMPORT_WARNING_LENGTH,
+  MAX_IMPORT_WARNINGS,
+  MAX_SUPPORTED_FORMAT_VERSION,
+} from "@/lib/trips/importLimits";
 import { isValidDateOnly } from "@/lib/validation/dateOnly";
 
 const ISO_UTC_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
@@ -344,7 +352,11 @@ const tripDayImportSchema = z.object({
   updatedAt: isoUtcDate,
   accommodation: z.union([accommodationImportSchema, z.null()]),
   dayPlanItems: z.array(dayPlanItemImportSchema),
-  travelSegments: z.array(travelSegmentImportSchema).optional().default([]),
+  travelSegments: z
+    .array(travelSegmentImportSchema)
+    .max(MAX_IMPORT_SEGMENTS_PER_DAY, `A day may carry at most ${MAX_IMPORT_SEGMENTS_PER_DAY} travel segments`)
+    .optional()
+    .default([]),
 });
 
 const tripImportSchema = z
@@ -360,7 +372,11 @@ const tripImportSchema = z
     createdAt: isoUtcDate,
     updatedAt: isoUtcDate,
     // Trip-scoped, so it lives inside `trip` and mirrors where the export puts it.
-    bucketListItems: z.array(bucketListItemImportSchema).optional().default([]),
+    bucketListItems: z
+      .array(bucketListItemImportSchema)
+      .max(MAX_IMPORT_BUCKET_LIST_ITEMS, `A trip may carry at most ${MAX_IMPORT_BUCKET_LIST_ITEMS} bucket list items`)
+      .optional()
+      .default([]),
   })
   .refine((data) => new Date(data.startDate).getTime() <= new Date(data.endDate).getTime(), {
     message: "Start date must be before or equal to end date",
@@ -371,14 +387,32 @@ export const tripImportPayloadSchema = z.object({
   meta: z.object({
     exportedAt: isoUtcDate,
     appVersion: z.string().trim().min(1),
-    formatVersion: z.number().int().positive(),
+    // Bounded above, not merely positive. Reading a format this app does not know is not a harmless
+    // no-op: Zod strips the fields it has no rule for, so a future v3 backup would import, report
+    // success, and silently drop whatever v3 added - the one failure mode a backup tool must never
+    // have. Refusing to read it is the honest answer.
+    formatVersion: z
+      .number()
+      .int()
+      .positive()
+      .max(MAX_SUPPORTED_FORMAT_VERSION, "Backup was written by a newer version of this app"),
     // Present in every v2 manifest (`[]` when clean), absent in v1. Read for reporting only - a
     // warning records what the *export* skipped and is never a reason to fail an import.
-    warnings: z.array(z.string()).optional().default([]),
+    //
+    // Bounded because it is echoed back verbatim in the success envelope and rendered by the
+    // dialog: unbounded, a hand-built manifest turns a 200 into an arbitrarily large response.
+    warnings: z
+      .array(z.string().max(MAX_IMPORT_WARNING_LENGTH))
+      .max(MAX_IMPORT_WARNINGS)
+      .optional()
+      .default([]),
   }),
   photos: z.record(z.string().min(1), photoSchema).optional().default({}),
   trip: tripImportSchema,
-  days: z.array(tripDayImportSchema).min(1, "At least one day is required"),
+  days: z
+    .array(tripDayImportSchema)
+    .min(1, "At least one day is required")
+    .max(MAX_IMPORT_DAYS, `A backup may cover at most ${MAX_IMPORT_DAYS} days`),
 }).superRefine((input, ctx) => {
   const start = new Date(input.trip.startDate);
   const end = new Date(input.trip.endDate);

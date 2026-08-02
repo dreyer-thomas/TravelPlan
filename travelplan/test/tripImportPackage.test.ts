@@ -533,6 +533,7 @@ describe("validatePackagePhotos", () => {
         p1: { contentType: "image/jpeg", archivePath: "photos/p1.jpg" },
         p2: { contentType: "image/png", archivePath: "photos/p2.png" },
       },
+      referenceCounts: new Map(),
       photoBytes: new Map([
         // p1's member is absent, p2's bytes decode as nothing, and p3 is a member no entry claims.
         ["photos/p2.png", Buffer.from("not an image", "utf8")],

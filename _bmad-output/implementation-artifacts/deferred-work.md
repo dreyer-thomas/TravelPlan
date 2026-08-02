@@ -654,7 +654,8 @@ origin: 2-32-complete-trip-backup-import-with-photos-travel-segments-and-bucket-
 location: `travelplan/src/lib/validation/tripImportSchemas.ts` — `tripImportPayloadSchema`, `meta.formatVersion`
 severity: low
 reason: DW-78 asked Story 2.32 to "either gate on `formatVersion` explicitly or reject an unknown version rather than degrading". The backend half resolved the *consequence* DW-78 was actually about — a v2 manifest sent to the JSON body path is no longer silently stripped: `photos`, `travelSegments`, `bucketListItems`, `images`, `heroPhotoId` and `imagePhotoId` are all in the schema now, so they survive, and a manifest that declares a photo pool with no accompanying bytes is rejected with a `validation_error` 400 instead of quietly losing every image. What is *not* done is the version gate itself: `formatVersion: 99` still parses, and a future v3 field would be stripped by zod's default strip exactly as v2's were. Not tightened here because a hard gate would make the importer reject its own forward-compatible input for no benefit while there is no v3, and the story's task list does not ask for one. Whoever adds v3 must add the gate at the same time.
-status: open
+status: done 2026-08-02
+resolution: Gated in the 2.32 review pass. `meta.formatVersion` is now `.max(MAX_SUPPORTED_FORMAT_VERSION)` (`= 2`, declared in `travelplan/src/lib/trips/importLimits.ts`) and answers "Backup was written by a newer version of this app". The reasoning for deferring turned out to be backwards: the concern was that a gate would reject "forward-compatible input", but zod's default strip means a v3 manifest does not degrade gracefully — it imports, reports **success**, and silently discards every field v3 added. Silent partial restore is the one failure mode a backup tool must not have, and it is strictly worse than a clear refusal the user can act on. Whoever adds v3 now raises one constant rather than remembering to add a guard. Pinned by `test/tripImportSchemas.test.ts` → "manifest ceilings" ("accepts the newest format version it knows" / "refuses a format version newer than it can read").
 
 ### DW-85: Overwriting a trip with a **v1** backup deletes the upload directory that backup's own URLs point at
 
@@ -664,3 +665,61 @@ severity: medium
 reason: AC5 requires an overwrite to replace "previously uploaded files on disk" with no orphans left, and Task 3 spells out the mechanism: rename `getTripUploadDir(targetTripId)` aside before writing, delete it on success. That is what shipped, and it is unconditional. A **v1** backup carries no photo pool — only verbatim `heroImageUrl` / `imageUrl` strings — so overwriting a trip with its own pre-2.31 export deletes the very files those strings name, leaving rows pointing at 404s. Before this story the overwrite path never touched the disk, so this is a behaviour change for that one combination. Not special-cased because every alternative trades one AC against the other: skipping the cleanup when the payload has no pooled photos satisfies the v1 case but lets a photo-free v2 backup leave orphans behind, and detecting "this v1 URL names the target trip's own directory" is a heuristic on a free-text column. A v2 backup, which is what the export produces today, restores its photos correctly and is covered by `tripBackupRoundTrip.test.ts`. Candidate fix if it bites: keep any file whose path is still referenced verbatim by a restored row, and delete only the rest.
 status: done 2026-08-02
 resolution: Superseded rather than deferred, and neither AC had to give. The filesystem replacement stays unconditional — AC5's "no orphaned files" is untouched — but the *rows* no longer keep a string naming a file the same operation just deleted, which is the other half of AC5 ("no orphaned rows"). `tripRepo.ts`'s `dropReplacedUploadUrl` stores `null` in place of a v1 `heroImageUrl` / `imageUrl` when, and only when, three things hold at once: the mode is **overwrite**, the reference has no pooled replacement, and the URL points into the *target trip's own* upload directory (`/uploads/trips/<targetId>/`). That last condition is what the original entry dismissed as "a heuristic on a free-text column", and it is not one — the prefix is the exact directory being deleted, so containment is decidable rather than guessed. Create-new is deliberately untouched: it deletes nothing, the URL names some other trip's directory, and AC2 plus the seven original v1 tests require it back verbatim. A null renders as "no image" instead of as a broken one. Pinned by `test/tripRepo.test.ts` ("clears v1 image urls that name files the overwrite just deleted" and its create-new counterpart, "keeps a v1 url pointing at another trip's directory").
+
+## Deferred from: 2-32-complete-trip-backup-import-with-photos-travel-segments-and-bucket-list (review pass, 2026-08-02)
+
+### DW-86: Two concurrent overwrite imports of the same trip can destroy each other's photo files
+
+origin: 2-32-complete-trip-backup-import-with-photos-travel-segments-and-bucket-list, code review, 2026-08-02
+location: `travelplan/src/lib/trips/importPhotos.ts` — `stashTripUploadDir` / `restoreStashedTripUploadDir`; `travelplan/src/lib/repositories/tripRepo.ts` — the post-commit disk phase
+severity: medium
+reason: Nothing serializes imports against a trip id. Import A renames `<tripDir>` to its stash; import B's rename then hits `ENOENT`, which `stashTripUploadDir` swallows by design (a photo-free trip has no directory), so B proceeds believing there was nothing to stash. Both then write into `<tripDir>`, and the hero and day filenames are deterministic (`hero.<ext>`, `day.<ext>`) rather than randomized, so they collide. If B fails, its cleanup unlinks paths that may now be A's files and its `restoreStashedTripUploadDir(null)` is a no-op; if both succeed, A's `discardStashedTripUploadDir` deletes the original directory while the surviving rows are B's, leaving a mix of both imports on disk. Not patched here: the fix is a real per-trip lock (an exclusive `mkdir` sentinel, or a DB advisory row) with its own stale-lock and crash-recovery semantics, which is a design decision rather than a drive-by. Requires the same owner to run two overwrites of one trip at once, so it is unlikely but not synthetic — a double-clicked submit on a slow upload is enough.
+status: open
+
+### DW-87: The overwrite stash lives inside the publicly-served uploads root and can outlive the request
+
+origin: 2-32-complete-trip-backup-import-with-photos-travel-segments-and-bucket-list, code review, 2026-08-02
+location: `travelplan/src/lib/trips/importPhotos.ts` — `stashTripUploadDir`, `discardStashedTripUploadDir`
+severity: medium
+reason: The stash is `${tripDir}.import-<timestamp>-<random>`, a sibling of the trip's own upload directory and therefore under `public/uploads/trips/`, which Next serves statically with no auth check. `discardStashedTripUploadDir` is deliberately called with `.catch(() => undefined)` — correctly, since the import has already succeeded and a failed cleanup must not be reported as a 500 — and an existing test pins that behaviour. The consequence is that a cleanup failure (held handle, AV scanner, EBUSY) leaves a complete copy of every photo the overwrite replaced permanently readable at a guessable path and referenced by no row. The code comment calls this "untidy, not harmful", which understates it. Fix is to stash outside the public root, but the naive version risks `EXDEV` if the uploads root is its own mount, so it needs a deliberate choice of location plus a sweeper for whatever is left behind.
+status: open
+
+### DW-88: A create-new import restores a v1 image URL verbatim, cross-linking another trip's — possibly another user's — upload directory
+
+origin: 2-32-complete-trip-backup-import-with-photos-travel-segments-and-bucket-list, code review, 2026-08-02
+location: `travelplan/src/lib/repositories/tripRepo.ts` — `dropReplacedUploadUrl`, called with `replacedUploadPrefix: null` on the create-new path
+severity: medium
+reason: AC2 requires a v1 backup to restore "exactly as before", and the seven original v1 tests pin the verbatim string, so create-new deliberately keeps `heroImageUrl` / `imageUrl` as written (DW-85's resolution narrowed the nulling to overwrite only, on purpose). The case that was not considered: user X imports a backup exported by user Y whose photo the *export* had to skip, so `heroPhotoId` is null but the v1 URL survives. X's trip then stores `/uploads/trips/<Y-trip-id>/hero.jpg` and renders Y's image — no bytes were copied and no access check applies, because the file is served statically. It breaks silently the moment Y deletes or overwrite-imports that trip. Not patched here because the honest fix is a product call between three options that AC2 does not choose between: refuse the cross-trip URL, null it, or copy the bytes if the file happens to be present. Reachable only through a shared export whose photos were already incomplete.
+status: open
+
+### DW-89: The precise diagnostics the package reader produces never reach the user
+
+origin: 2-32-complete-trip-backup-import-with-photos-travel-segments-and-bucket-list, code review, 2026-08-02
+location: `travelplan/src/app/api/trips/import/route.ts` — the `parseImportPackage` failure branch and the Zod failure branch; `travelplan/src/components/features/trips/TripImportDialog.tsx` — `resolveApiError` / `readIssues`
+severity: low
+reason: `zipReader.ts` and `importPackage.ts` produce genuinely useful, member-level messages ("Archive entry failed its CRC-32 check: photos/p3.jpg", "Archive is missing its trip.json manifest"), and the route returns each as `apiError(code, message)` — with no `details`. The dialog renders `resolveApiError(code)` plus `readIssues(details)` and never `error.message`, so all of them collapse into "This backup could not be read. It may be incomplete or damaged." The `details` path works only for `validatePackagePhotos`, which is the one failure that populates `issues`. Zod payload failures are worse: their `details` is `error.flatten()`, whose `{ formErrors, fieldErrors }` shape yields an empty `issues` array, so the multi-issue list the dialog builds never renders for them either. The reader's diagnostics are the main thing that makes a damaged package diagnosable, and today they exist only in the server response body. Fix is to route both through the same `{ issues: string[] }` channel `validatePackagePhotos` already uses — cheap, but it needs a deliberate decision about how much server-side detail to expose to a client, which is why it is not a drive-by.
+status: open
+
+### DW-90: An archive re-zipped from an extracted folder is rejected, though the code reads as though it is supported
+
+origin: 2-32-complete-trip-backup-import-with-photos-travel-segments-and-bucket-list, code review, 2026-08-02
+location: `travelplan/src/lib/trips/importPackage.ts` — `isArchiveBookkeeping` and the manifest lookup (`member.name === "trip.json"`)
+severity: low
+reason: `isArchiveBookkeeping` and `zipReader.ts`'s zero-length-DEFLATE tolerance exist to accept a backup a user unzipped and re-zipped with a desktop tool, and the comments say so. But the manifest is found by exact name and every member outside `photos/` is a hard rejection, so the ordinary way of doing that — right-click → Compress on the *extracted folder* — produces `trip-italy/trip.json` and `trip-italy/photos/p1.jpg` and is rejected with "Archive is missing its trip.json manifest". Only selecting the folder's *contents* works. The rejection is safe, so this is a usability and comment-accuracy gap rather than a defect: either strip a single common top-level directory prefix before matching, or correct the comments to say which re-zip shapes are actually supported.
+status: open
+
+### DW-91: A conflicting import re-uploads the entire package to answer the conflict prompt
+
+origin: 2-32-complete-trip-backup-import-with-photos-travel-segments-and-bucket-list, code review, 2026-08-02
+location: `travelplan/src/components/features/trips/TripImportDialog.tsx` — `submitImport`
+severity: low
+reason: The first submit sends the file with no strategy; the route answers 409 with the same-name conflicts; the user picks overwrite or create-new and `submitImport(strategy)` builds a fresh `FormData` around the same `File`. A 100 MB backup whose trip name already exists therefore costs 200 MB of upload and two full ZIP parse + CRC verification passes before a single row is written, and on a slow connection the user waits through the whole upload twice. Inherent to the stateless two-request conflict protocol Story 2.10 established, which was cheap when the body was JSON and is not now that it can be 100 MB. Fixes all have real cost: a pre-flight name check before uploading (racy, but cheap and probably right), or a server-side staged upload the second request refers to by token (needs storage and expiry).
+status: open
+
+### DW-92: A failed overwrite leaves the trips list showing the trip as it was before the import that already replaced it
+
+origin: 2-32-complete-trip-backup-import-with-photos-travel-segments-and-bucket-list, code review, 2026-08-02
+location: `travelplan/src/components/features/trips/TripImportDialog.tsx` — the error branch of `submitImport`; `travelplan/src/lib/repositories/tripRepo.ts` — the post-commit disk phase in overwrite mode
+severity: low
+reason: Overwrite commits its rows and only then writes photos, and on a write failure it deliberately does **not** delete the trip (destroying the trip the user was replacing would be strictly worse — see the story's Completion Notes, decision 2). So a `photo_write_failed` 500 means the database *has* been replaced while the response says the import failed. The dialog calls `onImported()` only on success, so the list behind it is never refetched and keeps showing the pre-import trip until the user reloads. The row state is correct and recoverable by re-running the import; only the client's view of it is stale. Fix is to refetch on the overwrite-error path too, which is a few lines, but "the request failed, therefore refresh the list" is confusing enough to be worth pairing with copy that explains the trip was replaced but its photos were not written.
+status: open

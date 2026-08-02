@@ -18,6 +18,7 @@ import {
   stashTripUploadDir,
   writeImportedPhotos,
   type PlannedPhotoWrite,
+  type StashedTripUploadDir,
 } from "@/lib/trips/importPhotos";
 import type { TripImportConflictStrategy, TripImportPayloadInput } from "@/lib/validation/tripImportSchemas";
 
@@ -2100,6 +2101,18 @@ export const importTripFromExportForUser = async ({
   const mode: "overwrite" | "createNew" = strategy === "overwrite" ? "overwrite" : "createNew";
   let committed: CommittedImport;
 
+  /**
+   * Explicit bounds for the two import transactions.
+   *
+   * Prisma's default interactive-transaction `timeout` is 5s, and an import is the heaviest write
+   * this app performs: every day, accommodation, plan item, payment, image row and travel segment
+   * is a separate awaited round trip, so a long trip runs into the thousands. Hitting the default
+   * throws P2028 - which the route cannot distinguish from any other fault and answers as a bare
+   * 500, after a rollback that leaves the user with no trip and no explanation. The ceiling is what
+   * a legitimately large backup needs, not what a runaway one should be allowed.
+   */
+  const IMPORT_TRANSACTION_OPTIONS = { timeout: 120_000, maxWait: 15_000 } as const;
+
   if (mode === "overwrite") {
     if (!targetTripId) {
       throw new Error("target_trip_required");
@@ -2188,7 +2201,7 @@ export const importTripFromExportForUser = async ({
         travelSegmentCount: days.travelSegmentCount,
         bucketListItemCount,
       };
-    });
+    }, IMPORT_TRANSACTION_OPTIONS);
   } else {
     committed = await prisma.$transaction(async (tx): Promise<CommittedImport> => {
       const createdTrip = await tx.trip.create({
@@ -2246,7 +2259,7 @@ export const importTripFromExportForUser = async ({
         travelSegmentCount: days.travelSegmentCount,
         bucketListItemCount,
       };
-    });
+    }, IMPORT_TRANSACTION_OPTIONS);
   }
 
   // --- post-commit disk phase ------------------------------------------------------------------
@@ -2255,7 +2268,20 @@ export const importTripFromExportForUser = async ({
   // Overwrite moves the target's existing upload directory aside first rather than deleting it: the
   // rows are already replaced, so those files are the only thing left to restore if a write fails
   // (AC5). It is deleted for real once every new file is safely down.
-  const stashedUploads = mode === "overwrite" ? await stashTripUploadDir(committed.trip.id) : null;
+  //
+  // The stash itself is inside the try/catch's error contract, not above it: `stashTripUploadDir`
+  // swallows `ENOENT` but rethrows anything else (`EACCES`, `EPERM`, `EBUSY`), and an unwrapped
+  // throw here escaped as an unmapped `Error`. The route turned that into a generic 500 having
+  // attempted no restore at all - the rows already replaced, the files neither moved nor rewritten.
+  // `photo_write_failed` is exactly what happened, so it is what gets thrown.
+  let stashedUploads: StashedTripUploadDir | null = null;
+  try {
+    if (mode === "overwrite") {
+      stashedUploads = await stashTripUploadDir(committed.trip.id);
+    }
+  } catch (error) {
+    throw new Error("photo_write_failed", { cause: error });
+  }
   try {
     await writeImportedPhotos(committed.photoWrites, availablePhotoBytes);
   } catch (error) {
@@ -2269,6 +2295,11 @@ export const importTripFromExportForUser = async ({
       // Create-new owns everything it just made, so dropping the trip really does return the system
       // to its prior state.
       await prisma.trip.delete({ where: { id: committed.trip.id } }).catch(() => undefined);
+      // `writeImportedPhotos` unlinks the *files* it wrote but not the directories it had to create
+      // to write them, and the whole tree is this trip's alone - `getTripUploadDir` is keyed by the
+      // id that was just deleted. Left behind, every failed import deposits a permanent skeleton of
+      // empty directories under `uploads/trips/`.
+      await fs.rm(getTripUploadDir(committed.trip.id), { recursive: true, force: true }).catch(() => undefined);
     } else {
       // Overwrite deliberately does *not* delete: the transaction has committed the restored rows,
       // and deleting the target would destroy the trip the user was replacing rather than leave it

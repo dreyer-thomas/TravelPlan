@@ -141,6 +141,11 @@ export default function TripImportDialog({ open, onClose, onImported }: TripImpo
   // against the manifest before it can say anything true about it.
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const selected = event.target.files?.[0] ?? null;
+    // Clearing the input's value is what makes re-picking the *same* file work. Without it the
+    // browser fires no `change` event for an unchanged value, so a user who was told their file was
+    // too large - or who fixed the file at the same path and picked it again - got no reaction at
+    // all: the error stayed, the submit button stayed disabled, and the dialog looked frozen.
+    event.target.value = "";
     setServerError(null);
     setServerIssues([]);
     setConflicts([]);
@@ -172,7 +177,12 @@ export default function TripImportDialog({ open, onClose, onImported }: TripImpo
         case "csrf_invalid":
           return t("errors.csrfInvalid");
         case "invalid_json":
-          return t("errors.invalidJson");
+          // Not `errors.invalidJson` ("request could not be processed, please try again"). On this
+          // surface the code means the *selected file* was neither a ZIP nor JSON, so telling the
+          // user to retry the request sends them to repeat the one thing that cannot help.
+          return t("trips.import.invalidFile");
+        case "file_too_large":
+          return formatMessage(t("trips.import.fileTooLarge"), { limit: MAX_IMPORT_PACKAGE_MB });
         case "invalid_form_data":
           // The multipart body itself did not parse, so the file never arrived intact. Saying "this
           // backup could not be read" would send the user to look at a file that is probably fine.
@@ -232,7 +242,21 @@ export default function TripImportDialog({ open, onClose, onImported }: TripImpo
         body: formData,
       });
 
-      const body = (await response.json()) as ApiEnvelope<ImportResponse>;
+      // The reverse proxy in front of this app answers an oversized body itself, with its own HTML
+      // error page and no `{ data, error }` envelope - and until `client_max_body_size` is raised
+      // that is what *every* photo-bearing import gets. Calling `response.json()` on it throws, and
+      // the catch below reports the generic "import failed" for what is a plain size limit.
+      let body: ApiEnvelope<ImportResponse>;
+      try {
+        body = (await response.json()) as ApiEnvelope<ImportResponse>;
+      } catch {
+        setServerError(
+          response.status === 413
+            ? formatMessage(t("trips.import.fileTooLarge"), { limit: MAX_IMPORT_PACKAGE_MB })
+            : t("trips.import.uploadFailed"),
+        );
+        return;
+      }
 
       if (response.status === 409 && body.error?.code === "trip_name_conflict") {
         const conflictItems =
@@ -301,8 +325,15 @@ export default function TripImportDialog({ open, onClose, onImported }: TripImpo
         {heading}
       </Typography>
       <Box component="ul" sx={{ margin: 0, paddingInlineStart: "18px" }}>
-        {lines.slice(0, MAX_SHOWN_ISSUES).map((line) => (
-          <Typography key={line} component="li" variant="body2" sx={{ color: tokens.ink, overflowWrap: "anywhere" }}>
+        {/* Keyed by position, not content: both lists arrive from the package, and a manifest is
+            free to repeat a warning verbatim. A duplicate string key drops one of the two lines. */}
+        {lines.slice(0, MAX_SHOWN_ISSUES).map((line, index) => (
+          <Typography
+            key={`${index}-${line}`}
+            component="li"
+            variant="body2"
+            sx={{ color: tokens.ink, overflowWrap: "anywhere" }}
+          >
             {line}
           </Typography>
         ))}

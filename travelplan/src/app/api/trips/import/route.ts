@@ -57,7 +57,11 @@ const readRequestBody = async (request: NextRequest): Promise<ParsedRequestBody>
   if (contentLengthExceedsLimit(request)) {
     return {
       ok: false,
-      response: fail(apiError("validation_error", "Backup file exceeds the import size limit"), 400),
+      // Its own code, not a bare `validation_error`. The dialog maps that one to "this backup could
+      // not be read - it may be incomplete or damaged", which sends a user with a perfectly good
+      // but oversized backup off to investigate a file that is fine. The size is the whole problem
+      // and it is the one thing the message should say.
+      response: fail(apiError("file_too_large", "Backup file exceeds the import size limit"), 400),
     };
   }
 
@@ -94,7 +98,11 @@ const readRequestBody = async (request: NextRequest): Promise<ParsedRequestBody>
   if (file.size > MAX_IMPORT_PACKAGE_BYTES) {
     return {
       ok: false,
-      response: fail(apiError("validation_error", "Backup file exceeds the import size limit"), 400),
+      // Its own code, not a bare `validation_error`. The dialog maps that one to "this backup could
+      // not be read - it may be incomplete or damaged", which sends a user with a perfectly good
+      // but oversized backup off to investigate a file that is fine. The size is the whole problem
+      // and it is the one thing the message should say.
+      response: fail(apiError("file_too_large", "Backup file exceeds the import size limit"), 400),
     };
   }
 
@@ -130,7 +138,16 @@ export const POST = async (request: NextRequest) => {
   }
   const userId = auth.session.sub;
 
-  const body = await readRequestBody(request);
+  // `readRequestBody` maps every failure it anticipates, but it also awaits `file.arrayBuffer()` and
+  // calls into the ZIP reader, and an unanticipated throw from either escaped the handler entirely.
+  // Next then answers with its own error page rather than the `{ data, error }` envelope, so the
+  // dialog's `response.json()` throws and the user is told nothing at all.
+  let body: ParsedRequestBody;
+  try {
+    body = await readRequestBody(request);
+  } catch {
+    return fail(apiError("server_error", "Unable to read the uploaded backup"), 500);
+  }
   if (!body.ok) {
     return body.response;
   }
@@ -190,6 +207,12 @@ export const POST = async (request: NextRequest) => {
       warnings: parsed.data.payload.meta.warnings,
     });
   } catch (error) {
+    if (error instanceof Error && error.message === "target_trip_required") {
+      // Shadowed today by `tripImportRequestSchema`'s own rule, so this is belt and braces - but its
+      // five sibling errors all got explicit 4xx mappings and a missing parameter answering 500 is
+      // wrong in a way that only shows up once the schema changes.
+      return fail(apiError("validation_error", "Overwrite requires the trip to overwrite"), 400);
+    }
     if (error instanceof Error && error.message === "target_trip_not_found") {
       return fail(apiError("not_found", "Target trip not found for overwrite"), 404);
     }

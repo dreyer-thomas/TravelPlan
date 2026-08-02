@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { MAX_IMPORT_PHOTO_WRITES } from "@/lib/trips/importLimits";
+import {
+  MAX_IMPORT_BUCKET_LIST_ITEMS,
+  MAX_IMPORT_DAYS,
+  MAX_IMPORT_PHOTO_WRITES,
+  MAX_IMPORT_SEGMENTS_PER_DAY,
+  MAX_IMPORT_WARNINGS,
+  MAX_SUPPORTED_FORMAT_VERSION,
+} from "@/lib/trips/importLimits";
 import {
   tripImportRequestSchema,
   tripImportPayloadSchema,
@@ -606,6 +613,79 @@ describe("tripImportSchemas", () => {
         positionText: null,
         location: null,
       });
+    });
+  });
+
+  describe("manifest ceilings", () => {
+    it("accepts the newest format version it knows", () => {
+      expect(tripImportPayloadSchema.safeParse(v2Payload).success).toBe(true);
+    });
+
+    it("refuses a format version newer than it can read", () => {
+      // Zod strips fields it has no rule for, so accepting a future format would import, report
+      // success, and silently drop whatever that format added. A backup tool must not do that.
+      const result = tripImportPayloadSchema.safeParse({
+        ...v2Payload,
+        meta: { ...v2Payload.meta, formatVersion: MAX_SUPPORTED_FORMAT_VERSION + 1 },
+      });
+
+      expect(result.success).toBe(false);
+      if (result.success) return;
+      expect(JSON.stringify(result.error.issues)).toContain("newer version");
+    });
+
+    it("refuses a manifest declaring more days than any real trip has", () => {
+      // The day count is pinned to the declared date range, so an absurd range is a schema-legal
+      // way to ask for six figures of rows inside one transaction.
+      const days = Array.from({ length: MAX_IMPORT_DAYS + 1 }, (_, index) => ({
+        ...v2Payload.days[0],
+        id: `day-${index + 1}`,
+        dayIndex: index + 1,
+      }));
+
+      const result = tripImportPayloadSchema.safeParse({ ...v2Payload, days });
+      expect(result.success).toBe(false);
+      if (result.success) return;
+      // Asserted on the message, not just on failure: an absurd day list also trips the
+      // date-range coverage rule, and this test is about the cap.
+      expect(JSON.stringify(result.error.issues)).toContain(`at most ${MAX_IMPORT_DAYS} days`);
+    });
+
+    it("refuses more travel segments on one day than the ceiling allows", () => {
+      const travelSegments = Array.from({ length: MAX_IMPORT_SEGMENTS_PER_DAY + 1 }, (_, index) => ({
+        ...v2Payload.days[0].travelSegments[0],
+        id: `seg-${index + 1}`,
+      }));
+
+      const result = tripImportPayloadSchema.safeParse({
+        ...v2Payload,
+        days: [{ ...v2Payload.days[0], travelSegments }, ...v2Payload.days.slice(1)],
+      });
+
+      expect(result.success).toBe(false);
+      if (result.success) return;
+      expect(JSON.stringify(result.error.issues)).toContain(`at most ${MAX_IMPORT_SEGMENTS_PER_DAY} travel segments`);
+    });
+
+    it("refuses more bucket list items than the ceiling allows", () => {
+      const bucketListItems = Array.from({ length: MAX_IMPORT_BUCKET_LIST_ITEMS + 1 }, (_, index) => ({
+        title: `Wish ${index + 1}`,
+      }));
+
+      const result = tripImportPayloadSchema.safeParse({
+        ...v2Payload,
+        trip: { ...v2Payload.trip, bucketListItems },
+      });
+
+      expect(result.success).toBe(false);
+    });
+
+    it("refuses an unbounded warnings list, which the success envelope echoes back verbatim", () => {
+      const warnings = Array.from({ length: MAX_IMPORT_WARNINGS + 1 }, (_, index) => `warning ${index}`);
+
+      expect(tripImportPayloadSchema.safeParse({ ...v2Payload, meta: { ...v2Payload.meta, warnings } }).success).toBe(
+        false,
+      );
     });
   });
 });

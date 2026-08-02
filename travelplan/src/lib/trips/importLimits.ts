@@ -59,3 +59,29 @@ export const MAX_IMPORT_PHOTO_WRITES = 5000;
  * any real trip needs while turning the worst case from "fills the disk" into a bounded 1 GB.
  */
 export const MAX_IMPORT_PHOTO_TOTAL_BYTES = 10 * MAX_IMPORT_PACKAGE_BYTES;
+
+/**
+ * The newest package format this app can read.
+ *
+ * Bounding it is what stops a future format importing "successfully" while Zod quietly strips every
+ * field it has no rule for.
+ */
+export const MAX_SUPPORTED_FORMAT_VERSION = 2;
+
+/**
+ * Row-count ceilings on a manifest.
+ *
+ * The photo caps bound the *disk* an import can consume; nothing bounded the *rows*. A manifest is
+ * JSON, so 100 MB of it can declare an enormous trip - and the day count is pinned to the declared
+ * date range, which means a 300-year range is a schema-legal way to ask for ~110,000 day rows. All
+ * of it lands in one interactive transaction. These are deliberately far above anything a real
+ * backup contains: a 20-year trip, 200 travel segments in a single day and a 5000-entry bucket
+ * list are all already absurd, so the caps only ever fire on manifests that were not exported.
+ */
+export const MAX_IMPORT_DAYS = 7300;
+export const MAX_IMPORT_SEGMENTS_PER_DAY = 200;
+export const MAX_IMPORT_BUCKET_LIST_ITEMS = 5000;
+
+/** Bounds on `meta.warnings`, which is echoed back to the client verbatim. */
+export const MAX_IMPORT_WARNINGS = 500;
+export const MAX_IMPORT_WARNING_LENGTH = 1000;

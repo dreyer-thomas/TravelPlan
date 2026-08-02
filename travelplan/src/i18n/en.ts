@@ -165,6 +165,7 @@ const en: Dictionary = {
   "trips.import.fileHelp": "Select a .zip backup exported from TravelPlan. Older .json backups still work.",
   "trips.import.fileRequired": "Please select a backup file.",
   "trips.import.fileTooLarge": "Backup file is larger than {limit} MB.",
+  "trips.import.invalidFile": "That file is not a TravelPlan backup. Select a .zip or .json export.",
   "trips.import.validationError": "This backup could not be read. It may be incomplete or damaged.",
   "trips.import.uploadFailed": "The upload did not arrive complete. Please try sending the file again.",
   "trips.import.issuesHeading": "What the server found",
