@@ -18,7 +18,8 @@ so that the thing I just clicked stops moving away from my cursor and the footer
 
 1. **The dialog does not move when switching tabs.** Its top and bottom edges stay where they are across all four tabs. A panel with less content shows empty space rather than shrinking the frame.
 2. **The floor is a minimum, not a fixed height.** The `Kosten` panel grows without bound as split-payment rows are added (DW-149), so it must still be able to exceed the floor and scroll. What is forbidden is the frame *shrinking* below it.
-3. **`Abbrechen` leaves the footer and becomes a close control** — the usual `✕` at the top right of the dialog. It does exactly what `Abbrechen` did: closes without saving.
+3. **`Abbrechen` leaves the footer and becomes a close control** — the usual `✕` at the top right of the dialog, built to `DESIGN.md.Components → icon-button.close`.
+3a. **A dirty form asks before it closes.** An untouched dialog closes silently; one the user has typed into confirms once, naming what goes, with the keeping answer as the safe one. This is `EXPERIENCE.md.State Patterns → Dismissing a dialog with unsaved input`, added on 2026-08-03 because the dismissal shrinks from a labelled footer button to a 44px glyph — easier to hit by accident and carrying no word for the consequence. This dialog is where it is proven first: four tabs, eleven fields and a rich-text description are the most there is to lose anywhere in the app.
 4. **The close control is named.** It carries an accessible name and a 44px hit area; an unlabelled `✕` is a button with no name for anyone not looking at it.
 5. **`Löschen` becomes a trash glyph** with `trips.plan.deleteItemAria` ("Planpunkt löschen") as its accessible name and a tooltip, at the same 44px floor. The confirmation step is unchanged.
 6. **`Speichern` becomes `OK`.** Both `trips.plan.saveNew` ("Element speichern") and `trips.plan.saveUpdate` ("Änderungen speichern") carry the same word afterwards, so whether two keys are still warranted is decided rather than left.
@@ -35,7 +36,9 @@ so that the thing I just clicked stops moving away from my cursor and the footer
   - [ ] Do **not** use a fixed `height`. `Kosten` reaches 1634px at five split-payment rows; a fixed frame would clip it or force a nested scroll inside a scroll.
   - [ ] The floor is a magic number by nature. Derive it from the panels if that is practical; otherwise name the constant and say in a comment where the number came from, so the next person does not have to re-measure.
 
-- [ ] **Task 2 — The close control** (AC: 3, 4)
+- [ ] **Task 2 — The close control** (AC: 3, 3a, 4)
+  - [ ] Build it to `icon-button.close`: 44x44, glyph ~20px, `{colors.ink-soft}`, no fill or border at rest, app-wide focus ring, mandatory accessible name.
+  - [ ] Implement the dirty-form confirmation (AC3a). "Dirty" needs defining — the dialog holds every field in `useState`, so a comparison against the values it opened with is available without new machinery. Say which definition was used.
   - [ ] Remove the `Abbrechen` button from `DialogActions`. **Do not retire `common.cancel`** — unlike `common.save` in Story 6.17, it has several readers; confirm with a grep before touching it.
   - [ ] Add an `IconButton` at the dialog's top right. It needs its own accessible name — reuse an existing "close" string if one exists, otherwise add one; `i18nDictionaries.test.ts` enforces parity.
   - [ ] It must be the same action as `Abbrechen` was: close, discard nothing to the server, no save. If `Abbrechen` had unsaved-changes handling, the `✕` inherits it.

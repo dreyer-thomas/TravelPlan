@@ -22,7 +22,9 @@ so that a footer full of `Abbrechen` becomes one familiar `✕`, and the safe an
 4. **`common.cancel` is retired, not orphaned.** All twelve readers are in this story's scope; afterwards none remains, so the key is deleted from both dictionaries.
 5. **Form confirmations keep saying `OK`.** Extending "name the outcome" to forms was considered and declined — this story does not touch them.
 6. **`DialogShell` is where the `✕` lives** for the six files that use it. The five that do not get it locally; migrating them onto the shell is **not** in scope.
-7. **Nothing else changes.** Every dialog opens, validates, saves and closes as before.
+7. **Every form dialog asks before discarding typed input**, per `EXPERIENCE.md.State Patterns → Dismissing a dialog with unsaved input`. Story 6.24 establishes the behaviour on the activity dialog; this story carries it to the other nine.
+8. **The design documents are updated with the change, not after it.** `DESIGN.md.Components → button` and the new `icon-button` entry, `EXPERIENCE.md`'s component table, Voice and Tone row and State Pattern were written on 2026-08-03 and are the specification this story implements. `mockups/forms-authoring.html` still draws the old footer and is named by DESIGN.md as the binding reference — it is brought into line here.
+9. **Nothing else changes.** Every dialog opens, validates, saves and closes as before.
 
 ## Tasks / Subtasks
 
@@ -55,7 +57,12 @@ so that a footer full of `Abbrechen` becomes one familiar `✕`, and the safe an
   - [ ] Assert `common.cancel` is absent from both dictionaries, the way `i18nDictionaries.test.ts` already asserts it for `common.save`.
   - [ ] `npm test` green.
 
-- [ ] **Task 6 — Manual check** (AC: 1, 3)
+- [ ] **Task 6 — The mockups** (AC: 8)
+  - [ ] `mockups/forms-authoring.html` draws `Abbrechen` in four dialog footers (lines 545, 650, 748, 899) and is the only mockup that does. DESIGN.md names it the binding reference for dialog footers, so a story that changes footers and leaves it alone creates exactly the drift Story 7.11 exists to clean up.
+  - [ ] Remove the four `btn-secondary` cancel buttons from the form dialogs, add the `✕` to their title rows, and leave the swatch sheet's `btn-secondary` specimen in place — the variant still exists, for destructive confirmations.
+  - [ ] If a destructive confirmation is not mocked at all, say so rather than inventing one: the gap belongs in the record.
+
+- [ ] **Task 7 — Manual check** (AC: 1, 3)
   - [ ] Throwaway copy of `dev.db` on an isolated port — never `prisma/dev.db`. Recipe in `7-12-bucket-list-sidebar-card.md`'s Dev Notes.
   - [ ] Open each of the eleven dialogs at 390px and confirm the `✕` sits in the same place every time. Consistency is the point; one dialog with it somewhere else is worse than none having it.
   - [ ] Scroll a long dialog to the bottom and confirm the `✕` is still reachable — the title row is fixed and only the content scrolls, so it should be, but this is the assumption the pattern rests on.
