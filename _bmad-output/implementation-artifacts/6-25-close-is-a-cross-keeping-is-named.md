@@ -29,20 +29,28 @@ so that a footer full of `Abbrechen` becomes one familiar `✕`, and the safe an
 ## Tasks / Subtasks
 
 - [ ] **Task 1 — The shell carries it** (AC: 1, 6)
-  - [ ] `src/components/ui/DialogShell.tsx` (126 lines) already owns the `DialogTitle` row at `:84`. Put the `IconButton` there, right-aligned, so its six consumers inherit it: `FullscreenPhotoViewer`, `TripDayView`, `TripAccommodationDialog`, `TripDayPlanDialog`, `TripCostOverview`, `TripCreateDialog`.
+  - [ ] **Story 6.24 already built this**, behind an opt-in `closeLabel` prop that only `TripDayPlanDialog` passes. This task's remaining work is to make the prop **required** and drop the two `closeLabel ?` conditionals in `DialogShell` — the glyph, its `Tooltip`, its focus ring, the 44px hit area and the `disableDismiss` guard all exist and are tested in `formPrimitives.test.tsx` against real MUI. Read that suite first; it is the spec for what "the shell carries it" now means.
+  - [ ] `src/components/ui/DialogShell.tsx` owns the `DialogTitle` row. Its consumers are **four**, not six: `TripDayView`, `TripAccommodationDialog`, `TripCreateDialog`, `TripDayPlanDialog`. `FullscreenPhotoViewer` and `TripCostOverview` do **not** use the shell — corrected by 6.24's code review; verify with `grep -rn "<DialogShell" src`.
+  - [ ] Making `closeLabel` required puts a `✕` on the three consumers that do not pass one today. That is this story's job and 6.24's AC9 is why it was not done there.
+  - [ ] Note the heading shape 6.24 introduced: with a `closeLabel`, `DialogTitle` renders as a `div` and the title line becomes the `h2`, because otherwise the glyph's accessible name joins the heading's. Once the prop is required, that branch is the only shape and the conditional goes with it.
   - [ ] The shell's title row has `borderBottom` and its own `id` for labelling — do not disturb either.
   - [ ] The close action needs a handler. The shell already receives one for its dialog; confirm the prop shape before inventing a second.
   - [ ] `FullscreenPhotoViewer` already has its own close control from Story 6.12. Check before adding a second one to the same corner.
 
-- [ ] **Task 2 — The five that do not use the shell** (AC: 1, 6)
-  - [ ] `TripImportDialog`, `TripDeleteDialog`, `TripDayTravelSegmentDialog`, `TripBucketListPanel`, `TripEditDialog` build their own `Dialog`. Add the same control to each.
-  - [ ] **Do not migrate them onto `DialogShell` here.** That is a worthwhile cleanup and a different story; folding it in turns a chrome change into a refactor of five dialogs with their own histories.
-  - [ ] Whatever the shell does, these five must match it — same glyph, same position, same accessible name. If that means extracting a small shared piece, do that rather than copying markup five times.
+- [ ] **Task 2 — The ones that do not use the shell** (AC: 1, 6)
+  - [ ] `TripImportDialog`, `TripDeleteDialog`, `TripDayTravelSegmentDialog`, `TripBucketListPanel` (**two** dialogs), `TripEditDialog` build their own `Dialog`. Add the same control to each.
+  - [ ] **Widened by Story 6.24's code review (2026-08-03).** The original list named five files and missed the rest. The full inventory is **14 raw `<Dialog>` sites across 11 files** — verify with `grep -rn "<Dialog\b" src | grep -v DialogShell` before starting, and decide each one explicitly rather than by omission:
+    - [ ] **`TripDayPlanDialog`'s two nested dialogs** — the move picker (`:2109`) and the discard confirmation Story 6.24 added (`:2176`). Neither was in this task's original list, so both would have been missed. 6.24's record argues the discard confirmation should be *exempt*: it is a two-button destructive confirmation whose safe half ("Weiter bearbeiten") already **is** the close, which is the same carve-out Task 4 makes for the two delete confirmations. The move picker has no such argument and should get the `✕`. Record the decision either way — DESIGN.md says every dialog has exactly one, so an exemption has to be written down, not inferred.
+    - [ ] `TripDayView`'s two (`:3207` day transfer, `:3334` map) and the three map dialogs in `TripDayMapFullPage`, `TripOverviewMapFullPage`.
+    - [ ] `FullscreenPhotoViewer` (`ui/`) and `TripShareDialog` — both already have their own close control (6.12 and 7.5). Confirm before adding a second, as Task 1's last bullet already warns.
+  - [ ] **Do not migrate them onto `DialogShell` here.** That is a worthwhile cleanup and a different story; folding it in turns a chrome change into a refactor of a dozen dialogs with their own histories.
+  - [ ] Whatever the shell does, these must match it — same glyph, same position, same accessible name. If that means extracting a small shared piece, do that rather than copying markup a dozen times.
+  - [ ] The shared piece must carry the **focus ring** with it. `theme.ts` scopes the app-wide ring to `MuiButton`, so an `IconButton` shows nothing under keyboard focus unless it says so itself — Story 6.24 hit this on both of its icon buttons and fixed it per-site. See DW-154; this task is the natural place to solve it once.
 
 - [ ] **Task 3 — Remove `Abbrechen` from the ten forms** (AC: 2, 4)
-  - [ ] The twelve `common.cancel` sites: `TripImportDialog:456`, `TripAccommodationDialog:822`, `TripDayPlanDialog:1216` and `:1818`, `TripDayTravelSegmentDialog:757`, `TripCreateDialog:69`, `TripDayView:3238` and `:3270`, `TripBucketListPanel:675`, `TripEditDialog:359` — ten forms; plus `TripDeleteDialog:123` and `TripBucketListPanel:697`, which are Task 4.
+  - [ ] **Eleven sites, not twelve** — Story 6.24 removed `TripDayPlanDialog`'s footer `Abbrechen`, so its remaining reader is the move picker alone. Re-grep rather than trusting these line numbers, all of which 6.24 moved: `grep -rn 'common\.cancel' src | grep -v i18n/`. As of 2026-08-03: `TripImportDialog:456`, `TripAccommodationDialog:822`, `TripDayPlanDialog:2064` (the move picker), `TripDayTravelSegmentDialog:757`, `TripCreateDialog:69`, `TripDayView:3238` and `:3270`, `TripBucketListPanel:675`, `TripEditDialog:359` — nine forms; plus `TripDeleteDialog:123` and `TripBucketListPanel:697`, which are Task 4.
   - [ ] Note `TripBucketListPanel` holds **both** kinds: `:675` is the add/edit form, `:697` is the delete confirmation. They are two different dialogs in one file and must not be treated alike.
-  - [ ] Once all twelve are done, `common.cancel` has no readers. Delete it from `de.ts` and `en.ts` — `i18nDictionaries.test.ts` enforces parity, and a key left behind is the `common.save` shape Story 6.17 wrote a trap about.
+  - [ ] Once all eleven are done, `common.cancel` has no readers. Delete it from `de.ts` and `en.ts` — `i18nDictionaries.test.ts` enforces parity, and a key left behind is the `common.save` shape Story 6.17 wrote a trap about. That suite currently pins "the remaining eleven"; it is the count to trust.
 
 - [ ] **Task 4 — The two confirmations** (AC: 3)
   - [ ] `TripDeleteDialog:123`: `common.cancel` becomes a new key reading "Reise behalten" / "Keep trip". The neighbouring `trips.delete.submit` is `color="error"` and stays exactly as it is.

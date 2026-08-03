@@ -242,4 +242,94 @@ describe("i18n dictionaries", () => {
       }
     });
   });
+
+  /**
+   * Story 6.24. Three keys left the activity dialog and one arrived, and an orphan is again the
+   * failure the parity check cannot see: it only says the two dictionaries agree.
+   *
+   * `saveNew` ("Element speichern") and `saveUpdate` ("Änderungen speichern") both became "OK", which
+   * is precisely the shape Story 6.17 called a trap on `common.save` — two names for one word, the
+   * second of which the next dialog picks up without deciding anything. They are collapsed into
+   * `trips.plan.save` rather than kept as a matched pair. `deleteItem` ("Löschen") lost its only
+   * reader when the footer's delete became a trash glyph named by `deleteItemAria`.
+   */
+  describe("story 6.24 key changes", () => {
+    const has = (dictionary: Record<string, string>, key: string) =>
+      Object.prototype.hasOwnProperty.call(dictionary, key);
+
+    it.each(["trips.plan.saveNew", "trips.plan.saveUpdate", "trips.plan.deleteItem"])(
+      "no longer defines %s in either language",
+      (key) => {
+        expect(has(en, key)).toBe(false);
+        expect(has(de, key)).toBe(false);
+      },
+    );
+
+    /**
+     * Not `common.ok`, and that is the same judgement Story 6.17 recorded in `en.ts`: a `common.`
+     * name invites the next dialog to inherit an OK button it never chose. One dialog-specific key
+     * with one word in it.
+     */
+    it("defines one plan save key, reading OK in both languages", () => {
+      expect(en["trips.plan.save"]).toBe("OK");
+      expect(de["trips.plan.save"]).toBe("OK");
+    });
+
+    /**
+     * AC5. The glyph's accessible name is the pre-existing aria string, and it names the object
+     * ("Planpunkt löschen") rather than the mechanism ("Löschen") — DESIGN.md.icon-button requires
+     * exactly that of an icon-only control, because the name is now the only word it carries.
+     */
+    it("keeps the delete aria string, which is now the control's only label", () => {
+      expect(en["trips.plan.deleteItemAria"]).toBe("Delete plan item");
+      expect(de["trips.plan.deleteItemAria"]).toBe("Planpunkt löschen");
+    });
+
+    /**
+     * AC7. The German is the binding wording — it is what the request itself said, lower case
+     * included — and it is short on purpose: the footer has to fit one row at 390px. The full
+     * sentence still reaches the user one step later, on `moveDialogTitle`, which is why shortening
+     * this one costs nothing. Pinned so a "clearer" restoration has to argue with a test.
+     */
+    it("shortens the move action while the dialog it opens keeps the full sentence", () => {
+      expect(de["trips.plan.moveAction"]).toBe("anderer Tag");
+      expect(en["trips.plan.moveAction"]).toBe("Another day");
+      expect(de["trips.plan.moveDialogTitle"]).toBe("Auf anderen Tag verschieben");
+      expect(en["trips.plan.moveDialogTitle"]).toBe("Move to another day");
+    });
+
+    /**
+     * AC3a / EXPERIENCE.md.Voice and Tone. The body names what goes rather than asking "are you
+     * sure?", and the safe answer names what it preserves. Both are pinned because both are the
+     * reason the pattern exists: a 44px glyph with no word for its consequence, guarded by a
+     * question whose safe half is also wordless, would be no better than the unguarded `✕`.
+     */
+    it("words the discard confirmation as an outcome, not a mechanism", () => {
+      expect(de["trips.plan.discardBody"]).toBe("Deine Änderungen an diesem Planpunkt werden verworfen.");
+      expect(de["trips.plan.discardKeep"]).toBe("Weiter bearbeiten");
+      expect(en["trips.plan.discardKeep"]).toBe("Keep editing");
+      for (const dictionary of [en, de]) {
+        expect(dictionary["trips.plan.discardKeep"]).not.toMatch(/^(Cancel|Abbrechen)$/);
+      }
+    });
+
+    /**
+     * AC3 chose reuse over a second key: `common.close` already existed with two readers, so the
+     * title-row `✕` takes its name from there. It must therefore stay defined — and stay a close
+     * word rather than drifting into something a screen-reader user could not act on.
+     */
+    it("keeps common.close, which now also names every title-row close glyph", () => {
+      expect(en["common.close"]).toBe("Close");
+      expect(de["common.close"]).toBe("Schließen");
+    });
+
+    /**
+     * `common.cancel` survives this story deliberately. Story 6.17 retired `common.save` because it
+     * had exactly one reader; this key has several, and Story 6.25 is where the remaining eleven go.
+     */
+    it("keeps common.cancel, which still has readers outside this dialog", () => {
+      expect(has(en, "common.cancel")).toBe(true);
+      expect(has(de, "common.cancel")).toBe(true);
+    });
+  });
 });

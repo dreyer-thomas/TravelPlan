@@ -449,15 +449,27 @@ const en: Dictionary = {
   "trips.plan.newItem": "New item",
   "trips.plan.addItem": "Add item",
   "trips.plan.editItem": "Edit item",
-  "trips.plan.saveNew": "Save item",
-  "trips.plan.saveUpdate": "Update item",
-  "trips.plan.deleteItem": "Delete",
+  // Story 6.24 AC6. `saveNew` ("Save item") and `saveUpdate` ("Update item") both became "OK", so
+  // they are collapsed into one key rather than kept as two names for one word — the shape Story
+  // 6.17 called a trap on `common.save`. Dialog-specific and not `common.ok` for that story's other
+  // reason: a `common.` name invites the next dialog to inherit an OK button it never decided on.
+  "trips.plan.save": "OK",
+  // `trips.plan.deleteItem` ("Delete") left with it: Story 6.24 AC5 turned the footer's delete into
+  // a trash glyph, and `deleteItemAria` below is the word it carries instead. The visible label had
+  // exactly one reader and would otherwise sit here waiting to be picked up by a second.
   // Carries the activity's title because the accessible name now belongs to the whole card rather
   // than to a pencil sitting inside it: a timeline of eight cards all named "Edit plan item" tells a
   // screen-reader user nothing about which one they are on.
   "trips.plan.editItemAria": "Edit plan item: {title}",
   "trips.plan.deleteItemAria": "Delete plan item",
   "trips.plan.deleteConfirm": "Delete this plan item?",
+  // Story 6.24 AC3a / EXPERIENCE.md.State Patterns → "Dismissing a dialog with unsaved input". The
+  // body names what goes rather than asking "are you sure?", and the safe answer names what it
+  // preserves ("Keep editing"), never the mechanism ("Cancel") — see Voice and Tone.
+  "trips.plan.discardTitle": "Discard changes?",
+  "trips.plan.discardBody": "Your changes to this plan item will be discarded.",
+  "trips.plan.discardConfirm": "Discard changes",
+  "trips.plan.discardKeep": "Keep editing",
   // Story 6.22. The activity dialog's four sections, in tab order. Kept short because four of them
   // share one 390px row: the German set ("Was", "Wann & Wo", "Kosten", "Medien & Links") is the
   // binding one and no label here may grow past its width.
@@ -505,11 +517,15 @@ const en: Dictionary = {
   "trips.plan.saveError": "Plan item update failed. Please try again.",
   "trips.plan.deleteError": "Plan item removal failed. Please try again.",
   "trips.plan.editItemMissing": "Missing plan item to edit.",
-  // Story 6.23 — moving one activity to another day, from the activity dialog's footer. The German
-  // action label is the binding one: it is the wording the request itself used ("Auf anderen Tag
-  // verschieben"). Distinct from `trips.dayTransfer.*`, which is the whole-day transfer and whose
-  // "move" *replaces* the target day — the two must not share copy any more than they share code.
-  "trips.plan.moveAction": "Move to another day",
+  // Story 6.23 — moving one activity to another day, from the activity dialog's footer. Distinct
+  // from `trips.dayTransfer.*`, which is the whole-day transfer and whose "move" *replaces* the
+  // target day — the two must not share copy any more than they share code.
+  //
+  // Story 6.24 AC7 shortened the action to "anderer Tag" / "Another day" so the footer fits one row.
+  // The German is the binding one and is deliberately lower-case: it is the wording the request
+  // itself used. English keeps sentence case, like every other English label in this file. The full
+  // sentence still reaches the user one step later, on `moveDialogTitle`.
+  "trips.plan.moveAction": "Another day",
   "trips.plan.moveDialogTitle": "Move to another day",
   "trips.plan.moveDescription":
     "Everything saved on this activity moves with it: title, description, times, cost, payments, link, location and photos. Activities already on the selected day are kept.",

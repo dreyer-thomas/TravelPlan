@@ -67,8 +67,31 @@ vi.mock("@mui/material", () => {
     // renders a real <select>, so the prop itself has nothing left to do but leak onto the DOM.
     "SelectProps",
   ]);
-  const omitLayoutProps = (props: Record<string, unknown>) =>
-    Object.fromEntries(Object.entries(props).filter(([key]) => !MUI_ONLY_PROPS.has(key)));
+  /**
+   * Story 6.24 code review. `sx` must not reach the DOM as an attribute, but dropping it outright
+   * made every style assertion in this suite a tautology over an exported literal: the two `sx`
+   * constants could be deleted from the JSX and the tests stayed green, so AC1, AC2 and AC8 could
+   * silently revert. Re-exposed as a serialised `data-sx` so a test can assert the constant reached
+   * the element it is supposed to style, rather than only that the constant still holds its value.
+   *
+   * `try`/`catch` because `sx` legitimately accepts callbacks and nested arrays; anything that will
+   * not serialise is simply not observable, which is the pre-existing state rather than a new gap.
+   */
+  const serializeSx = (value: unknown): string | undefined => {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return undefined;
+    }
+  };
+  const omitLayoutProps = (props: Record<string, unknown>) => {
+    const kept = Object.fromEntries(Object.entries(props).filter(([key]) => !MUI_ONLY_PROPS.has(key)));
+    if ("sx" in props) {
+      const serialized = serializeSx(props.sx);
+      if (serialized !== undefined) kept["data-sx"] = serialized;
+    }
+    return kept;
+  };
   const Simple = ({ children, component, ...rest }: { children?: ReactNode; component?: string }) =>
     React.createElement(
       component ?? "div",
@@ -269,6 +292,16 @@ vi.mock("@mui/material", () => {
         */}
         {helperText && <span>{helperText}</span>}
       </>
+    ),
+    /**
+     * Story 6.24. Real MUI clones the child and attaches handlers rather than wrapping it, so the
+     * mock adds the thinnest wrapper that can still carry the title for assertion. The tooltip's
+     * *rendering* is covered against real MUI in `formPrimitives.test.tsx`; what this suite needs is
+     * only that the icon-only controls are given one, since AC5 makes it load-bearing for the
+     * destructive action whose word was removed.
+     */
+    Tooltip: ({ children, title }: { children?: ReactNode; title?: ReactNode }) => (
+      <span data-tooltip={typeof title === "string" ? title : undefined}>{children}</span>
     ),
     // `component` matters here: FormField's caps label is a `Typography component="label" htmlFor`,
     // and a <div htmlFor> associates with nothing — every getByLabelText in this file depends on it.
@@ -491,7 +524,7 @@ describe("TripDayPlanDialog", () => {
 
     // AC5: Speichern is in the footer, outside the panels, so it is reachable from every tab — this
     // save is fired from "Medien & Links" and still submits the whole form.
-    fireEvent.click(screen.getByRole("button", { name: "Save item" }));
+    fireEvent.click(screen.getByRole("button", { name: "OK" }));
 
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
@@ -610,7 +643,7 @@ describe("TripDayPlanDialog", () => {
     expect(screen.getByRole("textbox", { name: "Link" })).toHaveValue("https://example.com/original");
     fireEvent.change(screen.getByRole("textbox", { name: "Link" }), { target: { value: "https://example.com/updated" } });
 
-    fireEvent.click(screen.getByRole("button", { name: "Update item" }));
+    fireEvent.click(screen.getByRole("button", { name: "OK" }));
 
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
@@ -683,7 +716,7 @@ describe("TripDayPlanDialog", () => {
     );
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    const deleteButton = screen.getByRole("button", { name: "Delete" });
+    const deleteButton = screen.getByRole("button", { name: "Delete plan item" });
     fireEvent.click(deleteButton);
     await waitFor(() => expect(onDelete).toHaveBeenCalledWith("item-1"));
     await waitFor(() => expect(onClose).toHaveBeenCalled());
@@ -727,7 +760,7 @@ describe("TripDayPlanDialog", () => {
     );
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete plan item" })).toBeNull();
   });
 
   it("shows title validation error and blocks completion when server rejects empty title", async () => {
@@ -789,7 +822,7 @@ describe("TripDayPlanDialog", () => {
     selectTab("whenWhere");
     fireEvent.change(screen.getByLabelText("From"), { target: { value: "09:00" } });
     fireEvent.change(screen.getByLabelText("To"), { target: { value: "10:00" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save item" }));
+    fireEvent.click(screen.getByRole("button", { name: "OK" }));
 
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
@@ -864,7 +897,7 @@ describe("TripDayPlanDialog", () => {
     selectTab("whenWhere");
     fireEvent.change(screen.getByLabelText("From"), { target: { value: "" } });
     fireEvent.change(screen.getByLabelText("To"), { target: { value: "09:00" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save item" }));
+    fireEvent.click(screen.getByRole("button", { name: "OK" }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/day-plan-items"), expect.any(Object)));
     await waitFor(() => expect(screen.getByText("From time is required")).toBeInTheDocument());
@@ -926,7 +959,7 @@ describe("TripDayPlanDialog", () => {
     fireEvent.change(amountInputs[1], { target: { value: "50.00" } });
     fireEvent.change(dateInputs[1], { target: { value: "2026-11-02" } });
 
-    fireEvent.click(screen.getByRole("button", { name: "Save item" }));
+    fireEvent.click(screen.getByRole("button", { name: "OK" }));
 
     expect(await screen.findByText("Payments must add up to the total cost")).toBeInTheDocument();
     const saveCalls = fetchMock.mock.calls.filter((call) => String(call[0]).includes("/day-plan-items"));
@@ -1507,7 +1540,7 @@ describe("TripDayPlanDialog", () => {
     selectTab("what");
     expect(screen.queryByLabelText("Cost")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Save item" }));
+    fireEvent.click(screen.getByRole("button", { name: "OK" }));
 
     // Switched, not merely marked.
     const costTab = screen.getByRole("tab", { name: "Cost (contains errors)" });
@@ -1618,7 +1651,7 @@ describe("TripDayPlanDialog", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     // Start on the last tab, so "switched to the first owner" cannot pass by accident.
     selectTab("media");
-    fireEvent.click(screen.getByRole("button", { name: "Save item" }));
+    fireEvent.click(screen.getByRole("button", { name: "OK" }));
 
     await waitFor(() => expect(screen.getByRole("tab", { name: "What (contains errors)" })).toBeInTheDocument());
     expect(screen.getByRole("tab", { name: "Media & links (contains errors)" })).toBeInTheDocument();
@@ -1671,7 +1704,7 @@ describe("TripDayPlanDialog", () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Tickets" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save item" }));
+    fireEvent.click(screen.getByRole("button", { name: "OK" }));
 
     await waitFor(() =>
       expect(screen.getByText("Plan item update failed. Please try again.")).toBeInTheDocument(),
@@ -1724,7 +1757,7 @@ describe("TripDayPlanDialog", () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Tickets" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save item" }));
+    fireEvent.click(screen.getByRole("button", { name: "OK" }));
 
     // Switched to the owning tab and put the caret on the field — the `linkUrl` focus target, which
     // nothing else in this file covers.
@@ -1800,7 +1833,7 @@ describe("TripDayPlanDialog", () => {
         </Providers>,
       );
 
-      await waitFor(() => expect(screen.getByRole("button", { name: "Move to another day" })).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByRole("button", { name: "Another day" })).toBeInTheDocument());
     });
 
     /** AC1's second sentence: while creating there is nothing to move yet. */
@@ -1826,7 +1859,7 @@ describe("TripDayPlanDialog", () => {
       );
 
       await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-      expect(screen.queryByRole("button", { name: "Move to another day" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Another day" })).toBeNull();
     });
 
     /**
@@ -1854,7 +1887,7 @@ describe("TripDayPlanDialog", () => {
       );
 
       await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-      expect(screen.queryByRole("button", { name: "Move to another day" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Another day" })).toBeNull();
     });
 
     /** A one-day trip has nowhere to move to, so the action would open an empty picker. */
@@ -1880,7 +1913,7 @@ describe("TripDayPlanDialog", () => {
       );
 
       await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-      expect(screen.queryByRole("button", { name: "Move to another day" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Another day" })).toBeNull();
     });
 
     it("moves the activity to the chosen day and closes the dialog", async () => {
@@ -1905,7 +1938,7 @@ describe("TripDayPlanDialog", () => {
         </Providers>,
       );
 
-      fireEvent.click(await screen.findByRole("button", { name: "Move to another day" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Another day" }));
 
       // The picker is the day-level transfer's own field, reused: same label, same native select.
       const picker = screen.getByLabelText("Target day");
@@ -1955,7 +1988,7 @@ describe("TripDayPlanDialog", () => {
         </Providers>,
       );
 
-      fireEvent.click(await screen.findByRole("button", { name: "Move to another day" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Another day" }));
       fireEvent.change(screen.getByLabelText("Target day"), { target: { value: "day-2" } });
       fireEvent.click(screen.getByRole("button", { name: "Move activity" }));
 
@@ -1988,7 +2021,7 @@ describe("TripDayPlanDialog", () => {
         </Providers>,
       );
 
-      fireEvent.click(await screen.findByRole("button", { name: "Move to another day" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Another day" }));
       expect(screen.getByTestId("plan-move-warning")).toHaveTextContent(
         "Unsaved changes in this dialog are not moved.",
       );
@@ -2028,7 +2061,7 @@ describe("TripDayPlanDialog", () => {
         </Providers>,
       );
 
-      fireEvent.click(await screen.findByRole("button", { name: "Move to another day" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Another day" }));
       fireEvent.change(screen.getByLabelText("Target day"), { target: { value: "day-2" } });
       const confirm = screen.getByRole("button", { name: "Move activity" });
       fireEvent.click(confirm);
@@ -2059,7 +2092,7 @@ describe("TripDayPlanDialog", () => {
         </Providers>,
       );
 
-      fireEvent.click(await screen.findByRole("button", { name: "Auf anderen Tag verschieben" }));
+      fireEvent.click(await screen.findByRole("button", { name: "anderer Tag" }));
       expect(screen.getByLabelText("Zieltag")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Aktivität verschieben" })).toBeInTheDocument();
     });
@@ -2097,6 +2130,369 @@ describe("TripDayPlanDialog", () => {
       for (const tab of Object.values(PLAN_ERROR_TAB)) {
         expect(PLAN_TAB_IDS).toContain(tab);
       }
+    });
+  });
+
+  /**
+   * Story 6.24 — a calmer dialog: it holds still when tabs switch, and its footer carries three
+   * controls instead of four labels.
+   *
+   * AC1 (the frame's height) and AC8 (the footer on one row) are rendered-pixel claims and jsdom lays
+   * nothing out, so what is provable here is the *wiring* those two criteria depend on: the floor is
+   * declared once, on the element that wraps all four panels, as a `minHeight` and not a `height`;
+   * and the footer's direction is a row at every width. The pixels themselves are the browser pass.
+   */
+  describe("story 6.24 — the calmer dialog", () => {
+    const csrfOnlyFetch = () =>
+      vi.fn(async (input: RequestInfo) => {
+        const url = typeof input === "string" ? input : input.url;
+        if (url.includes("/api/auth/csrf")) {
+          return { ok: true, status: 200, json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }) };
+        }
+        if (url.includes("/day-plan-items/images?")) {
+          return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
+        }
+        return {
+          ok: false,
+          status: 500,
+          json: async () => ({ data: null, error: { code: "server_error", message: "boom" } }),
+        };
+      }) as unknown as typeof fetch;
+
+    const existingItem = {
+      id: "item-1",
+      tripDayId: "day-1",
+      title: "Old Town walk",
+      fromTime: "10:00",
+      toTime: "11:00",
+      contentJson: tiptapMocks.sampleDoc,
+      costCents: 2100,
+      linkUrl: null,
+      location: null,
+      createdAt: "2026-12-01T09:00:00.000Z",
+    };
+
+    type Overrides = {
+      language?: "en" | "de";
+      mode?: "add" | "edit";
+      onClose?: () => void;
+      onDelete?: (itemId: string) => Promise<boolean>;
+      item?: typeof existingItem;
+    };
+
+    const renderDialog = async ({ language = "en", mode = "add", onClose, onDelete, item }: Overrides = {}) => {
+      const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
+      const fetchMock = csrfOnlyFetch();
+      vi.stubGlobal("fetch", fetchMock);
+
+      render(
+        <Providers language={language}>
+          <TripDayPlanDialog
+            open
+            mode={mode}
+            tripId="trip-1"
+            day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
+            item={mode === "edit" ? (item ?? existingItem) : null}
+            onDelete={onDelete}
+            onClose={onClose ?? (() => undefined)}
+            onSaved={() => undefined}
+          />
+        </Providers>,
+      );
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    };
+
+    /** AC3. The footer's dismissal moved to the title row; `Abbrechen` is gone from this dialog. */
+    it("carries no cancel button", async () => {
+      await renderDialog();
+      expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+    });
+
+    /** AC4. An unlabelled `✕` is a button with no name for anyone not looking at it. */
+    it("names the close control and closes on it", async () => {
+      const onClose = vi.fn();
+      await renderDialog({ onClose });
+
+      const close = screen.getByRole("button", { name: "Close" });
+      // The tooltip repeats the accessible name for sighted pointer users (DESIGN.md.icon-button).
+      // A real `Tooltip`, not the native `title` attribute, which never fires on focus or on touch —
+      // so the assertion is on the wrapper the tooltip puts around its child, not on an attribute.
+      expect(close.closest("[data-tooltip]")).toHaveAttribute("data-tooltip", "Close");
+      fireEvent.click(close);
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it("names the close control in German too", async () => {
+      await renderDialog({ language: "de" });
+      expect(screen.getByRole("button", { name: "Schließen" })).toBeInTheDocument();
+    });
+
+    /**
+     * AC3a, the half that must not over-fire: a dialog nobody has typed into closes on one click.
+     * An untouched *edit* is the harder case — every field is prefilled, so a naive "is there a value
+     * in here?" check would call it dirty and ask a question with no answer worth giving.
+     */
+    it("closes an untouched dialog silently, in add and in edit mode", async () => {
+      for (const mode of ["add", "edit"] as const) {
+        const onClose = vi.fn();
+        await renderDialog({ mode, onClose });
+
+        fireEvent.click(screen.getByRole("button", { name: "Close" }));
+        expect(onClose).toHaveBeenCalledTimes(1);
+        expect(screen.queryByText("Discard changes?")).toBeNull();
+        cleanup();
+      }
+    });
+
+    /**
+     * AC3a. The dismissal shrank from a labelled footer button to a 44px glyph, so the word naming
+     * the consequence has to come from somewhere — it comes from here.
+     */
+    it("asks before discarding typed input, and names what goes", async () => {
+      const onClose = vi.fn();
+      await renderDialog({ onClose });
+
+      fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Museum" } });
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.getByText("Discard changes?")).toBeInTheDocument();
+      expect(screen.getByTestId("plan-discard-body")).toHaveTextContent(
+        "Your changes to this plan item will be discarded.",
+      );
+    });
+
+    /** AC3a. "The keeping answer as the safe one" — it names what it preserves and it changes nothing. */
+    it("keeps the form when the safe answer is chosen", async () => {
+      const onClose = vi.fn();
+      await renderDialog({ onClose });
+
+      fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Museum" } });
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+      fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.queryByText("Discard changes?")).toBeNull();
+      expect(screen.getByLabelText("Title")).toHaveValue("Museum");
+    });
+
+    it("discards once, and only once, when the discard answer is chosen", async () => {
+      const onClose = vi.fn();
+      await renderDialog({ onClose });
+
+      fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Museum" } });
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+      fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
+
+      expect(onClose).toHaveBeenCalledTimes(1);
+      expect(screen.queryByText("Discard changes?")).toBeNull();
+    });
+
+    /**
+     * A value typed and then undone is not something to lose. This is why "dirty" is a comparison
+     * against the values the dialog opened with rather than a per-field `touched` flag.
+     */
+    it("closes silently again once an edit is undone", async () => {
+      const onClose = vi.fn();
+      await renderDialog({ mode: "edit", onClose });
+
+      const titleField = screen.getByLabelText("Title");
+      fireEvent.change(titleField, { target: { value: "Old Town walk!" } });
+      fireEvent.change(titleField, { target: { value: "Old Town walk" } });
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+      expect(onClose).toHaveBeenCalledTimes(1);
+      expect(screen.queryByText("Discard changes?")).toBeNull();
+    });
+
+    /** An edit on a tab the user has since left still counts — the check is over the whole form. */
+    it("guards an edit made on a tab that is no longer selected", async () => {
+      const onClose = vi.fn();
+      await renderDialog({ mode: "edit", onClose });
+
+      selectTab("cost");
+      fireEvent.change(costField(), { target: { value: "42,00" } });
+      selectTab("media");
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.getByText("Discard changes?")).toBeInTheDocument();
+    });
+
+    /**
+     * AC3a, code-review regression. The baseline used to be the server's raw `contentJson` string
+     * while every later read of the description came from `JSON.stringify(editor.getJSON())`. For any
+     * stored doc that is not byte-identical to the editor's re-serialisation of it — a doc written
+     * before an extension existed, a node whose attrs the schema fills in, or merely different key
+     * order and whitespace out of storage — the two never matched, so the form was dirty from the
+     * moment it opened and the `✕` asked to discard changes nobody had made.
+     *
+     * `setEditorContent` now reads the doc back out of the editor, so both sides come from one
+     * serializer. The fixture's whitespace is what makes the strings differ; the *doc* is identical.
+     *
+     * The toolbar click is what makes this bite. On open the two strings still agreed, because the
+     * old code seeded state from the same raw string it fingerprinted. The divergence needed an
+     * editor update — any one, even one that changes nothing — because that is when `onUpdate`
+     * replaces state with the editor's own serialisation and leaves the baseline behind.
+     */
+    it("closes silently when the stored description is not byte-identical to the editor's own output", async () => {
+      const onClose = vi.fn();
+      const prettyPrinted = {
+        ...existingItem,
+        contentJson: `{\n  "type": "doc",\n  "content": [\n    { "type": "paragraph" }\n  ]\n}`,
+      };
+      await renderDialog({ mode: "edit", item: prettyPrinted, onClose });
+
+      // An editor update that leaves the document identical — the "typed a character and deleted it
+      // again" case, which AC3a's whole choice of a fingerprint over a `touched` flag is about.
+      fireEvent.click(screen.getByRole("button", { name: "Bold" }));
+
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+      expect(screen.queryByText("Discard changes?")).toBeNull();
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    /**
+     * AC3a, code-review regression. `locationQuery` is the location *search* box. `handleSave` sends
+     * `location: resolvedLocation` and never the query, so watching it made the `✕` ask about a value
+     * no save would have kept — the same over-firing the fingerprint was chosen over a `touched` flag
+     * to avoid. Typing a search term and not running the lookup is not an unsaved change.
+     */
+    it("does not treat an unsubmitted location search as unsaved input", async () => {
+      const onClose = vi.fn();
+      await renderDialog({ mode: "edit", onClose });
+
+      selectTab("whenWhere");
+      fireEvent.change(screen.getByLabelText("Search place"), { target: { value: "Rom" } });
+
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+      expect(screen.queryByText("Discard changes?")).toBeNull();
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    /**
+     * AC5. The label became a glyph, so the accessible name is now the only word the control carries —
+     * and it is `deleteItemAria` ("Planpunkt löschen"), not the bare "Löschen" the button used to say.
+     */
+    it("reaches the delete control by its accessible name, with a tooltip and no visible label", async () => {
+      const onDelete = vi.fn(async () => true);
+      await renderDialog({ mode: "edit", onDelete });
+
+      const remove = screen.getByRole("button", { name: "Delete plan item" });
+      // Trap 3 makes the tooltip load-bearing rather than decorative, which is why it is a real
+      // `Tooltip` and not the native `title` attribute: `title` reaches mouse users and nobody else,
+      // on the one control this story took the word away from.
+      expect(remove.closest("[data-tooltip]")).toHaveAttribute("data-tooltip", "Delete plan item");
+      expect(remove).toHaveTextContent("");
+      expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+    });
+
+    it("names the delete control in German with the existing aria string", async () => {
+      await renderDialog({ mode: "edit", language: "de", onDelete: async () => true });
+      expect(screen.getByRole("button", { name: "Planpunkt löschen" })).toBeInTheDocument();
+    });
+
+    /**
+     * AC5's second sentence, and the one behaviour this story must not thin out: the glyph is a
+     * *request* to delete, handed to the caller, and `TripDayView` still puts a confirmation between
+     * it and the deletion. `tripDayViewLayout.test.tsx` owns the confirmation itself; what this
+     * asserts is the seam — a decline leaves the dialog open with the activity intact.
+     */
+    it("leaves the dialog open when the caller's confirmation is declined", async () => {
+      const onClose = vi.fn();
+      const onDelete = vi.fn(async () => false);
+      await renderDialog({ mode: "edit", onClose, onDelete });
+
+      fireEvent.click(screen.getByRole("button", { name: "Delete plan item" }));
+      await waitFor(() => expect(onDelete).toHaveBeenCalledWith("item-1"));
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.getByRole("button", { name: "Delete plan item" })).toBeInTheDocument();
+    });
+
+    /** AC6. One word for both modes, and the same word in both languages by decision. */
+    it.each([
+      ["en", "OK"],
+      ["de", "OK"],
+    ] as const)('labels the committing action "%2$s" in %1$s for both modes', async (language, label) => {
+      for (const mode of ["add", "edit"] as const) {
+        await renderDialog({ language, mode });
+        expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
+        cleanup();
+      }
+    });
+
+    /**
+     * AC1/AC2. One floor, on the element that wraps every panel — not a per-panel copy of it.
+     *
+     * The `data-sx` assertion is the one that earns its keep. Asserting `PLAN_PANEL_FLOOR_SX.minHeight`
+     * alone describes an object literal: the `sx` prop could be deleted from the JSX and this stayed
+     * green, so AC1 and AC2 could silently revert. This binds the constant to the element it styles.
+     */
+    it.each(["what", "whenWhere", "cost", "media"] as const)("keeps the %s panel inside the floor", async (tab) => {
+      const { PLAN_PANEL_FLOOR_SX } = await import("@/components/features/trips/TripDayPlanDialog");
+      await renderDialog({ mode: "edit" });
+
+      selectTab(tab);
+      const floor = screen.getByTestId("plan-tabpanel-floor");
+      const panel = screen.getByRole("tabpanel");
+      expect(floor).toContainElement(panel);
+      expect(JSON.parse(floor.getAttribute("data-sx") ?? "null")).toEqual(PLAN_PANEL_FLOOR_SX);
+    });
+
+    /**
+     * AC2 said as an assertion rather than as a comment. DW-149 has the `Kosten` panel at 1634px on
+     * five payment rows: a fixed `height` would clip it or nest a scroll inside a scroll, so the floor
+     * must be a `minHeight` and must not be joined by a `height`.
+     */
+    it("declares the floor as a minimum and not as a fixed height", async () => {
+      const { PLAN_PANEL_FLOOR_SX, PLAN_PANEL_MIN_HEIGHT } = await import(
+        "@/components/features/trips/TripDayPlanDialog"
+      );
+      expect(PLAN_PANEL_FLOOR_SX.minHeight).toBe(`${PLAN_PANEL_MIN_HEIGHT}px`);
+      expect(PLAN_PANEL_FLOOR_SX).not.toHaveProperty("height");
+      expect(PLAN_PANEL_FLOOR_SX).not.toHaveProperty("maxHeight");
+    });
+
+    /**
+     * AC8. `DialogShell` stacks its footer at `xs` (`column-reverse`) because four full labels could
+     * not share a 390px row. Three controls can, so this dialog overrides the stack.
+     *
+     * The per-breakpoint shape is the assertion, not an incidental detail: a plain
+     * `flexDirection: "row"` is merged *alongside* the shell's compiled `@media (min-width:0px)`
+     * block rather than over it, and then loses to it. That shipped in this story's first attempt and
+     * measured a 132px stacked footer at 390px — the one viewport AC8 is about — while reading `row`
+     * at 1400px. jsdom cannot see that, so the shape it depends on is pinned here instead.
+     */
+    it("keeps the footer on one row at every width, per breakpoint", async () => {
+      const { PLAN_FOOTER_SX } = await import("@/components/features/trips/TripDayPlanDialog");
+      expect(PLAN_FOOTER_SX.justifyContent).toBe("space-between");
+      // Both keys the shell sets, so its media queries are replaced rather than merged under.
+      expect(PLAN_FOOTER_SX.flexDirection).toEqual({ xs: "row", sm: "row" });
+      expect(PLAN_FOOTER_SX.alignItems).toEqual({ xs: "center", sm: "center" });
+      // Forcing `row` at `xs` removed the stack that used to absorb a footer too wide for its dialog,
+      // and `DialogActions` sets no `flex-wrap` of its own. Below ~330px this is the whole safety net.
+      expect(PLAN_FOOTER_SX.flexWrap).toBe("wrap");
+    });
+
+    /**
+     * And the half the assertions above cannot reach: that the constant is actually *on* the footer,
+     * and last in the `sx` array so the shell's own `xs` stack is replaced rather than sat under.
+     *
+     * `DialogShell` merges `footerSx` into `DialogActions`' `sx` as the final array entry. Reading it
+     * back off the rendered element is what makes deleting `footerSx={PLAN_FOOTER_SX}` from the JSX a
+     * test failure instead of a silent revert of AC8.
+     */
+    it("passes the footer sx to the shell, last so it wins", async () => {
+      const { PLAN_FOOTER_SX } = await import("@/components/features/trips/TripDayPlanDialog");
+      await renderDialog({ mode: "edit", onDelete: async () => true });
+
+      const footer = screen.getByRole("button", { name: "OK" }).parentElement;
+      const merged = JSON.parse(footer?.getAttribute("data-sx") ?? "null") as unknown[];
+      expect(Array.isArray(merged)).toBe(true);
+      expect(merged.at(-1)).toEqual(PLAN_FOOTER_SX);
     });
   });
 });

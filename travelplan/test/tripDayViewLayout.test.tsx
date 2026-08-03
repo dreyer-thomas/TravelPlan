@@ -3431,6 +3431,105 @@ describe("TripDayView layout", () => {
   });
 
   /**
+   * Story 6.24 AC5. The activity dialog's delete lost its label and became a trash glyph, which makes
+   * it faster to reach and easier to hit — so the confirmation standing between it and the deletion
+   * stops being a formality and becomes the thing that keeps the glyph honest.
+   *
+   * It lives here rather than in the dialog because it always did: `handleDeletePlan` asks, and only
+   * then calls the API. This asserts the *declined* half, which nothing covered — the accepted half
+   * is the test above. Without it, the confirmation could be dropped entirely and every existing test
+   * (all of which answer "yes") would still pass.
+   */
+  it("deletes nothing when the confirmation is declined", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    let deleteCalls = 0;
+
+    const fetchMock = withBucketList(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+
+      if (url.includes("/api/auth/csrf")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
+        };
+      }
+
+      if (url.includes("/day-plan-items") && method === "DELETE") {
+        deleteCalls += 1;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { deleted: true, removedTravelSegmentIds: [] }, error: null }),
+        };
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-01T00:00:00.000Z",
+              dayCount: 1,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: null,
+                dayPlanItems: [
+                  {
+                    id: "plan-1",
+                    title: "Museum visit",
+                    fromTime: "09:00",
+                    toTime: "10:00",
+                    contentJson: JSON.stringify({ type: "doc", content: [] }),
+                    costCents: null,
+                    linkUrl: null,
+                    location: null,
+                  },
+                ],
+                travelSegments: [],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+    fireEvent.click(screen.getAllByTestId("day-plan-item-edit-overlay")[0]);
+    await waitFor(() => expect(planDialogMockState.lastProps?.open).toBe(true));
+    fireEvent.click(screen.getByRole("button", { name: "Delete plan item" }));
+
+    await waitFor(() => expect(confirmSpy).toHaveBeenCalledWith("Delete this plan item?"));
+    expect(deleteCalls).toBe(0);
+    // The optimistic removal is inside the confirmed branch, so the activity never left the screen.
+    expect((await screen.findAllByText("Museum visit")).length).toBeGreaterThan(0);
+
+    confirmSpy.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
+  /**
    * AC8. A viewer cannot reach the activity dialog at all, so the guard that matters is the one on
    * the props: no handler and no candidate days means the dialog cannot render the action even if it
    * is opened some other way.

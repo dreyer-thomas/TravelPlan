@@ -309,6 +309,135 @@ describe("DialogShell", () => {
 
     expect(screen.getByRole("button", { name: "Save stay" })).toBeInTheDocument();
   });
+
+  /**
+   * Story 6.24's `closeLabel`, tested here rather than in `tripDayPlanDialog.test.tsx`, because this
+   * is the only suite that renders `DialogShell` against **real MUI** — that one mocks
+   * `@mui/material` and strips `sx` and `onClose` into `MUI_ONLY_PROPS`, so every geometric and
+   * visual claim about the `✕` was previously asserted against an exported object literal or against
+   * one unrepeatable browser pass.
+   */
+  describe("the close control (Story 6.24 AC3/AC4/AC9)", () => {
+    const closeButton = () => screen.getByTestId("dialog-shell-close");
+
+    /**
+     * AC9's actual claim. `closeLabel` is opt-in precisely so the three consumers that do not pass
+     * one are untouched by 6.24; the story asserted that by inspection, which is what let a wrong
+     * consumer count into the record in the first place.
+     */
+    it("renders no close control at all when no closeLabel is given", () => {
+      renderShell();
+
+      expect(screen.queryByTestId("dialog-shell-close")).toBeNull();
+      // And the head still holds the title and sub-line it held before the prop existed.
+      expect(screen.getByRole("dialog")).toHaveAccessibleName("Add stay");
+      expect(screen.getByText("Day 3 · 5/12")).toBeInTheDocument();
+    });
+
+    /** AC4. An unlabelled `✕` is a button with no name for anyone not looking at it. */
+    it("names the close control and leaves the dialog's own name alone", () => {
+      renderShell({ closeLabel: "Close" });
+
+      expect(closeButton()).toHaveAccessibleName("Close");
+      expect(screen.getByRole("dialog")).toHaveAccessibleName("Add stay");
+    });
+
+    /**
+     * The glyph sits *inside* the head, so without care its name joins the heading's — MUI's
+     * `DialogTitle` is an `<h2>` and name-from-content walks into the button. The heading role moves
+     * down onto the title line instead, which is also the line the dialog is named by.
+     */
+    it("keeps the close control out of the heading's name", () => {
+      renderShell({ closeLabel: "Close" });
+
+      const heading = screen.getByRole("heading");
+      expect(heading).toHaveAccessibleName("Add stay");
+      expect(heading).not.toContainElement(closeButton());
+      // The sub-line is still rendered, just not part of the heading either.
+      expect(screen.getByText("Day 3 · 5/12")).toBeInTheDocument();
+    });
+
+    /** And the shape the three consumers that pass no `closeLabel` keep: the head is the heading. */
+    it("leaves the head as the heading when no closeLabel is given", () => {
+      renderShell();
+
+      expect(screen.getByRole("heading")).toHaveAccessibleName("Add stay Day 3 · 5/12");
+    });
+
+    /**
+     * AC3/AC4 as geometry, against `DESIGN.md.Components → icon-button.close`: 44x44, no fill and no
+     * border at rest, {colors.ink-soft}. Measured off the computed style rather than off the `sx`
+     * literal — the literal cannot tell you the theme's `MuiPaper` border did not land on it.
+     */
+    it("builds the close control to icon-button.close", () => {
+      renderShell({ closeLabel: "Close" });
+      const style = getComputedStyle(closeButton());
+
+      expect(style.width).toBe("44px");
+      expect(style.height).toBe("44px");
+      expect(style.borderStyle === "" || style.borderStyle === "none").toBe(true);
+      // `transparent` resolves to `rgba(0, 0, 0, 0)`, which is what the browser pass measured too.
+      expect(style.backgroundColor).toBe("rgba(0, 0, 0, 0)");
+      // #6B675C — `{colors.ink-soft}`, the token DESIGN.md names for a dismissive icon action.
+      expect(style.color).toBe("rgb(107, 103, 92)");
+    });
+
+    /**
+     * The finding this suite exists for. `theme.ts` scopes the app-wide focus ring to `MuiButton`,
+     * and MUI's `ButtonBase` ships `outline: 0`, so an `IconButton` renders no focus indicator at
+     * all unless it says so itself. EXPERIENCE.md's Accessibility Floor makes a visible focus state
+     * unconditional, and DESIGN.md's `icon-button` entry names the ring explicitly.
+     */
+    it("gives the close control a visible focus ring", () => {
+      renderShell({ closeLabel: "Close" });
+      const button = closeButton();
+
+      // The `before` half is the whole point: `0px` is MUI's `ButtonBase` default, and it is what
+      // this control computed to for the whole of Story 6.24's first pass.
+      expect(getComputedStyle(button).outline).toBe("0px");
+
+      button.classList.add("Mui-focusVisible");
+
+      // jsdom exposes only the shorthand, never the `outlineWidth`/`-Style`/`-Color` longhands.
+      // #2B2A26 is `{colors.ink}` — high contrast against the card white the head sits on.
+      expect(getComputedStyle(button).outline).toBe("2px solid #2B2A26");
+      expect(getComputedStyle(button).outlineOffset).toBe("2px");
+    });
+
+    it("closes on the glyph, on the backdrop and on Escape — one outcome, one handler", async () => {
+      const onClose = vi.fn();
+      renderShell({ closeLabel: "Close", onClose });
+
+      fireEvent.click(closeButton());
+      expect(onClose).toHaveBeenCalledTimes(1);
+
+      fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+      expect(onClose).toHaveBeenCalledTimes(2);
+
+      // MUI renders the backdrop as a sibling of the paper inside the modal root.
+      const backdrop = document.querySelector(".MuiBackdrop-root");
+      expect(backdrop).not.toBeNull();
+      fireEvent.click(backdrop as Element);
+      expect(onClose).toHaveBeenCalledTimes(3);
+    });
+
+    /**
+     * `disableDismiss` is set while a submit or delete is in flight. A dialog that refuses Escape
+     * while honouring the `✕` has not protected anyone's input, so the glyph carries the same guard
+     * the footer's `Abbrechen` used to.
+     */
+    it("disables the glyph and both gestures while disableDismiss is set", () => {
+      const onClose = vi.fn();
+      renderShell({ closeLabel: "Close", onClose, disableDismiss: true });
+
+      expect(closeButton()).toBeDisabled();
+      fireEvent.click(closeButton());
+      fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+      fireEvent.click(document.querySelector(".MuiBackdrop-root") as Element);
+
+      expect(onClose).not.toHaveBeenCalled();
+    });
+  });
 });
 
 describe("no MUI error red anywhere in the form primitives (AC8)", () => {

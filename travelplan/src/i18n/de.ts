@@ -437,13 +437,18 @@ const de: Dictionary = {
   "trips.plan.newItem": "Neues Element",
   "trips.plan.addItem": "Element hinzufügen",
   "trips.plan.editItem": "Element bearbeiten",
-  "trips.plan.saveNew": "Element speichern",
-  "trips.plan.saveUpdate": "Änderungen speichern",
-  "trips.plan.deleteItem": "Löschen",
+  // Story 6.24 — siehe en.ts. Ein Schlüssel für beide Modi, `deleteItem` ist entfallen.
+  "trips.plan.save": "OK",
   // Siehe en.ts: der zugängliche Name gehört jetzt zur ganzen Karte, also muss er sagen, welche.
   "trips.plan.editItemAria": "Planpunkt bearbeiten: {title}",
   "trips.plan.deleteItemAria": "Planpunkt löschen",
   "trips.plan.deleteConfirm": "Diesen Planpunkt löschen?",
+  // Story 6.24 AC3a — siehe en.ts. Der Text nennt, was verloren geht; die sichere Antwort nennt,
+  // was bleibt ("Weiter bearbeiten"), nicht den Mechanismus ("Abbrechen").
+  "trips.plan.discardTitle": "Änderungen verwerfen?",
+  "trips.plan.discardBody": "Deine Änderungen an diesem Planpunkt werden verworfen.",
+  "trips.plan.discardConfirm": "Änderungen verwerfen",
+  "trips.plan.discardKeep": "Weiter bearbeiten",
   // Story 6.22 — siehe en.ts. Diese vier Labels teilen sich eine Zeile auf 390px.
   "trips.plan.tabsLabel": "Bereiche der Aktivität",
   "trips.plan.tabWhat": "Was",
@@ -483,9 +488,10 @@ const de: Dictionary = {
   "trips.plan.saveError": "Plan-Element konnte nicht gespeichert werden. Bitte erneut versuchen.",
   "trips.plan.deleteError": "Plan-Element konnte nicht gelöscht werden. Bitte erneut versuchen.",
   "trips.plan.editItemMissing": "Zu bearbeitender Planpunkt fehlt.",
-  // Story 6.23 — siehe en.ts. "Auf anderen Tag verschieben" ist die Formulierung aus der Anfrage
-  // selbst und damit die verbindliche; `trips.dayTransfer.*` bleibt der Ganztagestransfer.
-  "trips.plan.moveAction": "Auf anderen Tag verschieben",
+  // Story 6.23 — siehe en.ts. `trips.dayTransfer.*` bleibt der Ganztagestransfer.
+  // Story 6.24 AC7 hat die Aktion auf "anderer Tag" gekürzt, damit die Fußzeile in eine Zeile passt;
+  // der ganze Satz erreicht den Nutzer einen Schritt später als `moveDialogTitle`.
+  "trips.plan.moveAction": "anderer Tag",
   "trips.plan.moveDialogTitle": "Auf anderen Tag verschieben",
   "trips.plan.moveDescription":
     "Alles, was an dieser Aktivität gespeichert ist, wird mitverschoben: Titel, Beschreibung, Zeiten, Kosten, Zahlungen, Link, Ort und Fotos. Aktivitäten, die am gewählten Tag schon eingetragen sind, bleiben erhalten.",

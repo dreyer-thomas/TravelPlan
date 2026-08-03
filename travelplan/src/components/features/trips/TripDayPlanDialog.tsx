@@ -13,12 +13,14 @@ import {
   FormControlLabel,
   FormHelperText,
   FormLabel,
+  IconButton,
   Radio,
   RadioGroup,
   SvgIcon,
   Tab,
   Tabs,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
@@ -27,7 +29,7 @@ import FormNotice from "@/components/forms/FormNotice";
 import PhotoUploadField from "@/components/forms/PhotoUploadField";
 import DialogShell from "@/components/ui/DialogShell";
 import FullscreenPhotoViewer from "@/components/ui/FullscreenPhotoViewer";
-import { WarningTriangleIcon } from "@/components/features/trips/TripIcons";
+import { TrashIcon, WarningTriangleIcon } from "@/components/features/trips/TripIcons";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
@@ -136,6 +138,102 @@ export const PLAN_ERROR_TAB: Record<PlanErrorKey, PlanTabId> = {
 const PLAN_ERROR_KEYS_IN_TAB_ORDER = (Object.keys(PLAN_ERROR_TAB) as PlanErrorKey[]).sort(
   (left, right) => PLAN_TAB_IDS.indexOf(PLAN_ERROR_TAB[left]) - PLAN_TAB_IDS.indexOf(PLAN_ERROR_TAB[right]),
 );
+
+/**
+ * Story 6.24 AC1/AC2. The floor under the tab panels, in px.
+ *
+ * **Where the number comes from.** Measured in Chrome at 1400x1000 on one activity, before this
+ * story: the dialog stood at 668px on `Was`, 501px on `Wann & Wo`, 572px on `Kosten` and 660px on
+ * `Medien & Links`. MUI centres a dialog vertically, so that 167px swing landed as ±84px on *both*
+ * edges — and the tab bar is at the top, so the control the user had just clicked moved 84px away
+ * from the pointer. That displacement, not the resize, is what read as restless.
+ *
+ * **What it is not.** This comment used to claim 475 was "the tallest ordinary panel's own height (the
+ * `Was` panel; 485px at 390px)". Both figures were wrong, and the story's own before/after table said
+ * so: `Was` went 668px → 757px, which a floor at the panel's own height could not have done. Story
+ * 6.24's code review re-measured across **18 real activities** at 1400x1000 and 390x844:
+ *
+ * | panel | desktop | 390px |
+ * |---|---|---|
+ * | `Was` | 361–606 | 361–930 |
+ * | `Wann & Wo` | 194 | 406 |
+ * | `Kosten` (single payment) | 266 | 392 |
+ * | `Medien & Links` | 315–354 | 315–354 |
+ *
+ * **So there is no such thing as "the tallest ordinary panel".** `Was` holds the rich-text
+ * description and is therefore unbounded, in exactly the way `Kosten` is unbounded via split-payment
+ * rows (DW-149). No static floor can make AC1 unconditional; what a floor buys is the *range of
+ * activities* over which the frame holds still.
+ *
+ * **Why 475 survives the re-measure.** It clears every non-`Was` panel at both viewports with
+ * headroom (the tallest is 406), and it clears `Was` for 17 of the 18 sampled activities. Measured
+ * outcome: at 1400px **17 of 18 hold perfectly still** (0.0px swing) and the one exception — a long
+ * description at 606px — swings 131px. At 390px 14 of 18 hold still and the worst case is **13.3px**,
+ * because the taller ones run into MUI's `calc(100% - 64px)` cap and are pinned by it instead. Against
+ * the 167px swing and 84px displacement this story set out to remove, that is the defect fixed for the
+ * ordinary case and reduced by an order of magnitude on the phone. The residual is DW-155.
+ *
+ * Raising it further was rejected: covering the 606px outlier costs +131px on *every* activity, and
+ * covering the 930px phone case is impossible below the viewport cap. Lowering it to the tallest
+ * non-`Was` panel (406) would make more activities jump, not fewer.
+ *
+ * Deriving it from the panels at runtime was considered and rejected: it needs a measure-then-set
+ * pass over four panels only one of which is mounted at a time, so the first switch to a taller panel
+ * would still jump — the very thing being fixed.
+ *
+ * **To re-measure:** open the activity dialog against a throwaway DB copy, click each of the four
+ * tabs and read `document.querySelector('[role="tabpanel"]').getBoundingClientRect().height`. That is
+ * the panel's *natural* height even with the floor in place, because the floor is a `minHeight` on a
+ * block parent and a block child is not stretched by it. Sample more than one activity — sampling one
+ * is how the figures above went wrong.
+ */
+export const PLAN_PANEL_MIN_HEIGHT = 475;
+
+/**
+ * `minHeight`, never `height` — and exported so a test can hold that distinction rather than a
+ * source-text grep.
+ *
+ * DW-149 records the `Kosten` panel reaching 1634px at five split-payment rows. A fixed `height`
+ * would either clip it or force a nested scroll inside the dialog's own scroll. AC2 is explicit that
+ * the frame must still be free to *grow*; what it may not do is shrink below the floor.
+ */
+export const PLAN_PANEL_FLOOR_SX = { minHeight: `${PLAN_PANEL_MIN_HEIGHT}px` } as const;
+
+/**
+ * Story 6.24 AC8. The footer is one row at every width, overriding `DialogShell`'s `xs` stack.
+ *
+ * The stack existed because four labels ("Abbrechen", "Auf anderen Tag verschieben", "Löschen",
+ * "Element speichern") could not share a 390px row, so it wrapped them four deep — 243px, 31% of a
+ * 780px dialog. After this story the row is `anderer Tag` + a 44px trash glyph + `OK`, which fits,
+ * so the stack is no longer earning its height.
+ *
+ * **Both breakpoint keys are spelled out, and they have to be.** A plain `flexDirection: "row"` here
+ * looks like it wins — `DialogShell` merges `footerSx` after its own `sx`, and the last entry of an
+ * sx array takes precedence — but it does not. MUI compiles the shell's
+ * `flexDirection: { xs: "column-reverse", sm: "row" }` into two media queries, `@media
+ * (min-width:0px)` and `@media (min-width:600px)`; a bare property deep-merges *alongside* them and
+ * then loses to the `min-width:0px` block, which always matches. The first attempt at this measured
+ * `row` at 1400px (from the untouched `sm` query) and `column-reverse` at 390px — a 132px footer on
+ * the one viewport AC8 is about. Matching the shell's keys replaces its queries instead of sitting
+ * under them. `alignItems` carries the same trap for the same reason: `stretch` at `xs` would pull
+ * every control to the row's full height.
+ *
+ * **`flexWrap` is the safety net the `xs` stack used to be.** `DialogActions` sets no `flex-wrap`, so
+ * forcing `row` at every width removed the mechanism that absorbed a footer too wide for its dialog
+ * and put nothing back. The row measures 174px + 64px inside 278px at 390px — about 40px of slack —
+ * so a 320px viewport, 390px at 125% text zoom, or a translation longer than "anderer Tag" would
+ * have overflowed horizontally instead of stacking. Wrapping degrades to what the stack did, and at
+ * every width above the pinch it changes nothing.
+ */
+export const PLAN_FOOTER_SX = {
+  justifyContent: "space-between",
+  flexDirection: { xs: "row", sm: "row" },
+  alignItems: { xs: "center", sm: "center" },
+  flexWrap: "wrap",
+  // The shell's `gap: 10px` already spaces a single row; this is the gap between wrapped rows, which
+  // only exists once the footer has actually wrapped.
+  rowGap: "10px",
+} as const;
 
 const PLAN_TAB_LABEL_KEYS: Record<PlanTabId, string> = {
   what: "trips.plan.tabWhat",
@@ -353,6 +451,77 @@ const toDateOnly = (value?: string | null) => {
  */
 const TOOLBAR_BUTTON_SX = { minWidth: 44, width: 44, px: 0 } as const;
 
+/**
+ * Story 6.24 AC3a. Every value a user can change on this surface, in one object.
+ *
+ * The dialog already held all of them as dialog-level `useState`, so the dirty check needs no new
+ * machinery — only a copy of what the dialog opened with. This type is that copy's shape, and it is
+ * also what the open effect applies, so seeding and fingerprinting cannot drift apart: a field added
+ * here has to be given a seed value and is watched from that moment.
+ */
+type PlanFormValues = {
+  title: string;
+  fromTime: string;
+  toTime: string;
+  cost: string;
+  paymentMode: "single" | "split";
+  payments: Array<{ amount: string; dueDate: string }>;
+  linkUrl: string;
+  location: { lat: number; lng: number; label?: string | null } | null;
+  contentJson: string;
+  /**
+   * Photos picked but not yet uploaded. A staged file is unsaved input in exactly the way a typed
+   * title is: dismissing the dialog drops it, and nothing else in this form does.
+   *
+   * Note what this does *not* say. `uploadGalleryImages` runs from the Media tab's own `Upload`
+   * button and from nowhere else — `handleSave` never touches `galleryFiles` — so pressing `OK`
+   * discards staged files just as silently as the `✕` used to. That is pre-existing and predates
+   * this story's guard (`Speichern` behaved identically); it is logged as DW-153 because fixing it
+   * means changing what a save does, which AC9 forbids. Watching the count here is still right: the
+   * `✕` genuinely loses them.
+   *
+   * Images *already* on the server are not here: adding and removing those are immediate writes, so
+   * they are not what a discard discards.
+   */
+  pendingPhotoCount: number;
+};
+
+/**
+ * **"Dirty" means: the form's values differ from the ones it opened with.**
+ *
+ * The alternative — a per-field `touched` flag set on the first `onChange` — calls a form dirty after
+ * a user types a character and deletes it again, and would then guard a `✕` that has nothing to
+ * guard. A value comparison also covers the paths no `onChange` sees: the geocode lookup writing
+ * `resolvedLocation`, and the payment rows the two normalisation effects rewrite.
+ *
+ * **Only values a save would persist are here.** `locationQuery` — the text in the location *search*
+ * box — was watched in this story's first version and is not any more: `handleSave` sends
+ * `location: resolvedLocation` and never the query, so an abandoned search term made the `✕` ask
+ * about something no save would have kept. That is the same over-firing the `touched` flag was
+ * rejected for.
+ *
+ * Serialised to a single string so the comparison is one equality rather than ten, and so nested
+ * payment rows compare by value. `location` is spelled out field by field rather than stringified
+ * whole: the object arrives from `JSON.parse` on one path and from the geocode response on another,
+ * and key order is not guaranteed to match between them.
+ *
+ * `contentJson` needs no normalisation here because `setEditorContent` guarantees both sides of the
+ * comparison come from one serializer — see it for why that mattered.
+ */
+const planFormFingerprint = (values: PlanFormValues) =>
+  JSON.stringify([
+    values.title,
+    values.fromTime,
+    values.toTime,
+    values.cost,
+    values.paymentMode,
+    values.payments.map((payment) => [payment.amount, payment.dueDate]),
+    values.linkUrl,
+    values.location ? [values.location.lat, values.location.lng, values.location.label ?? null] : null,
+    values.contentJson,
+    values.pendingPhotoCount,
+  ]);
+
 const buildDefaultPayments = ({
   payments,
   costCents,
@@ -401,6 +570,13 @@ export default function TripDayPlanDialog({
   const [moveTargetDayId, setMoveTargetDayId] = useState("");
   const [moving, setMoving] = useState(false);
   const movingRef = useRef(false);
+  // Story 6.24 AC3a. Raised only when a dismissal arrives at a form that has something to lose.
+  const [discardOpen, setDiscardOpen] = useState(false);
+  /**
+   * The fingerprint of the values this open seeded, written by the open effect below. `null` until
+   * then, which is what keeps a dismissal during the first render from being read as an edit.
+   */
+  const openFingerprint = useRef<string | null>(null);
   const [loadingInit, setLoadingInit] = useState(false);
   const [contentJson, setContentJson] = useState<string>(toDocString(emptyDoc));
   const [titleInput, setTitleInput] = useState<string>("");
@@ -529,33 +705,71 @@ export default function TripDayPlanDialog({
     },
   });
 
-  const resetEditor = useCallback(() => {
-    setContentJson(toDocString(emptyDoc));
-    setTitleInput("");
-    setFromTimeInput("");
-    setToTimeInput("");
-    setCostCentsInput("");
-    setPaymentMode("single");
-    setPayments(buildDefaultPayments({ payments: [], costCents: null, fallbackDate: defaultDueDate }));
-    setPaymentError(null);
-    setPaymentRowErrors([]);
-    setLinkUrl("");
-    setResolvedLocation(null);
-    setLocationQuery("");
-    setFieldErrors({});
-    if (editor) {
-      editor.commands.setContent(emptyDoc, { emitUpdate: false });
-    }
-  }, [defaultDueDate, editor]);
-
+  /**
+   * Loads a stored doc into the editor and returns the string that was actually stored in state.
+   *
+   * The return value is the point. `onUpdate` writes `JSON.stringify(instance.getJSON())` on the
+   * first keystroke, but the value seeded here arrives as the server's raw `contentJson` — and the
+   * two are not byte-identical for any doc TipTap's schema touches on load (a doc written before the
+   * `image`/`link` extensions existed, a node whose attrs the schema fills defaults into, or merely
+   * different key order out of `JSON.parse`). AC3a compares those strings, so a mismatch made a
+   * description read dirty forever: type one character, delete it again, and the `✕` still asked to
+   * discard changes on a visibly unchanged form.
+   *
+   * So the doc is read back out of the editor after `setContent` rather than trusting the string we
+   * were handed. Both sides of the dirty comparison then come from one serializer. `emitUpdate:
+   * false` stays — the read-back is what replaces the update `onUpdate` would otherwise have to
+   * emit, and emitting it would mark the form dirty on open instead.
+   *
+   * When `editor` is still `null` (`immediatelyRender: false` returns null on the first render) the
+   * raw string is stored as-is and nothing can have edited it yet; the open effect re-runs when the
+   * instance appears — `applyPlanFormValues` depends on it — and re-seeds both sides canonically.
+   */
   const setEditorContent = useCallback(
-    (value: string) => {
-      setContentJson(value);
+    (value: string): string => {
       if (editor) {
         editor.commands.setContent(parseDoc(value), { emitUpdate: false });
+        const canonical = JSON.stringify(editor.getJSON());
+        setContentJson(canonical);
+        return canonical;
       }
+      setContentJson(value);
+      return value;
     },
     [editor],
+  );
+
+  /**
+   * Story 6.24. The one place the eleven field states are written together.
+   *
+   * Extracted from the open effect's three near-identical branches so the effect can *compute* the
+   * values it starts from, then apply and fingerprint the same object. Two hand-maintained copies of
+   * the seed — one for the setters, one for the dirty baseline — would drift on the first field the
+   * next story adds, and the failure mode is silent: a `✕` that discards typing without asking.
+   *
+   * It returns what it applied rather than what it was given, because `setEditorContent` canonicalises
+   * the description through the editor. Fingerprinting the argument instead of the return value is
+   * the same two-copies-that-drift bug in miniature, so the caller is given no way to do it.
+   *
+   * `locationQuery` is seeded here but is deliberately absent from `PlanFormValues`: it is a search
+   * box, not a saved field. See `planFormFingerprint`.
+   */
+  const applyPlanFormValues = useCallback(
+    (values: PlanFormValues, locationQuerySeed: string): PlanFormValues => {
+      setTitleInput(values.title);
+      setFromTimeInput(values.fromTime);
+      setToTimeInput(values.toTime);
+      setCostCentsInput(values.cost);
+      setPaymentMode(values.paymentMode);
+      setPayments(values.payments);
+      setPaymentError(null);
+      setPaymentRowErrors([]);
+      setLinkUrl(values.linkUrl);
+      setResolvedLocation(values.location);
+      setLocationQuery(locationQuerySeed);
+      return { ...values, contentJson: setEditorContent(values.contentJson) };
+    },
+    [setEditorContent],
   );
 
   useEffect(() => {
@@ -572,42 +786,73 @@ export default function TripDayPlanDialog({
     // the next one's dialog should inherit.
     setMoveOpen(false);
     setMoveTargetDayId("");
+    setDiscardOpen(false);
     setLoadingInit(true);
 
+    let seed: PlanFormValues;
+    // The location *search* box's seed. Outside `PlanFormValues` because it is not a saved value and
+    // so must not reach the dirty fingerprint — see `planFormFingerprint`.
+    let locationQuerySeed: string;
     if (mode === "edit" && item) {
-      setTitleInput(item.title ?? "");
-      setFromTimeInput(item.fromTime ?? "");
-      setToTimeInput(item.toTime ?? "");
-      setCostCentsInput(item.costCents !== null ? formatCentsAsAmount(item.costCents) : "");
-      const initialMode = item.payments && item.payments.length > 1 ? "split" : "single";
+      seed = {
+        title: item.title ?? "",
+        fromTime: item.fromTime ?? "",
+        toTime: item.toTime ?? "",
+        cost: item.costCents !== null ? formatCentsAsAmount(item.costCents) : "",
+        paymentMode: item.payments && item.payments.length > 1 ? "split" : "single",
+        payments: buildDefaultPayments({
+          payments: item.payments,
+          costCents: item.costCents,
+          fallbackDate: defaultDueDate,
+        }),
+        linkUrl: item.linkUrl ?? "",
+        location: item.location ?? null,
+        contentJson: item.contentJson,
+        pendingPhotoCount: 0,
+      };
+      locationQuerySeed = item.location?.label ?? "";
+      // The two payment effects below would otherwise rewrite the rows this seed just restored.
       skipPaymentNormalization.current = true;
       skipCostSync.current = true;
-      setPaymentMode(initialMode);
-      setPayments(buildDefaultPayments({ payments: item.payments, costCents: item.costCents, fallbackDate: defaultDueDate }));
-      setPaymentError(null);
-      setPaymentRowErrors([]);
-      setLinkUrl(item.linkUrl ?? "");
-      setResolvedLocation(item.location ?? null);
-      setLocationQuery(item.location?.label ?? "");
-      setEditorContent(item.contentJson);
     } else if (mode === "add" && prefill) {
-      setTitleInput(prefill.title ?? "");
-      setFromTimeInput("");
-      setToTimeInput("");
-      setCostCentsInput("");
-      setPaymentMode("single");
-      setPayments(buildDefaultPayments({ payments: [], costCents: null, fallbackDate: defaultDueDate }));
-      setPaymentError(null);
-      setPaymentRowErrors([]);
-      setLinkUrl("");
-      setResolvedLocation(prefill.location ?? null);
-      setLocationQuery(prefill.location?.label ?? "");
-      setEditorContent(prefill.contentJson);
+      seed = {
+        title: prefill.title ?? "",
+        fromTime: "",
+        toTime: "",
+        cost: "",
+        paymentMode: "single",
+        payments: buildDefaultPayments({ payments: [], costCents: null, fallbackDate: defaultDueDate }),
+        linkUrl: "",
+        location: prefill.location ?? null,
+        contentJson: prefill.contentJson,
+        pendingPhotoCount: 0,
+      };
+      locationQuerySeed = prefill.location?.label ?? "";
     } else {
-      resetEditor();
+      seed = {
+        title: "",
+        fromTime: "",
+        toTime: "",
+        cost: "",
+        paymentMode: "single",
+        payments: buildDefaultPayments({ payments: [], costCents: null, fallbackDate: defaultDueDate }),
+        linkUrl: "",
+        location: null,
+        contentJson: toDocString(emptyDoc),
+        pendingPhotoCount: 0,
+      };
+      locationQuerySeed = "";
     }
+
+    // AC3a's baseline, taken from what was *applied* rather than from `seed`: `setEditorContent`
+    // canonicalises the description through the editor, and fingerprinting the pre-canonical string
+    // would leave the form dirty from the first keystroke onward on any doc TipTap normalises.
+    //
+    // A prefilled dialog is *not* dirty on arrival: the bucket-list prefill and the activity being
+    // edited are both values the user is looking at rather than values they entered.
+    openFingerprint.current = planFormFingerprint(applyPlanFormValues(seed, locationQuerySeed));
     setLoadingInit(false);
-  }, [defaultDueDate, item, mode, open, prefill, resetEditor, setEditorContent]);
+  }, [applyPlanFormValues, defaultDueDate, item, mode, open, prefill]);
 
   useEffect(() => {
     if (!open || !day) return;
@@ -739,7 +984,9 @@ export default function TripDayPlanDialog({
     return formatMessage(t("trips.plan.title"), { index: day.dayIndex });
   }, [day, t]);
 
-  const saveLabel = mode === "edit" ? t("trips.plan.saveUpdate") : t("trips.plan.saveNew");
+  // Story 6.24 AC6. One key for both modes: after this story the word is "OK" either way, and two
+  // keys holding one word is the shape Story 6.17 named a trap on `common.save`.
+  const saveLabel = t("trips.plan.save");
   const isBusy = saving || deleting || moving || loadingInit;
   const canDelete = Boolean(editingItemId && onDelete);
   /**
@@ -976,6 +1223,68 @@ export default function TripDayPlanDialog({
     }
   };
 
+  /**
+   * The form's values as they stand, in the shape the open effect fingerprinted.
+   *
+   * `galleryFiles.length` rather than `galleryFiles`: the array identity changes on every render of
+   * the upload field, the count is what the discard question actually turns on.
+   */
+  const currentFingerprint = useMemo(
+    () =>
+      planFormFingerprint({
+        title: titleInput,
+        fromTime: fromTimeInput,
+        toTime: toTimeInput,
+        cost: costCentsInput,
+        paymentMode,
+        payments,
+        linkUrl,
+        location: resolvedLocation,
+        contentJson,
+        pendingPhotoCount: galleryFiles.length,
+      }),
+    [
+      contentJson,
+      costCentsInput,
+      fromTimeInput,
+      galleryFiles.length,
+      linkUrl,
+      paymentMode,
+      payments,
+      resolvedLocation,
+      titleInput,
+      toTimeInput,
+    ],
+  );
+
+  /**
+   * Story 6.24 AC3a. Every dismissal that does not commit anything comes through here: the title
+   * row's `✕`, the backdrop, and Escape — `DialogShell` routes all three at its `onClose`.
+   *
+   * An untouched dialog closes silently. One the user has typed into asks once, because the exit it
+   * used to have was a labelled `Abbrechen` in the footer and is now a 44px glyph in the corner:
+   * easier to hit by accident, and carrying no word for what it costs. This dialog is where
+   * EXPERIENCE.md's pattern is proven because it is where there is most to lose — four tabs, eleven
+   * fields and a rich-text description.
+   *
+   * `handleDelete`, `handleMoveConfirm` and a successful save deliberately do **not** come through
+   * here. Each of them is a committed decision about this activity, and re-asking "discard your
+   * changes?" after the user has just deleted the thing those changes belonged to is noise.
+   */
+  const handleCloseRequest = useCallback(() => {
+    if (isBusy) return;
+    if (openFingerprint.current !== null && currentFingerprint !== openFingerprint.current) {
+      setDiscardOpen(true);
+      return;
+    }
+    onClose();
+  }, [currentFingerprint, isBusy, onClose]);
+
+  const handleDiscardConfirm = useCallback(() => {
+    setDiscardOpen(false);
+    onClose();
+  }, [onClose]);
+
   const handleDelete = useCallback(async () => {
     if (!editingItemId || !onDelete) return;
     setDeleting(true);
@@ -1197,31 +1506,35 @@ export default function TripDayPlanDialog({
     <>
     <DialogShell
       open={open}
-      onClose={onClose}
+      // Story 6.24 AC3a. Not `onClose`: the backdrop and Escape arrive here too, and all three
+      // dismissals owe the user the same question when there is typing to lose.
+      onClose={handleCloseRequest}
       title={title}
       subtitle={subtitle ?? undefined}
       // Screen G's `.dialog.w-520`, down from MUI's `maxWidth="md"` (900px). The TipTap toolbar and
       // the payment rows are the two blocks that have to survive the narrowing — both wrap rather
       // than compress, and both are measured in the browser check.
       width={520}
-      // Same guard as the accommodation dialog: Cancel is disabled while `isBusy`, so the two
-      // dismissal gestures must be too.
+      // Same guard the footer's Cancel button used to carry, now covering the `✕` as well as the two
+      // gestures — `DialogShell` disables the glyph on the same flag.
       disableDismiss={isBusy}
+      // Story 6.24 AC3/AC4. `Abbrechen` left the footer for the title row, as a named 44px `✕`.
+      // `common.close` already existed with two readers, so this reuses it rather than adding a
+      // second key for the same word.
+      closeLabel={t("common.close")}
       footer={
         <>
-          {/* No `alignItems` override: DialogShell stretches footer children to full width at xs and
-              centres them from sm up, and this group opts into that rather than out of it. */}
-          <Box sx={{ display: "flex", flexDirection: { xs: "column-reverse", sm: "row" }, gap: "10px" }}>
-            <Button variant="outlined" onClick={onClose} disabled={isBusy}>
-              {t("common.cancel")}
-            </Button>
+          {/* AC8. A row at every width now: the group is one text label and one 44px glyph, which
+              fits a 390px footer beside `OK` — the four full labels it replaced did not. */}
+          <Box sx={{ display: "flex", flexDirection: "row", alignItems: "center", gap: "10px" }}>
             {canMove ? (
               /*
                 Story 6.23 AC1. In the action area, not among the fields and not inside a tab panel:
                 moving is an operation on the whole activity, so putting it on `Wann & Wo` (the tab
-                whose subject is closest) would say it belongs to that tab's fields. Same `text` +
-                `tokens.ink` treatment as Delete — a secondary action on this surface, and not
-                destructive enough to earn anything louder.
+                whose subject is closest) would say it belongs to that tab's fields.
+
+                Story 6.24 AC7 shortened the label to "anderer Tag"; the dialog it opens still carries
+                the whole sentence, so nothing is lost — only deferred by one step.
               */
               <Button
                 variant="text"
@@ -1231,25 +1544,66 @@ export default function TripDayPlanDialog({
                    mid-upload makes every remaining photo 404 — and this dialog is already closed by
                    then, so the user never sees the failure. */
                 disabled={isBusy || galleryBusy}
-                sx={{ color: tokens.ink }}
+                sx={{ color: tokens.ink, whiteSpace: "nowrap" }}
               >
                 {t("trips.plan.moveAction")}
               </Button>
             ) : null}
             {canDelete ? (
               /*
-                No `color="error"` (AC8). `handleDeleteClick` + `onTouchEnd`'s two-tap confirm is kept
-                verbatim — it is the only delete confirmation this dialog has.
+                Story 6.24 AC5. The label became a trash glyph, so this is now an `icon-button` and
+                built to DESIGN.md's entry for one: 44x44, ~20px glyph, no fill at rest.
+
+                It is the destructive action becoming the least-labelled control in the footer, which
+                is a real trade — an icon is faster to reach and slower to read. Two things keep it
+                honest and both are load-bearing rather than decorative: `deleteItemAria`
+                ("Planpunkt löschen") is the accessible name *and* the tooltip, and `TripDayView`'s
+                confirmation still stands between this click and the deletion.
+
+                A real `Tooltip` rather than the native `title` attribute, and Trap 3 is why: `title`
+                never fires on keyboard focus and never on touch, so on the one control whose word
+                this story removed it would have reached mouse users alone. `TripDayMapPanel` and
+                `TripOverviewMapPanel` already use this shape for their icon-only buttons.
+
+                `{colors.ink}` and not `{colors.warn}`: DESIGN.md permits warn "only where the action
+                is destructive *and* already confirmed elsewhere", which this is — the confirmation
+                lives in `TripDayView.handleDeletePlan`. So warn was available and `ink` is a choice
+                rather than a constraint: warn would make this the loudest thing in a footer whose
+                committing action is a plain `OK`, and DESIGN.md gives `ink` for "actions that change
+                something".
+
+                `handleDeleteClick` + `onTouchEnd` is kept verbatim. It is not a confirmation — it is
+                the guard against a touch firing `touchend` and `click` for one tap.
               */
-              <Button
-                variant="text"
-                onClick={handleDeleteClick}
-                onTouchEnd={handleDeleteTouchEnd}
-                disabled={isBusy}
-                sx={{ color: tokens.ink }}
-              >
-                {t("trips.plan.deleteItem")}
-              </Button>
+              <Tooltip title={t("trips.plan.deleteItemAria")} enterDelay={0}>
+                {/* MUI's documented wrapper: a disabled button fires no events, so `Tooltip` cannot
+                    listen to one. It takes over the flex sizing so the footer row is unchanged. */}
+                <Box component="span" sx={{ display: "inline-flex", flex: "0 0 auto" }}>
+                <IconButton
+                  aria-label={t("trips.plan.deleteItemAria")}
+                  onClick={handleDeleteClick}
+                  onTouchEnd={handleDeleteTouchEnd}
+                  disabled={isBusy}
+                  data-testid="plan-delete-action"
+                  sx={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: "6px",
+                    color: tokens.ink,
+                    // As on `DialogShell`'s `✕`, and for the same reason: `theme.ts` scopes the
+                    // app-wide focus ring to `MuiButton`, so this control silently lost the ring it
+                    // carried as a `<Button variant="text">` when it became an `IconButton`. On the
+                    // destructive action that is a regression, not a cosmetic gap.
+                    "&.Mui-focusVisible": {
+                      outline: `2px solid ${tokens.ink}`,
+                      outlineOffset: "2px",
+                    },
+                  }}
+                >
+                  <TrashIcon sx={{ fontSize: 20 }} />
+                </IconButton>
+                </Box>
+              </Tooltip>
             ) : null}
           </Box>
           <Button variant="contained" onClick={handleSave} disabled={isBusy || !day}>
@@ -1257,7 +1611,7 @@ export default function TripDayPlanDialog({
           </Button>
         </>
       }
-      footerSx={{ justifyContent: "space-between" }}
+      footerSx={PLAN_FOOTER_SX}
     >
         <Box display="flex" flexDirection="column" gap="18px">
           {serverError && <FormNotice tone="warn" message={serverError} />}
@@ -1331,6 +1685,16 @@ export default function TripDayPlanDialog({
             })}
           </Tabs>
 
+          {/*
+            Story 6.24 AC1/AC2. The floor, wrapping all four panels rather than sitting on each of
+            them: one element carries the number, so a fifth panel inherits the behaviour instead of
+            having to remember it, and a panel cannot be added below the floor by omission.
+
+            Every panel stays top-aligned inside it, so a short one shows empty space underneath —
+            which is what was asked for — while a tall one (`Kosten` at five payment rows, 1634px per
+            DW-149) simply exceeds the floor and scrolls with the dialog body as it always did.
+          */}
+          <Box data-testid="plan-tabpanel-floor" sx={PLAN_PANEL_FLOOR_SX}>
           {activeTab === "what" && (
             <Box
               role="tabpanel"
@@ -1759,6 +2123,7 @@ export default function TripDayPlanDialog({
               />
             </Box>
           )}
+          </Box>
         </Box>
     </DialogShell>
       {/*
@@ -1827,6 +2192,33 @@ export default function TripDayPlanDialog({
           </DialogActions>
         </Dialog>
       ) : null}
+      {/*
+        Story 6.24 AC3a — EXPERIENCE.md.State Patterns → "Dismissing a dialog with unsaved input".
+
+        Asked once, and only when there is something to lose: `handleCloseRequest` never raises this
+        for an untouched form. The two answers stay on equal footing because both are real outcomes,
+        and the safe one names what it keeps ("Weiter bearbeiten") rather than the mechanism
+        ("Abbrechen") — Voice and Tone. `color="error"` on the discard follows `TripDeleteDialog`,
+        which is the app's existing shape for "the destructive half of a pair".
+
+        Escape and the backdrop resolve to keeping, which is the same safe default as the button.
+      */}
+      <Dialog open={discardOpen} onClose={() => setDiscardOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>{t("trips.plan.discardTitle")}</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ color: tokens.inkSoft }} data-testid="plan-discard-body">
+            {t("trips.plan.discardBody")}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button variant="outlined" onClick={() => setDiscardOpen(false)}>
+            {t("trips.plan.discardKeep")}
+          </Button>
+          <Button color="error" variant="contained" onClick={handleDiscardConfirm}>
+            {t("trips.plan.discardConfirm")}
+          </Button>
+        </DialogActions>
+      </Dialog>
       <FullscreenPhotoViewer
         open={fullscreenIndex !== null}
         images={galleryPreviews}
