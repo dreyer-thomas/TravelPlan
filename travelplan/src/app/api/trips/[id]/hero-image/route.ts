@@ -3,6 +3,7 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import { apiError } from "@/lib/errors/apiError";
 import { fail, ok } from "@/lib/http/response";
+import { declaredBodyExceedsFileLimit } from "@/lib/http/bodyLimit";
 import { hasTripOwnerAccess } from "@/lib/auth/tripAccess";
 import { CSRF_COOKIE_NAME, validateCsrf } from "@/lib/security/csrf";
 import { getTripByIdForUser, updateTripHeroImageForUser } from "@/lib/repositories/tripRepo";
@@ -69,6 +70,14 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
   const trip = await getTripByIdForUser(userId, tripId);
   if (!trip) {
     return fail(apiError("not_found", "Trip not found"), 404);
+  }
+
+  // Before `formData()` below - not before the buffering, which the middleware already did. Over
+  // `proxyClientMaxBodySize` (20 MB since Story 2.34) that buffer is *truncated*, not refused, so
+  // `formData()` throws and an oversized-but-intact upload becomes `invalid_form_data`. The size is
+  // the real problem and this is the message that says so. See `bodyLimit.ts`.
+  if (declaredBodyExceedsFileLimit(request, MAX_FILE_SIZE_BYTES)) {
+    return fail(apiError("validation_error", "Hero image exceeds size limit"), 400);
   }
 
   let formData: FormData;

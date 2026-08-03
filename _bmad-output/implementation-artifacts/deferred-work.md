@@ -1228,3 +1228,33 @@ severity: low
 summary: `detail?.trip.accessRole ? detail.trip.accessRole === "owner" : true` opens the owner-only controls — now Delete, Share and Export — to anyone whose trip payload arrives without an `accessRole` field. The fallback is permissive where every other guard in the app is restrictive.
 evidence: Unreachable today and therefore low: `getTripAccessForUser` (`src/lib/auth/tripAccess.ts:21-59`) always sets the role and the detail route forwards it (`src/app/api/trips/[id]/route.ts:47,172`), so no live response omits the field — verified during this story's review, not assumed. It is recorded because Story 2.33 makes the consequence larger than it was: the export button is the third owner-only control riding on this flag, and the failure mode it would produce for a non-owner is precisely the ungated-button-yields-404 defect Story 7.8 removed the old export button over. Pre-existing and explicitly out of 2.33's scope (its Dev Notes forbid changing the fallback). Fix is to default the two flags to `false` and let the loading state cover the gap, which needs a check of every consumer — the same expression exists in `TripDayView.tsx` and both feed several controls.
 status: open
+
+### DW-142: The v1 fallback still materialises the whole upload, plus a second copy as a JS string
+
+source_spec: `_bmad-output/implementation-artifacts/2-34-import-archive-from-disk.md`
+origin: 2-34-import-archive-from-disk, code review, 2026-08-03
+location: `travelplan/src/app/api/trips/import/route.ts:215-225` (the `!looksLikeZipFile` branch), same shape in the `request.json()` branch at `:150-159`
+severity: medium
+summary: Story 2.34 made the ZIP path disk-backed, but the container is chosen by magic bytes, so anything whose first four bytes are not `PK\x03\x04`/`PK\x05\x06` takes the v1 branch and is read whole with `fs.readFile` and then converted with `bytes.toString("utf8")` — a second, wider copy. 300 MB of noise is roughly 1 GB resident before `JSON.parse` even fails.
+evidence: Measured during review: 100 MB of random bytes cost +189 MB for the string alone and 321 MB peak. Deliberately not fixed in 2.34. It is not a regression — the pre-story multipart path held four copies of the same upload and this one holds two — but it is the last unbounded materialisation on the route, and `importLimits.ts` now claims the opposite. A cap is the obvious fix and is exactly what AC8 forbids ("v1 JSON backups … behave exactly as today"), so it needs its own story and a decision on what a v1 backup may legitimately weigh. Note the same shape sits in the untouched `application/json` branch, which 2.34 did not go near.
+status: open
+
+### DW-143: Nothing bounds concurrent imports, so the temp-file disk cost is N × 300 MB
+
+source_spec: `_bmad-output/implementation-artifacts/2-34-import-archive-from-disk.md`
+origin: 2-34-import-archive-from-disk, code review, 2026-08-03
+location: `travelplan/src/app/api/trips/import/route.ts:168-176`, `travelplan/src/lib/trips/importLimits.ts:11-46`
+severity: medium
+summary: `MAX_IMPORT_PACKAGE_BYTES`'s rewritten docblock names "temp-file disk per concurrent import" as the first reason the ceiling stays at 300 MB, but no guard enforces a concurrency limit. Each in-flight import holds up to 300 MB in `os.tmpdir()` for the life of a request whose transaction budget is 120 s.
+evidence: The reason is stated in the code and the guard is not written — found by review, not by failure. Trading memory for disk was the whole point of 2.34, so the resource that now scales with concurrency is the one nothing counts; on the production box `os.tmpdir()` is `/tmp`, shared with the second application the story's Dev Notes describe. Out of scope for 2.34, which was asked to remove the memory coupling and did. Fix is a small in-process counter answering 503 past a ceiling, which needs a decision on what that ceiling is for a single-box deployment.
+status: open
+
+### DW-144: `tripImportRequestSchema` puts no ceiling on the manifest, so `trip.json` is bounded only by the ZIP reader
+
+source_spec: `_bmad-output/implementation-artifacts/2-34-import-archive-from-disk.md`
+origin: 2-34-import-archive-from-disk, follow-up code review, 2026-08-03
+location: `travelplan/src/lib/validation/tripImportSchemas.ts`, ceiling currently enforced in `travelplan/src/lib/trips/zipReader.ts` (`MAX_MEMBER_UNCOMPRESSED_BYTES`)
+severity: low
+summary: The row caps in `importLimits.ts` do not bound the manifest anywhere near a size worth caring about — `MAX_IMPORT_DAYS` 7300 × `MAX_IMPORT_SEGMENTS_PER_DAY` 200 admits well over a million segments, and day-plan items per day are not capped at all — so the de-facto ceiling on `trip.json` is `MAX_MEMBER_UNCOMPRESSED_BYTES` (64 MB) in the ZIP reader, and a manifest that trips it is refused with "Archive entry is larger than this reader will read: trip.json", a message about the reader's internals rather than about the payload.
+evidence: Found by review of Story 2.34, whose per-member cap is what made the reader the effective limit; the miscount was in that cap's own justification, which cited the row caps as bounding the manifest "in practice" and has been corrected in place. No real backup comes close — a genuine manifest is a few hundred kilobytes — so nothing user-facing is broken today and this is not a regression: before 2.34 nothing bounded the manifest at all. What is deferred is the right fix, which is a size or item ceiling in the schema so the refusal comes with a message about the backup, plus deciding what a legitimate manifest may weigh. That decision is the same one DW-142 needs for a v1 payload and the two should probably be taken together.
+status: open

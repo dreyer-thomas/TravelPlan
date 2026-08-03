@@ -92,6 +92,46 @@ describe("POST /api/trips/[id]/hero-image", () => {
     expect(payload.error?.code).toBe("validation_error");
   });
 
+  it("refuses an upload by its declared size instead of letting a truncated body look damaged", async () => {
+    // Story 2.34 lowered `proxyClientMaxBodySize` from 320 MB to 20 MB, and Next *truncates* over the
+    // cap rather than refusing - so a 25 MB photo would make `request.formData()` throw and answer
+    // `invalid_form_data` "Request body must be valid form data" for a file whose only problem is its
+    // size. At 320 MB nothing real ever reached that cliff; at 20 MB this does. The `content-length`
+    // pre-check is what keeps the accurate message.
+    const user = await prisma.user.create({
+      data: { email: "hero-oversize@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const token = await createSessionJwt({ sub: user.id, role: user.role });
+
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Oversize Hero Trip",
+      startDate: "2026-09-01T00:00:00.000Z",
+      endDate: "2026-09-02T00:00:00.000Z",
+    });
+
+    // The body itself is a stub: the point is that nothing reads it.
+    const request = new NextRequest(`http://localhost/api/trips/${trip.id}/hero-image`, {
+      method: "POST",
+      headers: {
+        cookie: `session=${token}; csrf_token=csrf-token`,
+        "x-csrf-token": "csrf-token",
+        "content-type": "multipart/form-data; boundary=xyz",
+        "content-length": String(25 * 1024 * 1024),
+      },
+      body: "--xyz--",
+    });
+    // `Promise.resolve` and not the bare object the older tests in this file pass: Next 16 types
+    // `params` as a promise, and matching the type keeps this from adding to the known baseline of
+    // `tsc` errors in the suites.
+    const response = await POST(request, { params: Promise.resolve({ id: trip.id }) });
+    const payload = (await response.json()) as ApiEnvelope<null>;
+
+    expect(response.status).toBe(400);
+    expect(payload.error?.code).toBe("validation_error");
+    expect(payload.error?.message).toContain("exceeds size limit");
+  });
+
   it("does not delete existing hero images for other-user uploads", async () => {
     const owner = await prisma.user.create({
       data: {

@@ -11,24 +11,58 @@
 /**
  * Ceiling on an uploaded backup.
  *
- * **Not just a policy number — a memory ceiling.** The import buffers the whole archive: Next
- * buffers the body for the middleware (`/api/trips/:path*` is in its matcher), `request.formData()`
- * materialises it again as a `File`, `readZipMembers` takes it as one `Buffer`, and each extracted
- * member is copied out of that. Peak resident memory runs roughly 3–4× the archive. The export does
- * *not* share this shape — `createZipStream` reads one member at a time — so the two directions have
- * very different ceilings.
+ * **A policy number again, as of Story 2.34.** It used to be a memory ceiling: the import buffered
+ * the whole archive four times over — Next's middleware body buffer, `request.formData()`'s `File`,
+ * the `Buffer` handed to `readZipMembers`, and every member copied out of it — so peak resident
+ * memory ran roughly 3–4× the archive and this constant was really a statement about the box's RAM.
+ * None of those four copies exists now: `/api/trips/import` is out of the middleware matcher, the
+ * body is streamed to a temp file, the ZIP is read through a file descriptor, and members are
+ * materialised one at a time. **For a ZIP body**, peak memory is bounded by the largest single
+ * member, and what bounds *that* is `MAX_MEMBER_UNCOMPRESSED_BYTES` (64 MB) in `zipReader.ts`,
+ * applied to a member's compressed *and* uncompressed declared size in `openZipArchive`'s
+ * central-directory loop before anything is read or inflated — one member's worth for the STORE
+ * members this app exports, two for a DEFLATE member re-zipped by a desktop tool, whose compressed
+ * input has to stay live while the inflate runs. Not `MAX_IMPORT_PHOTO_BYTES` — that one
+ * is applied by `validatePackagePhotos`, which sees a member's bytes only after `PhotoSource.read`
+ * has already allocated them, so it never bounded an allocation at all. A single 378 KB DEFLATE
+ * member declaring 398 MB produced 771 MB of peak RSS on 2026-08-03; the per-member cap is what
+ * closed that, and capping the compressed side too is what stopped a member from declaring a
+ * kilobyte while carrying 300 MB of payload `readMember` had to read before inflating it.
  *
- * Raised from 100 MB on 2026-08-02 because it made real backups unrestorable: the production trips
- * measured 113 MB and 217 MB of photos, and a STORE-only archive is essentially the sum of those
- * bytes. 300 MB covers them with headroom on a 3.8 GB box (2.9 GB available, no swap) while leaving
- * room for the second application sharing it. It is not a number that scales — at ~600 MB the peak
- * would exceed the box regardless of this constant. The durable fix is to read the archive from disk
- * instead of from memory, which is filed as its own story.
+ * The qualifier is load-bearing: a body that is *not* a ZIP takes the v1 branch, which materialises
+ * it whole and again as a string. That is inherent to `JSON.parse` and is recorded as DW-142. Both
+ * non-ZIP paths are at least bounded by this constant now — the `application/json` branch counts the
+ * bytes it reads rather than trusting `content-length`, because taking the route out of the
+ * middleware matcher removed the only ceiling that branch had.
  *
- * Three limits must agree, and this is the smallest of them:
+ * **Kept at 300 MB anyway, for three reasons that are not RAM.** Raising it is a bigger change than
+ * it looks:
+ *
+ *   1. *Temp-file disk.* Each concurrent import occupies its own upload's worth of `/tmp` for the
+ *      duration of the request, and that space is shared with everything else on the box.
+ *   2. *Request duration.* An import is a single interactive Prisma transaction bounded at 120s
+ *      (`tripRepo.ts`), plus a post-commit disk phase. A backup large enough to overrun that fails
+ *      after doing all of the work, which is the worst outcome available.
+ *   3. *The other limit moves with it, and it is not in this repo.* nginx's
+ *      `client_max_body_size` lives on the server, so a raise here that is not mirrored there turns
+ *      into a 413 from the proxy that this app never sees and cannot explain.
+ *
+ * What it does *not* protect against any more is the process being killed. The 2026-08-02 note that
+ * "at ~600 MB the peak would exceed the box regardless of this constant" is obsolete — the peak no
+ * longer tracks the archive at all. Should a real backup ever exceed 300 MB, the change is a
+ * coordinated bump of the two numbers below, not a re-architecture.
+ *
+ * **Two limits must agree on this route, not three.** Next's `proxyClientMaxBodySize` used to be one
+ * of them, but it is a ceiling on bodies the *middleware* buffers and `/api/trips/import` is no
+ * longer in the matcher, so it does not apply to an import at all — it was lowered to 20 MB on
+ * 2026-08-03 for the four image upload routes it does still cover. What is left:
  *   - this constant                                  300 MB  (what the handler accepts)
- *   - `next.config.ts` `proxyClientMaxBodySize`      320 MB  (multipart adds boundaries and headers)
  *   - the reverse proxy's `client_max_body_size`     320m    (nginx defaults to 1 MB)
+ *
+ * The 20 MB gap is still the multipart framing, and the outer number still has to be the larger one:
+ * whatever this app refuses, it must refuse with its own `file_too_large` message rather than have
+ * the proxy refuse it first with a bare 413. A raise here is still a coordinated change with nginx,
+ * which is not in this repo.
  */
 export const MAX_IMPORT_PACKAGE_BYTES = 300 * 1024 * 1024;
 
@@ -63,8 +97,8 @@ export const MAX_IMPORT_PHOTO_WRITES = 5000;
  * Ceiling on the total bytes one import may write to disk.
  *
  * `MAX_IMPORT_PHOTO_WRITES` bounds the *count* but not the volume: 5000 references × the 15 MB
- * per-photo ceiling is still ~75 GB from a package that cannot itself exceed 100 MB. Only a byte
- * cap closes that, because only it prices a reference by what the reference actually costs.
+ * per-photo ceiling is still ~75 GB from a package that cannot itself exceed `MAX_IMPORT_PACKAGE_BYTES`.
+ * Only a byte cap closes that, because only it prices a reference by what the reference actually costs.
  *
  * Ten times `MAX_IMPORT_PACKAGE_BYTES`. A backup's *distinct* photo bytes are bounded by the
  * package, so a legitimate restore writes roughly what it carries; the only way past that is real

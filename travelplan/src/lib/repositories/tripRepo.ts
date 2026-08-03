@@ -7,7 +7,12 @@ import type { TravelSegmentItemType, TravelTransportType } from "@/generated/pri
 import type { TripAccessRole } from "@/lib/auth/tripAccess";
 import { buildDayMapPanelData, buildTripDayMapItems, type TripDayMapPanelData } from "@/lib/trips/dayMapData";
 import { getTripUploadDir, resolvePublicFilePath } from "@/lib/trips/uploadPaths";
-import { sniffPhotoContentType } from "@/lib/trips/importPackage";
+import {
+  PHOTO_SIGNATURE_HEAD_BYTES,
+  sniffPhotoContentType,
+  toPhotoSource,
+  type PhotoSource,
+} from "@/lib/trips/importPackage";
 import type { TransportType } from "@/lib/trips/transportTypes";
 import {
   discardStashedTripUploadDir,
@@ -2057,10 +2062,20 @@ export const importTripFromExportForUser = async ({
   strategy?: TripImportConflictStrategy;
   targetTripId?: string;
   /**
-   * Archive member path to bytes, from `parseImportPackage`. Omitted by the legacy JSON wire path,
-   * which can only carry a v1 payload or a v2 manifest with an empty pool.
+   * Archive member path to bytes, from `parseImportPackage`, or the lazy `PhotoSource` from
+   * `openImportPackage` - the multipart route hands over the latter, which reads one member at a
+   * time out of the temp file the upload was streamed to (Story 2.34). Omitted by the legacy JSON
+   * wire path, which can only carry a v1 payload or a v2 manifest with an empty pool.
+   *
+   * **Caller ordering, and it is a real precondition rather than a convention:**
+   * `validatePackagePhotos` must already have run over this same source. The pool sniff below reads
+   * twelve bytes per photo through `PhotoSource.head`, which verifies *nothing* - a prefix cannot be
+   * checked against a CRC-32 of the whole member - and that is only safe because validation has by
+   * then read every pooled member in full and checked each one's CRC-32. A caller that skips it gets
+   * a file named after unverified bytes. This function is exported, so the requirement is written
+   * down here rather than left implicit in the route's call order.
    */
-  photoBytes?: Map<string, Buffer>;
+  photoBytes?: PhotoSource | Map<string, Buffer>;
 }): Promise<ImportTripResult> => {
   const sameNameTrips = await prisma.trip.findMany({
     where: {
@@ -2082,7 +2097,7 @@ export const importTripFromExportForUser = async ({
   }
 
   const sortedDays = sortImportDays(payload.days);
-  const availablePhotoBytes = photoBytes ?? new Map<string, Buffer>();
+  const availablePhotoBytes = toPhotoSource(photoBytes ?? new Map<string, Buffer>());
   // Gallery file names are generated in a single tick, so `Date.now()` is constant across the whole
   // import; this set is what keeps two photos in one gallery from colliding on it.
   const takenFileNames = new Set<string>();
@@ -2105,14 +2120,24 @@ export const importTripFromExportForUser = async ({
    * export can declare `image/jpeg` for PNG bytes. The extension written to disk has to describe
    * the file's real contents, or the app serves a `.jpg` that is not one.
    *
+   * `PhotoSource.head` addresses a STORE member's prefix directly rather than materialising a 15 MB
+   * photo to look at three of its bytes, which matters because this walks the whole pool a second
+   * time after `validatePackagePhotos` already has. That is the twelve-byte read this app's own
+   * exports get, since `zipArchive.ts` writes STORE members. A backup re-zipped by Finder or Explorer
+   * arrives DEFLATE, where there is no addressable prefix - `head` falls back to a full `readMember`
+   * and this pass costs a second inflate per photo. Bounded per member either way
+   * (`MAX_MEMBER_UNCOMPRESSED_BYTES`), so it is a duration cost rather than a memory one, and it is
+   * the reason not to add a third pass here.
+   *
    * `validatePackagePhotos` has already rejected anything matching no signature, so a `null` here
    * means a caller bypassed it - the declared type is kept in that case so `extensionFor` fails
    * loudly instead of inventing an extension.
    */
   const photos: ImportPhotoPool = Object.fromEntries(
     Object.entries(payload.photos).map(([photoId, photo]) => {
-      const bytes = availablePhotoBytes.get(photo.archivePath);
-      const sniffed = bytes ? sniffPhotoContentType(bytes) : null;
+      const sniffed = availablePhotoBytes.has(photo.archivePath)
+        ? sniffPhotoContentType(availablePhotoBytes.head(photo.archivePath, PHOTO_SIGNATURE_HEAD_BYTES))
+        : null;
       return [photoId, sniffed === null ? photo : { ...photo, contentType: sniffed }];
     }),
   );

@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
 import fs from "node:fs/promises";
+import { readdirSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { POST } from "@/app/api/trips/import/route";
 import { createSessionJwt } from "@/lib/auth/jwt";
 import { prisma } from "@/lib/db/prisma";
 import { createTripWithDays } from "@/lib/repositories/tripRepo";
+import { MULTIPART_FRAMING_SLACK_BYTES } from "@/lib/http/bodyLimit";
 import { MAX_IMPORT_PACKAGE_BYTES } from "@/lib/trips/importLimits";
 import { getTripUploadDir, getTripsUploadRoot } from "@/lib/trips/uploadPaths";
 import { buildPackage, buildZip } from "./helpers/zipBuilder";
@@ -182,6 +185,16 @@ const buildMultipartRequest = (
   // branches on and what a browser would actually send.
   return new NextRequest("http://localhost/api/trips/import", { method: "POST", headers, body: form });
 };
+
+/**
+ * Uploads the route streamed to the OS temp directory and has not cleaned up yet (AC2).
+ *
+ * The prefix is the route's own, so this cannot see anything else on the machine - and the whole
+ * point of naming it is that a leftover is attributable. Nothing here removes them: a test that
+ * tidied up after the route would assert nothing.
+ */
+const leftoverImportTempFiles = () =>
+  readdirSync(os.tmpdir()).filter((name) => name.startsWith("travelplan-import-"));
 
 describe("POST /api/trips/import", () => {
   const uploadsRoot = getTripsUploadRoot();
@@ -543,11 +556,22 @@ describe("POST /api/trips/import", () => {
       expect(payload.error?.code).toBe("validation_error");
     });
 
-    it("keeps the guard order: csrf before session before parsing", async () => {
+    it("keeps the guard order: session before csrf before parsing", async () => {
       const { session } = await createOwner("import-route-multipart-guards@example.com");
 
+      // Signed in, no token: the CSRF guard answers, and it does so before the body is read.
       const noCsrf = await POST(buildMultipartRequest(v2Package(), { session }));
+      const noCsrfPayload = (await noCsrf.json()) as ApiEnvelope<null>;
       expect(noCsrf.status).toBe(403);
+      expect(noCsrfPayload.error?.code).toBe("csrf_invalid");
+
+      // Signed out and no token either - the shape the middleware used to answer, and it answered
+      // 401. The session guard therefore has to run first, or a signed-out caller is told its CSRF
+      // token is wrong instead of that it is not signed in.
+      const noSessionNoCsrf = await POST(buildMultipartRequest(v2Package()));
+      const noSessionNoCsrfPayload = (await noSessionNoCsrf.json()) as ApiEnvelope<null>;
+      expect(noSessionNoCsrf.status).toBe(401);
+      expect(noSessionNoCsrfPayload.error?.code).toBe("unauthorized");
 
       const noSession = await POST(buildMultipartRequest(v2Package(), { csrf: "csrf-token" }));
       expect(noSession.status).toBe(401);
@@ -566,7 +590,7 @@ describe("POST /api/trips/import", () => {
         buildMultipartRequest(v2Package(), {
           session,
           csrf: "csrf-token",
-          contentLength: String(MAX_IMPORT_PACKAGE_BYTES + 1),
+          contentLength: String(MAX_IMPORT_PACKAGE_BYTES + MULTIPART_FRAMING_SLACK_BYTES + 1),
         })
       );
       const payload = (await response.json()) as ApiEnvelope<null>;
@@ -574,6 +598,28 @@ describe("POST /api/trips/import", () => {
       expect(response.status).toBe(400);
       expect(payload.error?.code).toBe("file_too_large");
       expect(payload.error?.message).toContain("size limit");
+    });
+
+    // The pre-check reads a whole-body figure and compares it against a *file-part* ceiling, so
+    // without the framing allowance a backup of exactly the permitted size was refused for the two
+    // delimiters and the `strategy` field wrapped around it - the documented 300 MB being unreachable
+    // from the app's own dialog. The allowance is `bodyLimit.ts`'s, the same one the four image upload
+    // routes apply.
+    it("does not refuse a declared length that is only over the ceiling by its multipart framing", async () => {
+      const { session } = await createOwner("import-route-framing-slack@example.com");
+
+      const response = await POST(
+        buildMultipartRequest(v2Package(), {
+          session,
+          csrf: "csrf-token",
+          contentLength: String(MAX_IMPORT_PACKAGE_BYTES + 1),
+        })
+      );
+      const payload = (await response.json()) as ApiEnvelope<{ dayCount: number }>;
+
+      // Read rather than refused, and the package inside it imported.
+      expect(response.status).toBe(200);
+      expect(payload.data?.dayCount).toBe(V2_MANIFEST.days.length);
     });
 
     it("rejects an oversized package on the file-size check when no content-length was sent", async () => {
@@ -625,6 +671,142 @@ describe("POST /api/trips/import", () => {
       expect(overwritePayload.data?.mode).toBe("overwrite");
       expect(overwritePayload.data?.trip.id).toBe(target.trip.id);
       expect(await prisma.trip.count({ where: { userId: user.id } })).toBe(1);
+    });
+
+    it("maps a member that fails its CRC-32 to the same validation_error it always did", async () => {
+      const { session } = await createOwner("import-route-bad-crc@example.com");
+
+      // Reading members lazily moved *when* this is discovered - the archive's structure is sound,
+      // so the open succeeds and the photo only fails once validation asks for its bytes. What the
+      // client sees must not have moved with it.
+      const archive = buildZip([
+        { name: "trip.json", data: Buffer.from(JSON.stringify(V2_MANIFEST), "utf8") },
+        { name: "photos/p1.jpg", data: jpegBytes(), crc: 0x1234abcd },
+      ]);
+      const response = await POST(buildMultipartRequest(archive, { session, csrf: "csrf-token" }));
+      const payload = (await response.json()) as ApiEnvelope<null>;
+
+      expect(response.status).toBe(400);
+      expect(payload.error?.code).toBe("validation_error");
+      expect(payload.error?.message).toContain("CRC-32");
+      expect(await prisma.trip.count()).toBe(0);
+      expect(await fs.readdir(uploadsRoot).catch(() => [])).toEqual([]);
+    });
+  });
+
+  /**
+   * Story 2.34 took `/api/trips/import` out of `middleware.ts`'s matcher, because Next buffers the
+   * body in memory for every path the matcher covers and that copy would have survived everything
+   * else the story does. The 401 and the 403 it used to produce are now the route's own job.
+   *
+   * Neither of these sends a CSRF pair, and that is the point: the middleware ran before any handler,
+   * so what it answered a request with no token and no session was 401, not 403. `requireSession`
+   * therefore has to run before `validateCsrf` in the route, and a test that supplied a valid token
+   * to make the assertion hold would be pinning the workaround instead of the behaviour.
+   */
+  describe("self-guards without the middleware", () => {
+    it("answers 401 unauthorized for a request with no session and no csrf token", async () => {
+      for (const response of [
+        await POST(buildRequest({ payload: VALID_PAYLOAD })),
+        await POST(buildMultipartRequest(v2Package())),
+      ]) {
+        const payload = (await response.json()) as ApiEnvelope<null>;
+        expect(response.status).toBe(401);
+        expect(payload.error?.code).toBe("unauthorized");
+        expect(payload.error?.message).toBe("Authentication required");
+      }
+    });
+
+    it("answers 403 password_change_required for a session that must change its password", async () => {
+      const user = await prisma.user.create({
+        data: { email: "import-route-must-change@example.com", passwordHash: "hashed", role: "OWNER" },
+      });
+      const session = await createSessionJwt({ sub: user.id, role: user.role, mustChangePassword: true });
+
+      // No CSRF pair here either: the flagged session is what the middleware answered on, ahead of
+      // anything the route would have checked.
+      for (const response of [
+        await POST(buildRequest({ payload: VALID_PAYLOAD }, { session })),
+        await POST(buildMultipartRequest(v2Package(), { session })),
+      ]) {
+        const payload = (await response.json()) as ApiEnvelope<null>;
+        expect(response.status).toBe(403);
+        expect(payload.error?.code).toBe("password_change_required");
+        expect(payload.error?.message).toBe("Password change required");
+      }
+      expect(await prisma.trip.count()).toBe(0);
+    });
+  });
+
+  describe("temporary upload file", () => {
+    const createOwner = async (email: string) => {
+      const user = await prisma.user.create({ data: { email, passwordHash: "hashed", role: "OWNER" } });
+      return { user, session: await createSessionJwt({ sub: user.id, role: user.role }) };
+    };
+
+    it("leaves nothing behind on success, on a validation rejection or on a ZipReadError", async () => {
+      const { session } = await createOwner("import-route-temp-file@example.com");
+      const before = leftoverImportTempFiles();
+
+      const success = await POST(buildMultipartRequest(v2Package(), { session, csrf: "csrf-token" }));
+      expect(success.status).toBe(200);
+      expect(leftoverImportTempFiles()).toEqual(before);
+
+      // A package whose photo bytes decode as no image: rejected after the body is on disk and after
+      // the archive has been opened, which is the path a `finally` is easiest to get wrong on.
+      const rejected = await POST(
+        buildMultipartRequest(
+          buildPackage(V2_MANIFEST, [{ name: "photos/p1.jpg", data: Buffer.from("not an image", "utf8") }]),
+          { session, csrf: "csrf-token" },
+        ),
+      );
+      expect(rejected.status).toBe(400);
+      expect(leftoverImportTempFiles()).toEqual(before);
+
+      const unreadable = await POST(
+        buildMultipartRequest(
+          buildZip([
+            { name: "trip.json", data: Buffer.from(JSON.stringify(V2_MANIFEST), "utf8") },
+            { name: "photos/p1.jpg", data: jpegBytes(), crc: 0x1234abcd },
+          ]),
+          { session, csrf: "csrf-token" },
+        ),
+      );
+      expect(unreadable.status).toBe(400);
+      expect(leftoverImportTempFiles()).toEqual(before);
+    });
+
+    it("leaves nothing behind for a 409 conflict or a body it never managed to parse", async () => {
+      const { user, session } = await createOwner("import-route-temp-file-conflict@example.com");
+      await createTripWithDays({
+        userId: user.id,
+        name: V2_MANIFEST.trip.name,
+        startDate: "2026-10-01T00:00:00.000Z",
+        endDate: "2026-10-02T00:00:00.000Z",
+      });
+      const before = leftoverImportTempFiles();
+
+      const conflict = await POST(buildMultipartRequest(v2Package(), { session, csrf: "csrf-token" }));
+      expect(conflict.status).toBe(409);
+      expect(leftoverImportTempFiles()).toEqual(before);
+
+      // A multipart content-type over a body that is not multipart at all: the reader gives up before
+      // a single part is framed, and the temp path was already claimed by then.
+      const malformed = await POST(
+        new NextRequest("http://localhost/api/trips/import", {
+          method: "POST",
+          headers: {
+            "content-type": "multipart/form-data; boundary=----nothingLikeThisInTheBody",
+            "x-csrf-token": "csrf-token",
+            cookie: `session=${session}; csrf_token=csrf-token`,
+          },
+          body: "not multipart in the slightest",
+        }),
+      );
+      const malformedPayload = (await malformed.json()) as ApiEnvelope<null>;
+      expect(malformed.status).toBe(400);
+      expect(malformedPayload.error?.code).toBe("invalid_form_data");
+      expect(leftoverImportTempFiles()).toEqual(before);
     });
   });
 });

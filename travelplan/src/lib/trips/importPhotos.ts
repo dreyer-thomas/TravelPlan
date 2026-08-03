@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { toPhotoSource, type PhotoSource } from "@/lib/trips/importPackage";
 import {
   getAccommodationImageUploadDir,
   getDayPlanItemImageUploadDir,
@@ -137,21 +138,28 @@ export const planDayPlanItemGalleryPhoto = (
  * "Or none" is the AC3 obligation applied to the disk phase: a half-written gallery is a trip whose
  * images 404, which is worse than a failed import. Every path is recorded as it is created and
  * removed with `force: true` on the way out, so cleanup itself cannot fail the request.
+ *
+ * One member is read per write and released before the next (Story 2.34): with the package still on
+ * disk, `photoBytes` is a window onto the archive rather than the archive itself, and holding the
+ * pool here would put back exactly the copy that story removed. A pooled photo used by several
+ * gallery slots is therefore read once per slot - the read volume is already bounded by
+ * `MAX_IMPORT_PHOTO_TOTAL_BYTES`, since it is the same volume as the writes.
  */
 export const writeImportedPhotos = async (
   writes: PlannedPhotoWrite[],
-  photoBytes: Map<string, Buffer>,
+  photoBytes: PhotoSource | Map<string, Buffer>,
 ): Promise<string[]> => {
+  const source = toPhotoSource(photoBytes);
   const written: string[] = [];
 
   try {
     for (const write of writes) {
-      const bytes = photoBytes.get(write.archivePath);
-      if (!bytes) {
+      if (!source.has(write.archivePath)) {
         // Validated before the transaction opened, so reaching here means the caller skipped that
         // step. Treated as a write failure so the cleanup below still runs.
         throw new ImportPhotoWriteError(`Package has no bytes for archive member ${write.archivePath}`);
       }
+      const bytes = source.read(write.archivePath);
       await fs.mkdir(path.dirname(write.filePath), { recursive: true });
       await fs.writeFile(write.filePath, bytes);
       written.push(write.filePath);

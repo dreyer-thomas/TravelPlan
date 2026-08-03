@@ -62,6 +62,34 @@ export const middleware = async (request: NextRequest) => {
   return NextResponse.next();
 };
 
+/**
+ * `/api/trips/import` is deliberately *not* matched (Story 2.34 AC4).
+ *
+ * Next buffers a request body in memory for every path the matcher covers, before the handler runs -
+ * which is invisible in this repo's own source and was only discovered on 2026-08-02, when the server
+ * logged "Request body exceeded 10MB" while a 13.4 MB import failed with a misleading
+ * `invalid_form_data`. `next.config.ts`'s `proxyClientMaxBodySize` raised that ceiling to 320 MB, but
+ * a raised ceiling on a memory buffer is still a memory buffer: with the route now streaming its body
+ * to a temp file, leaving the path in the matcher would have kept a 300 MB copy resident anyway and
+ * made the rest of the story pointless.
+ *
+ * Only that one path is excluded. `/api/trips` itself is listed separately because `:path` requires a
+ * segment, and every other `/api/trips/*` route stays guarded here. The import route self-guards with
+ * `requireSession`, which returns the same `unauthorized` 401 and `password_change_required` 403 this
+ * middleware does - `tripImportRoute.test.ts` asserts both, and `middleware.test.ts` asserts that the
+ * matcher still covers its siblings, because "the exclusion quietly widened" is the way this breaks.
+ *
+ * The `/?` in the negative lookahead is not decoration: `(?!import$)` excluded `/api/trips/import`
+ * and left `/api/trips/import/` matched, which is the same route with the same body and would have
+ * been buffered after all. Run through Next's own `getMiddlewareMatchers`, both spellings are now
+ * excluded, and `middleware.test.ts` pins both.
+ */
 export const config = {
-  matcher: ["/", "/trips/:path*", "/api/trips/:path*", "/auth/first-login-password"],
+  matcher: [
+    "/",
+    "/trips/:path*",
+    "/api/trips",
+    "/api/trips/:path((?!import/?$).*)",
+    "/auth/first-login-password",
+  ],
 };

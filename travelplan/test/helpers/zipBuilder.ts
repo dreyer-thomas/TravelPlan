@@ -1,3 +1,6 @@
+import { closeSync, mkdtempSync, openSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { crc32, deflateRawSync } from "node:zlib";
 
 /**
@@ -25,6 +28,14 @@ export type ZipBuildEntry = {
   crc?: number;
   /** Overrides the uncompressed size written into both headers. */
   uncompressedSize?: number;
+  /**
+   * Overrides the compressed size written into both headers.
+   *
+   * Needed to build the mirror of the inflate bomb: a member whose payload is a few bytes but which
+   * declares hundreds of megabytes of compressed data, so the read the reader makes *before*
+   * inflating anything is the allocation under test.
+   */
+  compressedSize?: number;
   /** Overrides the local header offset recorded in the central directory. */
   localHeaderOffset?: number;
 };
@@ -49,6 +60,7 @@ export const buildZip = (entries: ZipBuildEntry[], options: ZipBuildOptions = {}
     const payload = method === 8 ? deflateRawSync(entry.data) : entry.data;
     const crc = entry.crc ?? crc32(entry.data);
     const uncompressedSize = entry.uncompressedSize ?? entry.data.length;
+    const compressedSize = entry.compressedSize ?? payload.length;
     const nameBytes = Buffer.from(entry.name, "utf8");
 
     const localHeader = Buffer.alloc(30);
@@ -59,7 +71,7 @@ export const buildZip = (entries: ZipBuildEntry[], options: ZipBuildOptions = {}
     localHeader.writeUInt16LE(0, 10);
     localHeader.writeUInt16LE(33, 12);
     localHeader.writeUInt32LE(crc, 14);
-    localHeader.writeUInt32LE(payload.length, 18);
+    localHeader.writeUInt32LE(compressedSize, 18);
     localHeader.writeUInt32LE(uncompressedSize, 22);
     localHeader.writeUInt16LE(nameBytes.length, 26);
     localHeader.writeUInt16LE(0, 28);
@@ -73,7 +85,7 @@ export const buildZip = (entries: ZipBuildEntry[], options: ZipBuildOptions = {}
     centralHeader.writeUInt16LE(0, 12);
     centralHeader.writeUInt16LE(33, 14);
     centralHeader.writeUInt32LE(crc, 16);
-    centralHeader.writeUInt32LE(payload.length, 20);
+    centralHeader.writeUInt32LE(compressedSize, 20);
     centralHeader.writeUInt32LE(uncompressedSize, 24);
     centralHeader.writeUInt16LE(nameBytes.length, 28);
     centralHeader.writeUInt16LE(0, 30);
@@ -103,6 +115,47 @@ export const buildZip = (entries: ZipBuildEntry[], options: ZipBuildOptions = {}
   eocd.writeUInt16LE(comment.length, 20);
 
   return Buffer.concat([...parts, centralDirectoryBytes, eocd, comment]);
+};
+
+export type TempZipFile = {
+  path: string;
+  fd: number;
+  size: number;
+  /** Closes the descriptor and removes the directory the archive was written into. */
+  close: () => void;
+};
+
+/**
+ * Land an archive on disk and hand back an open descriptor.
+ *
+ * Story 2.34 gave the reader a `ZipByteSource`, so the same fixture can be read from memory or from
+ * a file and the two are one line apart. Both are kept: the in-memory form is what the eager
+ * `readZipMembers` suites use, and this one is how the disk-backed path the import route actually
+ * takes gets exercised - a bounds check that only ever runs against a `Buffer` proves nothing about
+ * an `fs.readSync` at the same offset.
+ *
+ * Its own temp directory per archive, so a test that leaves one behind cannot be mistaken for the
+ * import route leaking its upload.
+ */
+export const writeZipToTempFile = (bytes: Buffer): TempZipFile => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "travelplan-zip-fixture-"));
+  const filePath = path.join(directory, "archive.zip");
+  writeFileSync(filePath, bytes);
+  const fd = openSync(filePath, "r");
+
+  return {
+    path: filePath,
+    fd,
+    size: bytes.length,
+    close: () => {
+      try {
+        closeSync(fd);
+      } catch {
+        // Already closed by the test; the directory removal below is the part that matters.
+      }
+      rmSync(directory, { recursive: true, force: true });
+    },
+  };
 };
 
 /** Convenience for the common case: a manifest object plus zero or more photo members. */
