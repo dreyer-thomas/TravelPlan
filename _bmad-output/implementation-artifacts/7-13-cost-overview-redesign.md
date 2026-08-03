@@ -20,7 +20,7 @@ operator_actions:
 
 # Story 7.13: Cost Overview Redesign — Per-Day and Per-Month Lists
 
-Status: awaiting-operator
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 

@@ -19,7 +19,7 @@ operator_actions:
 
 # Story 6.23: Move a Single Activity to Another Day
 
-Status: awaiting-operator
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 

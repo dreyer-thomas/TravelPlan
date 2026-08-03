@@ -1359,3 +1359,24 @@ status: open
 - source_spec: `_bmad-output/implementation-artifacts/7-13-cost-overview-redesign.md`
   summary: The cost overview's trip total now renders at the same rank as each month group's heading (`cardTitle`, 14.5px/700) while the trip overview figure the user clicked to get there is `metricLg` 30px/900, so the screen's headline number is its least prominent element.
   evidence: `TripCostOverview.tsx`'s trip-total row versus `TripTimeline.tsx:956`, and the accented 21px/900 cost figure at `TripTimeline.tsx:665` that is the entry point to this screen. Rank is unchanged from before the redesign (it was `subtitle1`), so this is pre-existing rather than caused by 7.13, and no AC or mockup covers it — which is why it was not changed on a visual-only story's own judgement. Worth a deliberate decision, and it is on 7.13's operator checklist to look at in a browser.
+
+### DW-149: The Kosten tab is unbounded, so AC9's fixed 1341px figure stops holding at four payment rows
+
+source_spec: `_bmad-output/implementation-artifacts/6-22-activity-dialog-in-tabs.md`
+origin: operator browser pass for story 6-22, 2026-08-03
+location: `travelplan/src/components/features/trips/TripDayPlanDialog.tsx` (the Kosten panel's split-payment rows)
+severity: low
+summary: Story 6.22's AC9 compares the tallest tab against a fixed 1341px, measured on the empty form with a single payment. Each split-payment row adds ~246px to the Kosten panel, so it passes that figure at four rows and reaches 1634px at five.
+evidence: Measured at 390x844 on 2026-08-03: single payment 516px, then 895 / 1141 / 1388 / 1634px at two through five rows. The other three panels sit at 478-513px regardless. AC9's *intent* still holds — the same content before the change would have been ~2080px in one scroll, so the tab still saves ~700px — but its literal wording does not, because the baseline was taken under different content. Not a defect in 6.22: the payment list is unbounded by nature and no grouping fixes that. Worth revisiting only if split payments become common enough to make the Kosten tab its own long scroll; the fix would be a collapsible or paged payment list, which is its own story.
+status: open
+
+### DW-150: A user-facing German error reads "gueltigen" instead of "gültigen"
+
+source_spec: `_bmad-output/implementation-artifacts/6-22-activity-dialog-in-tabs.md`
+origin: incidental to the operator browser pass for story 6-22, 2026-08-03
+location: `travelplan/src/i18n/de.ts` (`trips.plan.costInvalid`)
+severity: low
+summary: The invalid-amount message on the activity dialog reads "Bitte einen gueltigen nicht-negativen Betrag …" — an ASCII fallback where its two nearest neighbours both write the umlaut.
+evidence: Seen on screen during the 6-22 error-path check, then confirmed in the dictionary: `trips.travelSegment.linkInvalid` reads "Bitte einen gültigen http(s)-Link eingeben" and `trips.stay.costInvalid` reads "Bitte einen gültigen Betrag eingeben". Only `trips.plan.costInvalid` diverges. Pre-existing, one character, and the sort of thing a sweep should pick up rather than a story.
+status: open
+

@@ -89,6 +89,7 @@ development_status:
   2-32-complete-trip-backup-import-with-photos-travel-segments-and-bucket-list: done
   2-33-restore-export-entry-point: done
   2-34-import-archive-from-disk: done
+  2-35-import-accepts-a-valid-backup: ready-for-dev
   epic-2-retrospective: optional
 
   epic-3: backlog
@@ -117,6 +118,7 @@ development_status:
   5-6-add-existing-contributor: done
   5-8-view-all-registered-system-users: done
   5-9-remove-comments-and-voting-feature: done
+  5-10-user-administration-for-admins: ready-for-dev
   epic-5-retrospective: optional
 
   epic-6: in-progress
@@ -159,4 +161,5 @@ development_status:
 
   epic-8: backlog
   8-1-node-24-runtime-upgrade: backlog
+  8-2-middleware-to-proxy: ready-for-dev
   epic-8-retrospective: optional

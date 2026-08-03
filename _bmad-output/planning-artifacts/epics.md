@@ -809,6 +809,27 @@ Measured on 2026-08-02: the production trips hold **113 MB** and **217 MB** of p
 **When** the reading mechanism changes
 **Then** none of it changes: this story changes where the bytes live while they are read
 
+### Story 2.35: The Import Accepts a Valid Backup
+
+As someone who has just taken a backup,
+I want it to restore,
+So that the file I hold is a backup rather than a 229 MB reassurance.
+
+**FRs covered:** FR31, FR32 (backup export/import)
+
+**Given** a travel segment stored on day N that references day N-1's accommodation — the `previousStay` feature working as designed
+**When** the archive is imported
+**Then** it is accepted, because the importer's id map is trip-wide and already resolves it; only the guard in front rejects it today
+
+**Given** a segment whose endpoint matches no record anywhere in the payload
+**When** the archive is imported
+**Then** that one segment is skipped and reported through the existing warnings channel, rather than the whole archive being refused
+
+**Given** the production archive trip-neuseeland-2026-08-03.zip — 41 days, 151 files, 150 photos, currently refused with 36 validation errors
+**When** this story lands
+**Then** it imports cleanly, with a warning naming the 9 genuinely orphaned segments
+
+
 ## Epic 3: Route & Map-Based Planning
 
 Users can visualize trips and days on maps and seed a trip from Google start + destination.
@@ -1311,6 +1332,31 @@ So that the discontinued feature is fully removed rather than left dormant in th
 **Given** the feature is fully removed
 **When** the removal is implemented
 **Then** now-orphaned i18n strings related to comments/votes are cleaned up from the translation files
+
+### Story 5.10: User Administration for Admins
+
+As the administrator of this installation,
+I want one place to see every account, what each can reach, and to create, re-assign and remove accounts,
+So that people who no longer travel with us stop having access.
+
+**FRs covered:** FR35 (registered users), extending Story 5.8
+
+**Given** the hamburger menu
+**When** an admin opens it
+**Then** it carries an entry to the user administration, and for nobody else — `UserRole` gains `ADMIN`, because every self-registration is an `OWNER` and that population cannot gate this
+
+**Given** an account in the list
+**When** the admin looks at it
+**Then** they see the trips it owns and the trips it is a member of, with the membership role, and can change the role, attach, detach, and grant or revoke `ADMIN`
+
+**Given** an account that owns trips
+**When** the admin tries to delete it
+**Then** the deletion is refused and the owning trips are named — `Trip.user` cascades, so an unguarded delete would take an entire travel history with it
+
+**Given** a system with no accounts at all
+**When** the first person registers
+**Then** that account becomes `ADMIN`, in the same transaction as the insert; an existing installation is bootstrapped with `npm run admin:grant -- <email>`
+
 
 ## Epic 6: Usability Refinements
 
@@ -2654,6 +2700,21 @@ It also closes DW-27, whose own text names this file and assigns the fix to "the
 ## Epic 8: Maintenance & Infrastructure
 
 The maintainer can keep the runtime, toolchain, and accumulated technical debt current without threading infrastructure work through feature or redesign epics. This epic is the standing home for work that is neither a feature nor a redesign — runtime and toolchain upgrades, and the deferred-work bundles that earn a story number after a `bmad-loop sweep` has verified them against the code.
+
+### Story 8.2: `middleware.ts` Becomes `proxy.ts`
+
+As the operator of this installation,
+I want the deprecated `middleware` file convention replaced by `proxy`,
+So that the warning on every server start stops being noise.
+
+**Given** Next 16 deprecating the `middleware` file convention
+**When** the file becomes `src/proxy.ts` and its export becomes `proxy`
+**Then** the warning stops and `config.matcher` carries over unchanged — the same parser serves both conventions
+
+**Given** the matcher entry `/api/trips/:path((?!import/?$).*)`
+**When** the file moves
+**Then** it survives character for character: the `/?` is what keeps both `/api/trips/import` and `/api/trips/import/` out, and `middleware.test.ts` pins both
+
 
 ### Story 8.1: Node 24 LTS Runtime Upgrade — CI, Local, and Server
 
