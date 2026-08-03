@@ -5,6 +5,10 @@ import {
   Box,
   Button,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   FormControl,
   FormControlLabel,
   FormHelperText,
@@ -14,6 +18,7 @@ import {
   SvgIcon,
   Tab,
   Tabs,
+  TextField,
   Typography,
 } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
@@ -212,6 +217,27 @@ type PlanDialogPrefill = {
   bucketListItemId: string;
 };
 
+/**
+ * Story 6.23. One candidate day for "Auf anderen Tag verschieben", already labelled.
+ *
+ * The label is built by the caller rather than here: `TripDayView` owns the day-label format
+ * ("Day 3 · Nov 7") and the locale-aware date formatter that produces it, and a second copy in this
+ * file would be free to drift from the picker the day-level transfer renders.
+ */
+type PlanMoveTargetDay = {
+  id: string;
+  label: string;
+};
+
+/**
+ * Story 6.23. The result of a move attempt.
+ *
+ * A failure carries its message back rather than being rendered by the caller: this dialog stays
+ * open when a move fails, and a page-level alert behind an open modal is a message the user cannot
+ * read. A success carries nothing — the dialog closes, and the caller reports on the day screen.
+ */
+export type PlanItemMoveOutcome = { moved: true } | { moved: false; message: string };
+
 type TripDayPlanDialogProps = {
   open: boolean;
   mode: PlanDialogMode;
@@ -220,6 +246,16 @@ type TripDayPlanDialogProps = {
   item: DayPlanItem | null;
   prefill?: PlanDialogPrefill | null;
   onDelete?: (itemId: string) => Promise<boolean>;
+  /**
+   * Story 6.23. The other days of this trip, current day already excluded by the caller.
+   *
+   * Passing the candidates in — rather than fetching them here — is what makes AC8 work the same way
+   * `onDelete` already does: `TripDayView` supplies `onMove` only when `canEditPlanning`, so a viewer
+   * gets no action at all rather than a disabled one.
+   */
+  moveTargetDays?: PlanMoveTargetDay[];
+  /** The caller owns the request and the success message; a failure comes back with its own text. */
+  onMove?: (itemId: string, targetTripDayId: string) => Promise<PlanItemMoveOutcome>;
   onClose: () => void;
   onSaved: () => void;
 };
@@ -346,6 +382,8 @@ export default function TripDayPlanDialog({
   item,
   prefill = null,
   onDelete,
+  moveTargetDays,
+  onMove,
   onClose,
   onSaved,
 }: TripDayPlanDialogProps) {
@@ -357,6 +395,12 @@ export default function TripDayPlanDialog({
   const [serverError, setServerError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // Story 6.23. The picker is a second dialog rather than a field, because the action belongs to the
+  // activity as a whole and not to any one of the four tabs.
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [moveTargetDayId, setMoveTargetDayId] = useState("");
+  const [moving, setMoving] = useState(false);
+  const movingRef = useRef(false);
   const [loadingInit, setLoadingInit] = useState(false);
   const [contentJson, setContentJson] = useState<string>(toDocString(emptyDoc));
   const [titleInput, setTitleInput] = useState<string>("");
@@ -524,6 +568,10 @@ export default function TripDayPlanDialog({
     setActiveTab("what");
     setGalleryFiles([]);
     setFullscreenIndex(null);
+    // Same reasoning as `activeTab`: a target day chosen for the *previous* activity is not a state
+    // the next one's dialog should inherit.
+    setMoveOpen(false);
+    setMoveTargetDayId("");
     setLoadingInit(true);
 
     if (mode === "edit" && item) {
@@ -692,8 +740,16 @@ export default function TripDayPlanDialog({
   }, [day, t]);
 
   const saveLabel = mode === "edit" ? t("trips.plan.saveUpdate") : t("trips.plan.saveNew");
-  const isBusy = saving || deleting || loadingInit;
+  const isBusy = saving || deleting || moving || loadingInit;
   const canDelete = Boolean(editingItemId && onDelete);
+  /**
+   * AC1 and AC8 in one expression, and deliberately the same shape as `canDelete`.
+   *
+   * `editingItemId` is what makes it absent while creating — there is nothing to move yet. `onMove`
+   * is what makes it absent for a viewer: `TripDayView` only passes the handler when
+   * `canEditPlanning`. The length check covers the one-day trip, which has nowhere to move to.
+   */
+  const canMove = Boolean(editingItemId && onMove && (moveTargetDays?.length ?? 0) > 0);
 
   const resolveApiError = useCallback(
     (code: string | undefined, fallback: string) => {
@@ -930,6 +986,35 @@ export default function TripDayPlanDialog({
     }
   }, [editingItemId, onClose, onDelete]);
 
+  /**
+   * AC1/AC4. The request and the message both belong to `TripDayView`: it owns the day the user is
+   * on, the reload, and the surface a "what was removed" line can survive on once this dialog is
+   * gone. Here the only job is to close both dialogs on success — and, on failure, to say so *in*
+   * this dialog rather than on the screen behind it, which the user cannot see.
+   */
+  const handleMoveConfirm = useCallback(async () => {
+    if (!editingItemId || !onMove || !moveTargetDayId) return;
+    // `moving` and not just the button's `disabled`: two clicks in the same tick both run before
+    // React re-renders, and the second one would post a move for an activity that is no longer on
+    // this day. Delete on this surface guards itself with a ref for the same reason.
+    if (movingRef.current) return;
+    movingRef.current = true;
+    setServerError(null);
+    setMoving(true);
+    const outcome = await onMove(editingItemId, moveTargetDayId);
+    movingRef.current = false;
+    setMoving(false);
+    if (!outcome.moved) {
+      setMoveOpen(false);
+      // The caller's message, not a generic one: "your session has expired" and "please try again"
+      // ask the user to do different things, and only one of them can succeed.
+      setServerError(outcome.message);
+      return;
+    }
+    setMoveOpen(false);
+    onClose();
+  }, [editingItemId, moveTargetDayId, onClose, onMove]);
+
   const handleDeleteClick = () => {
     if (deleteTouchGuard.current) {
       deleteTouchGuard.current = false;
@@ -1130,6 +1215,27 @@ export default function TripDayPlanDialog({
             <Button variant="outlined" onClick={onClose} disabled={isBusy}>
               {t("common.cancel")}
             </Button>
+            {canMove ? (
+              /*
+                Story 6.23 AC1. In the action area, not among the fields and not inside a tab panel:
+                moving is an operation on the whole activity, so putting it on `Wann & Wo` (the tab
+                whose subject is closest) would say it belongs to that tab's fields. Same `text` +
+                `tokens.ink` treatment as Delete — a secondary action on this surface, and not
+                destructive enough to earn anything louder.
+              */
+              <Button
+                variant="text"
+                onClick={() => setMoveOpen(true)}
+                /* `galleryBusy` on top of `isBusy`, which deliberately excludes it elsewhere: the
+                   upload loop posts each photo against the *source* day, so a move committed
+                   mid-upload makes every remaining photo 404 — and this dialog is already closed by
+                   then, so the user never sees the failure. */
+                disabled={isBusy || galleryBusy}
+                sx={{ color: tokens.ink }}
+              >
+                {t("trips.plan.moveAction")}
+              </Button>
+            ) : null}
             {canDelete ? (
               /*
                 No `color="error"` (AC8). `handleDeleteClick` + `onTouchEnd`'s two-tap confirm is kept
@@ -1655,6 +1761,72 @@ export default function TripDayPlanDialog({
           )}
         </Box>
     </DialogShell>
+      {/*
+        Story 6.23. The same picker the day-level transfer renders (`trips.dayTransfer.targetLabel`,
+        a native `select`), with the current day already excluded by the caller — reused rather than
+        reinvented so the two "choose a day" surfaces read alike.
+
+        It is a second dialog rather than an expanding block inside the first, because the first is a
+        four-tab form and an expanding block would have to live in one of the tabs, which is exactly
+        what AC1 says the action must not do.
+      */}
+      {canMove ? (
+        <Dialog
+          open={moveOpen}
+          onClose={() => {
+            if (moving) return;
+            setMoveOpen(false);
+          }}
+          fullWidth
+          maxWidth="sm"
+        >
+          <DialogTitle>{t("trips.plan.moveDialogTitle")}</DialogTitle>
+          <DialogContent>
+            <Box mt={0.5} display="flex" flexDirection="column" gap={1.5}>
+              {/* AC3 said in words. The story exists because the alternative is retyping, so the
+                  dialog states what travels rather than leaving the user to hope. */}
+              <Typography variant="body2" sx={{ color: tokens.inkSoft }}>
+                {t("trips.plan.moveDescription")}
+              </Typography>
+              {/* What the move costs, said before it happens. AC4 asks for the removed travel
+                  segments to be reported rather than removed in silence; a receipt after the fact is
+                  the weaker half of that, and the form can also be dirty when this opens — only the
+                  saved activity moves. */}
+              <Typography variant="body2" sx={{ color: tokens.inkSoft }} data-testid="plan-move-warning">
+                {t("trips.plan.moveWarning")}
+              </Typography>
+              <TextField
+                select
+                id={`${fieldIdPrefix}-move-target`}
+                label={t("trips.dayTransfer.targetLabel")}
+                value={moveTargetDayId}
+                onChange={(event) => setMoveTargetDayId(event.target.value)}
+                fullWidth
+                SelectProps={{ native: true }}
+              >
+                <option value="" />
+                {(moveTargetDays ?? []).map((candidate) => (
+                  <option key={candidate.id} value={candidate.id}>
+                    {candidate.label}
+                  </option>
+                ))}
+              </TextField>
+            </Box>
+          </DialogContent>
+          <DialogActions>
+            <Button variant="outlined" onClick={() => setMoveOpen(false)} disabled={moving}>
+              {t("common.cancel")}
+            </Button>
+            <Button
+              variant="contained"
+              onClick={() => void handleMoveConfirm()}
+              disabled={moving || !moveTargetDayId}
+            >
+              {moving ? <CircularProgress size={22} /> : t("trips.plan.moveConfirm")}
+            </Button>
+          </DialogActions>
+        </Dialog>
+      ) : null}
       <FullscreenPhotoViewer
         open={fullscreenIndex !== null}
         images={galleryPreviews}

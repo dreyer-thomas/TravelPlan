@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
 import { DELETE, GET, PATCH, POST } from "@/app/api/trips/[id]/day-plan-items/route";
+// Story 6.23. Its own route rather than a third operation on `day-activity-transfer`, whose two
+// operations are whole-day and whose "move" replaces the target day. See the route's own comment.
+import { POST as MOVE_POST } from "@/app/api/trips/[id]/day-plan-items/move/route";
 import { prisma } from "@/lib/db/prisma";
 import { createSessionJwt } from "@/lib/auth/jwt";
 
@@ -39,9 +42,13 @@ const sampleDoc = (text: string) =>
 
 describe("/api/trips/[id]/day-plan-items", () => {
   beforeEach(async () => {
+    await prisma.travelSegment.deleteMany();
+    await prisma.dayPlanItemImage.deleteMany();
     await prisma.tripBucketListItem.deleteMany();
     await prisma.costPayment.deleteMany();
     await prisma.dayPlanItem.deleteMany();
+    await prisma.tripMember.deleteMany();
+    await prisma.accommodation.deleteMany();
     await prisma.tripDay.deleteMany();
     await prisma.trip.deleteMany();
     await prisma.user.deleteMany();
@@ -1296,5 +1303,269 @@ describe("/api/trips/[id]/day-plan-items", () => {
 
     expect(response.status).toBe(400);
     expect(payload.error?.code).toBe("validation_error");
+  });
+
+  /**
+   * Story 6.23 — `POST /api/trips/[id]/day-plan-items/move`.
+   *
+   * Kept in this suite rather than in `dayActivityTransferRoute.test.ts` for the same reason the
+   * route is not a third `operation` there: this endpoint appends one activity to the target day,
+   * and the day-level transfer's "move" deletes everything already on it.
+   */
+  describe("POST /day-plan-items/move", () => {
+    const buildTripWithTwoDays = async (ownerEmail: string) => {
+      const owner = await prisma.user.create({
+        data: { email: ownerEmail, passwordHash: "hashed", role: "OWNER" },
+      });
+      const trip = await prisma.trip.create({
+        data: {
+          userId: owner.id,
+          name: "Move Trip",
+          startDate: new Date("2026-12-01T00:00:00.000Z"),
+          endDate: new Date("2026-12-02T00:00:00.000Z"),
+        },
+      });
+      const sourceDay = await prisma.tripDay.create({
+        data: { tripId: trip.id, date: new Date("2026-12-01T00:00:00.000Z"), dayIndex: 1 },
+      });
+      const targetDay = await prisma.tripDay.create({
+        data: { tripId: trip.id, date: new Date("2026-12-02T00:00:00.000Z"), dayIndex: 2 },
+      });
+      return { owner, trip, sourceDay, targetDay };
+    };
+
+    const moveRequest = (tripId: string, options: { session?: string; csrf?: string; body?: string }) =>
+      buildRequest(`http://localhost/api/trips/${tripId}/day-plan-items/move`, {
+        method: "POST",
+        ...options,
+      });
+
+    it("moves one activity for a contributor, keeps the target day's activities and reports removed segments", async () => {
+      const { owner, trip, sourceDay, targetDay } = await buildTripWithTwoDays("move-route-owner@example.com");
+      const contributor = await prisma.user.create({
+        data: { email: "move-route-contributor@example.com", passwordHash: "hashed", role: "VIEWER" },
+      });
+      await prisma.tripMember.create({
+        data: { tripId: trip.id, userId: contributor.id, role: "CONTRIBUTOR" },
+      });
+      const token = await createSessionJwt({ sub: contributor.id, role: contributor.role });
+      void owner;
+
+      const moved = await prisma.dayPlanItem.create({
+        data: {
+          tripDayId: sourceDay.id,
+          title: "Moved",
+          fromTime: "09:00",
+          toTime: "10:00",
+          contentJson: sampleDoc("Moved"),
+        },
+      });
+      const targetExisting = await prisma.dayPlanItem.create({
+        data: {
+          tripDayId: targetDay.id,
+          title: "Target Existing",
+          fromTime: "14:00",
+          toTime: "15:00",
+          contentJson: sampleDoc("Target Existing"),
+        },
+      });
+      const stay = await prisma.accommodation.create({
+        data: { tripDayId: sourceDay.id, name: "Stay", status: "PLANNED" },
+      });
+      await prisma.travelSegment.create({
+        data: {
+          tripDayId: sourceDay.id,
+          fromItemType: "ACCOMMODATION",
+          fromItemId: stay.id,
+          toItemType: "DAY_PLAN_ITEM",
+          toItemId: moved.id,
+          transportType: "CAR",
+          durationMinutes: 45,
+        },
+      });
+
+      const response = await MOVE_POST(
+        moveRequest(trip.id, {
+          session: token,
+          csrf: "csrf-token",
+          body: JSON.stringify({ tripDayId: sourceDay.id, itemId: moved.id, targetTripDayId: targetDay.id }),
+        }),
+        { params: { id: trip.id } } as unknown as { params: Promise<{ id?: string }> },
+      );
+      const payload = (await response.json()) as ApiEnvelope<{
+        itemId: string;
+        sourceTripDayId: string;
+        targetTripDayId: string;
+        removedTravelSegmentIds: string[];
+      }>;
+
+      expect(response.status).toBe(200);
+      expect(payload.error).toBeNull();
+      expect(payload.data).toMatchObject({
+        itemId: moved.id,
+        sourceTripDayId: sourceDay.id,
+        targetTripDayId: targetDay.id,
+      });
+      // AC4 on the wire: the UI can only say what went because the route says it.
+      expect(payload.data?.removedTravelSegmentIds).toHaveLength(1);
+
+      expect(await prisma.dayPlanItem.findUnique({ where: { id: moved.id } })).toMatchObject({
+        tripDayId: targetDay.id,
+      });
+      expect(await prisma.dayPlanItem.findUnique({ where: { id: targetExisting.id } })).not.toBeNull();
+      expect(await prisma.travelSegment.count()).toBe(0);
+    });
+
+    it("returns 403 csrf_invalid without a CSRF token", async () => {
+      const { owner, trip, sourceDay, targetDay } = await buildTripWithTwoDays("move-route-csrf@example.com");
+      const token = await createSessionJwt({ sub: owner.id, role: owner.role });
+      const item = await prisma.dayPlanItem.create({
+        data: {
+          tripDayId: sourceDay.id,
+          title: "Item",
+          fromTime: "09:00",
+          toTime: "10:00",
+          contentJson: sampleDoc("Item"),
+        },
+      });
+
+      const response = await MOVE_POST(
+        moveRequest(trip.id, {
+          session: token,
+          body: JSON.stringify({ tripDayId: sourceDay.id, itemId: item.id, targetTripDayId: targetDay.id }),
+        }),
+        { params: { id: trip.id } } as unknown as { params: Promise<{ id?: string }> },
+      );
+      const payload = (await response.json()) as ApiEnvelope<null>;
+
+      expect(response.status).toBe(403);
+      expect(payload.error?.code).toBe("csrf_invalid");
+      expect(await prisma.dayPlanItem.findUnique({ where: { id: item.id } })).toMatchObject({
+        tripDayId: sourceDay.id,
+      });
+    });
+
+    it("returns 401 unauthorized without a session", async () => {
+      const { trip, sourceDay, targetDay } = await buildTripWithTwoDays("move-route-session@example.com");
+      const item = await prisma.dayPlanItem.create({
+        data: {
+          tripDayId: sourceDay.id,
+          title: "Item",
+          fromTime: "09:00",
+          toTime: "10:00",
+          contentJson: sampleDoc("Item"),
+        },
+      });
+
+      const response = await MOVE_POST(
+        moveRequest(trip.id, {
+          csrf: "csrf-token",
+          body: JSON.stringify({ tripDayId: sourceDay.id, itemId: item.id, targetTripDayId: targetDay.id }),
+        }),
+        { params: { id: trip.id } } as unknown as { params: Promise<{ id?: string }> },
+      );
+      const payload = (await response.json()) as ApiEnvelope<null>;
+
+      expect(response.status).toBe(401);
+      expect(payload.error?.code).toBe("unauthorized");
+    });
+
+    /** AC8 — the same permission the day-level transfer applies, and the same 403 it answers with. */
+    it("returns 403 unauthorized for a viewer", async () => {
+      const { trip, sourceDay, targetDay } = await buildTripWithTwoDays("move-route-viewer-owner@example.com");
+      const viewer = await prisma.user.create({
+        data: { email: "move-route-viewer@example.com", passwordHash: "hashed", role: "VIEWER" },
+      });
+      await prisma.tripMember.create({ data: { tripId: trip.id, userId: viewer.id, role: "VIEWER" } });
+      const token = await createSessionJwt({ sub: viewer.id, role: viewer.role });
+      const item = await prisma.dayPlanItem.create({
+        data: {
+          tripDayId: sourceDay.id,
+          title: "Item",
+          fromTime: "09:00",
+          toTime: "10:00",
+          contentJson: sampleDoc("Item"),
+        },
+      });
+
+      const response = await MOVE_POST(
+        moveRequest(trip.id, {
+          session: token,
+          csrf: "csrf-token",
+          body: JSON.stringify({ tripDayId: sourceDay.id, itemId: item.id, targetTripDayId: targetDay.id }),
+        }),
+        { params: { id: trip.id } } as unknown as { params: Promise<{ id?: string }> },
+      );
+      const payload = (await response.json()) as ApiEnvelope<null>;
+
+      expect(response.status).toBe(403);
+      expect(payload.error?.code).toBe("unauthorized");
+      expect(await prisma.dayPlanItem.findUnique({ where: { id: item.id } })).toMatchObject({
+        tripDayId: sourceDay.id,
+      });
+    });
+
+    it("rejects a payload whose target day is the source day", async () => {
+      const { owner, trip, sourceDay } = await buildTripWithTwoDays("move-route-same-day@example.com");
+      const token = await createSessionJwt({ sub: owner.id, role: owner.role });
+      const item = await prisma.dayPlanItem.create({
+        data: {
+          tripDayId: sourceDay.id,
+          title: "Item",
+          fromTime: "09:00",
+          toTime: "10:00",
+          contentJson: sampleDoc("Item"),
+        },
+      });
+
+      const response = await MOVE_POST(
+        moveRequest(trip.id, {
+          session: token,
+          csrf: "csrf-token",
+          body: JSON.stringify({ tripDayId: sourceDay.id, itemId: item.id, targetTripDayId: sourceDay.id }),
+        }),
+        { params: { id: trip.id } } as unknown as { params: Promise<{ id?: string }> },
+      );
+      const payload = (await response.json()) as ApiEnvelope<null>;
+
+      expect(response.status).toBe(400);
+      expect(payload.error?.code).toBe("validation_error");
+    });
+
+    it("rejects a payload with no item id", async () => {
+      const { owner, trip, sourceDay, targetDay } = await buildTripWithTwoDays("move-route-no-item@example.com");
+      const token = await createSessionJwt({ sub: owner.id, role: owner.role });
+
+      const response = await MOVE_POST(
+        moveRequest(trip.id, {
+          session: token,
+          csrf: "csrf-token",
+          body: JSON.stringify({ tripDayId: sourceDay.id, targetTripDayId: targetDay.id }),
+        }),
+        { params: { id: trip.id } } as unknown as { params: Promise<{ id?: string }> },
+      );
+      const payload = (await response.json()) as ApiEnvelope<null>;
+
+      expect(response.status).toBe(400);
+      expect(payload.error?.code).toBe("validation_error");
+    });
+
+    it("returns 404 when the activity is not on the named source day", async () => {
+      const { owner, trip, sourceDay, targetDay } = await buildTripWithTwoDays("move-route-missing@example.com");
+      const token = await createSessionJwt({ sub: owner.id, role: owner.role });
+
+      const response = await MOVE_POST(
+        moveRequest(trip.id, {
+          session: token,
+          csrf: "csrf-token",
+          body: JSON.stringify({ tripDayId: sourceDay.id, itemId: "not-a-real-item", targetTripDayId: targetDay.id }),
+        }),
+        { params: { id: trip.id } } as unknown as { params: Promise<{ id?: string }> },
+      );
+      const payload = (await response.json()) as ApiEnvelope<null>;
+
+      expect(response.status).toBe(404);
+      expect(payload.error?.code).toBe("not_found");
+    });
   });
 });

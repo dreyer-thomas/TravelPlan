@@ -4,6 +4,8 @@ import {
   findBucketListItemForTripInTransaction,
 } from "@/lib/repositories/bucketListRepo";
 
+type TransactionClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+
 export type DayPlanItemDetail = {
   id: string;
   tripDayId: string;
@@ -26,7 +28,7 @@ export type DayPlanItemUpdateResult =
 export type DayPlanItemDeleteResult =
   | { status: "not_found" }
   | { status: "missing" }
-  | { status: "deleted" };
+  | { status: "deleted"; removedTravelSegmentIds: string[] };
 
 export type DayPlanItemConversionResult =
   | { status: "not_found" }
@@ -60,6 +62,14 @@ type DayPlanItemMoveParams = {
   userId: string;
   tripId: string;
   sourceTripDayId: string;
+  targetTripDayId: string;
+};
+
+type SingleDayPlanItemMoveParams = {
+  userId: string;
+  tripId: string;
+  tripDayId: string;
+  itemId: string;
   targetTripDayId: string;
 };
 
@@ -119,6 +129,23 @@ export type DayPlanItemSwapResult =
   | { status: "not_found" }
   | { status: "validation_error"; code: "same_day"; message: string }
   | { status: "swapped"; firstDayItemIds: string[]; secondDayItemIds: string[] };
+
+/**
+ * Story 6.23. Deliberately a *different* result shape from `DayPlanItemMoveResult`: the day-level
+ * move replaces the target day (`removedTargetItemIds`), this one appends to it and can only ever
+ * remove travel segments. Sharing a type would invite sharing the function, which is Trap 1.
+ */
+export type SingleDayPlanItemMoveResult =
+  | { status: "not_found" }
+  | { status: "missing" }
+  | { status: "validation_error"; code: "same_day"; message: string }
+  | {
+      status: "moved";
+      itemId: string;
+      sourceTripDayId: string;
+      targetTripDayId: string;
+      removedTravelSegmentIds: string[];
+    };
 
 const findTripDayForUser = async (userId: string, tripId: string, tripDayId: string) =>
   prisma.tripDay.findFirst({
@@ -201,6 +228,51 @@ const findScopedDayPlanItemForTripParticipant = async ({
     },
     select: { id: true },
   });
+
+/**
+ * Story 6.23, AC4/AC6. Deletes every travel segment on `tripDayIds` that points at `itemId`, and
+ * returns the ids it deleted so the caller can report them.
+ *
+ * `TravelSegment` has **no foreign key to `DayPlanItem`** — `fromItemId`/`toItemId` are plain strings
+ * paired with a `fromItemType`/`toItemType` discriminator, and the only cascade is on `tripDayId`. So
+ * an activity that leaves a day (moved *or* deleted) leaves its segments behind, and nothing in the
+ * app cleans them up. They are invisible — `segmentsByKey` in `TripDayView` only looks up pairs the
+ * timeline actually draws — but `totalTravelMinutes` sums *every* segment on the day, so the orphan
+ * keeps being counted as "Fahrzeit" forever.
+ *
+ * This is called from both `moveDayPlanItemToTripDay` and `deleteDayPlanItemForTripDay`. Fixing only
+ * the move path would mean the app tidies up after a move but not after a delete, which is the
+ * defect AC6 exists to close.
+ *
+ * It deliberately does **not** heal the chain by joining the removed activity's two former
+ * neighbours, and does not create anything on the target day: transport mode, duration and distance
+ * are the user's knowledge, and a fabricated segment is worse than a visible gap (AC5, Trap 3).
+ */
+const removeTravelSegmentsReferencingDayPlanItem = async (
+  tx: TransactionClient,
+  tripDayIds: string[],
+  itemId: string,
+): Promise<string[]> => {
+  const segments = await tx.travelSegment.findMany({
+    where: {
+      tripDayId: { in: tripDayIds },
+      OR: [
+        { fromItemType: "DAY_PLAN_ITEM", fromItemId: itemId },
+        { toItemType: "DAY_PLAN_ITEM", toItemId: itemId },
+      ],
+    },
+    select: { id: true },
+    orderBy: { createdAt: "asc" },
+  });
+
+  if (segments.length === 0) {
+    return [];
+  }
+
+  const removedIds = segments.map((segment) => segment.id);
+  await tx.travelSegment.deleteMany({ where: { id: { in: removedIds } } });
+  return removedIds;
+};
 
 const toDetail = (item: {
   id: string;
@@ -487,19 +559,96 @@ export const deleteDayPlanItemForTripDay = async (
     return { status: "not_found" };
   }
 
-  const existing = await prisma.dayPlanItem.findFirst({
-    where: {
-      id: itemId,
-      tripDayId,
-    },
+  // Story 6.23 AC6: one transaction, so a delete can never leave the day with segments pointing at
+  // an activity that is gone. Like the move below, the existence check *is* the write — `deleteMany`
+  // scoped by `[id, tripDayId]` cannot race a concurrent delete into a P2025 the way a bare
+  // `delete({ where: { id } })` after a separate `findFirst` can. The delete runs before the sweep so
+  // that a "missing" outcome touches nothing; the segments have no FK to the item, so neither order
+  // cascades.
+  const outcome = await prisma.$transaction(async (tx) => {
+    const deleted = await tx.dayPlanItem.deleteMany({ where: { id: itemId, tripDayId } });
+    if (deleted.count !== 1) {
+      return { status: "missing" as const };
+    }
+    const removed = await removeTravelSegmentsReferencingDayPlanItem(tx, [tripDayId], itemId);
+    return { status: "deleted" as const, removedTravelSegmentIds: removed };
   });
 
-  if (!existing) {
+  if (outcome.status === "missing") {
     return { status: "missing" };
   }
 
-  await prisma.dayPlanItem.delete({ where: { id: existing.id } });
-  return { status: "deleted" };
+  return { status: "deleted", removedTravelSegmentIds: outcome.removedTravelSegmentIds };
+};
+
+/**
+ * Story 6.23. Moves **one** activity to another day of the same trip.
+ *
+ * This is *not* `moveDayPlanItemsBetweenTripDays` with a narrower `where`, and must never become
+ * that: the day-level move deletes the target day's activities before reassigning the source day's
+ * (a whole-day replace wearing the name "move"), which for a single activity would destroy
+ * everything already on the destination. Here the target day is only ever appended to (AC2).
+ *
+ * The move itself is a single `update` of `tripDayId`. Everything attached to the activity travels
+ * with it for free (AC3): `day_plan_item_images.day_plan_item_id` and `cost_payments.day_plan_item_id`
+ * are foreign keys onto the row that is being updated, not onto the day, and title, description,
+ * times, cost, link and location are columns on the row itself.
+ *
+ * Ordering on the new day (AC7) needs no write: `DayPlanItem` has no `sortOrder` column, and every
+ * reader sorts by `fromTime` then `createdAt` then `id`. See the Dev Agent Record.
+ */
+export const moveDayPlanItemToTripDay = async (
+  params: SingleDayPlanItemMoveParams,
+): Promise<SingleDayPlanItemMoveResult> => {
+  const { userId, tripId, tripDayId, itemId, targetTripDayId } = params;
+  if (tripDayId === targetTripDayId) {
+    return {
+      status: "validation_error",
+      code: "same_day",
+      message: "Source and target days must be different",
+    };
+  }
+
+  const tripDays = await findTransferTripDaysForWriter(userId, tripId, [tripDayId, targetTripDayId]);
+  if (tripDays.length !== 2) {
+    return { status: "not_found" };
+  }
+
+  // The whole move is decided inside the transaction, including whether the activity is still on the
+  // day the caller thinks it is. Checking first and writing afterwards leaves a window two open tabs
+  // are enough to hit: the other tab moves the activity to a third day, this one's `update` by id
+  // alone would follow it there and sweep the wrong two days for segments. `updateMany` is what makes
+  // the day part of the write condition — `update` needs a unique `where`, and `[id, tripDayId]` is
+  // not one.
+  const outcome = await prisma.$transaction(async (tx) => {
+    const moved = await tx.dayPlanItem.updateMany({
+      where: { id: itemId, tripDayId },
+      data: { tripDayId: targetTripDayId },
+    });
+    if (moved.count !== 1) {
+      return { status: "missing" as const };
+    }
+    // Both days, not just the source: AC4 says the activity's segments go from both, and scoping the
+    // sweep to one of them would leave a stray behind if one ever existed on the other.
+    const removed = await removeTravelSegmentsReferencingDayPlanItem(
+      tx,
+      [tripDayId, targetTripDayId],
+      itemId,
+    );
+    return { status: "moved" as const, removedTravelSegmentIds: removed };
+  });
+
+  if (outcome.status === "missing") {
+    return { status: "missing" };
+  }
+
+  return {
+    status: "moved",
+    itemId,
+    sourceTripDayId: tripDayId,
+    targetTripDayId,
+    removedTravelSegmentIds: outcome.removedTravelSegmentIds,
+  };
 };
 
 export const moveDayPlanItemsBetweenTripDays = async (

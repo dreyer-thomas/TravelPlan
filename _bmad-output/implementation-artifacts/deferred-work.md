@@ -1288,3 +1288,33 @@ severity: low
 summary: In split mode the normalisation effect pads `payments` up to two rows and the per-row `Remove` button is `disabled={payments.length <= 2}`, so `payments.length < 2` should never be true when `handleSave` reaches its split branch — the `minRows` message and its i18n keys appear to be dead.
 evidence: Read during review of 6.22 while auditing the error→tab map, which has to assign every error a tab and a focus target whether or not the error can occur. Pre-existing: both the guard and the two things that make it unreachable pre-date this story, and 6.22 only moved the block. Recorded rather than deleted for two reasons. Removing a validation branch needs certainty that no path (a restored draft, a future bulk edit, an import) can produce a one-row split, and that was not established here. And if it is kept, its focus target should be revisited: `planErrorFocusId` sends the caret to the cost box for every `paymentError`, which is right for the sum-mismatch and cost-required cases but wrong for `minRows`, where the action the user must take is pressing "Zahlung hinzufügen".
 status: open
+
+### DW-148: Inserting an activity into a day strands its new neighbours' travel segment — invisible, still counted
+
+source_spec: `_bmad-output/implementation-artifacts/6-23-move-a-single-activity-to-another-day.md`
+origin: 6-23-move-a-single-activity-to-another-day, code review, 2026-08-03
+location: `travelplan/src/lib/repositories/dayPlanItemRepo.ts` (`createDayPlanItemForTripDay`, `updateDayPlanItemForTripDay`, `moveDayPlanItemToTripDay`), surfacing in `travelplan/src/components/features/trips/TripDayView.tsx` (`totalTravelMinutes` vs `segmentsByKey`)
+severity: medium
+summary: A day with A →(car, 40 min)→ B gains an activity M whose time falls between them. The timeline is now A, M, B, so the view draws A→M and M→B as empty gaps and never looks up A→B — but `totalTravelMinutes` sums every segment row on the day, so those 40 minutes go on being reported as "Fahrzeit" with no control anywhere that can remove them.
+evidence: Both reviewers found this independently. It is the same invisible-and-permanent over-count Story 6.23's AC6 closed for *removal*, reached instead by *insertion*, and it is pre-existing rather than introduced here: `grep -n "travelSegment" dayPlanItemRepo.ts` shows neither `createDayPlanItemForTripDay` nor `updateDayPlanItemForTripDay` touches segments at all, so creating an activity in the middle of a day, or retiming one so it reorders, already does this today. Story 6.23's move is a third trigger of the same cause. It is not patchable inside this story: the fix is a "reconcile this day's segments against its current timeline" routine — needing `buildSegmentTimeline`'s adjacency rules and the accommodation endpoints, and a decision about whether a stranded segment is deleted or shown for the user to resolve — applied to create, update and move alike. `createTravelSegmentForTripDay` already refuses to re-create a non-adjacent pair, so a day in this state cannot be repaired through the UI either.
+status: open
+
+### DW-149: Deleting an accommodation leaves its travel segments behind — the other half of the enum Story 6.23 fixed
+
+source_spec: `_bmad-output/implementation-artifacts/6-23-move-a-single-activity-to-another-day.md`
+origin: 6-23-move-a-single-activity-to-another-day, code review, 2026-08-03
+location: `travelplan/src/lib/repositories/accommodationRepo.ts` (`deleteAccommodationForTripDay`)
+severity: medium
+summary: `TravelSegmentItemType` has exactly two members. Story 6.23 gave `DAY_PLAN_ITEM` a sweep on both the move and the delete path; `ACCOMMODATION` has none, and `deleteAccommodationForTripDay` is a bare `prisma.accommodation.delete` with no transaction and no segment cleanup.
+evidence: `TravelSegment` has no foreign key to `Accommodation` either — only `tripDayId` cascades (`prisma/schema.prisma`) — so a deleted stay leaves every segment that pointed at it on the day, counted by `totalTravelMinutes` and drawn by nothing. The repo test Story 6.23 added for the activity path (`dayPlanItemRepo.test.ts`, "removes the travel segments referencing a deleted activity so the day stops counting them") would fail the same way if written against the stay path. Deferred rather than patched because it is outside this story's files and its ACs, and because the fix should decide once whether `removeTravelSegmentsReferencing` becomes type-agnostic (`itemType` + `itemId`) rather than growing a second near-identical helper.
+status: open
+
+### DW-150: One day-plan-item ordering comparator, copied verbatim into three repositories
+
+source_spec: `_bmad-output/implementation-artifacts/6-23-move-a-single-activity-to-another-day.md`
+origin: 6-23-move-a-single-activity-to-another-day, code review, 2026-08-03
+location: `travelplan/src/lib/repositories/dayPlanItemRepo.ts`, `travelplan/src/lib/repositories/tripRepo.ts` (`compareDayPlanItemsByStartTime`), `travelplan/src/lib/repositories/travelSegmentRepo.ts` (`comparePlanItemsByStartTime`)
+severity: low
+summary: `DayPlanItem` has no `sortOrder` column; its order is `fromTime` → `createdAt` → `id`, expressed three times in three files. Story 6.23's AC7 (where a moved activity lands) rests entirely on those three staying identical, and the story's tests reach the ordering only through `listDayPlanItemsForTripDay` — the order the user actually sees comes from `getTripWithDaysForUser`.
+evidence: All three copies read during this review. Pre-existing duplication; recorded now because Story 6.23 made a *correctness claim* depend on it rather than just a display detail. The fix is one exported comparator plus a test that pins the rendering path's ordering, not just the repository's.
+status: open

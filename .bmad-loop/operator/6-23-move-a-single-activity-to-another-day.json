@@ -1,0 +1,16 @@
+{
+  "actions": [
+    "Do Task 7 in a real browser, on a throwaway copy of dev.db on an isolated port \u2014 never prisma/dev.db. The recipe is in the Dev Notes of _bmad-output/implementation-artifacts/7-12-bucket-list-sidebar-card.md. AC3 is the reason the story exists and it is the one thing a unit test can assert but not convince anyone of.",
+    "Move an activity that has images, a cost split across several payment rows, a link and a location, and confirm on the target day that every one of them is there \u2014 the photos in the gallery, the payment rows in order with the same due dates, the link live, the map pin in the right place. If any of them is missing, stop: that is AC3 failing and it is the whole story.",
+    "Move an activity that sits between two others with travel segments on both sides. Confirm both days read correctly afterwards, that no segment was invented on the target day, and that the green line names how many were removed ('2 travel segments removed', and '1 travel segment removed' when only one goes \u2014 the singular is its own key).",
+    "Check the target day's own travel time after that move, and expect it to be wrong: if the activity landed between two activities that already had a segment between them, that segment is now drawn by nothing but still counted in 'Fahrzeit'. This is DW-148, it is pre-existing (creating or retiming an activity does the same), and it is deferred, not fixed. Record the number so the ledger entry has a measurement, and do not treat it as a regression from this story.",
+    "Delete an activity that has a travel segment and watch the 'Fahrzeit' stat drop immediately, without reloading the page. Before this story the minutes stayed on screen \u2014 and in the database \u2014 forever. That is AC6.",
+    "Open the activity dialog at a 390px viewport in German and look at the footer: it now carries Abbrechen, 'Auf anderen Tag verschieben', L\u00f6schen and Speichern. Judge whether four controls in that row still read cleanly under 6.22's tab bar, and say so if they do not \u2014 the fix would be a layout story, not an edit here.",
+    "Try the move as a viewer (a share link with view-only access): the action must be absent from the dialog, not present-but-disabled.",
+    "If every check passes, tick Task 7 in this spec, set status: done in the frontmatter and Status: done in the body, and set 6-23-move-a-single-activity-to-another-day to done in sprint-status.yaml."
+  ],
+  "parked_at": "2026-08-03",
+  "run_id": "20260803-182827-68c9",
+  "spec_file": "_bmad-output/implementation-artifacts/6-23-move-a-single-activity-to-another-day.md",
+  "story_key": "6-23-move-a-single-activity-to-another-day"
+}

@@ -483,6 +483,25 @@ const de: Dictionary = {
   "trips.plan.saveError": "Plan-Element konnte nicht gespeichert werden. Bitte erneut versuchen.",
   "trips.plan.deleteError": "Plan-Element konnte nicht gelöscht werden. Bitte erneut versuchen.",
   "trips.plan.editItemMissing": "Zu bearbeitender Planpunkt fehlt.",
+  // Story 6.23 — siehe en.ts. "Auf anderen Tag verschieben" ist die Formulierung aus der Anfrage
+  // selbst und damit die verbindliche; `trips.dayTransfer.*` bleibt der Ganztagestransfer.
+  "trips.plan.moveAction": "Auf anderen Tag verschieben",
+  "trips.plan.moveDialogTitle": "Auf anderen Tag verschieben",
+  "trips.plan.moveDescription":
+    "Alles, was an dieser Aktivität gespeichert ist, wird mitverschoben: Titel, Beschreibung, Zeiten, Kosten, Zahlungen, Link, Ort und Fotos. Aktivitäten, die am gewählten Tag schon eingetragen sind, bleiben erhalten.",
+  // Beides steht *vor* dem Verschieben, nicht danach: verschoben wird der zuletzt gespeicherte Stand,
+  // und Reiseabschnitte enthalten Dauer, Entfernung und manchmal einen getippten Link. AC4 verlangt,
+  // dass so etwas nicht stillschweigend verschwindet — das gilt für die Warnung wie für die Meldung.
+  "trips.plan.moveWarning":
+    "Nicht gespeicherte Änderungen in diesem Dialog werden nicht mitverschoben. Reiseabschnitte zwischen dieser Aktivität und ihren Nachbarn werden an beiden Tagen entfernt.",
+  "trips.plan.moveConfirm": "Aktivität verschieben",
+  "trips.plan.moveError": "Die Aktivität konnte nicht verschoben werden. Bitte erneut versuchen.",
+  "trips.plan.moveFallbackDay": "einen anderen Tag",
+  // Eigener Singular statt „Reiseabschnitt(e)“: `formatMessage` kann keine Pluralformen, und „1
+  // Reiseabschnitt(e) entfernt“ wäre in der Hauptsprache ein sichtbarer Fehler.
+  "trips.plan.moveSuccess": "Aktivität auf {day} verschoben.",
+  "trips.plan.moveSuccessWithSegment": "Aktivität auf {day} verschoben. 1 Reiseabschnitt entfernt.",
+  "trips.plan.moveSuccessWithSegments": "Aktivität auf {day} verschoben. {count} Reiseabschnitte entfernt.",
   "trips.payments.title": "Zahlungsplan",
   "trips.payments.payAllNow": "Alles sofort zahlen",
   "trips.payments.split": "In mehrere Zahlungen aufteilen",

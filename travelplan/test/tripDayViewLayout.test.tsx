@@ -16,6 +16,13 @@ const toRgb = (hex: string) => {
 };
 
 const planDialogMockState = vi.hoisted(() => ({
+  // Story 6.23. What `onMove` resolved to, recorded because a failed move is reported *inside* the
+  // real dialog: the screen behind it is covered, so the message has to come back rather than be
+  // rendered here. Two flat fields rather than the outcome object — `vi.hoisted` widens the state's
+  // property types to `never` in this file (see `lastProps`), and a field nothing reads *into* is
+  // the only shape that survives it.
+  lastMoveMoved: null as boolean | null,
+  lastMoveMessage: null as string | null,
   lastProps: null as null | {
     open: boolean;
     mode: "add" | "edit";
@@ -27,6 +34,10 @@ const planDialogMockState = vi.hoisted(() => ({
       bucketListItemId: string;
     } | null;
     onDelete?: (itemId: string) => Promise<boolean>;
+    // Story 6.23. Recorded so a test can assert *what this screen offers the dialog* — the candidate
+    // days with the current one excluded — rather than only what happens after a click.
+    moveTargetDays?: { id: string; label: string }[];
+    onMove?: (itemId: string, targetTripDayId: string) => Promise<{ moved: true } | { moved: false; message: string }>;
     onClose: () => void;
     onSaved: () => void;
   },
@@ -68,6 +79,8 @@ vi.mock("@/components/features/trips/TripDayPlanDialog", () => ({
       bucketListItemId: string;
     } | null;
     onDelete?: (itemId: string) => Promise<boolean>;
+    moveTargetDays?: { id: string; label: string }[];
+    onMove?: (itemId: string, targetTripDayId: string) => Promise<{ moved: true } | { moved: false; message: string }>;
     onClose: () => void;
     onSaved: () => void;
   }) => {
@@ -83,6 +96,25 @@ vi.mock("@/components/features/trips/TripDayPlanDialog", () => ({
         {props.mode === "edit" && props.item ? (
           <button type="button" onClick={() => void props.onDelete?.(props.item.id)}>
             Delete plan item
+          </button>
+        ) : null}
+        {/*
+          Story 6.23. The real dialog puts a target-day picker behind this button; the mock stands in
+          for the whole picker by moving to the first candidate this screen offered, because what is
+          under test here is the *screen's* half of the contract — the request, the reload and the
+          sentence naming what was removed.
+        */}
+        {props.mode === "edit" && props.item && props.onMove && props.moveTargetDays?.length ? (
+          <button
+            type="button"
+            onClick={() =>
+              void props.onMove?.(props.item!.id, props.moveTargetDays![0].id).then((outcome) => {
+                planDialogMockState.lastMoveMoved = outcome.moved;
+                planDialogMockState.lastMoveMessage = outcome.moved ? null : outcome.message;
+              })
+            }
+          >
+            Move plan item
           </button>
         ) : null}
       </div>
@@ -2827,6 +2859,649 @@ describe("TripDayView layout", () => {
     await waitFor(() => expect(screen.queryAllByText("Museum visit")).toHaveLength(0));
     expect(await screen.findByText("No day details yet. Add a stay or day plan item to begin.")).toBeInTheDocument();
     expect(screen.getByTestId("day-cost-total")).toHaveTextContent("€0.00");
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * Story 6.23 AC4 — the half of the story a repository test cannot show: after the activity has
+   * gone to another day and the dialog has closed, the user is told what the move deleted.
+   *
+   * A silent success would be wrong here, because a travel segment carries a duration, a distance
+   * and sometimes a link that someone typed.
+   */
+  it("moves one activity to another day and reports the travel segments the move removed", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const items = [
+      {
+        id: "plan-1",
+        contentJson: JSON.stringify({
+          type: "doc",
+          content: [{ type: "paragraph", content: [{ type: "text", text: "Museum visit" }] }],
+        }),
+        linkUrl: null,
+        location: null,
+      },
+    ];
+
+    const fetchMock = withBucketList(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+
+      if (url.includes("/api/auth/csrf")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
+        };
+      }
+
+      if (url.includes("/day-plan-items/move") && method === "POST") {
+        items.splice(0, items.length);
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: {
+              itemId: "plan-1",
+              sourceTripDayId: "day-1",
+              targetTripDayId: "day-0",
+              removedTravelSegmentIds: ["segment-1", "segment-2"],
+            },
+            error: null,
+          }),
+        };
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-02T00:00:00.000Z",
+              dayCount: 2,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-0",
+                date: "2026-11-30T00:00:00.000Z",
+                dayIndex: 0,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: true,
+                accommodation: null,
+                dayPlanItems: [],
+              },
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: null,
+                dayPlanItems: items,
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    expect((await screen.findAllByText("Museum visit")).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getAllByTestId("day-plan-item-edit-overlay")[0]);
+    await waitFor(() => expect(planDialogMockState.lastProps?.open).toBe(true));
+
+    // The candidates handed to the dialog: the trip's other day, labelled the way the day-level
+    // transfer's picker labels it, with the day the user is on excluded.
+    await waitFor(() =>
+      expect(planDialogMockState.lastProps?.moveTargetDays).toEqual([
+        { id: "day-0", label: "Day 0 · Nov 30, 2026" },
+      ]),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Move plan item" }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/day-plan-items/move"),
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ tripDayId: "day-1", itemId: "plan-1", targetTripDayId: "day-0" }),
+        }),
+      ),
+    );
+
+    // AC4: named, not silent — and it names the day as well as the count. The plural is a real
+    // plural, not "(s)": `formatMessage` has no plural support, so the singular is its own key.
+    expect(
+      await screen.findByText("Activity moved to Day 0 · Nov 30, 2026. 2 travel segments removed."),
+    ).toBeInTheDocument();
+    // And the day the user is on has actually reloaded without it.
+    await waitFor(() => expect(screen.queryAllByText("Museum visit")).toHaveLength(0));
+    vi.unstubAllGlobals();
+  });
+
+  /** The move that removed nothing must not mention travel segments at all. */
+  it("reports a move that removed no travel segments without naming any", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const items = [
+      {
+        id: "plan-1",
+        contentJson: JSON.stringify({
+          type: "doc",
+          content: [{ type: "paragraph", content: [{ type: "text", text: "Museum visit" }] }],
+        }),
+        linkUrl: null,
+        location: null,
+      },
+    ];
+
+    const fetchMock = withBucketList(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+
+      if (url.includes("/api/auth/csrf")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
+        };
+      }
+
+      if (url.includes("/day-plan-items/move") && method === "POST") {
+        items.splice(0, items.length);
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: {
+              itemId: "plan-1",
+              sourceTripDayId: "day-1",
+              targetTripDayId: "day-0",
+              removedTravelSegmentIds: [],
+            },
+            error: null,
+          }),
+        };
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-02T00:00:00.000Z",
+              dayCount: 2,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-0",
+                date: "2026-11-30T00:00:00.000Z",
+                dayIndex: 0,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: true,
+                accommodation: null,
+                dayPlanItems: [],
+              },
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: null,
+                dayPlanItems: items,
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    expect((await screen.findAllByText("Museum visit")).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getAllByTestId("day-plan-item-edit-overlay")[0]);
+    await waitFor(() => expect(planDialogMockState.lastProps?.open).toBe(true));
+    fireEvent.click(screen.getByRole("button", { name: "Move plan item" }));
+
+    expect(await screen.findByText("Activity moved to Day 0 · Nov 30, 2026.")).toBeInTheDocument();
+    expect(screen.queryByText(/travel segment/)).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * One removed segment reads "1 travel segment removed", not "1 travel segment(s) removed":
+   * `formatMessage` has no plural support, so every count-bearing string in this codebase carries
+   * its own singular twin. One is also the common case here — an activity in the middle of a day has
+   * two neighbours, one at either end has one.
+   */
+  it("names a single removed travel segment in the singular", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const items = [
+      {
+        id: "plan-1",
+        contentJson: JSON.stringify({
+          type: "doc",
+          content: [{ type: "paragraph", content: [{ type: "text", text: "Museum visit" }] }],
+        }),
+        linkUrl: null,
+        location: null,
+      },
+    ];
+
+    const fetchMock = withBucketList(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+
+      if (url.includes("/api/auth/csrf")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
+        };
+      }
+
+      if (url.includes("/day-plan-items/move") && method === "POST") {
+        items.splice(0, items.length);
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: {
+              itemId: "plan-1",
+              sourceTripDayId: "day-1",
+              targetTripDayId: "day-0",
+              removedTravelSegmentIds: ["segment-1"],
+            },
+            error: null,
+          }),
+        };
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-02T00:00:00.000Z",
+              dayCount: 2,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-0",
+                date: "2026-11-30T00:00:00.000Z",
+                dayIndex: 0,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: true,
+                accommodation: null,
+                dayPlanItems: [],
+              },
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: null,
+                dayPlanItems: items,
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    expect((await screen.findAllByText("Museum visit")).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getAllByTestId("day-plan-item-edit-overlay")[0]);
+    await waitFor(() => expect(planDialogMockState.lastProps?.open).toBe(true));
+    fireEvent.click(screen.getByRole("button", { name: "Move plan item" }));
+
+    expect(
+      await screen.findByText("Activity moved to Day 0 · Nov 30, 2026. 1 travel segment removed."),
+    ).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * A failed move is reported by the dialog, not by this screen: the dialog stays open on failure and
+   * covers the page, so an alert rendered here is one the user cannot read. The specific reason
+   * travels back instead — "your session has expired" and "please try again" ask for different
+   * things, and only one of them can work.
+   */
+  it("hands a failed move's reason back to the dialog instead of alerting behind it", async () => {
+    planDialogMockState.lastProps = null;
+    planDialogMockState.lastMoveMoved = null;
+    planDialogMockState.lastMoveMessage = null;
+    navigationMockState.search = "";
+
+    const fetchMock = withBucketList(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+
+      if (url.includes("/api/auth/csrf")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
+        };
+      }
+
+      if (url.includes("/day-plan-items/move") && method === "POST") {
+        return {
+          ok: false,
+          status: 403,
+          json: async () => ({ data: null, error: { code: "unauthorized", message: "no" } }),
+        };
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-02T00:00:00.000Z",
+              dayCount: 2,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-0",
+                date: "2026-11-30T00:00:00.000Z",
+                dayIndex: 0,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: true,
+                accommodation: null,
+                dayPlanItems: [],
+              },
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: null,
+                dayPlanItems: [
+                  {
+                    id: "plan-1",
+                    contentJson: JSON.stringify({
+                      type: "doc",
+                      content: [{ type: "paragraph", content: [{ type: "text", text: "Museum visit" }] }],
+                    }),
+                    linkUrl: null,
+                    location: null,
+                  },
+                ],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    expect((await screen.findAllByText("Museum visit")).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getAllByTestId("day-plan-item-edit-overlay")[0]);
+    await waitFor(() => expect(planDialogMockState.lastProps?.open).toBe(true));
+    fireEvent.click(screen.getByRole("button", { name: "Move plan item" }));
+
+    await waitFor(() => expect(planDialogMockState.lastMoveMoved).toBe(false));
+    // A reason, and the specific one the API gave — not this screen's generic fallback.
+    expect(planDialogMockState.lastMoveMessage).toBe("Authentication required. Please sign in.");
+    // Nothing was announced on this screen: no success line, and no error alert stranded behind the
+    // open dialog.
+    expect(screen.queryByText(/Activity moved to/)).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    // The activity is still where it was — a failed move moves nothing.
+    expect((await screen.findAllByText("Museum visit")).length).toBeGreaterThan(0);
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * Story 6.23 AC6, the half a repository test cannot reach. The delete is optimistic and nothing
+   * reloads the day afterwards, so the segments the server removed have to leave client state too —
+   * otherwise "Travel time" keeps summing minutes for an activity that is gone, which is the exact
+   * defect AC6 exists to close, just moved from the database into the session.
+   */
+  it("stops counting a deleted activity's travel time without a reload", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    let deleteCalls = 0;
+
+    const dayPlanItems = [
+      {
+        id: "plan-1",
+        title: "Museum visit",
+        fromTime: "09:00",
+        toTime: "10:00",
+        contentJson: JSON.stringify({ type: "doc", content: [] }),
+        costCents: null,
+        linkUrl: null,
+        location: null,
+      },
+    ];
+
+    const fetchMock = withBucketList(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+
+      if (url.includes("/api/auth/csrf")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
+        };
+      }
+
+      if (url.includes("/day-plan-items") && method === "DELETE") {
+        deleteCalls += 1;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: { deleted: true, removedTravelSegmentIds: ["segment-1"] },
+            error: null,
+          }),
+        };
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-01T00:00:00.000Z",
+              dayCount: 1,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: {
+                  id: "stay-1",
+                  name: "Quinta",
+                  notes: null,
+                  status: "booked",
+                  costCents: null,
+                  link: null,
+                  checkInTime: "16:00",
+                  checkOutTime: null,
+                  location: null,
+                },
+                dayPlanItems,
+                travelSegments: [
+                  {
+                    id: "segment-1",
+                    fromItemType: "dayPlanItem",
+                    fromItemId: "plan-1",
+                    toItemType: "accommodation",
+                    toItemId: "stay-1",
+                    transportType: "car",
+                    durationMinutes: 130,
+                    distanceKm: null,
+                    linkUrl: null,
+                  },
+                ],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+    expect(screen.getByTestId("day-stat-travel-time")).toHaveTextContent("2h 10m");
+
+    fireEvent.click(screen.getAllByTestId("day-plan-item-edit-overlay")[0]);
+    await waitFor(() => expect(planDialogMockState.lastProps?.open).toBe(true));
+    fireEvent.click(screen.getByRole("button", { name: "Delete plan item" }));
+
+    await waitFor(() => expect(deleteCalls).toBe(1));
+    // The 130 minutes went with the activity. Before this, they stayed on screen for the rest of the
+    // session because nothing reloads the day after a delete.
+    await waitFor(() => expect(screen.getByTestId("day-stat-travel-time")).toHaveTextContent("0m"));
+
+    confirmSpy.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * AC8. A viewer cannot reach the activity dialog at all, so the guard that matters is the one on
+   * the props: no handler and no candidate days means the dialog cannot render the action even if it
+   * is opened some other way.
+   */
+  it("withholds the move handler from a viewer", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "open=plan&itemId=plan-1";
+
+    const fetchMock = withBucketList(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            accessRole: "viewer",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-02T00:00:00.000Z",
+            dayCount: 2,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
+          },
+          days: [
+            {
+              id: "day-0",
+              date: "2026-11-30T00:00:00.000Z",
+              dayIndex: 0,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: null,
+              dayPlanItems: [],
+            },
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: null,
+              dayPlanItems: [
+                {
+                  id: "plan-1",
+                  contentJson: JSON.stringify({
+                    type: "doc",
+                    content: [{ type: "paragraph", content: [{ type: "text", text: "Museum visit" }] }],
+                  }),
+                  linkUrl: null,
+                  location: null,
+                },
+              ],
+            },
+          ],
+        },
+        error: null,
+      }),
+    })) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    expect((await screen.findAllByText("Museum visit")).length).toBeGreaterThan(0);
+    await waitFor(() => expect(planDialogMockState.lastProps).not.toBeNull());
+    await waitFor(() => {
+      expect(planDialogMockState.lastProps?.onMove).toBeUndefined();
+      expect(planDialogMockState.lastProps?.moveTargetDays).toBeUndefined();
+    });
+    expect(screen.queryByRole("button", { name: "Move plan item" })).toBeNull();
     vi.unstubAllGlobals();
   });
 

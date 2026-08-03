@@ -299,5 +299,9 @@ export const DELETE = async (request: NextRequest, context: RouteContext) => {
     return fail(apiError("not_found", "Day plan item not found"), 404);
   }
 
-  return ok({ deleted: true });
+  // Story 6.23 AC6: deleting an activity now also removes the travel segments that pointed at it.
+  // The ids are load-bearing, not decoration: `handleDeletePlan` removes the item optimistically and
+  // never reloads the day, so without them the client would keep the deleted segments in state and
+  // "Fahrzeit" would go on counting their minutes for the rest of the session.
+  return ok({ deleted: true, removedTravelSegmentIds: deleted.removedTravelSegmentIds });
 };

@@ -505,6 +505,32 @@ const en: Dictionary = {
   "trips.plan.saveError": "Plan item update failed. Please try again.",
   "trips.plan.deleteError": "Plan item removal failed. Please try again.",
   "trips.plan.editItemMissing": "Missing plan item to edit.",
+  // Story 6.23 — moving one activity to another day, from the activity dialog's footer. The German
+  // action label is the binding one: it is the wording the request itself used ("Auf anderen Tag
+  // verschieben"). Distinct from `trips.dayTransfer.*`, which is the whole-day transfer and whose
+  // "move" *replaces* the target day — the two must not share copy any more than they share code.
+  "trips.plan.moveAction": "Move to another day",
+  "trips.plan.moveDialogTitle": "Move to another day",
+  "trips.plan.moveDescription":
+    "Everything saved on this activity moves with it: title, description, times, cost, payments, link, location and photos. Activities already on the selected day are kept.",
+  // The two costs of moving, said before the move rather than after it. Unsaved edits: the move sends
+  // the activity as it was last saved, and this dialog can be opened with the form dirty. Travel
+  // segments: they carry a duration, a distance and sometimes a link somebody typed, and AC4's
+  // principle - do not remove that in silence - applies to the warning as much as the receipt.
+  "trips.plan.moveWarning":
+    "Unsaved changes in this dialog are not moved. Travel segments between this activity and its neighbours are removed on both days.",
+  "trips.plan.moveConfirm": "Move activity",
+  "trips.plan.moveError": "Unable to move the activity. Please try again.",
+  // The day is named when it can be resolved; this stands in when it cannot, so the sentence never
+  // ends up reading "Activity moved to ."
+  "trips.plan.moveFallbackDay": "another day",
+  // Two messages, not one with a zero case: removing something the user typed has to be named, and a
+  // move that removed nothing should not mention travel segments at all. The count-bearing one gets
+  // its own singular twin, as every count-bearing string in this file does - `formatMessage` has no
+  // plural support and "1 travel segment(s) removed" would be a visible defect.
+  "trips.plan.moveSuccess": "Activity moved to {day}.",
+  "trips.plan.moveSuccessWithSegment": "Activity moved to {day}. 1 travel segment removed.",
+  "trips.plan.moveSuccessWithSegments": "Activity moved to {day}. {count} travel segments removed.",
   "trips.payments.title": "Payment schedule",
   "trips.payments.payAllNow": "Pay all now",
   "trips.payments.split": "Split into multiple payments",
