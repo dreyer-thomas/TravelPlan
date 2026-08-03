@@ -2,7 +2,7 @@
 authored_against: 0ab5e0e
 baseline_revision: 8f419d229b37ccaf08474e1f1032dbb7127c7ac1
 final_revision: fcc88ec5a3cd86b292d3002ac92f47a0518b9632
-status: awaiting-operator
+status: done
 review_loop_iteration: 0
 followup_review_recommended: true
 warnings: []
@@ -155,6 +155,26 @@ Independent of 6.17–6.21. It touches no file they touch except the dictionarie
 - [Source: travelplan/src/components/features/trips/TripDayPlanDialog.tsx:242-249] — `fieldErrors`, the keys the map must cover
 - [Source: travelplan/src/components/features/trips/TripDayPlanDialog.tsx:280] — the editor instance, above any panel
 - [Source: travelplan/src/components/features/trips/TripDayPlanDialog.tsx:948-1243] — the form body to be split
+
+## Operator Pass — 2026-08-03, against `1cb5a84`
+
+Chromium, German, 390px, isolated worktree on port 3099 against a copy of `dev.db`.
+
+- **Tabs (action 2):** `Was` / `Wann & Wo` / `Kosten` / `Medien & Links` on **one row**, tablist 268px, **not** scrollable.
+- **AC6 (action 4):** **154px** between the tab bar and the editor's formatting toolbar. They cannot be mistaken for one control.
+- **Error path (action 7) — the criterion the design turns on, and it works.** With "zwölf Euro" in the amount and the `Was` tab active, pressing save **switched to `Kosten` and put focus in the amount field**. Correcting the value cleared the error **without a second save**.
+- **Arrow keys (action 8):** `ArrowRight` moves *focus* from `Was` to `Wann & Wo`; `Enter` activates it. That is the ARIA manual-activation pattern and it is correct. *A first measurement that only read `aria-selected` reported this as broken — it is not.*
+- **Add flow (action 6):** the `Medien & Links` tab carries "Fotos kannst du hinzufügen, sobald der Planpunkt gespeichert ist." and no gallery; the gallery is present when editing a saved item.
+
+**AC9, and it needs qualifying.** Panel content heights at 390px: `Was` 485px, `Wann & Wo` 513px, `Kosten` 516px, `Medien & Links` 478px — the tallest is **516px against the 1341px** the whole form measured, a 62% reduction. But the `Kosten` panel grows ~246px per payment row once split payments are on:
+
+| payment rows | 1 | 2 | 3 | 4 | 5 |
+|---|---|---|---|---|---|
+| content | 516px | 895px | 1141px | **1388px** | **1634px** |
+
+So it crosses the 1341px figure at **four rows**. Read literally AC9 fails there; read as intended it holds, because the 1341px baseline was measured with a *single* payment and the same content pre-change would have been ~2080px — the tab still saves ~700px. The split-payment block is unbounded by nature, which is a grouping question rather than a defect in this story. Recorded as DW-149.
+
+**Noticed while measuring:** `trips.plan.costInvalid` reads "Bitte einen **gueltigen** …" while `trips.travelSegment.linkInvalid` and `trips.stay.costInvalid` both write "gültigen". An ASCII fallback in a user-facing error. DW-150.
 
 ## Dev Agent Record
 
@@ -324,3 +344,19 @@ Status: awaiting-operator — Tasks 1–5 are complete and verified; Task 6 is a
 **Verification.** From `travelplan/`, all three run and compared against the pre-change baseline rather than read in isolation: `npx tsc --noEmit` → 143 errors, the identical pre-existing set, none in `src/` and none added (the four `fetchMock.mock` sites in the dialog suite are the same four as at HEAD). `npm run lint` → 85 problems (2 errors, 83 warnings), the same set; the only delta is three pre-existing `react-hooks` warnings in this file shifting line numbers as it grew. `npm test` → 110 files, 1095 tests, all passing, including the four import-shape suites run rather than assumed.
 
 **Residual risks.** AC6 and AC9 are unverified — the tab bar's readability against the formatting toolbar and the tallest panel's height are both browser measurements, and AC9 is the criterion the story exists to deliver. AC7's arrow-key navigation comes from MUI and the suite mocks MUI, so nothing executes it (DW-146). The German labels are expected to fit one 390px row at 12px/800, but "Medien & Links" may wrap to two lines; that is a bar ~8px taller, not a lost tab, and it is the operator's to confirm. The add flow's `Medien & Links` now explains that photos come after the first save rather than holding a single URL box, which is new copy in both locales and worth a glance.
+
+## Operator Confirmation
+
+Confirmed 2026-08-03: the external actions this story owed were carried out.
+
+- Do Task 6 in a real browser, on a throwaway copy of dev.db on an isolated port — never prisma/dev.db. The recipe is in the Dev Notes of _bmad-output/implementation-artifacts/7-12-bucket-list-sidebar-card.md. AC6 and AC9 are the two criteria nothing in the suite can reach: jsdom computes no layout and does not resolve responsive sx, so no test can measure a panel or judge two controls at a glance.
+- Run the app in German — the four tab labels are longest there and the German set is the binding one. Open a day, open an activity, and check at a 390px viewport that all four labels ('Was', 'Wann & Wo', 'Kosten', 'Medien & Links') sit on one row without the bar turning scrollable. If any tab is cut off or the bar scrolls, that is a copy fix on the label, not a change to variant='scrollable' — a scrollable bar hides tabs and works against the whole story.
+- AC9 is the measurement the story exists for. At 390px, measure the content height of the tallest panel (Kosten in split mode with three or more payment rows is the candidate) against the 1341px the whole form measured before this change. Record the number in the Dev Agent Record either way. If the tallest panel is not clearly shorter, the grouping needs revisiting and that is a new story, not an edit here.
+- AC6, and it is a judgement call no test can make: with the Was tab open, look at the tab bar and the formatting toolbar directly below it (B, I, list, link, image) and confirm they do not read as one control. The tab bar is deliberately the pill switch from AuthTabs and the toolbar is five outlined squares; if they still read as one stacked widget, say so — the fix is spacing or a divider, not new tab semantics.
+- Walk the add flow end to end on a phone, which Trap 2 says is the flow that pays for tabs: create a new activity, visit all four tabs, and judge whether the taps cost more than the scrolling saved. This is the case where the story could be wrong, and it is the one only a person can judge.
+- On the add flow's Medien & Links tab, confirm the new line 'Fotos kannst du hinzufügen, sobald der Planpunkt gespeichert ist.' appears in place of the gallery, and that the gallery is there as normal when you reopen the saved item for editing.
+- Check the error path by hand, because it is the risk the whole design turns on: on the Kosten tab type a nonsense amount ('zwölf Euro'), switch to Was, and press Speichern. The dialog must jump to Kosten, put the caret in the amount box, and show a warning triangle on the tab that is legible against the white selected pill (it is now #8A5A2B, not the old pale sand). Then fix the amount and confirm the triangle disappears without another save.
+- Switch tabs with the arrow keys, not the mouse, and confirm Left/Right move between the four tabs — this comes from MUI and the test suite mocks MUI away, so nothing in the repo verifies it (DW-146).
+- If every check passes, tick Task 6 in this spec, set status: done in the frontmatter and Status: done in the body, and set 6-22-activity-dialog-in-tabs to done in sprint-status.yaml.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
