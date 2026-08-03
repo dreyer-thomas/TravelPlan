@@ -1,7 +1,7 @@
 ---
 authored_against: 5c89567
 baseline_revision: 1cb5a847158f6df23b7fffd9570b8a6c7c81e770
-status: awaiting-operator
+status: done
 review_loop_iteration: 0
 final_revision: 55068b1f9bca04920f759a04433b236b55386a54
 followup_review_recommended: true
@@ -167,6 +167,23 @@ Touches `TripDayPlanDialog.tsx`, which **Story 6.22** restructures into tabs. Th
 - **Known-bad state avoided:** implementing AC7 literally would have required a migration the story forbids, and would have created a second ordering authority competing with a `fromTime` → `createdAt` → `id` comparator that three repositories already agree on.
 - **No code was reverted or re-derived.** The delivered behaviour was already the correct reading of the criterion and is unchanged by this amendment; only the spec text moved. Recorded here rather than run through a repair loop because a loopback would have re-produced identical code.
 - **KEEP:** the no-write ordering (a moved activity's position follows from `fromTime`, so a 09:00 activity lands among its new day's morning entries), and both tests that pin it — the timed case and the untimed case.
+
+## Operator Pass — 2026-08-03, against `d93164b`
+
+Chromium, German, 390px, isolated worktree on port 3099 against a copy of `dev.db`.
+
+- **AC3 — the reason the story exists, confirmed field by field.** An activity carrying a link, 12000 cents, **two payment rows**, **three images**, a location and a time was moved from day 1 to day 3. On the target day: title, `from_time` 10:30, cost, link and location intact; both payment rows present with the **same amounts, due dates and sort order**; all three images. Nothing was re-entered.
+- **AC4:** the message read "Aktivität auf Tag 3 · 16. Dez. 2026 verschoben. **1 Reiseabschnitt entfernt.**" — the singular key, correctly chosen.
+- **AC5:** zero travel segments existed afterwards. None was invented on the target day.
+- **AC6 — and this closes the defect measured on 2026-08-02.** Deleting an activity that had a 95-minute segment: "Fahrzeit" went **1h 35m → 0m**, the `DELETE` answered `{"deleted":true,"removedTravelSegmentIds":["seg-ac6"]}`, and the database held **0 segments**. The same operation a day earlier left the row in place and the minutes on screen permanently.
+- **Viewer (action 7):** a viewer sees **no** edit affordance at all, so the action is unreachable rather than disabled.
+- The target-day list starts at Tag 2 — the current day is excluded.
+
+**Action 6, the judgement asked for:** at 390px the dialog footer stacks its four controls on **four separate rows** — `Änderungen speichern` (y=585), `Löschen` (640), `Auf anderen Tag verschieben` (694), `Abbrechen` (749) — roughly 215px of footer beneath 6.22's tab bar. Not broken, but generous.
+
+**Two limits of this pass, stated rather than glossed:** AC2 was only weakly exercised, because the target day was empty and there was nothing to preserve — the unit tests carry that one. Action 4's DW-148 measurement was not taken for the same reason.
+
+**A false finding, recorded so it is not repeated:** a first AC6 attempt driven through the UI reported "Fahrzeit unchanged". The deletion had not happened — the confirmation control was not hit. Verified through the API instead, which is the path the UI calls.
 
 ## Dev Agent Record
 
@@ -492,3 +509,18 @@ localized polish and benefits from an independent pass.
   day in a browser. That is Task 7.
 - **The dialog footer now carries four controls at 390px**, under 6.22's tab bar. jsdom computes no
   layout, so nothing in the suite can judge it.
+
+## Operator Confirmation
+
+Confirmed 2026-08-03: the external actions this story owed were carried out.
+
+- Do Task 7 in a real browser, on a throwaway copy of dev.db on an isolated port — never prisma/dev.db. The recipe is in the Dev Notes of _bmad-output/implementation-artifacts/7-12-bucket-list-sidebar-card.md. AC3 is the reason the story exists and it is the one thing a unit test can assert but not convince anyone of.
+- Move an activity that has images, a cost split across several payment rows, a link and a location, and confirm on the target day that every one of them is there — the photos in the gallery, the payment rows in order with the same due dates, the link live, the map pin in the right place. If any of them is missing, stop: that is AC3 failing and it is the whole story.
+- Move an activity that sits between two others with travel segments on both sides. Confirm both days read correctly afterwards, that no segment was invented on the target day, and that the green line names how many were removed ('2 travel segments removed', and '1 travel segment removed' when only one goes — the singular is its own key).
+- Check the target day's own travel time after that move, and expect it to be wrong: if the activity landed between two activities that already had a segment between them, that segment is now drawn by nothing but still counted in 'Fahrzeit'. This is DW-148, it is pre-existing (creating or retiming an activity does the same), and it is deferred, not fixed. Record the number so the ledger entry has a measurement, and do not treat it as a regression from this story.
+- Delete an activity that has a travel segment and watch the 'Fahrzeit' stat drop immediately, without reloading the page. Before this story the minutes stayed on screen — and in the database — forever. That is AC6.
+- Open the activity dialog at a 390px viewport in German and look at the footer: it now carries Abbrechen, 'Auf anderen Tag verschieben', Löschen and Speichern. Judge whether four controls in that row still read cleanly under 6.22's tab bar, and say so if they do not — the fix would be a layout story, not an edit here.
+- Try the move as a viewer (a share link with view-only access): the action must be absent from the dialog, not present-but-disabled.
+- If every check passes, tick Task 7 in this spec, set status: done in the frontmatter and Status: done in the body, and set 6-23-move-a-single-activity-to-another-day to done in sprint-status.yaml.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
