@@ -371,10 +371,19 @@ export const POST = async (request: NextRequest) => {
         travelSegmentCount: imported.travelSegmentCount,
         bucketListItemCount: imported.bucketListItemCount,
         photoCount: imported.photoCount,
-        // What the *export* dropped - a photo whose file was already gone, one that failed the
-        // containment check. The import restored everything the package contained, so this is the
-        // only place a user can learn that the package itself was already short of the original.
-        warnings: parsed.data.payload.meta.warnings,
+        // Two sources, one channel. The manifest's own warnings are what the *export* dropped - a photo
+        // whose file was already gone, one that failed the containment check. `imported.warnings` is
+        // what this *import* dropped, which since Story 2.35 means travel segments whose endpoints name
+        // no record in the package. Either way this is the only place a user can learn that the restore
+        // is short of the original, so both belong here rather than one of them getting a second field
+        // the dialog would have to learn about.
+        //
+        // The import's own warnings go **first**, and not for chronology. `TripImportDialog` renders
+        // `lines.slice(0, 10)` and replaces the rest with a "+N more" caption, while `meta.warnings` is
+        // capped two orders of magnitude higher at `MAX_IMPORT_WARNINGS`. Appending would put the line
+        // AC3 exists to show behind up to 500 photo lines on exactly the archives most likely to carry
+        // both, so a dropped travel leg would be the loss the user is never told about.
+        warnings: [...imported.warnings, ...parsed.data.payload.meta.warnings],
       });
     } catch (error) {
       if (error instanceof ZipReadError) {
@@ -407,14 +416,11 @@ export const POST = async (request: NextRequest) => {
         // bad input rather than a server fault, and a 500 would tell the user nothing.
         return fail(apiError("validation_error", "Backup references a photo that is not in its photo pool"), 400);
       }
-      if (error instanceof Error && error.message === "travel_segment_reference_missing") {
-        // Likewise: a segment whose endpoints are not records of its own day. Bad input by the
-        // repository's own comment at the throw site.
-        return fail(
-          apiError("validation_error", "Backup has a travel segment that points at no record on its day"),
-          400,
-        );
-      }
+      // `travel_segment_reference_missing` used to be mapped here. Story 2.35 removed the throw it
+      // mapped: an endpoint naming no record in the package now drops the segment and reports a
+      // warning, and every endpoint the payload states a nameable problem with is refused by
+      // `tripImportRequestSchema` above. Nothing raises that string any more, and a mapping for an
+      // error no code path can produce reads as a live failure mode that has to be kept working.
       if (error instanceof Error && error.message === "photo_write_failed") {
         // The rows committed, then the disk phase failed and undid itself. Nothing the client can fix.
         return fail(apiError("server_error", "Unable to write imported photos"), 500);

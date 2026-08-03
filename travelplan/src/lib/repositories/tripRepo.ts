@@ -364,6 +364,11 @@ type ImportTripSuccessResult = {
   bucketListItemCount: number;
   /** Photo *files* written to upload storage, not pool entries: one per restored image slot. */
   photoCount: number;
+  /**
+   * What *this import* dropped, in the same English-string channel `meta.warnings` uses for what the
+   * export dropped (Story 2.35 AC3). The route concatenates the two; the dialog needs no change.
+   */
+  warnings: string[];
 };
 
 export type ImportTripResult = ImportTripConflictResult | ImportTripSuccessResult;
@@ -1801,6 +1806,8 @@ type ImportedDaysResult = {
   /** Files to create once the transaction commits; the rows already carry their URLs. */
   photoWrites: PlannedPhotoWrite[];
   travelSegmentCount: number;
+  /** Segments dropped because an endpoint named no record in the package - see the skip below. */
+  skippedTravelSegmentCount: number;
 };
 
 const createImportedDays = async ({
@@ -1824,6 +1831,7 @@ const createImportedDays = async ({
   const dayPlanItemIdBySourceId = new Map<string, string>();
   const photoWrites: PlannedPhotoWrite[] = [];
   let travelSegmentCount = 0;
+  let skippedTravelSegmentCount = 0;
 
   for (const day of sortedDays) {
     const createdDay = await tx.tripDay.create({
@@ -1992,10 +2000,21 @@ const createImportedDays = async ({
           : dayPlanItemIdBySourceId.get(segment.toItemId);
 
       if (!fromItemId || !toItemId) {
-        // Validation rejects a segment whose endpoints are not on its own day, so this is only
-        // reachable when the schema was bypassed. Rolling the transaction back beats persisting a
-        // segment that renders as a broken leg of the timeline.
-        throw new Error("travel_segment_reference_missing");
+        // Story 2.35 AC2: this is now a legitimate outcome rather than a bypassed schema, and it is
+        // the whole reason the archive that prompted the story would not restore.
+        //
+        // Validation still rejects every endpoint it can *name* a problem with - another day's plan
+        // item, a later day's accommodation, a wrong `itemType`. What it now lets through is the
+        // endpoint that matches no record anywhere in the package: an orphan left behind by an
+        // activity deleted before Story 6.23 fixed the cause, which every database older than
+        // 2026-08-03 still holds. Rolling back over one of those made an otherwise intact backup
+        // unrestorable, so the segment is dropped and counted instead. The count is reported through
+        // `meta.warnings` - a dropped leg the user is told about beats a backup they cannot open.
+        //
+        // Dropping is also the right answer for a caller that *did* bypass the schema: the
+        // alternative is a row wired to nothing, which renders as a broken leg of the timeline.
+        skippedTravelSegmentCount += 1;
+        continue;
       }
 
       await tx.travelSegment.create({
@@ -2021,7 +2040,22 @@ const createImportedDays = async ({
     dayPlanItemIdBySourceId,
     photoWrites,
     travelSegmentCount,
+    skippedTravelSegmentCount,
   };
+};
+
+/**
+ * AC3, in the channel that already exists.
+ *
+ * A count rather than one line per segment, and deliberately so: the ids are the *source* package's
+ * cuids, which name nothing the reader can look at, and nine of them would push the export's own
+ * warnings out of the ten-line window `TripImportDialog` renders. English, like every other string in
+ * `warnings` - the dialog's heading is what carries the language.
+ */
+const skippedTravelSegmentWarnings = (count: number): string[] => {
+  if (count === 0) return [];
+  const subject = count === 1 ? "1 travel segment" : `${count} travel segments`;
+  return [`Skipped ${subject} whose start or end point is missing from this backup`];
 };
 
 const createImportedBucketListItems = async ({
@@ -2146,6 +2180,7 @@ export const importTripFromExportForUser = async ({
     trip: ImportTripSuccessResult["trip"];
     photoWrites: PlannedPhotoWrite[];
     travelSegmentCount: number;
+    skippedTravelSegmentCount: number;
     bucketListItemCount: number;
   };
 
@@ -2250,6 +2285,7 @@ export const importTripFromExportForUser = async ({
           ? [{ filePath: heroPlacement.filePath, archivePath: heroPhoto.archivePath }, ...days.photoWrites]
           : days.photoWrites,
         travelSegmentCount: days.travelSegmentCount,
+        skippedTravelSegmentCount: days.skippedTravelSegmentCount,
         bucketListItemCount,
       };
     }, IMPORT_TRANSACTION_OPTIONS);
@@ -2308,6 +2344,7 @@ export const importTripFromExportForUser = async ({
         },
         photoWrites: [...heroWrites, ...days.photoWrites],
         travelSegmentCount: days.travelSegmentCount,
+        skippedTravelSegmentCount: days.skippedTravelSegmentCount,
         bucketListItemCount,
       };
     }, IMPORT_TRANSACTION_OPTIONS);
@@ -2375,6 +2412,7 @@ export const importTripFromExportForUser = async ({
     travelSegmentCount: committed.travelSegmentCount,
     bucketListItemCount: committed.bucketListItemCount,
     photoCount: committed.photoWrites.length,
+    warnings: skippedTravelSegmentWarnings(committed.skippedTravelSegmentCount),
   };
 };
 

@@ -1380,3 +1380,23 @@ summary: The invalid-amount message on the activity dialog reads "Bitte einen gu
 evidence: Seen on screen during the 6-22 error-path check, then confirmed in the dictionary: `trips.travelSegment.linkInvalid` reads "Bitte einen gültigen http(s)-Link eingeben" and `trips.stay.costInvalid` reads "Bitte einen gültigen Betrag eingeben". Only `trips.plan.costInvalid` diverges. Pre-existing, one character, and the sort of thing a sweep should pick up rather than a story.
 status: open
 
+
+### DW-151: A day's travel-time total counts segments its timeline refuses to draw, and the UI offers no way to delete them
+
+source_spec: `_bmad-output/implementation-artifacts/2-35-import-accepts-a-valid-backup.md`
+origin: both review passes on story 2-35, 2026-08-03
+location: `travelplan/src/components/features/trips/TripDayView.tsx` (`totalTravelMinutes` vs `segmentsByKey`), `travelplan/src/lib/repositories/travelSegmentRepo.ts` (`buildSegmentTimeline`, `ensureSegmentItemsExist`)
+severity: medium
+summary: `totalTravelMinutes` sums every travel segment fetched for a day, while the timeline draws only segments whose endpoint pair `buildSegmentTimeline` produced. A segment whose endpoints fall outside that timeline is therefore invisible on the day yet permanently included in its "Fahrzeit" stat, and `ensureSegmentItemsExist` answers `missing` for it — so it cannot be edited or deleted through the UI either.
+evidence: `buildSegmentTimeline` offers the *immediately preceding* day's accommodation and nothing further back (`dayIndex: { lt }`, `orderBy` desc, `findFirst`), plus this day's plan items and stay. Any segment outside that set is dropped by `segmentsByKey.get(buildSegmentKey(from, to))` in `renderTravelSegment` but still reduced into `totalTravelMinutes`. Reachable today with no import involved: delete a day sitting between a segment's two endpoints and a drawable distance-1 previous-stay reference silently becomes an undrawable distance-2 one in place. Story 6.23 removed one *producer* of orphaned segments; this is the *consequence* side, which nothing addresses. Story 2.35 knowingly restores such rows rather than dropping them — a restore that discarded them would make the backup differ from what was backed up — so import fidelity is correct and the gap is here. Fix is either to count only drawn segments, or to surface undrawable ones as a removable "orphaned leg" row; both are behaviour changes needing their own story.
+status: open
+
+### DW-152: `meta.warnings` is an untranslated English channel rendered under a translated heading
+
+source_spec: `_bmad-output/implementation-artifacts/2-35-import-accepts-a-valid-backup.md`
+origin: both review passes on story 2-35, 2026-08-03
+location: `travelplan/src/components/features/trips/TripImportDialog.tsx` (`trips.import.warningsHeading` and the list below it), `travelplan/src/lib/repositories/tripRepo.ts` (`skippedTravelSegmentWarnings`)
+severity: low
+summary: The import dialog's warnings list is server-generated English prose beneath a translated heading, so a German user reads "In diesem Backup fehlt: Skipped 1 travel segment whose start or end point is missing from this backup".
+evidence: Pre-existing by construction — every string in `meta.warnings` is written in English by the exporter, and `TripImportDialog`'s own comment justifies leaving the list alone on the grounds that "both lists name archive members, photo ids and file paths, so there is nothing to translate". Story 2.35 added the first entry that rationale does not cover: a count sentence with no identifier in it. It followed the existing precedent deliberately, because AC3 required the existing channel and translating would mean sending a structured warning shape (code + params) instead of strings — which is a second channel, and the one thing AC3 forbids. That structured shape is the actual fix and it is its own story, covering the exporter's warnings at the same time.
+status: open

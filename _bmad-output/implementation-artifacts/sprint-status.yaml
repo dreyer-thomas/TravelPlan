@@ -89,7 +89,7 @@ development_status:
   2-32-complete-trip-backup-import-with-photos-travel-segments-and-bucket-list: done
   2-33-restore-export-entry-point: done
   2-34-import-archive-from-disk: done
-  2-35-import-accepts-a-valid-backup: ready-for-dev
+  2-35-import-accepts-a-valid-backup: awaiting-operator
   epic-2-retrospective: optional
 
   epic-3: backlog

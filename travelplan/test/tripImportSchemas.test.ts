@@ -173,6 +173,46 @@ const withFirstDay = (overrides: Record<string, unknown>) => ({
   days: [{ ...v2Day, ...overrides }],
 });
 
+/**
+ * `v2Payload` stretched over two days, which is the shortest package that can express Story 2.35's
+ * subject: `previousStay` writes a segment on day 2 pointing at day 1's accommodation, so a one-day
+ * fixture cannot tell the widened rule from the old one.
+ *
+ * Day 2 carries its own stay and plan item so the tests can pick which endpoint they misfile.
+ */
+const secondDay = {
+  ...v2Day,
+  id: "day-2",
+  date: "2026-03-02T00:00:00.000Z",
+  dayIndex: 2,
+  imagePhotoId: null,
+  accommodation: { ...v2Day.accommodation, id: "stay-2", images: [] },
+  dayPlanItems: [{ ...v2Day.dayPlanItems[0], id: "plan-2", images: [] }],
+  travelSegments: [],
+};
+
+const twoDayPayload = (
+  firstDayOverrides: Record<string, unknown> = {},
+  secondDayOverrides: Record<string, unknown> = {},
+) => ({
+  ...v2Payload,
+  trip: { ...v2Payload.trip, endDate: "2026-03-02T00:00:00.000Z" },
+  days: [
+    { ...v2Day, ...firstDayOverrides },
+    { ...secondDay, ...secondDayOverrides },
+  ],
+});
+
+/** The `previousStay` segment: on day 2, starting at day 1's accommodation. */
+const previousStaySegment = {
+  ...v2Segment,
+  id: "seg-prev-stay",
+  fromItemType: "accommodation",
+  fromItemId: "stay-1",
+  toItemType: "dayPlanItem",
+  toItemId: "plan-2",
+};
+
 describe("tripImportSchemas", () => {
   it("accepts exported payload format", () => {
     const result = tripImportPayloadSchema.safeParse(validPayload);
@@ -404,14 +444,106 @@ describe("tripImportSchemas", () => {
       expect(result.success).toBe(false);
     });
 
-    it("rejects a travel segment referencing an id that is not on its own day", () => {
+    it("rejects a travel segment referencing a plan item that is not on its own day", () => {
+      // Story 2.35 changed this fixture, not the rule it proves. It used to name `plan-on-another-day`,
+      // an id no day in the package declared at all - which AC2 now makes a skipped segment rather
+      // than a refused archive. The assertion this test exists for is Trap 2: plan-item endpoints
+      // stay day-scoped, so a real plan item belonging to a *different* day is still a hard error.
       const result = tripImportPayloadSchema.safeParse(
-        withFirstDay({
-          travelSegments: [{ ...v2Segment, toItemId: "plan-on-another-day" }],
-        }),
+        twoDayPayload({ travelSegments: [{ ...v2Segment, toItemId: "plan-2" }] }),
       );
 
       expect(result.success).toBe(false);
+    });
+
+    it("accepts a day-2 segment starting at day 1's accommodation (the previousStay feature)", () => {
+      // AC1. `TripDayView`'s `previousStay` offers last night's hotel as the start of today's first
+      // leg and stores the segment on *today's* day, which the old same-day rule refused - 27 of the
+      // 36 rejections on the production archive, and every multi-day trip planned with the app.
+      const result = tripImportPayloadSchema.safeParse(
+        twoDayPayload({}, { travelSegments: [previousStaySegment] }),
+      );
+
+      expect(result.success).toBe(true);
+    });
+
+    it("accepts an accommodation from any earlier day, not only the day before", () => {
+      // The rule is "this day or earlier" rather than "exactly one day back": the importer's
+      // `accommodationIdBySourceId` is trip-wide and filled in day order, so day 1's stay is already
+      // mapped by day 3 - and a segment written when day 2 did not yet exist outlives inserting it.
+      const threeDayPayload = {
+        ...v2Payload,
+        trip: { ...v2Payload.trip, endDate: "2026-03-03T00:00:00.000Z" },
+        days: [
+          v2Day,
+          { ...secondDay, accommodation: null },
+          {
+            ...secondDay,
+            id: "day-3",
+            date: "2026-03-03T00:00:00.000Z",
+            dayIndex: 3,
+            accommodation: null,
+            dayPlanItems: [{ ...v2Day.dayPlanItems[0], id: "plan-3", images: [] }],
+            travelSegments: [{ ...previousStaySegment, toItemId: "plan-3" }],
+          },
+        ],
+      };
+
+      const result = tripImportPayloadSchema.safeParse(threeDayPayload);
+
+      expect(result.success).toBe(true);
+    });
+
+    it("rejects a segment naming an accommodation from a *later* day", () => {
+      // Trap 4. The importer's map is trip-wide but order-dependent: `sortImportDays` has not reached
+      // day 2 when day 1's segments are written, so a forward reference cannot resolve at all. The
+      // package does contain the record, so this is a misfiled reference rather than AC2's orphan -
+      // it stays a validation error and says which problem it is.
+      const result = tripImportPayloadSchema.safeParse(
+        twoDayPayload({ travelSegments: [{ ...v2Segment, fromItemId: "stay-2" }] }),
+      );
+
+      expect(result.success).toBe(false);
+      if (result.success) return;
+      expect(result.error.issues.map((issue) => issue.message)).toContain(
+        "Travel segment fromItemId names an accommodation from a later day: stay-2",
+      );
+    });
+
+    it("reads 'earlier day' in the importer's day order, not the array's", () => {
+      // `sortImportDays` sorts by `dayIndex` then `date`; nothing makes the manifest's array agree
+      // with it. Trusting the array order would read this package's ordinary previous-night segment
+      // as a forward reference - the same false positive one layer down.
+      const reversed = twoDayPayload({}, { travelSegments: [previousStaySegment] });
+      const result = tripImportPayloadSchema.safeParse({ ...reversed, days: [...reversed.days].reverse() });
+
+      expect(result.success).toBe(true);
+    });
+
+    it("accepts a segment endpoint that names no record anywhere, for the importer to skip", () => {
+      // AC2. An orphan left by an activity deleted before Story 6.23 fixed the cause, which every
+      // database older than 2026-08-03 still holds. Validation lets it past so the importer can drop
+      // the one segment and report it; refusing here made an otherwise intact archive unrestorable.
+      const result = tripImportPayloadSchema.safeParse(
+        withFirstDay({ travelSegments: [{ ...v2Segment, toItemId: "deleted-long-ago" }] }),
+      );
+
+      expect(result.success).toBe(true);
+    });
+
+    it("accepts an *accommodation* endpoint that names no record anywhere, for the importer to skip", () => {
+      // The same AC2 orphan on the other side of the `itemType` branch, and the branch that matters
+      // most: a deleted *stay* is what leaves an orphan on the accommodation side, and the whole
+      // reason the check had to grow a third verdict is that accommodations resolve through a
+      // different map. Without this, `itemType === "accommodation"` + declared-nowhere could be
+      // mis-triaged as a misfiled reference and refuse the archive with the suite still green.
+      const result = tripImportPayloadSchema.safeParse(
+        withFirstDay({
+          travelSegments: [{ ...v2Segment, fromItemType: "accommodation", fromItemId: "stay-deleted-long-ago" }],
+        }),
+      );
+
+      expect(result.success).toBe(true);
     });
 
     it("rejects a travel segment whose endpoint has the wrong item type", () => {
@@ -423,6 +555,14 @@ describe("tripImportSchemas", () => {
       );
 
       expect(result.success).toBe(false);
+      // Story 2.35 made this the case that has to be told apart from AC2's orphan, so `success: false`
+      // alone no longer pins it: the id *is* in the package, just under the other `itemType`, and a
+      // check that read it as declared-nowhere would accept the archive and let the importer silently
+      // drop the segment instead. Name the verdict.
+      if (result.success) return;
+      expect(result.error.issues.map((issue) => issue.message)).toContain(
+        "Travel segment fromItemId does not match any record on this day: stay-1",
+      );
     });
 
     it("rejects a duplicate travel segment endpoint tuple within a day", () => {

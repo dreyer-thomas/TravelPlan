@@ -1,0 +1,14 @@
+{
+  "actions": [
+    "Start the app and import ~/Downloads/trip-neuseeland-2026-08-03.zip through the real import dialog. This is the only layer never exercised: every layer the route has except HTTP framing was driven directly against a real database with this exact archive, but not the 240 MB multipart upload itself. Use a throwaway copy of dev.db on an isolated port \u2014 never prisma/dev.db.",
+    "On the import summary, confirm it reports 41 days and 150 photos, and that the warnings box shows exactly one line: 'Skipped 9 travel segments whose start or end point is missing from this backup'. The line must be visible without expanding anything \u2014 the dialog renders only the first ten warnings and this archive's export dropped none, so it should be the only one there.",
+    "Open a day whose first activity starts at the previous night's hotel and confirm the travel segment between them is present rather than missing. 23 restored segments have this shape; turning them into warnings instead of imports would have been the wrong fix passing its own test, so this is the check that would catch it.",
+    "Decide on DW-151 in deferred-work.md: a day's travel-time total counts segments the timeline refuses to draw, and the UI cannot delete them. Reachable today with no import involved \u2014 delete a day sitting between a segment's two endpoints. This story knowingly restores such rows rather than dropping them, so the gap is on the UI side and needs its own story.",
+    "Decide on DW-152 in deferred-work.md: whether the import dialog's warnings should be translated. The new line is English, consistent with every other string in that channel; translating it means sending a structured warning shape instead of strings, which is its own story.",
+    "If every check passes, tick the browser confirmation here, set status: done in the frontmatter and Status: done in the body, and set 2-35-import-accepts-a-valid-backup to done in sprint-status.yaml."
+  ],
+  "parked_at": "2026-08-03",
+  "run_id": "20260803-212017-8a32",
+  "spec_file": "_bmad-output/implementation-artifacts/2-35-import-accepts-a-valid-backup.md",
+  "story_key": "2-35-import-accepts-a-valid-backup"
+}

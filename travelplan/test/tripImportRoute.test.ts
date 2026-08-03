@@ -809,4 +809,286 @@ describe("POST /api/trips/import", () => {
       expect(leftoverImportTempFiles()).toEqual(before);
     });
   });
+
+  /**
+   * Story 2.35. The JSON wire path is used rather than a ZIP because none of this is about photos:
+   * both paths hand the same parsed payload to the same repository, and a manifest with an empty pool
+   * is exactly what the legacy branch carries.
+   */
+  describe("travel segment endpoints", () => {
+    const STAMP = "2026-02-14T12:00:00.000Z";
+
+    const createOwner = async (email: string) => {
+      const user = await prisma.user.create({ data: { email, passwordHash: "hashed", role: "OWNER" } });
+      return { user, session: await createSessionJwt({ sub: user.id, role: user.role }) };
+    };
+
+    const stay = (id: string) => ({
+      id,
+      name: `Stay ${id}`,
+      notes: null,
+      status: "planned",
+      costCents: null,
+      link: null,
+      checkInTime: null,
+      checkOutTime: null,
+      location: null,
+      createdAt: STAMP,
+      updatedAt: STAMP,
+      images: [],
+    });
+
+    const planItem = (id: string) => ({
+      id,
+      contentJson: "{\"type\":\"doc\"}",
+      linkUrl: null,
+      location: null,
+      createdAt: STAMP,
+      updatedAt: STAMP,
+      images: [],
+    });
+
+    const segment = (overrides: Record<string, unknown>) => ({
+      id: "src-seg",
+      fromItemType: "accommodation",
+      fromItemId: "src-stay-1",
+      toItemType: "dayPlanItem",
+      toItemId: "src-plan-2",
+      transportType: "flight",
+      durationMinutes: 45,
+      distanceKm: null,
+      linkUrl: null,
+      createdAt: STAMP,
+      updatedAt: STAMP,
+      ...overrides,
+    });
+
+    /** Two days, each with its own stay and plan item; every segment sits on day 2. */
+    const twoDayManifest = (name: string, daySegments: unknown[]) => ({
+      meta: { exportedAt: STAMP, appVersion: "0.1.0", formatVersion: 2, warnings: [] },
+      photos: {},
+      trip: { ...VALID_PAYLOAD.trip, name, heroPhotoId: null, bucketListItems: [] },
+      days: [
+        {
+          ...VALID_PAYLOAD.days[0],
+          accommodation: stay("src-stay-1"),
+          dayPlanItems: [planItem("src-plan-1")],
+          travelSegments: [],
+        },
+        {
+          ...VALID_PAYLOAD.days[1],
+          accommodation: stay("src-stay-2"),
+          dayPlanItems: [planItem("src-plan-2")],
+          travelSegments: daySegments,
+        },
+      ],
+    });
+
+    it("restores a day-2 segment that starts at day 1's accommodation", async () => {
+      // AC1 end to end: the schema now accepts it *and* the importer's trip-wide map resolves it to
+      // the right row. Getting the first without the second would import the archive and wire the
+      // segment to whatever else happened to be in the map.
+      const { session } = await createOwner("import-route-previous-stay@example.com");
+
+      const response = await POST(
+        buildRequest(
+          { payload: twoDayManifest("Previous Stay Restore", [segment({ id: "src-seg-prev" })]) },
+          { session, csrf: "csrf-token" },
+        ),
+      );
+      const payload = (await response.json()) as ApiEnvelope<{
+        trip: { id: string };
+        travelSegmentCount: number;
+        warnings: string[];
+      }>;
+
+      expect(response.status).toBe(200);
+      expect(payload.data?.travelSegmentCount).toBe(1);
+      expect(payload.data?.warnings).toEqual([]);
+
+      const days = await prisma.tripDay.findMany({
+        where: { tripId: payload.data!.trip.id },
+        orderBy: { dayIndex: "asc" },
+        include: { accommodation: true, travelSegments: true },
+      });
+      expect(days[0].travelSegments).toHaveLength(0);
+      expect(days[1].travelSegments).toHaveLength(1);
+      // The segment lives on day 2 and points back at day 1's stay - the whole shape of the feature.
+      expect(days[1].travelSegments[0].fromItemId).toBe(days[0].accommodation!.id);
+      expect(days[1].travelSegments[0].fromItemId).not.toBe(days[1].accommodation!.id);
+    });
+
+    it("skips a segment whose endpoint names no record and reports the count", async () => {
+      // AC2 and AC3. One orphan used to make the whole archive unrestorable.
+      const { session } = await createOwner("import-route-orphan-segment@example.com");
+
+      const response = await POST(
+        buildRequest(
+          {
+            payload: twoDayManifest("Orphan Segment Trip", [
+              segment({ id: "src-seg-orphan", fromItemType: "dayPlanItem", fromItemId: "deleted-long-ago" }),
+            ]),
+          },
+          { session, csrf: "csrf-token" },
+        ),
+      );
+      const payload = (await response.json()) as ApiEnvelope<{
+        trip: { id: string };
+        dayCount: number;
+        travelSegmentCount: number;
+        warnings: string[];
+      }>;
+
+      expect(response.status).toBe(200);
+      expect(payload.data?.dayCount).toBe(2);
+      expect(payload.data?.travelSegmentCount).toBe(0);
+      expect(payload.data?.warnings).toEqual([
+        "Skipped 1 travel segment whose start or end point is missing from this backup",
+      ]);
+      expect(await prisma.travelSegment.count({ where: { tripDay: { tripId: payload.data!.trip.id } } })).toBe(0);
+      // The rest of the archive is intact, which is the entire point of skipping rather than refusing.
+      expect(await prisma.tripDay.count({ where: { tripId: payload.data!.trip.id } })).toBe(2);
+      expect(await prisma.accommodation.count({ where: { tripDay: { tripId: payload.data!.trip.id } } })).toBe(2);
+    });
+
+    it("keeps the reported counts in step with the rows when segments are skipped", async () => {
+      const { session } = await createOwner("import-route-skip-counts@example.com");
+
+      const response = await POST(
+        buildRequest(
+          {
+            payload: twoDayManifest("Mixed Segment Trip", [
+              // Restored: the previous-night segment AC1 is about.
+              segment({ id: "src-seg-prev" }),
+              // Restored: an ordinary same-day segment.
+              segment({ id: "src-seg-same", fromItemId: "src-stay-2" }),
+              // Skipped, twice over - and the warning has to say "segments", not "segment".
+              segment({ id: "src-seg-gone-1", fromItemType: "dayPlanItem", fromItemId: "deleted-a" }),
+              segment({ id: "src-seg-gone-2", fromItemType: "dayPlanItem", fromItemId: "deleted-b" }),
+            ]),
+          },
+          { session, csrf: "csrf-token" },
+        ),
+      );
+      const payload = (await response.json()) as ApiEnvelope<{
+        trip: { id: string };
+        travelSegmentCount: number;
+        warnings: string[];
+      }>;
+
+      expect(response.status).toBe(200);
+      expect(payload.data?.travelSegmentCount).toBe(2);
+      expect(await prisma.travelSegment.count({ where: { tripDay: { tripId: payload.data!.trip.id } } })).toBe(2);
+      expect(payload.data?.warnings).toEqual([
+        "Skipped 2 travel segments whose start or end point is missing from this backup",
+      ]);
+    });
+
+    it("reports what the import skipped ahead of what the export dropped, in one list", async () => {
+      // AC3 says "the existing warnings channel", so the import's own line joins the manifest's
+      // rather than arriving in a second field the dialog would have to learn about.
+      //
+      // Order is load-bearing, not incidental: `TripImportDialog` renders the first ten lines and
+      // replaces the rest with a "+N more" caption, while `meta.warnings` may hold up to
+      // `MAX_IMPORT_WARNINGS`. The import's own line goes first so it cannot be the loss the user is
+      // never shown - on an old archive that dropped a dozen photo files, appending would hide it.
+      const { session } = await createOwner("import-route-both-warnings@example.com");
+      const manifest = twoDayManifest("Both Warnings Trip", [
+        segment({ id: "src-seg-gone", fromItemType: "dayPlanItem", fromItemId: "deleted-long-ago" }),
+      ]);
+
+      const response = await POST(
+        buildRequest(
+          {
+            payload: {
+              ...manifest,
+              meta: {
+                ...manifest.meta,
+                warnings: ["Skipped image whose file is missing on disk: /uploads/x.jpg"],
+              },
+            },
+          },
+          { session, csrf: "csrf-token" },
+        ),
+      );
+      const payload = (await response.json()) as ApiEnvelope<{ warnings: string[] }>;
+
+      expect(response.status).toBe(200);
+      expect(payload.data?.warnings).toEqual([
+        "Skipped 1 travel segment whose start or end point is missing from this backup",
+        "Skipped image whose file is missing on disk: /uploads/x.jpg",
+      ]);
+    });
+
+    it("reports a skipped segment when overwriting, where the lost row is not recoverable", async () => {
+      // Overwrite deletes the target trip's own days - and with them its segments - before writing the
+      // package's. So this is the path where dropping a segment destroys a row that existed a moment
+      // ago and has no copy left anywhere, which makes the AC3 warning the user's only notice. The two
+      // transaction branches carry `skippedTravelSegmentCount` independently; every other test here
+      // creates a new trip and so only exercises the other one.
+      const { user, session } = await createOwner("import-route-overwrite-skip@example.com");
+      // Overwrite is only offered for a same-name conflict, so the target has to carry the name the
+      // manifest declares.
+      const target = await createTripWithDays({
+        userId: user.id,
+        name: "Overwrite Skip Trip",
+        startDate: "2026-10-01T00:00:00.000Z",
+        endDate: "2026-10-02T00:00:00.000Z",
+      });
+
+      const manifest = twoDayManifest("Overwrite Skip Trip", [
+        segment({ id: "src-seg-prev" }),
+        segment({ id: "src-seg-gone", fromItemType: "dayPlanItem", fromItemId: "deleted-long-ago" }),
+      ]);
+      const response = await POST(
+        buildRequest(
+          { payload: manifest, strategy: "overwrite", targetTripId: target.trip.id },
+          { session, csrf: "csrf-token" },
+        ),
+      );
+      const payload = (await response.json()) as ApiEnvelope<{
+        mode: string;
+        trip: { id: string };
+        travelSegmentCount: number;
+        warnings: string[];
+      }>;
+
+      expect(response.status).toBe(200);
+      expect(payload.data?.mode).toBe("overwrite");
+      expect(payload.data?.trip.id).toBe(target.trip.id);
+      expect(payload.data?.travelSegmentCount).toBe(1);
+      expect(payload.data?.warnings).toEqual([
+        "Skipped 1 travel segment whose start or end point is missing from this backup",
+      ]);
+      expect(await prisma.travelSegment.count({ where: { tripDay: { tripId: target.trip.id } } })).toBe(1);
+    });
+
+    it("still refuses a segment naming an accommodation from a later day", async () => {
+      // AC5 and Trap 4: the skip path is for endpoints that name nothing, not for every endpoint the
+      // importer cannot resolve. A forward reference names a record the package holds, and the
+      // sorted-order map cannot have reached it yet.
+      const { user, session } = await createOwner("import-route-forward-reference@example.com");
+
+      const manifest = twoDayManifest("Forward Reference Trip", []);
+      const response = await POST(
+        buildRequest(
+          {
+            payload: {
+              ...manifest,
+              days: [
+                { ...manifest.days[0], travelSegments: [segment({ fromItemId: "src-stay-2", toItemId: "src-plan-1" })] },
+                manifest.days[1],
+              ],
+            },
+          },
+          { session, csrf: "csrf-token" },
+        ),
+      );
+      const payload = (await response.json()) as ApiEnvelope<null>;
+
+      expect(response.status).toBe(400);
+      expect(payload.error?.code).toBe("validation_error");
+      expect(await prisma.trip.count({ where: { userId: user.id } })).toBe(0);
+    });
+  });
 });

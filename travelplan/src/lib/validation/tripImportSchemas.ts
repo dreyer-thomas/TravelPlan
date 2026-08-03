@@ -167,9 +167,11 @@ const imagesSchema = z
  * Travel segments carry the **API-level lowercase** vocabulary (see `TravelSegmentDetail`), not
  * Prisma's enum spellings; the repository maps them up.
  *
- * `fromItemId` / `toItemId` are the *source* record ids and are checked against the same day's
- * records in the root `superRefine` - a segment pointing at nothing is a validation error, never a
- * row to skip.
+ * `fromItemId` / `toItemId` are the *source* record ids and are resolved against the package's own
+ * records in the root `superRefine`. Story 2.35 split what used to be one verdict in two: an endpoint
+ * naming a record the importer cannot wire *on this day* is still a validation error, while one
+ * naming no record anywhere in the package is an orphan the importer drops and counts. See the
+ * `checkEndpoint` block below for which is which and why.
  */
 const travelSegmentImportSchema = z
   .object({
@@ -468,6 +470,54 @@ export const tripImportPayloadSchema = z.object({
 
   requirePooledPhoto(input.trip.heroPhotoId, ["trip", "heroPhotoId"]);
 
+  /**
+   * The package's records, indexed by the order the *importer* walks its days.
+   *
+   * `sortImportDays` in `tripRepo.ts` sorts by `dayIndex`, then `date`, and `accommodationIdBySourceId`
+   * is declared outside that loop and filled as each day is created - so an accommodation endpoint can
+   * be resolved exactly when its day has already been processed, whatever position it holds in this
+   * array. That comparator is mirrored here rather than trusting `input.days`' order, because the two
+   * are independent: a package whose days are written out of order would otherwise have its perfectly
+   * ordinary previous-night segments read as forward references, which is the same false positive
+   * Story 2.35 exists to remove, one layer down.
+   *
+   * The *first* position wins for an id declared twice. Nothing forbids two days from naming the same
+   * source id (the duplicate check above is per-day), and the importer's map holds whichever of them
+   * was written most recently - so "declared at or before this day" is the honest question, and the
+   * earliest declaration is what answers it.
+   */
+  const importOrderedDays = input.days
+    .map((day, arrayIndex) => ({ day, arrayIndex }))
+    .sort((left, right) =>
+      left.day.dayIndex !== right.day.dayIndex
+        ? left.day.dayIndex - right.day.dayIndex
+        : new Date(left.day.date).getTime() - new Date(right.day.date).getTime(),
+    );
+
+  /**
+   * An array rather than a `Map`, so that "every day has a position" is true by construction:
+   * `importOrderedDays` is a permutation of `input.days`, so every index in range is assigned and the
+   * lookup below needs no fallback. A `Map` would have wanted one, and the only safe default is `0` -
+   * which reads every accommodation not on the first day as a forward reference and refuses a
+   * restorable archive. Fail-closed on a bookkeeping bug is precisely this story's bug.
+   */
+  const importPositionByArrayIndex: number[] = [];
+  const accommodationImportPosition = new Map<string, number>();
+  /** Every source record id in the package, of either kind - what tells an orphan from a misfiled reference. */
+  const knownRecordIds = new Set<string>();
+  importOrderedDays.forEach(({ day, arrayIndex }, position) => {
+    importPositionByArrayIndex[arrayIndex] = position;
+    if (day.accommodation) {
+      knownRecordIds.add(day.accommodation.id);
+      if (!accommodationImportPosition.has(day.accommodation.id)) {
+        accommodationImportPosition.set(day.accommodation.id, position);
+      }
+    }
+    for (const item of day.dayPlanItems) {
+      knownRecordIds.add(item.id);
+    }
+  });
+
   input.days.forEach((day, dayIndex) => {
     requirePooledPhoto(day.imagePhotoId, ["days", dayIndex, "imagePhotoId"]);
 
@@ -510,26 +560,96 @@ export const tripImportPayloadSchema = z.object({
 
     if (day.travelSegments.length === 0) return;
 
-    // A segment's endpoints must be records of *this* day: `TravelSegment.tripDayId` scopes the row,
-    // and the importer resolves the ids through a per-day map built as those records are created.
-    const accommodationId = day.accommodation?.id ?? null;
+    /**
+     * Can this day's segments be wired to the record an endpoint names? Three answers, not two.
+     *
+     * `TravelSegment.tripDayId` scopes the row, and this check used to read that as "both endpoints
+     * must be records of *this* day". For plan items that is still exactly right. For accommodations
+     * it was wrong, and it made every multi-day trip planned with the app unrestorable: `previousStay`
+     * (`TripDayView.tsx`) deliberately offers **last night's** accommodation as the start of today's
+     * first leg, and stores that segment on *today's* day. Story 2.35 is that false positive - 27 of
+     * the 36 rejections on Tommy's production archive, across 17 of its 41 days.
+     *
+     * **Accommodations widen to "this day or any earlier one", not to "exactly one day back".** The
+     * feature is one day back, but the rule is not, for two reasons. The importer's map is trip-wide
+     * and filled in day order, so *any* earlier day already resolves - a tighter rule would be
+     * validation refusing packages the importer restores perfectly, which is the bug being fixed
+     * rather than a stricter version of it. And "one day back" is not stable over a trip's life:
+     * `previousDay` is a position in the ordered day list at the moment the segment was written, and
+     * the row outlives shifting a trip's date range or deleting a day between the two.
+     *
+     * **Never a later day.** The map is trip-wide but order-dependent: a forward reference is not in
+     * it yet when this day's segments are written, so it cannot be resolved at all. That is a
+     * validation error rather than a skip, because the package *does* contain the record - it is a
+     * misfiled reference the payload states plainly, not the missing one AC2 drops.
+     *
+     * **What "any earlier one" costs, stated rather than discovered.** The live app only ever *writes*
+     * a distance-1 reference: `buildSegmentTimeline` (`travelSegmentRepo.ts`) offers the immediately
+     * preceding day's accommodation and nothing further back, and `TripDayView` draws only endpoint
+     * pairs that timeline contains. So a restored distance-2-or-more reference is a row the timeline
+     * will not draw, `ensureSegmentItemsExist` answers `missing` for, and `totalTravelMinutes` counts
+     * anyway - the invisible-but-counted shape Story 6.23 set out to stop creating. Accepted knowingly:
+     * such a row can only be *in* a package because the source database already held it (delete a day
+     * between the two and a distance-1 reference becomes distance-2 in place, with no import involved),
+     * and a restore that silently dropped it would make the backup differ from what was backed up. The
+     * skip path is for endpoints naming nothing; it is not a repair pass for rows the app mislays. The
+     * pre-existing pathology those rows land in is recorded in `deferred-work.md`.
+     *
+     * **An id that names nothing in the package at all is an orphan, and no longer an error.** Those
+     * are rows left behind by activities deleted before Story 6.23 fixed the cause, so every database
+     * older than 2026-08-03 holds some. The importer drops the segment and reports the count through
+     * `meta.warnings`; refusing the whole archive over one dead row is what made a backup a
+     * reassurance rather than a backup.
+     */
+    const dayImportPosition = importPositionByArrayIndex[dayIndex];
     const planItemIds = new Set(day.dayPlanItems.map((item) => item.id));
-    const resolves = (itemType: "accommodation" | "dayPlanItem", itemId: string) =>
-      itemType === "accommodation" ? itemId === accommodationId : planItemIds.has(itemId);
+
+    type EndpointCheck =
+      | { verdict: "resolves" }
+      /** Names no record anywhere in the package: the importer skips the segment and counts it. */
+      | { verdict: "orphan" }
+      | { verdict: "invalid"; message: string };
+
+    const checkEndpoint = (
+      itemType: "accommodation" | "dayPlanItem",
+      itemId: string,
+      field: "fromItemId" | "toItemId",
+    ): EndpointCheck => {
+      const misfiled = (message: string): EndpointCheck => ({ verdict: "invalid", message });
+      const notOnThisDay = `Travel segment ${field} does not match any record on this day: ${itemId}`;
+
+      if (itemType === "accommodation") {
+        const declaredAt = accommodationImportPosition.get(itemId);
+        // Known as *something*, just not as an accommodation - a wrong `itemType`, which the importer
+        // would look up in the wrong map and never resolve.
+        if (declaredAt === undefined) {
+          return knownRecordIds.has(itemId) ? misfiled(notOnThisDay) : { verdict: "orphan" };
+        }
+        if (declaredAt > dayImportPosition) {
+          return misfiled(`Travel segment ${field} names an accommodation from a later day: ${itemId}`);
+        }
+        return { verdict: "resolves" };
+      }
+
+      if (planItemIds.has(itemId)) return { verdict: "resolves" };
+      return knownRecordIds.has(itemId) ? misfiled(notOnThisDay) : { verdict: "orphan" };
+    };
 
     const seenPairs = new Set<string>();
     day.travelSegments.forEach((segment, segmentIndex) => {
-      if (!resolves(segment.fromItemType, segment.fromItemId)) {
+      const from = checkEndpoint(segment.fromItemType, segment.fromItemId, "fromItemId");
+      if (from.verdict === "invalid") {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: `Travel segment fromItemId does not match any record on this day: ${segment.fromItemId}`,
+          message: from.message,
           path: ["days", dayIndex, "travelSegments", segmentIndex, "fromItemId"],
         });
       }
-      if (!resolves(segment.toItemType, segment.toItemId)) {
+      const to = checkEndpoint(segment.toItemType, segment.toItemId, "toItemId");
+      if (to.verdict === "invalid") {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: `Travel segment toItemId does not match any record on this day: ${segment.toItemId}`,
+          message: to.message,
           path: ["days", dayIndex, "travelSegments", segmentIndex, "toItemId"],
         });
       }
