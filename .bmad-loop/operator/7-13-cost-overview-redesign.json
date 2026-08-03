@@ -1,0 +1,16 @@
+{
+  "actions": [
+    "Do Task 8 in a real browser, on a throwaway copy of dev.db on an isolated port \u2014 never prisma/dev.db. The recipe is in the Dev Notes of _bmad-output/implementation-artifacts/7-12-bucket-list-sidebar-card.md. Everything below is unverifiable in jsdom, which lays nothing out.",
+    "Click the cost figure on a trip's overview to reach this screen and watch the transition: the page must stay on the warm paper background the rest of the app uses. If the screen goes dark slate on the way in, AC1 did not land.",
+    "Switch to the Months tab and judge the month groups: they must read as quieter groups nested inside the one card, not as a stack of separate cards. This is AC3 and it is a judgement about depth that no assertion can make \u2014 if it reads as a box-in-a-box, say so.",
+    "Check the per-day table's column alignment at desktop width and again at 390px. The amounts carry tabular numerals so figures should line up digit-for-digit; the table scrolls horizontally below 640px rather than reflowing, which is deliberate.",
+    "Exercise all three empty states \u2014 a trip with no days, a day with no cost entries, and the Months tab on a trip with no scheduled payments \u2014 plus the not-found branch via a made-up trip id in the URL. Confirm each sits on the token card and reads like the equivalent state elsewhere in the app.",
+    "Look at the trip total in the bottom-right of the card and judge its prominence: it is now 14.5px, the same rank as a month group's heading, while the figure you clicked to get here is 30px. No acceptance criterion covers this and its rank is unchanged from before the redesign, so it was deliberately left alone \u2014 decide whether the screen's headline number should outrank the rest, and it becomes its own small story if so. Recorded as deferred work.",
+    "Set the app to German and confirm the amounts read '1.234,50 \u20ac' with the symbol trailing, on both tabs and in the trip total. A unit test pins this, but confirm the real rendered width does not wrap awkwardly in the table's right-hand column.",
+    "If every check passes, tick Task 8 in this spec, set status: done in the frontmatter and Status: done in the body, and set 7-13-cost-overview-redesign to done in sprint-status.yaml."
+  ],
+  "parked_at": "2026-08-03",
+  "run_id": "20260803-182827-68c9",
+  "spec_file": "_bmad-output/implementation-artifacts/7-13-cost-overview-redesign.md",
+  "story_key": "7-13-cost-overview-redesign"
+}

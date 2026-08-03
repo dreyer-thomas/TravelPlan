@@ -14,7 +14,7 @@ export default async function TripCostOverviewPage({ params }: TripCostOverviewP
   const t = await getServerT();
 
   return (
-    <Box sx={{ backgroundColor: "#2f343d", minHeight: "100vh" }}>
+    <Box sx={{ minHeight: "100vh" }}>
       <Container maxWidth="lg" sx={{ py: { xs: 4, md: 6 } }}>
         <Box display="flex" flexDirection="column" gap={3}>
           <TripDayMapBackButton href={`/trips/${id}`} label={t("trips.costOverview.back")} />

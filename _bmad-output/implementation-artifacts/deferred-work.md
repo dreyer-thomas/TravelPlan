@@ -206,7 +206,8 @@ status: open
 origin: migrated from legacy ledger ("Deferred from: code review of 7-3-day-detail-redesign (2026-07-31)"), 2026-08-01
 location: `TripCostOverview.tsx:245-251`
 reason: Day Detail switched to the currency-aware formatter (`style: "currency", currency: "EUR"`) that 7.2 landed in `TripTimeline.tsx`, but `TripCostOverview.tsx` is a third copy still emitting a bare number wrapped in the `trips.stay.costSummary` "Cost: {value}" template. The same amount therefore reads "€160.00" on Day Detail and "Cost: 160.00" on the cost overview, and `test/tripCostOverview.test.tsx:137` pins the old form. All three copies also hardcode EUR with no trip-level currency field feeding them. Task-sanctioned (the story scoped the switch to this screen), but the debt is now three-way. Natural home: one shared `formatCost` helper plus a trip currency field, or the 7.4-7.7 screen that owns the cost route.
-status: open
+status: done 2026-08-03
+resolution: resolved by story 7-13-cost-overview-redesign — the divergence half only: the cost overview now imports the shared `src/lib/trips/formatCost.ts` and the `trips.stay.costSummary` wrapper is gone, so all three screens render the same form. The EUR-hardcoding half named in this entry's reason is NOT closed here and continues as DW-151.
 
 ### DW-28: `inkMuted` fails AA at the size it is used
 
@@ -440,6 +441,7 @@ origin: migrated from legacy ledger ("Deferred from: code review of 7-9-full-pag
 location: `travelplan/src/components/features/trips/TripDayMapFullPage.tsx:107-113`, `TripOverviewMapFullPage.tsx:66-72`, `TripDayMapPanel.tsx:52-59`, `TripOverviewMapPanel.tsx:30-37`, `TripDayView.tsx:1114-1120`, `TripTimeline.tsx`
 reason: `backgroundColor: tokens.card` / `1px solid tokens.borderStrong` / `8px` / `18px`, copied verbatim each time, and the comments in the two newest copies say "identical to …" outright. Story 7.9 was told to copy it verbatim (the reference-not-refactor rule that kept 7.2/7.3's shipped panels untouched), so this is task-sanctioned accumulation rather than a mistake. It is now the most-duplicated token bundle in the app and a change to the `card` treatment has six edit sites. Fix is a single exported `cardSx(tokens)` helper (or a `MuiCard`-style theme slot); the natural home was the token-reconciliation work in Story 7.11.
 status: open
+seen-again: 2026-08-03 (story 7-13-cost-overview-redesign) — a seventh verbatim copy, `TripCostOverview.tsx`'s `cardSx`, added under the same reference-not-refactor rule; that file also adds a `nestedGroupSx` sibling bundle (`cardAlt` / `border` / 6px / 16px) whose own copies live in `TripsDashboard.tsx`, `TripShareDialog.tsx` and `DialogShell.tsx`, so the extraction now has two bundles to own, not one.
 
 ### DW-59: `FULL_PAGE_MAP_HEIGHT = "calc(100vh - 220px)"` under-measures the real chrome, and both full-page map screens scroll
 
@@ -1127,6 +1129,7 @@ severity: low
 summary: Both components render the same panel — `Paper` → column `Box` → title `Typography` → body `Typography` → `Button component={Link} href="/trips"` — reading the same three keys, including `trips.detail.notFoundTitle/Body/back` inside a *cost overview*, where that namespace does not belong.
 evidence: Story 6-20 correctly protected both from deletion (AC5) and now pins each with its own test, so the duplication is held in place by two tests as well as two components. Nothing is broken; the cost is that a copy change to the panel has to be made twice and the keys mis-describe one of their readers. Fix is a small shared `TripNotFoundPanel` with its own key namespace, which also gives the third caller — `TripDayView`'s day-not-found card — somewhere to go.
 status: open
+seen-again: 2026-08-03 (story 7-13-cost-overview-redesign) — the two copies are no longer verbatim: this story restyled the cost-overview copy onto the token card with `variant="heading" component="h1"` in `tokens.ink`, while `TripTimeline.tsx` still renders `Paper elevation={1}` with `h6 fontWeight={600}`. The line numbers above are stale and the extraction now has to reconcile two treatments rather than lift one, with the redesigned copy being the correct target.
 
 ### DW-133: The home page offers Register and Sign in to a signed-in user
 
@@ -1318,3 +1321,41 @@ severity: low
 summary: `DayPlanItem` has no `sortOrder` column; its order is `fromTime` → `createdAt` → `id`, expressed three times in three files. Story 6.23's AC7 (where a moved activity lands) rests entirely on those three staying identical, and the story's tests reach the ordering only through `listDayPlanItemsForTripDay` — the order the user actually sees comes from `getTripWithDaysForUser`.
 evidence: All three copies read during this review. Pre-existing duplication; recorded now because Story 6.23 made a *correctness claim* depend on it rather than just a display detail. The fix is one exported comparator plus a test that pins the rendering path's ordering, not just the repository's.
 status: open
+
+### DW-151: Every `formatCost` copy hardcodes EUR, and no trip carries a currency
+
+origin: Deferred from: 7-13-cost-overview-redesign (2026-08-03)
+location: `travelplan/src/lib/trips/formatCost.ts`, `travelplan/src/components/features/trips/TripTimeline.tsx:220`, `travelplan/src/components/features/trips/TripDayView.tsx:539`
+severity: medium
+reason: All three surviving copies of the formatter pass `style: "currency", currency: "EUR"` as a constant, and `prisma/schema.prisma`'s `Trip` model has no currency field for them to read. A trip priced in dollars, pounds or francs therefore renders as euros on every screen that shows money — the trip overview's cost summary, Day Detail, the cost overview's per-day and per-month lists and its trip total alike — with no indication the symbol is wrong and no way for the user to correct it. Story 7.13 converged the *divergence* half of DW-27 (this screen now uses the shared `src/lib/trips/formatCost.ts` rather than a bare-number local copy wrapped in `trips.stay.costSummary`), which is why DW-27's closure must not be read as covering this. Fixing it is not a formatting change: it needs a `currency` column on `Trip` plus a migration and a backfill default, a way to set it in the trip create/edit dialog, and a decision about whether existing amounts are re-interpreted or re-entered — all outside a visual-only story's scope, and all touching schema rather than paint.
+status: open
+
+### DW-152: `trips.stay.costSummary` is now a dead key in both locales
+
+source_spec: `_bmad-output/implementation-artifacts/7-13-cost-overview-redesign.md`
+origin: 7-13-cost-overview-redesign, implementation verification, 2026-08-03
+location: `travelplan/src/i18n/en.ts:570`, `travelplan/src/i18n/de.ts:540`
+severity: low
+summary: Story 7.13's AC6 dropped the `"Cost: {amount}"` wrapper from the cost overview's four amount call sites, which were the key's last readers — `grep -rn "stay.costSummary" src/` now returns only the two definitions. The key remains defined in both locales with nothing reading it.
+evidence: The story's Project Structure Notes justified keeping the key with "it has other readers", and that premise was false at the time it was written — verified by grep after the change. The key was left in place deliberately rather than removed, because the same note scopes i18n changes out of a visual-only story. Fix is two deleted lines plus a check that no dynamic key construction reaches it; small enough to ride along with the next story that touches `src/i18n`.
+status: open
+
+- source_spec: `_bmad-output/implementation-artifacts/7-13-cost-overview-redesign.md`
+  summary: The hardcoded-colour guard helper (`HARDCODED_COLOUR` + `stripComments`) is now copy-pasted into four test files, and the two older copies carry a weaker regex than the two this story wrote.
+  evidence: Byte-identical in `tripOverviewMapFullPage.test.tsx:36-37` and `tripDayMapFullPage.test.tsx:46-47`; Story 7.13's copies additionally match named colours, `oklch()`/`lab()`/`color-mix()` and use `resolve(__dirname, "..")` instead of the cwd-dependent `resolve(process.cwd(), ...)`. The four should be one exported test helper so a guard improvement reaches every screen instead of only the newest two. Sanctioned at the time by Task 7's "matching the one Stories 7.9 and 7.11 use".
+
+- source_spec: `_bmad-output/implementation-artifacts/7-13-cost-overview-redesign.md`
+  summary: When the cost overview's fetch fails with a non-404 error, the card renders its label, divider and two working tabs above nothing at all — there is no error-state body, only the alert above the card.
+  evidence: Pre-existing and untouched by 7.13 (AC9 makes it visual-only), but newly pinned by the error-branch test that story added: every content block is gated on `detail`, which stays null on error, so the tabs remain clickable and switch between two empty views. Fix is either an in-card error body with a retry, or collapsing the card to the alert alone.
+
+- source_spec: `_bmad-output/implementation-artifacts/7-13-cost-overview-redesign.md`
+  summary: The per-month view's totals need not sum to the trip total printed directly beneath them, because `buildMonthlyGroups` filters out every entry with `amountCents <= 0` or a due date shorter than 10 characters while the trip total counts everything.
+  evidence: `TripCostOverview.tsx`'s `buildMonthlyGroups` filter is `entry.amountCents > 0 && entry.date.length >= 10`; the trip total comes from the API's `plannedCostTotal`. A trip with an undated or zero-amount cost therefore shows month rows that visibly do not add up to the figure below them, with nothing naming the residual. Pre-existing; 7.13 was forbidden from touching the grouping logic. Fix is a residual row ("not yet scheduled: X") rather than a filter change.
+
+- source_spec: `_bmad-output/implementation-artifacts/7-13-cost-overview-redesign.md`
+  summary: `formatCost` constructs a fresh `Intl.NumberFormat` on every call, and converging the cost overview onto it made that screen the hot path — a 30-day trip formats once per entry, per day row, per month row and per total, on every render and every tab toggle.
+  evidence: `travelplan/src/lib/trips/formatCost.ts:17` builds the formatter inside the exported function; the two surviving local copies in `TripTimeline.tsx` and `TripDayView.tsx` memoize only the enclosing closure, not the formatter. Pre-existing, and not a regression — but a module-level `Map` keyed by language is two lines and the natural companion to whichever story folds the last two copies in.
+
+- source_spec: `_bmad-output/implementation-artifacts/7-13-cost-overview-redesign.md`
+  summary: The cost overview's trip total now renders at the same rank as each month group's heading (`cardTitle`, 14.5px/700) while the trip overview figure the user clicked to get there is `metricLg` 30px/900, so the screen's headline number is its least prominent element.
+  evidence: `TripCostOverview.tsx`'s trip-total row versus `TripTimeline.tsx:956`, and the accented 21px/900 cost figure at `TripTimeline.tsx:665` that is the entry point to this screen. Rank is unchanged from before the redesign (it was `subtitle1`), so this is pre-existing rather than caused by 7.13, and no AC or mockup covers it — which is why it was not changed on a visual-only story's own judgement. Worth a deliberate decision, and it is on 7.13's operator checklist to look at in a browser.

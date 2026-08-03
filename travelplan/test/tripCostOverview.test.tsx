@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import TripCostOverview from "@/components/features/trips/TripCostOverview";
-import { I18nProvider } from "@/i18n/provider";
+import { renderWithProviders } from "./helpers/renderWithProviders";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 type TripDetailResponse = {
   trip: {
@@ -39,7 +41,7 @@ type TripDetailResponse = {
   }>;
 };
 
-const renderOverview = async (data: TripDetailResponse) => {
+const renderOverview = async (data: TripDetailResponse, options: { language?: "en" | "de" } = {}) => {
   const fetchMock = vi.fn(async () => ({
     ok: true,
     status: 200,
@@ -51,16 +53,43 @@ const renderOverview = async (data: TripDetailResponse) => {
 
   vi.stubGlobal("fetch", fetchMock);
 
-  render(
-    <I18nProvider initialLanguage="en">
-      <TripCostOverview tripId="trip-1" />
-    </I18nProvider>,
-  );
+  // The theme wrapper is not optional here: the component reads `theme.palette.tokens.*`, which is
+  // absent from MUI's bare default theme, so a plain `render` would throw on the first token access.
+  renderWithProviders(<TripCostOverview tripId="trip-1" />, options);
 
   await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
   return { fetchMock, user: userEvent.setup() };
 };
+
+// jsdom reports computed colours as `rgb(r, g, b)`; the palette stores hex. Same helper shape as
+// `tripDayViewLayout.test.tsx:13`.
+const toRgb = (hex: string) => {
+  const value = parseInt(hex.replace("#", ""), 16);
+  return `rgb(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255})`;
+};
+
+// All three card wrappers here previously painted themselves `#ffffff`, and the page shell around
+// them `#2f343d` (guarded separately in `tripCostOverviewPage.test.tsx`), so opening the cost
+// overview inverted the app's value scheme on the way in. This source-text guard is a *negative*
+// check and deliberately paired with the positive style assertions below it: on its own it would pass
+// just as happily if a surface lost its `backgroundColor` altogether, or took the wrong token.
+// Comments are stripped first so an issue reference like `// see #1234` cannot fail the guard, and
+// named colours plus every colour function notation are matched so the literal cannot come back in
+// another spelling. What it cannot see: a colour lifted into a constant in another file, and a hex
+// sitting after a `//` inside a string literal on the same line (`stripComments` truncates there).
+// `__dirname`, not `process.cwd()`, so the path holds however vitest was invoked.
+const HARDCODED_COLOUR =
+  /#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix)\(|["'](?:white|black|whitesmoke|gainsboro|silver|gr[ae]y|ivory|snow)["']/;
+const stripComments = (source: string) => source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+const repoRoot = resolve(__dirname, "..");
+
+describe("trip cost overview colours", () => {
+  it("carries no hardcoded colour in the component", () => {
+    const source = readFileSync(resolve(repoRoot, "src/components/features/trips/TripCostOverview.tsx"), "utf8");
+    expect(stripComments(source)).not.toMatch(HARDCODED_COLOUR);
+  });
+});
 
 describe("TripCostOverview", () => {
   it("renders day costs, missing cost labels, and the trip total", async () => {
@@ -134,9 +163,105 @@ describe("TripCostOverview", () => {
     expect(screen.getByText("Museum")).toBeInTheDocument();
     expect(screen.getByText("Activity 1")).toBeInTheDocument();
     expect(screen.getAllByTestId("cost-missing")).toHaveLength(1);
-    expect(screen.getAllByText("Cost: 150.00").length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText("Trip total: 300.00")).toBeInTheDocument();
+    // Story 7.13 (DW-27): amounts come from the shared currency-aware `formatCost`, so the old
+    // "Cost: 150.00" wrapper from `trips.stay.costSummary` is gone on this screen.
+    expect(screen.getAllByText("€150.00").length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText("Cost: 150.00")).not.toBeInTheDocument();
+    expect(screen.getByText("Trip total: €300.00")).toBeInTheDocument();
     expect(screen.getByTestId("cost-overview-table-wrapper")).toHaveStyle({ overflowX: "auto" });
+
+    // AC5: the restyle must not quietly drop the table semantics - this is tabular data, and the
+    // element plus its three column headers is what conveys that to assistive technology.
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Day" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Cost positions" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Day total" })).toBeInTheDocument();
+
+    // AC2, positively. The hex guard above only proves no literal is present; this proves the card
+    // actually carries the shipped token bundle, so dropping `backgroundColor` or reaching for the
+    // wrong token fails here rather than shipping.
+    expect(screen.getByTestId("cost-overview-card")).toHaveStyle({
+      backgroundColor: toRgb("#FFFFFF"),
+      borderColor: toRgb("#D9D0BE"),
+      borderRadius: "8px",
+      padding: "18px",
+    });
+
+    // AC4, Trap 2. `labelCaps` has no variantMapping, so losing `component="h1"` silently demotes the
+    // card label to a <span> and the screen ends up with no heading at all - invisible in a text
+    // assertion, caught here. The caps treatment is asserted on the header cells for the same reason.
+    expect(screen.getByRole("heading", { level: 1, name: "Cost overview" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Day" })).toHaveStyle({
+      textTransform: "uppercase",
+      fontWeight: "800",
+    });
+
+    vi.unstubAllGlobals();
+  });
+
+  it("renders German amounts with the symbol in the locale's position", async () => {
+    // AC6 is a *currency* switch, not a number switch: `style: "currency"` exists so German reads
+    // "150,00 €" and English "€150.00". A single-locale test would pass on a formatter that hardcodes
+    // the symbol in front, which is the bug the shared helper's docblock is about.
+    await renderOverview(
+      {
+        trip: {
+          id: "trip-1",
+          name: "Winterflucht",
+          startDate: "2026-12-01T00:00:00.000Z",
+          endDate: "2026-12-01T00:00:00.000Z",
+          dayCount: 1,
+          plannedCostTotal: 123450,
+          accommodationCostTotalCents: null,
+          heroImageUrl: null,
+        },
+        days: [
+          {
+            id: "day-1",
+            date: "2026-12-01T00:00:00.000Z",
+            dayIndex: 1,
+            note: null,
+            plannedCostSubtotal: 123450,
+            accommodation: null,
+            dayPlanItems: [
+              {
+                id: "plan-1",
+                title: "Museum",
+                contentJson: "invalid",
+                costCents: 123450,
+                payments: [],
+              },
+            ],
+          },
+        ],
+      },
+      { language: "de" },
+    );
+
+    // Intl emits a non-breaking space before the symbol; Testing Library's default normalizer
+    // collapses it to a plain space, so these are written with an ordinary one.
+    expect(screen.getAllByText("1.234,50 €").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("Reise gesamt: 1.234,50 €")).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("shows the error alert on a failed load without dropping the card shell", async () => {
+    // AC8 names the error alert, and nothing on this screen covered it before. `detail` stays null, so
+    // this also pins what the card renders in that state.
+    const fetchMock = vi.fn(async () => ({
+      ok: false,
+      status: 500,
+      json: async () => ({ data: null, error: { code: "server_error", message: "boom" } }),
+    })) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+    renderWithProviders(<TripCostOverview tripId="trip-1" />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Something went wrong. Please try again.");
+    expect(screen.getByRole("heading", { level: 1, name: "Cost overview" })).toBeInTheDocument();
+    expect(screen.getByTestId("cost-overview-card")).toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
 
     vi.unstubAllGlobals();
   });
@@ -243,12 +368,25 @@ describe("TripCostOverview", () => {
     expect(screen.getByText("Cabin Night")).toBeInTheDocument();
     expect(screen.getAllByText("Jan 12, 2027")).toHaveLength(2);
     expect(screen.getByText("Walking tour")).toBeInTheDocument();
-    expect(screen.getByText("Month total: 250.00")).toBeInTheDocument();
-    expect(screen.getByText("Month total: 570.00")).toBeInTheDocument();
-    expect(screen.getByText("Trip total: 700.00")).toBeInTheDocument();
+    expect(screen.getByText("Month total: €250.00")).toBeInTheDocument();
+    expect(screen.getByText("Month total: €570.00")).toBeInTheDocument();
+    expect(screen.getByText("Trip total: €700.00")).toBeInTheDocument();
     expect(screen.queryByText("Day 1")).not.toBeInTheDocument();
     expect(screen.getAllByText("Harbor Hotel")).toHaveLength(2);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // AC3: a month group sits inside the card, so it must read as a nested group rather than a second
+    // card - the quieter `cardAlt` fill, the plain `border` token, and a 6px radius that does not
+    // compete with the card's 8px. Asserted positively; the hex guard cannot see any of it.
+    const [firstMonthGroup] = screen.getAllByTestId("cost-overview-month-group");
+    expect(firstMonthGroup).toHaveStyle({
+      backgroundColor: toRgb("#FBF9F4"),
+      borderColor: toRgb("#E4DFD3"),
+      borderRadius: "6px",
+    });
+    expect(firstMonthGroup).not.toHaveStyle({ borderRadius: "8px" });
+    // AC4: the outline descends h1 -> h2 rather than skipping.
+    expect(screen.getByRole("heading", { level: 2, name: "December 2026" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("tab", { name: "Days" }));
 
@@ -298,7 +436,7 @@ describe("TripCostOverview", () => {
     await user.click(screen.getByRole("tab", { name: "Months" }));
 
     expect(screen.getByText("No open costs scheduled yet.")).toBeInTheDocument();
-    expect(screen.getByText("Trip total: 0.00")).toBeInTheDocument();
+    expect(screen.getByText("Trip total: €0.00")).toBeInTheDocument();
 
     vi.unstubAllGlobals();
   });

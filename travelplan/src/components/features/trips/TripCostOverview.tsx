@@ -6,7 +6,6 @@ import {
   Box,
   Button,
   Divider,
-  Paper,
   Skeleton,
   Tab,
   Table,
@@ -16,10 +15,12 @@ import {
   TableRow,
   Tabs,
   Typography,
+  useTheme,
 } from "@mui/material";
 import Link from "next/link";
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
+import { formatCost } from "@/lib/trips/formatCost";
 import { parsePlanText } from "@/components/features/trips/TripDayPlanItemContent";
 
 type ApiEnvelope<T> = {
@@ -215,6 +216,28 @@ const buildMonthlyGroups = (days: TripDay[], t: ReturnType<typeof useI18n>["t"])
 
 export default function TripCostOverview({ tripId }: TripCostOverviewProps) {
   const { language, t } = useI18n();
+  const theme = useTheme();
+  const tokens = theme.palette.tokens;
+  // The shipped `card` treatment, identical to TripOverviewMapFullPage.tsx and TripTimeline.tsx's
+  // cost summary card. A Box, not a Paper: theme.ts stamps a non-token 1px border on every MuiPaper,
+  // which would layer over borderStrong. 18px is --spacing-card-padding.
+  const cardSx = {
+    backgroundColor: tokens.card,
+    border: "1px solid",
+    borderColor: tokens.borderStrong,
+    borderRadius: "8px",
+    padding: "18px",
+  } as const;
+  // The quieter nested surface the dashboard rows, the share dialog and DialogShell already use: a
+  // month group sits *inside* the card above, so it takes cardAlt with the plain `border` token and a
+  // 6px radius that does not compete with the card's 8px.
+  const nestedGroupSx = {
+    backgroundColor: tokens.cardAlt,
+    border: "1px solid",
+    borderColor: tokens.border,
+    borderRadius: "6px",
+    padding: "16px",
+  } as const;
   const [detail, setDetail] = useState<TripDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -239,15 +262,6 @@ export default function TripCostOverview({ tripId }: TripCostOverviewProps) {
         year: "numeric",
         timeZone: "UTC",
       }).format(new Date(value)),
-    [language],
-  );
-
-  const formatCost = useMemo(
-    () => (value: number) =>
-      new Intl.NumberFormat(language === "de" ? "de-DE" : "en-US", {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }).format(value / 100),
     [language],
   );
 
@@ -316,55 +330,68 @@ export default function TripCostOverview({ tripId }: TripCostOverviewProps) {
 
   const sortedDays = useMemo(() => [...(detail?.days ?? [])].sort(compareTripDaysChronologically), [detail?.days]);
   const monthlyGroups = useMemo(() => buildMonthlyGroups(sortedDays, t), [sortedDays, t]);
-  const tripTotalAmount = detail ? formatCost(detail.trip.plannedCostTotal) : "";
+  const tripTotalAmount = detail ? formatCost(detail.trip.plannedCostTotal, language) : "";
 
   if (loading) {
     return (
-      <Paper elevation={1} sx={{ p: 3, borderRadius: 3, background: "#ffffff" }}>
+      <Box sx={cardSx}>
         <Box display="flex" flexDirection="column" gap={2}>
-          <Skeleton variant="text" width="40%" height={32} />
+          {/* The real label, not a text skeleton, exactly as TripOverviewMapFullPage.tsx:134-139 does
+              it: a placeholder bar sized for the retired h6 title is twice the height of the caps
+              label that replaces it and would jump on settle, and rendering the label keeps the screen
+              from having no heading at all while it loads. Only the content below is skeletoned. */}
+          <Typography variant="labelCaps" component="h1" sx={{ color: tokens.inkSoft, display: "block" }}>
+            {t("trips.costOverview.title")}
+          </Typography>
           <Skeleton variant="text" width="60%" height={24} />
-          <Divider />
+          <Divider sx={{ borderColor: tokens.border }} />
           <Skeleton variant="rectangular" width="100%" height={120} />
         </Box>
-      </Paper>
+      </Box>
     );
   }
 
   if (notFound) {
     return (
-      <Paper elevation={1} sx={{ p: 3, borderRadius: 3, background: "#ffffff" }}>
+      <Box sx={cardSx}>
         <Box display="flex" flexDirection="column" gap={2}>
-          <Typography variant="h6" fontWeight={600}>
+          {/* `heading` in `ink`, not the caps card-label the main card carries: AC8 pins this branch to
+              the treatment already shipped on the screens this one is reached from, and both map
+              screens render this same key that way (TripOverviewMapFullPage.tsx:149). A dead end the
+              user landed on by a stale URL has to be legible, so it is a title, not a label. */}
+          <Typography variant="heading" component="h1" sx={{ color: tokens.ink }}>
             {t("trips.detail.notFoundTitle")}
           </Typography>
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body2" sx={{ color: tokens.inkSoft }}>
             {t("trips.detail.notFoundBody")}
           </Typography>
           <Button component={Link} href="/trips" variant="outlined" sx={{ alignSelf: "flex-start" }}>
             {t("trips.detail.back")}
           </Button>
         </Box>
-      </Paper>
+      </Box>
     );
   }
 
   return (
     <Box display="flex" flexDirection="column" gap={2}>
       {error && <Alert severity="error">{error}</Alert>}
-      <Paper elevation={1} sx={{ p: 3, borderRadius: 3, background: "#ffffff" }}>
+      <Box sx={cardSx} data-testid="cost-overview-card">
         <Box display="flex" flexDirection="column" gap={2}>
           <Box display="flex" flexDirection="column" gap={0.5}>
-            <Typography variant="h6" fontWeight={600}>
+            {/* component= is mandatory: the custom labelCaps variant has no variantMapping entry, so
+                it renders a <span> otherwise. h1 because this screen has no page title above the card
+                - the card label is its only heading, as Story 7.9 decided for the map screens. */}
+            <Typography variant="labelCaps" component="h1" sx={{ color: tokens.inkSoft, display: "block" }}>
               {t("trips.costOverview.title")}
             </Typography>
             {detail ? (
-              <Typography variant="body2" color="text.secondary">
+              <Typography variant="body2" sx={{ color: tokens.inkSoft }}>
                 {detail.trip.name} · {formatDate(detail.trip.startDate)} - {formatDate(detail.trip.endDate)}
               </Typography>
             ) : null}
           </Box>
-          <Divider />
+          <Divider sx={{ borderColor: tokens.border }} />
           <Tabs
             value={viewMode}
             onChange={(_event, value: CostViewMode) => setViewMode(value)}
@@ -375,19 +402,34 @@ export default function TripCostOverview({ tripId }: TripCostOverviewProps) {
             <Tab value="months" label={t("trips.costOverview.modeMonths")} />
           </Tabs>
           {detail && sortedDays.length === 0 ? (
-            <Typography variant="body2" color="text.secondary">
+            <Typography variant="body2" sx={{ color: tokens.inkSoft }}>
               {t("trips.costOverview.empty")}
             </Typography>
           ) : null}
 
           {detail && sortedDays.length > 0 && viewMode === "days" && (
             <Box sx={{ overflowX: "auto" }} data-testid="cost-overview-table-wrapper">
-              <Table sx={{ minWidth: 640 }}>
+              {/* Still a real Table: three columns and a header row is tabular data, and the element
+                  is what conveys that to assistive technology. Only the paint changes here - every
+                  cell rule is the `border` token rather than MUI's cold default `divider`, and the
+                  trailing rule is suppressed via :last-child the way the cost summary and bucket list
+                  already do, so adding a day never leaves a rule hanging under the last row. */}
+              <Table
+                sx={{
+                  minWidth: 640,
+                  "& td, & th": { borderColor: tokens.border },
+                  "& tbody tr:last-child td": { borderBottom: "none" },
+                }}
+              >
                 <TableHead>
                   <TableRow>
-                    <TableCell sx={{ fontWeight: 600 }}>{t("trips.costOverview.columnDay")}</TableCell>
-                    <TableCell sx={{ fontWeight: 600 }}>{t("trips.costOverview.columnItems")}</TableCell>
-                    <TableCell sx={{ fontWeight: 600, textAlign: "right" }}>
+                    <TableCell sx={{ typography: "labelCaps", color: tokens.inkSoft }}>
+                      {t("trips.costOverview.columnDay")}
+                    </TableCell>
+                    <TableCell sx={{ typography: "labelCaps", color: tokens.inkSoft }}>
+                      {t("trips.costOverview.columnItems")}
+                    </TableCell>
+                    <TableCell sx={{ typography: "labelCaps", color: tokens.inkSoft, textAlign: "right" }}>
                       {t("trips.costOverview.columnDayTotal")}
                     </TableCell>
                   </TableRow>
@@ -403,23 +445,20 @@ export default function TripCostOverview({ tripId }: TripCostOverviewProps) {
                             <Typography variant="subtitle2" fontWeight={600}>
                               {formatMessage(t("trips.timeline.dayLabel"), { index: day.dayIndex })}
                             </Typography>
-                            <Typography variant="caption" color="text.secondary">
+                            <Typography variant="caption" sx={{ color: tokens.inkSoft }}>
                               {formatDate(day.date)}
                             </Typography>
                           </Box>
                         </TableCell>
                         <TableCell sx={{ verticalAlign: "top" }}>
                           {entries.length === 0 ? (
-                            <Typography variant="body2" color="text.secondary">
+                            <Typography variant="body2" sx={{ color: tokens.inkSoft }}>
                               {t("trips.costOverview.emptyDay")}
                             </Typography>
                           ) : (
                             <Box display="flex" flexDirection="column" gap={1}>
                               {entries.map((entry) => {
-                                const amountLabel =
-                                  entry.amountCents === null
-                                    ? "-"
-                                    : formatMessage(t("trips.stay.costSummary"), { amount: formatCost(entry.amountCents) });
+                                const amountLabel = entry.amountCents === null ? "-" : formatCost(entry.amountCents, language);
                                 return (
                                   <Box
                                     key={entry.id}
@@ -436,6 +475,7 @@ export default function TripCostOverview({ tripId }: TripCostOverviewProps) {
                                       variant="body2"
                                       color={entry.amountCents === null ? "text.secondary" : "text.primary"}
                                       textAlign="right"
+                                      sx={{ fontVariantNumeric: "tabular-nums" }}
                                       data-testid={entry.amountCents === null ? "cost-missing" : "cost-known"}
                                     >
                                       {amountLabel}
@@ -446,8 +486,15 @@ export default function TripCostOverview({ tripId }: TripCostOverviewProps) {
                             </Box>
                           )}
                         </TableCell>
-                        <TableCell sx={{ verticalAlign: "top", textAlign: "right", whiteSpace: "nowrap" }}>
-                          {formatMessage(t("trips.stay.costSummary"), { amount: formatCost(day.plannedCostSubtotal) })}
+                        <TableCell
+                          sx={{
+                            verticalAlign: "top",
+                            textAlign: "right",
+                            whiteSpace: "nowrap",
+                            fontVariantNumeric: "tabular-nums",
+                          }}
+                        >
+                          {formatCost(day.plannedCostSubtotal, language)}
                         </TableCell>
                       </TableRow>
                     );
@@ -458,7 +505,7 @@ export default function TripCostOverview({ tripId }: TripCostOverviewProps) {
           )}
 
           {detail && sortedDays.length > 0 && viewMode === "months" && monthlyGroups.length === 0 ? (
-            <Typography variant="body2" color="text.secondary">
+            <Typography variant="body2" sx={{ color: tokens.inkSoft }}>
               {t("trips.costOverview.emptyMonths")}
             </Typography>
           ) : null}
@@ -466,17 +513,20 @@ export default function TripCostOverview({ tripId }: TripCostOverviewProps) {
           {detail && sortedDays.length > 0 && viewMode === "months" && monthlyGroups.length > 0 && (
             <Box display="flex" flexDirection="column" gap={2}>
               {monthlyGroups.map((group) => (
-                <Paper key={group.monthKey} variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                <Box key={group.monthKey} sx={nestedGroupSx} data-testid="cost-overview-month-group">
                   <Box display="flex" flexDirection="column" gap={1.5}>
                     <Box display="flex" justifyContent="space-between" gap={2} alignItems="baseline">
-                      <Typography variant="subtitle1" fontWeight={700}>
+                      {/* h2 so the outline descends from the card's h1 without skipping a level. */}
+                      <Typography variant="cardTitle" component="h2" sx={{ color: tokens.ink }}>
                         {formatMonth(group.monthDate)}
                       </Typography>
-                      <Typography variant="body2" fontWeight={600}>
-                        {formatMessage(t("trips.costOverview.monthTotalLabel"), { total: formatCost(group.totalCents) })}
+                      <Typography variant="body2" fontWeight={600} sx={{ fontVariantNumeric: "tabular-nums" }}>
+                        {formatMessage(t("trips.costOverview.monthTotalLabel"), {
+                          total: formatCost(group.totalCents, language),
+                        })}
                       </Typography>
                     </Box>
-                    <Divider />
+                    <Divider sx={{ borderColor: tokens.border }} />
                     <Box display="flex" flexDirection="column" gap={1.25}>
                       {group.entries.map((entry) => (
                         <Box
@@ -490,30 +540,34 @@ export default function TripCostOverview({ tripId }: TripCostOverviewProps) {
                           <Typography variant="body2" fontWeight={500} sx={{ overflowWrap: "anywhere" }}>
                             {entry.label}
                           </Typography>
-                          <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>
+                          <Typography variant="body2" sx={{ color: tokens.inkSoft, whiteSpace: "nowrap" }}>
                             {formatDate(entry.date)}
                           </Typography>
-                          <Typography variant="body2" textAlign="right" sx={{ whiteSpace: "nowrap" }}>
-                            {formatMessage(t("trips.stay.costSummary"), { amount: formatCost(entry.amountCents) })}
+                          <Typography
+                            variant="body2"
+                            textAlign="right"
+                            sx={{ whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}
+                          >
+                            {formatCost(entry.amountCents, language)}
                           </Typography>
                         </Box>
                       ))}
                     </Box>
                   </Box>
-                </Paper>
+                </Box>
               ))}
             </Box>
           )}
 
           {detail && (
             <Box display="flex" justifyContent="flex-end">
-              <Typography variant="subtitle1" fontWeight={700}>
+              <Typography variant="cardTitle" sx={{ color: tokens.ink, fontVariantNumeric: "tabular-nums" }}>
                 {formatMessage(t("trips.costOverview.tripTotalLabel"), { total: tripTotalAmount })}
               </Typography>
             </Box>
           )}
         </Box>
-      </Paper>
+      </Box>
     </Box>
   );
 }
