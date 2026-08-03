@@ -223,6 +223,7 @@ const de: Dictionary = {
   "trips.share.error": "Mitwirkender konnte nicht hinzugefügt werden. Bitte erneut versuchen.",
   "trips.share.removeError": "Person konnte nicht entfernt werden. Bitte erneut versuchen.",
   "trips.share.initError": "Freigabe konnte nicht geladen werden. Bitte aktualisieren.",
+  "trips.share.viewRegisteredUsers": "Alle registrierten Benutzer ansehen",
   // Glyph dropped in lockstep with en.ts - see the note there. A locale keeping the arrow while the
   // other drops it would give the same menu row two different shapes.
   "trips.dayView.back": "Zurück zur Reise",
@@ -549,6 +550,13 @@ const de: Dictionary = {
   "trips.location.coordinatesRequiredTogether": "Breitengrad und Längengrad müssen zusammen angegeben werden",
   "trips.location.latInvalid": "Breitengrad muss zwischen -90 und 90 liegen",
   "trips.location.lngInvalid": "Längengrad muss zwischen -180 und 180 liegen",
+  // Story 5.8 - siehe die Notiz zu diesen Schlüsseln in `en.ts`.
+  "users.registered.title": "Registrierte Benutzer",
+  "users.registered.subtitle": "Alle Konten in TravelPlan",
+  "users.registered.countLabel": "Konten ({count})",
+  "users.registered.empty": "Noch keine Konten registriert.",
+  "users.registered.loadError": "Registrierte Benutzer konnten nicht geladen werden. Bitte aktualisieren.",
+  "users.registered.forbidden": "Nur Reise-Eigentümer können registrierte Benutzer sehen.",
   "common.cancel": "Abbrechen",
   // Story 6.17 hat `common.save` entfernt — siehe die Notiz in `en.ts`. Der einzige Leser nutzt
   // jetzt `trips.travelSegment.save`.

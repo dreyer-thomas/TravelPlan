@@ -500,6 +500,22 @@ export default function TripShareDialog({ open, tripId, tripName, onClose }: Tri
           </Box>
 
           {/*
+            The discovery half of the invite: whether the person already has an account is not
+            answerable from this dialog. It opens in a new tab on purpose - navigating away would
+            unmount the dialog and discard a half-typed invite.
+          */}
+          <Button
+            component="a"
+            href="/users"
+            target="_blank"
+            rel="noopener"
+            variant="text"
+            sx={{ alignSelf: "flex-start", fontSize: 12, fontWeight: 700 }}
+          >
+            {t("trips.share.viewRegisteredUsers")}
+          </Button>
+
+          {/*
             The count and the empty state are claims about data we hold. While the fetch is in flight
             they would read "Access (0)", and after a failed fetch they would assert the trip has nobody
             on it — so the section renders neither until the list is actually known.

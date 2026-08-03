@@ -73,3 +73,20 @@ export const hasTripOwnerOrContributorAccess = async (userId: string, tripId: st
   const access = await getTripAccessForUser(userId, tripId);
   return canTripAccessRoleWrite(access?.accessRole);
 };
+
+/**
+ * Whether the user owns at least one trip anywhere - the gate for the surfaces that are not scoped to
+ * a single trip and so have no `tripId` to ask the predicates above about.
+ *
+ * Membership never satisfies it: a `TripMember` row is not `Trip.userId`, and a viewer or contributor
+ * is exactly the caller this is meant to keep out. `User.role` is not consulted either - it defaults
+ * to `OWNER` on every account, so gating on it would let everyone through.
+ */
+export const hasAnyOwnedTrip = async (userId: string) => {
+  const ownedTrip = await prisma.trip.findFirst({
+    where: { userId },
+    select: { id: true },
+  });
+
+  return ownedTrip !== null;
+};

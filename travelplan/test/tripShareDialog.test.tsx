@@ -240,6 +240,18 @@ describe("TripShareDialog", () => {
     expect(screen.queryByText("No collaborators added yet.")).toBeNull();
   });
 
+  it("links to the registered-users overview in a new tab", async () => {
+    stubFetch({ members: { owner: OWNER, collaborators: [] } });
+
+    renderDialog();
+
+    const link = await screen.findByRole("link", { name: "View all registered users" });
+    expect(link).toHaveAttribute("href", "/users");
+    // A same-tab navigation would unmount the dialog and discard a half-typed invite.
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener");
+  });
+
   it("keeps the temporary-password field and its label", async () => {
     stubFetch({ members: { owner: OWNER, collaborators: [] } });
 

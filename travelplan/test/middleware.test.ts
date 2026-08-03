@@ -70,6 +70,27 @@ describe("middleware auth guard", () => {
     expect(response.status).toBe(200);
   });
 
+  it("redirects signed-out users to /auth/login for the registered-users page", async () => {
+    const request = new NextRequest("http://localhost/users");
+    const response = await middleware(request);
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("http://localhost/auth/login");
+  });
+
+  it("redirects flagged users away from the registered-users page", async () => {
+    const token = await createSessionJwt({ sub: "user-1", role: "owner", mustChangePassword: true });
+    const request = new NextRequest("http://localhost/users", {
+      headers: {
+        cookie: `session=${token}`,
+      },
+    });
+    const response = await middleware(request);
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("http://localhost/auth/first-login-password");
+  });
+
   it("returns 403 json for flagged users hitting trip apis", async () => {
     const token = await createSessionJwt({ sub: "user-1", role: "owner", mustChangePassword: true });
     const request = new NextRequest("http://localhost/api/trips/trip-1", {
@@ -142,8 +163,14 @@ describe("middleware matcher", () => {
   });
 
   it("still covers the pages and the forced password-change route", async () => {
-    for (const pathname of ["/", "/trips", "/trips/trip-1", "/auth/first-login-password"]) {
+    for (const pathname of ["/", "/trips", "/trips/trip-1", "/users", "/auth/first-login-password"]) {
       expect(await matches(pathname), pathname).toBe(true);
     }
+  });
+
+  it("does not pull the registered-users api in behind the page entry", async () => {
+    // `/users/:path*` guards the page. The endpoint self-guards with `requireSession` and must stay
+    // out of the matcher, or the middleware's page-redirect branch starts answering an API call.
+    expect(await matches("/api/users")).toBe(false);
   });
 });

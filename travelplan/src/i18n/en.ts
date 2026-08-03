@@ -229,6 +229,7 @@ const en: Dictionary = {
   "trips.share.error": "Unable to add collaborator. Please try again.",
   "trips.share.removeError": "Unable to remove collaborator. Please try again.",
   "trips.share.initError": "Unable to load sharing controls. Please refresh.",
+  "trips.share.viewRegisteredUsers": "View all registered users",
   // No leading "←" glyph, unlike its siblings here. Story 6.19 moved this label out of a button in
   // the day hero's top-left corner and into the first row of the hero's `⋯` menu, where the arrow
   // pointed at a shape that no longer exists: menu rows read as a vertical list of destinations, not
@@ -573,6 +574,14 @@ const en: Dictionary = {
   "trips.location.coordinatesRequiredTogether": "Latitude and longitude must both be provided",
   "trips.location.latInvalid": "Latitude must be between -90 and 90",
   "trips.location.lngInvalid": "Longitude must be between -180 and 180",
+  // Story 5.8. A `users.` namespace of its own rather than a `trips.` sub-key: the surface is not
+  // scoped to a trip, and reading it under `trips.` would suggest it is.
+  "users.registered.title": "Registered users",
+  "users.registered.subtitle": "Every account in TravelPlan",
+  "users.registered.countLabel": "Accounts ({count})",
+  "users.registered.empty": "No accounts registered yet.",
+  "users.registered.loadError": "Unable to load registered users. Please refresh.",
+  "users.registered.forbidden": "Only trip owners can view registered users.",
   "common.cancel": "Cancel",
   // Story 6.17 removed `common.save`. It was named as though it were shared and had exactly one
   // reader — the travel-segment dialog — whose button now says "OK". That value lives on

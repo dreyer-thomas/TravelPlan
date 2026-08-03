@@ -1258,3 +1258,13 @@ severity: low
 summary: The row caps in `importLimits.ts` do not bound the manifest anywhere near a size worth caring about — `MAX_IMPORT_DAYS` 7300 × `MAX_IMPORT_SEGMENTS_PER_DAY` 200 admits well over a million segments, and day-plan items per day are not capped at all — so the de-facto ceiling on `trip.json` is `MAX_MEMBER_UNCOMPRESSED_BYTES` (64 MB) in the ZIP reader, and a manifest that trips it is refused with "Archive entry is larger than this reader will read: trip.json", a message about the reader's internals rather than about the payload.
 evidence: Found by review of Story 2.34, whose per-member cap is what made the reader the effective limit; the miscount was in that cap's own justification, which cited the row caps as bounding the manifest "in practice" and has been corrected in place. No real backup comes close — a genuine manifest is a few hundred kilobytes — so nothing user-facing is broken today and this is not a regression: before 2.34 nothing bounded the manifest at all. What is deferred is the right fix, which is a size or item ceiling in the schema so the refusal comes with a message about the backup, plus deciding what a legitimate manifest may weigh. That decision is the same one DW-142 needs for a v1 payload and the two should probably be taken together.
 status: open
+
+### DW-145: No API route logs anything, so every 500 in the app is unattributable
+
+source_spec: `_bmad-output/implementation-artifacts/5-8-view-all-registered-system-users.md`
+origin: 5-8-view-all-registered-system-users, follow-up code review, 2026-08-03
+location: repo-wide across `travelplan/src/app/api/**/route.ts`; surfaced at `travelplan/src/app/api/users/route.ts:44`
+severity: low
+summary: Every `catch` in every route handler discards the caught error and answers `server_error` — `grep -rn "console\.\|logger" src/app/api src/lib` returns nothing, so the application emits no server-side record of any failure it converts into a 500.
+evidence: Verified by grep during this review, not assumed: zero matches in both `src/app/api` and `src/lib` (the only `no-console` directives in the repo are in `test/zz-hero-diagnostic.test.tsx`). Pre-existing and repo-wide, not introduced by Story 5.8 — the new `/api/users` handler inherits the established skeleton exactly. Recorded because the consequence is now slightly larger: `/api/users` is the one read in the app that leaves the caller's own trip graph, and a production failure there leaves no trace of what broke or who asked. Fixing it is not a one-line change in this story's file — it needs a logging seam chosen once (a `src/lib/logging` helper plus the `no-console` rule's disposition) and applied to roughly thirty handlers, which is its own story.
+status: open

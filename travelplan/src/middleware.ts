@@ -2,7 +2,15 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getRequestSession } from "@/lib/auth/sessionGuard";
 
-const isProtectedPath = (pathname: string) => pathname.startsWith("/trips");
+const isProtectedPath = (pathname: string) => pathname.startsWith("/trips") || pathname.startsWith("/users");
+/**
+ * Only the page predicate above was widened for `/users`; this one stays `/api/trips`-scoped.
+ *
+ * `/api/users` matches neither predicate - `/api/trips` is not a prefix of it, and `/users` is not
+ * either, because the path starts with `/api`. It is also kept out of `config.matcher` below, so
+ * this file never runs for it at all; the route self-guards with `requireSession` instead - see the
+ * comment on its handler for why that is the right place for it.
+ */
 const isProtectedApiPath = (pathname: string) => pathname.startsWith("/api/trips");
 const isHomePath = (pathname: string) => pathname === "/";
 const isForcedPasswordChangePath = (pathname: string) => pathname === "/auth/first-login-password";
@@ -88,6 +96,8 @@ export const config = {
   matcher: [
     "/",
     "/trips/:path*",
+    // `:path*` is zero-or-more, so this covers `/users` itself as well as any future subpath.
+    "/users/:path*",
     "/api/trips",
     "/api/trips/:path((?!import/?$).*)",
     "/auth/first-login-password",
