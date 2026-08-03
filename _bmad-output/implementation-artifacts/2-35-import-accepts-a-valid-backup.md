@@ -1,7 +1,7 @@
 ---
 authored_against: 03af7c7
 baseline_revision: 8ac08ae3c26512f45edd1cd45c13a9e9ed1dfdea
-status: awaiting-operator
+status: done
 review_loop_iteration: 0
 final_revision: a9ad5aec2f456211787a6460812ed2c22eed79aa
 followup_review_recommended: false
@@ -112,6 +112,26 @@ Vitest 3.2. `tripImportSchemas.test.ts`, `tripImportRoute.test.ts` and `tripBack
 - [Source: travelplan/src/lib/validation/tripImportSchemas.ts:513-535] — the check that refuses
 - [Source: travelplan/src/lib/repositories/tripRepo.ts:1823] — the trip-wide map that already copes
 - [Source: travelplan/src/components/features/trips/TripDayView.tsx:1092,1137] — `previousStay`, the feature being rejected
+
+## Operator Pass — 2026-08-03, against `af233ff`
+
+Chromium, isolated worktree on port 3099 against a copy of `dev.db` emptied of trips; `prisma/dev.db` never opened.
+
+**The real 240 MB multipart upload, through the dialog — the one layer never exercised before — took 2 seconds and reported:**
+
+| | |
+|---|---|
+| Days | 41 |
+| Photos | 150 |
+| Travel segments | **77** |
+| Bucket list | 2 |
+| Warnings | **one line**: "Skipped 9 travel segments whose start or end point is missing from this backup" |
+
+**The arithmetic closes the trap this story was most likely to fall into.** The archive holds **86** segments; 9 were skipped and 77 imported — so the previous-night references were *imported*, not quietly skipped along with the orphans. A fix that turned all 36 rejected endpoints into warnings would have produced a clean import and a silently poorer trip, and would have passed every test written for it. 86 − 9 = 77 is what rules it out.
+
+**Confirmed per instance, not only in aggregate (action 3):** **23** imported segments start at an accommodation belonging to an *earlier* day — exactly the count the story predicted. Spot-checked in the database: day 4's segment starts at day 3's "Tutukaka", 45 minutes by car; day 5's at day 4's, 150 minutes; and so on through day 8. These are the rows that were rejected before this story and are the reason the archive could not be restored.
+
+**AC4 is met at the only scale that matters:** `trip-neuseeland-2026-08-03.zip`, the production archive that failed with 36 validation errors on 2026-08-02, now imports cleanly.
 
 ## Dev Agent Record
 
@@ -400,3 +420,16 @@ two most consequential findings, which is why those were patched rather than arg
    export can produce one, and it can only be *in* a package because the source database already held
    it — accepted knowingly rather than dropped, since a restore that discarded it would make the backup
    differ from what was backed up. The pathology itself is DW-151.
+
+## Operator Confirmation
+
+Confirmed 2026-08-03: the external actions this story owed were carried out.
+
+- Start the app and import ~/Downloads/trip-neuseeland-2026-08-03.zip through the real import dialog. This is the only layer never exercised: every layer the route has except HTTP framing was driven directly against a real database with this exact archive, but not the 240 MB multipart upload itself. Use a throwaway copy of dev.db on an isolated port — never prisma/dev.db.
+- On the import summary, confirm it reports 41 days and 150 photos, and that the warnings box shows exactly one line: 'Skipped 9 travel segments whose start or end point is missing from this backup'. The line must be visible without expanding anything — the dialog renders only the first ten warnings and this archive's export dropped none, so it should be the only one there.
+- Open a day whose first activity starts at the previous night's hotel and confirm the travel segment between them is present rather than missing. 23 restored segments have this shape; turning them into warnings instead of imports would have been the wrong fix passing its own test, so this is the check that would catch it.
+- Decide on DW-151 in deferred-work.md: a day's travel-time total counts segments the timeline refuses to draw, and the UI cannot delete them. Reachable today with no import involved — delete a day sitting between a segment's two endpoints. This story knowingly restores such rows rather than dropping them, so the gap is on the UI side and needs its own story.
+- Decide on DW-152 in deferred-work.md: whether the import dialog's warnings should be translated. The new line is English, consistent with every other string in that channel; translating it means sending a structured warning shape instead of strings, which is its own story.
+- If every check passes, tick the browser confirmation here, set status: done in the frontmatter and Status: done in the body, and set 2-35-import-accepts-a-valid-backup to done in sprint-status.yaml.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
