@@ -17,7 +17,7 @@ operator_actions:
 
 # Story 2.35: The Import Accepts a Valid Backup
 
-Status: awaiting-operator
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 

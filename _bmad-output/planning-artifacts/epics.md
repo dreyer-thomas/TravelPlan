@@ -2322,6 +2322,47 @@ So that a plan that turned out to fit better elsewhere can be rearranged instead
 **Then** it happens there too: today the segments survive and `totalTravelMinutes` keeps counting them, measured at 5h 30m before and after deleting the activity the segment pointed at
 
 
+### Story 6.24: A Calmer Activity Dialog
+
+As a trip planner,
+I want the activity dialog to hold still when I switch tabs and to carry fewer buttons,
+So that the thing I just clicked stops moving away from my cursor.
+
+**Given** the dialog measured at 1400px — 668px on Was, 501px on Wann & Wo, 572px on Kosten, 660px on Medien & Links
+**When** tabs are switched
+**Then** the frame does not move: MUI centres it, so a 167px swing lands as 84px on the top edge, which is where the tab bar is
+
+**Given** the Kosten panel reaching 1634px at five split-payment rows (DW-149)
+**When** the frame is stabilised
+**Then** it is a minimum height and not a fixed one, so shorter panels pad with space and the long one still scrolls
+
+**Given** a footer measuring 243px at 390px — 31% of the dialog, four buttons deep
+**When** Abbrechen becomes a top-right close control, Löschen a trash glyph, Speichern "OK" and the move action "anderer Tag"
+**Then** it fits on one row, and the trash glyph keeps the accessible name `trips.plan.deleteItemAria` that already exists
+
+### Story 6.25: Close Is a Cross, and Keeping Is Named
+
+As someone using this app,
+I want every dialog to close the same way and every deletion to offer a clearly named way out,
+So that a footer full of Abbrechen becomes one familiar close control.
+
+**Given** eleven dialog files, six of which already use `DialogShell`
+**When** the close control is added to the shell's title row
+**Then** those six inherit it and the remaining five get a matching one — migrating them onto the shell is explicitly out of scope
+
+**Given** ten form dialogs and two delete confirmations among the twelve `common.cancel` call sites
+**When** the pattern is applied
+**Then** the forms lose their Abbrechen button, while the confirmations keep two buttons and rename the safe one to "Reise behalten" / "Eintrag behalten" — a dialog asking whether to delete must not shrink the harmless answer to a corner glyph
+
+**Given** all twelve readers are in this story's scope
+**When** it lands
+**Then** `common.cancel` has none left and is deleted from both dictionaries, the way `common.save` was in Story 6.17
+
+**Given** `EXPERIENCE.md` requires a secondary cancel button beside every non-trivial primary action, and `DESIGN.md` defines the secondary variant as cancel/dismiss only
+**When** this story reverses that
+**Then** both documents are updated with it, rather than leaving the drift Story 7.11 exists to clean up
+
+
 ## Epic 7: Visual Redesign — Light Cockpit System
 
 Users experience the approved `DESIGN.md`/`EXPERIENCE.md` visual system across every screen instead of the current inconsistent styling. Source of truth: `_bmad-output/planning-artifacts/ux-designs/ux-TravelPlan-2026-07-27/DESIGN.md`, `EXPERIENCE.md`, and `mockups/*.html`. This epic re-skins existing, already-shipped screens — it does not add product capability, so no new FRs are introduced.
