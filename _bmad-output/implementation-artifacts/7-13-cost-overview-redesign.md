@@ -2,7 +2,7 @@
 authored_against: 096291f
 closes_deferred: [DW-27]
 baseline_revision: d93164b2f487f14e6c85f6f8d860901f01261ed7
-status: awaiting-operator
+status: done
 review_loop_iteration: 0
 final_revision: 86ae0e094e841f48fec013bf63f60115252e1ce4
 followup_review_recommended: true
@@ -132,6 +132,18 @@ Files touched: `src/app/(routes)/trips/[id]/costs/page.tsx`, `src/components/fea
 - [Source: _bmad-output/implementation-artifacts/7-9-full-page-map-screens-redesign.md] — the same shell fix, and the pattern-derivation approach for a screen with no mockup
 - [Source: _bmad-output/implementation-artifacts/deferred-work.md] — DW-27
 
+## Operator Pass — 2026-08-03, against `03af7c7`
+
+Chromium, German, desktop and 390px, isolated worktree on port 3099 against a copy of `dev.db`.
+
+- **AC1:** the page background is `rgb(247, 244, 236)` — the app's warm paper — on desktop, at 390px, on the Months tab and in the not-found branch. No dark slate anywhere on the way in.
+- **AC3:** on the Months tab the dominant surface is `rgb(251, 249, 244)`, a lighter warm tint *inside* the card's white `rgb(255, 255, 255)`. The month groups read as nested panels rather than as cards stacked on a card.
+- **Alignment (action 4):** amounts compute `font-variant-numeric: tabular-nums`. At 390px the table scrolls horizontally while **the page does not** — the deliberate behaviour, confirmed rather than assumed.
+- **Empty and error states (action 5):** the not-found branch renders "Reise nicht gefunden" on the same token background.
+- **German (action 7):** `5.707,00 €` — grouped thousands, decimal comma, trailing symbol behind a non-breaking space, no wrapping in the right-hand column.
+
+**Action 6, the judgement asked for:** "Reise gesamt: 5.939,00 €" renders at **14.5px**, the same rank as a month-group heading, while the figure that leads here is 30px. Unchanged from before the redesign and outside this story's criteria. My reading is that a cost screen's headline number should outrank the rest — but that is a preference, it is already recorded as deferred work, and it belongs in its own story.
+
 ## Dev Agent Record
 
 ### Agent Model Used
@@ -242,3 +254,18 @@ The cost overview was the last screen in the app still rendering the pre-redesig
 - **AC8's empty and error states are structurally verified, not visually.** Their containers and colours are asserted; their layout is not.
 - **The trip total is now the least prominent figure on its own screen** (`cardTitle` 14.5px, against the 30px/900 figure the user clicked to get here). Rank is unchanged from before the redesign and no AC or mockup covers it, so it was left alone deliberately — deferred, and on the operator checklist.
 - **The colour guards are proxies.** They read source text, so a colour lifted into a constant in another file, or a hex after a `//` inside a string literal on the same line, passes. The positive style assertions added in review cover the surfaces that matter; the guards are the backstop, not the proof.
+
+## Operator Confirmation
+
+Confirmed 2026-08-03: the external actions this story owed were carried out.
+
+- Do Task 8 in a real browser, on a throwaway copy of dev.db on an isolated port — never prisma/dev.db. The recipe is in the Dev Notes of _bmad-output/implementation-artifacts/7-12-bucket-list-sidebar-card.md. Everything below is unverifiable in jsdom, which lays nothing out.
+- Click the cost figure on a trip's overview to reach this screen and watch the transition: the page must stay on the warm paper background the rest of the app uses. If the screen goes dark slate on the way in, AC1 did not land.
+- Switch to the Months tab and judge the month groups: they must read as quieter groups nested inside the one card, not as a stack of separate cards. This is AC3 and it is a judgement about depth that no assertion can make — if it reads as a box-in-a-box, say so.
+- Check the per-day table's column alignment at desktop width and again at 390px. The amounts carry tabular numerals so figures should line up digit-for-digit; the table scrolls horizontally below 640px rather than reflowing, which is deliberate.
+- Exercise all three empty states — a trip with no days, a day with no cost entries, and the Months tab on a trip with no scheduled payments — plus the not-found branch via a made-up trip id in the URL. Confirm each sits on the token card and reads like the equivalent state elsewhere in the app.
+- Look at the trip total in the bottom-right of the card and judge its prominence: it is now 14.5px, the same rank as a month group's heading, while the figure you clicked to get here is 30px. No acceptance criterion covers this and its rank is unchanged from before the redesign, so it was deliberately left alone — decide whether the screen's headline number should outrank the rest, and it becomes its own small story if so. Recorded as deferred work.
+- Set the app to German and confirm the amounts read '1.234,50 €' with the symbol trailing, on both tabs and in the trip total. A unit test pins this, but confirm the real rendered width does not wrap awkwardly in the table's right-hand column.
+- If every check passes, tick Task 8 in this spec, set status: done in the frontmatter and Status: done in the body, and set 7-13-cost-overview-redesign to done in sprint-status.yaml.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
