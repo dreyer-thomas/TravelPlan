@@ -21,7 +21,7 @@ operator_actions:
 
 # Story 2.33: Restore the Export Entry Point on the Trip Overview
 
-Status: awaiting-operator
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
