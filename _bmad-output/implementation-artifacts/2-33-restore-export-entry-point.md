@@ -2,7 +2,7 @@
 authored_against: e058259
 baseline_revision: 5c8956784d166d147726d64841b5194f06021989
 final_revision: 0c88a70
-status: awaiting-operator
+status: done
 review_loop_iteration: 0
 followup_review_recommended: true
 warnings:
@@ -179,6 +179,20 @@ Deferred as **DW-141**: `isOwner`/`canEditPlanning` default to `true` when the p
 
 Rejected: an `AbortController` aborting the request on unmount (new code, speculative, and a post-unmount `setState` is a no-op in React 18+); a hard request timeout (would abort a legitimately slow export of a large trip — the exact case this feature exists for); keeping the button enabled during export to avoid focus loss on `disabled` (the concern is real, but the remedy contradicts AC5's explicit "the button is disabled" and diverges from `TripImportDialog`, which is the app-wide pattern — recorded as a residual risk instead); disabling Delete while an export is in flight (guards a sequence the owner deliberately chose, and losing the alert to a navigation they initiated is not a defect); and a `content-length` pre-check against oversized archives (the route deliberately sends no `content-length`, so the guard is unimplementable as proposed, and the memory ceiling is a documented, accepted trade-off).
 
+## Operator Pass — 2026-08-03, against `aa28c3a`
+
+Chromium, German, isolated worktree on port 3099 against a copy of `dev.db`; `prisma/dev.db` untouched.
+This is the first time an export has been performed from a browser against this code.
+
+- **Placement (action 2):** the owner's controls card holds three buttons — `Reise bearbeiten`, `Reise löschen`, `Backup exportieren` — in **one** card (`cardCount: 1`), no second card and no new toolbar.
+- **Roles (action 6):** contributor sees the card with `Reise bearbeiten` alone; a viewer sees **no card at all**.
+- **The export runs and the file arrives (action 3):** the download fired, the page did **not** navigate (`navigated: false`), **no** tab opened (`popups: 0`), and the trip overview was still on screen afterwards. The spinner does appear — caught in a 50ms sampling window at t=0; it is brief here because the archive is 10.7 MB from local disk, so its duration is not representative of a 217 MB production trip.
+- **The archive is real (action 4):** `trip-neuseeland-2026-08-03.zip` — the server's `trip-<slug>-<YYYY-MM-DD>.zip`, not a uuid and not `trip-backup.zip`, so the `content-disposition` header was read correctly. `unzip -t` reports **no errors**; it holds `trip.json` (17 KB) plus `photos/` with 7 files, and the manifest reads `formatVersion: 2`, "Neuseeland", 41 days, 7 photos — matching the file count.
+- **No rearranging during the export (action 5), at 390px:** all three buttons hold identical geometry before, during and after — `Reise bearbeiten` x=35 w=158, `Reise löschen` x=201 w=137, `Backup exportieren` x=35 w=177. The `minWidth` floor holds; the export button never collapses to spinner width.
+- **Signed out mid-session (action 8):** the alert appears **inside the controls card** and reads "Anmeldung erforderlich. Bitte anmelden." — the specific message, not the generic export failure. Exactly one alert exists on the page and it is that one, so no page-level banner appeared; the URL was unchanged and no "Back to trips" link replaced the page.
+
+**Note on action 7:** German was the language throughout, so the longer label — `Backup exportieren` at 177px — is the one measured. The three-button row does not wrap at 390px.
+
 ## Dev Agent Record
 
 ### Agent Model Used
@@ -294,3 +308,19 @@ Status: **awaiting-operator** — Tasks 1, 2, 3, 4 and 6 are complete, reviewed 
 - **No export has ever been performed from a browser against this code.** Everything above is jsdom. That is what Task 5 is for.
 
 **Follow-up review recommended: true.** Three of the ten patches change runtime behaviour rather than comments — the error-code mapping is new user-visible messaging, the error state changed shape and its clearing reached outside the new code into `loadTrip`, and the download helper's cleanup contract moved. That is more than a handful of localized cosmetic fixes, and it all landed after the implementation pass rather than being reviewed as written.
+
+## Operator Confirmation
+
+Confirmed 2026-08-03: the external actions this story owed were carried out.
+
+- Do Task 5 in a real browser, on a throwaway copy of dev.db on an isolated port — never prisma/dev.db. The recipe is in the Dev Notes of _bmad-output/implementation-artifacts/7-12-bucket-list-sidebar-card.md. No export has ever been performed from a browser against this code: jsdom implements no downloads and computes no layout, so the entire save path is verified only as far as the anchor's attributes.
+- Sign in as the trip's owner, open the trip overview, and confirm the export button is the third outlined button in the controls card beside Reise bearbeiten and Reise löschen — one card, not a second one, and not a new toolbar.
+- Press it on a photo-heavy trip and confirm three things in order: the button shows a spinner while the archive builds, the page does not navigate or open a tab, and a file lands in the downloads folder. Check the trip overview is still on screen afterwards.
+- Open the downloaded file and confirm it is a valid ZIP containing trip.json plus a photos/ directory. Confirm its name is the server's — trip-<slug>-<YYYY-MM-DD>.zip — and not a uuid or 'trip-backup.zip'. A uuid means the content-disposition read failed; trip-backup.zip means the header was missing.
+- Watch the control row while the spinner is showing, at a 390px viewport. A minWidth floor was added so the button does not collapse to spinner width, but confirm Edit and Delete do not visibly rearrange during the export and rearrange back — that is the defect the floor is meant to remove.
+- Sign in as a contributor and then as a viewer on the same trip and confirm neither sees an export control: the contributor gets the card with Edit only, the viewer gets no card at all.
+- Check German, not only English. The label is 'Backup exportieren', which is the longer of the two and the one that decides whether the three-button row wraps on a phone.
+- If a failure is easy to provoke — sign out in a second tab, then press Export in the first — confirm the alert appears inside the controls card and reads 'Authentication required. Please sign in.' rather than the generic 'Trip export failed'. Confirm the page-level red banner above the trip did NOT appear and no 'Back to trips' link replaced the page.
+- If every check passes, tick Task 5 in this spec, set status: done in the frontmatter and Status: done in the body, and set 2-33-restore-export-entry-point to done in sprint-status.yaml.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._

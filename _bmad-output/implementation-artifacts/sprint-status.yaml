@@ -87,7 +87,7 @@ development_status:
   2-30-day-plan-gannt-overview: done
   2-31-complete-trip-backup-export-with-photos-travel-segments-and-bucket-list: done
   2-32-complete-trip-backup-import-with-photos-travel-segments-and-bucket-list: done
-  2-33-restore-export-entry-point: awaiting-operator
+  2-33-restore-export-entry-point: done
   2-34-import-archive-from-disk: done
   epic-2-retrospective: optional
 
