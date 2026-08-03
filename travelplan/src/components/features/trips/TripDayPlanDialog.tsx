@@ -12,6 +12,8 @@ import {
   Radio,
   RadioGroup,
   SvgIcon,
+  Tab,
+  Tabs,
   Typography,
 } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
@@ -20,6 +22,7 @@ import FormNotice from "@/components/forms/FormNotice";
 import PhotoUploadField from "@/components/forms/PhotoUploadField";
 import DialogShell from "@/components/ui/DialogShell";
 import FullscreenPhotoViewer from "@/components/ui/FullscreenPhotoViewer";
+import { WarningTriangleIcon } from "@/components/features/trips/TripIcons";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
@@ -68,6 +71,139 @@ type GalleryImage = {
 };
 
 type PlanDialogMode = "add" | "edit";
+
+/**
+ * The dialog's four sections (Story 6.22 AC1), **in tab order**.
+ *
+ * This array is the order: `Tabs` renders from it and `firstPlanErrorKey` walks it, so "the first tab
+ * that owns an error" (AC2) is decided in one place rather than in two lists that can drift.
+ */
+export const PLAN_TAB_IDS = ["what", "whenWhere", "cost", "media"] as const;
+export type PlanTabId = (typeof PLAN_TAB_IDS)[number];
+
+/**
+ * The keys `fieldErrors` holds, lifted out of the `useState` call so `Record<keyof PlanFieldErrors, …>`
+ * below can be a *total* function over them (AC3). Adding a seventh key here without giving it a tab
+ * is a compile error, which is the whole point: an unmapped key would be an error the user cannot see.
+ */
+export type PlanFieldErrors = {
+  title?: string;
+  fromTime?: string;
+  toTime?: string;
+  contentJson?: string;
+  costCents?: string;
+  linkUrl?: string;
+};
+
+type PlanPaymentRowError = { amount?: string; dueDate?: string };
+
+/**
+ * `paymentError` and `paymentRowErrors` are *not* folded into `PlanFieldErrors`; they are mapped
+ * alongside it.
+ *
+ * Two reasons. `paymentRowErrors` is an array of per-row `{ amount?, dueDate? }` objects and does not
+ * fit a flat `Record<string, string | undefined>` without changing what the payment block reads —
+ * and the payment block is moved by this story, not rewritten (Trap 5). And `paymentError` is a
+ * block-level message rendered by `FormControl`/`FormHelperText`, not by a `FormField`, so folding it
+ * in would buy nothing but would change three call sites' behaviour. Widening the union instead keeps
+ * the compiler check that AC3 asks for: a new member of this union with no entry in `PLAN_ERROR_TAB`
+ * does not compile either.
+ */
+export type PlanErrorKey = keyof PlanFieldErrors | "paymentError" | "paymentRowErrors";
+
+/** The total error→tab function AC3 requires. */
+export const PLAN_ERROR_TAB: Record<PlanErrorKey, PlanTabId> = {
+  title: "what",
+  contentJson: "what",
+  fromTime: "whenWhere",
+  toTime: "whenWhere",
+  costCents: "cost",
+  paymentError: "cost",
+  paymentRowErrors: "cost",
+  linkUrl: "media",
+};
+
+/**
+ * Every error key, ordered by the tab that owns it. `Array.prototype.sort` is stable, so keys sharing
+ * a tab keep their declaration order in `PLAN_ERROR_TAB` — `title` before `contentJson`, `fromTime`
+ * before `toTime`.
+ */
+const PLAN_ERROR_KEYS_IN_TAB_ORDER = (Object.keys(PLAN_ERROR_TAB) as PlanErrorKey[]).sort(
+  (left, right) => PLAN_TAB_IDS.indexOf(PLAN_ERROR_TAB[left]) - PLAN_TAB_IDS.indexOf(PLAN_ERROR_TAB[right]),
+);
+
+const PLAN_TAB_LABEL_KEYS: Record<PlanTabId, string> = {
+  what: "trips.plan.tabWhat",
+  whenWhere: "trips.plan.tabWhenWhere",
+  cost: "trips.plan.tabCost",
+  media: "trips.plan.tabMedia",
+};
+
+/** The three error stores the dialog keeps, read together so a tab's marker cannot go stale. */
+type PlanErrorState = {
+  fieldErrors: PlanFieldErrors;
+  paymentError: string | null;
+  paymentRowErrors: PlanPaymentRowError[];
+};
+
+const hasPlanError = (state: PlanErrorState, key: PlanErrorKey): boolean => {
+  if (key === "paymentError") return Boolean(state.paymentError);
+  if (key === "paymentRowErrors") {
+    return state.paymentRowErrors.some((row) => Boolean(row?.amount) || Boolean(row?.dueDate));
+  }
+  return Boolean(state.fieldErrors[key]);
+};
+
+const firstPlanErrorKey = (state: PlanErrorState): PlanErrorKey | null =>
+  PLAN_ERROR_KEYS_IN_TAB_ORDER.find((key) => hasPlanError(state, key)) ?? null;
+
+const planTabsWithErrors = (state: PlanErrorState): Set<PlanTabId> => {
+  const tabs = new Set<PlanTabId>();
+  for (const key of PLAN_ERROR_KEYS_IN_TAB_ORDER) {
+    if (hasPlanError(state, key)) tabs.add(PLAN_ERROR_TAB[key]);
+  }
+  return tabs;
+};
+
+/**
+ * The control AC2's "puts focus on the offending field" has to reach, as a DOM id.
+ *
+ * `contentJson` returns `null` — the rich-text control is a contenteditable with no id of its own, so
+ * the caller focuses it through the block's ref instead. `paymentError` is block-level (sum mismatch,
+ * "cost required", "at least two rows"), and the field a user has to change to satisfy any of the
+ * three is the cost box, so that is where the caret goes.
+ *
+ * The `never` default is deliberate: it makes this resolver total over `PlanErrorKey` too, so a new
+ * key gets a tab *and* a focus target or it does not compile.
+ */
+const planErrorFocusId = (prefix: string, key: PlanErrorKey, state: PlanErrorState): string | null => {
+  switch (key) {
+    case "title":
+      return `${prefix}-title`;
+    case "contentJson":
+      return null;
+    case "fromTime":
+      return `${prefix}-from-time`;
+    case "toTime":
+      return `${prefix}-to-time`;
+    case "costCents":
+    case "paymentError":
+      return `${prefix}-cost`;
+    case "paymentRowErrors": {
+      const index = state.paymentRowErrors.findIndex((row) => Boolean(row?.amount) || Boolean(row?.dueDate));
+      if (index < 0) return `${prefix}-cost`;
+      return state.paymentRowErrors[index]?.amount
+        ? `${prefix}-payment-amount-${index}`
+        : `${prefix}-payment-date-${index}`;
+    }
+    case "linkUrl":
+      return `${prefix}-link`;
+    default: {
+      const unhandled: never = key;
+      return unhandled;
+    }
+  }
+};
 
 type PlanDialogPrefill = {
   title: string;
@@ -216,7 +352,7 @@ export default function TripDayPlanDialog({
   const { t } = useI18n();
   // Unique `htmlFor`/`id` prefix for the above-field labels this restyle introduces.
   const fieldIdPrefix = useId();
-  const { tokens } = useTheme().palette;
+  const { tokens, warning } = useTheme().palette;
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -230,7 +366,7 @@ export default function TripDayPlanDialog({
   const [paymentMode, setPaymentMode] = useState<"single" | "split">("single");
   const [payments, setPayments] = useState<Array<{ amount: string; dueDate: string }>>([]);
   const [paymentError, setPaymentError] = useState<string | null>(null);
-  const [paymentRowErrors, setPaymentRowErrors] = useState<Array<{ amount?: string; dueDate?: string }>>([]);
+  const [paymentRowErrors, setPaymentRowErrors] = useState<PlanPaymentRowError[]>([]);
   const skipPaymentNormalization = useRef(false);
   const skipCostSync = useRef(false);
   const [linkUrl, setLinkUrl] = useState<string>("");
@@ -239,16 +375,16 @@ export default function TripDayPlanDialog({
   );
   const [locationQuery, setLocationQuery] = useState<string>("");
   const [lookupLoading, setLookupLoading] = useState(false);
-  const [fieldErrors, setFieldErrors] = useState<{
-    title?: string;
-    fromTime?: string;
-    toTime?: string;
-    contentJson?: string;
-    costCents?: string;
-    linkUrl?: string;
-  }>(
-    {},
-  );
+  const [fieldErrors, setFieldErrors] = useState<PlanFieldErrors>({});
+  const [activeTab, setActiveTab] = useState<PlanTabId>("what");
+  /**
+   * Bumped once per rejected save. The focus effect below cannot key off `activeTab`: pressing
+   * Speichern while already standing on the tab that owns the error leaves `activeTab` unchanged, and
+   * AC2 asks for the caret to land on the field either way.
+   */
+  const [errorFocusNonce, setErrorFocusNonce] = useState(0);
+  const pendingErrorFocus = useRef<{ key: PlanErrorKey; elementId: string | null } | null>(null);
+  const contentBlockRef = useRef<HTMLDivElement | null>(null);
   const [galleryImages, setGalleryImages] = useState<GalleryImage[]>([]);
   const [galleryFiles, setGalleryFiles] = useState<File[]>([]);
   const [galleryBusy, setGalleryBusy] = useState(false);
@@ -277,6 +413,49 @@ export default function TripDayPlanDialog({
     [sortedGalleryImages, t],
   );
 
+  const errorState = useMemo<PlanErrorState>(
+    () => ({ fieldErrors, paymentError, paymentRowErrors }),
+    [fieldErrors, paymentError, paymentRowErrors],
+  );
+  const tabsWithErrors = useMemo(() => planTabsWithErrors(errorState), [errorState]);
+
+  /**
+   * AC2, the criterion this story exists to satisfy safely: an error on a tab the user is not looking
+   * at is worse than the long scroll this replaced. Select the first tab in tab order that owns an
+   * error and queue the caret for its field — marking the tab alone is not enough.
+   *
+   * The error state is passed in rather than read from the closure: every caller has just computed it
+   * and the corresponding `setState` has not been applied yet.
+   */
+  const revealFirstError = useCallback(
+    (state: PlanErrorState) => {
+      const key = firstPlanErrorKey(state);
+      if (!key) return;
+      setActiveTab(PLAN_ERROR_TAB[key]);
+      pendingErrorFocus.current = { key, elementId: planErrorFocusId(fieldIdPrefix, key, state) };
+      setErrorFocusNonce((current) => current + 1);
+    },
+    [fieldIdPrefix],
+  );
+
+  useEffect(() => {
+    if (errorFocusNonce === 0) return;
+    const pending = pendingErrorFocus.current;
+    if (!pending) return;
+    pendingErrorFocus.current = null;
+
+    // `setActiveTab` ran in the same batch as the nonce, so the panel holding this field is mounted
+    // by the time this effect runs.
+    if (pending.key === "contentJson") {
+      const host = contentBlockRef.current;
+      const editable = host?.querySelector<HTMLElement>('[contenteditable="true"]');
+      (editable ?? host)?.focus();
+      return;
+    }
+    if (!pending.elementId) return;
+    document.getElementById(pending.elementId)?.focus();
+  }, [errorFocusNonce]);
+
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
@@ -300,6 +479,9 @@ export default function TripDayPlanDialog({
     },
     onUpdate: ({ editor: instance }) => {
       setContentJson(JSON.stringify(instance.getJSON()));
+      // The tab marker is global chrome now, not a message beside the field: leaving it up after the
+      // user has fixed the content makes the tab bar lie until the next save.
+      setFieldErrors((previous) => (previous.contentJson ? { ...previous, contentJson: undefined } : previous));
     },
   });
 
@@ -337,6 +519,9 @@ export default function TripDayPlanDialog({
     setServerError(null);
     setCsrfToken(null);
     setFieldErrors({});
+    // Every open starts on `Was`. Tabs are random access (Trap 1), but the tab a *previous* edit
+    // finished on is not a state the next activity's dialog should inherit.
+    setActiveTab("what");
     setGalleryFiles([]);
     setFullscreenIndex(null);
     setLoadingInit(true);
@@ -564,7 +749,9 @@ export default function TripDayPlanDialog({
 
     if (trimmedCost.length > 0 && parsedCostCents === null) {
       setSaving(false);
-      setFieldErrors({ costCents: t("trips.plan.costInvalid") });
+      const nextErrors: PlanFieldErrors = { costCents: t("trips.plan.costInvalid") };
+      setFieldErrors(nextErrors);
+      revealFirstError({ fieldErrors: nextErrors, paymentError: null, paymentRowErrors: [] });
       return;
     }
 
@@ -575,24 +762,30 @@ export default function TripDayPlanDialog({
       );
       if (hasPaymentInput) {
         setSaving(false);
-        setPaymentError(t("trips.payments.costRequired"));
+        const message = t("trips.payments.costRequired");
+        setPaymentError(message);
+        revealFirstError({ fieldErrors: {}, paymentError: message, paymentRowErrors: [] });
         return;
       }
     } else if (paymentMode === "single") {
       const dueDate = payments[0]?.dueDate?.trim() ?? "";
       if (!dueDate) {
         setSaving(false);
-        setPaymentRowErrors([{ dueDate: t("trips.payments.dateRequired") }]);
+        const rowErrors: PlanPaymentRowError[] = [{ dueDate: t("trips.payments.dateRequired") }];
+        setPaymentRowErrors(rowErrors);
+        revealFirstError({ fieldErrors: {}, paymentError: null, paymentRowErrors: rowErrors });
         return;
       }
       paymentsPayload = [{ amountCents: parsedCostCents!, dueDate }];
     } else {
       if (payments.length < 2) {
         setSaving(false);
-        setPaymentError(t("trips.payments.minRows"));
+        const message = t("trips.payments.minRows");
+        setPaymentError(message);
+        revealFirstError({ fieldErrors: {}, paymentError: message, paymentRowErrors: [] });
         return;
       }
-      const rowErrors: Array<{ amount?: string; dueDate?: string }> = [];
+      const rowErrors: PlanPaymentRowError[] = [];
       let total = 0;
       let hasError = false;
       payments.forEach((payment, index) => {
@@ -617,11 +810,14 @@ export default function TripDayPlanDialog({
       if (hasError) {
         setSaving(false);
         setPaymentRowErrors(rowErrors);
+        revealFirstError({ fieldErrors: {}, paymentError: null, paymentRowErrors: rowErrors });
         return;
       }
       if (total !== parsedCostCents) {
         setSaving(false);
-        setPaymentError(t("trips.payments.sumMismatch"));
+        const message = t("trips.payments.sumMismatch");
+        setPaymentError(message);
+        revealFirstError({ fieldErrors: {}, paymentError: message, paymentRowErrors: [] });
         return;
       }
     }
@@ -673,15 +869,14 @@ export default function TripDayPlanDialog({
       if (!response.ok || body.error) {
         if (body.error?.code === "validation_error" && body.error.details) {
           const details = body.error.details as { fieldErrors?: Record<string, string[]> };
-          const nextErrors: {
-            title?: string;
-            fromTime?: string;
-            toTime?: string;
-            contentJson?: string;
-            costCents?: string;
-            linkUrl?: string;
-          } = {};
-          Object.entries(details.fieldErrors ?? {}).forEach(([field, messages]) => {
+          const nextErrors: PlanFieldErrors = {};
+          // Collected rather than set inside the loop: `revealFirstError` below needs the payment
+          // message in the same snapshot as the field errors to pick the first tab that owns one.
+          // `for…of`, not `forEach`: an assignment inside a callback is invisible to TypeScript's
+          // control-flow analysis, which would narrow `nextPaymentError` back to `null` below and
+          // leave the payment branch of AC3's error path unchecked.
+          let nextPaymentError: string | null = null;
+          for (const [field, messages] of Object.entries(details.fieldErrors ?? {})) {
             if (messages?.[0]) {
               if (field === "title") nextErrors.title = messages[0];
               if (field === "fromTime") nextErrors.fromTime = messages[0];
@@ -689,10 +884,26 @@ export default function TripDayPlanDialog({
               if (field === "contentJson") nextErrors.contentJson = messages[0];
               if (field === "costCents") nextErrors.costCents = messages[0];
               if (field === "linkUrl") nextErrors.linkUrl = messages[0];
-              if (field.startsWith("payments")) setPaymentError(messages[0]);
+              if (field.startsWith("payments")) nextPaymentError = messages[0];
             }
-          });
+          }
           setFieldErrors(nextErrors);
+          if (nextPaymentError) setPaymentError(nextPaymentError);
+
+          const nextState: PlanErrorState = {
+            fieldErrors: nextErrors,
+            paymentError: nextPaymentError,
+            paymentRowErrors: [],
+          };
+          if (!firstPlanErrorKey(nextState)) {
+            // AC2, and the one path that can still break it: the schema has top-level keys this
+            // dialog does not surface (`location`, `tripDayId`, `bucketListItemId`, `itemId`), and
+            // `details.fieldErrors` may be absent entirely. Without this the stores are cleared, no
+            // tab is marked, no field is focused and no banner appears — the save fails in silence.
+            setServerError(resolveApiError(body.error?.code, t("trips.plan.saveError")));
+            return;
+          }
+          revealFirstError(nextState);
           return;
         }
 
@@ -945,331 +1156,502 @@ export default function TripDayPlanDialog({
         <Box display="flex" flexDirection="column" gap="18px">
           {serverError && <FormNotice tone="warn" message={serverError} />}
 
-          <FormField
-            id={`${fieldIdPrefix}-title`}
-            label={t("trips.plan.titleLabel")}
-            value={titleInput}
-            onChange={(event) => setTitleInput(event.target.value)}
-            error={fieldErrors.title ?? undefined}
-            slotProps={{ htmlInput: { maxLength: 120 } }}
-          />
           {/*
-            The editor is preserved whole (FR18): same TipTap instance, same extensions, same button
-            roles and the same pinned `aria-label`s. Only the container and the toolbar chrome are
-            restyled to the token idiom — Screen G draws no rich-text field, which is the mockup
-            showing a smaller form, not a decision to drop it.
+            AC6/AC7. MUI `Tabs`/`Tab` rather than hand-rolled buttons: they carry `role="tablist"`,
+            `aria-selected`, roving `tabIndex` and the arrow-key handling AC7 asks for, and none of
+            that is worth re-implementing.
+
+            The chrome is deliberately the *pill switch* `AuthTabs` established and `theme.ts` already
+            encodes (`MuiTabs` paints the `paperOuter` track, `MuiTab` the white selected pill), not a
+            row of small square controls — because the formatting toolbar directly below is exactly
+            that, and two rows of small square controls read as one broken widget (Trap 3). The
+            underline indicator is switched off for the same reason: the filled pill is the selected
+            state, and an underline on top of it is a second, conflicting one.
+
+            `variant="fullWidth"` over `scrollable`: a scrollable bar hides tabs, which works against
+            the story. Four German labels ("Was", "Wann & Wo", "Kosten", "Medien & Links") fit a 390px
+            phone at 12px/800 once the per-tab padding is cut to 6px; the longest may wrap to two
+            lines, which costs ~8px of bar height and keeps all four reachable in one tap.
           */}
-          {/*
-            No container `gap`: this block mirrors `FormField`'s own spacing exactly (label `mb: 7px`,
-            helper `mt: 6px`) so the editor's label sits at the same distance from its control as
-            every other field on the surface, rather than at a `gap` minus a negative margin.
-          */}
-          <Box display="flex" flexDirection="column">
-            <Typography
-              id={`${fieldIdPrefix}-content-label`}
-              variant="labelCaps"
-              component="div"
-              sx={{ fontSize: 11, letterSpacing: "0.06em", color: tokens.inkSoft, mb: "7px" }}
-            >
-              {t("trips.plan.contentLabel")}
-            </Typography>
-            <Box
-              sx={{
-                border: "1px solid",
-                borderColor: fieldErrors.contentJson ? tokens.warnBorder : tokens.borderStrong,
-                borderRadius: "6px",
-                p: "14px",
-                backgroundColor: fieldErrors.contentJson ? tokens.warnBg : tokens.card,
-                minHeight: 180,
-              }}
-            >
-              <Box display="flex" gap={0.75} flexWrap="wrap" mb={1.25}>
-                <Button
-                  variant={editor?.isActive("bold") ? "contained" : "outlined"}
-                  size="small"
-                  onClick={() => editor?.chain().focus().toggleBold().run()}
-                  disabled={isBusy || !editor}
-                  aria-label={t("trips.plan.toolbarBold")}
-                  title={t("trips.plan.toolbarBold")}
-                  sx={TOOLBAR_BUTTON_SX}
-                >
-                  <Typography component="span" sx={{ fontWeight: 800, fontSize: "0.95rem", lineHeight: 1 }}>
-                    B
-                  </Typography>
-                </Button>
-                <Button
-                  variant={editor?.isActive("italic") ? "contained" : "outlined"}
-                  size="small"
-                  onClick={() => editor?.chain().focus().toggleItalic().run()}
-                  disabled={isBusy || !editor}
-                  aria-label={t("trips.plan.toolbarItalic")}
-                  title={t("trips.plan.toolbarItalic")}
-                  sx={TOOLBAR_BUTTON_SX}
-                >
-                  <Typography component="span" sx={{ fontStyle: "italic", fontSize: "0.95rem", lineHeight: 1 }}>
-                    I
-                  </Typography>
-                </Button>
-                <Button
-                  variant={editor?.isActive("bulletList") ? "contained" : "outlined"}
-                  size="small"
-                  onClick={() => editor?.chain().focus().toggleBulletList().run()}
-                  disabled={isBusy || !editor}
-                  aria-label={t("trips.plan.toolbarBulletList")}
-                  title={t("trips.plan.toolbarBulletList")}
-                  sx={TOOLBAR_BUTTON_SX}
-                >
-                  <SvgIcon fontSize="small">
-                    <path d="M4 7a1 1 0 1 0 0.001 0zM7 6h13v2H7zM4 12a1 1 0 1 0 0.001 0zM7 11h13v2H7zM4 17a1 1 0 1 0 0.001 0zM7 16h13v2H7z" />
-                  </SvgIcon>
-                </Button>
-                <Button
-                  variant="outlined"
-                  size="small"
-                  onClick={handleInsertLink}
-                  disabled={isBusy || !editor}
-                  aria-label={t("trips.plan.toolbarLink")}
-                  title={t("trips.plan.toolbarLink")}
-                  sx={TOOLBAR_BUTTON_SX}
-                >
-                  <SvgIcon fontSize="small">
-                    <path d="M10.59 13.41a1.996 1.996 0 0 1 0-2.82l2.18-2.18a2 2 0 1 1 2.83 2.83l-1.06 1.06 1.41 1.41 1.06-1.06a4 4 0 0 0-5.66-5.66L9.17 9.17a4 4 0 0 0 0 5.66l.12.12 1.41-1.41-.11-.13zm2.82-2.82-2.82 2.82-1.41-1.41L12 9.17l1.41 1.42zm-6.18 1.11L6.17 12.76a4 4 0 1 0 5.66 5.66l2.18-2.18a4 4 0 0 0 0-5.66l-.12-.12-1.41 1.41.12.12a2 2 0 0 1 0 2.83l-2.18 2.18a2 2 0 1 1-2.83-2.83l1.06-1.06-1.4-1.4z" />
-                  </SvgIcon>
-                </Button>
-                <Button
-                  variant="outlined"
-                  size="small"
-                  onClick={handleInsertImage}
-                  disabled={isBusy || !editor}
-                  aria-label={t("trips.plan.toolbarImage")}
-                  title={t("trips.plan.toolbarImage")}
-                  sx={TOOLBAR_BUTTON_SX}
-                >
-                  <SvgIcon fontSize="small">
-                    <path d="M21 19V5a2 2 0 0 0-2-2H5C3.9 3 3 3.9 3 5v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2zM8.5 11.5 11 15l3.5-4.5L19 17H5l3.5-5.5zM8 8a1.5 1.5 0 1 0 0.001 0z" />
-                  </SvgIcon>
-                </Button>
-              </Box>
-              {editor ? <EditorContent editor={editor} /> : <Typography>{t("trips.plan.editorLoading")}</Typography>}
-            </Box>
-            {fieldErrors.contentJson && (
-              // `warning.main`, not `color="error"`: theme.ts defines no `error` palette entry, so
-              // MUI falls back to #d32f2f — the same colour AC8 removed from the buttons and the
-              // reason the container's error border above uses `warnBorder`.
-              <Typography variant="caption" sx={{ color: "warning.main", fontWeight: 700, mt: "6px" }}>
-                {fieldErrors.contentJson}
-              </Typography>
-            )}
-          </Box>
-          {/* Screen G's `.field-row`; stacks to a column at xs. Native `type="time"` is kept — it is
-              what the tests drive and it draws its own clock affordance. */}
-          <Box
+          <Tabs
+            value={activeTab}
+            onChange={(_event, value: PlanTabId) => setActiveTab(value)}
+            aria-label={t("trips.plan.tabsLabel")}
+            variant="fullWidth"
             sx={{
-              display: "flex",
-              flexDirection: { xs: "column", sm: "row" },
-              gap: "12px",
-              "& > *": { flex: 1, minWidth: 0 },
+              borderRadius: "7px",
+              minHeight: 44,
+              "& .MuiTabs-indicator": { display: "none" },
+              // MUI 7 renames the flex container slot to `list`; both are targeted so the gap does
+              // not silently disappear on either side of that rename.
+              "& .MuiTabs-list, & .MuiTabs-flexContainer": { gap: "6px" },
+              "& .MuiTab-root": {
+                minHeight: 44,
+                minWidth: 0,
+                px: "6px",
+                gap: "4px",
+                fontSize: 12,
+                fontWeight: 800,
+                letterSpacing: 0,
+                textTransform: "none",
+              },
             }}
           >
-            <FormField
-              id={`${fieldIdPrefix}-from-time`}
-              label={t("trips.plan.fromTimeLabel")}
-              value={fromTimeInput}
-              onChange={(event) => {
-                setFromTimeInput(event.target.value);
-                setFieldErrors((previous) => ({ ...previous, fromTime: undefined, toTime: undefined }));
-              }}
-              error={fieldErrors.fromTime ?? undefined}
-              type="time"
-            />
-            <FormField
-              id={`${fieldIdPrefix}-to-time`}
-              label={t("trips.plan.toTimeLabel")}
-              value={toTimeInput}
-              onChange={(event) => {
-                setToTimeInput(event.target.value);
-                setFieldErrors((previous) => ({ ...previous, fromTime: undefined, toTime: undefined }));
-              }}
-              error={fieldErrors.toTime ?? undefined}
-              type="time"
-            />
-          </Box>
+            {PLAN_TAB_IDS.map((tabId) => {
+              const label = t(PLAN_TAB_LABEL_KEYS[tabId]);
+              const hasError = tabsWithErrors.has(tabId);
+              return (
+                <Tab
+                  key={tabId}
+                  value={tabId}
+                  id={`${fieldIdPrefix}-tab-${tabId}`}
+                  // Only the selected tab names a panel, because only its panel is in the DOM. A
+                  // permanent `aria-controls` on all four would point three screen readers at an id
+                  // that does not exist whenever a user invokes jump-to-controlled-element.
+                  aria-controls={activeTab === tabId ? `${fieldIdPrefix}-tabpanel-${tabId}` : undefined}
+                  // AC2's marker is a warning triangle, not a colour: the tint on its own would be
+                  // the only signal for a red-green colour-blind user. The accessible name says it in
+                  // words too, so the marker is not sighted-only either.
+                  aria-label={hasError ? formatMessage(t("trips.plan.tabWithErrors"), { label }) : undefined}
+                  label={label}
+                  icon={hasError ? <WarningTriangleIcon sx={{ fontSize: 13 }} /> : undefined}
+                  iconPosition="end"
+                  // `warning.main` (#8A5A2B), not `warnBorder` (#E3C7A2): the marker has to be legible
+                  // on the white selected pill, where the border token sits at 1.6:1. This is the
+                  // colour `theme.ts` already assigns to every error foreground in the app, at 5.87:1.
+                  sx={hasError ? { color: warning.main } : undefined}
+                />
+              );
+            })}
+          </Tabs>
 
-          <FormField
-            id={`${fieldIdPrefix}-cost`}
-            label={t("trips.plan.costLabel")}
-            value={costCentsInput}
-            onChange={(event) => setCostCentsInput(event.target.value)}
-            error={fieldErrors.costCents ?? undefined}
-            hint={t("trips.plan.costHelper")}
-            type="text"
-            slotProps={{ htmlInput: { inputMode: "decimal" } }}
-            placeholder="0.00"
-          />
-          <FormControl component="fieldset" error={Boolean(paymentError)} variant="standard">
-            <FormLabel
-              sx={{
-                fontSize: 11,
-                fontWeight: 800,
-                letterSpacing: "0.06em",
-                textTransform: "uppercase",
-                color: tokens.inkSoft,
-                mb: "7px",
-                "&.Mui-focused, &.Mui-error": { color: tokens.inkSoft },
-              }}
+          {activeTab === "what" && (
+            <Box
+              role="tabpanel"
+              id={`${fieldIdPrefix}-tabpanel-what`}
+              aria-labelledby={`${fieldIdPrefix}-tab-what`}
+              display="flex"
+              flexDirection="column"
+              gap="18px"
             >
-              {t("trips.payments.title")}
-            </FormLabel>
-            <RadioGroup
-              row
-              value={paymentMode}
-              onChange={(event) => setPaymentMode(event.target.value as "single" | "split")}
+              <FormField
+                id={`${fieldIdPrefix}-title`}
+                label={t("trips.plan.titleLabel")}
+                value={titleInput}
+                onChange={(event) => {
+                  setTitleInput(event.target.value);
+                  setFieldErrors((previous) => ({ ...previous, title: undefined }));
+                }}
+                error={fieldErrors.title ?? undefined}
+                slotProps={{ htmlInput: { maxLength: 120 } }}
+              />
+              {/*
+                The editor is preserved whole (FR18): same TipTap instance, same extensions, same button
+                roles and the same pinned `aria-label`s. Only the container and the toolbar chrome are
+                restyled to the token idiom — Screen G draws no rich-text field, which is the mockup
+                showing a smaller form, not a decision to drop it.
+              */}
+              {/*
+                No container `gap`: this block mirrors `FormField`'s own spacing exactly (label `mb: 7px`,
+                helper `mt: 6px`) so the editor's label sits at the same distance from its control as
+                every other field on the surface, rather than at a `gap` minus a negative margin.
+              */}
+              <Box display="flex" flexDirection="column">
+                <Typography
+                  id={`${fieldIdPrefix}-content-label`}
+                  variant="labelCaps"
+                  component="div"
+                  sx={{ fontSize: 11, letterSpacing: "0.06em", color: tokens.inkSoft, mb: "7px" }}
+                >
+                  {t("trips.plan.contentLabel")}
+                </Typography>
+                <Box
+                  ref={contentBlockRef}
+                  // AC2 has to be able to put focus here, and a contenteditable is the one control on this
+                  // surface with no id to look up. `-1` makes the block programmatically focusable without
+                  // adding a stop to the tab order; the effect prefers the contenteditable when it exists.
+                  tabIndex={-1}
+                  sx={{
+                    border: "1px solid",
+                    borderColor: fieldErrors.contentJson ? tokens.warnBorder : tokens.borderStrong,
+                    borderRadius: "6px",
+                    p: "14px",
+                    backgroundColor: fieldErrors.contentJson ? tokens.warnBg : tokens.card,
+                    minHeight: 180,
+                    outline: "none",
+                    // The `outline: none` above is for the click case. When AC2 focuses this block
+                    // programmatically — which happens when the editor has not initialised yet and
+                    // there is no contenteditable to reach — the caret has to be visible somewhere,
+                    // or the user is told nothing at all about where save sent them.
+                    // `:focus`, not `:focus-visible` — this is the phone case, and after a tap on
+                    // Speichern the focus-visible heuristic does not match, which is precisely when
+                    // the ring is needed. Focus lands on the host only through that fallback or a
+                    // click on its padding; focus in a child is `:focus-within` and does not match.
+                    "&:focus": { outline: `2px solid ${warning.main}`, outlineOffset: 2 },
+                  }}
+                >
+                  <Box display="flex" gap={0.75} flexWrap="wrap" mb={1.25}>
+                    <Button
+                      variant={editor?.isActive("bold") ? "contained" : "outlined"}
+                      size="small"
+                      onClick={() => editor?.chain().focus().toggleBold().run()}
+                      disabled={isBusy || !editor}
+                      aria-label={t("trips.plan.toolbarBold")}
+                      title={t("trips.plan.toolbarBold")}
+                      sx={TOOLBAR_BUTTON_SX}
+                    >
+                      <Typography component="span" sx={{ fontWeight: 800, fontSize: "0.95rem", lineHeight: 1 }}>
+                        B
+                      </Typography>
+                    </Button>
+                    <Button
+                      variant={editor?.isActive("italic") ? "contained" : "outlined"}
+                      size="small"
+                      onClick={() => editor?.chain().focus().toggleItalic().run()}
+                      disabled={isBusy || !editor}
+                      aria-label={t("trips.plan.toolbarItalic")}
+                      title={t("trips.plan.toolbarItalic")}
+                      sx={TOOLBAR_BUTTON_SX}
+                    >
+                      <Typography component="span" sx={{ fontStyle: "italic", fontSize: "0.95rem", lineHeight: 1 }}>
+                        I
+                      </Typography>
+                    </Button>
+                    <Button
+                      variant={editor?.isActive("bulletList") ? "contained" : "outlined"}
+                      size="small"
+                      onClick={() => editor?.chain().focus().toggleBulletList().run()}
+                      disabled={isBusy || !editor}
+                      aria-label={t("trips.plan.toolbarBulletList")}
+                      title={t("trips.plan.toolbarBulletList")}
+                      sx={TOOLBAR_BUTTON_SX}
+                    >
+                      <SvgIcon fontSize="small">
+                        <path d="M4 7a1 1 0 1 0 0.001 0zM7 6h13v2H7zM4 12a1 1 0 1 0 0.001 0zM7 11h13v2H7zM4 17a1 1 0 1 0 0.001 0zM7 16h13v2H7z" />
+                      </SvgIcon>
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      onClick={handleInsertLink}
+                      disabled={isBusy || !editor}
+                      aria-label={t("trips.plan.toolbarLink")}
+                      title={t("trips.plan.toolbarLink")}
+                      sx={TOOLBAR_BUTTON_SX}
+                    >
+                      <SvgIcon fontSize="small">
+                        <path d="M10.59 13.41a1.996 1.996 0 0 1 0-2.82l2.18-2.18a2 2 0 1 1 2.83 2.83l-1.06 1.06 1.41 1.41 1.06-1.06a4 4 0 0 0-5.66-5.66L9.17 9.17a4 4 0 0 0 0 5.66l.12.12 1.41-1.41-.11-.13zm2.82-2.82-2.82 2.82-1.41-1.41L12 9.17l1.41 1.42zm-6.18 1.11L6.17 12.76a4 4 0 1 0 5.66 5.66l2.18-2.18a4 4 0 0 0 0-5.66l-.12-.12-1.41 1.41.12.12a2 2 0 0 1 0 2.83l-2.18 2.18a2 2 0 1 1-2.83-2.83l1.06-1.06-1.4-1.4z" />
+                      </SvgIcon>
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      onClick={handleInsertImage}
+                      disabled={isBusy || !editor}
+                      aria-label={t("trips.plan.toolbarImage")}
+                      title={t("trips.plan.toolbarImage")}
+                      sx={TOOLBAR_BUTTON_SX}
+                    >
+                      <SvgIcon fontSize="small">
+                        <path d="M21 19V5a2 2 0 0 0-2-2H5C3.9 3 3 3.9 3 5v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2zM8.5 11.5 11 15l3.5-4.5L19 17H5l3.5-5.5zM8 8a1.5 1.5 0 1 0 0.001 0z" />
+                      </SvgIcon>
+                    </Button>
+                  </Box>
+                  {editor ? <EditorContent editor={editor} /> : <Typography>{t("trips.plan.editorLoading")}</Typography>}
+                </Box>
+                {fieldErrors.contentJson && (
+                  // `warning.main`, not `color="error"`: theme.ts defines no `error` palette entry, so
+                  // MUI falls back to #d32f2f — the same colour AC8 removed from the buttons and the
+                  // reason the container's error border above uses `warnBorder`.
+                  <Typography variant="caption" sx={{ color: "warning.main", fontWeight: 700, mt: "6px" }}>
+                    {fieldErrors.contentJson}
+                  </Typography>
+                )}
+              </Box>
+            </Box>
+          )}
+
+          {activeTab === "whenWhere" && (
+            <Box
+              role="tabpanel"
+              id={`${fieldIdPrefix}-tabpanel-whenWhere`}
+              aria-labelledby={`${fieldIdPrefix}-tab-whenWhere`}
+              display="flex"
+              flexDirection="column"
+              gap="18px"
             >
-              <FormControlLabel value="single" control={<Radio />} label={t("trips.payments.payAllNow")} />
-              <FormControlLabel value="split" control={<Radio />} label={t("trips.payments.split")} />
-            </RadioGroup>
-            <Box display="flex" flexDirection="column" gap={1.25} mt={0.5}>
-              {payments.map((payment, index) => (
-                <Box key={`payment-${index}`} display="flex" gap={1} alignItems="flex-start" flexWrap="wrap">
-                  <Box sx={{ flex: 1, minWidth: 140 }}>
+              {/* Screen G's `.field-row`; stacks to a column at xs. Native `type="time"` is kept — it is
+                  what the tests drive and it draws its own clock affordance. */}
+              <Box
+                sx={{
+                  display: "flex",
+                  flexDirection: { xs: "column", sm: "row" },
+                  gap: "12px",
+                  "& > *": { flex: 1, minWidth: 0 },
+                }}
+              >
+                <FormField
+                  id={`${fieldIdPrefix}-from-time`}
+                  label={t("trips.plan.fromTimeLabel")}
+                  value={fromTimeInput}
+                  onChange={(event) => {
+                    setFromTimeInput(event.target.value);
+                    setFieldErrors((previous) => ({ ...previous, fromTime: undefined, toTime: undefined }));
+                  }}
+                  error={fieldErrors.fromTime ?? undefined}
+                  type="time"
+                />
+                <FormField
+                  id={`${fieldIdPrefix}-to-time`}
+                  label={t("trips.plan.toTimeLabel")}
+                  value={toTimeInput}
+                  onChange={(event) => {
+                    setToTimeInput(event.target.value);
+                    setFieldErrors((previous) => ({ ...previous, fromTime: undefined, toTime: undefined }));
+                  }}
+                  error={fieldErrors.toTime ?? undefined}
+                  type="time"
+                />
+              </Box>
+              {/* Moved here from below the link field, unchanged: AC1 pairs the location search with the
+                  two time fields so `Wann & Wo` is a section rather than a two-field tab. */}
+              <Box display="flex" flexDirection="column" gap={1}>
+                <Box
+                  sx={{
+                    display: "flex",
+                    flexDirection: { xs: "column", sm: "row" },
+                    alignItems: { xs: "stretch", sm: "flex-end" },
+                    gap: "8px",
+                  }}
+                >
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
                     <FormField
-                      id={`${fieldIdPrefix}-payment-amount-${index}`}
-                      label={t("trips.payments.amountLabel")}
-                      value={payment.amount}
-                      onChange={(event) => {
-                        const next = [...payments];
-                        next[index] = { ...next[index], amount: event.target.value };
-                        setPayments(next);
-                      }}
-                      error={paymentRowErrors[index]?.amount}
-                      type="number"
-                      slotProps={{
-                        htmlInput: { min: 0, step: 0.01, readOnly: paymentMode !== "split", inputMode: "decimal" },
-                      }}
+                      id={`${fieldIdPrefix}-place`}
+                      label={t("trips.location.searchLabel")}
+                      value={locationQuery}
+                      onChange={(event) => setLocationQuery(event.target.value)}
                     />
                   </Box>
-                  <Box sx={{ flex: 1, minWidth: 170 }}>
-                    <FormField
-                      id={`${fieldIdPrefix}-payment-date-${index}`}
-                      label={t("trips.payments.dateLabel")}
-                      value={payment.dueDate}
-                      onChange={(event) => {
-                        const next = [...payments];
-                        next[index] = { ...next[index], dueDate: event.target.value };
-                        setPayments(next);
-                      }}
-                      error={paymentRowErrors[index]?.dueDate}
-                      type="date"
-                    />
-                  </Box>
+                  <Button variant="outlined" onClick={() => void handleLookupLocation()} disabled={isBusy || lookupLoading}>
+                    {lookupLoading ? <CircularProgress size={18} /> : t("trips.location.searchAction")}
+                  </Button>
+                  <Button
+                    variant="text"
+                    onClick={() => setResolvedLocation(null)}
+                    disabled={isBusy || lookupLoading || !resolvedLocation}
+                    sx={{ color: tokens.ink }}
+                  >
+                    {t("trips.location.clearAction")}
+                  </Button>
+                </Box>
+                <Typography sx={{ fontSize: 11, fontWeight: 600, color: tokens.inkSoft }}>
+                  {resolvedLocation
+                    ? `${t("trips.location.latLabel")}: ${resolvedLocation.lat.toFixed(6)} · ${t("trips.location.lngLabel")}: ${resolvedLocation.lng.toFixed(6)}`
+                    : t("trips.location.noCoordinates")}
+                </Typography>
+              </Box>
+            </Box>
+          )}
+
+          {/* `Kosten` is one block that expands: the mode radio reveals the repeatable rows. It earns
+              its tab by that expansion, not by field count. */}
+          {activeTab === "cost" && (
+            <Box
+              role="tabpanel"
+              id={`${fieldIdPrefix}-tabpanel-cost`}
+              aria-labelledby={`${fieldIdPrefix}-tab-cost`}
+              display="flex"
+              flexDirection="column"
+              gap="18px"
+            >
+              <FormField
+                id={`${fieldIdPrefix}-cost`}
+                label={t("trips.plan.costLabel")}
+                value={costCentsInput}
+                onChange={(event) => {
+                  setCostCentsInput(event.target.value);
+                  setFieldErrors((previous) => ({ ...previous, costCents: undefined }));
+                  // The block-level payment message ("sum does not match the cost") is about this
+                  // number, so editing it invalidates that message too — and it is what keeps the
+                  // Kosten marker up.
+                  setPaymentError(null);
+                }}
+                error={fieldErrors.costCents ?? undefined}
+                hint={t("trips.plan.costHelper")}
+                type="text"
+                slotProps={{ htmlInput: { inputMode: "decimal" } }}
+                placeholder="0.00"
+              />
+              <FormControl component="fieldset" error={Boolean(paymentError)} variant="standard">
+                <FormLabel
+                  sx={{
+                    fontSize: 11,
+                    fontWeight: 800,
+                    letterSpacing: "0.06em",
+                    textTransform: "uppercase",
+                    color: tokens.inkSoft,
+                    mb: "7px",
+                    "&.Mui-focused, &.Mui-error": { color: tokens.inkSoft },
+                  }}
+                >
+                  {t("trips.payments.title")}
+                </FormLabel>
+                <RadioGroup
+                  row
+                  value={paymentMode}
+                  onChange={(event) => {
+                    setPaymentMode(event.target.value as "single" | "split");
+                    // Switching mode rebuilds the rows, so positional row errors no longer point at
+                    // anything that is rendered. Left alone they keep the Kosten tab marked with a
+                    // triangle and no visible message anywhere on the panel.
+                    setPaymentRowErrors([]);
+                    setPaymentError(null);
+                  }}
+                >
+                  <FormControlLabel value="single" control={<Radio />} label={t("trips.payments.payAllNow")} />
+                  <FormControlLabel value="split" control={<Radio />} label={t("trips.payments.split")} />
+                </RadioGroup>
+                <Box display="flex" flexDirection="column" gap={1.25} mt={0.5}>
+                  {payments.map((payment, index) => (
+                    <Box key={`payment-${index}`} display="flex" gap={1} alignItems="flex-start" flexWrap="wrap">
+                      <Box sx={{ flex: 1, minWidth: 140 }}>
+                        <FormField
+                          id={`${fieldIdPrefix}-payment-amount-${index}`}
+                          label={t("trips.payments.amountLabel")}
+                          value={payment.amount}
+                          onChange={(event) => {
+                            const next = [...payments];
+                            next[index] = { ...next[index], amount: event.target.value };
+                            setPayments(next);
+                          }}
+                          error={paymentRowErrors[index]?.amount}
+                          type="number"
+                          slotProps={{
+                            htmlInput: { min: 0, step: 0.01, readOnly: paymentMode !== "split", inputMode: "decimal" },
+                          }}
+                        />
+                      </Box>
+                      <Box sx={{ flex: 1, minWidth: 170 }}>
+                        <FormField
+                          id={`${fieldIdPrefix}-payment-date-${index}`}
+                          label={t("trips.payments.dateLabel")}
+                          value={payment.dueDate}
+                          onChange={(event) => {
+                            const next = [...payments];
+                            next[index] = { ...next[index], dueDate: event.target.value };
+                            setPayments(next);
+                          }}
+                          error={paymentRowErrors[index]?.dueDate}
+                          type="date"
+                        />
+                      </Box>
+                      {paymentMode === "split" && (
+                        <Button
+                          variant="text"
+                          onClick={() => {
+                            const next = payments.filter((_, idx) => idx !== index);
+                            setPayments(next);
+                            // `paymentRowErrors` is positional. Removing a row without removing its
+                            // slot re-attaches the message to whichever row slid up into the index,
+                            // and an error past the new end stays true for `hasPlanError` while
+                            // rendering nowhere.
+                            setPaymentRowErrors((previous) =>
+                              previous.length > 0 ? previous.filter((_, idx) => idx !== index) : previous,
+                            );
+                          }}
+                          disabled={payments.length <= 2}
+                          sx={{ color: tokens.ink, mt: "24px" }}
+                        >
+                          {t("trips.payments.removeAction")}
+                        </Button>
+                      )}
+                    </Box>
+                  ))}
                   {paymentMode === "split" && (
                     <Button
-                      variant="text"
-                      onClick={() => {
-                        const next = payments.filter((_, idx) => idx !== index);
-                        setPayments(next);
-                      }}
-                      disabled={payments.length <= 2}
-                      sx={{ color: tokens.ink, mt: "24px" }}
+                      variant="outlined"
+                      onClick={() => setPayments((current) => [...current, { amount: "", dueDate: defaultDueDate }])}
+                      sx={{ alignSelf: "flex-start" }}
                     >
-                      {t("trips.payments.removeAction")}
+                      {t("trips.payments.addAction")}
                     </Button>
                   )}
                 </Box>
-              ))}
-              {paymentMode === "split" && (
-                <Button
-                  variant="outlined"
-                  onClick={() => setPayments((current) => [...current, { amount: "", dueDate: defaultDueDate }])}
-                  sx={{ alignSelf: "flex-start" }}
-                >
-                  {t("trips.payments.addAction")}
-                </Button>
-              )}
+                <FormHelperText>{paymentError ?? undefined}</FormHelperText>
+              </FormControl>
             </Box>
-            <FormHelperText>{paymentError ?? undefined}</FormHelperText>
-          </FormControl>
-          <FormField
-            id={`${fieldIdPrefix}-link`}
-            label={t("trips.plan.linkLabel")}
-            value={linkUrl}
-            onChange={(event) => setLinkUrl(event.target.value)}
-            error={fieldErrors.linkUrl ?? undefined}
-            hint={t("trips.plan.linkHelper")}
-            type="url"
-            slotProps={{ htmlInput: { inputMode: "url" } }}
-            placeholder="https://"
-          />
-          <Box display="flex" flexDirection="column" gap={1}>
+          )}
+
+          {activeTab === "media" && (
             <Box
-              sx={{
-                display: "flex",
-                flexDirection: { xs: "column", sm: "row" },
-                alignItems: { xs: "stretch", sm: "flex-end" },
-                gap: "8px",
-              }}
+              role="tabpanel"
+              id={`${fieldIdPrefix}-tabpanel-media`}
+              aria-labelledby={`${fieldIdPrefix}-tab-media`}
+              display="flex"
+              flexDirection="column"
+              gap="18px"
             >
-              <Box sx={{ flex: 1, minWidth: 0 }}>
-                <FormField
-                  id={`${fieldIdPrefix}-place`}
-                  label={t("trips.location.searchLabel")}
-                  value={locationQuery}
-                  onChange={(event) => setLocationQuery(event.target.value)}
+              {editingItemId && (
+                /* Same AC5 rebuild as the accommodation gallery; the explicit Upload action is kept for
+                   the same reason (a real network step with its own error path and busy state). */
+                <PhotoUploadField
+                  id={`${fieldIdPrefix}-gallery`}
+                  label={t("trips.gallery.title")}
+                  zoneTitle={t("trips.gallery.uploadZoneTitle")}
+                  accept={IMAGE_UPLOAD_ACCEPT}
+                  multiple
+                  disabled={galleryBusy}
+                  onFilesSelected={setGalleryFiles}
+                  selectionLabel={
+                    galleryFiles.length > 0
+                      ? formatMessage(t("trips.gallery.selectedFiles"), { count: galleryFiles.length })
+                      : undefined
+                  }
+                  emptyLabel={t("trips.gallery.empty")}
+                  action={
+                    <Button
+                      variant="outlined"
+                      onClick={() => void uploadGalleryImages()}
+                      disabled={galleryFiles.length === 0 || galleryBusy}
+                    >
+                      {t("trips.gallery.uploadAction")}
+                    </Button>
+                  }
+                  images={galleryPreviews.map((preview) => ({
+                    ...preview,
+                    // Keyed by the image id `preview.key` carries, not by position in a second array: the
+                    // strip and `sortedGalleryImages` agree today, and an index would delete the wrong photo
+                    // silently on the day any filtering or async insertion makes them disagree.
+                    onRemove: () => void deleteGalleryImage(preview.key),
+                  }))}
+                  onImageOpen={setFullscreenIndex}
                 />
-              </Box>
-              <Button variant="outlined" onClick={() => void handleLookupLocation()} disabled={isBusy || lookupLoading}>
-                {lookupLoading ? <CircularProgress size={18} /> : t("trips.location.searchAction")}
-              </Button>
-              <Button
-                variant="text"
-                onClick={() => setResolvedLocation(null)}
-                disabled={isBusy || lookupLoading || !resolvedLocation}
-                sx={{ color: tokens.ink }}
-              >
-                {t("trips.location.clearAction")}
-              </Button>
+              )}
+              {!editingItemId && (
+                // AC1: without this the add flow's `Medien & Links` is a one-field tab, because the
+                // gallery is gated on an item id that does not exist yet. Saying why is cheaper than
+                // rendering an upload zone that would 404, and cheaper than regrouping the tabs.
+                <Typography variant="body2" sx={{ color: tokens.inkSoft }}>
+                  {t("trips.plan.galleryAfterSave")}
+                </Typography>
+              )}
+              {/* Moved here from between the payment block and the location search, unchanged: AC1 pairs
+                  the link with the gallery so `Medien & Links` is not a one-field tab. */}
+              <FormField
+                id={`${fieldIdPrefix}-link`}
+                label={t("trips.plan.linkLabel")}
+                value={linkUrl}
+                onChange={(event) => {
+                  setLinkUrl(event.target.value);
+                  setFieldErrors((previous) => ({ ...previous, linkUrl: undefined }));
+                }}
+                error={fieldErrors.linkUrl ?? undefined}
+                hint={t("trips.plan.linkHelper")}
+                type="url"
+                slotProps={{ htmlInput: { inputMode: "url" } }}
+                placeholder="https://"
+              />
             </Box>
-            <Typography sx={{ fontSize: 11, fontWeight: 600, color: tokens.inkSoft }}>
-              {resolvedLocation
-                ? `${t("trips.location.latLabel")}: ${resolvedLocation.lat.toFixed(6)} · ${t("trips.location.lngLabel")}: ${resolvedLocation.lng.toFixed(6)}`
-                : t("trips.location.noCoordinates")}
-            </Typography>
-          </Box>
-          {editingItemId && (
-            /* Same AC5 rebuild as the accommodation gallery; the explicit Upload action is kept for
-               the same reason (a real network step with its own error path and busy state). */
-            <PhotoUploadField
-              id={`${fieldIdPrefix}-gallery`}
-              label={t("trips.gallery.title")}
-              zoneTitle={t("trips.gallery.uploadZoneTitle")}
-              accept={IMAGE_UPLOAD_ACCEPT}
-              multiple
-              disabled={galleryBusy}
-              onFilesSelected={setGalleryFiles}
-              selectionLabel={
-                galleryFiles.length > 0
-                  ? formatMessage(t("trips.gallery.selectedFiles"), { count: galleryFiles.length })
-                  : undefined
-              }
-              emptyLabel={t("trips.gallery.empty")}
-              action={
-                <Button
-                  variant="outlined"
-                  onClick={() => void uploadGalleryImages()}
-                  disabled={galleryFiles.length === 0 || galleryBusy}
-                >
-                  {t("trips.gallery.uploadAction")}
-                </Button>
-              }
-              images={galleryPreviews.map((preview) => ({
-                ...preview,
-                // Keyed by the image id `preview.key` carries, not by position in a second array: the
-                // strip and `sortedGalleryImages` agree today, and an index would delete the wrong photo
-                // silently on the day any filtering or async insertion makes them disagree.
-                onRemove: () => void deleteGalleryImage(preview.key),
-              }))}
-              onImageOpen={setFullscreenIndex}
-            />
           )}
         </Box>
     </DialogShell>

@@ -458,6 +458,21 @@ const en: Dictionary = {
   "trips.plan.editItemAria": "Edit plan item: {title}",
   "trips.plan.deleteItemAria": "Delete plan item",
   "trips.plan.deleteConfirm": "Delete this plan item?",
+  // Story 6.22. The activity dialog's four sections, in tab order. Kept short because four of them
+  // share one 390px row: the German set ("Was", "Wann & Wo", "Kosten", "Medien & Links") is the
+  // binding one and no label here may grow past its width.
+  "trips.plan.tabsLabel": "Plan item sections",
+  "trips.plan.tabWhat": "What",
+  "trips.plan.tabWhenWhere": "When & where",
+  "trips.plan.tabCost": "Cost",
+  "trips.plan.tabMedia": "Media & links",
+  // The tab's accessible name when one of its fields is in error, so the marker is not a
+  // sighted-only signal. The visible marker is a warning triangle, never colour alone.
+  "trips.plan.tabWithErrors": "{label} (contains errors)",
+  // AC1 says no tab holds a single control. The gallery only exists once the item has an id, so in
+  // the add flow this tab would otherwise be one URL box: the line explains the absence instead of
+  // showing an upload zone that cannot upload.
+  "trips.plan.galleryAfterSave": "You can add photos once this plan item is saved.",
   "trips.plan.contentLabel": "Plan notes",
   "trips.plan.contentHelper": "Add notes for this day.",
   "trips.plan.editorLoading": "Loading editor...",

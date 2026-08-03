@@ -444,6 +444,15 @@ const de: Dictionary = {
   "trips.plan.editItemAria": "Planpunkt bearbeiten: {title}",
   "trips.plan.deleteItemAria": "Planpunkt löschen",
   "trips.plan.deleteConfirm": "Diesen Planpunkt löschen?",
+  // Story 6.22 — siehe en.ts. Diese vier Labels teilen sich eine Zeile auf 390px.
+  "trips.plan.tabsLabel": "Bereiche der Aktivität",
+  "trips.plan.tabWhat": "Was",
+  "trips.plan.tabWhenWhere": "Wann & Wo",
+  "trips.plan.tabCost": "Kosten",
+  "trips.plan.tabMedia": "Medien & Links",
+  "trips.plan.tabWithErrors": "{label} (enthält Fehler)",
+  // Story 6.22 — siehe en.ts.
+  "trips.plan.galleryAfterSave": "Fotos kannst du hinzufügen, sobald der Planpunkt gespeichert ist.",
   "trips.plan.contentLabel": "Plan-Notizen",
   "trips.plan.contentHelper": "Notizen für diesen Tag hinzufügen.",
   "trips.plan.editorLoading": "Editor wird geladen...",

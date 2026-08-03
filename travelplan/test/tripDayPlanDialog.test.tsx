@@ -61,6 +61,8 @@ vi.mock("@mui/material", () => {
     "variant",
     "size",
     "elevation",
+    // Story 6.22: `Tab`'s icon slot placement. `icon` itself is rendered by the mock below.
+    "iconPosition",
   ]);
   const omitLayoutProps = (props: Record<string, unknown>) =>
     Object.fromEntries(Object.entries(props).filter(([key]) => !MUI_ONLY_PROPS.has(key)));
@@ -144,6 +146,60 @@ vi.mock("@mui/material", () => {
       </label>
     ),
     SvgIcon: Simple,
+    /*
+      Story 6.22's four sections. The real `Tabs`/`Tab` are what AC7 asks for precisely because they
+      ship `role="tablist"`/`role="tab"`, `aria-selected` and the arrow-key handling — so the mock
+      renders those roles rather than plain <div>s. Every `selectTab` below resolves through
+      `getByRole("tab", …)`, which means a regression from tabs back to styled buttons breaks this
+      file instead of passing quietly.
+
+      `value`/`onChange` are pushed down as `selectedValue`/`onSelect` the same way the `RadioGroup`
+      mock above pushes its group state onto `FormControlLabel`.
+    */
+    Tabs: ({
+      children,
+      value,
+      onChange,
+      ...rest
+    }: {
+      children?: ReactNode;
+      value?: string;
+      onChange?: (event: unknown, value: string) => void;
+    }) => (
+      <div role="tablist" {...omitLayoutProps(rest as Record<string, unknown>)}>
+        {React.Children.map(children, (child) =>
+          React.isValidElement(child)
+            ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              (React.cloneElement(child as any, { selectedValue: value, onSelect: onChange }) as ReactNode)
+            : child,
+        )}
+      </div>
+    ),
+    Tab: ({
+      label,
+      icon,
+      value,
+      selectedValue,
+      onSelect,
+      ...rest
+    }: {
+      label?: ReactNode;
+      icon?: ReactNode;
+      value?: string;
+      selectedValue?: string;
+      onSelect?: (event: unknown, value: string) => void;
+    }) => (
+      <button
+        type="button"
+        role="tab"
+        aria-selected={selectedValue === value}
+        {...omitLayoutProps(rest as Record<string, unknown>)}
+        onClick={() => onSelect?.(null, value as string)}
+      >
+        {label}
+        {icon}
+      </button>
+    ),
     TextField: ({
       label,
       value,
@@ -256,6 +312,37 @@ vi.mock("@tiptap/react", () => ({
 vi.mock("@tiptap/starter-kit", () => ({ default: {} }));
 vi.mock("@tiptap/extension-link", () => ({ default: { configure: () => ({}) } }));
 
+/**
+ * Story 6.22. The dialog's fields now live on four tabs and an inactive panel is **not mounted**, so
+ * a field is absent from the DOM until its tab is selected. Rather than repeating that step at ~40
+ * query sites, every test reaches a field through this helper.
+ *
+ * The match is on the *prefix* of the accessible name, not on equality: a tab holding a field in
+ * error is named "Cost (contains errors)" (AC2's non-colour marker, said in words), and the helper
+ * has to reach it in both states. The four labels are distinct in their first word in both
+ * languages, so a prefix is unambiguous.
+ */
+const TAB_LABELS = {
+  en: { what: "What", whenWhere: "When & where", cost: "Cost", media: "Media & links" },
+  de: { what: "Was", whenWhere: "Wann & Wo", cost: "Kosten", media: "Medien & Links" },
+} as const;
+
+type TabKey = keyof (typeof TAB_LABELS)["en"];
+
+const selectTab = (tab: TabKey, language: keyof typeof TAB_LABELS = "en") => {
+  const label = TAB_LABELS[language][tab];
+  const control = screen.getByRole("tab", { name: (name: string) => name.startsWith(label) });
+  fireEvent.click(control);
+  return control;
+};
+
+/**
+ * Each panel is `aria-labelledby` its own tab (AC7), so the panel element itself answers to the tab's
+ * accessible name — and "Cost" is the name of both a tab and a field. Narrowing to the control keeps
+ * the query on the label rather than falling back to a test id.
+ */
+const costField = () => screen.getByLabelText("Cost", { selector: "input" });
+
 describe("TripDayPlanDialog", () => {
   afterEach(() => {
     cleanup();
@@ -347,23 +434,33 @@ describe("TripDayPlanDialog", () => {
     expect(screen.getByRole("button", { name: "Image" })).toBeInTheDocument();
     expect(screen.queryByText("Plan items")).not.toBeInTheDocument();
     expect(screen.queryByText("No plan items yet.")).not.toBeInTheDocument();
+
+    // "Was" is the tab every open starts on.
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Museum" } });
+    vi.spyOn(window, "prompt").mockReturnValue("https://images.example.com/plan.webp");
+    fireEvent.click(screen.getByRole("button", { name: "Image" }));
+
+    selectTab("whenWhere");
     expect(screen.getByLabelText("Search place")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Find" })).toBeInTheDocument();
     expect(screen.queryByLabelText("Latitude")).toBeNull();
     expect(screen.queryByLabelText("Longitude")).toBeNull();
     expect(screen.queryByLabelText("Location label (optional)")).toBeNull();
     expect(screen.getByText("No coordinates selected")).toBeInTheDocument();
-
-    fireEvent.change(screen.getByRole("textbox", { name: "Link" }), { target: { value: "https://example.com/plan" } });
-    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Museum" } });
     fireEvent.change(screen.getByLabelText("From"), { target: { value: "09:00" } });
     fireEvent.change(screen.getByLabelText("To"), { target: { value: "10:00" } });
-    fireEvent.change(screen.getByLabelText("Cost"), { target: { value: "26,00" } });
-    vi.spyOn(window, "prompt").mockReturnValue("https://images.example.com/plan.webp");
-    fireEvent.click(screen.getByRole("button", { name: "Image" }));
     fireEvent.change(screen.getByLabelText("Search place"), { target: { value: "Museum" } });
     fireEvent.click(screen.getByRole("button", { name: "Find" }));
     await waitFor(() => expect(screen.getByText("Latitude: 48.145000 · Longitude: 11.582000")).toBeInTheDocument());
+
+    selectTab("cost");
+    fireEvent.change(costField(), { target: { value: "26,00" } });
+
+    selectTab("media");
+    fireEvent.change(screen.getByRole("textbox", { name: "Link" }), { target: { value: "https://example.com/plan" } });
+
+    // AC5: Speichern is in the footer, outside the panels, so it is reachable from every tab — this
+    // save is fired from "Medien & Links" and still submits the whole form.
     fireEvent.click(screen.getByRole("button", { name: "Save item" }));
 
     await waitFor(() =>
@@ -466,17 +563,23 @@ describe("TripDayPlanDialog", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(screen.getByText("Edit plan item")).toBeInTheDocument();
     expect(screen.getByLabelText("Title")).toHaveValue("Old Town walk");
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Updated walk" } });
+
+    selectTab("whenWhere");
     expect(screen.getByLabelText("From")).toHaveValue("10:00");
     expect(screen.getByLabelText("To")).toHaveValue("11:00");
-    expect(screen.getByLabelText("Cost")).toHaveValue("21.00");
-    expect(screen.getByRole("textbox", { name: "Link" })).toHaveValue("https://example.com/original");
     expect(screen.getByText("Latitude: 48.137200 · Longitude: 11.575600")).toBeInTheDocument();
-
-    fireEvent.change(screen.getByLabelText("Cost"), { target: { value: "34,00" } });
-    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Updated walk" } });
     fireEvent.change(screen.getByLabelText("From"), { target: { value: "11:00" } });
     fireEvent.change(screen.getByLabelText("To"), { target: { value: "12:00" } });
+
+    selectTab("cost");
+    expect(costField()).toHaveValue("21.00");
+    fireEvent.change(costField(), { target: { value: "34,00" } });
+
+    selectTab("media");
+    expect(screen.getByRole("textbox", { name: "Link" })).toHaveValue("https://example.com/original");
     fireEvent.change(screen.getByRole("textbox", { name: "Link" }), { target: { value: "https://example.com/updated" } });
+
     fireEvent.click(screen.getByRole("button", { name: "Update item" }));
 
     await waitFor(() =>
@@ -653,6 +756,7 @@ describe("TripDayPlanDialog", () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: " " } });
+    selectTab("whenWhere");
     fireEvent.change(screen.getByLabelText("From"), { target: { value: "09:00" } });
     fireEvent.change(screen.getByLabelText("To"), { target: { value: "10:00" } });
     fireEvent.click(screen.getByRole("button", { name: "Save item" }));
@@ -662,6 +766,11 @@ describe("TripDayPlanDialog", () => {
         expect.stringContaining("/day-plan-items"),
         expect.objectContaining({ method: "POST" }),
       ),
+    );
+    // AC2: the save was fired from "Wann & Wo" and the server rejected `title`, which lives on "Was".
+    // The message is only visible because the dialog switched back to the tab that owns it.
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { name: "What (contains errors)" })).toHaveAttribute("aria-selected", "true"),
     );
     expect(screen.getByText("Title is required")).toBeInTheDocument();
     expect(onSaved).not.toHaveBeenCalled();
@@ -722,12 +831,13 @@ describe("TripDayPlanDialog", () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Plan" } });
+    selectTab("whenWhere");
     fireEvent.change(screen.getByLabelText("From"), { target: { value: "" } });
     fireEvent.change(screen.getByLabelText("To"), { target: { value: "09:00" } });
     fireEvent.click(screen.getByRole("button", { name: "Save item" }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/day-plan-items"), expect.any(Object)));
-    expect(screen.getByText("From time is required")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("From time is required")).toBeInTheDocument());
     expect(screen.getByText("To time must be after from time")).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("From"), { target: { value: "12:00" } });
@@ -772,9 +882,11 @@ describe("TripDayPlanDialog", () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Tickets" } });
+    selectTab("whenWhere");
     fireEvent.change(screen.getByLabelText("From"), { target: { value: "09:00" } });
     fireEvent.change(screen.getByLabelText("To"), { target: { value: "10:00" } });
-    fireEvent.change(screen.getByLabelText("Cost"), { target: { value: "100.00" } });
+    selectTab("cost");
+    fireEvent.change(costField(), { target: { value: "100.00" } });
     fireEvent.click(screen.getByLabelText("Split into multiple payments"));
 
     const amountInputs = screen.getAllByLabelText("Amount");
@@ -830,7 +942,9 @@ describe("TripDayPlanDialog", () => {
       </Providers>,
     );
 
-    const splitOption = await screen.findByLabelText("Split into multiple payments");
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    selectTab("cost");
+    const splitOption = screen.getByLabelText("Split into multiple payments");
     expect(splitOption).toBeChecked();
     const amountInputs = screen.getAllByLabelText("Amount");
     const dateInputs = screen.getAllByLabelText("Due date");
@@ -919,6 +1033,7 @@ describe("TripDayPlanDialog", () => {
     );
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    selectTab("media");
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement | null;
     expect(fileInput).not.toBeNull();
     expect(fileInput?.multiple).toBe(true);
@@ -1026,6 +1141,7 @@ describe("TripDayPlanDialog", () => {
     );
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    selectTab("media");
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
     fireEvent.change(fileInput, { target: { files: [new File(["first"], "first.webp", { type: "image/webp" })] } });
     fireEvent.click(screen.getByRole("button", { name: "Upload" }));
@@ -1128,6 +1244,7 @@ describe("TripDayPlanDialog", () => {
     );
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    selectTab("media");
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
     const fileOne = new File(["first"], "first.webp", { type: "image/webp" });
     const fileTwo = new File(["second"], "second.webp", { type: "image/webp" });
@@ -1200,6 +1317,8 @@ describe("TripDayPlanDialog", () => {
     );
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    // The German tab label, so this also pins that the four labels reached `de.ts`.
+    selectTab("media", "de");
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
     fireEvent.change(fileInput, { target: { files: [new File(["first"], "first.webp", { type: "image/webp" })] } });
 
@@ -1278,6 +1397,8 @@ describe("TripDayPlanDialog", () => {
       </Providers>,
     );
 
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    selectTab("media");
     await waitFor(() =>
       expect(container.querySelector('img[alt="Image 1 of 1"]')).not.toBeNull(),
     );
@@ -1304,5 +1425,322 @@ describe("TripDayPlanDialog", () => {
         expect.objectContaining({ method: "DELETE" }),
       ),
     );
+  });
+
+  /**
+   * Story 6.22 AC2 — the assertion that makes the whole story safe. A tabbed form that reports a
+   * validation error on a tab the user cannot see is worse than the long scroll it replaced: press
+   * Speichern, nothing appears to happen, and the reason is one tab away.
+   *
+   * The client-side cost check is used rather than a server rejection because it needs no network
+   * round trip to reach the branch, and because "Kosten" is two tabs from "Was" — the error is
+   * genuinely off-screen when the save is fired.
+   */
+  it("switches to the tab that owns an error, marks it and focuses the field", async () => {
+    const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
+
+    const fetchMock = vi.fn(async (input: RequestInfo) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url.includes("/api/auth/csrf")) {
+        return { ok: true, status: 200, json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }) };
+      }
+      return {
+        ok: false,
+        status: 500,
+        json: async () => ({ data: null, error: { code: "server_error", message: "boom" } }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <Providers language="en">
+        <TripDayPlanDialog
+          open
+          mode="add"
+          tripId="trip-1"
+          day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
+          item={null}
+          onClose={() => undefined}
+          onSaved={() => undefined}
+        />
+      </Providers>,
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Tickets" } });
+
+    selectTab("cost");
+    fireEvent.change(costField(), { target: { value: "twelve euros" } });
+
+    // Back to tab 1, so the offending field is not merely off-screen but not in the DOM at all.
+    selectTab("what");
+    expect(screen.queryByLabelText("Cost")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save item" }));
+
+    // Switched, not merely marked.
+    const costTab = screen.getByRole("tab", { name: "Cost (contains errors)" });
+    expect(costTab).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "What" })).toHaveAttribute("aria-selected", "false");
+    // The marker says "contains errors" in words, so it is not carried by colour alone.
+    expect(screen.getByText("Enter a valid non-negative amount with up to 2 decimals")).toBeInTheDocument();
+    // And the caret is on the field, not just on the tab.
+    expect(costField()).toHaveFocus();
+
+    expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining("/day-plan-items"), expect.anything());
+  });
+
+  /**
+   * AC4. Every field is plain `useState` at dialog level, so state lives above the panels and an
+   * unmounting panel cannot drop a value. This pins that property rather than assuming it: the
+   * `queryByLabelText` in the middle proves the panel really did unmount, so the round trip is a
+   * real one and not a hidden `display: none`.
+   */
+  it("keeps typed values across a tab round trip", async () => {
+    const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
+
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
+    })) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <Providers language="en">
+        <TripDayPlanDialog
+          open
+          mode="add"
+          tripId="trip-1"
+          day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
+          item={null}
+          onClose={() => undefined}
+          onSaved={() => undefined}
+        />
+      </Providers>,
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Museum tour" } });
+
+    selectTab("whenWhere");
+    expect(screen.queryByLabelText("Title")).toBeNull();
+    fireEvent.change(screen.getByLabelText("From"), { target: { value: "09:15" } });
+
+    selectTab("media");
+    fireEvent.change(screen.getByRole("textbox", { name: "Link" }), { target: { value: "https://example.com/x" } });
+
+    selectTab("what");
+    expect(screen.getByLabelText("Title")).toHaveValue("Museum tour");
+
+    selectTab("whenWhere");
+    expect(screen.getByLabelText("From")).toHaveValue("09:15");
+
+    selectTab("media");
+    expect(screen.getByRole("textbox", { name: "Link" })).toHaveValue("https://example.com/x");
+  });
+
+  /**
+   * The server is the only source that can reject several tabs' fields at once — every client-side
+   * branch returns on the first problem. AC2 asks for *every* owning tab to be marked and for the
+   * *first* in tab order to be the one selected, and this is the only path that exercises both.
+   */
+  it("marks every tab a server error owns and selects the first in tab order", async () => {
+    const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
+
+    const fetchMock = vi.fn(async (input: RequestInfo) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url.includes("/api/auth/csrf")) {
+        return { ok: true, status: 200, json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }) };
+      }
+      return {
+        ok: false,
+        status: 400,
+        json: async () => ({
+          data: null,
+          error: {
+            code: "validation_error",
+            message: "invalid",
+            details: { fieldErrors: { title: ["Title is required"], linkUrl: ["Enter a valid URL"] } },
+          },
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <Providers language="en">
+        <TripDayPlanDialog
+          open
+          mode="add"
+          tripId="trip-1"
+          day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
+          item={null}
+          onClose={() => undefined}
+          onSaved={() => undefined}
+        />
+      </Providers>,
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    // Start on the last tab, so "switched to the first owner" cannot pass by accident.
+    selectTab("media");
+    fireEvent.click(screen.getByRole("button", { name: "Save item" }));
+
+    await waitFor(() => expect(screen.getByRole("tab", { name: "What (contains errors)" })).toBeInTheDocument());
+    expect(screen.getByRole("tab", { name: "Media & links (contains errors)" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "What (contains errors)" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByLabelText("Title")).toHaveFocus();
+  });
+
+  /**
+   * AC2's last sentence, and the one path that could still break it: a `validation_error` whose keys
+   * this dialog does not surface (`location`, `tripDayId`, …) clears every error store, so without a
+   * fallback the spinner would stop and absolutely nothing would appear.
+   */
+  it("shows a banner when a rejected save maps to no field at all", async () => {
+    const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
+
+    const fetchMock = vi.fn(async (input: RequestInfo) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url.includes("/api/auth/csrf")) {
+        return { ok: true, status: 200, json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }) };
+      }
+      return {
+        ok: false,
+        status: 400,
+        json: async () => ({
+          data: null,
+          error: {
+            code: "validation_error",
+            message: "invalid",
+            details: { fieldErrors: { location: ["Invalid location"] } },
+          },
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <Providers language="en">
+        <TripDayPlanDialog
+          open
+          mode="add"
+          tripId="trip-1"
+          day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
+          item={null}
+          onClose={() => undefined}
+          onSaved={() => undefined}
+        />
+      </Providers>,
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Tickets" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save item" }));
+
+    await waitFor(() =>
+      expect(screen.getByText("Plan item update failed. Please try again.")).toBeInTheDocument(),
+    );
+    // And it did not mark a tab it has no error for.
+    expect(screen.queryByRole("tab", { name: /contains errors/ })).toBeNull();
+  });
+
+  /**
+   * A tab marker is global chrome, unlike the inline message it replaces as the primary signal. If it
+   * outlives the fix, the tab bar tells the user there is a problem on a tab where there is none.
+   */
+  it("drops a tab's marker once the offending field is corrected", async () => {
+    const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
+
+    const fetchMock = vi.fn(async (input: RequestInfo) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url.includes("/api/auth/csrf")) {
+        return { ok: true, status: 200, json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }) };
+      }
+      return {
+        ok: false,
+        status: 400,
+        json: async () => ({
+          data: null,
+          error: {
+            code: "validation_error",
+            message: "invalid",
+            details: { fieldErrors: { linkUrl: ["Enter a valid URL"] } },
+          },
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <Providers language="en">
+        <TripDayPlanDialog
+          open
+          mode="add"
+          tripId="trip-1"
+          day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
+          item={null}
+          onClose={() => undefined}
+          onSaved={() => undefined}
+        />
+      </Providers>,
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Tickets" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save item" }));
+
+    // Switched to the owning tab and put the caret on the field — the `linkUrl` focus target, which
+    // nothing else in this file covers.
+    const linkField = await screen.findByRole("textbox", { name: "Link" });
+    expect(screen.getByRole("tab", { name: "Media & links (contains errors)" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(linkField).toHaveFocus();
+
+    fireEvent.change(linkField, { target: { value: "https://example.com/tickets" } });
+    expect(screen.queryByRole("tab", { name: /contains errors/ })).toBeNull();
+  });
+
+  /**
+   * AC3. The compiler is the primary guard — `PLAN_ERROR_TAB` is `Record<PlanErrorKey, PlanTabId>`,
+   * so a new key with no tab does not build. This table is the second half of it: it fails when a key
+   * is *added* to the map without anyone deciding, here and deliberately, which tab owns it.
+   */
+  describe("the error-to-tab map", () => {
+    const EXPECTED: Array<[string, string]> = [
+      ["title", "what"],
+      ["contentJson", "what"],
+      ["fromTime", "whenWhere"],
+      ["toTime", "whenWhere"],
+      ["costCents", "cost"],
+      ["paymentError", "cost"],
+      ["paymentRowErrors", "cost"],
+      ["linkUrl", "media"],
+    ];
+
+    it.each(EXPECTED)("puts the %s error on the %s tab", async (key, tab) => {
+      const { PLAN_ERROR_TAB } = await import("@/components/features/trips/TripDayPlanDialog");
+      expect(PLAN_ERROR_TAB[key as keyof typeof PLAN_ERROR_TAB]).toBe(tab);
+    });
+
+    it("covers every error key and nothing else", async () => {
+      const { PLAN_ERROR_TAB } = await import("@/components/features/trips/TripDayPlanDialog");
+      expect(Object.keys(PLAN_ERROR_TAB).sort()).toEqual(EXPECTED.map(([key]) => key).sort());
+    });
+
+    it("maps every key to a tab the dialog actually renders", async () => {
+      const { PLAN_ERROR_TAB, PLAN_TAB_IDS } = await import("@/components/features/trips/TripDayPlanDialog");
+      for (const tab of Object.values(PLAN_ERROR_TAB)) {
+        expect(PLAN_TAB_IDS).toContain(tab);
+      }
+    });
   });
 });

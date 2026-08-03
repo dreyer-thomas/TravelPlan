@@ -1268,3 +1268,23 @@ severity: low
 summary: Every `catch` in every route handler discards the caught error and answers `server_error` — `grep -rn "console\.\|logger" src/app/api src/lib` returns nothing, so the application emits no server-side record of any failure it converts into a 500.
 evidence: Verified by grep during this review, not assumed: zero matches in both `src/app/api` and `src/lib` (the only `no-console` directives in the repo are in `test/zz-hero-diagnostic.test.tsx`). Pre-existing and repo-wide, not introduced by Story 5.8 — the new `/api/users` handler inherits the established skeleton exactly. Recorded because the consequence is now slightly larger: `/api/users` is the one read in the app that leaves the caller's own trip graph, and a production failure there leaves no trace of what broke or who asked. Fixing it is not a one-line change in this story's file — it needs a logging seam chosen once (a `src/lib/logging` helper plus the `no-console` rule's disposition) and applied to roughly thirty handlers, which is its own story.
 status: open
+
+### DW-146: AC7's arrow-key tab navigation is asserted against a hand-written mock of MUI `Tabs`, never against MUI itself
+
+source_spec: `_bmad-output/implementation-artifacts/6-22-activity-dialog-in-tabs.md`
+origin: 6-22-activity-dialog-in-tabs, code review, 2026-08-03
+location: `travelplan/test/tripDayPlanDialog.test.tsx` (the `@mui/material` mock), covering `travelplan/src/components/features/trips/TripDayPlanDialog.tsx`
+severity: low
+summary: Story 6.22's AC7 asks for arrow-key navigation between tabs and roving `tabIndex`, and the component gets both by using MUI `Tabs`/`Tab` — but the suite replaces those with `<div role="tablist">` / `<button role="tab">` that have no keyboard handling at all, so nothing in the repo executes the behaviour the criterion names.
+evidence: Verified during review of 6.22, not assumed: `test/tripDayPlanDialog.test.tsx` is the only suite that renders this dialog (the four `tripDayPlanDialog*Import*` files test import shape and never render), and it mocks `@mui/material` wholesale. The mock does assert the tab *semantics* — `role`, `aria-selected`, `aria-controls` — so a regression from tabs to plain styled buttons still breaks the suite; what is unprotected is losing `value`, the roving `tabIndex`, or the arrow-key handling, all of which come from MUI and all of which would leave 28 green tests. The mocking is a pre-existing repo-wide pattern, not something 6.22 introduced, which is why the fix is not local: it needs one dialog suite that renders against real MUI (or a jsdom keyboard test at a level above the mock), and that decision applies to every dialog in the app.
+status: open
+
+### DW-147: The `trips.payments.minRows` validation branch looks unreachable, and its focus target is justified by a claim that would not hold if it revived
+
+source_spec: `_bmad-output/implementation-artifacts/6-22-activity-dialog-in-tabs.md`
+origin: 6-22-activity-dialog-in-tabs, code review, 2026-08-03
+location: `travelplan/src/components/features/trips/TripDayPlanDialog.tsx` — the `payments.length < 2` guard in `handleSave`, the split-mode normalisation effect, and the row `Remove` button
+severity: low
+summary: In split mode the normalisation effect pads `payments` up to two rows and the per-row `Remove` button is `disabled={payments.length <= 2}`, so `payments.length < 2` should never be true when `handleSave` reaches its split branch — the `minRows` message and its i18n keys appear to be dead.
+evidence: Read during review of 6.22 while auditing the error→tab map, which has to assign every error a tab and a focus target whether or not the error can occur. Pre-existing: both the guard and the two things that make it unreachable pre-date this story, and 6.22 only moved the block. Recorded rather than deleted for two reasons. Removing a validation branch needs certainty that no path (a restored draft, a future bulk edit, an import) can produce a one-row split, and that was not established here. And if it is kept, its focus target should be revisited: `planErrorFocusId` sends the caret to the cost box for every `paymentError`, which is right for the sum-mismatch and cost-required cases but wrong for `minRows`, where the action the user must take is pressing "Zahlung hinzufügen".
+status: open
