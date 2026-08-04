@@ -89,6 +89,14 @@ export type StayErrorKey = keyof AccommodationFormValues;
  * The total error→tab function AC3 requires. A tenth form field with no entry here is a compile
  * error, which is the point: an unmapped key would be an error the user cannot see, on a tab the
  * dialog would never select.
+ *
+ * **What the type does and does not buy** (review of Story 6.26 — the original wording overstated
+ * it). `Record<StayErrorKey, …>` forces every form key to name *a* tab, and `stayErrorFocusId`'s
+ * `never` default forces every form key to name *a* focus target. Neither connects either answer to
+ * the panel the field is actually rendered in: mapping `notes` to `"media"` while its `FormField`
+ * stays in the place panel compiles cleanly and produces exactly the failure this map exists to
+ * prevent — the dialog switches tabs and the field is not there. The tab↔panel agreement is held by
+ * the tests below, not by the compiler.
  */
 export const STAY_ERROR_TAB: Record<StayErrorKey, StayTabId> = {
   name: "basics",
@@ -101,6 +109,23 @@ export const STAY_ERROR_TAB: Record<StayErrorKey, StayTabId> = {
   notes: "place",
   link: "media",
 };
+
+/**
+ * Tabs for keys the **server** can fault that are not form fields at all (review of Story 6.26,
+ * Tommy's call).
+ *
+ * `location` is the reachable one: `locationSchemas.ts` caps `location.label` at 200 characters and
+ * `handleLookupLocation` writes the geocoder's label into `resolvedLocation` untruncated, so a
+ * Nominatim display name long enough to fail is an ordinary search result rather than a freak input.
+ * It lives here and not in `STAY_ERROR_TAB` because it is component state, not a registered field —
+ * putting it in that map would break the `keyof AccommodationFormValues` identity AC6 rests on.
+ *
+ * The Place tab *does* surface this value, in the coordinate line under the search box, so AC2's "a
+ * field the form does not surface" does not describe it: the honest response is to select the tab
+ * that shows it. `tripDayId` deliberately has no entry — nothing on any tab shows it, so the banner
+ * is all there is to say.
+ */
+export const STAY_PAYLOAD_ERROR_TAB = { location: "place" } as const satisfies Record<string, StayTabId>;
 
 /**
  * Every error key, ordered by the tab that owns it. `Array.prototype.sort` is stable, so keys
@@ -205,30 +230,40 @@ const stayErrorFocusId = (
  * swing lands as half of itself on the *top* edge, which is where the tab bar the user just clicked
  * sits.
  *
- * **Where the number comes from, and what it is not.** Unlike `PLAN_PANEL_MIN_HEIGHT`, this is
- * arithmetic over the panels' composition rather than a browser measurement — a `FormField` block is
- * a 16px label + 7px gap + 44px input (+ 6px + 16px when it carries a hint or an error), and the
- * panels stack those with an 18px gap:
+ * **Measured in a browser, not derived** (Task 7, 2026-08-04). The first value was 300, from arithmetic
+ * over the panels' composition, and that arithmetic was wrong twice over: it assumed a 44px input at
+ * 13.5px type, which fix 6.26a invalidates by raising every control to 16px on touch, and it was
+ * desktop-only, missing that at `xs` the basics row stacks to `flexDirection: column`. Both errors were
+ * identified in review before the measurement confirmed them.
  *
- * | panel | blocks | ≈ height |
- * |---|---|---|
- * | `Basisdaten` | name, [status \| time] row | 152 |
- * | `Kosten` | cost, payment fieldset (single row) | 241 |
- * | `Ort & Notizen` | place search + coordinate line, notes (3 rows) | 216 |
- * | `Medien` | link + hint, gallery zone + preview strip | ~307 |
+ * Read as `document.querySelector('[role="tabpanel"]').getBoundingClientRect().height` per tab, against
+ * a throwaway copy of `dev.db`, on **two** stays — sampling one is how 6.24's first figures went wrong:
  *
- * 300 clears the three bounded panels with headroom and covers `Medien` at its ordinary height. It
- * is **not** a bound on the two unbounded panels: `Kosten` grows without limit through split-payment
- * rows (DW-149 records 1634px at five of them on the activity dialog) and `Medien` grows with the
- * number of photos. That is what makes `minHeight` the right primitive and a fixed `height` the
- * wrong one — see `STAY_PANEL_FLOOR_SX`.
+ * | panel | 747px | 390px, 3 payments, no notes | 390px, 2 payments, 102-char notes |
+ * |---|---|---|---|
+ * | `Basisdaten` | 194.4 | 289.5 | 289.5 |
+ * | `Ort & Notizen` | 231.9 | 359.0 | **399.0** |
+ * | `Medien & Links` | 355.2 | 358.8 | 358.8 |
+ * | `Kosten` | 467.4 | 1015.8 | 762.3 |
  *
- * **This number wants a browser re-measure**, the way 6.24's did and got one that corrected it. The
- * recipe: open the stay dialog against a throwaway DB copy, click each of the four tabs and read
- * `document.querySelector('[role="tabpanel"]').getBoundingClientRect().height` at 1400x1000 and at
- * 390x844, on more than one stay — sampling one is how 6.24's first figures went wrong.
+ * **400 is chosen so three of the four panels sit at exactly the floor at both widths** — which is what
+ * AC5 asks for: the frame stops moving. Only `Kosten` exceeds it, and AC5 exempts that explicitly,
+ * split-payment rows being unbounded (DW-149 records 1634px at five rows on the activity dialog; 1015.8
+ * is measured here at three). `Ort & Notizen` clears 400 by 1px on the notes-heavy sample and will
+ * exceed it with longer notes — same unbounded category, handled the same way. `clipped` was `false` on
+ * every panel in every run, so exceeding the floor grows the frame rather than cutting content off.
+ *
+ * Any width above `sm` (600px) reproduces the 747px column: the dialog is `width={520}`, so panel
+ * content width does not change with the viewport above that breakpoint. 747px was the sample taken.
+ *
+ * For scale, the activity dialog's measured equivalent is `PLAN_PANEL_MIN_HEIGHT = 475`. Two sibling
+ * dialogs on one day screen at 300 and 475 would have read as two different frames; 400 and 475 do not.
+ *
+ * `minHeight` and never `height` — see `STAY_PANEL_FLOOR_SX`. That distinction is now confirmed on
+ * screen rather than merely asserted in jsdom: with the floor still at 300, `Kosten` measured a *used*
+ * height of 467.4px, i.e. the frame grew past the floor instead of clipping.
  */
-export const STAY_PANEL_MIN_HEIGHT = 300;
+export const STAY_PANEL_MIN_HEIGHT = 400;
 
 /**
  * `minHeight`, never `height` — and exported so a test can hold that distinction rather than a
@@ -359,6 +394,7 @@ export default function TripAccommodationDialog({
     control,
     handleSubmit,
     formState: { errors, isSubmitting, dirtyFields, isDirty },
+    getValues,
     setError,
     clearErrors,
     reset,
@@ -395,21 +431,6 @@ export default function TripAccommodationDialog({
     setActiveTab(STAY_ERROR_TAB[key]);
     setPendingErrorFocus((current) => ({ elementId: focusId, nonce: (current?.nonce ?? 0) + 1 }));
   }, []);
-
-  /**
-   * AC2, the criterion this story exists to satisfy safely: an error on a tab the user is not looking
-   * at is worse than the long scroll this replaces. Used where a whole `FieldErrors` object is in
-   * hand — react-hook-form's own rule failures (`handleSubmit`'s invalid callback) and the server's
-   * field errors.
-   */
-  const revealFirstError = useCallback(
-    (formErrors: FieldErrors<AccommodationFormValues>) => {
-      const key = STAY_ERROR_KEYS_IN_TAB_ORDER.find((candidate) => hasStayError(formErrors, candidate));
-      if (!key) return;
-      revealError(key, stayErrorFocusId(fieldIdPrefix, key, formErrors));
-    },
-    [fieldIdPrefix, revealError],
-  );
 
   useEffect(() => {
     if (!pendingErrorFocus?.elementId) return;
@@ -493,6 +514,32 @@ export default function TripAccommodationDialog({
       paymentSyncSettled.current = true;
     }
   }, [costInput, defaultDueDate, open, paymentMode, setValue, watchedPayments]);
+
+  /**
+   * AC3's "the marker clears as soon as the field is fixed rather than standing until the next save" —
+   * for the one key where it did not (review of Story 6.26).
+   *
+   * Every other error key belongs to a registered input with a rule, so react-hook-form revalidates it
+   * on change and clears it by itself. `payments` has neither: the block-level messages
+   * (`sumMismatch`, `minRows`, `costRequired`) and the per-row ones are all planted by hand with
+   * `setError`, on a field-array name with no input behind it. Nothing revalidated them, and the only
+   * `clearErrors("payments")` sat inside `onSubmit` — i.e. on the *next* save. Measured: 100.00 split
+   * into 40 + 50 fails, the marker and "Payments must add up to the total cost" appear, and correcting
+   * the second row to 60.00 left **both** standing.
+   *
+   * Two things it also fixes. A row-level error survived a split→single switch, so the `Kosten` tab
+   * stayed marked for a row that no longer existed — a marker with nothing to fix and no message to
+   * explain it. And a *server* `payments` rejection now clears on edit like a client one.
+   *
+   * The dependency is a **serialised value**, never the watched array: `watchedPayments` is a fresh
+   * object on every change and this must fire on changes of value, not of identity — the same
+   * distinction that made the tab markers stale two hundred lines up. It runs once on open with no
+   * errors to clear, which is a no-op.
+   */
+  const paymentsErrorSignature = `${paymentMode ?? ""}|${costInput ?? ""}|${JSON.stringify(watchedPayments ?? [])}`;
+  useEffect(() => {
+    clearErrors("payments");
+  }, [clearErrors, paymentsErrorSignature]);
 
   useEffect(() => {
     if (!open) return;
@@ -632,6 +679,27 @@ export default function TripAccommodationDialog({
    * `Compilation Skipped: Existing memoization could not be preserved` errors. Moving the definitions
    * ahead of their first use is the whole fix; the bodies are untouched.
    */
+  /**
+   * `validate` as well as `required`, and the two say the same thing (review of Story 6.26).
+   *
+   * It was `{ required }` alone, while the unmounted re-run below judged `!values.name.trim()`.
+   * react-hook-form's `required` treats `"   "` as present, so the two disagreed on whitespace — and
+   * the disagreement was worse than either rule on its own: a name of three spaces failed the re-run
+   * and raised "Stay name is required", then **typing a fourth space cleared the message and the tab
+   * marker**, because revalidation ran the lenient rule and found the field satisfied. An error the
+   * user can dismiss by typing more of what caused it is worse than no error at all.
+   *
+   * `required` is kept alongside so an empty field still fails on react-hook-form's own pass rather
+   * than only on the re-run.
+   */
+  const nameRules = useMemo(
+    () => ({
+      required: t("trips.stay.nameRequired"),
+      validate: (value: string) => (value.trim() ? true : t("trips.stay.nameRequired")),
+    }),
+    [t],
+  );
+
   const maxCostCents = 100000000;
   const costRules = useMemo(
     () => ({
@@ -681,53 +749,55 @@ export default function TripAccommodationDialog({
     [t],
   );
 
-  const onSubmit = async (values: AccommodationFormValues) => {
-    if (!day) return;
-    setServerError(null);
+  /**
+   * Story 6.26, and the trap the tab split walked into rather than a precaution.
+   *
+   * **react-hook-form does not judge a field whose panel has been unmounted.** Its rules survive the
+   * unmount — `shouldUnregister` defaults to false, which is what makes AC4 work at all — but
+   * `handleSubmit`'s built-in pass skips fields marked as no longer mounted, so `handleSubmit`'s
+   * invalid callback never fires for them and `onSubmit` runs with the value unchecked. Before the
+   * split every field was always mounted and the distinction did not exist; after it, pressing `Save`
+   * from `Kosten` sent an **empty stay name** — which `nameRules` marks `required` — straight to the
+   * server, and a validation_error came back for a field the user could not see.
+   *
+   * So the four rule-bearing fields are re-judged from `values`, which carries every field regardless
+   * of what is mounted. The rule *objects* are reused rather than their logic re-implemented, so
+   * there is still one definition of "valid" per field.
+   *
+   * Collected and returned **before any `setError`**, so a caller can pick the first failure in *tab*
+   * order rather than in the order the checks happen to run.
+   *
+   * **Extracted by Story 6.26's review**, because `onSubmit` was not the only caller that needed it.
+   * `handleSubmit`'s built-in pass and this re-run were mutually exclusive: any *mounted* field
+   * failing its rule meant `onSubmit` never ran, so the re-run — the only thing that sees unmounted
+   * fields — never ran either. A bad link on `Medien & Links` plus an empty name on `Basisdaten`
+   * marked only the name, and the link surfaced on a *second* Save. AC3 asks for every tab with an
+   * error to be marked, so both passes now feed one set of failures.
+   */
+  const collectRuleFailures = useCallback(
+    (values: AccommodationFormValues) => {
+      const ruleFailures: Array<{ key: StayErrorKey; message: string }> = [];
+      const addRuleFailure = (key: StayErrorKey, outcome: string | true) => {
+        if (typeof outcome === "string") ruleFailures.push({ key, message: outcome });
+      };
+      addRuleFailure("name", nameRules.validate(values.name));
+      addRuleFailure("costCents", costRules.validate(values.costCents));
+      addRuleFailure("link", linkRules.validate(values.link));
+      // Only the half `stayType` renders: the other is not registered, carries the dialog's default
+      // and is never sent, so judging it would raise an error on a field this surface does not show.
+      if (stayType === "current") {
+        addRuleFailure("checkInTime", timeRules.validate(values.checkInTime));
+      } else {
+        addRuleFailure("checkOutTime", timeRules.validate(values.checkOutTime));
+      }
+      return ruleFailures;
+    },
+    [costRules, linkRules, nameRules, stayType, timeRules],
+  );
 
-    let token: string;
-    try {
-      token = await ensureCsrfToken();
-    } catch {
-      setServerError(t("errors.csrfMissing"));
-      return;
-    }
-
-    /**
-     * Story 6.26, and the trap the tab split walked into rather than a precaution.
-     *
-     * **react-hook-form does not judge a field whose panel has been unmounted.** Its rules survive the
-     * unmount — `shouldUnregister` defaults to false, which is what makes AC4 work at all — but
-     * `handleSubmit`'s built-in pass skips fields marked as no longer mounted, so `handleSubmit`'s
-     * invalid callback never fires for them and this function runs with the value unchecked. Before
-     * the split every field was always mounted and the distinction did not exist; after it, pressing
-     * `Save` from `Kosten` sent an **empty stay name** — which `nameRules` marks `required` — straight
-     * to the server, and a validation_error came back for a field the user could not see.
-     *
-     * So the four rule-bearing fields are re-judged here, where `values` carries every field
-     * regardless of what is mounted. The rule *objects* are reused rather than their logic
-     * re-implemented, so there is still one definition of "valid" per field; `nameRules` is the one
-     * exception, being `{ required }` rather than a `validate` function.
-     *
-     * Collected before any `setError`, so AC2 can pick the first failure **in tab order** rather than
-     * in the order they happen to be checked.
-     */
-    const ruleFailures: Array<{ key: StayErrorKey; message: string }> = [];
-    const addRuleFailure = (key: StayErrorKey, outcome: string | true) => {
-      if (typeof outcome === "string") ruleFailures.push({ key, message: outcome });
-    };
-    if (!values.name.trim()) ruleFailures.push({ key: "name", message: t("trips.stay.nameRequired") });
-    addRuleFailure("costCents", costRules.validate(values.costCents));
-    addRuleFailure("link", linkRules.validate(values.link));
-    // Only the half `stayType` renders: the other is not registered, carries the dialog's default and
-    // is never sent, so judging it would raise an error on a field this surface does not show.
-    if (stayType === "current") {
-      addRuleFailure("checkInTime", timeRules.validate(values.checkInTime));
-    } else {
-      addRuleFailure("checkOutTime", timeRules.validate(values.checkOutTime));
-    }
-
-    if (ruleFailures.length > 0) {
+  /** Set every collected failure, then reveal the first one in tab order. */
+  const applyRuleFailures = useCallback(
+    (ruleFailures: Array<{ key: StayErrorKey; message: string }>) => {
       for (const failure of ruleFailures) {
         setError(failure.key, { message: failure.message });
       }
@@ -735,6 +805,64 @@ export default function TripAccommodationDialog({
         ruleFailures.some((failure) => failure.key === key),
       );
       if (firstKey) revealError(firstKey, stayErrorFocusId(fieldIdPrefix, firstKey, {}));
+    },
+    [fieldIdPrefix, revealError, setError],
+  );
+
+  /**
+   * `handleSubmit`'s invalid callback — AC2 and AC3 together, and the one place both validation
+   * passes meet.
+   *
+   * react-hook-form has already judged the **mounted** fields and hands their `FieldErrors` in.
+   * `onSubmit` never runs in that case, so the unmounted re-run inside it never runs either — which
+   * is why this callback repeats it. Without that, a bad link on `Medien & Links` plus an empty name
+   * on `Basisdaten` marked only `Basisdaten`, and the link appeared on a *second* Save. AC3 says every
+   * tab with an error is marked; both passes have to be in hand before that can be true.
+   *
+   * Failures react-hook-form already reported are filtered out rather than re-set, so the message the
+   * user sees is the one its own rule produced. The reveal then picks the first key in **tab** order
+   * across the union of the two passes.
+   */
+  const handleInvalid = useCallback(
+    (formErrors: FieldErrors<AccommodationFormValues>) => {
+      const unmountedFailures = collectRuleFailures(getValues()).filter(
+        (failure) => !hasStayError(formErrors, failure.key),
+      );
+      for (const failure of unmountedFailures) {
+        setError(failure.key, { message: failure.message });
+      }
+      const failedKeys = new Set<StayErrorKey>([
+        ...STAY_ERROR_KEYS_IN_TAB_ORDER.filter((key) => hasStayError(formErrors, key)),
+        ...unmountedFailures.map((failure) => failure.key),
+      ]);
+      const firstKey = STAY_ERROR_KEYS_IN_TAB_ORDER.find((key) => failedKeys.has(key));
+      if (firstKey) revealError(firstKey, stayErrorFocusId(fieldIdPrefix, firstKey, formErrors));
+    },
+    [collectRuleFailures, fieldIdPrefix, getValues, revealError, setError],
+  );
+
+  const onSubmit = async (values: AccommodationFormValues) => {
+    if (!day) return;
+    setServerError(null);
+
+    /**
+     * The re-run happens **before** the CSRF fetch (review of Story 6.26). It used to sit after it,
+     * which meant a Save pressed with an empty name issued a network request first — and if that
+     * request failed the user was told `errors.csrfMissing` instead of being shown the field that was
+     * actually wrong. Before the tab split every one of these rules was judged by react-hook-form
+     * ahead of `onSubmit`, i.e. ahead of any fetch, so this also restores the pre-6.26 ordering.
+     */
+    const ruleFailures = collectRuleFailures(values);
+    if (ruleFailures.length > 0) {
+      applyRuleFailures(ruleFailures);
+      return;
+    }
+
+    let token: string;
+    try {
+      token = await ensureCsrfToken();
+    } catch {
+      setServerError(t("errors.csrfMissing"));
       return;
     }
 
@@ -860,22 +988,69 @@ export default function TripAccommodationDialog({
           // Keyed by the error key, valued by the *path* the server used, so a row-level
           // `payments.1.amount` can still focus row 1 rather than the block.
           const failedPaths = new Map<StayErrorKey, string>();
+          // A tab the server faulted through a key that is not a form field — `location`, per the
+          // review decision. Held separately because there is no `setError` to make for it: nothing on
+          // that tab is a registered field, so there is no inline slot to render the message in and
+          // the banner has to carry it. The server's own wording is kept rather than the generic
+          // `trips.stay.error`, because "Location label must be at most 200 characters" tells the user
+          // what to shorten and "Stay update failed" does not.
+          let payloadTab: StayTabId | null = null;
+          let payloadMessage: string | null = null;
+          // A key that is neither a form field nor payload-mapped (`tripDayId`), or a `fieldErrors`
+          // that is absent entirely. Nothing on any tab shows it, so the banner is the whole answer.
+          let hasUnmappable = false;
           Object.entries(details.fieldErrors ?? {}).forEach(([field, messages]) => {
             if (!messages?.[0]) return;
-            setError(field as keyof AccommodationFormValues, { message: messages[0] });
-            const baseKey = field.split(".")[0] as StayErrorKey;
-            if (baseKey in STAY_ERROR_TAB && !failedPaths.has(baseKey)) failedPaths.set(baseKey, field);
+            const baseKey = field.split(".")[0];
+            if (baseKey in STAY_ERROR_TAB) {
+              /*
+                `setError` **only** for keys the form actually registered, and this guard is the whole
+                fix for the worst defect Story 6.26's review found.
+
+                It used to run unconditionally, for every key the server named. An error planted under
+                a key with no registered field is one react-hook-form never revalidates and never
+                clears — and `handleSubmit` then routes to its *invalid* callback on every subsequent
+                press, forever, never reaching `onSubmit`. Verified: two submits with valid data, both
+                invalid. So one `location` rejection turned every later Save into a silent no-op — no
+                request, no banner, no marker — and the dialog stayed dead until it was closed and
+                reopened. The first failure raised the banner, which is exactly why it read as
+                handled.
+              */
+              setError(field as keyof AccommodationFormValues, { message: messages[0] });
+              if (!failedPaths.has(baseKey as StayErrorKey)) failedPaths.set(baseKey as StayErrorKey, field);
+            } else if (baseKey in STAY_PAYLOAD_ERROR_TAB) {
+              payloadTab ??= STAY_PAYLOAD_ERROR_TAB[baseKey as keyof typeof STAY_PAYLOAD_ERROR_TAB];
+              payloadMessage ??= messages[0];
+            } else {
+              hasUnmappable = true;
+            }
           });
 
           const firstKey = STAY_ERROR_KEYS_IN_TAB_ORDER.find((key) => failedPaths.has(key));
-          if (!firstKey) {
-            /*
-              The one path that can still break AC2, and the same one Story 6.22 found on the activity
-              dialog: the accommodation schema has keys this form does not surface (`tripDayId`,
-              `location`), and `details.fieldErrors` may be absent entirely. Without this the save
-              fails in silence — no tab marked, no field focused, no banner.
-            */
+          /*
+            The banner is raised whenever *anything* was unmappable, not only when everything was —
+            which is the second half of the same finding. `if (!firstKey)` alone meant a response
+            naming both `name` and `tripDayId` revealed the name and dropped the other with no banner,
+            no marker and no trace. AC2's "saving never fails silently" has to hold per error, not per
+            response.
+          */
+          if (hasUnmappable || (!firstKey && !payloadTab)) {
             setServerError(t("trips.stay.error"));
+          } else if (payloadMessage) {
+            // A payload-mapped fault has a tab but no inline slot, so the banner is the only place its
+            // message can appear. Selecting a tab and saying nothing would be its own silent failure.
+            setServerError(payloadMessage);
+          }
+          if (!firstKey) {
+            // No form field was faulted, but `location` was: select the tab that shows it and put the
+            // caret in the search box, rather than leaving the user with only a banner.
+            if (payloadTab) {
+              setActiveTab(payloadTab);
+              setPendingErrorFocus((current) => ({
+                elementId: `${fieldIdPrefix}-place`,
+                nonce: (current?.nonce ?? 0) + 1,
+              }));
+            }
             return;
           }
           const serverPath = failedPaths.get(firstKey) ?? firstKey;
@@ -1147,15 +1322,26 @@ export default function TripAccommodationDialog({
    * global chrome now, and a tab that keeps its warning triangle after the user has fixed the field
    * makes the tab bar lie until the next save. react-hook-form clears the key on revalidation, so
    * reading straight from it is what keeps them honest.
+   *
+   * **Not `useMemo`, and this is the whole finding of Story 6.26's review.** It was
+   * `useMemo(() => stayTabsWithErrors(errors), [errors])`, and that cached an empty `Set` forever:
+   * for its *own* built-in validation pass react-hook-form mutates `_formState.errors` **in place**,
+   * so the object identity never changes and the dependency never fires. The effect was that the one
+   * path AC2 names in words — pressing Save while already standing on the tab that owns the error —
+   * marked nothing at all: no colour, no glyph, no accessible name, while the field's own message
+   * rendered fine right underneath.
+   *
+   * It survived because the manual `setError` paths *do* get a fresh object (`handleSubmit` replaces
+   * `errors` with `{}` before invoking the valid callback), and every one of the story's six new
+   * cases stood on a different tab first, which routes through those. The sibling
+   * `TripDayPlanDialog` is unaffected for a reason that does not transfer: it memoises over
+   * `useState` values that are replaced immutably.
+   *
+   * A plain call is correct here — `stayTabsWithErrors` walks nine keys — and it is the only form
+   * that cannot go stale against a mutable store. If a future refactor reaches for memoisation
+   * again, the dependency has to be a *value* derived from the errors, never the errors object.
    */
-  const tabsWithErrors = useMemo(() => stayTabsWithErrors(errors), [errors]);
-
-  const nameRules = useMemo(
-    () => ({
-      required: t("trips.stay.nameRequired"),
-    }),
-    [t],
-  );
+  const tabsWithErrors = stayTabsWithErrors(errors);
 
   /**
    * Story 6.25 AC7 / EXPERIENCE.md.State Patterns → "Dismissing a dialog with unsaved input".
@@ -1282,7 +1468,15 @@ export default function TripAccommodationDialog({
                   // `warning.main`, not `warnBorder`: the marker has to be legible on the white
                   // selected pill, where the border token sits at 1.6:1. This is the colour theme.ts
                   // already assigns to every error foreground in the app.
-                  sx={hasError ? { color: warning.main } : undefined}
+                  //
+                  // `&.Mui-selected` is repeated deliberately (review of Story 6.26). A bare `color`
+                  // on the root is one class of specificity, and MUI's own `textColor="primary"`
+                  // variant emits `&.Mui-selected { color: primary.main }` at two — so the *selected*
+                  // errored tab came out `primary.main` green, and the triangle with it via
+                  // `currentColor`. AC2 auto-selects the tab that owns the error, which means the
+                  // colour channel was missing in precisely the state the user is put into, leaving
+                  // the glyph and the accessible name to carry AC3 alone.
+                  sx={hasError ? { color: warning.main, "&.Mui-selected": { color: warning.main } } : undefined}
                 />
               );
             })}
@@ -1303,7 +1497,7 @@ export default function TripAccommodationDialog({
           <Box
             component="form"
             id={formId}
-            onSubmit={handleSubmit(onSubmit, revealFirstError)}
+            onSubmit={handleSubmit(onSubmit, handleInvalid)}
             display="flex"
             flexDirection="column"
             gap="18px"

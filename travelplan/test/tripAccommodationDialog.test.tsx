@@ -3,7 +3,10 @@ import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import TripAccommodationDialog, {
+  STAY_ERROR_TAB,
+  STAY_PANEL_FLOOR_SX,
   STAY_PANEL_MIN_HEIGHT,
+  STAY_TAB_IDS,
 } from "@/components/features/trips/TripAccommodationDialog";
 import { Providers } from "./helpers/renderWithProviders";
 
@@ -15,6 +18,18 @@ import { Providers } from "./helpers/renderWithProviders";
  * does not belong to.
  */
 const selectTab = (name: string) => fireEvent.click(screen.getByRole("tab", { name }));
+
+/**
+ * Each panel is `aria-labelledby` its own tab, so the panel element itself answers to the tab's
+ * accessible name — and after the review renamed `trips.stay.tabCost` to "Cost", that is the name of
+ * both a tab and a field. Narrowing to the control keeps the query on the label rather than falling
+ * back to a test id.
+ *
+ * Byte-identical to `costField` in `tripDayPlanDialog.test.tsx`, which has needed it since Story 6.22:
+ * `trips.plan.tabCost` and `trips.plan.costLabel` are both "Cost" there. That the same helper is now
+ * required on both sides is a small confirmation the rename put the two dialogs on the same word.
+ */
+const costField = () => screen.getByLabelText("Cost", { selector: "input" });
 
 describe("TripAccommodationDialog", () => {
   afterEach(() => {
@@ -373,8 +388,8 @@ describe("TripAccommodationDialog", () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     fireEvent.change(screen.getByLabelText("Stay name"), { target: { value: "Test Stay" } });
-    selectTab("Payment");
-    fireEvent.change(screen.getByLabelText("Cost"), { target: { value: "100.00" } });
+    selectTab("Cost");
+    fireEvent.change(costField(), { target: { value: "100.00" } });
     fireEvent.click(screen.getByLabelText("Split into multiple payments"));
 
     const amountInputs = screen.getAllByLabelText("Amount");
@@ -433,7 +448,7 @@ describe("TripAccommodationDialog", () => {
     );
 
     await screen.findByLabelText("Stay name");
-    selectTab("Payment");
+    selectTab("Cost");
 
     const splitOption = await screen.findByLabelText("Split into multiple payments");
     expect(splitOption).toBeChecked();
@@ -494,7 +509,9 @@ describe("TripAccommodationDialog", () => {
 
     expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
       "Basics",
-      "Payment",
+      // "Cost", not "Payment": review of Story 6.26 settled the drift against the already-shipped
+      // `trips.plan.tabCost`, so the two sibling dialogs name this identical section the same word.
+      "Cost",
       "Place & notes",
       "Media & links",
     ]);
@@ -505,11 +522,11 @@ describe("TripAccommodationDialog", () => {
     expect(screen.getByLabelText("Status")).toBeInTheDocument();
     expect(screen.getByLabelText("Check-in time")).toBeInTheDocument();
     // And the fields that left this column.
-    expect(screen.queryByLabelText("Cost")).toBeNull();
+    expect(screen.queryByLabelText("Cost", { selector: "input" })).toBeNull();
     expect(screen.queryByLabelText("Link")).toBeNull();
 
-    selectTab("Payment");
-    expect(screen.getByLabelText("Cost")).toBeInTheDocument();
+    selectTab("Cost");
+    expect(costField()).toBeInTheDocument();
     expect(screen.getByLabelText("Pay all now")).toBeInTheDocument();
     expect(screen.getByLabelText("Split into multiple payments")).toBeInTheDocument();
 
@@ -561,10 +578,16 @@ describe("TripAccommodationDialog", () => {
    * is worse than the long scroll this replaced.
    *
    * The fixture is the one that could genuinely have broken. `name` is `required`, and its field is
-   * only mounted while `Basics` is selected — so this case also pins that react-hook-form still judges
-   * a field whose panel has been unmounted (`shouldUnregister` defaults to false, which is what keeps
-   * the value *and* the rule alive). If that ever changes, an empty name would sail past the client
-   * and come back as a server error instead, and this test is where it would surface.
+   * only mounted while `Basics` is selected.
+   *
+   * **What this case does *not* pin** (corrected in review of Story 6.26 — the previous wording had it
+   * exactly backwards). It said this test proved "react-hook-form still judges a field whose panel has
+   * been unmounted". It does not, and react-hook-form does not: `shouldUnregister: false` keeps an
+   * unmounted field's *value* but its built-in pass **skips the rules**, verified directly against a
+   * minimal form. That is precisely why `collectRuleFailures` exists in the component. So the empty
+   * name here is caught by that re-run, not by react-hook-form, and this case would pass either way —
+   * it cannot surface the regression the old docstring claimed. The case below it, standing *on*
+   * `Basics`, is the one that exercises react-hook-form's own pass.
    */
   it("selects, marks and focuses the tab that owns a validation error", async () => {
     const fetchMock = vi.fn(async () => ({
@@ -630,8 +653,8 @@ describe("TripAccommodationDialog", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     fireEvent.change(screen.getByLabelText("Stay name"), { target: { value: "Harbor Hotel" } });
 
-    selectTab("Payment");
-    fireEvent.change(screen.getByLabelText("Cost"), { target: { value: "100.00" } });
+    selectTab("Cost");
+    fireEvent.change(costField(), { target: { value: "100.00" } });
     fireEvent.click(screen.getByLabelText("Split into multiple payments"));
     const amountInputs = screen.getAllByLabelText("Amount");
     const dateInputs = screen.getAllByLabelText("Due date");
@@ -645,8 +668,8 @@ describe("TripAccommodationDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
 
     expect(await screen.findByText("Payments must add up to the total cost")).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: /^Payment/ })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByLabelText("Cost")).toHaveFocus();
+    expect(screen.getByRole("tab", { name: /^Cost/ })).toHaveAttribute("aria-selected", "true");
+    expect(costField()).toHaveFocus();
   });
 
   /**
@@ -680,8 +703,8 @@ describe("TripAccommodationDialog", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     fireEvent.change(screen.getByLabelText("Stay name"), { target: { value: "Harbor Hotel" } });
 
-    selectTab("Payment");
-    fireEvent.change(screen.getByLabelText("Cost"), { target: { value: "120.00" } });
+    selectTab("Cost");
+    fireEvent.change(costField(), { target: { value: "120.00" } });
 
     selectTab("Place & notes");
     fireEvent.change(screen.getByLabelText("Search place"), { target: { value: "Lisbon" } });
@@ -692,8 +715,8 @@ describe("TripAccommodationDialog", () => {
 
     selectTab("Basics");
     expect(screen.getByLabelText("Stay name")).toHaveValue("Harbor Hotel");
-    selectTab("Payment");
-    expect(screen.getByLabelText("Cost")).toHaveValue(120);
+    selectTab("Cost");
+    expect(costField()).toHaveValue(120);
     selectTab("Place & notes");
     expect(screen.getByLabelText("Search place")).toHaveValue("Lisbon");
     expect(screen.getByLabelText("Notes")).toHaveValue("Ask for a quiet room");
@@ -733,6 +756,454 @@ describe("TripAccommodationDialog", () => {
     const floor = await screen.findByTestId("stay-tabpanel-floor");
     const style = getComputedStyle(floor);
     expect(style.minHeight).toBe(`${STAY_PANEL_MIN_HEIGHT}px`);
-    expect(style.height).not.toBe(`${STAY_PANEL_MIN_HEIGHT}px`);
+    /*
+      `height` is asserted **empty**, not merely different (review of Story 6.26).
+
+      It was `expect(style.height).not.toBe("300px")`, which cannot fail: jsdom resolves `height` to
+      `""` for every element whatever the component sets, so that line passed identically for
+      `minHeight: 300`, `height: 300` and no rule at all — while its docstring claimed to pin the
+      distinction. Asserting `""` is not much stronger on its own, so the real guard is the exported
+      `STAY_PANEL_FLOOR_SX` below: it is the object the component spreads, and it can be checked for
+      shape rather than for rendered pixels.
+    */
+    expect(style.height).toBe("");
+    expect(STAY_PANEL_FLOOR_SX).toEqual({ minHeight: `${STAY_PANEL_MIN_HEIGHT}px` });
+    expect(Object.keys(STAY_PANEL_FLOOR_SX)).not.toContain("height");
+  });
+
+  /**
+   * Every case in this block was added by Story 6.26's code review, and each one was verified to FAIL
+   * against the code as it stood before its fix. That order matters more than usual here: the story
+   * shipped six passing cases for the marker mechanism while the marker was broken on its most common
+   * path, because all six stood on a tab other than the one that owned the error.
+   */
+  describe("review of Story 6.26", () => {
+    const csrfOnly = () =>
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => ({
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
+        })) as unknown as typeof fetch,
+      );
+
+    type StayDay = NonNullable<Parameters<typeof TripAccommodationDialog>[0]["day"]>;
+    const renderStay = (accommodation: StayDay["accommodation"] = null) =>
+      render(
+        <Providers language="en">
+          <TripAccommodationDialog
+            open
+            tripId="trip-1"
+            stayType="current"
+            day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1, accommodation }}
+            onClose={() => undefined}
+            onSaved={() => undefined}
+          />
+        </Providers>,
+      );
+
+    /**
+     * The headline finding. Saving from the tab that already owns the error marked **nothing** — no
+     * colour, no glyph, no accessible name — while the field's own message rendered underneath.
+     *
+     * The cause was `useMemo(() => stayTabsWithErrors(errors), [errors])`: for its own built-in
+     * validation pass react-hook-form mutates `_formState.errors` in place, so the identity never
+     * changes and the memo never recomputes. AC2 names this exact case in words ("including when the
+     * user is already standing on that tab") and no test covered it.
+     */
+    it("marks the tab it is already standing on when react-hook-form's own rule fails", async () => {
+      csrfOnly();
+      renderStay();
+
+      // No tab switch: `Basics` is where every open starts, and `name` is mounted and `required`.
+      fireEvent.click(await screen.findByRole("button", { name: "Save stay" }));
+
+      expect(await screen.findByText("Stay name is required")).toBeInTheDocument();
+      // The marker, in the accessible name — which carries the glyph and the colour with it.
+      const basicsTab = await screen.findByRole("tab", { name: "Basics (contains errors)" });
+      expect(basicsTab).toBeInTheDocument();
+      expect(screen.getByLabelText("Stay name")).toHaveFocus();
+
+      /*
+        AC3 wants all three channels, and colour was missing on the *selected* tab — which, because
+        AC2 auto-selects the tab that owns the error, is the only state this path leaves the user in.
+        MUI's `textColor="primary"` variant emits `&.Mui-selected { color: primary.main }` at two
+        classes of specificity and beat the single-class `color` on the root.
+
+        Asserted as a computed colour, not by reading `sx`: the whole defect was about which of two
+        rules the cascade picked, so an `sx` assertion would have passed before and after the fix.
+      */
+      expect(getComputedStyle(basicsTab).color).toBe("rgb(138, 90, 43)"); // warning.main #8A5A2B
+      expect(getComputedStyle(basicsTab).color).not.toBe("rgb(75, 99, 88)"); // primary.main #4B6358
+
+      // And the glyph, which inherits `currentColor` and so went green with it.
+      expect(basicsTab.querySelectorAll("svg").length).toBe(1);
+
+      // And it still clears on the fix, the way AC3 asks.
+      fireEvent.change(screen.getByLabelText("Stay name"), { target: { value: "Harbor Hotel" } });
+      await waitFor(() => expect(screen.queryByRole("tab", { name: "Basics (contains errors)" })).toBeNull());
+    });
+
+    /**
+     * AC3 says *every* tab with an error is marked. Two errors on two tabs used to need two saves:
+     * react-hook-form's pass failed on the mounted field, so `onSubmit` never ran, so the re-run that
+     * is the only thing which sees unmounted fields never ran either.
+     */
+    it("marks every tab that owns an error on the first save, not the second", async () => {
+      csrfOnly();
+      renderStay();
+
+      // A bad link on `Media & links` …
+      selectTab("Media & links");
+      fireEvent.change(screen.getByLabelText("Link"), { target: { value: "not a url" } });
+      // … and an empty name on `Basics`, which is where we press Save from.
+      selectTab("Basics");
+      fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+
+      expect(await screen.findByRole("tab", { name: "Basics (contains errors)" })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "Media & links (contains errors)" })).toBeInTheDocument();
+      // The reveal picks the first failure in *tab* order across both passes.
+      expect(screen.getByRole("tab", { name: "Basics (contains errors)" })).toHaveAttribute("aria-selected", "true");
+    });
+
+    /**
+     * AC3's "the marker clears as soon as the field is fixed rather than standing until the next save",
+     * for `payments` — the one key with no registered input behind it, so nothing revalidated it.
+     */
+    it("clears a block-level payment error when the amounts are corrected", async () => {
+      csrfOnly();
+      renderStay();
+
+      fireEvent.change(await screen.findByLabelText("Stay name"), { target: { value: "Harbor Hotel" } });
+      selectTab("Cost");
+      fireEvent.change(costField(), { target: { value: "100.00" } });
+      fireEvent.click(screen.getByLabelText("Split into multiple payments"));
+      const amounts = screen.getAllByLabelText("Amount");
+      const dates = screen.getAllByLabelText("Due date");
+      fireEvent.change(amounts[0], { target: { value: "40.00" } });
+      fireEvent.change(dates[0], { target: { value: "2026-11-01" } });
+      fireEvent.change(amounts[1], { target: { value: "50.00" } });
+      fireEvent.change(dates[1], { target: { value: "2026-11-02" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+
+      expect(await screen.findByText("Payments must add up to the total cost")).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: /^Cost \(contains errors\)/ })).toBeInTheDocument();
+
+      // 40 + 60 = 100. Both the message and the marker have to go, without another save.
+      fireEvent.change(screen.getAllByLabelText("Amount")[1], { target: { value: "60.00" } });
+      await waitFor(() => expect(screen.queryByText("Payments must add up to the total cost")).toBeNull());
+      expect(screen.queryByRole("tab", { name: /contains errors/ })).toBeNull();
+    });
+
+    /**
+     * The same store, a different way in: a row-level error outlived the row itself. Switching back to
+     * a single payment replaces the field array, so the tab stayed marked for a row that no longer
+     * existed — a marker with nothing to fix and no message to explain it.
+     */
+    it("clears a row-level payment error when the payment mode switch removes the row", async () => {
+      csrfOnly();
+      renderStay();
+
+      fireEvent.change(await screen.findByLabelText("Stay name"), { target: { value: "Harbor Hotel" } });
+      selectTab("Cost");
+      fireEvent.change(costField(), { target: { value: "100.00" } });
+      fireEvent.click(screen.getByLabelText("Split into multiple payments"));
+      // Leave the second row's amount empty so that row fails on its own.
+      fireEvent.change(screen.getAllByLabelText("Amount")[0], { target: { value: "100.00" } });
+      fireEvent.change(screen.getAllByLabelText("Due date")[0], { target: { value: "2026-11-01" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+
+      expect(await screen.findByRole("tab", { name: /^Cost \(contains errors\)/ })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByLabelText("Pay all now"));
+      await waitFor(() => expect(screen.queryByRole("tab", { name: /contains errors/ })).toBeNull());
+    });
+
+    /**
+     * AC2's third reveal path, which Task 2 names and no case covered: the server's field errors.
+     */
+    it("reveals, marks and focuses the tab a server field error names", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          if (String(input).includes("/api/auth/csrf")) {
+            return { ok: true, status: 200, json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }) };
+          }
+          return {
+            ok: false,
+            status: 422,
+            json: async () => ({
+              data: null,
+              error: {
+                code: "validation_error",
+                message: "Invalid",
+                details: { fieldErrors: { notes: ["Notes are too long"] } },
+              },
+            }),
+          };
+        }) as unknown as typeof fetch,
+      );
+      renderStay();
+
+      fireEvent.change(await screen.findByLabelText("Stay name"), { target: { value: "Harbor Hotel" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+
+      expect(await screen.findByRole("tab", { name: "Place & notes (contains errors)" })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "Place & notes (contains errors)" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+      expect(await screen.findByText("Notes are too long")).toBeInTheDocument();
+      expect(screen.getByLabelText("Notes")).toHaveFocus();
+    });
+
+    /**
+     * The worst finding of the review, and the one furthest from anything a reader would suspect.
+     *
+     * `setError` used to run for every key the server named, including `location` and `tripDayId`,
+     * which have no registered field. An error planted under such a key is one react-hook-form never
+     * clears, and `handleSubmit` then routes to its *invalid* callback on every later press — forever,
+     * never reaching `onSubmit`. So one rejection turned every subsequent Save into a silent no-op:
+     * no request, no banner, no marker. The banner on the *first* failure is exactly what made it read
+     * as handled.
+     *
+     * The assertion that matters is the second save reaching the network at all.
+     */
+    it("still saves after a server error naming a field the form does not surface", async () => {
+      let saveAttempts = 0;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          const url = String(input);
+          if (url.includes("/api/auth/csrf")) {
+            return { ok: true, status: 200, json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }) };
+          }
+          saveAttempts += 1;
+          if (saveAttempts === 1) {
+            return {
+              ok: false,
+              status: 422,
+              json: async () => ({
+                data: null,
+                error: {
+                  code: "validation_error",
+                  message: "Invalid",
+                  details: { fieldErrors: { tripDayId: ["Trip day is required"] } },
+                },
+              }),
+            };
+          }
+          return { ok: true, status: 200, json: async () => ({ data: { accommodation: { id: "stay-1" } }, error: null }) };
+        }) as unknown as typeof fetch,
+      );
+      renderStay();
+
+      fireEvent.change(await screen.findByLabelText("Stay name"), { target: { value: "Harbor Hotel" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+
+      // AC2's stated guarantee: unmappable means the banner, not silence.
+      expect(await screen.findByText("Stay update failed. Please try again.")).toBeInTheDocument();
+      await waitFor(() => expect(saveAttempts).toBe(1));
+
+      // The form is not wedged: a second press reaches the server.
+      fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+      await waitFor(() => expect(saveAttempts).toBe(2));
+    });
+
+    /**
+     * Tommy's call in review: `location` is not a form field, but the Place tab *does* show it, in the
+     * coordinate line. `locationSchemas.ts` caps the label at 200 characters and the geocoder's label
+     * goes in untruncated, so this is an ordinary search result rather than a freak input.
+     */
+    it("selects the place tab for a server error on the location, which is not a form field", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          if (String(input).includes("/api/auth/csrf")) {
+            return { ok: true, status: 200, json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }) };
+          }
+          return {
+            ok: false,
+            status: 422,
+            json: async () => ({
+              data: null,
+              error: {
+                code: "validation_error",
+                message: "Invalid",
+                details: { fieldErrors: { "location.label": ["Location label must be at most 200 characters"] } },
+              },
+            }),
+          };
+        }) as unknown as typeof fetch,
+      );
+      renderStay();
+
+      fireEvent.change(await screen.findByLabelText("Stay name"), { target: { value: "Harbor Hotel" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+
+      await waitFor(() =>
+        expect(screen.getByRole("tab", { name: "Place & notes" })).toHaveAttribute("aria-selected", "true"),
+      );
+      // No form field was faulted, so no tab carries a marker and there is no inline slot to render
+      // into. The banner carries the server's own wording — which names what to shorten, where the
+      // generic "Stay update failed" would not — and the caret lands in the search box.
+      expect(screen.getByText("Location label must be at most 200 characters")).toBeInTheDocument();
+      expect(screen.getByLabelText("Search place")).toHaveFocus();
+      expect(screen.queryByRole("tab", { name: /contains errors/ })).toBeNull();
+    });
+
+    /**
+     * `nameRules` was `{ required }` alone while the re-run judged `!values.name.trim()`, and
+     * react-hook-form's `required` accepts `"   "`. The visible consequence was an error the user could
+     * dismiss by typing *more* of what caused it.
+     */
+    it("does not let a whitespace-only name clear its own error", async () => {
+      csrfOnly();
+      renderStay();
+
+      fireEvent.change(await screen.findByLabelText("Stay name"), { target: { value: "   " } });
+      fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+
+      expect(await screen.findByText("Stay name is required")).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "Basics (contains errors)" })).toBeInTheDocument();
+
+      // A fourth space is still not a name. The message and the marker must both stand.
+      fireEvent.change(screen.getByLabelText("Stay name"), { target: { value: "    " } });
+      await waitFor(() => expect(screen.getByText("Stay name is required")).toBeInTheDocument());
+      expect(screen.getByRole("tab", { name: "Basics (contains errors)" })).toBeInTheDocument();
+    });
+
+    /**
+     * The rule re-run used to sit *after* the CSRF fetch, so a Save with an empty name issued a network
+     * request before judging anything — and a failing token replaced the field error with
+     * `errors.csrfMissing`. Before the tab split every one of these rules ran ahead of `onSubmit`, so
+     * this restores that ordering as much as it fixes the masking.
+     */
+    it("shows the field error rather than a token error when the CSRF fetch fails", async () => {
+      /*
+        The token has to *fail* for this to test anything. Counting fetches does not work: the init
+        effect has already cached a token, so `ensureCsrfToken` returns without a request whichever
+        order the two blocks sit in — a first version of this case asserted the call count and passed
+        against the unfixed code. What the ordering actually decides is which message the user gets
+        when the token cannot be had, so that is what is asserted.
+      */
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          if (String(input).includes("/api/auth/csrf")) {
+            return { ok: false, status: 500, json: async () => ({ data: null, error: { code: "server_error", message: "nope" } }) };
+          }
+          throw new Error("the save must never be attempted with an empty name");
+        }) as unknown as typeof fetch,
+      );
+      renderStay();
+
+      // Empty name, pressed from a tab that does not show it.
+      selectTab("Cost");
+      fireEvent.click(await screen.findByRole("button", { name: "Save stay" }));
+
+      // The field that is wrong, marked and revealed — not "Your session expired…".
+      expect(await screen.findByRole("tab", { name: "Basics (contains errors)" })).toBeInTheDocument();
+      expect(screen.getByText("Stay name is required")).toBeInTheDocument();
+      expect(screen.queryByText("Security token missing. Please refresh and try again.")).toBeNull();
+    });
+
+    /**
+     * AC4 names three things the round-trip case did not assert. The staged file is the one with real
+     * teeth — `galleryFiles` is component state that also holds Story 6.25's discard guard open, so a
+     * tab switch losing it would both drop the upload and quietly release the guard.
+     */
+    it("keeps a staged upload across a tab round trip, and asks to discard exactly once", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          if (String(input).includes("/api/auth/csrf")) {
+            return { ok: true, status: 200, json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }) };
+          }
+          return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
+        }) as unknown as typeof fetch,
+      );
+      const onClose = vi.fn();
+      render(
+        <Providers language="en">
+          <TripAccommodationDialog
+            open
+            tripId="trip-1"
+            stayType="current"
+            day={{
+              id: "day-1",
+              date: "2026-11-01T00:00:00.000Z",
+              dayIndex: 1,
+              accommodation: {
+                id: "stay-1",
+                name: "Harbor Hotel",
+                notes: null,
+                status: "planned",
+                costCents: null,
+                link: null,
+                checkInTime: null,
+                checkOutTime: null,
+                location: null,
+              },
+            }}
+            onClose={onClose}
+            onSaved={() => undefined}
+          />
+        </Providers>,
+      );
+
+      selectTab("Media & links");
+      const picker = document.querySelector('input[type="file"]') as HTMLInputElement;
+      const file = new File(["x"], "beach.jpg", { type: "image/jpeg" });
+      fireEvent.change(picker, { target: { files: [file] } });
+      expect(await screen.findByText("1 file(s) selected")).toBeInTheDocument();
+
+      // Away and back.
+      selectTab("Basics");
+      selectTab("Media & links");
+      expect(screen.getByText("1 file(s) selected")).toBeInTheDocument();
+
+      // A staged file is unsaved input, so the X asks — exactly once, and not by closing outright.
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+      expect(await screen.findByRole("button", { name: "Discard changes" })).toBeInTheDocument();
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.getAllByRole("button", { name: "Discard changes" })).toHaveLength(1);
+    });
+
+    /**
+     * AC6 is compiler-enforced for *totality* — every form key names a tab — but nothing ties a key's
+     * tab to the panel its field is actually rendered in. Mapping `notes` to `"media"` while its
+     * `FormField` stays in the place panel compiles cleanly and produces the exact failure the map
+     * exists to prevent. That agreement is a test's job, so here it is.
+     */
+    it("puts every mapped field in the panel its tab actually renders", async () => {
+      csrfOnly();
+      renderStay();
+      await screen.findByRole("button", { name: "Save stay" });
+
+      const fieldForKey: Partial<Record<keyof typeof STAY_ERROR_TAB, string>> = {
+        name: "Stay name",
+        checkInTime: "Check-in time",
+        costCents: "Cost",
+        notes: "Notes",
+        link: "Link",
+      };
+      const tabLabel: Record<(typeof STAY_TAB_IDS)[number], string> = {
+        basics: "Basics",
+        cost: "Cost",
+        place: "Place & notes",
+        media: "Media & links",
+      };
+
+      for (const [key, label] of Object.entries(fieldForKey)) {
+        const expectedTab = STAY_ERROR_TAB[key as keyof typeof STAY_ERROR_TAB];
+        selectTab(tabLabel[expectedTab]);
+        // `queryAll`, not `query`: "Cost" is the accessible name of both the tab and the field, so a
+        // single-match query throws on ambiguity rather than answering the question being asked here,
+        // which is only whether the field is present on the tab its key maps to.
+        expect(screen.queryAllByLabelText(label as string).length).toBeGreaterThan(0);
+      }
+    });
   });
 });

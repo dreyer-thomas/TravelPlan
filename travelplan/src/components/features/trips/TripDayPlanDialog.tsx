@@ -1700,7 +1700,15 @@ export default function TripDayPlanDialog({
                   // `warning.main` (#8A5A2B), not `warnBorder` (#E3C7A2): the marker has to be legible
                   // on the white selected pill, where the border token sits at 1.6:1. This is the
                   // colour `theme.ts` already assigns to every error foreground in the app, at 5.87:1.
-                  sx={hasError ? { color: warning.main } : undefined}
+                  //
+                  // `&.Mui-selected` is repeated deliberately (DW-176, from Story 6.26's review). A
+                  // bare `color` on the root is one class of specificity, and MUI's own
+                  // `textColor="primary"` variant emits `&.Mui-selected { color: primary.main }` at
+                  // two — so the *selected* errored tab came out `primary.main` (#4B6358) green, and
+                  // the triangle with it via `currentColor`. Because the error reveal auto-selects the
+                  // tab that owns the error, the colour channel was missing in precisely the state the
+                  // user is put into, leaving the glyph and the accessible name to carry AC2 alone.
+                  sx={hasError ? { color: warning.main, "&.Mui-selected": { color: warning.main } } : undefined}
                 />
               );
             })}

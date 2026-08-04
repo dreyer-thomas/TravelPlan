@@ -1551,6 +1551,23 @@ describe("TripDayPlanDialog", () => {
     // And the caret is on the field, not just on the tab.
     expect(costField()).toHaveFocus();
 
+    /*
+      DW-176, from Story 6.26's review. AC2 asks for the marker in colour *as well as* in a glyph and
+      in words, and colour was the one channel missing — on the selected tab specifically, which is the
+      only state this path ever leaves the user in. A bare `color` on the `Tab` root is one class of
+      specificity; MUI's `textColor="primary"` variant emits `&.Mui-selected { color: primary.main }`
+      at two, so it won and the tab rendered `primary.main` green, triangle included via `currentColor`.
+
+      **This assertion is weaker than it looks, and deliberately so.** This suite stubs `@mui/material`
+      and re-exposes `sx` as a serialised `data-sx` (see the mock's own note above), so there is no real
+      cascade here to measure — `getComputedStyle` returns black for every element. All that can be
+      checked is that the override is *present*. The proof that it actually wins the cascade is in
+      `tripAccommodationDialog.test.tsx`, which renders real MUI and asserts the computed colour; that
+      case was verified to fail against the single-class version.
+    */
+    const markerSx = JSON.parse(costTab.getAttribute("data-sx") ?? "null");
+    expect(markerSx).toEqual({ color: "#8A5A2B", "&.Mui-selected": { color: "#8A5A2B" } });
+
     expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining("/day-plan-items"), expect.anything());
   });
 

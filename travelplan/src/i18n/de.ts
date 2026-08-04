@@ -564,8 +564,14 @@ const de: Dictionary = {
   // labels; these are deliberately separate keys rather than shared ones — the two surfaces group
   // different fields, and `tabsLabel` names the subject ("Unterkunft", not "Aktivität").
   "trips.stay.tabsLabel": "Bereiche der Unterkunft",
-  "trips.stay.tabBasics": "Basisdaten",
-  "trips.stay.tabCost": "Zahlung",
+  // Weiches Trennzeichen (U+00AD) nach "Basis": bei 390px ist ein Tab 62,5px breit, nach Padding
+  // bleiben ~50px, und "Basisdaten" ist als ein Wort ~68px breit und wurde abgeschnitten — gemessen in
+  // Task 7 auf zwei Unterkünften. Die drei anderen Labels passen nur, weil sie Leerzeichen enthalten
+  // und umbrechen dürfen; dieses Zeichen gibt "Basisdaten" dieselbe Möglichkeit. Sichtbar bleibt das
+  // Wort unverändert, solange es nicht umbricht, und die Tab-Optik bleibt Zeichen für Zeichen die des
+  // Aktivitäten-Dialogs (AC7) — kleinere Schrift oder weniger Padding hätten beides gebrochen.
+  "trips.stay.tabBasics": "Basis­daten",
+  "trips.stay.tabCost": "Kosten",
   "trips.stay.tabPlace": "Ort & Notizen",
   "trips.stay.tabMedia": "Medien & Links",
   "trips.stay.tabWithErrors": "{label} (enthält Fehler)",
@@ -655,12 +661,33 @@ const de: Dictionary = {
   "admin.users.attach.tripNotFound": "Diese Reise existiert nicht mehr. Bitte neu laden.",
   "admin.users.attach.userNotFound": "Dieses Konto existiert nicht mehr. Bitte neu laden.",
   "admin.users.attach.currentRole": "derzeit {role}",
-  "admin.users.detach.action": "Von Reise entfernen",
-  // Der zugängliche Name muss die Reise benennen - siehe en.ts.
+  // Der zugängliche Name muss die Reise benennen - siehe en.ts. Story 5.11: `detach.action` war das
+  // sichtbare Label eines Textbuttons; das Steuerelement ist jetzt ein Mülleimer-Glyph, also ist dieser
+  // Schlüssel sein zugänglicher Name UND sein Tooltip, und das sichtbare Label hat keinen Leser mehr.
   "admin.users.detach.actionFor": "{email} von {trip} entfernen",
   "admin.users.detach.error": "Freigabe konnte nicht entfernt werden.",
   "admin.users.detach.notFound": "Diese Freigabe existiert nicht mehr. Bitte neu laden.",
-  "admin.users.roleToggleFor": "{email} auf {trip} zu {role} ändern",
+  // Story 5.11. Das Entfernen wird jetzt bestätigt. Die sichere Hälfte benennt, was sie erhält, im
+  // gleichen Substantiv wie ihr Nachbar (Story 6.25 AC3).
+  "admin.users.detach.confirmTitle": "Freigabe entfernen",
+  "admin.users.detach.confirmBody": "{email} verliert den Zugriff auf {trip}. Die Reise selbst bleibt unverändert.",
+  "admin.users.detach.confirm": "Freigabe entfernen",
+  "admin.users.detach.keep": "Freigabe behalten",
+  // Story 5.11. Der Überlauf-Auslöser der Zeile. Pro Konto benannt, weil eine Liste einen pro Zeile
+  // rendert und dreimal "Weitere Aktionen" drei Steuerelemente sind, die ein Screenreader nicht
+  // unterscheiden kann - dieselbe Lehre, die `detach.actionFor` erzwungen hat.
+  "admin.users.rowMenuFor": "Weitere Aktionen für {email}",
+  // Der Freigaben-Abschnitt unter jedem Konto. Absichtlich ein anderes Wort als `sharedLabel`
+  // ("Freigegeben für"): das eine stellt eine Beziehung voran, dieses hier betitelt eine Tabelle.
+  "admin.users.sharesLabel": "Freigaben",
+  "admin.users.sharesEmpty": "Keine Freigaben",
+  "admin.users.sharesTripColumn": "Reise",
+  "admin.users.sharesRoleColumn": "Rolle",
+  // Die Spalte der Mülleimer-Buttons hat keine sichtbare Überschrift - die Glyphen benennen sich selbst -
+  // aber die Spalte braucht trotzdem eine für alle, die die Tabelle über ihre Struktur lesen.
+  "admin.users.sharesActionColumn": "Aktion",
+  // Benennt die Auswahlbox der Zeile. Die Spaltenüberschrift allein würde vier Boxen gleich benennen.
+  "admin.users.roleForTrip": "Rolle für {trip}",
   // AC7. Die sichere Hälfte benennt, was sie erhält (Story 6.25 AC3) - und im gleichen Substantiv wie ihr
   // Nachbar: "Konto behalten" neben "Konto löschen".
   "admin.users.delete.action": "Konto löschen",

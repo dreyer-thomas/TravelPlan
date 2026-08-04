@@ -150,6 +150,30 @@ export function MoreHorizontalIcon({ sx }: IconProps) {
   );
 }
 
+/**
+ * The same three dots stood on end (Story 5.11).
+ *
+ * A separate export rather than an `orientation` prop on the one above: the two are used in different
+ * places for different reasons and each call site names the shape it wants, which a boolean would turn
+ * into `MoreHorizontalIcon vertical` at the point of use. The geometry is `MoreHorizontalIcon`'s with
+ * `cx` and `cy` exchanged, so both read as one glyph rotated rather than two drawings — including the
+ * `fill`-not-`stroke` choice documented there.
+ *
+ * **Vertical is the row-level idiom and horizontal the surface-level one.** The day hero's overflow
+ * menu acts on the whole screen and sits horizontally in a control strip; this one belongs to one row
+ * of a list, stands at its right edge, and the upright shape is what says "this row" rather than "this
+ * page".
+ */
+export function MoreVerticalIcon({ sx }: IconProps) {
+  return (
+    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={[{ fontSize: 18 }, ...(Array.isArray(sx) ? sx : [sx])]}>
+      <circle cx="12" cy="5" r="1.8" fill="currentColor" />
+      <circle cx="12" cy="12" r="1.8" fill="currentColor" />
+      <circle cx="12" cy="19" r="1.8" fill="currentColor" />
+    </SvgIcon>
+  );
+}
+
 /** Pencil (row-level edit). Stroke-based to match the rest of the icon set. */
 export function PencilIcon({ sx }: IconProps) {
   return (

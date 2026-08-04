@@ -321,6 +321,18 @@ const theme = createTheme({
         ".tiptap-editor": TOUCH_ZOOM_SAFE_FONT_SIZE,
       },
     },
+    /*
+      The options behind the select, added in review of fix 6.26a. `MuiMenuItem-root` is a
+      `ButtonBase`, not an input slot — verified — so nothing above reaches it, and an open dropdown
+      rendered its options 2.5px smaller than the field they belong to on exactly the devices this fix
+      targets. Not a zoom case either (a menu item takes no caret); it is the size match the `Select`
+      display comment describes, applied to the one element that genuinely needed it.
+    */
+    MuiMenuItem: {
+      styleOverrides: {
+        root: TOUCH_ZOOM_SAFE_FONT_SIZE,
+      },
+    },
     MuiInputLabel: {
       styleOverrides: {
         root: {
@@ -436,9 +448,18 @@ const theme = createTheme({
           alignItems: "center",
           /*
             Not a zoom fix — MUI's `Select` display is a `div` with `role="combobox"`, not a native
-            `<select>`, so Safari has nothing to zoom *for* here. It is a match: the status select shares
-            a field row with the check-in time input, and a 13.5px select beside a 16px input is a
-            visible mismatch rather than a subtle one.
+            `<select>`, so Safari has nothing to zoom *for* here.
+
+            Nor is it the match it was first described as. The original comment said a 13.5px select
+            would sit beside a 16px input; that is **not** what happens, and it was checked in review:
+            the display div's classes are `MuiSelect-select MuiSelect-outlined MuiInputBase-input
+            MuiOutlinedInput-input`, so the `MuiInputBase.input` override above already reaches it and
+            it is 16px on touch with or without this line.
+
+            Kept rather than deleted because it states the intent locally — the select is meant to
+            track its neighbouring input's size — and because `MuiSelect-select` is the slot that would
+            still carry it if the element ever stopped being an `InputBase` input. It changes no pixel
+            today, and the theme test asserts the *outcome* for this slot, which stays true either way.
           */
           ...TOUCH_ZOOM_SAFE_FONT_SIZE,
         },

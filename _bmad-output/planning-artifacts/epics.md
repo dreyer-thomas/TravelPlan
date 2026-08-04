@@ -1357,6 +1357,38 @@ So that people who no longer travel with us stop having access.
 **When** the first person registers
 **Then** that account becomes `ADMIN`, in the same transaction as the insert; an existing installation is bootstrapped with `npm run admin:grant -- <email>`
 
+### Story 5.11: The Administration Row, Rearranged
+
+As the administrator of this installation,
+I want each account's actions collected in one overflow menu and its shares shown as a table,
+So that a row stops being a paragraph with five text buttons trailing it.
+
+**FRs covered:** none new — Story 5.10's surface, relaid out
+
+**Given** an account row carrying three text buttons (add to trip, grant/revoke admin, delete account)
+**When** the row is laid out
+**Then** the three sit in one vertical-dots overflow menu at the right of the line the address is on, and the menu is named per account — a list renders one trigger per row, and three controls called "Weitere Aktionen" cannot be told apart
+
+**Given** the memberships, previously one "Freigegeben für X · Rolle" line each with two text buttons after it
+**When** they are laid out
+**Then** they are a table under a "Freigaben" heading with three columns — trip name, role as a select that changes it, and a trash button — and an account with no memberships says so instead of rendering an empty table
+
+**Given** the shares table
+**When** the admin wants to add one
+**Then** a `+` button sits above its right edge; the same action stays in the overflow menu, because one belongs to the table and the other to the account
+
+**Given** the role control is a select rather than a toggle
+**When** the role already showing is picked again
+**Then** nothing is sent — the endpoint is an upsert, so re-sending the current role would spend a write and a full list reload to arrive where it started
+
+**Given** removing a share was a direct action, argued for on the grounds that it is reversible in two clicks
+**When** it becomes a trash glyph in a table row beside three other trash glyphs
+**Then** it is confirmed first, with the safe half naming what it preserves — the word that said what the click costs is gone, and "reversible" assumed the admin noticed
+
+**Given** ownership and membership must never read as one thing (Story 5.10 AC3)
+**When** the shares become a table
+**Then** the owned trips stay outside it, under their own label — the table holds memberships and nothing else
+
 
 ## Epic 6: Usability Refinements
 

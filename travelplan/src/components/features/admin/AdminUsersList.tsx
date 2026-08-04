@@ -9,18 +9,29 @@ import {
   Dialog,
   DialogActions,
   DialogContent,
+  IconButton,
   List,
   ListItem,
+  Menu,
   MenuItem,
+  Select,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
   TextField,
+  Tooltip,
   Typography,
   useTheme,
 } from "@mui/material";
+import { visuallyHidden } from "@mui/utils";
 import { Controller, useForm } from "react-hook-form";
 import { formatMessage } from "@/i18n";
 import { useI18n } from "@/i18n/provider";
 import { DialogTitleWithClose } from "@/components/ui/DialogCloseButton";
 import DiscardChangesDialog, { useDiscardGuard } from "@/components/ui/DiscardChangesDialog";
+import { MoreVerticalIcon, PlusIcon, TrashIcon } from "@/components/features/trips/TripIcons";
 
 type ApiEnvelope<T> = {
   data: T | null;
@@ -101,6 +112,16 @@ export default function AdminUsersList({ currentUserId }: { currentUserId: strin
   const { t } = useI18n();
   const { tokens } = useTheme().palette;
   const countLabelId = useId();
+  /**
+   * Story 5.11. The prefix for every per-row id on this surface: the overflow triggers, the one menu they
+   * share, each shares-table caption and each role select's hidden label.
+   *
+   * `useId` rather than a literal, for the reason `TripAccommodationDialog` needs one: a fixed string
+   * collides the moment a surface is mounted twice, and the ids here are already suffixed per account —
+   * so a second mount would produce two elements answering to `admin-row-trigger-<userId>` and
+   * `aria-controls` would resolve to whichever came first in document order.
+   */
+  const rowMenuIdPrefix = useId();
   const [state, setState] = useState<ListState>({ status: "loading" });
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -109,6 +130,18 @@ export default function AdminUsersList({ currentUserId }: { currentUserId: strin
   const [createOpen, setCreateOpen] = useState(false);
   const [attachTarget, setAttachTarget] = useState<AdminUser | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null);
+  /**
+   * Story 5.11. The row overflow menu: which account it belongs to, and what it hangs off.
+   *
+   * Two pieces of state rather than the anchor alone, because a list has one trigger per row and the
+   * items need to know which account they act on. `menuUser` holds the account itself and not its id —
+   * the id would have to be looked up again in `users` on every item, and every mutation replaces that
+   * array wholesale (see the component docblock), so the lookup could miss.
+   */
+  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
+  const [menuUser, setMenuUser] = useState<AdminUser | null>(null);
+  /** Story 5.11. Removing a share is confirmed now; this is the pending one. */
+  const [detachTarget, setDetachTarget] = useState<{ user: AdminUser; membership: AdminMembership } | null>(null);
 
   /**
    * Fetches the list and **returns** the state it implies rather than applying it.
@@ -382,14 +415,29 @@ export default function AdminUsersList({ currentUserId }: { currentUserId: strin
     await load();
   });
 
-  const changeMembershipRole = async (user: AdminUser, membership: AdminMembership) => {
+  /**
+   * Story 5.11. The target role is now a parameter rather than derived.
+   *
+   * Before this story the control was a text button whose label was the *other* value, and the handler
+   * flipped it — reasonable while AC5 was a switch between exactly two values. The control is a select
+   * now, so the chosen role is what the admin actually said, and reading it from the current value would
+   * be inventing an answer the widget already gave.
+   *
+   * The no-op guard matters more than it looks: MUI fires `onChange` only on an actual change, but the
+   * request is an **upsert**, so re-sending the role a membership already holds would spend a write and a
+   * full list reload to arrive back where it started.
+   */
+  const changeMembershipRole = async (
+    user: AdminUser,
+    membership: AdminMembership,
+    nextRole: "VIEWER" | "CONTRIBUTOR",
+  ) => {
+    if (nextRole === membership.role) return;
     setActionError(null);
     setBusyUserId(user.id);
     const { ok, envelope } = await mutate(`/api/admin/users/${user.id}/memberships`, "POST", {
       tripId: membership.tripId,
-      // AC5 is a switch between exactly two values, so the row's control is a toggle rather than a select:
-      // one click, and the label already says which of the two it currently is.
-      role: membership.role === "VIEWER" ? "CONTRIBUTOR" : "VIEWER",
+      role: nextRole,
     });
     setBusyUserId(null);
 
@@ -401,19 +449,43 @@ export default function AdminUsersList({ currentUserId }: { currentUserId: strin
     await load();
   };
 
+  // ─── Detach ────────────────────────────────────────────────────────────────────────────────────────
+  const [detachBusy, setDetachBusy] = useState(false);
+
+  const closeDetach = () => {
+    if (detachBusy) return;
+    setDetachTarget(null);
+  };
+
   /**
-   * Detach is a direct action with no confirmation, unlike the account deletion below, and the difference
-   * is reversibility rather than importance. A membership removed here can be put back from the same
-   * screen in two clicks, and it destroys nothing - the trip, its days and its photos all belong to the
-   * owner. Account deletion is irreversible and cascades, which is what earns it a confirmation.
+   * Story 5.11. **Removing a share is confirmed now, and that reverses a decision this file used to
+   * argue for.** The previous version said so explicitly: detach was direct "and the difference is
+   * reversibility rather than importance — a membership removed here can be put back from the same
+   * screen in two clicks, and it destroys nothing."
+   *
+   * That reasoning was sound and is now outweighed by what the control became. It was a text button
+   * reading "Von Reise entfernen"; it is a 44px trash glyph in a table row, sitting one row away from
+   * three other trash glyphs, on a surface reached by exactly the people who can also delete accounts.
+   * The word that used to say what the click costs is gone, and "two clicks to put back" assumes the
+   * admin *noticed* — which is the assumption a mis-tap breaks. Same trade Story 6.24 made when
+   * `Löschen` became a glyph and kept its confirmation.
+   *
+   * The failure message stays on the page rather than in the dialog, unlike the delete path: there is
+   * no equivalent of AC7's `owns_trips` here — no refusal carries information the admin has to read
+   * *inside* the dialog — so it closes and reports through `actionError` like the other row actions.
    */
-  const detach = async (user: AdminUser, membership: AdminMembership) => {
+  const confirmDetach = async () => {
+    if (!detachTarget) return;
+    const { user, membership } = detachTarget;
     setActionError(null);
+    setDetachBusy(true);
     setBusyUserId(user.id);
     const { ok, envelope } = await mutate(`/api/admin/users/${user.id}/memberships`, "DELETE", {
       tripId: membership.tripId,
     });
+    setDetachBusy(false);
     setBusyUserId(null);
+    setDetachTarget(null);
 
     if (!ok) {
       if (consumeForbidden(envelope)) return;
@@ -508,6 +580,28 @@ export default function AdminUsersList({ currentUserId }: { currentUserId: strin
 
   const roleLabel = (role: "VIEWER" | "CONTRIBUTOR") => t(`admin.users.role${role}`);
 
+  const closeRowMenu = () => {
+    setMenuAnchor(null);
+    setMenuUser(null);
+  };
+
+  /**
+   * Story 5.11. Every menu item closes the menu **before** it acts, and the order is load-bearing.
+   *
+   * `TripDayView`'s overflow menu records the hazard this avoids: a trigger that unmounts while its menu
+   * is open leaves `anchorEl` pointing at a detached node. Here it is not a latent edge case but the
+   * normal path — two of the three items mutate, every mutation calls `load()`, and `load()` replaces the
+   * whole `users` array (see the component docblock for why it re-reads rather than splices). The row
+   * remounts, so the node in `menuAnchor` is gone and the menu would be anchored to nothing.
+   *
+   * The other two items open a dialog, where closing first is simply what should happen anyway: a menu
+   * left standing behind a modal is a second dismissable layer the user did not ask for.
+   */
+  const runFromRowMenu = (action: () => void) => {
+    closeRowMenu();
+    action();
+  };
+
   return (
     <Box
       sx={{
@@ -590,7 +684,14 @@ export default function AdminUsersList({ currentUserId }: { currentUserId: strin
 
                   return (
                     <ListItem key={user.id} disableGutters sx={{ py: "12px", display: "block" }}>
-                      <Box display="flex" alignItems="center" flexWrap="wrap" gap="8px">
+                      {/*
+                        Story 5.11. The account's name line, with the row's three actions collapsed into one
+                        overflow trigger at its right edge. `alignItems: flex-start` rather than `center`:
+                        the badges wrap on a narrow screen and a centred 44px glyph would drift down with
+                        them, away from the name it belongs to.
+                      */}
+                      <Box display="flex" alignItems="flex-start" gap="8px">
+                      <Box display="flex" alignItems="center" flexWrap="wrap" gap="8px" sx={{ flex: 1, minWidth: 0 }}>
                         <Box sx={{ fontSize: 13, fontWeight: 700, color: tokens.ink }}>{user.email}</Box>
                         {user.role === "ADMIN" && (
                           <Box
@@ -623,6 +724,37 @@ export default function AdminUsersList({ currentUserId }: { currentUserId: strin
                         )}
                         {busy && <CircularProgress size={14} />}
                       </Box>
+                      {/*
+                        The 44px hit area is spelled out for the reason `TripDayView`'s trigger spells it
+                        out: theme.ts sets `minHeight` on `MuiButton` and has no `MuiIconButton` override,
+                        so `size="small"` alone renders ~28px. The focus ring is spelled out for the same
+                        reason 6.24's trash glyph is — the app-wide ring is scoped to `MuiButton`.
+                      */}
+                      <Tooltip title={formatMessage(t("admin.users.rowMenuFor"), { email: user.email })} enterDelay={0}>
+                        <IconButton
+                          id={`${rowMenuIdPrefix}-trigger-${user.id}`}
+                          aria-label={formatMessage(t("admin.users.rowMenuFor"), { email: user.email })}
+                          aria-haspopup="menu"
+                          aria-expanded={menuUser?.id === user.id}
+                          aria-controls={menuUser?.id === user.id ? `${rowMenuIdPrefix}-menu` : undefined}
+                          disabled={busy}
+                          onClick={(event) => {
+                            setMenuAnchor(event.currentTarget);
+                            setMenuUser(user);
+                          }}
+                          sx={{
+                            flex: "0 0 auto",
+                            width: 44,
+                            height: 44,
+                            borderRadius: "6px",
+                            color: tokens.ink,
+                            "&.Mui-focusVisible": { outline: `2px solid ${tokens.ink}`, outlineOffset: "2px" },
+                          }}
+                        >
+                          <MoreVerticalIcon />
+                        </IconButton>
+                      </Tooltip>
+                      </Box>
 
                       {/* AC3: the two relations, labelled differently, never merged. */}
                       <Box sx={{ mt: "6px", display: "flex", flexDirection: "column", gap: "4px" }}>
@@ -641,103 +773,270 @@ export default function AdminUsersList({ currentUserId }: { currentUserId: strin
                           </Typography>
                         )}
 
-                        {user.memberships.map((membership) => (
-                          <Box
-                            key={membership.id}
-                            display="flex"
-                            alignItems="center"
-                            flexWrap="wrap"
-                            gap="6px"
-                          >
-                            <Typography variant="caption" sx={{ color: tokens.inkSoft }}>
-                              <Box component="span" sx={{ fontWeight: 700 }}>
-                                {t("admin.users.sharedLabel")}
-                              </Box>{" "}
-                              {membership.tripName} · {roleLabel(membership.role)}
-                            </Typography>
-                            {/*
-                              Both buttons carry an `aria-label` naming the account and the trip, because the
-                              visible labels cannot: the toggle's is the target role alone and detach's names
-                              no trip, so an account with two memberships rendered two buttons called
-                              "Contributor" and two called "Remove from trip" on one row - indistinguishable
-                              to a screen reader, and to `getByRole`, which is why a two-membership fixture
-                              could not have been tested before this. On a surface whose whole point is that
-                              two relations must not be confused, the controls that act on one of them have to
-                              name it.
-                            */}
-                            <Button
-                              size="small"
-                              variant="text"
-                              disabled={busy}
-                              aria-label={formatMessage(t("admin.users.roleToggleFor"), {
-                                email: user.email,
-                                trip: membership.tripName,
-                                role: roleLabel(membership.role === "VIEWER" ? "CONTRIBUTOR" : "VIEWER"),
-                              })}
-                              onClick={() => void changeMembershipRole(user, membership)}
-                              sx={{ fontSize: 11, minWidth: 0 }}
-                            >
-                              {roleLabel(membership.role === "VIEWER" ? "CONTRIBUTOR" : "VIEWER")}
-                            </Button>
-                            <Button
-                              size="small"
-                              variant="text"
-                              disabled={busy}
-                              aria-label={formatMessage(t("admin.users.detach.actionFor"), {
-                                email: user.email,
-                                trip: membership.tripName,
-                              })}
-                              onClick={() => void detach(user, membership)}
-                              sx={{ fontSize: 11, minWidth: 0 }}
-                            >
-                              {t("admin.users.detach.action")}
-                            </Button>
-                          </Box>
-                        ))}
                       </Box>
 
-                      <Box sx={{ mt: "8px", display: "flex", flexWrap: "wrap", gap: "8px" }}>
-                        <Button
-                          size="small"
-                          variant="text"
-                          disabled={busy || trips.length === 0}
-                          onClick={() => setAttachTarget(user)}
-                          sx={{ fontSize: 11 }}
-                        >
-                          {t("admin.users.attach.action")}
-                        </Button>
-                        <Button
-                          size="small"
-                          variant="text"
-                          disabled={busy}
-                          onClick={() => void setAdminRole(user, user.role !== "ADMIN")}
-                          sx={{ fontSize: 11 }}
-                        >
-                          {user.role === "ADMIN" ? t("admin.users.revokeAdmin") : t("admin.users.grantAdmin")}
-                        </Button>
-                        {/*
-                          Not hidden on the admin's own row, and not hidden on an account that owns trips.
-                          Both are refused server-side with a reason worth reading - "you cannot delete your
-                          own account here", and AC7's list of the trips in the way - and a hidden button
-                          teaches neither. Hiding it would also be the "disabled button as a guard" that
-                          AC8 explicitly is not.
-                        */}
-                        <Button
-                          size="small"
-                          variant="text"
-                          color="error"
-                          disabled={busy}
-                          onClick={() => setDeleteTarget(user)}
-                          sx={{ fontSize: 11 }}
-                        >
-                          {t("admin.users.delete.action")}
-                        </Button>
+                      {/*
+                        Story 5.11. The shares, as a table with the section's own add action above its right
+                        edge. The memberships used to be one "Freigegeben für X · Rolle" line each with two
+                        text buttons trailing it; three columns with a header row is tabular data, and the
+                        cost overview's per-day list is the precedent for keeping a real `Table` rather than
+                        converting it to the div-row idiom.
+                      */}
+                      <Box sx={{ mt: "10px" }}>
+                        <Box display="flex" alignItems="center" justifyContent="space-between" gap="8px">
+                          <Typography
+                            id={`${rowMenuIdPrefix}-shares-${user.id}`}
+                            variant="labelCaps"
+                            component="div"
+                            sx={{ fontSize: 11, letterSpacing: "0.06em", color: tokens.inkSoft }}
+                          >
+                            {t("admin.users.sharesLabel")}
+                          </Typography>
+                          {/*
+                            The section's own entry point, and deliberately a second one: the same action is
+                            in the overflow menu above, where it belongs to the account. Here it belongs to
+                            this table — "add a row to this" — which is what makes a `+` legible without a
+                            word. Disabled when there is no trip to attach to at all, which is the one case
+                            where the dialog would open onto its own empty state.
+                          */}
+                          <Tooltip
+                            title={formatMessage(t("admin.users.attach.title"), { email: user.email })}
+                            enterDelay={0}
+                          >
+                            <Box component="span" sx={{ display: "inline-flex" }}>
+                              <IconButton
+                                aria-label={formatMessage(t("admin.users.attach.title"), { email: user.email })}
+                                disabled={busy || trips.length === 0}
+                                onClick={() => setAttachTarget(user)}
+                                sx={{
+                                  width: 44,
+                                  height: 44,
+                                  borderRadius: "6px",
+                                  color: tokens.ink,
+                                  "&.Mui-focusVisible": { outline: `2px solid ${tokens.ink}`, outlineOffset: "2px" },
+                                }}
+                              >
+                                <PlusIcon />
+                              </IconButton>
+                            </Box>
+                          </Tooltip>
+                        </Box>
+
+                        {user.memberships.length === 0 ? (
+                          <Typography variant="caption" component="div" sx={{ color: tokens.inkMuted }}>
+                            {t("admin.users.sharesEmpty")}
+                          </Typography>
+                        ) : (
+                          <Table
+                            size="small"
+                            aria-labelledby={`${rowMenuIdPrefix}-shares-${user.id}`}
+                            sx={{
+                              "& .MuiTableCell-root": {
+                                borderBottom: `1px solid ${tokens.border}`,
+                                px: 0,
+                                py: "6px",
+                                fontSize: 12,
+                              },
+                              "& .MuiTableRow-root:last-of-type .MuiTableCell-root": { borderBottom: "none" },
+                            }}
+                          >
+                            <TableHead>
+                              <TableRow>
+                                <TableCell
+                                  sx={{ color: tokens.inkSoft, fontWeight: 700, textTransform: "uppercase", fontSize: 10 }}
+                                >
+                                  {t("admin.users.sharesTripColumn")}
+                                </TableCell>
+                                <TableCell
+                                  sx={{ color: tokens.inkSoft, fontWeight: 700, textTransform: "uppercase", fontSize: 10 }}
+                                >
+                                  {t("admin.users.sharesRoleColumn")}
+                                </TableCell>
+                                {/*
+                                  The trash column's header is visually hidden rather than absent: an empty
+                                  `th` leaves the column unnamed for anyone reading the table by its
+                                  structure, and a visible "Aktion" over a single 44px glyph is noise.
+                                */}
+                                <TableCell align="right">
+                                  <Box component="span" sx={visuallyHidden}>
+                                    {t("admin.users.sharesActionColumn")}
+                                  </Box>
+                                </TableCell>
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {user.memberships.map((membership) => (
+                                <TableRow key={membership.id}>
+                                  <TableCell sx={{ color: tokens.ink, fontWeight: 600 }}>
+                                    {membership.tripName}
+                                  </TableCell>
+                                  <TableCell>
+                                    {/*
+                                      `labelId`, not `aria-label`, and `TripAccommodationDialog` documents
+                                      why: MUI forwards unrecognised props onto the `OutlinedInput` wrapper
+                                      div, leaving the inner `role="combobox"` — the element AT actually
+                                      reads — unnamed. `labelId` is the one prop `Select` routes down to it.
+                                      The label it points at is hidden and names the trip, because the column
+                                      header alone would call every select on the page "Rolle".
+                                    */}
+                                    <Box
+                                      component="span"
+                                      id={`${rowMenuIdPrefix}-role-label-${membership.id}`}
+                                      sx={visuallyHidden}
+                                    >
+                                      {formatMessage(t("admin.users.roleForTrip"), { trip: membership.tripName })}
+                                    </Box>
+                                    <Select
+                                      size="small"
+                                      value={membership.role}
+                                      labelId={`${rowMenuIdPrefix}-role-label-${membership.id}`}
+                                      disabled={busy}
+                                      onChange={(event) =>
+                                        void changeMembershipRole(
+                                          user,
+                                          membership,
+                                          event.target.value as "VIEWER" | "CONTRIBUTOR",
+                                        )
+                                      }
+                                      sx={{ fontSize: 12, "& .MuiSelect-select": { py: "6px", minHeight: 32 } }}
+                                    >
+                                      <MenuItem value="VIEWER">{roleLabel("VIEWER")}</MenuItem>
+                                      <MenuItem value="CONTRIBUTOR">{roleLabel("CONTRIBUTOR")}</MenuItem>
+                                    </Select>
+                                  </TableCell>
+                                  <TableCell align="right">
+                                    {/*
+                                      The accessible name names the account *and* the trip, and that is not
+                                      decoration: a row with two memberships otherwise renders two glyphs
+                                      with identical names, indistinguishable to a screen reader and to
+                                      `getByRole`. On a surface whose whole point is that two relations must
+                                      not be confused, the control that acts on one of them has to name it.
+                                      A real `Tooltip` rather than `title`, per 6.24's trash glyph: `title`
+                                      fires on neither keyboard focus nor touch.
+                                    */}
+                                    <Tooltip
+                                      title={formatMessage(t("admin.users.detach.actionFor"), {
+                                        email: user.email,
+                                        trip: membership.tripName,
+                                      })}
+                                      enterDelay={0}
+                                    >
+                                      <Box component="span" sx={{ display: "inline-flex" }}>
+                                        <IconButton
+                                          aria-label={formatMessage(t("admin.users.detach.actionFor"), {
+                                            email: user.email,
+                                            trip: membership.tripName,
+                                          })}
+                                          disabled={busy}
+                                          onClick={() => setDetachTarget({ user, membership })}
+                                          sx={{
+                                            width: 44,
+                                            height: 44,
+                                            borderRadius: "6px",
+                                            color: tokens.ink,
+                                            "&.Mui-focusVisible": {
+                                              outline: `2px solid ${tokens.ink}`,
+                                              outlineOffset: "2px",
+                                            },
+                                          }}
+                                        >
+                                          <TrashIcon />
+                                        </IconButton>
+                                      </Box>
+                                    </Tooltip>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        )}
                       </Box>
                     </ListItem>
                   );
                 })}
               </List>
             )}
+
+            {/*
+              Story 5.11. **One menu for the whole list, not one per row.**
+
+              The alternative — a `Menu` inside each `ListItem` — renders N menus into the DOM for an
+              installation with N accounts, each with its own `Popover` and focus trap, and all but one of
+              them closed. This one is driven by `menuUser`, which the trigger sets alongside the anchor,
+              so the items always act on the account whose glyph was pressed.
+
+              The chrome is `TripDayView`'s overflow menu, deliberately: right-aligned to its trigger
+              (MUI's default top-left origin would open the paper over the glyph and leave `Popover`'s
+              viewport clamping to drag it back), `slotProps.paper` rather than the deprecated
+              `PaperProps`, and the list named by its trigger rather than by chance.
+
+              No `aria-label` on any item — it would replace the visible label as the accessible name
+              rather than supplement it, so a voice-control user saying what they read could not activate
+              it (WCAG 2.5.3). `aria-haspopup="dialog"` is additive and does not touch the name, so the two
+              items that open a modal carry it and the grant/revoke item, which acts directly, does not.
+            */}
+            <Menu
+              id={`${rowMenuIdPrefix}-menu`}
+              anchorEl={menuAnchor}
+              open={Boolean(menuAnchor && menuUser)}
+              onClose={closeRowMenu}
+              anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+              transformOrigin={{ vertical: "top", horizontal: "right" }}
+              slotProps={{
+                paper: {
+                  sx: {
+                    mt: 1,
+                    borderRadius: 3,
+                    px: 1,
+                    backgroundColor: "#ffffff",
+                    border: "1px solid rgba(17, 18, 20, 0.08)",
+                    boxShadow: "0 20px 40px rgba(17, 18, 20, 0.18)",
+                  },
+                },
+                list: menuUser ? { "aria-labelledby": `${rowMenuIdPrefix}-trigger-${menuUser.id}` } : undefined,
+              }}
+            >
+              {/*
+                Ordering: the two additive actions first, the irreversible one last and separated from
+                them by nothing but position — a divider between two items and one item would be more
+                furniture than structure at this size.
+              */}
+              <MenuItem
+                aria-haspopup="dialog"
+                disabled={trips.length === 0}
+                onClick={() => {
+                  const target = menuUser;
+                  runFromRowMenu(() => target && setAttachTarget(target));
+                }}
+              >
+                <Typography>{t("admin.users.attach.action")}</Typography>
+              </MenuItem>
+              <MenuItem
+                onClick={() => {
+                  const target = menuUser;
+                  runFromRowMenu(() => target && void setAdminRole(target, target.role !== "ADMIN"));
+                }}
+              >
+                <Typography>
+                  {menuUser?.role === "ADMIN" ? t("admin.users.revokeAdmin") : t("admin.users.grantAdmin")}
+                </Typography>
+              </MenuItem>
+              {/*
+                Not hidden on the admin's own row, and not hidden on an account that owns trips. Both are
+                refused server-side with a reason worth reading - "you cannot delete your own account
+                here", and AC7's list of the trips in the way - and a hidden item teaches neither. Hiding
+                it would also be the "disabled button as a guard" that AC8 explicitly is not.
+              */}
+              <MenuItem
+                aria-haspopup="dialog"
+                onClick={() => {
+                  const target = menuUser;
+                  runFromRowMenu(() => target && setDeleteTarget(target));
+                }}
+              >
+                <Typography sx={{ color: "error.main" }}>{t("admin.users.delete.action")}</Typography>
+              </MenuItem>
+            </Menu>
           </>
         )}
       </Box>
@@ -880,6 +1179,37 @@ export default function AdminUsersList({ currentUserId }: { currentUserId: strin
         )}
       </Dialog>
       <DiscardChangesDialog {...attachGuard.dialogProps} />
+
+      {/* ─── Detach confirmation (Story 5.11) ────────────────────────────────────────────────────── */}
+      <Dialog open={Boolean(detachTarget)} onClose={closeDetach} fullWidth maxWidth="xs">
+        <DialogTitleWithClose label={t("common.close")} onClose={closeDetach} disabled={detachBusy}>
+          {t("admin.users.detach.confirmTitle")}
+        </DialogTitleWithClose>
+        <DialogContent>
+          {/*
+            Names both sides and says what survives. "Die Reise selbst bleibt unverändert" is the sentence
+            that makes this confirmation honest rather than alarming: unlike the account deletion below it
+            cascades nothing, and an admin who cannot tell the two apart is the reader this surface exists
+            to protect (AC3).
+          */}
+          <Typography variant="body2" color="text.secondary">
+            {formatMessage(t("admin.users.detach.confirmBody"), {
+              email: detachTarget?.user.email ?? "",
+              trip: detachTarget?.membership.tripName ?? "",
+            })}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          {/* Story 6.25 AC3, as on the delete confirmation: both buttons keep their weight and the safe
+              one names what it preserves, in the same noun as its neighbour. */}
+          <Button onClick={closeDetach} disabled={detachBusy}>
+            {t("admin.users.detach.keep")}
+          </Button>
+          <Button color="error" variant="contained" onClick={() => void confirmDetach()} disabled={detachBusy}>
+            {detachBusy ? <CircularProgress size={22} /> : t("admin.users.detach.confirm")}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* ─── Delete confirmation ─────────────────────────────────────────────────────────────────── */}
       <Dialog open={Boolean(deleteTarget)} onClose={closeDelete} fullWidth maxWidth="xs">

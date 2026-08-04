@@ -611,7 +611,7 @@ const en: Dictionary = {
   // Story 6.26 — see the note on the German side for why these are not shared with `trips.plan.*`.
   "trips.stay.tabsLabel": "Stay sections",
   "trips.stay.tabBasics": "Basics",
-  "trips.stay.tabCost": "Payment",
+  "trips.stay.tabCost": "Cost",
   "trips.stay.tabPlace": "Place & notes",
   "trips.stay.tabMedia": "Media & links",
   "trips.stay.tabWithErrors": "{label} (contains errors)",
@@ -722,15 +722,36 @@ const en: Dictionary = {
   // Marks a trip the account is already a member of, so the picker cannot change a role without saying
   // which role it is changing.
   "admin.users.attach.currentRole": "currently {role}",
-  "admin.users.detach.action": "Remove from trip",
   // The accessible name, which has to name the trip: a row with two memberships otherwise renders two
   // buttons with identical names, indistinguishable to a screen reader and to `getByRole`.
+  //
+  // Story 5.11: `detach.action` ("Remove from trip") was this control's *visible* label as a text button.
+  // It is a trash glyph now, so this key is both its accessible name and its tooltip, and the visible
+  // label has no reader left - deleted from both dictionaries rather than kept for a control that is gone.
   "admin.users.detach.actionFor": "Remove {email} from {trip}",
   "admin.users.detach.error": "Unable to remove the membership.",
   "admin.users.detach.notFound": "That membership no longer exists. Reload the list.",
-  // Same reason as `detach.actionFor`: the visible label is the target role alone, which is no name at all
-  // once a row carries two of them.
-  "admin.users.roleToggleFor": "Change {email} on {trip} to {role}",
+  // Story 5.11. Removing a share is confirmed now - see the component for why that reverses the earlier
+  // reversibility argument. The safe half names what it preserves in the same noun as its neighbour
+  // (Story 6.25 AC3), so "Keep share" beside "Remove share".
+  "admin.users.detach.confirmTitle": "Remove share",
+  "admin.users.detach.confirmBody": "{email} loses access to {trip}. The trip itself is unchanged.",
+  "admin.users.detach.confirm": "Remove share",
+  "admin.users.detach.keep": "Keep share",
+  // Story 5.11. The row's overflow trigger. Named per account for exactly the reason `detach.actionFor`
+  // is: a list renders one per row, and three controls called "More actions" cannot be told apart.
+  "admin.users.rowMenuFor": "More actions for {email}",
+  // The shares section under each account. A different word from `sharedLabel` ("Shared with") on
+  // purpose: that one prefixes a relation, this one titles a table.
+  "admin.users.sharesLabel": "Shares",
+  "admin.users.sharesEmpty": "No shares",
+  "admin.users.sharesTripColumn": "Trip",
+  "admin.users.sharesRoleColumn": "Role",
+  // The trash column has no visible header - the glyphs name themselves - but the column still needs one
+  // for anyone reading the table by its structure.
+  "admin.users.sharesActionColumn": "Action",
+  // Names the per-row select. The column header alone would name every select on the page "Role".
+  "admin.users.roleForTrip": "Role for {trip}",
   // Delete (AC7). The safe half names what it preserves, per Story 6.25 AC3, and in the same noun as its
   // neighbour: "Keep account" beside "Delete account".
   "admin.users.delete.action": "Delete account",

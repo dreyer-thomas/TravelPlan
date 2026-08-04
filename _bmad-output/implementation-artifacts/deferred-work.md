@@ -1597,3 +1597,82 @@ severity: low
 summary: The extracted helper is `async` and hashes internally, so the trip-share invite path holds its interactive transaction open across the ~100 ms bcrypt call. Behaviour is preserved exactly from before the refactor — the old inline code hashed in the same place — but the cost is now invisible at the call site.
 evidence: The contrast is inside this same story: `register/route.ts:70-72` documents keeping `hashPassword` *outside* its new transaction, because "bcrypt takes ~100ms and holding a SQLite write transaction open across it would serialise every concurrent registration behind it". That reasoning applies verbatim to the trip-share path, which does the opposite — and after the extraction a reader of `tripRepo.ts:2591` sees only a function call with no indication that a 100 ms CPU-bound hash happens inside their transaction. One step from Prisma's 5 s `P2028` interactive-transaction timeout under concurrent invites. Deferred because it is genuinely pre-existing and fixing it means restructuring the caller to hash before opening its transaction, which is a change to Story 5.1's path rather than to this story's.
 status: open
+
+## Deferred from: code review of 6-26-accommodation-dialog-in-tabs (2026-08-04)
+
+### DW-172: `STAY_PANEL_MIN_HEIGHT = 300` is unmeasured, and the same diff that introduced it invalidated its arithmetic
+
+source_spec: `_bmad-output/implementation-artifacts/6-26-accommodation-dialog-in-tabs.md`
+origin: code review of story 6-26, 2026-08-04
+location: `travelplan/src/components/features/trips/TripAccommodationDialog.tsx:203-231`
+severity: medium
+summary: The constant is arithmetic over the panels' composition rather than a browser measurement, as its own docstring says. Three things are wrong with the arithmetic independently of the missing measurement: (a) the table's own figures put `Medien` at ≈307, above the 300 floor, so the floor stills nothing for the tallest panel — the frame still moves ~7px between that tab and the other three, which is the exact motion AC5 exists to remove; (b) the table assumes a 44px input at 13.5px type, and fix 6.26a in the same commit raises every input to 16px on precisely the touch devices the story targets; (c) the table is desktop-only — at `xs` the basics row is `flexDirection: column`, adding ~79px that appears nowhere in it.
+evidence: The review found the arithmetic not merely unverified but internally inconsistent, and declined to guess a second number.
+resolution: **Measured and fixed 2026-08-04**, in the Task 7 browser pass, on two stays at 747px and 390x844. `Medien & Links` measured 355.2–358.8 (the comment had estimated ~307) and `Ort & Notizen` reached 399.0 with 102 characters of notes. **The constant is now 400**, chosen because it puts three of the four panels at exactly the floor at both widths — only `Kosten` exceeds it, which AC5 exempts. Re-measured after the change: 400 / 400 / 400 / 762.3, `clipped: false` throughout. The comment's table now carries the measurements. Two things the measurement settled that the desk could not: any width above `sm` reproduces the desktop column, because the dialog is `width={520}`; and the `minHeight`-not-`height` distinction is now proven on screen, since `Kosten` grew to a used height of 467.4px against the old 300px floor rather than clipping.
+status: resolved
+
+### DW-173: native constraint validation pre-empts the dialog's own validation whenever the offending field is on the active tab
+
+source_spec: `_bmad-output/implementation-artifacts/6-26-accommodation-dialog-in-tabs.md`
+origin: code review of story 6-26, 2026-08-04
+location: `travelplan/src/components/features/trips/TripAccommodationDialog.tsx:1583` (`type="url"`), `:1426` and `:1466` (`type="number"`)
+severity: medium
+summary: With `Medien & Links` selected, an invalid Link value makes the browser block the submit event on the type mismatch, so neither `handleSubmit` nor the `onSubmit` re-run ever executes: no POST, no `aria-invalid`, no inline message, no tab marker, no focus move. In a real browser the user gets a native bubble; in jsdom, nothing at all. `linkRules` and `costRules` can therefore only ever be *seen* from a tab that does not contain their field.
+evidence: Both input types predate this story (`git show def8618` has `type="url"` and `type="number"` in the same places), so the pre-emption is genuinely pre-existing rather than introduced. What Story 6.26 changed is the *character* of it: the same invalid value now produces a native browser bubble when its tab is active and the app's own styled `trips.stay.linkInvalid` when it is not, which is a split the tab layout created. Deferred because the honest fix is `noValidate` on the form so the app's validation is authoritative, and that would surface every other native-blocked message in this dialog at once — an app-wide behaviour change well beyond a review patch, and one that wants the same treatment on the sibling dialog.
+status: open
+
+### DW-174: the error-focus effect fails open, with no fallback and no diagnostic
+
+source_spec: `_bmad-output/implementation-artifacts/6-26-accommodation-dialog-in-tabs.md`
+origin: code review of story 6-26, 2026-08-04
+location: `travelplan/src/components/features/trips/TripAccommodationDialog.tsx:414-419`
+severity: low
+summary: `document.getElementById(pendingErrorFocus.elementId)?.focus()` degrades to no focus change at all when the id resolves to nothing. Two documented cases reach it: a server error naming `checkOutTime` while `stayType === "current"` (only the rendered half of the check-in/check-out pair is mounted), and `stayErrorFocusId(prefix, key, {})` called with an empty errors object from the server path for a row-level `payments` error. AC2's "puts focus on the offending field" silently becomes a no-op.
+evidence: Both cases are reasoned about in the source — `stayErrorFocusId`'s docstring calls the unmounted `checkOutTime` outcome "the honest outcome for a field this surface does not show", and the `payments` fallback to `-cost` is stated as correct for a block-level message. So this is a known, deliberate edge rather than an oversight, which is why it is deferred rather than patched. Recorded because the tab is still selected in both cases, so the user is moved to a panel with the caret left wherever it was; focusing the revealed panel or its tab as a fallback would at least keep the caret inside the right section. Applies to `TripDayPlanDialog` too.
+status: open
+
+### DW-175: German tab-label fit at 390px is unverified, and the error triangle reflows the label mid-session
+
+source_spec: `_bmad-output/implementation-artifacts/6-26-accommodation-dialog-in-tabs.md`
+origin: code review of story 6-26, 2026-08-04
+location: `travelplan/src/components/features/trips/TripAccommodationDialog.tsx:1239-1289`
+severity: low
+summary: Four labels share one 390px row at `variant="fullWidth"`, `fontSize: 12`, `px: "6px"`: "Basisdaten", "Zahlung", "Ort & Notizen", "Medien & Links". That set is longer than the activity dialog's "Was", "Wann & Wo", "Kosten", "Medien & Links", which already needed the per-tab padding cut to 6px to fit — and the `sx` was copied verbatim from it, tuned for the shorter strings. Separately, a 13px `WarningTriangleIcon` is appended to a tab when it gains an error, so the labels reflow while the user is looking at them.
+evidence: Story 6.26 Task 7 named the label-fit check explicitly; the reflow-on-error observation was new.
+resolution: **Label fit measured and fixed 2026-08-04.** The check failed: at 390px each tab is 62.5px wide, leaving ~50px inside the padding, and `Basisdaten` is ~68px as a single unbreakable word — `truncated: true` on both sampled stays, while the other three labels passed *only* because they contain spaces and may wrap. Fixed with a soft hyphen (U+00AD) after `Basis` in the German dictionary, giving the word the same ability to break; re-measured `truncated: false` on all four, `allOnOneRow: true`. Smaller type and reduced padding were both rejected as insufficient (the word is ~18px too wide for either) and because both would have diverged the tab chrome from the sibling dialog, which AC7 forbids.
+**Still open: the reflow-on-error half.** When a tab gains its error marker, a 13px `WarningTriangleIcon` plus a 4px gap is appended, leaving roughly 33px for text inside a 62.5px tab. `Basis` alone is ~34px at `fontSize: 12` / `fontWeight: 800`, so the label may truncate again *in the error state specifically* — which is exactly the state AC3 makes appear mid-session. Not measured, because it needs a validation error raised at 390px rather than the clean dialog the pass sampled. Applies to both dialogs.
+status: open (label fit resolved; error-state reflow outstanding)
+
+### DW-176: the activity dialog's selected errored tab still loses the warning colour, so the two dialogs' tab chrome now differs by one rule
+
+source_spec: `_bmad-output/implementation-artifacts/6-26-accommodation-dialog-in-tabs.md`
+origin: code review of story 6-26, 2026-08-04
+location: `travelplan/src/components/features/trips/TripDayPlanDialog.tsx:1703`
+severity: medium
+summary: `sx={hasError ? { color: warning.main } : undefined}` puts the marker colour on the tab root at one class of specificity, while MUI's own `textColor="primary"` variant emits `&.Mui-selected { color: palette.primary.main }` at two. The *selected* errored tab therefore renders `primary.main` green instead of `warning.main`, and the warning triangle goes green with it through `currentColor`. Because the error reveal auto-selects the tab that owns the error, the colour channel is missing in precisely the state the user is placed into — leaving the glyph and the accessible name to carry the "not colour alone" requirement by themselves.
+evidence: Introduced by Story 6.22 and copied verbatim into Story 6.26, where this review measured it (selected errored tab computed `rgb(75, 99, 88)` = `#4B6358` `primary.main`; an unselected one correctly computed `rgb(138, 90, 43)` = `warning.main`). Story 6.26 AC7 requires "the two dialogs' tab chrome is the same control", so fixing one half and not the other would itself have been a drift.
+resolution: **Applied 2026-08-04, same session as the review**, on Tommy's call after the stay half was patched. Both dialogs now carry `{ color: warning.main, "&.Mui-selected": { color: warning.main } }`, so the chrome is identical again and AC7 holds. Pinned in both suites, with the two assertions doing deliberately different jobs: `tripAccommodationDialog.test.tsx` renders real MUI and asserts the **computed** colour — verified to fail with `expected 'rgb(75, 99, 88)' to be 'rgb(138, 90, 43)'` against the single-class version, which is the defect reproduced exactly — while `tripDayPlanDialog.test.tsx` stubs `@mui/material` and re-exposes `sx` as `data-sx`, so it can only assert the override is *present* and says so in its own comment. A computed-colour assertion was attempted there first and returned `rgb(0, 0, 0)` for every element, which is worth knowing before anyone tries again: that suite has no cascade to measure.
+status: resolved
+
+## Deferred from: Task 7 browser session for 6-26 (2026-08-04)
+
+### DW-177: every auth form falls back to a native GET submit if JS has not hydrated, putting the password in the URL
+
+source_spec: found during the Story 6.26 Task 7 browser session, not attributable to any story
+origin: observed live, 2026-08-04, on `http://…:3099/auth/login`
+location: `travelplan/src/app/(auth)/auth/login/page.tsx:175-178`, and the same shape in `register/page.tsx`, `first-login-password/page.tsx`, `forgot-password/page.tsx`, `reset-password/page.tsx`
+severity: medium
+summary: The auth forms are `<Box component="form" onSubmit={handleSubmit(onSubmit)}>` with **no `method` and no `action`**. `handleSubmit` calls `preventDefault`, so the POST-to-JSON path is entirely dependent on React having hydrated. When it has not, the browser performs its default submission — a **GET to the same URL with every field as a query parameter** — so the password travels in the query string. Observed verbatim in a dev server log: `GET /auth/login?email=…&password=…`, twice.
+evidence: Reproduced by accident rather than by construction, which is the interesting part. The trigger in this session was Next 16 refusing to serve dev resources cross-origin — the server advertised `localhost` and the browser used `127.0.0.1`, so the bundle was blocked ("Blocked cross-origin request to Next.js dev resource /_next/webpack-hmr"), nothing hydrated, and the form degraded. That specific trigger is dev-only. **The degradation is not:** any failed or slow bundle load in production, with the user pressing Enter before hydration, produces the same GET. The consequences of a password in a URL are the ones that outlive the request — browser history, server and proxy access logs, and the `Referer` header on whatever the page loads next. In this session it landed in a scratch dev log (since redacted) and the operator's browser history; the affected password was reported to Tommy immediately and should be treated as exposed.
+suggested fix: `method="post"` on each of the five forms, so the unhydrated fallback is a POST with the fields in a body rather than a URL. The API route would reject it as a non-JSON request, which is a clean failure instead of a silent credential leak. Worth considering alongside it: a `<noscript>` notice, or moving the submit to a server action so the no-JS path is real rather than merely non-damaging. Not fixed here because it is an auth-surface change with its own test surface, unrelated to Story 6.26.
+status: open
+
+### DW-178: the rich-text editor registers its `link` extension twice
+
+source_spec: observed during the Story 6.26 Task 7 browser session
+origin: observed live, 2026-08-04, on every day-view load
+location: the tiptap editor configuration reached from `travelplan/src/components/features/trips/TripDayView.tsx:3223` (`TripDayPlanDialog`'s description editor)
+severity: low
+summary: Every day-view load logs `[tiptap warn]: Duplicate extension names found: ['link']. This can lead to issues.` The link extension is registered twice — almost certainly once via a `StarterKit`-style bundle that already includes it and once explicitly, to configure it.
+evidence: Reproduced on every single page load during the browser pass, on two different days, with a full stack through `resolveExtensions` → `ExtensionManager` → `createEditor`. tiptap's own wording ("can lead to issues") is the reason to record it rather than ignore it: with two registrations the effective configuration is whichever wins, so a deliberate link option can be silently overridden by the bundle's default. Nothing misbehaved visibly during the pass. Unrelated to Story 6.26 — it is the activity dialog's description editor, and the warning predates this story. Fix is to drop the duplicate registration, keeping the configured one, and to check that whatever options were intended are actually in effect afterwards.
+status: open

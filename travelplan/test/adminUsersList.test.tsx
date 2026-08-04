@@ -18,7 +18,24 @@ type Call = { path: string; method: string; body: unknown };
 
 const ADMIN_ID = "user-admin";
 
-const USERS = [
+/**
+ * The fixture's shape, spelled out rather than inferred from `USERS`.
+ *
+ * `stubFetch`'s option was `users?: typeof USERS`, and `typeof USERS` narrows `role` to the literals that
+ * happen to appear in the default array — every membership there is a `VIEWER`, so the two cases that pass
+ * a `CONTRIBUTOR` fixture did not typecheck. It was one of the suite's pre-existing type errors and it made
+ * the fixture type *lie about what the component accepts*, which matters here: the role a membership holds
+ * is exactly what the role select and the no-op guard turn on.
+ */
+type FixtureUser = {
+  id: string;
+  email: string;
+  role: "OWNER" | "VIEWER" | "ADMIN";
+  ownedTrips: { id: string; name: string }[];
+  memberships: { id: string; tripId: string; tripName: string; role: "VIEWER" | "CONTRIBUTOR" }[];
+};
+
+const USERS: FixtureUser[] = [
   {
     id: ADMIN_ID,
     email: "admin@example.com",
@@ -59,7 +76,7 @@ const TRIPS = [
  */
 const stubFetch = (
   options: {
-    users?: typeof USERS;
+    users?: FixtureUser[];
     trips?: typeof TRIPS;
     listError?: { status: number; code: string };
     mutationResult?: { status: number; code: string; details?: unknown };
@@ -125,6 +142,31 @@ const rowFor = async (email: string) => {
   return row as HTMLElement;
 };
 
+/**
+ * Story 5.11 moved attach, grant/revoke and delete off the row and into an overflow menu, so every case
+ * that used to click one of those three now opens the menu first.
+ *
+ * The menu is rendered **once for the whole list** and portalled outside the row, so its items are reached
+ * through `screen` rather than `within(row)` — a `within(row)` query would find nothing and read like the
+ * item was missing rather than like it lives elsewhere. The trigger is per row and named per account, which
+ * is what keeps this unambiguous with three rows on screen.
+ */
+const openRowMenu = async (user: ReturnType<typeof userEvent.setup>, email: string) => {
+  const row = await rowFor(email);
+  await user.click(within(row).getByRole("button", { name: `More actions for ${email}` }));
+  return screen.getByRole("menu");
+};
+
+/** Opens the row menu and clicks one of its three items. */
+const clickRowMenuItem = async (
+  user: ReturnType<typeof userEvent.setup>,
+  email: string,
+  item: string | RegExp,
+) => {
+  const menu = await openRowMenu(user, email);
+  await user.click(within(menu).getByRole("menuitem", { name: item }));
+};
+
 describe("AdminUsersList", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -169,12 +211,28 @@ describe("AdminUsersList", () => {
 
     expect(within(row).getByText(/Owns/)).toBeInTheDocument();
     expect(within(row).getByText(/Own Trip/)).toBeInTheDocument();
-    expect(within(row).getByText(/Shared with/)).toBeInTheDocument();
-    expect(within(row).getByText(/Stranger Trip · Viewer/)).toBeInTheDocument();
 
-    // And the two are not the same node: a single merged line would satisfy each `getByText` above on its
-    // own while showing one relation.
-    expect(within(row).getByText(/Owns/)).not.toBe(within(row).getByText(/Shared with/));
+    /*
+      Story 5.11. The membership half is a table now, not a "Shared with X · Role" line, so the assertion
+      moved with it: the trip is a cell and the role is the value of that row's select. The section is
+      titled "Shares" - a different word from the "Shared with" prefix it replaced, which is why this case
+      had to change rather than merely being re-queried.
+    */
+    const shares = within(row).getByRole("table", { name: "Shares" });
+    expect(within(shares).getByRole("columnheader", { name: "Trip" })).toBeInTheDocument();
+    expect(within(shares).getByRole("columnheader", { name: "Role" })).toBeInTheDocument();
+    expect(within(shares).getByRole("cell", { name: "Stranger Trip" })).toBeInTheDocument();
+    expect(within(shares).getByRole("combobox", { name: "Role for Stranger Trip" })).toHaveTextContent("Viewer");
+
+    /*
+      And AC3's actual claim, which survives the restyle: the owned trip is **not** in the shares table.
+      A merged surface would satisfy every assertion above while showing one relation - the failure this
+      case exists to catch - so the negative is what carries it, and it is now stronger than the
+      "two different nodes" check it replaces, because "Own Trip" being absent from this table is a
+      statement about structure rather than about node identity.
+    */
+    expect(within(shares).queryByText("Own Trip")).toBeNull();
+    expect(within(row).getByText(/Owns/)).not.toBe(shares);
   });
 
   it("says so when an account reaches nothing", async () => {
@@ -223,8 +281,9 @@ describe("AdminUsersList", () => {
       const user = userEvent.setup();
       renderList();
 
-      const targetRow = await rowFor("both@example.com");
-      await user.click(within(targetRow).getByRole("button", { name: "Make administrator" }));
+      // Story 5.11: the item's label is what says which direction it will send, and it is read off
+      // `menuUser` - so opening the menu on a non-admin and on an admin has to offer opposite words.
+      await clickRowMenuItem(user, "both@example.com", "Make administrator");
 
       await waitFor(() => expect(calls).toHaveLength(1));
       expect(calls[0]).toEqual({
@@ -233,11 +292,30 @@ describe("AdminUsersList", () => {
         body: { isAdmin: true },
       });
 
-      const adminRow = await rowFor("admin@example.com");
-      await user.click(within(adminRow).getByRole("button", { name: "Remove administrator" }));
+      await clickRowMenuItem(user, "admin@example.com", "Remove administrator");
 
       await waitFor(() => expect(calls).toHaveLength(2));
       expect(calls[1].body).toEqual({ isAdmin: false });
+    });
+
+    /**
+     * Story 5.11. One menu serves every row, driven by `menuUser`, so "which account did I open this on"
+     * is state rather than structure - and getting it wrong would send a grant to the wrong account with
+     * nothing on screen to show it. Pinned here because the previous per-row buttons could not have this
+     * defect at all.
+     */
+    it("offers the item for the account whose glyph was pressed, not the previous one", async () => {
+      stubFetch();
+      const user = userEvent.setup();
+      renderList();
+
+      const adminMenu = await openRowMenu(user, "admin@example.com");
+      expect(within(adminMenu).getByRole("menuitem", { name: "Remove administrator" })).toBeInTheDocument();
+      await user.keyboard("{Escape}");
+
+      const otherMenu = await openRowMenu(user, "both@example.com");
+      expect(within(otherMenu).getByRole("menuitem", { name: "Make administrator" })).toBeInTheDocument();
+      expect(within(otherMenu).queryByRole("menuitem", { name: "Remove administrator" })).toBeNull();
     });
 
     it("shows the last-admin refusal as its own message", async () => {
@@ -245,8 +323,7 @@ describe("AdminUsersList", () => {
       const user = userEvent.setup();
       renderList();
 
-      const adminRow = await rowFor("admin@example.com");
-      await user.click(within(adminRow).getByRole("button", { name: "Remove administrator" }));
+      await clickRowMenuItem(user, "admin@example.com", "Remove administrator");
 
       // Not the generic "unable to change the role": the admin needs to know the installation refused it,
       // not that something went wrong.
@@ -256,16 +333,19 @@ describe("AdminUsersList", () => {
   });
 
   describe("attach, role change and detach (AC5, AC6)", () => {
-    it("changes a membership role with one click, in the other direction", async () => {
+    /**
+     * Story 5.11 turned the role toggle into a select, so the request now carries the value the admin
+     * *picked* rather than the opposite of the value shown. The membership is a VIEWER here, so picking
+     * "Contributor" is a real change.
+     */
+    it("sends the role picked from the row's select", async () => {
       const { calls } = stubFetch();
       const user = userEvent.setup();
       renderList();
 
       const row = await rowFor("both@example.com");
-      // The membership is a VIEWER, so the button offers the other value - by name in its visible label, and
-      // in its accessible name additionally by the trip it acts on (added by review, so that a row with two
-      // memberships does not render two identically-named controls).
-      await user.click(within(row).getByRole("button", { name: /Stranger Trip to Contributor/ }));
+      await user.click(within(row).getByRole("combobox", { name: "Role for Stranger Trip" }));
+      await user.click(await screen.findByRole("option", { name: "Contributor" }));
 
       await waitFor(() => expect(calls).toHaveLength(1));
       expect(calls[0]).toEqual({
@@ -275,13 +355,47 @@ describe("AdminUsersList", () => {
       });
     });
 
-    it("detaches from the trip named on that row and nothing else", async () => {
+    /**
+     * The other half of turning a toggle into a select, and the reason `changeMembershipRole` guards on
+     * the value being different: the request is an **upsert**, so re-picking the role a membership already
+     * holds would spend a write and a full list reload to arrive back where it started.
+     */
+    it("sends nothing when the role already showing is picked again", async () => {
       const { calls } = stubFetch();
       const user = userEvent.setup();
       renderList();
 
       const row = await rowFor("both@example.com");
-      await user.click(within(row).getByRole("button", { name: /Remove .* from Stranger Trip/ }));
+      await user.click(within(row).getByRole("combobox", { name: "Role for Stranger Trip" }));
+      await user.click(await screen.findByRole("option", { name: "Viewer" }));
+
+      // Given a moment in which the request would have been sent, had one been sent.
+      await waitFor(() => expect(screen.queryByRole("option")).toBeNull());
+      expect(calls).toHaveLength(0);
+    });
+
+    /**
+     * Story 5.11. Removing a share is confirmed now — the control is a trash glyph carrying no word for
+     * what it costs, which is the trade Story 6.24 made on the activity dialog's delete. So the click
+     * alone must send nothing.
+     */
+    it("asks before removing a share, then detaches the trip named on that row and nothing else", async () => {
+      const { calls } = stubFetch();
+      const user = userEvent.setup();
+      renderList();
+
+      const row = await rowFor("both@example.com");
+      await user.click(
+        within(row).getByRole("button", { name: "Remove both@example.com from Stranger Trip" }),
+      );
+
+      const dialog = await screen.findByRole("dialog");
+      expect(within(dialog).getByText(/loses access to Stranger Trip/)).toBeInTheDocument();
+      // 6.25 AC3: the safe half names what it preserves, in the same noun as its neighbour.
+      expect(within(dialog).getByRole("button", { name: "Keep share" })).toBeInTheDocument();
+      expect(calls).toHaveLength(0);
+
+      await user.click(within(dialog).getByRole("button", { name: "Remove share" }));
 
       await waitFor(() => expect(calls).toHaveLength(1));
       // `trip-stranger`, the membership - never `trip-own`, which this account owns. AC6's second sentence.
@@ -292,13 +406,38 @@ describe("AdminUsersList", () => {
       });
     });
 
+    it("sends nothing when the admin keeps the share", async () => {
+      const { calls } = stubFetch();
+      const user = userEvent.setup();
+      renderList();
+
+      const row = await rowFor("both@example.com");
+      await user.click(
+        within(row).getByRole("button", { name: "Remove both@example.com from Stranger Trip" }),
+      );
+      const dialog = await screen.findByRole("dialog");
+      await user.click(within(dialog).getByRole("button", { name: "Keep share" }));
+
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      expect(calls).toHaveLength(0);
+    });
+
+    /** The empty state the table degrades to, which the old one-line-per-membership layout had no need of. */
+    it("says so when an account holds no shares", async () => {
+      stubFetch();
+      renderList();
+
+      const row = await rowFor("nobody@example.com");
+      expect(within(row).getByText("No shares")).toBeInTheDocument();
+      expect(within(row).queryByRole("table")).toBeNull();
+    });
+
     it("does not offer a trip the account already owns in the attach picker", async () => {
       stubFetch();
       const user = userEvent.setup();
       renderList();
 
-      const row = await rowFor("both@example.com");
-      await user.click(within(row).getByRole("button", { name: "Add to trip" }));
+      await clickRowMenuItem(user, "both@example.com", "Add to trip");
 
       await user.click(await screen.findByRole("combobox", { name: "Trip" }));
       const options = await screen.findAllByRole("option");
@@ -315,8 +454,7 @@ describe("AdminUsersList", () => {
       const user = userEvent.setup();
       renderList();
 
-      const row = await rowFor("nobody@example.com");
-      await user.click(within(row).getByRole("button", { name: "Add to trip" }));
+      await clickRowMenuItem(user, "nobody@example.com", "Add to trip");
       await user.click(await screen.findByRole("combobox", { name: "Trip" }));
 
       expect(await screen.findByRole("option", { name: /Stranger Trip · stranger@example.com/ })).toBeInTheDocument();
@@ -329,8 +467,7 @@ describe("AdminUsersList", () => {
       const user = userEvent.setup();
       renderList();
 
-      const row = await rowFor("both@example.com");
-      await user.click(within(row).getByRole("button", { name: "Delete account" }));
+      await clickRowMenuItem(user, "both@example.com", "Delete account");
 
       const dialog = await screen.findByRole("dialog");
       // Story 6.25 AC3: two outcomes about one object, in the same noun.
@@ -345,8 +482,7 @@ describe("AdminUsersList", () => {
       const user = userEvent.setup();
       renderList();
 
-      const row = await rowFor("both@example.com");
-      await user.click(within(row).getByRole("button", { name: "Delete account" }));
+      await clickRowMenuItem(user, "both@example.com", "Delete account");
       const dialog = await screen.findByRole("dialog");
       await user.click(within(dialog).getByRole("button", { name: "Keep account" }));
 
@@ -359,8 +495,7 @@ describe("AdminUsersList", () => {
       const user = userEvent.setup();
       renderList();
 
-      const row = await rowFor("both@example.com");
-      await user.click(within(row).getByRole("button", { name: "Delete account" }));
+      await clickRowMenuItem(user, "both@example.com", "Delete account");
       const dialog = await screen.findByRole("dialog");
       await user.click(within(dialog).getByRole("button", { name: "Delete account" }));
 
@@ -384,8 +519,7 @@ describe("AdminUsersList", () => {
       const user = userEvent.setup();
       renderList();
 
-      const row = await rowFor("both@example.com");
-      await user.click(within(row).getByRole("button", { name: "Delete account" }));
+      await clickRowMenuItem(user, "both@example.com", "Delete account");
       const dialog = await screen.findByRole("dialog");
       await user.click(within(dialog).getByRole("button", { name: "Delete account" }));
 
@@ -400,10 +534,9 @@ describe("AdminUsersList", () => {
       const user = userEvent.setup();
       renderList();
 
-      // The button is offered on the admin's own row rather than hidden: the refusal carries a reason worth
-      // reading, and a hidden button teaches nothing.
-      const row = await rowFor("admin@example.com");
-      await user.click(within(row).getByRole("button", { name: "Delete account" }));
+      // The item is offered on the admin's own row rather than hidden: the refusal carries a reason worth
+      // reading, and a hidden item teaches nothing.
+      await clickRowMenuItem(user, "admin@example.com", "Delete account");
       const dialog = await screen.findByRole("dialog");
       await user.click(within(dialog).getByRole("button", { name: "Delete account" }));
 
@@ -518,8 +651,7 @@ describe("AdminUsersList — review additions", () => {
     const { calls } = stubFetch();
     renderList();
 
-    const row = await rowFor("nobody@example.com");
-    await user.click(within(row).getByRole("button", { name: /add to trip/i }));
+    await clickRowMenuItem(user, "nobody@example.com", /add to trip/i);
 
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("combobox", { name: /trip/i }));
@@ -566,13 +698,20 @@ describe("AdminUsersList — review additions", () => {
     vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
 
     renderList();
-    const row = await rowFor("nobody@example.com");
-    const grant = within(row).getByRole("button", { name: /make administrator/i });
-    await user.click(grant);
+    await clickRowMenuItem(user, "nobody@example.com", /make administrator/i);
 
     expect(await screen.findByText(/unable to change the role/i)).toBeInTheDocument();
+    /*
+      Story 5.11 moved the grant control into the menu, so "the buttons come back" is now a claim about the
+      **trigger**: it is what carries `disabled={busy}`, and a `busy` flag left set would leave the row with
+      no way to reach any of its three actions at all - strictly worse than the frozen button this case was
+      written for, because the menu cannot even be opened to see them.
+    */
+    const row = await rowFor("nobody@example.com");
     await waitFor(() => {
-      expect(within(row).getByRole("button", { name: /make administrator/i })).toBeEnabled();
+      expect(
+        within(row).getByRole("button", { name: "More actions for nobody@example.com" }),
+      ).toBeEnabled();
     });
   });
 
@@ -608,14 +747,20 @@ describe("AdminUsersList — review additions", () => {
 
     const row = await rowFor("two@example.com");
 
-    // Four controls, four distinct names.
-    within(row).getByRole("button", { name: /Trip A.*Contributor|Contributor.*Trip A/i });
-    within(row).getByRole("button", { name: /Trip B.*Contributor|Contributor.*Trip B/i });
+    /*
+      Four controls, four distinct names - two role selects and two trash glyphs after Story 5.11. The names
+      are what this case is about, and the restyle did not weaken them: the select is named by a hidden label
+      naming its trip, and the glyph by an `aria-label` naming the account and the trip.
+    */
+    within(row).getByRole("combobox", { name: "Role for Trip A" });
+    within(row).getByRole("combobox", { name: "Role for Trip B" });
     within(row).getByRole("button", { name: /remove.*Trip A/i });
     within(row).getByRole("button", { name: /remove.*Trip B/i });
 
-    // And the one pressed is the one that acts.
+    // And the one pressed is the one that acts - through the confirmation 5.11 added.
     await user.click(within(row).getByRole("button", { name: /remove.*Trip B/i }));
+    const confirm = await screen.findByRole("dialog");
+    await user.click(within(confirm).getByRole("button", { name: "Remove share" }));
 
     await waitFor(() => {
       expect(calls).toEqual([
@@ -653,8 +798,7 @@ describe("AdminUsersList — review additions", () => {
     });
     renderList();
 
-    const row = await rowFor("contrib@example.com");
-    await user.click(within(row).getByRole("button", { name: /add to trip/i }));
+    await clickRowMenuItem(user, "contrib@example.com", /add to trip/i);
 
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("combobox", { name: /trip/i }));

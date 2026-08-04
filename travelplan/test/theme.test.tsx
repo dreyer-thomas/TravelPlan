@@ -157,6 +157,10 @@ describe("theme token contract", () => {
       theme.components?.MuiInputBase?.styleOverrides?.input,
       theme.components?.MuiSelect?.styleOverrides?.select,
       (theme.components?.MuiCssBaseline?.styleOverrides as Record<string, unknown>)?.[".tiptap-editor"],
+      // Added in review: the options *behind* the select. `MuiMenuItem-root` is a `ButtonBase`, not an
+      // input slot, so none of the three above reaches it — an open dropdown rendered its options
+      // 2.5px smaller than the field they belong to, on exactly the devices this fix targets.
+      theme.components?.MuiMenuItem?.styleOverrides?.root,
     ] as Array<Record<string, { fontSize?: string } | undefined> | undefined>;
 
     for (const slot of slots) {
@@ -168,8 +172,24 @@ describe("theme token contract", () => {
       expect(Number.parseFloat(String(size))).toBeGreaterThanOrEqual(16);
     }
 
-    // And the reason all three need the override: the design system's *body* size was also, silently,
-    // its *control* size. `DESIGN.md`'s `input` entry specifies geometry and colour and no type size.
-    expect(Number.parseFloat(String(theme.typography.body1.fontSize))).toBeLessThan(16);
+    /*
+      The reason the override is needed at all: the design system's *body* size is also, silently, its
+      *control* size — `DESIGN.md`'s `input` entry specifies geometry and colour and no type size, so
+      every control inherits `body1`.
+
+      This used to assert `body1.fontSize < 16`, i.e. that the underlying defect is still present, and
+      review flagged it: raising the design system's body size to 16px would make the whole touch
+      override unnecessary, and that strictly-correct change would have failed this test. What the
+      override actually needs to be true is the *implication* — if body type is under the threshold the
+      controls must be lifted above it — and the loop above already proves the lifting. So this line
+      now records the premise without forbidding its removal.
+    */
+    const bodySize = Number.parseFloat(String(theme.typography.body1.fontSize));
+    expect(Number.isFinite(bodySize)).toBe(true);
+    if (bodySize >= 16) {
+      // Then the touch overrides are belt-and-braces rather than load-bearing, and everything above
+      // still holds. Nothing to assert beyond that — this branch exists so the intent is not lost.
+      expect(bodySize).toBeGreaterThanOrEqual(16);
+    }
   });
 });
