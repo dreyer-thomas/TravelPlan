@@ -2,7 +2,20 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getRequestSession } from "@/lib/auth/sessionGuard";
 
-const isProtectedPath = (pathname: string) => pathname.startsWith("/trips") || pathname.startsWith("/users");
+/**
+ * Story 5.10 added `/admin`, extending this predicate rather than adding a third branch below - the
+ * treatment a signed-out or password-flagged caller gets is identical for all three page trees.
+ *
+ * **This does not check for `ADMIN`, and cannot.** Two reasons, both structural: the role in the session
+ * token is a seven-day snapshot (`createSessionJwt({ sub, role })`), so a promotion or a revocation is
+ * invisible here; and Prisma does not run in the edge runtime this file executes in, so there is no way
+ * to read the live value. Rather than gate on a stale claim, the admin decision is made in the two
+ * places that can make it honestly - `/admin/users/page.tsx` is a server component that re-reads the
+ * role, and every `/api/admin/*` route calls `requireAdmin`. What this layer answers is "is anybody
+ * signed in", which is what it is able to answer.
+ */
+const isProtectedPath = (pathname: string) =>
+  pathname.startsWith("/trips") || pathname.startsWith("/users") || pathname.startsWith("/admin");
 /**
  * Only the page predicate above was widened for `/users`; this one stays `/api/trips`-scoped.
  *
@@ -10,6 +23,9 @@ const isProtectedPath = (pathname: string) => pathname.startsWith("/trips") || p
  * either, because the path starts with `/api`. It is also kept out of `config.matcher` below, so
  * this file never runs for it at all; the route self-guards with `requireSession` instead - see the
  * comment on its handler for why that is the right place for it.
+ *
+ * The same holds for Story 5.10's `/api/admin/*`, and for the same reason plus one more: those routes
+ * need the *live* role, which only `requireAdmin` can read.
  */
 const isProtectedApiPath = (pathname: string) => pathname.startsWith("/api/trips");
 const isHomePath = (pathname: string) => pathname === "/";
@@ -98,6 +114,9 @@ export const config = {
     "/trips/:path*",
     // `:path*` is zero-or-more, so this covers `/users` itself as well as any future subpath.
     "/users/:path*",
+    // Story 5.10, same spelling and for the same reason: `/admin` today redirects to `/admin/users`,
+    // and both need the signed-out redirect.
+    "/admin/:path*",
     "/api/trips",
     "/api/trips/:path((?!import/?$).*)",
     "/auth/first-login-password",

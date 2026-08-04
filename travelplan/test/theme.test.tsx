@@ -134,4 +134,42 @@ describe("theme token contract", () => {
       outlineOffset: "2px",
     });
   });
+
+  /**
+   * Fix 6.26a. iOS Safari zooms the viewport in when a focused editable control's font is under 16px,
+   * and does not zoom back out on blur — leaving the user inside a zoomed page with the dialog's own
+   * controls pushed out of reach.
+   *
+   * Asserted on the theme object, because neither half of the mechanism exists in jsdom: it evaluates
+   * no media queries, and it has no notion of a visual viewport to zoom. What *is* checkable here is
+   * the part that would silently rot — the threshold and the query. Both are easy to "tidy" into
+   * something that no longer works (15px reads as close enough; a `max-width` breakpoint reads as more
+   * idiomatic and misses an iPhone in landscape at ~932px), and neither mistake shows up on a desktop
+   * browser or in any other test.
+   */
+  it("keeps every editable control at or above the font size iOS Safari zooms below", () => {
+    const TOUCH = "@media (hover: none) and (pointer: coarse)";
+
+    // The three slots a user can put a caret in: `InputBase`'s input slot (every `<input>` and, since
+    // MUI renders multiline through the same class, every `<textarea>`), the `Select` display beside
+    // them, and the activity dialog's rich-text `contenteditable`, which is not a MUI component at all.
+    const slots = [
+      theme.components?.MuiInputBase?.styleOverrides?.input,
+      theme.components?.MuiSelect?.styleOverrides?.select,
+      (theme.components?.MuiCssBaseline?.styleOverrides as Record<string, unknown>)?.[".tiptap-editor"],
+    ] as Array<Record<string, { fontSize?: string } | undefined> | undefined>;
+
+    for (const slot of slots) {
+      expect(slot).toBeDefined();
+      const size = slot?.[TOUCH]?.fontSize;
+      // 16 is the threshold itself, not a comfortable margin above it: Safari zooms *below* 16px, so
+      // equality is the fix. Parsed rather than string-compared so "16px" and "1rem" both pass, and so
+      // that a value slipping to 15.5px fails on the number rather than on the spelling.
+      expect(Number.parseFloat(String(size))).toBeGreaterThanOrEqual(16);
+    }
+
+    // And the reason all three need the override: the design system's *body* size was also, silently,
+    // its *control* size. `DESIGN.md`'s `input` entry specifies geometry and colour and no type size.
+    expect(Number.parseFloat(String(theme.typography.body1.fontSize))).toBeLessThan(16);
+  });
 });

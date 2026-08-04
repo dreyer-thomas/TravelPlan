@@ -6,7 +6,15 @@ const globalForPrisma = globalThis as unknown as {
   prismaSchemaTag?: string;
 };
 
-const PRISMA_SCHEMA_TAG = "2026-08-01-remove-trip-feedback";
+/**
+ * Bumped by Story 5.10 for `UserRole.ADMIN`.
+ *
+ * This is the one kind of schema change `cachedClientMatchesCurrentSchema` below cannot see: it probes
+ * for *fields*, and a new enum member adds none. A dev server holding a client generated before the
+ * member exists rejects `role: "ADMIN"` in its own validation layer, before any SQL is sent - so the
+ * tag is what forces the rebuild here, not the field probe.
+ */
+const PRISMA_SCHEMA_TAG = "2026-08-04-user-role-admin";
 
 const getDatabaseUrl = () => {
   const url = process.env.DATABASE_URL;

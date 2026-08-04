@@ -2362,6 +2362,42 @@ So that a footer full of Abbrechen becomes one familiar close control.
 **When** this story reverses that
 **Then** both documents are updated with it, rather than leaving the drift Story 7.11 exists to clean up
 
+### Story 6.26: The Accommodation Dialog in Tabs
+
+As a trip planner on a phone,
+I want the accommodation dialog split into tabs the way the activity dialog already is,
+So that the second-longest form on the day screen stops being one scroll through everything.
+
+**FRs covered:** FR13, FR14 (accommodation editing) — layout only
+
+**Given** the accommodation dialog, which holds nine form fields plus the payment schedule, the place lookup and the photo gallery in one 520px column
+**When** it opens
+**Then** it carries four tabs — Basisdaten (Name, Status, Check-in/Check-out), Zahlung (Kosten, Zahlungsart, Zahlungszeilen), Ort & Notizen (Ortssuche, Koordinaten, Notizen), Medien & Links (Link, Galerie) — and none of them holds a single field
+
+**Given** the gallery is gated on a stay that has already been saved
+**When** the dialog is opened to *add* one
+**Then** the Medien & Links tab still holds the link and says why the upload zone is absent, rather than being an empty tab — the same reason Story 6.22 moved the activity dialog's link onto its media tab
+
+**Given** a validation error on a tab the user is not looking at
+**When** they press save
+**Then** the dialog switches to the first tab carrying an error and focuses that field; every tab with an error is marked in colour, in a glyph and in the tab's accessible name, and saving never fails silently
+
+**Given** react-hook-form skips the rules of a field whose panel is unmounted, while keeping its value
+**When** save is pressed from any tab
+**Then** the required name, the cost, the link and the rendered time field are judged anyway — before the split every field was always mounted, so this is a defect the tabs introduce rather than one they inherit
+
+**Given** the map from form field to tab
+**When** a tenth field is added later
+**Then** the build fails rather than the marker silently going missing
+
+**Given** typed-but-unsaved values, a resolved location and files staged for upload
+**When** the user switches tabs and comes back
+**Then** none of it is lost, and the dirty-form confirmation from Story 6.25 still asks exactly once
+
+**Given** four panels of different heights and MUI centring the dialog
+**When** tabs are switched
+**Then** a minimum height holds the frame still, as Story 6.24 did for the activity dialog — a minimum and not a fixed height, because the payment rows and the photo strip are both unbounded
+
 
 ## Epic 7: Visual Redesign — Light Cockpit System
 

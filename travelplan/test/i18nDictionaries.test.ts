@@ -31,6 +31,63 @@ describe("i18n dictionaries", () => {
   });
 
   /**
+   * Story 5.10. The two words AC3 turns on.
+   *
+   * "Owns" is `Trip.userId`; "shared with" is a `TripMember` row. They are different relations - only the
+   * first blocks a deletion (AC7) and only the second can be detached (AC6) - and the surface's whole job
+   * is to keep them apart. If a later tidy-up gave them the same word, every assertion in
+   * `adminUsersList.test.tsx` would still pass, because each looks for its own label and both would be
+   * found. So the *distinctness* is pinned here, in both languages, where it cannot be satisfied by
+   * accident.
+   */
+  describe("story 5.10 ownership and membership stay two words", () => {
+    it.each([
+      ["en", en],
+      ["de", de],
+    ] as const)("uses different labels for owns and shared in %s", (_language, dictionary) => {
+      expect(dictionary["admin.users.ownsLabel"]).toBeTruthy();
+      expect(dictionary["admin.users.sharedLabel"]).toBeTruthy();
+      expect(dictionary["admin.users.ownsLabel"]).not.toBe(dictionary["admin.users.sharedLabel"]);
+    });
+
+    /**
+     * Story 6.25 AC3: a destructive confirmation's safe half names what it *preserves*, and in the same
+     * noun as its neighbour - so "Keep account" beside "Delete account", not "Cancel". Asserted by the
+     * shared word rather than by the literal strings, and in both languages, because checking one language
+     * would let the other drift.
+     */
+    it.each([
+      ["en", en],
+      ["de", de],
+    ] as const)("names the same object in both halves of the delete confirmation in %s", (_language, dictionary) => {
+      const keep = dictionary["admin.users.delete.keep"];
+      const confirm = dictionary["admin.users.delete.confirm"];
+      const sharedNoun = keep.split(/\s+/).find((word) => confirm.includes(word));
+
+      expect(sharedNoun, `${keep} / ${confirm}`).toBeTruthy();
+      // And the safe half must not be the word 6.25 deleted from both dictionaries.
+      expect(keep.toLowerCase()).not.toContain("cancel");
+      expect(keep.toLowerCase()).not.toContain("abbrechen");
+    });
+
+    /** The one `UserRole` that decides anything gets a label; the two that do not must not gain one. */
+    it("does not invent labels for the account roles nothing branches on", () => {
+      const has = (dictionary: Record<string, string>, key: string) =>
+        Object.prototype.hasOwnProperty.call(dictionary, key);
+
+      for (const dictionary of [en, de]) {
+        expect(has(dictionary, "admin.users.adminBadge")).toBe(true);
+        // `OWNER` and `VIEWER` are inert at account level - `Trip.userId` and `TripMember.role` decide
+        // access - and a badge for either would tell the admin something the app does not act on. The two
+        // `admin.users.roleVIEWER` / `roleCONTRIBUTOR` keys that do exist are `TripMemberRole`, a different
+        // enum that happens to share one word.
+        expect(has(dictionary, "admin.users.roleOWNER")).toBe(false);
+        expect(has(dictionary, "admin.users.roleADMIN")).toBe(false);
+      }
+    });
+  });
+
+  /**
    * Story 6.17, AC2 and AC3. Two keys had to leave, and an orphan is the failure mode neither the
    * component suite nor the parity check above can see: a key that no longer has a reader still
    * satisfies both, and `common.save` in particular is a name that invites the next dialog to pick

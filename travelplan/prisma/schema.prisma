@@ -8,9 +8,20 @@ datasource db {
   provider = "sqlite"
 }
 
+// SQLite has no native enum. `users.role` is a plain `TEXT NOT NULL DEFAULT 'OWNER'` column with no
+// CHECK constraint (see `20260212164546_init`), so adding a member is a client-side change only and
+// emits no DDL - `prisma migrate diff` against the migrations directory stays empty for this table.
+// Verified for this story rather than assumed, the way Story 6.16 verified it for
+// `TravelTransportType`. Every stored row keeps its value; `ADMIN` is purely additive.
+//
+// `OWNER` is the account-level default every self-registration gets (`register/route.ts`), which is
+// why it is *not* an administrator marker - and why `ADMIN` had to exist at all. Note also that
+// `UserRole.OWNER` and "owner of a trip" (`Trip.userId`) are unrelated things wearing one word;
+// adding `ADMIN` here does not fix that collision and the code does not pretend it does.
 enum UserRole {
   OWNER
   VIEWER
+  ADMIN
 }
 
 enum TripMemberRole {

@@ -11,6 +11,16 @@ import { useI18n } from "@/i18n/provider";
 
 type HeaderMenuProps = {
   isAuthenticated: boolean;
+  /**
+   * Story 5.10, AC2. Resolved from the database by `AppHeader`, not from the session token - see the note
+   * there.
+   *
+   * Defaulted so that `/page.tsx` does not have to make a claim it has no reason to resolve: the marketing
+   * home page is reached **anonymously only**, because `middleware.ts` redirects any session at `/` to
+   * `/trips`. (An earlier version of this comment said "anonymous and signed-in visitors", which would have
+   * made the default a bug rather than a convenience - `headerMenuAdminEntry.test.tsx` has it right.)
+   */
+  isAdmin?: boolean;
 };
 
 type ApiEnvelope<T> = {
@@ -18,7 +28,7 @@ type ApiEnvelope<T> = {
   error: { code: string; message: string; details?: unknown } | null;
 };
 
-export default function HeaderMenu({ isAuthenticated }: HeaderMenuProps) {
+export default function HeaderMenu({ isAuthenticated, isAdmin = false }: HeaderMenuProps) {
   const router = useRouter();
   const { t } = useI18n();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
@@ -55,7 +65,9 @@ export default function HeaderMenu({ isAuthenticated }: HeaderMenuProps) {
     void fetchCsrfToken();
   }, []);
 
-  const items = useMemo(() => getAuthMenuItems(authState), [authState]);
+  // `authState` rather than the `isAuthenticated` prop, because signing out flips it locally without a
+  // navigation; `isAdmin` has no such local transition - only a page load changes who you are.
+  const items = useMemo(() => getAuthMenuItems({ isAuthenticated: authState, isAdmin }), [authState, isAdmin]);
   const open = Boolean(anchorEl);
   const languageMenuOpen = Boolean(languageAnchorEl);
 

@@ -91,6 +91,53 @@ describe("middleware auth guard", () => {
     expect(response.headers.get("location")).toBe("http://localhost/auth/first-login-password");
   });
 
+  /**
+   * Story 5.10. The administration page joins `/trips` and `/users` in the page guard - the same two
+   * branches, extended rather than duplicated (AC2's entry point is only worth anything if the
+   * destination itself is behind the session).
+   *
+   * Note what this guard does *not* do: it does not check for `ADMIN`. It cannot - `role` in the token is
+   * a seven-day snapshot (Trap 6) and Prisma does not run in the middleware's edge runtime, so the only
+   * role available here is the stale one. The admin decision is therefore made where it can be made
+   * live: the page is a server component that re-reads the role, and every `/api/admin/*` route calls
+   * `requireAdmin`. This layer answers "is anybody signed in", which is all it is able to answer
+   * honestly.
+   */
+  it("redirects signed-out users to /auth/login for the administration page", async () => {
+    const request = new NextRequest("http://localhost/admin/users");
+    const response = await middleware(request);
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("http://localhost/auth/login");
+  });
+
+  it("redirects flagged users away from the administration page", async () => {
+    const token = await createSessionJwt({ sub: "user-1", role: "ADMIN", mustChangePassword: true });
+    const request = new NextRequest("http://localhost/admin/users", {
+      headers: {
+        cookie: `session=${token}`,
+      },
+    });
+    const response = await middleware(request);
+
+    // Story 5.2's forced password change outranks the administration surface: an admin on a temporary
+    // password is exactly the account that must not be able to act before changing it.
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("http://localhost/auth/first-login-password");
+  });
+
+  it("lets a signed-in caller through to the administration page", async () => {
+    const token = await createSessionJwt({ sub: "user-1", role: "ADMIN" });
+    const request = new NextRequest("http://localhost/admin/users", {
+      headers: {
+        cookie: `session=${token}`,
+      },
+    });
+    const response = await middleware(request);
+
+    expect(response.status).toBe(200);
+  });
+
   it("returns 403 json for flagged users hitting trip apis", async () => {
     const token = await createSessionJwt({ sub: "user-1", role: "owner", mustChangePassword: true });
     const request = new NextRequest("http://localhost/api/trips/trip-1", {
@@ -172,5 +219,21 @@ describe("middleware matcher", () => {
     // `/users/:path*` guards the page. The endpoint self-guards with `requireSession` and must stay
     // out of the matcher, or the middleware's page-redirect branch starts answering an API call.
     expect(await matches("/api/users")).toBe(false);
+  });
+
+  /** Story 5.10: the administration page, and only the page. */
+  it("covers the administration page and any subpath of it", async () => {
+    for (const pathname of ["/admin", "/admin/users"]) {
+      expect(await matches(pathname), pathname).toBe(true);
+    }
+  });
+
+  it("does not pull the admin apis in behind the page entry", async () => {
+    // Same reasoning as `/api/users` above, and the same failure if it were let in: these routes must
+    // answer with the `{ data, error }` envelope their clients parse, not with a 307 to a login page.
+    // They self-guard with `requireAdmin`, which is also the only place the role can be read live.
+    for (const pathname of ["/api/admin/users", "/api/admin/users/user-1", "/api/admin/trips"]) {
+      expect(await matches(pathname), pathname).toBe(false);
+    }
   });
 });

@@ -1505,3 +1505,95 @@ severity: low
 summary: Story 6.25 made the one-button form footer the rule and the two-button destructive confirmation the carve-out. The mockup now draws the rule correctly, but the carve-out is not drawn anywhere in it — so after this story the two-button footer is the only footer shape in the app that its own binding reference does not contain. The `btn-secondary` specimen was relabelled "Reise behalten" and given a usage constraint ("nur als sichere Hälfte einer zerstörenden Bestätigung"), which is a rule with no drawn instance to check against.
 evidence: Recorded by the implementation itself rather than found afterwards — the file's rationale block says so, and the reasoning given is that drawing one from the code would be a transcription rather than a design decision. That is the right call for a chrome story and it is why this is deferred rather than patched. The gap is real all the same: `DESIGN.md` cites this file as binding for dialog footers, and the pair that AC3 exists to protect — "Reise behalten" beside a red contained "Reise löschen", at deliberately near-equal width (measured 139px against 137px) — is the one arrangement a future editor cannot check against a picture. Closing it needs a UX pass that decides the destructive confirmation's layout rather than copying the implementation's.
 status: open
+
+## Deferred from: code review of story 5-10 (2026-08-04)
+
+### DW-163: Deleting an account does not invalidate its seven-day session
+
+source_spec: `_bmad-output/implementation-artifacts/5-10-user-administration-for-admins.md`
+origin: code review of story 5-10, 2026-08-04
+location: `travelplan/src/lib/repositories/adminUserRepo.ts:234-270` (`deleteUserForAdmin`), against `travelplan/src/lib/auth/sessionGuard.ts` and `travelplan/src/lib/auth/jwt.ts`
+severity: medium
+summary: Story 5.10 created the first way to delete an account from the UI. Nothing revokes the deleted account's session JWT, which is valid for seven days, and no route other than the admin ones re-reads the user row. So a deleted user's token keeps passing `requireSession` for up to a week.
+evidence: `adminAccess.ts:30-33` handles its own half correctly and says so — a missing row means "not an admin", and the comment names exactly this state as reachable. What it cannot do is speak for the ~30 other routes that call `requireSession` alone. `POST /api/trips` with a deleted user's token would insert a `Trip.userId` pointing at a row that no longer exists, surfacing as a foreign-key 500 rather than a 401. Pre-existing in the sense that this app has never had session revocation — there is no denylist, no session table, no token version column — but unreachable before this story because accounts could not be deleted. Closing it needs a revocation mechanism (a `tokenVersion` column bumped on delete, or a server-side session table), which is a schema change and its own story rather than a patch here.
+status: open
+
+### DW-164: The admin role toggle can resurrect a membership another admin just detached
+
+source_spec: `_bmad-output/implementation-artifacts/5-10-user-administration-for-admins.md`
+origin: code review of story 5-10, 2026-08-04
+location: `travelplan/src/components/features/admin/AdminUsersList.tsx:321-337` (`changeMembershipRole`), against `travelplan/src/lib/repositories/adminUserRepo.ts:316-321`
+severity: low
+summary: `changeMembershipRole` sends `POST …/memberships`, which is an `upsert`, with the target role computed from the locally cached `membership.role`. If the row was detached between the last `load()` and the click, the upsert takes its **create** branch and re-grants trip access that was deliberately revoked — and the UI reports success.
+evidence: The sibling `removeTripMembershipForAdmin` guards against exactly this class of staleness, using a guarded `deleteMany` so a concurrent duplicate removal reports `missing` rather than throwing; the role-change path has no equivalent "only if it still exists" condition. Requires two admins acting concurrently, and the installation has one admin today, which is why this is deferred rather than patched. Becomes live the moment a second admin exists — which this story's own AC8a makes a one-click operation. Fix is a distinct role-change operation that updates by the compound key without creating, leaving `upsert` to the attach path that actually wants it.
+status: open
+
+### DW-165: `busyUserId` is one slot shared by every row, so two in-flight actions clear each other's spinner
+
+source_spec: `_bmad-output/implementation-artifacts/5-10-user-administration-for-admins.md`
+origin: code review of story 5-10, 2026-08-04
+location: `travelplan/src/components/features/admin/AdminUsersList.tsx:88` (the state) and `:491` (`const busy = busyUserId === user.id`)
+severity: low
+summary: `busy` is computed per row by comparing against a single `busyUserId`, so a click on row B is not disabled while row A's mutation is still in flight. Whichever request returns first calls `setBusyUserId(null)`, re-enabling the other row's buttons and hiding its spinner while its request is still outstanding; the two `load()` calls then resolve in arbitrary order.
+evidence: All four mutation helpers (`setAdminRole`, `changeMembershipRole`, `detach`, and the delete path's own flag) write the same single slot. The consequence is cosmetic and self-healing — both mutations still complete server-side and the final `load()` reconciles — which is why it is deferred. It is worth recording because the same structure is what makes DW-163's sibling finding (the unguarded `fetch` in `mutate`, patched under this story) able to strand the flag permanently: a set of per-row flags, or a `Set` of in-flight ids, removes both classes at once.
+status: open
+
+### DW-166: The admin payload is the whole account-and-trip graph, unpaginated, refetched after every mutation
+
+source_spec: `_bmad-output/implementation-artifacts/5-10-user-administration-for-admins.md`
+origin: code review of story 5-10, 2026-08-04
+location: `travelplan/src/lib/repositories/adminUserRepo.ts:51-112` (`listUsersForAdmin`, `listTripsForAdmin`), served by `travelplan/src/app/api/admin/users/route.ts:33-38`
+severity: low
+summary: `GET /api/admin/users` returns every account with every owned trip and every membership, plus every trip in the installation with its owner's email. No `take`, no `skip`, no pagination. Each of the six mutations then re-reads all of it, and the attach picker is a flat select over every trip that exists.
+evidence: The refetch-everything decision is well argued for correctness and documented at `AdminUsersList.tsx:75-79` — half these actions change a row other than the one clicked, so a local splice would show a list that disagrees with the database precisely where being wrong matters. That reasoning is sound and should not be undone. What is missing is any boundary at which the page degrades: combined with no `take`, one role toggle is an O(users × trips) transfer. Harmless at this installation's size (a handful of accounts, one trip) and genuinely not worth solving yet, which is why it is deferred rather than patched. Recorded so that "it refetches everything" is a known property with a known cost rather than a surprise at the first installation with a hundred accounts.
+status: open
+
+### DW-167: The admin wire contract is hand-written twice, with the role enums as string literals on both sides
+
+source_spec: `_bmad-output/implementation-artifacts/5-10-user-administration-for-admins.md`
+origin: code review of story 5-10, 2026-08-04
+location: `travelplan/src/components/features/admin/AdminUsersList.tsx:30-49` against `travelplan/src/lib/repositories/adminUserRepo.ts:15-36`
+severity: low
+summary: `AdminUser`, `AdminMembership` and `AdminTrip` are declared independently on both sides of the fetch, and both hard-code `"OWNER" | "VIEWER" | "ADMIN"` and `"VIEWER" | "CONTRIBUTOR"` rather than importing the generated `UserRole` / `TripMemberRole` that this very story just widened. Renaming `ownedTrips` or adding a fourth role compiles clean on both sides and fails only at runtime.
+evidence: This story is itself the proof the enum grows — it added the third `UserRole` member and had to bump `PRISMA_SCHEMA_TAG` to make a stale client notice. The duplication follows 5.8's existing pattern for `RegisteredUsersList`, so it is the house shape rather than a new deviation, and the client genuinely should not import from a repository module. Deferred because the right fix is a shared contract type (a `types/` module both sides import, or the role unions imported from the generated enums) which touches 5.8's surface too and is a small refactor rather than a patch to this story.
+status: open
+
+### DW-168: The attach `upsert` has no `P2002` handler where its sibling detach explicitly guards `P2025`
+
+source_spec: `_bmad-output/implementation-artifacts/5-10-user-administration-for-admins.md`
+origin: code review of story 5-10, 2026-08-04
+location: `travelplan/src/lib/repositories/adminUserRepo.ts:316-321` (`setTripMembershipForAdmin`), against `:343-353` (`removeTripMembershipForAdmin`)
+severity: low
+summary: Two admins attaching the same account to the same trip concurrently can make the upsert's create branch collide on `@@unique([tripId, userId])`. The `PrismaClientKnownRequestError` escapes the repository into the route's bare `catch` and becomes a 500 `server_error`.
+evidence: The asymmetry is the finding: `removeTripMembershipForAdmin` documents avoiding exactly this class ("a guarded `deleteMany` rather than `findFirst` then `delete`, so a concurrent duplicate removal reports `missing` instead of throwing Prisma's `P2025`"), and `createUserForAdmin` at `:155-160` catches `P2002` deliberately for the same reason. The attach path is the one of the three that does not. Requires two concurrent admins on the same trip and the same account, which is why it is deferred; the fix is a `P2002` catch returning `{ outcome: "set" }`, since a collision means the row the caller wanted now exists.
+status: open
+
+### DW-169: `userId` reaches Prisma unbounded while every id in the request body is capped at 64
+
+source_spec: `_bmad-output/implementation-artifacts/5-10-user-administration-for-admins.md`
+origin: code review of story 5-10, 2026-08-04
+location: `travelplan/src/app/api/admin/users/[userId]/route.ts:37-40` and `:99-102`, `…/[userId]/memberships/route.ts:49-52` and `:115-118`, against `travelplan/src/lib/validation/adminUserSchemas.ts:44`
+severity: low
+summary: `adminUserSchemas.ts` bounds `tripId` with `z.string().trim().min(1).max(64)` and states the reason in a comment — "these are fixed-length cuids, so an unbounded string only ever reaches Prisma as an oversized query parameter". `userId` comes straight off `context.params` with only an emptiness check and goes into `findUnique` / `upsert` / `deleteMany`.
+evidence: Four route handlers, same omission in each. Not an injection risk — Prisma parameterises — so the consequence is only that an arbitrarily long path segment is handed to the driver, which is precisely the consequence the schema comment says the bound exists to prevent. The reasoning is already written down in this story; it is simply unapplied to the one id that does not travel in the body. Deferred rather than patched because the fix wants a shared path-param helper across the four handlers rather than four inline checks, and it touches no behaviour anyone can reach.
+status: open
+
+### DW-170: `grant-admin.mjs` picks arbitrarily among the case variants the binary-collated unique index permits
+
+source_spec: `_bmad-output/implementation-artifacts/5-10-user-administration-for-admins.md`
+origin: code review of story 5-10, 2026-08-04
+location: `travelplan/scripts/grant-admin.mjs:78-84`
+severity: low
+summary: SQLite's unique index on `users.email` is binary-collated, so `Foo@x.com` and `foo@x.com` can coexist as two rows. `SELECT id, role FROM users WHERE lower(email) = ?` can match both, and `.get()` returns whichever the query planner yields. The script then promotes one of them and reports success naming the normalised address, with no hint that a second matching account exists.
+evidence: The `lower(email)` match is deliberate and correct in intent — the comment explains that an operator types the address however it was written to them, while `normalizedEmailSchema` lowercases everything on the way in. That normalisation is why no such pair exists today: every row was written through the schema. The hazard is only reachable via a row inserted outside the app (a manual `INSERT`, a restored backup from before the normalisation, a future import path). Deferred because it is unreachable through any code path in the tree; recorded because the one-shot production command reporting `Granted ADMIN to x@y` while having promoted a different row than the operator meant is a bad way to find out. Fix is `.all()` plus a refusal when more than one row matches.
+status: open
+
+### DW-171: bcrypt runs inside the trip-share transaction, and the extraction moved it out of sight of the call site
+
+source_spec: `_bmad-output/implementation-artifacts/5-10-user-administration-for-admins.md`
+origin: code review of story 5-10, 2026-08-04
+location: `travelplan/src/lib/repositories/userRepo.ts:44-56` (`createAccountWithTemporaryPassword`), called from `travelplan/src/lib/repositories/tripRepo.ts:2591-2596` inside an interactive transaction
+severity: low
+summary: The extracted helper is `async` and hashes internally, so the trip-share invite path holds its interactive transaction open across the ~100 ms bcrypt call. Behaviour is preserved exactly from before the refactor — the old inline code hashed in the same place — but the cost is now invisible at the call site.
+evidence: The contrast is inside this same story: `register/route.ts:70-72` documents keeping `hashPassword` *outside* its new transaction, because "bcrypt takes ~100ms and holding a SQLite write transaction open across it would serialise every concurrent registration behind it". That reasoning applies verbatim to the trip-share path, which does the opposite — and after the extraction a reader of `tripRepo.ts:2591` sees only a function call with no indication that a 100 ms CPU-bound hash happens inside their transaction. One step from Prisma's 5 s `P2028` interactive-transaction timeout under concurrent invites. Deferred because it is genuinely pre-existing and fixing it means restructuring the caller to hash before opening its transaction, which is a change to Story 5.1's path rather than to this story's.
+status: open

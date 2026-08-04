@@ -9,6 +9,9 @@ const en: Dictionary = {
   // and "Sign out", where a leading arrow points at nothing, and it is a destination rather than a
   // way back - so it is named for where it goes.
   "header.trips": "All trips",
+  // Story 5.10, AC2. Names the surface rather than the role - "Administration" alone would not say what
+  // this administers, and the row is only ever shown to somebody who already is one.
+  "header.userAdmin": "User administration",
   "language.label": "Language",
   "language.saveError": "Unable to save language preference.",
   "language.en": "English",
@@ -605,6 +608,14 @@ const en: Dictionary = {
   "trips.stay.error": "Stay update failed. Please try again.",
   "trips.stay.deleteError": "Stay removal failed. Please try again.",
   "trips.stay.nameRequired": "Stay name is required",
+  // Story 6.26 — see the note on the German side for why these are not shared with `trips.plan.*`.
+  "trips.stay.tabsLabel": "Stay sections",
+  "trips.stay.tabBasics": "Basics",
+  "trips.stay.tabCost": "Payment",
+  "trips.stay.tabPlace": "Place & notes",
+  "trips.stay.tabMedia": "Media & links",
+  "trips.stay.tabWithErrors": "{label} (contains errors)",
+  "trips.stay.galleryAfterSave": "You can add photos once this stay is saved.",
   "trips.gallery.title": "Image gallery",
   "trips.gallery.uploadAction": "Upload",
   "trips.gallery.moveUp": "Up",
@@ -652,6 +663,93 @@ const en: Dictionary = {
   "users.registered.empty": "No accounts registered yet.",
   "users.registered.loadError": "Unable to load registered users. Please refresh.",
   "users.registered.forbidden": "Only trip owners can view registered users.",
+  // Story 5.10. An `admin.` namespace rather than more `users.registered.*`, because the two surfaces are
+  // deliberately kept apart: `/users` stays the read-only list Story 5.8 built for trip owners deciding
+  // whom to invite, and this is the administration of accounts, behind `ADMIN`. Sharing a key prefix would
+  // invite the next reader to share a component.
+  "admin.users.title": "User administration",
+  "admin.users.subtitle": "Every account, and what each one can reach",
+  "admin.users.countLabel": "Accounts ({count})",
+  "admin.users.empty": "No accounts registered yet.",
+  "admin.users.loadError": "Unable to load accounts. Please refresh.",
+  "admin.users.forbidden": "Only administrators can manage accounts.",
+  // AC3's vocabulary, and the two words the whole surface turns on. "Owns" is `Trip.userId`; "Shared" is a
+  // `TripMember` row. They are two different relations and must not collapse into one word - only the
+  // first blocks a deletion, and only the second can be detached.
+  "admin.users.ownsLabel": "Owns",
+  "admin.users.sharedLabel": "Shared with",
+  "admin.users.reachesNothing": "No trips",
+  "admin.users.youBadge": "You",
+  "admin.users.adminBadge": "Admin",
+  "admin.users.roleVIEWER": "Viewer",
+  "admin.users.roleCONTRIBUTOR": "Contributor",
+  // Create
+  "admin.users.create.action": "Add account",
+  "admin.users.create.title": "Add account",
+  "admin.users.create.emailLabel": "Email",
+  "admin.users.create.passwordLabel": "Temporary password",
+  "admin.users.create.passwordHelper": "The account must change it on first sign-in.",
+  "admin.users.create.submit": "OK",
+  "admin.users.create.error": "Unable to create the account.",
+  "admin.users.create.emailExists": "An account already exists for this email.",
+  // The two rules the server enforces, said in the field rather than left to a red box with no words.
+  // `passwordRule` covers both ends because `passwordSchema` is 8-72 and a caller who trips either needs
+  // the same sentence.
+  "admin.users.create.emailRequired": "An email address is required.",
+  "admin.users.create.passwordRule": "Between 8 and 72 characters.",
+  // The server's `validation_error`, which is reachable even with the client rules above - a malformed
+  // address the browser accepts and `normalizedEmailSchema` does not, for one.
+  "admin.users.create.validationError": "Check the email address and the password, then try again.",
+  // Grant and revoke (AC8a)
+  "admin.users.grantAdmin": "Make administrator",
+  "admin.users.revokeAdmin": "Remove administrator",
+  "admin.users.roleError": "Unable to change the role.",
+  "admin.users.lastAdmin": "At least one administrator must remain.",
+  // Attach and detach (AC5, AC6)
+  "admin.users.attach.action": "Add to trip",
+  "admin.users.attach.title": "Add {email} to a trip",
+  "admin.users.attach.tripLabel": "Trip",
+  "admin.users.attach.roleLabel": "Role",
+  "admin.users.attach.submit": "OK",
+  "admin.users.attach.noTrips": "There are no trips to add anybody to yet.",
+  "admin.users.attach.error": "Unable to update the membership.",
+  "admin.users.attach.tripOwner": "This account already owns that trip.",
+  // The routes return `not_found` and `trip_not_found` as two codes deliberately, because which of the two
+  // is gone is the difference between reloading the list and picking another trip. Two strings, so the
+  // distinction survives to the person who has to act on it.
+  "admin.users.attach.tripNotFound": "That trip no longer exists. Reload the list.",
+  "admin.users.attach.userNotFound": "That account no longer exists. Reload the list.",
+  // Marks a trip the account is already a member of, so the picker cannot change a role without saying
+  // which role it is changing.
+  "admin.users.attach.currentRole": "currently {role}",
+  "admin.users.detach.action": "Remove from trip",
+  // The accessible name, which has to name the trip: a row with two memberships otherwise renders two
+  // buttons with identical names, indistinguishable to a screen reader and to `getByRole`.
+  "admin.users.detach.actionFor": "Remove {email} from {trip}",
+  "admin.users.detach.error": "Unable to remove the membership.",
+  "admin.users.detach.notFound": "That membership no longer exists. Reload the list.",
+  // Same reason as `detach.actionFor`: the visible label is the target role alone, which is no name at all
+  // once a row carries two of them.
+  "admin.users.roleToggleFor": "Change {email} on {trip} to {role}",
+  // Delete (AC7). The safe half names what it preserves, per Story 6.25 AC3, and in the same noun as its
+  // neighbour: "Keep account" beside "Delete account".
+  "admin.users.delete.action": "Delete account",
+  "admin.users.delete.title": "Delete account",
+  // Says what deletion actually does, which the first wording did not: the account goes and its *access* to
+  // trips shared with it goes, but those trips belong to somebody else and are untouched. The earlier
+  // "along with every trip shared with them" read as though the trips were deleted too - the exact cascade
+  // AC7's refusal exists to prevent, described in the one dialog where the fear of it lives, and by
+  // collapsing ownership and membership into a single word that AC3 keeps apart everywhere else. The second
+  // sentence is why an account owning trips never reaches this dialog at all.
+  "admin.users.delete.body":
+    "{email} loses its access to any trip shared with it. The trips themselves are not deleted — they belong to their owners. An account that owns trips cannot be deleted. This cannot be undone.",
+  "admin.users.delete.confirm": "Delete account",
+  "admin.users.delete.keep": "Keep account",
+  "admin.users.delete.error": "Unable to delete the account.",
+  // AC7's refusal, in the admin's own words. The trips are named rather than counted, because the point of
+  // the message is that the admin can see what is in the way without going to look.
+  "admin.users.delete.ownsTrips": "{email} owns these trips and cannot be deleted: {trips}",
+  "admin.users.delete.selfDelete": "You cannot delete your own account here.",
   // Story 6.17 removed `common.save`. It was named as though it were shared and had exactly one
   // reader — the travel-segment dialog — whose button now says "OK". That value lives on
   // `trips.travelSegment.save` instead, so the next dialog needing a save button adds its own key

@@ -161,6 +161,41 @@ const checkboxCheckedIcon = createElement("svg", {
   ],
 });
 
+/**
+ * The one rule that keeps iOS Safari from zooming the page in when a control takes focus.
+ *
+ * **The behaviour.** Mobile Safari zooms the viewport in whenever a focused editable control's font is
+ * **smaller than 16px**, so the text it is about to receive is legible. It does not zoom back out on
+ * blur. The user is left inside a zoomed page with the dialog's own controls — its tab bar, its footer
+ * buttons — pushed outside the visual viewport, and has to pinch out by hand before they can carry on.
+ * Reported against the activity dialog; the cause is app-wide.
+ *
+ * **Why every control was under the threshold.** Nothing sets a font size on a form control anywhere in
+ * this app. `typography.body1` is 13.5px (`DESIGN.md.typography.body`), MUI's `InputBase` spreads
+ * `body1` onto its root and the input slot inherits it, and `CssBaseline` puts the same 13.5px on
+ * `body`, which the rich-text `contenteditable` inherits. So the design system's *body* size was
+ * silently also its *control* size — and `DESIGN.md`'s `input` entry never said it should be: it
+ * specifies `minHeight`, radius, fill, borders and focus ring, and no type size at all.
+ *
+ * **Why not block zooming instead.** `maximum-scale=1` / `user-scalable=no` in the viewport meta stops
+ * the auto-zoom in one line and is the answer most search results give. It also takes pinch-zoom away
+ * from every user on every screen, which fails WCAG 1.4.4 — a hard no in an app that already holds
+ * itself to 44px targets and AA contrast.
+ *
+ * **Why a pointer query rather than a width one.** `@media (max-width: 599.95px)` was the first
+ * attempt and it misses the case: an iPhone in landscape reports ~932px of viewport width, well above
+ * any phone breakpoint, and Safari zooms there just the same. `(hover: none) and (pointer: coarse)`
+ * asks the question that actually matters — is this a touch device without a hovering pointer — and is
+ * orientation-independent. Desktop is untouched at every width, so the approved 13.5px composition is
+ * unchanged on the surfaces the design pass actually mocked.
+ *
+ * **What it costs.** On a phone a control grows by roughly the difference in line box, ~4px per field.
+ * Forms get marginally taller there; the alternative was a zoom the user has to undo by hand.
+ */
+const TOUCH_ZOOM_SAFE_FONT_SIZE = {
+  "@media (hover: none) and (pointer: coarse)": { fontSize: "16px" },
+} as const;
+
 const theme = createTheme({
   palette: {
     mode: "light",
@@ -260,6 +295,30 @@ const theme = createTheme({
         root: {
           backgroundImage: "none",
         },
+      },
+    },
+    /*
+      `MuiInputBase` rather than `MuiOutlinedInput`, and the `input` slot rather than the root: the slot
+      is the one element that is both the `<input>` and the `<textarea>` (MUI renders the multiline
+      variant through the same class), and `InputBase` is the base every input variant in the app goes
+      through. Setting it on the root instead would leave the slot's own `font: inherit` to pass 13.5px
+      down from wherever the root sat.
+    */
+    MuiInputBase: {
+      styleOverrides: {
+        input: TOUCH_ZOOM_SAFE_FONT_SIZE,
+      },
+    },
+    MuiCssBaseline: {
+      styleOverrides: {
+        /*
+          The rich-text description in the activity dialog. A `contenteditable` is an editable control to
+          Safari exactly as an `<input>` is, and this one carries no font size of its own — it inherits
+          13.5px from `body`. Reached through a global rule because it is not a MUI component and has no
+          slot to override; scoped to the editor's own class rather than to `[contenteditable]` at large,
+          so a future non-editable use of the attribute does not silently pick up a type size.
+        */
+        ".tiptap-editor": TOUCH_ZOOM_SAFE_FONT_SIZE,
       },
     },
     MuiInputLabel: {
@@ -375,6 +434,13 @@ const theme = createTheme({
           backgroundColor: colors.card,
           display: "flex",
           alignItems: "center",
+          /*
+            Not a zoom fix — MUI's `Select` display is a `div` with `role="combobox"`, not a native
+            `<select>`, so Safari has nothing to zoom *for* here. It is a match: the status select shares
+            a field row with the check-in time input, and a 13.5px select beside a 16px input is a
+            visible mismatch rather than a subtle one.
+          */
+          ...TOUCH_ZOOM_SAFE_FONT_SIZE,
         },
       },
     },

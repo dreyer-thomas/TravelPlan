@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { prisma } from "@/lib/db/prisma";
-import { hashPassword } from "@/lib/auth/bcrypt";
+import { createAccountWithTemporaryPassword } from "@/lib/repositories/userRepo";
 import { Prisma } from "@/generated/prisma/client";
 import type { TravelSegmentItemType, TravelTransportType } from "@/generated/prisma/enums";
 import type { TripAccessRole } from "@/lib/auth/tripAccess";
@@ -2588,15 +2588,14 @@ export const createTripCollaboratorForOwner = async ({
       } satisfies CreateTripCollaboratorResult;
     }
 
-    const passwordHash = await hashPassword(temporaryPassword);
-    const user = await tx.user.create({
-      data: {
-        email: normalizedEmail,
-        passwordHash,
-        role: "VIEWER",
-        mustChangePassword: true,
-      },
-      select: { id: true, email: true },
+    // Story 5.10 moved these four lines into `createAccountWithTemporaryPassword` so its own
+    // account-creation action is the same mechanism rather than a second one (AC4). The transaction
+    // client is passed through deliberately: the membership insert below must not commit without the
+    // account it belongs to.
+    const user = await createAccountWithTemporaryPassword(tx, {
+      email: normalizedEmail,
+      temporaryPassword,
+      role: "VIEWER",
     });
 
     try {

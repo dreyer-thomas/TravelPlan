@@ -8,6 +8,7 @@
     "start": "next start -p 3001 -H 127.0.0.1",
     "lint": "eslint",
     "check:migrations": "bash ./scripts/check-migration-immutability.sh",
+    "admin:grant": "node ./scripts/grant-admin.mjs",
     "audit:check": "npm audit --omit=dev --audit-level=low",
     "postinstall": "prisma generate",
     "test": "vitest run",

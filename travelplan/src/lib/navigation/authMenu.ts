@@ -14,12 +14,29 @@
  * that target lives in the day page's own overflow menu (stories 6.11 and 6.19).
  */
 export type AuthMenuItem = {
-  key: "trips" | "login" | "register" | "logout";
+  key: "trips" | "admin" | "login" | "register" | "logout";
   labelKey: string;
   href?: string;
 };
 
-export const getAuthMenuItems = (isAuthenticated: boolean): AuthMenuItem[] => {
+/**
+ * Story 5.10 turned the two positional booleans this would otherwise take into one named argument.
+ *
+ * `getAuthMenuItems(true, false)` reads as nothing at a call site, and the specific mistake it invites -
+ * transposing the two - is the one that hands the administration row to every signed-in account. The
+ * object makes both values say what they are at the only place they are passed.
+ */
+export type AuthMenuState = {
+  isAuthenticated: boolean;
+  /**
+   * Whether the caller holds `UserRole.ADMIN`. Resolved by a live database read in `AppHeader` rather than
+   * from the session token, whose `role` claim is a seven-day snapshot - so a promotion or a revocation
+   * shows up in this menu on the next page load rather than at the next sign-in.
+   */
+  isAdmin: boolean;
+};
+
+export const getAuthMenuItems = ({ isAuthenticated, isAdmin }: AuthMenuState): AuthMenuItem[] => {
   if (isAuthenticated) {
     // Destination first, session action last: `/trips` is somewhere to go, `logout` ends the
     // session, and a list that mixes the two reads better with the navigation above the exit.
@@ -31,6 +48,17 @@ export const getAuthMenuItems = (isAuthenticated: boolean): AuthMenuItem[] => {
     // to learn than one with a fixed shape, and a same-route navigation costs the user nothing.
     return [
       { key: "trips", labelKey: "header.trips", href: "/trips" },
+      // Story 5.10, AC2. It sits here because it is the same shape as `trips`: a destination that needs no
+      // trip context, which is precisely the line stories 6.19 and 6.20 drew for what may live in the
+      // global menu - `/admin/users` is a constant, not a `/trips/${tripId}`.
+      //
+      // Additionally gated, and gated *here* rather than by the menu component, so that "who sees this
+      // row" is one expression in the file that decides what the menu is. Everyone who is not an admin
+      // gets the identical two-row list they had before this story.
+      //
+      // Hiding the row is presentation only. The page re-reads the role and every `/api/admin/*` route
+      // calls `requireAdmin` - a menu that merely omits an option is not a guard.
+      ...(isAdmin ? [{ key: "admin" as const, labelKey: "header.userAdmin", href: "/admin/users" }] : []),
       { key: "logout", labelKey: "auth.logout" },
     ];
   }

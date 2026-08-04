@@ -1,0 +1,675 @@
+// @vitest-environment jsdom
+import "@testing-library/jest-dom/vitest";
+import { screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import AdminUsersList from "@/components/features/admin/AdminUsersList";
+import { renderWithProviders } from "./helpers/renderWithProviders";
+
+/**
+ * Story 5.10's client surface.
+ *
+ * The route suites prove the rules; this proves that the surface *shows* the two relations apart (AC3) and
+ * that its actions send what the routes expect. jsdom lays nothing out, so nothing here is a claim about
+ * how the list looks - that is Task 7's browser pass.
+ */
+
+type Call = { path: string; method: string; body: unknown };
+
+const ADMIN_ID = "user-admin";
+
+const USERS = [
+  {
+    id: ADMIN_ID,
+    email: "admin@example.com",
+    role: "ADMIN" as const,
+    ownedTrips: [],
+    memberships: [],
+  },
+  {
+    id: "user-both",
+    email: "both@example.com",
+    role: "OWNER" as const,
+    // The arrangement AC3 exists for: one account holding both relations at once.
+    ownedTrips: [{ id: "trip-own", name: "Own Trip" }],
+    memberships: [
+      { id: "member-1", tripId: "trip-stranger", tripName: "Stranger Trip", role: "VIEWER" as const },
+    ],
+  },
+  {
+    id: "user-nobody",
+    email: "nobody@example.com",
+    role: "OWNER" as const,
+    ownedTrips: [],
+    memberships: [],
+  },
+];
+
+const TRIPS = [
+  { id: "trip-own", name: "Own Trip", ownerEmail: "both@example.com" },
+  { id: "trip-stranger", name: "Stranger Trip", ownerEmail: "stranger@example.com" },
+];
+
+/**
+ * Routes `/api/auth/csrf`, `/api/admin/users` and every mutation, recording the mutations so each action
+ * can be asserted on what it actually sent.
+ *
+ * `mutationResult` lets one test at a time make the write fail with a given code, which is how the refusal
+ * messages - AC7's named trips especially - are reached at all.
+ */
+const stubFetch = (
+  options: {
+    users?: typeof USERS;
+    trips?: typeof TRIPS;
+    listError?: { status: number; code: string };
+    mutationResult?: { status: number; code: string; details?: unknown };
+  } = {},
+) => {
+  const calls: Call[] = [];
+
+  const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
+    const method = init?.method ?? "GET";
+
+    if (path === "/api/auth/csrf") {
+      return { ok: true, status: 200, json: async () => ({ data: { csrfToken: "test-token" }, error: null }) };
+    }
+
+    if (path === "/api/admin/users" && method === "GET") {
+      if (options.listError) {
+        return {
+          ok: false,
+          status: options.listError.status,
+          json: async () => ({ data: null, error: { code: options.listError!.code, message: "no" } }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: { users: options.users ?? USERS, trips: options.trips ?? TRIPS },
+          error: null,
+        }),
+      };
+    }
+
+    calls.push({ path, method, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+
+    if (options.mutationResult) {
+      return {
+        ok: false,
+        status: options.mutationResult.status,
+        json: async () => ({
+          data: null,
+          error: {
+            code: options.mutationResult!.code,
+            message: "no",
+            details: options.mutationResult!.details,
+          },
+        }),
+      };
+    }
+
+    return { ok: true, status: 200, json: async () => ({ data: { ok: true }, error: null }) };
+  });
+
+  vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+  return { calls };
+};
+
+const renderList = () => renderWithProviders(<AdminUsersList currentUserId={ADMIN_ID} />);
+
+const rowFor = async (email: string) => {
+  const cell = await screen.findByText(email);
+  const row = cell.closest("li");
+  if (!row) throw new Error(`No row for ${email}`);
+  return row as HTMLElement;
+};
+
+describe("AdminUsersList", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("heads the page and shows a spinner while the fetch is in flight", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})) as unknown as typeof fetch);
+
+    renderList();
+
+    expect(screen.getByRole("progressbar")).toBeInTheDocument();
+    // The card title is the page's only heading, so it has to be one.
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("User administration");
+    expect(screen.queryByRole("list")).toBeNull();
+  });
+
+  it("lists every account with a count", async () => {
+    stubFetch();
+    renderList();
+
+    expect(await screen.findByText("Accounts (3)")).toBeInTheDocument();
+    expect(screen.getByText("admin@example.com")).toBeInTheDocument();
+    expect(screen.getByText("both@example.com")).toBeInTheDocument();
+    expect(screen.getByText("nobody@example.com")).toBeInTheDocument();
+  });
+
+  /**
+   * **AC3, and the reason this suite exists.** Ownership and membership have to read as two different
+   * things on the same row: the owned trip under "Owns", the membership under "Shared with" and carrying
+   * its own role. If the surface merged them, the detach action would be offered for a trip the account
+   * owns - where it means nothing - and AC7's deletion refusal would have no visible cause.
+   */
+  it("shows an account's owned trips and its memberships under different labels", async () => {
+    stubFetch();
+    renderList();
+
+    const row = await rowFor("both@example.com");
+
+    expect(within(row).getByText(/Owns/)).toBeInTheDocument();
+    expect(within(row).getByText(/Own Trip/)).toBeInTheDocument();
+    expect(within(row).getByText(/Shared with/)).toBeInTheDocument();
+    expect(within(row).getByText(/Stranger Trip · Viewer/)).toBeInTheDocument();
+
+    // And the two are not the same node: a single merged line would satisfy each `getByText` above on its
+    // own while showing one relation.
+    expect(within(row).getByText(/Owns/)).not.toBe(within(row).getByText(/Shared with/));
+  });
+
+  it("says so when an account reaches nothing", async () => {
+    stubFetch();
+    renderList();
+
+    const row = await rowFor("nobody@example.com");
+    expect(within(row).getByText("No trips")).toBeInTheDocument();
+  });
+
+  it("marks the admin's own row and badges the admin role", async () => {
+    stubFetch();
+    renderList();
+
+    const adminRow = await rowFor("admin@example.com");
+    // Both matter before a click rather than in an error afterwards: self-deletion is refused outright, and
+    // the last-admin rule is most often met by demoting yourself.
+    expect(within(adminRow).getByText("Admin")).toBeInTheDocument();
+    expect(within(adminRow).getByText("You")).toBeInTheDocument();
+
+    const otherRow = await rowFor("both@example.com");
+    expect(within(otherRow).queryByText("Admin")).toBeNull();
+    expect(within(otherRow).queryByText("You")).toBeNull();
+  });
+
+  it("renders the blocked state from a forbidden list read", async () => {
+    // Reachable when the role is revoked between the page's server-side gate and this fetch, which is why
+    // that gate is not the only one.
+    stubFetch({ listError: { status: 403, code: "forbidden" } });
+    renderList();
+
+    expect(await screen.findByText("Only administrators can manage accounts.")).toBeInTheDocument();
+    expect(screen.queryByRole("list")).toBeNull();
+  });
+
+  it("renders an error for a failed list read", async () => {
+    stubFetch({ listError: { status: 500, code: "server_error" } });
+    renderList();
+
+    expect(await screen.findByText("Unable to load accounts. Please refresh.")).toBeInTheDocument();
+  });
+
+  describe("grant and revoke (AC8a)", () => {
+    it("offers grant on a non-admin and revoke on an admin, and sends the matching flag", async () => {
+      const { calls } = stubFetch();
+      const user = userEvent.setup();
+      renderList();
+
+      const targetRow = await rowFor("both@example.com");
+      await user.click(within(targetRow).getByRole("button", { name: "Make administrator" }));
+
+      await waitFor(() => expect(calls).toHaveLength(1));
+      expect(calls[0]).toEqual({
+        path: "/api/admin/users/user-both",
+        method: "PATCH",
+        body: { isAdmin: true },
+      });
+
+      const adminRow = await rowFor("admin@example.com");
+      await user.click(within(adminRow).getByRole("button", { name: "Remove administrator" }));
+
+      await waitFor(() => expect(calls).toHaveLength(2));
+      expect(calls[1].body).toEqual({ isAdmin: false });
+    });
+
+    it("shows the last-admin refusal as its own message", async () => {
+      const { calls } = stubFetch({ mutationResult: { status: 409, code: "last_admin" } });
+      const user = userEvent.setup();
+      renderList();
+
+      const adminRow = await rowFor("admin@example.com");
+      await user.click(within(adminRow).getByRole("button", { name: "Remove administrator" }));
+
+      // Not the generic "unable to change the role": the admin needs to know the installation refused it,
+      // not that something went wrong.
+      expect(await screen.findByText("At least one administrator must remain.")).toBeInTheDocument();
+      expect(calls).toHaveLength(1);
+    });
+  });
+
+  describe("attach, role change and detach (AC5, AC6)", () => {
+    it("changes a membership role with one click, in the other direction", async () => {
+      const { calls } = stubFetch();
+      const user = userEvent.setup();
+      renderList();
+
+      const row = await rowFor("both@example.com");
+      // The membership is a VIEWER, so the button offers the other value - by name in its visible label, and
+      // in its accessible name additionally by the trip it acts on (added by review, so that a row with two
+      // memberships does not render two identically-named controls).
+      await user.click(within(row).getByRole("button", { name: /Stranger Trip to Contributor/ }));
+
+      await waitFor(() => expect(calls).toHaveLength(1));
+      expect(calls[0]).toEqual({
+        path: "/api/admin/users/user-both/memberships",
+        method: "POST",
+        body: { tripId: "trip-stranger", role: "CONTRIBUTOR" },
+      });
+    });
+
+    it("detaches from the trip named on that row and nothing else", async () => {
+      const { calls } = stubFetch();
+      const user = userEvent.setup();
+      renderList();
+
+      const row = await rowFor("both@example.com");
+      await user.click(within(row).getByRole("button", { name: /Remove .* from Stranger Trip/ }));
+
+      await waitFor(() => expect(calls).toHaveLength(1));
+      // `trip-stranger`, the membership - never `trip-own`, which this account owns. AC6's second sentence.
+      expect(calls[0]).toEqual({
+        path: "/api/admin/users/user-both/memberships",
+        method: "DELETE",
+        body: { tripId: "trip-stranger" },
+      });
+    });
+
+    it("does not offer a trip the account already owns in the attach picker", async () => {
+      stubFetch();
+      const user = userEvent.setup();
+      renderList();
+
+      const row = await rowFor("both@example.com");
+      await user.click(within(row).getByRole("button", { name: "Add to trip" }));
+
+      await user.click(await screen.findByRole("combobox", { name: "Trip" }));
+      const options = await screen.findAllByRole("option");
+
+      // Attaching an owner to their own trip is refused server-side, so offering it would be offering a
+      // certain failure.
+      const labels = options.map((option) => option.textContent);
+      expect(labels.some((label) => label?.includes("Stranger Trip"))).toBe(true);
+      expect(labels.some((label) => label?.includes("Own Trip"))).toBe(false);
+    });
+
+    it("names each trip's owner in the picker, because names are not unique", async () => {
+      stubFetch();
+      const user = userEvent.setup();
+      renderList();
+
+      const row = await rowFor("nobody@example.com");
+      await user.click(within(row).getByRole("button", { name: "Add to trip" }));
+      await user.click(await screen.findByRole("combobox", { name: "Trip" }));
+
+      expect(await screen.findByRole("option", { name: /Stranger Trip · stranger@example.com/ })).toBeInTheDocument();
+    });
+  });
+
+  describe("delete (AC7)", () => {
+    it("asks first, with both buttons and the safe one naming what it keeps", async () => {
+      stubFetch();
+      const user = userEvent.setup();
+      renderList();
+
+      const row = await rowFor("both@example.com");
+      await user.click(within(row).getByRole("button", { name: "Delete account" }));
+
+      const dialog = await screen.findByRole("dialog");
+      // Story 6.25 AC3: two outcomes about one object, in the same noun.
+      expect(within(dialog).getByRole("button", { name: "Keep account" })).toBeInTheDocument();
+      expect(within(dialog).getByRole("button", { name: "Delete account" })).toBeInTheDocument();
+      // And the dialog's own dismissal is the title-row glyph, per 6.25.
+      expect(within(dialog).getByTestId("dialog-close")).toBeInTheDocument();
+    });
+
+    it("sends nothing when the admin keeps the account", async () => {
+      const { calls } = stubFetch();
+      const user = userEvent.setup();
+      renderList();
+
+      const row = await rowFor("both@example.com");
+      await user.click(within(row).getByRole("button", { name: "Delete account" }));
+      const dialog = await screen.findByRole("dialog");
+      await user.click(within(dialog).getByRole("button", { name: "Keep account" }));
+
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      expect(calls).toHaveLength(0);
+    });
+
+    it("deletes on confirmation", async () => {
+      const { calls } = stubFetch();
+      const user = userEvent.setup();
+      renderList();
+
+      const row = await rowFor("both@example.com");
+      await user.click(within(row).getByRole("button", { name: "Delete account" }));
+      const dialog = await screen.findByRole("dialog");
+      await user.click(within(dialog).getByRole("button", { name: "Delete account" }));
+
+      await waitFor(() => expect(calls).toHaveLength(1));
+      expect(calls[0]).toMatchObject({ path: "/api/admin/users/user-both", method: "DELETE" });
+    });
+
+    /**
+     * **AC7's refusal, as the admin actually experiences it.** The blocking trips are named in the message
+     * and the dialog stays open holding it - the admin asked here and is answered here, rather than the
+     * reason being dropped into the page behind a dialog that closed.
+     */
+    it("names the blocking trips when the account owns some", async () => {
+      stubFetch({
+        mutationResult: {
+          status: 409,
+          code: "owns_trips",
+          details: { tripNames: ["Norwegen 2027", "Island 2028"] },
+        },
+      });
+      const user = userEvent.setup();
+      renderList();
+
+      const row = await rowFor("both@example.com");
+      await user.click(within(row).getByRole("button", { name: "Delete account" }));
+      const dialog = await screen.findByRole("dialog");
+      await user.click(within(dialog).getByRole("button", { name: "Delete account" }));
+
+      expect(
+        await screen.findByText(/owns these trips and cannot be deleted: Norwegen 2027, Island 2028/),
+      ).toBeInTheDocument();
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+    });
+
+    it("reports the self-deletion refusal in its own words", async () => {
+      stubFetch({ mutationResult: { status: 409, code: "self_delete" } });
+      const user = userEvent.setup();
+      renderList();
+
+      // The button is offered on the admin's own row rather than hidden: the refusal carries a reason worth
+      // reading, and a hidden button teaches nothing.
+      const row = await rowFor("admin@example.com");
+      await user.click(within(row).getByRole("button", { name: "Delete account" }));
+      const dialog = await screen.findByRole("dialog");
+      await user.click(within(dialog).getByRole("button", { name: "Delete account" }));
+
+      expect(await screen.findByText("You cannot delete your own account here.")).toBeInTheDocument();
+    });
+  });
+
+  describe("create (AC4)", () => {
+    it("sends the email and temporary password", async () => {
+      const { calls } = stubFetch();
+      const user = userEvent.setup();
+      renderList();
+
+      await user.click(await screen.findByRole("button", { name: "Add account" }));
+      const dialog = await screen.findByRole("dialog");
+      await user.type(within(dialog).getByLabelText("Email"), "newcomer@example.com");
+      await user.type(within(dialog).getByLabelText(/Temporary password/), "temporary-password");
+      await user.click(within(dialog).getByRole("button", { name: "OK" }));
+
+      await waitFor(() => expect(calls).toHaveLength(1));
+      expect(calls[0]).toEqual({
+        path: "/api/admin/users",
+        method: "POST",
+        body: { email: "newcomer@example.com", temporaryPassword: "temporary-password" },
+      });
+    });
+
+    it("says that the account must change the password on first sign-in", async () => {
+      stubFetch();
+      const user = userEvent.setup();
+      renderList();
+
+      await user.click(await screen.findByRole("button", { name: "Add account" }));
+
+      // AC4 sets `mustChangePassword`, and that is what makes a readable temporary password safe to type
+      // here - so the form says it rather than leaving the admin to assume either way.
+      expect(await screen.findByText("The account must change it on first sign-in.")).toBeInTheDocument();
+    });
+
+    it("reports a duplicate address distinctly", async () => {
+      stubFetch({ mutationResult: { status: 409, code: "email_exists" } });
+      const user = userEvent.setup();
+      renderList();
+
+      await user.click(await screen.findByRole("button", { name: "Add account" }));
+      const dialog = await screen.findByRole("dialog");
+      await user.type(within(dialog).getByLabelText("Email"), "taken@example.com");
+      await user.type(within(dialog).getByLabelText(/Temporary password/), "temporary-password");
+      await user.click(within(dialog).getByRole("button", { name: "OK" }));
+
+      expect(await screen.findByText("An account already exists for this email.")).toBeInTheDocument();
+    });
+
+    /**
+     * Story 6.25 AC7. The `✕` on a form the admin has typed into must ask before throwing it away, and the
+     * one on an untouched form must not - a question nobody needs is the defect that pass documented on
+     * two hero-image forms, in the opposite direction.
+     */
+    it("asks before discarding a form that has been typed into", async () => {
+      stubFetch();
+      const user = userEvent.setup();
+      renderList();
+
+      await user.click(await screen.findByRole("button", { name: "Add account" }));
+      const dialog = await screen.findByRole("dialog");
+      await user.type(within(dialog).getByLabelText("Email"), "newcomer@example.com");
+      await user.click(within(dialog).getByTestId("dialog-close"));
+
+      expect(await screen.findByText("Discard changes?")).toBeInTheDocument();
+    });
+
+    it("closes an untouched form without asking", async () => {
+      stubFetch();
+      const user = userEvent.setup();
+      renderList();
+
+      await user.click(await screen.findByRole("button", { name: "Add account" }));
+      const dialog = await screen.findByRole("dialog");
+      await user.click(within(dialog).getByTestId("dialog-close"));
+
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      expect(screen.queryByText("Discard changes?")).toBeNull();
+    });
+  });
+});
+
+/**
+ * Story 5.10 review additions.
+ *
+ * Three gaps the first pass left, each of which would have shipped green: AC5's submit was never pressed, a
+ * network failure stranded the surface, and a row with two memberships had no distinguishable controls -
+ * which is itself why every fixture above carries at most one.
+ */
+describe("AdminUsersList — review additions", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * AC5's main flow, end to end through the dialog. The picker's *contents* were asserted twice before this
+   * and its submit not at all, which matters more than usual here: this dialog uses non-native MUI selects,
+   * where the rest of the codebase uses `SelectProps={{ native: true }}` so a spread `register` wires up. If
+   * the wiring ever breaks, the symptom is that `role` silently ships its default on every attach - so the
+   * assertion is on the request body carrying *both* chosen values, not on the dialog closing.
+   */
+  it("sends the chosen trip and the chosen role when the attach form is submitted", async () => {
+    const user = userEvent.setup();
+    const { calls } = stubFetch();
+    renderList();
+
+    const row = await rowFor("nobody@example.com");
+    await user.click(within(row).getByRole("button", { name: /add to trip/i }));
+
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("combobox", { name: /trip/i }));
+    await user.click(await screen.findByRole("option", { name: /Stranger Trip/ }));
+
+    await user.click(within(dialog).getByRole("combobox", { name: /role/i }));
+    await user.click(await screen.findByRole("option", { name: /contributor/i }));
+
+    await user.click(within(dialog).getByRole("button", { name: /^ok$/i }));
+
+    await waitFor(() => {
+      expect(calls).toEqual([
+        {
+          path: "/api/admin/users/user-nobody/memberships",
+          method: "POST",
+          body: { tripId: "trip-stranger", role: "CONTRIBUTOR" },
+        },
+      ]);
+    });
+  });
+
+  /**
+   * The review's `high` finding. `mutate` guarded `response.json()` and not the `fetch`, so a rejected send -
+   * offline, connection reset, server restart mid-click - escaped as an unhandled rejection and every busy
+   * flag stayed set: the row froze behind a spinner with no message, recoverable only by reloading.
+   *
+   * Asserted as the two things the admin experiences: a message appears, and the buttons come back.
+   */
+  it("reports a failure and re-enables the row when the request never completes", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === "/api/auth/csrf") {
+        return { ok: true, status: 200, json: async () => ({ data: { csrfToken: "test-token" }, error: null }) };
+      }
+      if (path === "/api/admin/users" && (init?.method ?? "GET") === "GET") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { users: USERS, trips: TRIPS }, error: null }),
+        };
+      }
+      throw new TypeError("Failed to fetch");
+    });
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    renderList();
+    const row = await rowFor("nobody@example.com");
+    const grant = within(row).getByRole("button", { name: /make administrator/i });
+    await user.click(grant);
+
+    expect(await screen.findByText(/unable to change the role/i)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(within(row).getByRole("button", { name: /make administrator/i })).toBeEnabled();
+    });
+  });
+
+  /**
+   * Two memberships on one row. Before the `aria-label`s the role toggle's whole accessible name was the
+   * target role and detach's named no trip, so this fixture rendered two buttons called "Contributor" and two
+   * called "Remove from trip" - which `getByRole` cannot tell apart either, and is the reason no such fixture
+   * existed. The assertion is that each control names the trip it acts on, and that pressing one acts on
+   * *that* trip.
+   */
+  it("names the trip in each membership control, so two memberships are distinguishable", async () => {
+    const user = userEvent.setup();
+    const { calls } = stubFetch({
+      users: [
+        USERS[0],
+        {
+          id: "user-two",
+          email: "two@example.com",
+          role: "OWNER" as const,
+          ownedTrips: [],
+          memberships: [
+            { id: "m-a", tripId: "trip-a", tripName: "Trip A", role: "VIEWER" as const },
+            { id: "m-b", tripId: "trip-b", tripName: "Trip B", role: "VIEWER" as const },
+          ],
+        },
+      ],
+      trips: [
+        { id: "trip-a", name: "Trip A", ownerEmail: "stranger@example.com" },
+        { id: "trip-b", name: "Trip B", ownerEmail: "stranger@example.com" },
+      ],
+    });
+    renderList();
+
+    const row = await rowFor("two@example.com");
+
+    // Four controls, four distinct names.
+    within(row).getByRole("button", { name: /Trip A.*Contributor|Contributor.*Trip A/i });
+    within(row).getByRole("button", { name: /Trip B.*Contributor|Contributor.*Trip B/i });
+    within(row).getByRole("button", { name: /remove.*Trip A/i });
+    within(row).getByRole("button", { name: /remove.*Trip B/i });
+
+    // And the one pressed is the one that acts.
+    await user.click(within(row).getByRole("button", { name: /remove.*Trip B/i }));
+
+    await waitFor(() => {
+      expect(calls).toEqual([
+        {
+          path: "/api/admin/users/user-two/memberships",
+          method: "DELETE",
+          body: { tripId: "trip-b" },
+        },
+      ]);
+    });
+  });
+
+  /**
+   * The attach picker marks a trip the account is already a member of, and seeds the role select from that
+   * membership. Without it, choosing such a trip and leaving the default silently demoted a `CONTRIBUTOR` to
+   * `VIEWER` — an `upsert`, so it wrote, and the reload afterwards showed the new value as if it were asked
+   * for. Asserted on the submitted role, which is the only place the demotion was visible.
+   */
+  it("does not demote an existing contributor when its trip is picked and the role left alone", async () => {
+    const user = userEvent.setup();
+    const { calls } = stubFetch({
+      users: [
+        USERS[0],
+        {
+          id: "user-contrib",
+          email: "contrib@example.com",
+          role: "OWNER" as const,
+          ownedTrips: [],
+          memberships: [
+            { id: "m-c", tripId: "trip-shared", tripName: "Shared Trip", role: "CONTRIBUTOR" as const },
+          ],
+        },
+      ],
+      trips: [{ id: "trip-shared", name: "Shared Trip", ownerEmail: "stranger@example.com" }],
+    });
+    renderList();
+
+    const row = await rowFor("contrib@example.com");
+    await user.click(within(row).getByRole("button", { name: /add to trip/i }));
+
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("combobox", { name: /trip/i }));
+    // The option says which role is already held, so the admin is not choosing blind.
+    await user.click(await screen.findByRole("option", { name: /Shared Trip.*Contributor/i }));
+    await user.click(within(dialog).getByRole("button", { name: /^ok$/i }));
+
+    await waitFor(() => {
+      expect(calls).toEqual([
+        {
+          path: "/api/admin/users/user-contrib/memberships",
+          method: "POST",
+          body: { tripId: "trip-shared", role: "CONTRIBUTOR" },
+        },
+      ]);
+    });
+  });
+});

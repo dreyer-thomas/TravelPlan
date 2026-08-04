@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { Controller, useFieldArray, useForm, useWatch } from "react-hook-form";
+import { Controller, useFieldArray, useForm, useWatch, type FieldErrors } from "react-hook-form";
 import {
   Box,
   Button,
@@ -14,6 +14,8 @@ import {
   Radio,
   RadioGroup,
   Select,
+  Tab,
+  Tabs,
   Typography,
 } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
@@ -23,6 +25,7 @@ import PhotoUploadField from "@/components/forms/PhotoUploadField";
 import DialogShell from "@/components/ui/DialogShell";
 import DiscardChangesDialog, { useDiscardGuard } from "@/components/ui/DiscardChangesDialog";
 import FullscreenPhotoViewer from "@/components/ui/FullscreenPhotoViewer";
+import { WarningTriangleIcon } from "@/components/features/trips/TripIcons";
 import { formatMessage } from "@/i18n";
 import { useI18n } from "@/i18n/provider";
 import { IMAGE_UPLOAD_ACCEPT, isSupportedImageUpload } from "@/lib/trips/imageUploads";
@@ -62,6 +65,180 @@ type AccommodationFormValues = {
   paymentMode: "single" | "split";
   payments: { amount: string; dueDate: string }[];
 };
+
+/**
+ * The dialog's four sections (Story 6.26 AC1), **in tab order**.
+ *
+ * Same shape as `PLAN_TAB_IDS` in `TripDayPlanDialog`, and for the same reason: `Tabs` renders from
+ * this array and the error walk below orders itself by it, so "the first tab that owns an error" is
+ * decided in one place rather than in two lists free to drift.
+ */
+export const STAY_TAB_IDS = ["basics", "cost", "place", "media"] as const;
+export type StayTabId = (typeof STAY_TAB_IDS)[number];
+
+/**
+ * Every value the form holds is also a key an error can arrive under, so `keyof
+ * AccommodationFormValues` *is* the error-key set — no second hand-written union to keep in step.
+ * That is the one structural difference from the activity dialog, which keeps its errors in three
+ * hand-rolled `useState` stores; here react-hook-form owns them and its `FieldErrors` is already
+ * keyed by the form's own fields.
+ */
+export type StayErrorKey = keyof AccommodationFormValues;
+
+/**
+ * The total error→tab function AC3 requires. A tenth form field with no entry here is a compile
+ * error, which is the point: an unmapped key would be an error the user cannot see, on a tab the
+ * dialog would never select.
+ */
+export const STAY_ERROR_TAB: Record<StayErrorKey, StayTabId> = {
+  name: "basics",
+  status: "basics",
+  checkInTime: "basics",
+  checkOutTime: "basics",
+  costCents: "cost",
+  paymentMode: "cost",
+  payments: "cost",
+  notes: "place",
+  link: "media",
+};
+
+/**
+ * Every error key, ordered by the tab that owns it. `Array.prototype.sort` is stable, so keys
+ * sharing a tab keep their declaration order in `STAY_ERROR_TAB` — which is also their visual order
+ * inside the panel, so "first error" means the topmost one on the earliest tab.
+ */
+const STAY_ERROR_KEYS_IN_TAB_ORDER = (Object.keys(STAY_ERROR_TAB) as StayErrorKey[]).sort(
+  (left, right) => STAY_TAB_IDS.indexOf(STAY_ERROR_TAB[left]) - STAY_TAB_IDS.indexOf(STAY_ERROR_TAB[right]),
+);
+
+const STAY_TAB_LABEL_KEYS: Record<StayTabId, string> = {
+  basics: "trips.stay.tabBasics",
+  cost: "trips.stay.tabCost",
+  place: "trips.stay.tabPlace",
+  media: "trips.stay.tabMedia",
+};
+
+/** The per-row shape react-hook-form stores under `errors.payments` when a payment line fails. */
+type StayPaymentRowError = { amount?: unknown; dueDate?: unknown } | undefined;
+
+/**
+ * Whether a given key currently carries an error.
+ *
+ * `payments` needs the special case: react-hook-form stores two different shapes under that one
+ * key — a block-level `{ message }` for "payments must add up", "cost required" and "at least two
+ * rows", and a sparse *array* of `{ amount?, dueDate? }` for the per-row messages. A sparse array is
+ * truthy even when every hole is empty, so the rows are counted rather than assumed.
+ */
+const hasStayError = (errors: FieldErrors<AccommodationFormValues>, key: StayErrorKey): boolean => {
+  const entry = errors[key];
+  if (!entry) return false;
+  if (key === "payments") {
+    const rows = entry as unknown as StayPaymentRowError[];
+    if (Array.isArray(rows)) {
+      return rows.some((row) => Boolean(row?.amount) || Boolean(row?.dueDate));
+    }
+  }
+  return true;
+};
+
+/** The tabs carrying at least one error, for the tab bar's markers. */
+const stayTabsWithErrors = (errors: FieldErrors<AccommodationFormValues>): Set<StayTabId> => {
+  const tabs = new Set<StayTabId>();
+  for (const key of STAY_ERROR_KEYS_IN_TAB_ORDER) {
+    if (hasStayError(errors, key)) tabs.add(STAY_ERROR_TAB[key]);
+  }
+  return tabs;
+};
+
+/**
+ * The control AC2's "puts focus on the offending field" has to reach, as a DOM id.
+ *
+ * `paymentMode` resolves to the cost box rather than to a radio: it is a hidden input mirroring the
+ * radio group, and the field a user has to change to satisfy any block-level payment message is the
+ * amount. The `never` default makes this resolver total over `StayErrorKey` too, so a new field gets
+ * a tab *and* a focus target or it does not compile.
+ *
+ * `checkOutTime` can resolve to an element that is not mounted: `stayType` decides which of the two
+ * time fields is rendered, and only the rendered one is registered — so the unrendered half has no
+ * client-side rule that could fail. A server error naming it would mark the tab and focus nothing,
+ * which is the honest outcome for a field this surface does not show.
+ */
+const stayErrorFocusId = (
+  prefix: string,
+  key: StayErrorKey,
+  errors: FieldErrors<AccommodationFormValues>,
+): string | null => {
+  switch (key) {
+    case "name":
+      return `${prefix}-name`;
+    case "status":
+      return `${prefix}-status`;
+    case "checkInTime":
+      return `${prefix}-check-in`;
+    case "checkOutTime":
+      return `${prefix}-check-out`;
+    case "costCents":
+    case "paymentMode":
+      return `${prefix}-cost`;
+    case "payments": {
+      const rows = errors.payments as unknown as StayPaymentRowError[];
+      const index = Array.isArray(rows)
+        ? rows.findIndex((row) => Boolean(row?.amount) || Boolean(row?.dueDate))
+        : -1;
+      if (index < 0) return `${prefix}-cost`;
+      return rows[index]?.amount ? `${prefix}-payment-amount-${index}` : `${prefix}-payment-date-${index}`;
+    }
+    case "notes":
+      return `${prefix}-notes`;
+    case "link":
+      return `${prefix}-link`;
+    default: {
+      const unhandled: never = key;
+      return unhandled;
+    }
+  }
+};
+
+/**
+ * Story 6.26 AC5, the floor under the tab panels in px — the same mechanism Story 6.24 put under the
+ * activity dialog, applied here for the same reason: MUI centres a dialog vertically, so a panel
+ * swing lands as half of itself on the *top* edge, which is where the tab bar the user just clicked
+ * sits.
+ *
+ * **Where the number comes from, and what it is not.** Unlike `PLAN_PANEL_MIN_HEIGHT`, this is
+ * arithmetic over the panels' composition rather than a browser measurement — a `FormField` block is
+ * a 16px label + 7px gap + 44px input (+ 6px + 16px when it carries a hint or an error), and the
+ * panels stack those with an 18px gap:
+ *
+ * | panel | blocks | ≈ height |
+ * |---|---|---|
+ * | `Basisdaten` | name, [status \| time] row | 152 |
+ * | `Kosten` | cost, payment fieldset (single row) | 241 |
+ * | `Ort & Notizen` | place search + coordinate line, notes (3 rows) | 216 |
+ * | `Medien` | link + hint, gallery zone + preview strip | ~307 |
+ *
+ * 300 clears the three bounded panels with headroom and covers `Medien` at its ordinary height. It
+ * is **not** a bound on the two unbounded panels: `Kosten` grows without limit through split-payment
+ * rows (DW-149 records 1634px at five of them on the activity dialog) and `Medien` grows with the
+ * number of photos. That is what makes `minHeight` the right primitive and a fixed `height` the
+ * wrong one — see `STAY_PANEL_FLOOR_SX`.
+ *
+ * **This number wants a browser re-measure**, the way 6.24's did and got one that corrected it. The
+ * recipe: open the stay dialog against a throwaway DB copy, click each of the four tabs and read
+ * `document.querySelector('[role="tabpanel"]').getBoundingClientRect().height` at 1400x1000 and at
+ * 390x844, on more than one stay — sampling one is how 6.24's first figures went wrong.
+ */
+export const STAY_PANEL_MIN_HEIGHT = 300;
+
+/**
+ * `minHeight`, never `height` — and exported so a test can hold that distinction rather than a
+ * source-text grep.
+ *
+ * A fixed `height` would either clip the split-payment rows and the photo strip or force a nested
+ * scroll inside the dialog's own scroll. The frame must stay free to *grow*; what it may not do is
+ * shrink below the floor.
+ */
+export const STAY_PANEL_FLOOR_SX = { minHeight: `${STAY_PANEL_MIN_HEIGHT}px` } as const;
 
 type GalleryImage = {
   id: string;
@@ -146,7 +323,7 @@ export default function TripAccommodationDialog({
   // fixed string that attribute resolves to whichever instance is first in document order.
   const fieldIdPrefix = useId();
   const formId = `${fieldIdPrefix}-form`;
-  const { tokens } = useTheme().palette;
+  const { tokens, warning } = useTheme().palette;
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -161,6 +338,20 @@ export default function TripAccommodationDialog({
   const [galleryBusy, setGalleryBusy] = useState(false);
   // The index into `galleryPreviews`, not a URL — the shared viewer pages through the collection.
   const [fullscreenIndex, setFullscreenIndex] = useState<number | null>(null);
+  const [activeTab, setActiveTab] = useState<StayTabId>("basics");
+  /**
+   * The control AC2 owes the caret, as a DOM id, plus a counter — and the counter is the point.
+   *
+   * The focus effect cannot key off `activeTab`: pressing Save while *already standing on* the tab
+   * that owns the error leaves `activeTab` unchanged, and AC2 asks for the caret to land on the field
+   * either way. Nor can it key off the id alone, for the same reason one field failing twice in a row
+   * must fire twice. A fresh object per reveal gives the effect a new identity every time.
+   *
+   * State rather than the `useRef` this started as: the ref had to be *written* from a function passed
+   * to `handleSubmit` during render, which the React Compiler correctly rejects ("Cannot access refs
+   * during render") — and it bailed out of compiling the whole component rather than only that line.
+   */
+  const [pendingErrorFocus, setPendingErrorFocus] = useState<{ elementId: string | null; nonce: number } | null>(null);
   const defaultDueDate = useMemo(() => toDateOnly(day?.date), [day?.date]);
 
   const {
@@ -192,6 +383,40 @@ export default function TripAccommodationDialog({
       }),
     },
   });
+
+  /**
+   * Story 6.26 AC2/AC3. Select the tab that owns `key` and queue the caret for its field.
+   *
+   * Split from `revealFirstError` because the two callers know different things. `onSubmit`'s manual
+   * `setError` paths each know exactly which key they just failed on — and cannot read it back out of
+   * `errors`, whose value in that closure predates the `setError` call.
+   */
+  const revealError = useCallback((key: StayErrorKey, focusId: string | null) => {
+    setActiveTab(STAY_ERROR_TAB[key]);
+    setPendingErrorFocus((current) => ({ elementId: focusId, nonce: (current?.nonce ?? 0) + 1 }));
+  }, []);
+
+  /**
+   * AC2, the criterion this story exists to satisfy safely: an error on a tab the user is not looking
+   * at is worse than the long scroll this replaces. Used where a whole `FieldErrors` object is in
+   * hand — react-hook-form's own rule failures (`handleSubmit`'s invalid callback) and the server's
+   * field errors.
+   */
+  const revealFirstError = useCallback(
+    (formErrors: FieldErrors<AccommodationFormValues>) => {
+      const key = STAY_ERROR_KEYS_IN_TAB_ORDER.find((candidate) => hasStayError(formErrors, candidate));
+      if (!key) return;
+      revealError(key, stayErrorFocusId(fieldIdPrefix, key, formErrors));
+    },
+    [fieldIdPrefix, revealError],
+  );
+
+  useEffect(() => {
+    if (!pendingErrorFocus?.elementId) return;
+    // `setActiveTab` ran in the same batch as this state, so the panel holding the field is mounted
+    // by the time the effect runs.
+    document.getElementById(pendingErrorFocus.elementId)?.focus();
+  }, [pendingErrorFocus]);
 
   const { fields: paymentFields, append, remove, replace } = useFieldArray({
     control,
@@ -279,6 +504,10 @@ export default function TripAccommodationDialog({
     // Matches `TripDayPlanDialog`'s reset: a stale index left behind by a programmatic close would
     // otherwise spring the viewer open on top of the dialog the next time it is shown.
     setFullscreenIndex(null);
+    // Every open starts on `Basisdaten`. Tabs are random access, but the tab a *previous* edit
+    // finished on is not a state the next stay's dialog should inherit — and this dialog is never
+    // unmounted, so without this it would.
+    setActiveTab("basics");
     // Story 6.25 review, and the same reset `TripDayPlanDialog` already does. `setGalleryFiles([])`
     // otherwise runs only after a *successful upload*, and this dialog is never unmounted — so photos
     // staged and then discarded came back selected on the next open, with Upload live for them and
@@ -392,6 +621,66 @@ export default function TripAccommodationDialog({
     return body.data.csrfToken;
   }, [csrfToken]);
 
+  /**
+   * The three `validate` rules, declared **above** `onSubmit` rather than below the request handlers
+   * where they used to sit.
+   *
+   * Story 6.26 gave them a second caller: `onSubmit` re-runs them for the fields react-hook-form
+   * skipped because their panel was unmounted (see the block inside it). Read from a closure declared
+   * earlier in the component body, the React Compiler could no longer prove the memoization was
+   * preserved and bailed out of compiling the whole component — three
+   * `Compilation Skipped: Existing memoization could not be preserved` errors. Moving the definitions
+   * ahead of their first use is the whole fix; the bodies are untouched.
+   */
+  const maxCostCents = 100000000;
+  const costRules = useMemo(
+    () => ({
+      validate: (value: string) => {
+        const trimmed = value.trim();
+        if (!trimmed) return true;
+        if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) {
+          return t("trips.stay.costInvalid");
+        }
+        const parsed = Number(trimmed);
+        if (!Number.isFinite(parsed) || parsed < 0) {
+          return t("trips.stay.costInvalid");
+        }
+        const cents = Math.round(parsed * 100);
+        if (cents > maxCostCents) {
+          return t("trips.stay.costTooHigh");
+        }
+        return true;
+      },
+    }),
+    [t],
+  );
+
+  const linkRules = useMemo(
+    () => ({
+      validate: (value: string) => {
+        const trimmed = value.trim();
+        if (!trimmed) return true;
+        try {
+          new URL(trimmed);
+          return true;
+        } catch {
+          return t("trips.stay.linkInvalid");
+        }
+      },
+    }),
+    [t],
+  );
+
+  const timeRules = useMemo(
+    () => ({
+      validate: (value: string) => {
+        if (!value.trim()) return true;
+        return normalizeTimeInput(value) ? true : t("trips.stay.timeInvalid");
+      },
+    }),
+    [t],
+  );
+
   const onSubmit = async (values: AccommodationFormValues) => {
     if (!day) return;
     setServerError(null);
@@ -404,10 +693,56 @@ export default function TripAccommodationDialog({
       return;
     }
 
+    /**
+     * Story 6.26, and the trap the tab split walked into rather than a precaution.
+     *
+     * **react-hook-form does not judge a field whose panel has been unmounted.** Its rules survive the
+     * unmount — `shouldUnregister` defaults to false, which is what makes AC4 work at all — but
+     * `handleSubmit`'s built-in pass skips fields marked as no longer mounted, so `handleSubmit`'s
+     * invalid callback never fires for them and this function runs with the value unchecked. Before
+     * the split every field was always mounted and the distinction did not exist; after it, pressing
+     * `Save` from `Kosten` sent an **empty stay name** — which `nameRules` marks `required` — straight
+     * to the server, and a validation_error came back for a field the user could not see.
+     *
+     * So the four rule-bearing fields are re-judged here, where `values` carries every field
+     * regardless of what is mounted. The rule *objects* are reused rather than their logic
+     * re-implemented, so there is still one definition of "valid" per field; `nameRules` is the one
+     * exception, being `{ required }` rather than a `validate` function.
+     *
+     * Collected before any `setError`, so AC2 can pick the first failure **in tab order** rather than
+     * in the order they happen to be checked.
+     */
+    const ruleFailures: Array<{ key: StayErrorKey; message: string }> = [];
+    const addRuleFailure = (key: StayErrorKey, outcome: string | true) => {
+      if (typeof outcome === "string") ruleFailures.push({ key, message: outcome });
+    };
+    if (!values.name.trim()) ruleFailures.push({ key: "name", message: t("trips.stay.nameRequired") });
+    addRuleFailure("costCents", costRules.validate(values.costCents));
+    addRuleFailure("link", linkRules.validate(values.link));
+    // Only the half `stayType` renders: the other is not registered, carries the dialog's default and
+    // is never sent, so judging it would raise an error on a field this surface does not show.
+    if (stayType === "current") {
+      addRuleFailure("checkInTime", timeRules.validate(values.checkInTime));
+    } else {
+      addRuleFailure("checkOutTime", timeRules.validate(values.checkOutTime));
+    }
+
+    if (ruleFailures.length > 0) {
+      for (const failure of ruleFailures) {
+        setError(failure.key, { message: failure.message });
+      }
+      const firstKey = STAY_ERROR_KEYS_IN_TAB_ORDER.find((key) =>
+        ruleFailures.some((failure) => failure.key === key),
+      );
+      if (firstKey) revealError(firstKey, stayErrorFocusId(fieldIdPrefix, firstKey, {}));
+      return;
+    }
+
     const costValue = values.costCents.trim();
     const parsedCostCents = parseAmountToCents(costValue);
     if (costValue && parsedCostCents === null) {
       setError("costCents", { message: t("trips.stay.costInvalid") });
+      revealError("costCents", `${fieldIdPrefix}-cost`);
       return;
     }
     const costCents = costValue ? parsedCostCents : null;
@@ -420,6 +755,7 @@ export default function TripAccommodationDialog({
         values.payments?.some((payment) => payment.amount.trim().length > 0 || payment.dueDate.trim().length > 0) ?? false;
       if (hasPaymentInput) {
         setError("payments", { message: t("trips.payments.costRequired") });
+        revealError("payments", `${fieldIdPrefix}-cost`);
         return;
       }
     } else {
@@ -427,36 +763,48 @@ export default function TripAccommodationDialog({
         const dueDate = values.payments?.[0]?.dueDate?.trim() ?? "";
         if (!dueDate) {
           setError("payments.0.dueDate", { message: t("trips.payments.dateRequired") });
+          revealError("payments", `${fieldIdPrefix}-payment-date-0`);
           return;
         }
         paymentsPayload = [{ amountCents: costCents, dueDate }];
       } else {
         if (!values.payments || values.payments.length < 2) {
           setError("payments", { message: t("trips.payments.minRows") });
+          revealError("payments", `${fieldIdPrefix}-cost`);
           return;
         }
         let total = 0;
         let hasError = false;
+        // The index of the first row that failed, so AC2's caret lands on *that* row rather than on
+        // the block. `forEach` keeps going after a failure (it sets an error per row), so the first
+        // one is remembered rather than recomputed from `errors`, which is stale in this closure.
+        let firstFailedFocusId: string | null = null;
         values.payments.forEach((payment, index) => {
           const amountValue = payment.amount?.trim() ?? "";
           const amountCents = parseAmountToCents(amountValue);
           if (!amountValue || amountCents === null) {
             setError(`payments.${index}.amount` as const, { message: t("trips.payments.amountRequired") });
             hasError = true;
+            firstFailedFocusId ??= `${fieldIdPrefix}-payment-amount-${index}`;
             return;
           }
           const dueDate = payment.dueDate?.trim() ?? "";
           if (!dueDate) {
             setError(`payments.${index}.dueDate` as const, { message: t("trips.payments.dateRequired") });
             hasError = true;
+            firstFailedFocusId ??= `${fieldIdPrefix}-payment-date-${index}`;
             return;
           }
           total += amountCents;
           paymentsPayload.push({ amountCents, dueDate });
         });
-        if (hasError) return;
+        if (hasError) {
+          revealError("payments", firstFailedFocusId);
+          return;
+        }
         if (total !== costCents) {
           setError("payments", { message: t("trips.payments.sumMismatch") });
+          revealError("payments", `${fieldIdPrefix}-cost`);
           return;
         }
       }
@@ -506,15 +854,41 @@ export default function TripAccommodationDialog({
       if (!response.ok || body.error) {
         if (body.error?.code === "validation_error" && body.error.details) {
           const details = body.error.details as { fieldErrors?: Record<string, string[]> };
+          // AC2/AC3. Which tabs the server just faulted, collected while the errors are set: a
+          // dotted path like `payments.0.amount` belongs to the `payments` key, and `errors` cannot
+          // be read back here because these `setError` calls have not been applied yet.
+          // Keyed by the error key, valued by the *path* the server used, so a row-level
+          // `payments.1.amount` can still focus row 1 rather than the block.
+          const failedPaths = new Map<StayErrorKey, string>();
           Object.entries(details.fieldErrors ?? {}).forEach(([field, messages]) => {
-            if (messages?.[0]) {
-              if (field.startsWith("payments")) {
-                setError(field as keyof AccommodationFormValues, { message: messages[0] });
-              } else {
-                setError(field as keyof AccommodationFormValues, { message: messages[0] });
-              }
-            }
+            if (!messages?.[0]) return;
+            setError(field as keyof AccommodationFormValues, { message: messages[0] });
+            const baseKey = field.split(".")[0] as StayErrorKey;
+            if (baseKey in STAY_ERROR_TAB && !failedPaths.has(baseKey)) failedPaths.set(baseKey, field);
           });
+
+          const firstKey = STAY_ERROR_KEYS_IN_TAB_ORDER.find((key) => failedPaths.has(key));
+          if (!firstKey) {
+            /*
+              The one path that can still break AC2, and the same one Story 6.22 found on the activity
+              dialog: the accommodation schema has keys this form does not surface (`tripDayId`,
+              `location`), and `details.fieldErrors` may be absent entirely. Without this the save
+              fails in silence — no tab marked, no field focused, no banner.
+            */
+            setServerError(t("trips.stay.error"));
+            return;
+          }
+          const serverPath = failedPaths.get(firstKey) ?? firstKey;
+          const paymentRow = /^payments\.(\d+)\.(amount|dueDate)$/.exec(serverPath);
+          revealError(
+            firstKey,
+            paymentRow
+              ? `${fieldIdPrefix}-payment-${paymentRow[2] === "amount" ? "amount" : "date"}-${paymentRow[1]}`
+              : // No `errors` object to consult, and none is needed: every other key resolves to a
+                // fixed id, and the `payments` fallback (`-cost`) is the right target for a
+                // block-level message anyway.
+                stayErrorFocusId(fieldIdPrefix, firstKey, {}),
+          );
           return;
         }
 
@@ -768,58 +1142,17 @@ export default function TripAccommodationDialog({
     [sortedGalleryImages, t],
   );
 
+  /**
+   * Recomputed from `errors` on every render rather than kept in a second store: the markers are
+   * global chrome now, and a tab that keeps its warning triangle after the user has fixed the field
+   * makes the tab bar lie until the next save. react-hook-form clears the key on revalidation, so
+   * reading straight from it is what keeps them honest.
+   */
+  const tabsWithErrors = useMemo(() => stayTabsWithErrors(errors), [errors]);
+
   const nameRules = useMemo(
     () => ({
       required: t("trips.stay.nameRequired"),
-    }),
-    [t],
-  );
-
-  const maxCostCents = 100000000;
-  const costRules = useMemo(
-    () => ({
-      validate: (value: string) => {
-        const trimmed = value.trim();
-        if (!trimmed) return true;
-        if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) {
-          return t("trips.stay.costInvalid");
-        }
-        const parsed = Number(trimmed);
-        if (!Number.isFinite(parsed) || parsed < 0) {
-          return t("trips.stay.costInvalid");
-        }
-        const cents = Math.round(parsed * 100);
-        if (cents > maxCostCents) {
-          return t("trips.stay.costTooHigh");
-        }
-        return true;
-      },
-    }),
-    [t],
-  );
-
-  const linkRules = useMemo(
-    () => ({
-      validate: (value: string) => {
-        const trimmed = value.trim();
-        if (!trimmed) return true;
-        try {
-          new URL(trimmed);
-          return true;
-        } catch {
-          return t("trips.stay.linkInvalid");
-        }
-      },
-    }),
-    [t],
-  );
-
-  const timeRules = useMemo(
-    () => ({
-      validate: (value: string) => {
-        if (!value.trim()) return true;
-        return normalizeTimeInput(value) ? true : t("trips.stay.timeInvalid");
-      },
     }),
     [t],
   );
@@ -888,14 +1221,104 @@ export default function TripAccommodationDialog({
     >
         <Box display="flex" flexDirection="column" gap="18px">
           {(serverError || initError) && <FormNotice tone="warn" message={serverError ?? initError ?? ""} />}
+
+          {/*
+            Story 6.26 AC1. MUI `Tabs`/`Tab` rather than hand-rolled buttons, and the same pill switch
+            `AuthTabs` established and `theme.ts` already encodes (`MuiTabs` paints the `paperOuter`
+            track, `MuiTab` the white selected pill) — the chrome is copied from `TripDayPlanDialog`
+            deliberately, because two dialogs on the same day screen splitting their fields into tabs
+            that *look* different would read as two unrelated mechanisms.
+
+            The bar sits outside the `<form>`: a `Tab` is a `<button>`, and while MUI types it
+            `button` rather than `submit`, keeping the tablist out of the form means no future default
+            can turn a tab switch into a save.
+
+            The underline indicator is switched off because the filled pill is the selected state, and
+            an underline on top of it is a second, conflicting one.
+          */}
+          <Tabs
+            value={activeTab}
+            onChange={(_event, value: StayTabId) => setActiveTab(value)}
+            aria-label={t("trips.stay.tabsLabel")}
+            variant="fullWidth"
+            sx={{
+              borderRadius: "7px",
+              minHeight: 44,
+              "& .MuiTabs-indicator": { display: "none" },
+              // MUI 7 renames the flex container slot to `list`; both are targeted so the gap does
+              // not silently disappear on either side of that rename.
+              "& .MuiTabs-list, & .MuiTabs-flexContainer": { gap: "6px" },
+              "& .MuiTab-root": {
+                minHeight: 44,
+                minWidth: 0,
+                px: "6px",
+                gap: "4px",
+                fontSize: 12,
+                fontWeight: 800,
+                letterSpacing: 0,
+                textTransform: "none",
+              },
+            }}
+          >
+            {STAY_TAB_IDS.map((tabId) => {
+              const label = t(STAY_TAB_LABEL_KEYS[tabId]);
+              const hasError = tabsWithErrors.has(tabId);
+              return (
+                <Tab
+                  key={tabId}
+                  value={tabId}
+                  id={`${fieldIdPrefix}-tab-${tabId}`}
+                  // Only the selected tab names a panel, because only its panel is in the DOM. A
+                  // permanent `aria-controls` on all four would point three screen readers at an id
+                  // that does not exist whenever a user invokes jump-to-controlled-element.
+                  aria-controls={activeTab === tabId ? `${fieldIdPrefix}-tabpanel-${tabId}` : undefined}
+                  // AC3's marker is a warning triangle, not a colour: the tint on its own would be the
+                  // only signal for a red-green colour-blind reader. The accessible name says it in
+                  // words too, so the marker is not sighted-only either.
+                  aria-label={hasError ? formatMessage(t("trips.stay.tabWithErrors"), { label }) : undefined}
+                  label={label}
+                  icon={hasError ? <WarningTriangleIcon sx={{ fontSize: 13 }} /> : undefined}
+                  iconPosition="end"
+                  // `warning.main`, not `warnBorder`: the marker has to be legible on the white
+                  // selected pill, where the border token sits at 1.6:1. This is the colour theme.ts
+                  // already assigns to every error foreground in the app.
+                  sx={hasError ? { color: warning.main } : undefined}
+                />
+              );
+            })}
+          </Tabs>
+
+          {/*
+            AC2/AC3. `handleSubmit`'s second argument is react-hook-form's invalid callback — it fires
+            with the `FieldErrors` its own rules produced (a missing name, a malformed time or URL)
+            *instead of* `onSubmit`, so without it a rule failing on an unselected tab would mark
+            nothing and focus nothing. The manual `setError` paths inside `onSubmit` reveal themselves.
+
+            AC5's floor lives on the form rather than on each panel: one element carries the number, so
+            a fifth panel inherits the behaviour instead of having to remember it. Every panel stays
+            top-aligned inside it — a flex child is not stretched along the main axis — so a short one
+            shows empty space underneath while a tall one simply exceeds the floor and scrolls with the
+            dialog body as it always did.
+          */}
           <Box
             component="form"
             id={formId}
-            onSubmit={handleSubmit(onSubmit)}
+            onSubmit={handleSubmit(onSubmit, revealFirstError)}
             display="flex"
             flexDirection="column"
             gap="18px"
+            data-testid="stay-tabpanel-floor"
+            sx={STAY_PANEL_FLOOR_SX}
           >
+          {activeTab === "basics" && (
+            <Box
+              role="tabpanel"
+              id={`${fieldIdPrefix}-tabpanel-basics`}
+              aria-labelledby={`${fieldIdPrefix}-tab-basics`}
+              display="flex"
+              flexDirection="column"
+              gap="18px"
+            >
             <FormField
               id={`${fieldIdPrefix}-name`}
               label={t("trips.stay.nameLabel")}
@@ -905,43 +1328,11 @@ export default function TripAccommodationDialog({
               {...register("name", nameRules)}
             />
             {/*
-              The status select keeps its own caps label rather than an `InputLabel`: a floating
-              label is the pattern this restyle removes, and MUI's `Select` renders a div, so a
-              `<label htmlFor>` would associate with nothing. `aria-labelledby` names it instead.
-              Preserved because Screen G does not draw it — that is the mockup showing a smaller
-              form, not a decision to drop FR13.
-            */}
-            <FormControl fullWidth error={Boolean(errors.status)}>
-              <Typography
-                id={`${fieldIdPrefix}-status-label`}
-                variant="labelCaps"
-                component="div"
-                sx={{ fontSize: 11, letterSpacing: "0.06em", color: tokens.inkSoft, mb: "7px" }}
-              >
-                {t("trips.stay.statusLabel")}
-              </Typography>
-              <Controller
-                control={control}
-                name="status"
-                /*
-                  `labelId`, not a bare `aria-labelledby`. MUI forwards unrecognised props through
-                  `...other` onto the OutlinedInput *wrapper div*, leaving the inner
-                  `role="combobox"` — the element AT actually reads — unnamed. `labelId` is the one
-                  prop `Select` routes down to it.
-                */
-                render={({ field }) => (
-                  <Select labelId={`${fieldIdPrefix}-status-label`} {...field}>
-                    <MenuItem value="planned">{t("trips.stay.statusPlanned")}</MenuItem>
-                    <MenuItem value="booked">{t("trips.stay.statusBooked")}</MenuItem>
-                  </Select>
-                )}
-              />
-            </FormControl>
-            {/*
-              Screen G pairs check-in and check-out in one `.field-row`. This dialog renders exactly
-              one of the two — `stayType` decides which — so the row holds the time field and the
-              cost field instead of leaving a hole. The `Link` field follows on its own line because
-              a URL at 250px wraps badly.
+              Screen G pairs two fields in one `.field-row`. Before this story the row held the time
+              field and the cost field, because `stayType` renders exactly one of check-in/check-out
+              and a lone time input left a hole. Cost belongs to `Kosten` now, so the row pairs the
+              status select with the time instead — the same reasoning, a different second field, and
+              a 520px-wide dialog still does not want a 44px time input stretched across all of it.
             */}
             <Box
               sx={{
@@ -951,6 +1342,42 @@ export default function TripAccommodationDialog({
                 "& > *": { flex: 1, minWidth: 0 },
               }}
             >
+              {/*
+                The status select keeps its own caps label rather than an `InputLabel`: a floating
+                label is the pattern this restyle removes, and MUI's `Select` renders a div, so a
+                `<label htmlFor>` would associate with nothing. `aria-labelledby` names it instead.
+                Preserved because Screen G does not draw it — that is the mockup showing a smaller
+                form, not a decision to drop FR13.
+              */}
+              <FormControl fullWidth error={Boolean(errors.status)}>
+                <Typography
+                  id={`${fieldIdPrefix}-status-label`}
+                  variant="labelCaps"
+                  component="div"
+                  sx={{ fontSize: 11, letterSpacing: "0.06em", color: tokens.inkSoft, mb: "7px" }}
+                >
+                  {t("trips.stay.statusLabel")}
+                </Typography>
+                <Controller
+                  control={control}
+                  name="status"
+                  /*
+                    `labelId`, not a bare `aria-labelledby`. MUI forwards unrecognised props through
+                    `...other` onto the OutlinedInput *wrapper div*, leaving the inner
+                    `role="combobox"` — the element AT actually reads — unnamed. `labelId` is the one
+                    prop `Select` routes down to it.
+
+                    `id` is what Story 6.26 adds: it lands on the `role="combobox"` element, which is
+                    what `stayErrorFocusId` needs to be able to focus the control for a `status` error.
+                  */
+                  render={({ field }) => (
+                    <Select id={`${fieldIdPrefix}-status`} labelId={`${fieldIdPrefix}-status-label`} {...field}>
+                      <MenuItem value="planned">{t("trips.stay.statusPlanned")}</MenuItem>
+                      <MenuItem value="booked">{t("trips.stay.statusBooked")}</MenuItem>
+                    </Select>
+                  )}
+                />
+              </FormControl>
               {/*
                 Story 6.18: native `type="time"`, matching `TripDayPlanDialog`. The previous
                 `inputMode: "numeric"` asked the OS for a digits-only keypad, and neither iOS nor
@@ -976,25 +1403,29 @@ export default function TripAccommodationDialog({
                   type="time"
                 />
               )}
-              <FormField
-                id={`${fieldIdPrefix}-cost`}
-                label={t("trips.stay.costLabel")}
-                error={errors.costCents?.message}
-                {...register("costCents", costRules)}
-                type="number"
-                slotProps={{ htmlInput: { min: 0, step: 0.01, inputMode: "decimal" } }}
-                placeholder="0.00"
-              />
             </Box>
+            </Box>
+          )}
+
+          {activeTab === "cost" && (
+            <Box
+              role="tabpanel"
+              id={`${fieldIdPrefix}-tabpanel-cost`}
+              aria-labelledby={`${fieldIdPrefix}-tab-cost`}
+              display="flex"
+              flexDirection="column"
+              gap="18px"
+            >
+            {/* Moved out of the time row: the amount and the schedule it is split into are one
+                subject, and separating them across two tabs was the split the user could not read. */}
             <FormField
-              id={`${fieldIdPrefix}-link`}
-              label={t("trips.stay.linkLabel")}
-              error={errors.link?.message}
-              {...register("link", linkRules)}
-              type="url"
-              slotProps={{ htmlInput: { inputMode: "url" } }}
-              placeholder="https://"
-              hint={t("trips.stay.linkHelper")}
+              id={`${fieldIdPrefix}-cost`}
+              label={t("trips.stay.costLabel")}
+              error={errors.costCents?.message}
+              {...register("costCents", costRules)}
+              type="number"
+              slotProps={{ htmlInput: { min: 0, step: 0.01, inputMode: "decimal" } }}
+              placeholder="0.00"
             />
             <FormControl component="fieldset" error={Boolean(errors.payments)} variant="standard">
               <FormLabel
@@ -1067,6 +1498,18 @@ export default function TripAccommodationDialog({
               </Box>
               <FormHelperText>{errors.payments?.message}</FormHelperText>
             </FormControl>
+            </Box>
+          )}
+
+          {activeTab === "place" && (
+            <Box
+              role="tabpanel"
+              id={`${fieldIdPrefix}-tabpanel-place`}
+              aria-labelledby={`${fieldIdPrefix}-tab-place`}
+              display="flex"
+              flexDirection="column"
+              gap="18px"
+            >
             <Box display="flex" flexDirection="column" gap={1}>
               <Box
                 sx={{
@@ -1114,6 +1557,41 @@ export default function TripAccommodationDialog({
               multiline
               minRows={3}
             />
+            </Box>
+          )}
+
+          {activeTab === "media" && (
+            <Box
+              role="tabpanel"
+              id={`${fieldIdPrefix}-tabpanel-media`}
+              aria-labelledby={`${fieldIdPrefix}-tab-media`}
+              display="flex"
+              flexDirection="column"
+              gap="18px"
+            >
+            {/*
+              AC1 pairs the link with the gallery, exactly as Story 6.22 did on the activity dialog and
+              for the same two reasons. The gallery is gated on a saved stay, so on its own this tab
+              would be empty while adding one; and a tab holding nothing but the link would be the
+              single-field tab 6.22 ruled out. Together they are a section either way.
+            */}
+            <FormField
+              id={`${fieldIdPrefix}-link`}
+              label={t("trips.stay.linkLabel")}
+              error={errors.link?.message}
+              {...register("link", linkRules)}
+              type="url"
+              slotProps={{ htmlInput: { inputMode: "url" } }}
+              placeholder="https://"
+              hint={t("trips.stay.linkHelper")}
+            />
+            {!day?.accommodation && (
+              // Saying why the upload zone is absent, rather than rendering one that would have no
+              // accommodation id to post against. Same treatment as `trips.plan.galleryAfterSave`.
+              <Typography variant="body2" sx={{ color: tokens.inkSoft }}>
+                {t("trips.stay.galleryAfterSave")}
+              </Typography>
+            )}
             {day?.accommodation && (
               /*
                 AC5 rebuild: dashed dropzone + a 56px sharp preview strip, replacing the bare file
@@ -1157,6 +1635,8 @@ export default function TripAccommodationDialog({
                 onImageOpen={setFullscreenIndex}
               />
             )}
+            </Box>
+          )}
           </Box>
         </Box>
     </DialogShell>

@@ -6,6 +6,8 @@ const de: Dictionary = {
   // Story 6.20 - see the note on this key in `en.ts`. No leading "←": in the menu the label names a
   // destination, not a way back.
   "header.trips": "Alle Reisen",
+  // Story 5.10, AC2 - siehe en.ts. Tommys eigenes Wort für die Funktion, aus der Anfrage zur Story.
+  "header.userAdmin": "Nutzerverwaltung",
   "language.label": "Sprache",
   "language.saveError": "Spracheinstellung konnte nicht gespeichert werden.",
   "language.en": "Englisch",
@@ -558,6 +560,16 @@ const de: Dictionary = {
   "trips.stay.error": "Unterkunft konnte nicht gespeichert werden. Bitte erneut versuchen.",
   "trips.stay.deleteError": "Unterkunft konnte nicht entfernt werden. Bitte erneut versuchen.",
   "trips.stay.nameRequired": "Name der Unterkunft ist erforderlich",
+  // Story 6.26. The stay dialog's own tab strip. `trips.plan.*` carries the activity dialog's four
+  // labels; these are deliberately separate keys rather than shared ones — the two surfaces group
+  // different fields, and `tabsLabel` names the subject ("Unterkunft", not "Aktivität").
+  "trips.stay.tabsLabel": "Bereiche der Unterkunft",
+  "trips.stay.tabBasics": "Basisdaten",
+  "trips.stay.tabCost": "Zahlung",
+  "trips.stay.tabPlace": "Ort & Notizen",
+  "trips.stay.tabMedia": "Medien & Links",
+  "trips.stay.tabWithErrors": "{label} (enthält Fehler)",
+  "trips.stay.galleryAfterSave": "Fotos kannst du hinzufügen, sobald die Unterkunft gespeichert ist.",
   "trips.gallery.title": "Bildergalerie",
   "trips.gallery.uploadAction": "Hochladen",
   "trips.gallery.moveUp": "Hoch",
@@ -597,6 +609,72 @@ const de: Dictionary = {
   "users.registered.empty": "Noch keine Konten registriert.",
   "users.registered.loadError": "Registrierte Benutzer konnten nicht geladen werden. Bitte aktualisieren.",
   "users.registered.forbidden": "Nur Reise-Eigentümer können registrierte Benutzer sehen.",
+  // Story 5.10 - siehe en.ts zur Trennung von `/users` (5.8) und dieser Oberfläche.
+  "admin.users.title": "Nutzerverwaltung",
+  "admin.users.subtitle": "Alle Konten und worauf sie zugreifen können",
+  "admin.users.countLabel": "Konten ({count})",
+  "admin.users.empty": "Noch keine Konten registriert.",
+  "admin.users.loadError": "Konten konnten nicht geladen werden. Bitte aktualisieren.",
+  "admin.users.forbidden": "Nur Administratoren können Konten verwalten.",
+  // AC3: "Eigentümer" ist `Trip.userId`, "Freigegeben für" ist eine `TripMember`-Zeile. Zwei verschiedene
+  // Beziehungen, die nicht in einem Wort zusammenfallen dürfen - nur die erste blockiert eine Löschung,
+  // nur die zweite kann getrennt werden.
+  "admin.users.ownsLabel": "Eigentümer von",
+  "admin.users.sharedLabel": "Freigegeben für",
+  "admin.users.reachesNothing": "Keine Reisen",
+  "admin.users.youBadge": "Du",
+  "admin.users.adminBadge": "Admin",
+  "admin.users.roleVIEWER": "Betrachter",
+  "admin.users.roleCONTRIBUTOR": "Mitwirkender",
+  "admin.users.create.action": "Konto anlegen",
+  "admin.users.create.title": "Konto anlegen",
+  "admin.users.create.emailLabel": "E-Mail",
+  "admin.users.create.passwordLabel": "Temporäres Passwort",
+  "admin.users.create.passwordHelper": "Das Konto muss es bei der ersten Anmeldung ändern.",
+  "admin.users.create.submit": "OK",
+  "admin.users.create.error": "Konto konnte nicht angelegt werden.",
+  "admin.users.create.emailExists": "Für diese E-Mail existiert bereits ein Konto.",
+  // Siehe en.ts: die beiden Regeln, die der Server durchsetzt, im Feld statt als rotes Kästchen ohne Worte.
+  "admin.users.create.emailRequired": "Eine E-Mail-Adresse ist erforderlich.",
+  "admin.users.create.passwordRule": "Zwischen 8 und 72 Zeichen.",
+  "admin.users.create.validationError": "Bitte E-Mail-Adresse und Passwort prüfen und erneut versuchen.",
+  "admin.users.grantAdmin": "Zum Administrator machen",
+  "admin.users.revokeAdmin": "Administrator entziehen",
+  "admin.users.roleError": "Rolle konnte nicht geändert werden.",
+  "admin.users.lastAdmin": "Mindestens ein Administrator muss bleiben.",
+  "admin.users.attach.action": "Zu Reise hinzufügen",
+  "admin.users.attach.title": "{email} zu einer Reise hinzufügen",
+  "admin.users.attach.tripLabel": "Reise",
+  "admin.users.attach.roleLabel": "Rolle",
+  "admin.users.attach.submit": "OK",
+  "admin.users.attach.noTrips": "Es gibt noch keine Reise, zu der jemand hinzugefügt werden könnte.",
+  "admin.users.attach.error": "Freigabe konnte nicht geändert werden.",
+  "admin.users.attach.tripOwner": "Dieses Konto besitzt diese Reise bereits.",
+  // Siehe en.ts: zwei Codes, zwei Meldungen - welches von beiden fehlt, entscheidet zwischen neu laden und
+  // eine andere Reise wählen.
+  "admin.users.attach.tripNotFound": "Diese Reise existiert nicht mehr. Bitte neu laden.",
+  "admin.users.attach.userNotFound": "Dieses Konto existiert nicht mehr. Bitte neu laden.",
+  "admin.users.attach.currentRole": "derzeit {role}",
+  "admin.users.detach.action": "Von Reise entfernen",
+  // Der zugängliche Name muss die Reise benennen - siehe en.ts.
+  "admin.users.detach.actionFor": "{email} von {trip} entfernen",
+  "admin.users.detach.error": "Freigabe konnte nicht entfernt werden.",
+  "admin.users.detach.notFound": "Diese Freigabe existiert nicht mehr. Bitte neu laden.",
+  "admin.users.roleToggleFor": "{email} auf {trip} zu {role} ändern",
+  // AC7. Die sichere Hälfte benennt, was sie erhält (Story 6.25 AC3) - und im gleichen Substantiv wie ihr
+  // Nachbar: "Konto behalten" neben "Konto löschen".
+  "admin.users.delete.action": "Konto löschen",
+  "admin.users.delete.title": "Konto löschen",
+  // Siehe en.ts. Die erste Fassung ("samt aller für dieses Konto freigegebenen Reisen") sagte, dass die
+  // Reisen mitgelöscht werden - genau die Kaskade, die AC7 verhindert, und im einzigen Dialog, in dem die
+  // Angst davor lebt. Sie warf außerdem Eigentum und Freigabe in ein Wort, was AC3 überall sonst trennt.
+  "admin.users.delete.body":
+    "{email} verliert den Zugriff auf alle für dieses Konto freigegebenen Reisen. Die Reisen selbst werden nicht gelöscht — sie gehören ihren Eigentümern. Ein Konto, das Reisen besitzt, kann nicht gelöscht werden. Das kann nicht rückgängig gemacht werden.",
+  "admin.users.delete.confirm": "Konto löschen",
+  "admin.users.delete.keep": "Konto behalten",
+  "admin.users.delete.error": "Konto konnte nicht gelöscht werden.",
+  "admin.users.delete.ownsTrips": "{email} ist Eigentümer dieser Reisen und kann nicht gelöscht werden: {trips}",
+  "admin.users.delete.selfDelete": "Du kannst dein eigenes Konto hier nicht löschen.",
   // Story 6.17 hat `common.save` entfernt und 6.25 `common.cancel` — siehe die Notizen in `en.ts`.
   "common.close": "Schließen",
   // Story 6.25 — siehe en.ts. Ein `common.`-Name mit zehn Lesern, nicht mit einem.
