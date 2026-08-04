@@ -18,6 +18,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableContainer,
   TableHead,
   TableRow,
   TextField,
@@ -38,14 +39,14 @@ type ApiEnvelope<T> = {
   error: { code: string; message: string; details?: unknown } | null;
 };
 
-type AdminMembership = {
+export type AdminMembership = {
   id: string;
   tripId: string;
   tripName: string;
   role: "VIEWER" | "CONTRIBUTOR";
 };
 
-type AdminUser = {
+export type AdminUser = {
   id: string;
   email: string;
   role: "OWNER" | "VIEWER" | "ADMIN";
@@ -125,7 +126,23 @@ export default function AdminUsersList({ currentUserId }: { currentUserId: strin
   const [state, setState] = useState<ListState>({ status: "loading" });
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [busyUserId, setBusyUserId] = useState<string | null>(null);
+  /**
+   * Which accounts have a mutation in flight — a **set**, not one id (review of 5.11).
+   *
+   * It was `busyUserId: string | null`, so only the clicked row disabled: starting a second mutation on
+   * another row overwrote the flag, and whichever request finished first cleared it, re-enabling every
+   * control while the other was still running. Two `load()`s could also race and land the stale list.
+   * A set makes "busy" a per-row fact, which is what the UI was already claiming it was.
+   */
+  const [busyUserIds, setBusyUserIds] = useState<ReadonlySet<string>>(() => new Set());
+  const markBusy = (userId: string) =>
+    setBusyUserIds((current) => new Set(current).add(userId));
+  const clearBusy = (userId: string) =>
+    setBusyUserIds((current) => {
+      const next = new Set(current);
+      next.delete(userId);
+      return next;
+    });
 
   const [createOpen, setCreateOpen] = useState(false);
   const [attachTarget, setAttachTarget] = useState<AdminUser | null>(null);
@@ -366,11 +383,11 @@ export default function AdminUsersList({ currentUserId }: { currentUserId: strin
   // ─── Grant / revoke ────────────────────────────────────────────────────────────────────────────────
   const setAdminRole = async (user: AdminUser, makeAdmin: boolean) => {
     setActionError(null);
-    setBusyUserId(user.id);
+    markBusy(user.id);
     const { ok, envelope } = await mutate(`/api/admin/users/${user.id}`, "PATCH", { isAdmin: makeAdmin });
-    setBusyUserId(null);
 
     if (!ok) {
+      clearBusy(user.id);
       if (consumeForbidden(envelope)) return;
       setActionError(
         envelope?.error?.code === "last_admin" ? t("admin.users.lastAdmin") : t("admin.users.roleError"),
@@ -381,6 +398,7 @@ export default function AdminUsersList({ currentUserId }: { currentUserId: strin
     // Reloads even when the row changed is somebody else's: the last-admin rule means one account's role
     // decides whether another account's revoke button may be pressed at all.
     await load();
+    clearBusy(user.id);
   };
 
   // ─── Attach / detach ───────────────────────────────────────────────────────────────────────────────
@@ -423,9 +441,14 @@ export default function AdminUsersList({ currentUserId }: { currentUserId: strin
    * now, so the chosen role is what the admin actually said, and reading it from the current value would
    * be inventing an answer the widget already gave.
    *
-   * The no-op guard matters more than it looks: MUI fires `onChange` only on an actual change, but the
-   * request is an **upsert**, so re-sending the role a membership already holds would spend a write and a
-   * full list reload to arrive back where it started.
+   * **The no-op guard is belt-and-braces, and review corrected the claim that it is more.** MUI's
+   * `SelectInput` gates the whole `onChange` call on `value !== newValue`, so re-picking the value the
+   * control already shows never reaches this function — the guard cannot execute today. Mutation-tested:
+   * deleting it leaves the test that supposedly covers it green, because that test verifies MUI.
+   *
+   * It stays because the cost is one comparison and the thing it guards is a write plus a full reload on
+   * a privileged surface, so a future `Controller` refactor or an MUI change should not be able to
+   * reintroduce it. What it is not is the mechanism that satisfies AC4's second half — that is MUI's.
    */
   const changeMembershipRole = async (
     user: AdminUser,
@@ -434,19 +457,20 @@ export default function AdminUsersList({ currentUserId }: { currentUserId: strin
   ) => {
     if (nextRole === membership.role) return;
     setActionError(null);
-    setBusyUserId(user.id);
+    markBusy(user.id);
     const { ok, envelope } = await mutate(`/api/admin/users/${user.id}/memberships`, "POST", {
       tripId: membership.tripId,
       role: nextRole,
     });
-    setBusyUserId(null);
 
     if (!ok) {
+      clearBusy(user.id);
       if (consumeForbidden(envelope)) return;
       setActionError(t(attachErrorKey(envelope?.error?.code)));
       return;
     }
     await load();
+    clearBusy(user.id);
   };
 
   // ─── Detach ────────────────────────────────────────────────────────────────────────────────────────
@@ -479,15 +503,21 @@ export default function AdminUsersList({ currentUserId }: { currentUserId: strin
     const { user, membership } = detachTarget;
     setActionError(null);
     setDetachBusy(true);
-    setBusyUserId(user.id);
+    markBusy(user.id);
     const { ok, envelope } = await mutate(`/api/admin/users/${user.id}/memberships`, "DELETE", {
       tripId: membership.tripId,
     });
+    /*
+      Review of 5.11: the dialog closes and the row unlocks here, but `busy` stays set until the reload
+      below has landed. It used to clear before `await load()`, which left a window where the removed
+      share was still on screen and still clickable — and a second DELETE then reported that it no
+      longer exists, which is a confusing way to be told the first one worked.
+    */
     setDetachBusy(false);
-    setBusyUserId(null);
     setDetachTarget(null);
 
     if (!ok) {
+      clearBusy(user.id);
       if (consumeForbidden(envelope)) return;
       setActionError(
         envelope?.error?.code === "not_found"
@@ -497,6 +527,7 @@ export default function AdminUsersList({ currentUserId }: { currentUserId: strin
       return;
     }
     await load();
+    clearBusy(user.id);
   };
 
   // ─── Delete ────────────────────────────────────────────────────────────────────────────────────────
@@ -580,6 +611,35 @@ export default function AdminUsersList({ currentUserId }: { currentUserId: strin
 
   const roleLabel = (role: "VIEWER" | "CONTRIBUTOR") => t(`admin.users.role${role}`);
 
+  /**
+   * The 44px floor for the overflow menu's items (review of 5.11). MUI's `MenuItem` sets
+   * `minHeight: 48` and resets it to `auto` at `breakpoints.up('sm')`, so without a rule here the items
+   * sit below the app-wide target size on every desktop width.
+   *
+   * **`&&`, and that doubled selector is the whole point — measured, not assumed.** A plain
+   * `{ minHeight: 44 }` was the first fix and it worked at 390px and *failed at 747px*: 44px below the
+   * breakpoint, **32.3px above it**. Both rules are one class of specificity, so the later one in the
+   * emotion sheet wins, and MUI's media query is later. `&&` doubles the class to (0,2,0) and takes the
+   * question of ordering off the table.
+   *
+   * `TripDayView`'s `DAY_MENU_ITEM_SX` is the byte-identical single-class version, so it has the same
+   * defect and predates this story — recorded as DW-180 rather than fixed here.
+   */
+  const ROW_MENU_ITEM_SX = { "&&": { minHeight: 44 } } as const;
+
+  /**
+   * The 44px hit area plus the focus ring, once. Spelled out rather than inherited because `theme.ts`
+   * has no `MuiIconButton` override and scopes the app-wide focus ring to `MuiButton`. Was copy-pasted
+   * verbatim at all three call sites until review folded it into one constant.
+   */
+  const ROW_ICON_BUTTON_SX = {
+    width: 44,
+    height: 44,
+    borderRadius: "6px",
+    color: tokens.ink,
+    "&.Mui-focusVisible": { outline: `2px solid ${tokens.ink}`, outlineOffset: "2px" },
+  } as const;
+
   const closeRowMenu = () => {
     setMenuAnchor(null);
     setMenuUser(null);
@@ -588,14 +648,18 @@ export default function AdminUsersList({ currentUserId }: { currentUserId: strin
   /**
    * Story 5.11. Every menu item closes the menu **before** it acts, and the order is load-bearing.
    *
-   * `TripDayView`'s overflow menu records the hazard this avoids: a trigger that unmounts while its menu
-   * is open leaves `anchorEl` pointing at a detached node. Here it is not a latent edge case but the
-   * normal path — two of the three items mutate, every mutation calls `load()`, and `load()` replaces the
-   * whole `users` array (see the component docblock for why it re-reads rather than splices). The row
-   * remounts, so the node in `menuAnchor` is gone and the menu would be anchored to nothing.
+   * `TripDayView`'s overflow menu records the hazard: a trigger that unmounts while its menu is open
+   * leaves `anchorEl` pointing at a detached node.
    *
-   * The other two items open a dialog, where closing first is simply what should happen anyway: a menu
-   * left standing behind a modal is a second dismissable layer the user did not ask for.
+   * **Corrected in review — that is not what happens on the ordinary path here.** The earlier wording
+   * claimed the row remounts because `load()` replaces the whole `users` array; it does not. The list is
+   * keyed by `user.id`, so React reconciles each row in place and the trigger's DOM node survives every
+   * reload for any account that still exists. The one path that really removes the node is deleting the
+   * account, and that goes through a dialog.
+   *
+   * So the ordering is right for the plainer reason, which covers all three items: one of them mutates
+   * (grant/revoke) and two open a dialog, and a menu left standing behind a modal is a second dismissable
+   * layer the user did not ask for. The detached-anchor hazard is real only for the delete case.
    */
   const runFromRowMenu = (action: () => void) => {
     closeRowMenu();
@@ -680,7 +744,7 @@ export default function AdminUsersList({ currentUserId }: { currentUserId: strin
               >
                 {users.map((user) => {
                   const isSelf = user.id === currentUserId;
-                  const busy = busyUserId === user.id;
+                  const busy = busyUserIds.has(user.id);
 
                   return (
                     <ListItem key={user.id} disableGutters sx={{ py: "12px", display: "block" }}>
@@ -692,7 +756,14 @@ export default function AdminUsersList({ currentUserId }: { currentUserId: strin
                       */}
                       <Box display="flex" alignItems="flex-start" gap="8px">
                       <Box display="flex" alignItems="center" flexWrap="wrap" gap="8px" sx={{ flex: 1, minWidth: 0 }}>
-                        <Box sx={{ fontSize: 13, fontWeight: 700, color: tokens.ink }}>{user.email}</Box>
+                        {/*
+                          `overflowWrap: anywhere` because an email is one unbreakable token to the line
+                          breaker: `minWidth: 0` on the flex child lets the box shrink, but the text inside
+                          it still overhung and pushed the 44px trigger off a 390px row.
+                        */}
+                        <Box sx={{ fontSize: 13, fontWeight: 700, color: tokens.ink, overflowWrap: "anywhere" }}>
+                          {user.email}
+                        </Box>
                         {user.role === "ADMIN" && (
                           <Box
                             component="span"
@@ -730,7 +801,15 @@ export default function AdminUsersList({ currentUserId }: { currentUserId: strin
                         so `size="small"` alone renders ~28px. The focus ring is spelled out for the same
                         reason 6.24's trash glyph is — the app-wide ring is scoped to `MuiButton`.
                       */}
+                      {/*
+                        The `span` wrapper is required, not decorative: a `Tooltip` whose child is a
+                        `disabled` element receives no events from it, so without this the trigger's tooltip
+                        stopped firing exactly while the row was busy — the moment a user is most likely to
+                        hover it asking what is happening. The `+` and the trash glyph were already wrapped
+                        for this reason; review of 5.11 brought the third into line.
+                      */}
                       <Tooltip title={formatMessage(t("admin.users.rowMenuFor"), { email: user.email })} enterDelay={0}>
+                        <Box component="span" sx={{ display: "inline-flex", flex: "0 0 auto" }}>
                         <IconButton
                           id={`${rowMenuIdPrefix}-trigger-${user.id}`}
                           aria-label={formatMessage(t("admin.users.rowMenuFor"), { email: user.email })}
@@ -742,25 +821,27 @@ export default function AdminUsersList({ currentUserId }: { currentUserId: strin
                             setMenuAnchor(event.currentTarget);
                             setMenuUser(user);
                           }}
-                          sx={{
-                            flex: "0 0 auto",
-                            width: 44,
-                            height: 44,
-                            borderRadius: "6px",
-                            color: tokens.ink,
-                            "&.Mui-focusVisible": { outline: `2px solid ${tokens.ink}`, outlineOffset: "2px" },
-                          }}
+                          sx={ROW_ICON_BUTTON_SX}
                         >
                           <MoreVerticalIcon />
                         </IconButton>
+                        </Box>
                       </Tooltip>
                       </Box>
 
                       {/* AC3: the two relations, labelled differently, never merged. */}
                       <Box sx={{ mt: "6px", display: "flex", flexDirection: "column", gap: "4px" }}>
-                        {user.ownedTrips.length === 0 && user.memberships.length === 0 && (
+                        {/*
+                          `ownedTrips.length === 0` alone, not "and no memberships either" (review of 5.11).
+                          The shares section below now always speaks for itself — a table or
+                          `sharesEmpty` — so the old condition made an account that reaches nothing say so
+                          twice, in two different nouns ("No trips", then "No shares"), on the surface whose
+                          whole job is that the two relations read as distinct things. This line now answers
+                          only for ownership, which is the relation it sits under.
+                        */}
+                        {user.ownedTrips.length === 0 && (
                           <Typography variant="caption" sx={{ color: tokens.inkMuted }}>
-                            {t("admin.users.reachesNothing")}
+                            {t("admin.users.ownsNothing")}
                           </Typography>
                         )}
 
@@ -796,8 +877,14 @@ export default function AdminUsersList({ currentUserId }: { currentUserId: strin
                             The section's own entry point, and deliberately a second one: the same action is
                             in the overflow menu above, where it belongs to the account. Here it belongs to
                             this table — "add a row to this" — which is what makes a `+` legible without a
-                            word. Disabled when there is no trip to attach to at all, which is the one case
-                            where the dialog would open onto its own empty state.
+                            word.
+
+                            Disabled when the installation has no trip at all. That is **not** the only case
+                            where the dialog opens onto its own empty state, and the earlier comment claimed
+                            it was: `attachableTrips` also filters out the trips this account owns, so an
+                            account owning every trip gets an enabled `+` and an empty picker. The condition
+                            is Story 5.10's and AC8 keeps its behaviour — the claim is corrected rather than
+                            left standing.
                           */}
                           <Tooltip
                             title={formatMessage(t("admin.users.attach.title"), { email: user.email })}
@@ -806,15 +893,12 @@ export default function AdminUsersList({ currentUserId }: { currentUserId: strin
                             <Box component="span" sx={{ display: "inline-flex" }}>
                               <IconButton
                                 aria-label={formatMessage(t("admin.users.attach.title"), { email: user.email })}
+                                // Additive, so it does not replace the accessible name: this opens a modal,
+                                // and the two menu items that also open one already say so.
+                                aria-haspopup="dialog"
                                 disabled={busy || trips.length === 0}
                                 onClick={() => setAttachTarget(user)}
-                                sx={{
-                                  width: 44,
-                                  height: 44,
-                                  borderRadius: "6px",
-                                  color: tokens.ink,
-                                  "&.Mui-focusVisible": { outline: `2px solid ${tokens.ink}`, outlineOffset: "2px" },
-                                }}
+                                sx={ROW_ICON_BUTTON_SX}
                               >
                                 <PlusIcon />
                               </IconButton>
@@ -827,9 +911,25 @@ export default function AdminUsersList({ currentUserId }: { currentUserId: strin
                             {t("admin.users.sharesEmpty")}
                           </Typography>
                         ) : (
+                          /*
+                            `TableContainer` with `overflowX: auto` (review of 5.11). Three columns, one of
+                            them a select with a hard minimum width, `px: 0` on every cell and a trip name
+                            that may be a long unbreakable string — at 390px that pushed the card sideways,
+                            where the flex layout this replaced had wrapped instead. The container confines
+                            the overflow to the table; `overflowWrap` on the name cell means it rarely gets
+                            there.
+                          */
+                          <TableContainer>
                           <Table
                             size="small"
-                            aria-labelledby={`${rowMenuIdPrefix}-shares-${user.id}`}
+                            /*
+                              `aria-label`, not `aria-labelledby` pointed at the visible word. That id's text
+                              is "Shares" for every account, so one page rendered N tables with one
+                              accessible name — on the surface whose stated principle is that a control must
+                              name the row it acts on. The visible label stays the bare word for sighted
+                              readers; the name carries the account.
+                            */
+                            aria-label={formatMessage(t("admin.users.sharesLabelFor"), { email: user.email })}
                             sx={{
                               "& .MuiTableCell-root": {
                                 borderBottom: `1px solid ${tokens.border}`,
@@ -837,7 +937,15 @@ export default function AdminUsersList({ currentUserId }: { currentUserId: strin
                                 py: "6px",
                                 fontSize: 12,
                               },
-                              "& .MuiTableRow-root:last-of-type .MuiTableCell-root": { borderBottom: "none" },
+                              /*
+                                Scoped to the body, because `:last-of-type` is per parent and the `<tr>` in
+                                `<thead>` is the only `tr` there — so the unscoped selector also stripped the
+                                rule under the column headers, and a one-row table ended up with no separator
+                                at all. jsdom lays nothing out, so only a browser or this comment catches it.
+                              */
+                              "& .MuiTableBody-root .MuiTableRow-root:last-of-type .MuiTableCell-root": {
+                                borderBottom: "none",
+                              },
                             }}
                           >
                             <TableHead>
@@ -867,7 +975,7 @@ export default function AdminUsersList({ currentUserId }: { currentUserId: strin
                             <TableBody>
                               {user.memberships.map((membership) => (
                                 <TableRow key={membership.id}>
-                                  <TableCell sx={{ color: tokens.ink, fontWeight: 600 }}>
+                                  <TableCell sx={{ color: tokens.ink, fontWeight: 600, overflowWrap: "anywhere" }}>
                                     {membership.tripName}
                                   </TableCell>
                                   <TableCell>
@@ -884,7 +992,10 @@ export default function AdminUsersList({ currentUserId }: { currentUserId: strin
                                       id={`${rowMenuIdPrefix}-role-label-${membership.id}`}
                                       sx={visuallyHidden}
                                     >
-                                      {formatMessage(t("admin.users.roleForTrip"), { trip: membership.tripName })}
+                                      {formatMessage(t("admin.users.roleForTrip"), {
+                                        trip: membership.tripName,
+                                        email: user.email,
+                                      })}
                                     </Box>
                                     <Select
                                       size="small"
@@ -898,7 +1009,16 @@ export default function AdminUsersList({ currentUserId }: { currentUserId: strin
                                           event.target.value as "VIEWER" | "CONTRIBUTOR",
                                         )
                                       }
-                                      sx={{ fontSize: 12, "& .MuiSelect-select": { py: "6px", minHeight: 32 } }}
+                                      /*
+                                        No `minHeight` here, and that is the fix rather than an omission.
+                                        This read `minHeight: 32`, and an `sx` outranks `styleOverrides`, so
+                                        it silently defeated the app-wide 44px touch floor `theme.ts` sets on
+                                        `MuiSelect` — on the one control in this file whose size was not
+                                        hand-spelled, while the three icon buttons beside it spell out
+                                        `width: 44, height: 44` and comment about why. The theme now supplies
+                                        the floor; only the type size is local.
+                                      */
+                                      sx={{ fontSize: 12, "& .MuiSelect-select": { py: "6px" } }}
                                     >
                                       <MenuItem value="VIEWER">{roleLabel("VIEWER")}</MenuItem>
                                       <MenuItem value="CONTRIBUTOR">{roleLabel("CONTRIBUTOR")}</MenuItem>
@@ -927,18 +1047,10 @@ export default function AdminUsersList({ currentUserId }: { currentUserId: strin
                                             email: user.email,
                                             trip: membership.tripName,
                                           })}
+                                          aria-haspopup="dialog"
                                           disabled={busy}
                                           onClick={() => setDetachTarget({ user, membership })}
-                                          sx={{
-                                            width: 44,
-                                            height: 44,
-                                            borderRadius: "6px",
-                                            color: tokens.ink,
-                                            "&.Mui-focusVisible": {
-                                              outline: `2px solid ${tokens.ink}`,
-                                              outlineOffset: "2px",
-                                            },
-                                          }}
+                                          sx={ROW_ICON_BUTTON_SX}
                                         >
                                           <TrashIcon />
                                         </IconButton>
@@ -949,6 +1061,7 @@ export default function AdminUsersList({ currentUserId }: { currentUserId: strin
                               ))}
                             </TableBody>
                           </Table>
+                          </TableContainer>
                         )}
                       </Box>
                     </ListItem>
@@ -1002,20 +1115,23 @@ export default function AdminUsersList({ currentUserId }: { currentUserId: strin
                 furniture than structure at this size.
               */}
               <MenuItem
+                sx={ROW_MENU_ITEM_SX}
                 aria-haspopup="dialog"
-                disabled={trips.length === 0}
-                onClick={() => {
-                  const target = menuUser;
-                  runFromRowMenu(() => target && setAttachTarget(target));
-                }}
+                /*
+                  `busy` is included as well as the empty-trip case (review of 5.11). The `+` on the
+                  shares table below carries `busy` and this copy of the same action did not, so two
+                  entry points to one action disabled on different conditions — unreachable today,
+                  because the trigger is disabled while busy and the menu's own backdrop blocks the row,
+                  but AC8 claims nothing about behaviour changed and two copies should not drift.
+                */
+                disabled={busyUserIds.has(menuUser?.id ?? "") || trips.length === 0}
+                onClick={() => runFromRowMenu(() => menuUser && setAttachTarget(menuUser))}
               >
                 <Typography>{t("admin.users.attach.action")}</Typography>
               </MenuItem>
               <MenuItem
-                onClick={() => {
-                  const target = menuUser;
-                  runFromRowMenu(() => target && void setAdminRole(target, target.role !== "ADMIN"));
-                }}
+                sx={ROW_MENU_ITEM_SX}
+                onClick={() => runFromRowMenu(() => menuUser && void setAdminRole(menuUser, menuUser.role !== "ADMIN"))}
               >
                 <Typography>
                   {menuUser?.role === "ADMIN" ? t("admin.users.revokeAdmin") : t("admin.users.grantAdmin")}
@@ -1028,11 +1144,9 @@ export default function AdminUsersList({ currentUserId }: { currentUserId: strin
                 it would also be the "disabled button as a guard" that AC8 explicitly is not.
               */}
               <MenuItem
+                sx={ROW_MENU_ITEM_SX}
                 aria-haspopup="dialog"
-                onClick={() => {
-                  const target = menuUser;
-                  runFromRowMenu(() => target && setDeleteTarget(target));
-                }}
+                onClick={() => runFromRowMenu(() => menuUser && setDeleteTarget(menuUser))}
               >
                 <Typography sx={{ color: "error.main" }}>{t("admin.users.delete.action")}</Typography>
               </MenuItem>

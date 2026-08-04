@@ -3,7 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import AdminUsersList from "@/components/features/admin/AdminUsersList";
+import AdminUsersList, { type AdminUser } from "@/components/features/admin/AdminUsersList";
 import { renderWithProviders } from "./helpers/renderWithProviders";
 
 /**
@@ -26,14 +26,13 @@ const ADMIN_ID = "user-admin";
  * a `CONTRIBUTOR` fixture did not typecheck. It was one of the suite's pre-existing type errors and it made
  * the fixture type *lie about what the component accepts*, which matters here: the role a membership holds
  * is exactly what the role select and the no-op guard turn on.
+ *
+ * **Review of 5.11 replaced the hand-written clone with the real type.** The structural duplicate that
+ * stood here fixed the lie but could drift into the same lie the next time `AdminUser` changed shape.
+ * `AdminUser` and `AdminMembership` are exported from the component now, so the fixture is checked
+ * against what the component actually accepts and the `as const` on each `role` is no longer needed.
  */
-type FixtureUser = {
-  id: string;
-  email: string;
-  role: "OWNER" | "VIEWER" | "ADMIN";
-  ownedTrips: { id: string; name: string }[];
-  memberships: { id: string; tripId: string; tripName: string; role: "VIEWER" | "CONTRIBUTOR" }[];
-};
+type FixtureUser = AdminUser;
 
 const USERS: FixtureUser[] = [
   {
@@ -218,29 +217,114 @@ describe("AdminUsersList", () => {
       titled "Shares" - a different word from the "Shared with" prefix it replaced, which is why this case
       had to change rather than merely being re-queried.
     */
-    const shares = within(row).getByRole("table", { name: "Shares" });
+    const shares = within(row).getByRole("table", { name: "Shares of both@example.com" });
     expect(within(shares).getByRole("columnheader", { name: "Trip" })).toBeInTheDocument();
     expect(within(shares).getByRole("columnheader", { name: "Role" })).toBeInTheDocument();
     expect(within(shares).getByRole("cell", { name: "Stranger Trip" })).toBeInTheDocument();
-    expect(within(shares).getByRole("combobox", { name: "Role for Stranger Trip" })).toHaveTextContent("Viewer");
+    expect(
+      within(shares).getByRole("combobox", { name: "Role for Stranger Trip (both@example.com)" }),
+    ).toHaveTextContent("Viewer");
 
     /*
       And AC3's actual claim, which survives the restyle: the owned trip is **not** in the shares table.
       A merged surface would satisfy every assertion above while showing one relation - the failure this
-      case exists to catch - so the negative is what carries it, and it is now stronger than the
-      "two different nodes" check it replaces, because "Own Trip" being absent from this table is a
-      statement about structure rather than about node identity.
+      case exists to catch - so the negative is what carries it.
+
+      Review of 5.11 changed two things here. The matcher is a **regex**: Testing Library's default is
+      exact equality on normalised text, so a merged cell rendering "Own Trip · Owner" would have
+      satisfied `queryByText("Own Trip")` while committing precisely this failure. And the line that
+      followed - `expect(getByText(/Owns/)).not.toBe(shares)` - was removed rather than kept: it compared
+      a `<span>` against a `<table>` and could not fail under any change to the component.
     */
-    expect(within(shares).queryByText("Own Trip")).toBeNull();
-    expect(within(row).getByText(/Owns/)).not.toBe(shares);
+    expect(within(shares).queryByText(/Own Trip/)).toBeNull();
   });
 
-  it("says so when an account reaches nothing", async () => {
+  /**
+   * Review of 5.11: an account with neither relation used to say so **twice**, in two different nouns -
+   * "No trips" from the ownership line and "No shares" from the table's empty state - on the surface
+   * whose whole job is that the two relations read as distinct. Two cases each pinned one half against
+   * this same fixture row and neither noticed the pair. The ownership line now answers only for
+   * ownership, so both halves are asserted here, together, in the words they actually use.
+   */
+  it("says what an account owns and what is shared with it, separately, when it has neither", async () => {
     stubFetch();
     renderList();
 
     const row = await rowFor("nobody@example.com");
-    expect(within(row).getByText("No trips")).toBeInTheDocument();
+    expect(within(row).getByText("Owns no trips")).toBeInTheDocument();
+    expect(within(row).getByText("No shares")).toBeInTheDocument();
+    // And not the old merged sentence, which answered for both at once.
+    expect(within(row).queryByText("No trips")).toBeNull();
+  });
+
+  /**
+   * Review of 5.11, and the case the suite was missing. **One trip shared with two accounts** is the
+   * ordinary arrangement on this surface, and it is the one the existing AC7 cases cannot see: they all
+   * query `within(row)`, which makes two names distinct as long as the *trips* differ.
+   *
+   * `roleToggleFor` named the account and the trip; 5.11 replaced it with `roleForTrip`, which named only
+   * the trip — so two rows sharing one trip rendered two comboboxes with the identical accessible name,
+   * indistinguishable to a screen reader and to `getByRole`. That is exactly the defect 5.10's review
+   * added the email for, and AC7 says the restyle "must not weaken them".
+   *
+   * Verified to fail before the fix: `getAllByRole` returned two elements for one name.
+   */
+  it("gives every role select on the page a distinct name when one trip is shared with two accounts", async () => {
+    const shared = { id: "trip-shared", tripId: "trip-shared", tripName: "Shared Trip", role: "VIEWER" as const };
+    stubFetch({
+      users: [
+        {
+          id: "user-alice",
+          email: "alice@example.com",
+          role: "OWNER" as const,
+          ownedTrips: [],
+          memberships: [{ ...shared, id: "m-alice" }],
+        },
+        {
+          id: "user-bob",
+          email: "bob@example.com",
+          role: "OWNER" as const,
+          ownedTrips: [],
+          memberships: [{ ...shared, id: "m-bob" }],
+        },
+      ],
+      trips: [{ id: "trip-shared", name: "Shared Trip", ownerEmail: "stranger@example.com" }],
+    });
+    renderList();
+
+    // Page scope, deliberately: no `within(row)`, because the row scope is what hid this.
+    await screen.findByText("alice@example.com");
+    expect(screen.getByRole("combobox", { name: "Role for Shared Trip (alice@example.com)" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Role for Shared Trip (bob@example.com)" })).toBeInTheDocument();
+
+    // The tables themselves too: `aria-labelledby` pointed at a per-row id whose *text* was "Shares" for
+    // every account, so one page carried N tables with one accessible name.
+    expect(screen.getByRole("table", { name: "Shares of alice@example.com" })).toBeInTheDocument();
+    expect(screen.getByRole("table", { name: "Shares of bob@example.com" })).toBeInTheDocument();
+
+    // And the trash glyphs, which kept their names through the restyle — asserted so the page-scope
+    // guarantee covers all three controls rather than only the one that regressed.
+    expect(screen.getAllByRole("button", { name: /remove.*Shared Trip/i })).toHaveLength(2);
+  });
+
+  /**
+   * AC3's second entry point. Every other attach case routes through the row menu, so the `+` above the
+   * shares table — the control AC3 exists for — was never pressed. Also pins the visually-hidden action
+   * column header, which nothing asserted.
+   */
+  it("opens the attach dialog from the shares table's own plus, and names the action column", async () => {
+    const user = userEvent.setup();
+    stubFetch();
+    renderList();
+
+    const row = await rowFor("both@example.com");
+    const shares = within(row).getByRole("table", { name: "Shares of both@example.com" });
+    expect(within(shares).getByRole("columnheader", { name: "Action" })).toBeInTheDocument();
+
+    await user.click(within(row).getByRole("button", { name: "Add both@example.com to a trip" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("heading", { name: "Add both@example.com to a trip" })).toBeInTheDocument();
   });
 
   it("marks the admin's own row and badges the admin role", async () => {
@@ -344,7 +428,7 @@ describe("AdminUsersList", () => {
       renderList();
 
       const row = await rowFor("both@example.com");
-      await user.click(within(row).getByRole("combobox", { name: "Role for Stranger Trip" }));
+      await user.click(within(row).getByRole("combobox", { name: "Role for Stranger Trip (both@example.com)" }));
       await user.click(await screen.findByRole("option", { name: "Contributor" }));
 
       await waitFor(() => expect(calls).toHaveLength(1));
@@ -366,7 +450,7 @@ describe("AdminUsersList", () => {
       renderList();
 
       const row = await rowFor("both@example.com");
-      await user.click(within(row).getByRole("combobox", { name: "Role for Stranger Trip" }));
+      await user.click(within(row).getByRole("combobox", { name: "Role for Stranger Trip (both@example.com)" }));
       await user.click(await screen.findByRole("option", { name: "Viewer" }));
 
       // Given a moment in which the request would have been sent, had one been sent.
@@ -750,10 +834,13 @@ describe("AdminUsersList — review additions", () => {
     /*
       Four controls, four distinct names - two role selects and two trash glyphs after Story 5.11. The names
       are what this case is about, and the restyle did not weaken them: the select is named by a hidden label
-      naming its trip, and the glyph by an `aria-label` naming the account and the trip.
+      naming its trip **and the account**, and the glyph by an `aria-label` naming both as well. The
+      account was missing from the select until review: this case could not see it, because `within(row)`
+      makes one row's two names distinct as long as the trips differ. The page-scope case below is the one
+      that catches it.
     */
-    within(row).getByRole("combobox", { name: "Role for Trip A" });
-    within(row).getByRole("combobox", { name: "Role for Trip B" });
+    within(row).getByRole("combobox", { name: "Role for Trip A (two@example.com)" });
+    within(row).getByRole("combobox", { name: "Role for Trip B (two@example.com)" });
     within(row).getByRole("button", { name: /remove.*Trip A/i });
     within(row).getByRole("button", { name: /remove.*Trip B/i });
 

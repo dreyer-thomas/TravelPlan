@@ -677,8 +677,11 @@ const en: Dictionary = {
   // `TripMember` row. They are two different relations and must not collapse into one word - only the
   // first blocks a deletion, and only the second can be detached.
   "admin.users.ownsLabel": "Owns",
-  "admin.users.sharedLabel": "Shared with",
-  "admin.users.reachesNothing": "No trips",
+  // Renamed from `reachesNothing` in review of 5.11, and re-worded with it. That key answered for
+  // BOTH relations ("No trips") and was rendered only when both were empty — which, once the shares
+  // section started always speaking for itself, made such an account say so twice in two nouns. This
+  // one answers for ownership alone, so it has to name ownership.
+  "admin.users.ownsNothing": "Owns no trips",
   "admin.users.youBadge": "You",
   "admin.users.adminBadge": "Admin",
   "admin.users.roleVIEWER": "Viewer",
@@ -751,7 +754,13 @@ const en: Dictionary = {
   // for anyone reading the table by its structure.
   "admin.users.sharesActionColumn": "Action",
   // Names the per-row select. The column header alone would name every select on the page "Role".
-  "admin.users.roleForTrip": "Role for {trip}",
+  // AC7, restored in review: the account belongs in this name. `roleToggleFor` carried it, this key
+  // replaced that one and named only the trip, and two accounts sharing one trip then rendered two
+  // comboboxes with the same accessible name — the exact defect 5.10's review added the email for.
+  "admin.users.roleForTrip": "Role for {trip} ({email})",
+  // The table's own accessible name. The visible label stays the bare word for sighted readers; this
+  // names which account's shares the table holds, because one page renders one table per account.
+  "admin.users.sharesLabelFor": "Shares of {email}",
   // Delete (AC7). The safe half names what it preserves, per Story 6.25 AC3, and in the same noun as its
   // neighbour: "Keep account" beside "Delete account".
   "admin.users.delete.action": "Delete account",

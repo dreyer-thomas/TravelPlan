@@ -1676,3 +1676,25 @@ severity: low
 summary: Every day-view load logs `[tiptap warn]: Duplicate extension names found: ['link']. This can lead to issues.` The link extension is registered twice — almost certainly once via a `StarterKit`-style bundle that already includes it and once explicitly, to configure it.
 evidence: Reproduced on every single page load during the browser pass, on two different days, with a full stack through `resolveExtensions` → `ExtensionManager` → `createEditor`. tiptap's own wording ("can lead to issues") is the reason to record it rather than ignore it: with two registrations the effective configuration is whichever wins, so a deliberate link option can be silently overridden by the bundle's default. Nothing misbehaved visibly during the pass. Unrelated to Story 6.26 — it is the activity dialog's description editor, and the warning predates this story. Fix is to drop the duplicate registration, keeping the configured one, and to check that whatever options were intended are actually in effect afterwards.
 status: open
+
+## Deferred from: code review of 5-11-administration-row-rearranged (2026-08-04)
+
+### DW-179: the role select snaps back to the old role while the request is in flight
+
+source_spec: `_bmad-output/implementation-artifacts/5-11-administration-row-rearranged.md`
+origin: code review of story 5-11, 2026-08-04
+location: `travelplan/src/components/features/admin/AdminUsersList.tsx:891` (`value={membership.role}`), with the mutation at `:430-450`
+severity: medium
+summary: The select is controlled by server state, and that state only advances when `load()` returns. So picking "Contributor" makes the control show "Viewer" again for the whole round trip, then flip to "Contributor" when the reload lands. On a surface where every action is privileged and irreversible, a control that visibly reverts what was just chosen reads as a rejection rather than as latency.
+evidence: Raised independently by two review layers. It is a direct consequence of the re-read-after-mutate strategy Story 5.10 established, which 5.11's Dev Notes explicitly place out of scope ("What is still Story 5.10's, untouched"). Deferred rather than patched for that reason and one more: the fix is optimistic local state per membership, and AC8 says nothing about behaviour changes beyond AC4's guard and AC5's confirmation — adding an optimistic layer is a behaviour change with its own failure mode (what the control shows when the request then fails). Worth doing deliberately, with the rollback path decided, rather than inside a review. The same pattern applies to the grant/revoke toggle, which has no visible value to revert and so shows the problem less.
+status: open
+
+### DW-180: every other `MenuItem` in the app sits at 32.3px, because a single-class `minHeight: 44` loses to MUI's `sm` reset
+
+source_spec: measured during the Story 5.11 Task 7 browser pass
+origin: measured live, 2026-08-05, at 747x925
+location: `travelplan/src/components/features/trips/TripDayView.tsx:505` (`DAY_MENU_ITEM_SX`), and `travelplan/src/components/HeaderMenu.tsx` (its four rows carry no height rule at all)
+severity: medium
+summary: MUI's `MenuItem` sets `minHeight: 48` and then resets it to `auto` inside a `theme.breakpoints.up('sm')` block. A plain `sx={{ minHeight: 44 }}` is the same one class of specificity as that media rule, so above 600px the later rule in the emotion sheet wins and the item collapses. **Measured: 44px at 390x844 and 32.3px at 747x925 for the identical constant.** The app's 44px target floor is therefore absent from every overflow and header menu on every desktop width.
+evidence: Found because Story 5.11's review patch had the bug too — `ROW_MENU_ITEM_SX = { minHeight: 44 }` was written from `DAY_MENU_ITEM_SX` as the precedent, passed at 390px, and was caught only when the browser pass ran the same measurement at 747px. That one is now `{ "&&": { minHeight: 44 } }`, where the doubled selector reaches (0,2,0) and the ordering question disappears. `DAY_MENU_ITEM_SX` is the byte-identical single-class version and predates this story, so it is recorded rather than changed here. `HeaderMenu`'s rows are worse: they set no height at all, so they inherit MUI's base 48 below the breakpoint and its `auto` above it. Measured in the same pass, on the same menu: **48px at 390x844 and 32.3px at 747x925** — including the row Story 5.10 added ("Nutzerverwaltung" / "User administration"), a privileged navigation target that holds the floor on a phone and loses it on every desktop. That pair of numbers is the clearest statement of the mechanism: the bug is invisible at the width most people would think to check. Fix is the `&&` form in both places, plus a measurement above 600px rather than below it, because below the breakpoint the bug is invisible.
+status: open

@@ -44,10 +44,24 @@ describe("i18n dictionaries", () => {
     it.each([
       ["en", en],
       ["de", de],
-    ] as const)("uses different labels for owns and shared in %s", (_language, dictionary) => {
+    ] as const)("uses different labels for owns and shares in %s", (_language, dictionary) => {
+      /*
+        Re-pointed in review of 5.11, from `sharedLabel` to `sharesLabel`.
+
+        `sharedLabel` was the second word while a membership was a "Shared with X" line. 5.11 replaced
+        that line with a table titled `sharesLabel`, and deleted the line but not the key — so this
+        assertion went on guarding a pair that is no longer rendered anywhere, while the pair actually on
+        screen was unguarded. An orphan with a green test defending it. `sharedLabel` is gone from both
+        dictionaries now, and the assertion below pins that it stays gone.
+      */
       expect(dictionary["admin.users.ownsLabel"]).toBeTruthy();
-      expect(dictionary["admin.users.sharedLabel"]).toBeTruthy();
-      expect(dictionary["admin.users.ownsLabel"]).not.toBe(dictionary["admin.users.sharedLabel"]);
+      expect(dictionary["admin.users.sharesLabel"]).toBeTruthy();
+      expect(dictionary["admin.users.ownsLabel"]).not.toBe(dictionary["admin.users.sharesLabel"]);
+
+      // The ownership line's empty state has to name ownership too, or it collapses back into the
+      // "No trips" that answered for both relations at once.
+      expect(dictionary["admin.users.ownsNothing"]).toBeTruthy();
+      expect(dictionary["admin.users.ownsNothing"]).not.toBe(dictionary["admin.users.sharesEmpty"]);
     });
 
     /**
@@ -68,6 +82,43 @@ describe("i18n dictionaries", () => {
       // And the safe half must not be the word 6.25 deleted from both dictionaries.
       expect(keep.toLowerCase()).not.toContain("cancel");
       expect(keep.toLowerCase()).not.toContain("abbrechen");
+    });
+
+    /**
+     * Story 5.11 AC5 cites 6.25 AC3 for its own confirmation and shipped without this pin — so the drift
+     * the case above exists to prevent was unguarded for the pair 5.11 introduced. Added in review, both
+     * languages, for the same reason the docblock above gives: checking one would let the other drift.
+     */
+    it.each([
+      ["en", en],
+      ["de", de],
+    ] as const)("names the same object in both halves of the detach confirmation in %s", (_language, dictionary) => {
+      const keep = dictionary["admin.users.detach.keep"];
+      const confirm = dictionary["admin.users.detach.confirm"];
+      const sharedNoun = keep.split(/\s+/).find((word) => confirm.includes(word));
+
+      expect(sharedNoun, `${keep} / ${confirm}`).toBeTruthy();
+      expect(keep.toLowerCase()).not.toContain("cancel");
+      expect(keep.toLowerCase()).not.toContain("abbrechen");
+    });
+
+    /**
+     * The repo's convention for a deleted key: pin that it is gone. `Dictionary` is
+     * `Record<string, string>`, so nothing else objects if one returns. Story 5.11 removed three —
+     * `detach.action` and `roleToggleFor` when the controls became a glyph and a select, and
+     * `sharedLabel`/`reachesNothing` in review when their readers went — and added none of these.
+     */
+    it("keeps the keys story 5.11 removed out of both dictionaries", () => {
+      const gone = [
+        "admin.users.detach.action",
+        "admin.users.roleToggleFor",
+        "admin.users.sharedLabel",
+        "admin.users.reachesNothing",
+      ];
+      for (const key of gone) {
+        expect(Object.keys(en), `en still has ${key}`).not.toContain(key);
+        expect(Object.keys(de), `de still has ${key}`).not.toContain(key);
+      }
     });
 
     /** The one `UserRole` that decides anything gets a label; the two that do not must not gain one. */

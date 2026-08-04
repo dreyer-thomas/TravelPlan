@@ -626,8 +626,9 @@ const de: Dictionary = {
   // Beziehungen, die nicht in einem Wort zusammenfallen dürfen - nur die erste blockiert eine Löschung,
   // nur die zweite kann getrennt werden.
   "admin.users.ownsLabel": "Eigentümer von",
-  "admin.users.sharedLabel": "Freigegeben für",
-  "admin.users.reachesNothing": "Keine Reisen",
+  // Aus `reachesNothing` umbenannt (Review 5.11) und mit umformuliert — siehe en.ts. Dieser Schlüssel
+  // antwortet nur noch für das Eigentum, also muss er das Eigentum benennen.
+  "admin.users.ownsNothing": "Keine eigenen Reisen",
   "admin.users.youBadge": "Du",
   "admin.users.adminBadge": "Admin",
   "admin.users.roleVIEWER": "Betrachter",
@@ -687,7 +688,14 @@ const de: Dictionary = {
   // aber die Spalte braucht trotzdem eine für alle, die die Tabelle über ihre Struktur lesen.
   "admin.users.sharesActionColumn": "Aktion",
   // Benennt die Auswahlbox der Zeile. Die Spaltenüberschrift allein würde vier Boxen gleich benennen.
-  "admin.users.roleForTrip": "Rolle für {trip}",
+  // AC7, im Review wiederhergestellt: der Account gehört in diesen Namen. `roleToggleFor` trug ihn,
+  // dieser Schlüssel ersetzte ihn und benannte nur die Reise — zwei Accounts mit Mitgliedschaft auf
+  // derselben Reise ergaben dann zwei Comboboxen mit identischem Namen, genau der Fehler, für den
+  // 5.10s Review die Adresse eingefügt hatte.
+  "admin.users.roleForTrip": "Rolle für {trip} ({email})",
+  // Der eigene Name der Tabelle. Sichtbar bleibt das nackte Wort; dies benennt, wessen Freigaben die
+  // Tabelle hält, denn eine Seite rendert eine Tabelle pro Account.
+  "admin.users.sharesLabelFor": "Freigaben von {email}",
   // AC7. Die sichere Hälfte benennt, was sie erhält (Story 6.25 AC3) - und im gleichen Substantiv wie ihr
   // Nachbar: "Konto behalten" neben "Konto löschen".
   "admin.users.delete.action": "Konto löschen",

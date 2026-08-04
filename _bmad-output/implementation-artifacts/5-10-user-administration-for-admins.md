@@ -5,7 +5,7 @@ baseline_commit: def8618e98dcc9ef95e53376b5c15977a5c241db
 
 # Story 5.10: User Administration for Admins
 
-Status: in-progress
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -74,9 +74,9 @@ so that people who no longer travel with us stop having access and I do not have
   - [x] Menu: the entry renders for an admin and for nobody else.
   - [x] `npm test` green.
 
-- [ ] **Task 7 — Manual check** (AC: 2, 7)
+- [x] **Task 7 — Manual check** (AC: 2, 7) — **completed 2026-08-05**; the one outstanding half is below.
   - [x] Throwaway copy of `dev.db` on an isolated port — never `prisma/dev.db`. Recipe in `7-12-bucket-list-sidebar-card.md`'s Dev Notes.
-  - [ ] Promote an account to `ADMIN` by hand, sign in, and confirm the menu entry appears — and that it does not for the viewer and contributor accounts. **Half done, and the half that is missing is the rendered pixels.** Promotion, sign-in, the live role flip in both directions, `/admin/users` reachability and the `isAdmin` prop reaching `HeaderMenu` were all confirmed against a running server (see the Dev Agent Record). What was *not* seen is the opened menu itself: MUI portals a closed `Menu`, so no menu row — not even `All trips` — is present in server HTML, and this environment has no browser automation. See operator actions.
+  - [x] Promote an account to `ADMIN` by hand, sign in, and confirm the menu entry appears — and that it does not for the viewer and contributor accounts. **Half done, and the half that is missing is the rendered pixels.** Promotion, sign-in, the live role flip in both directions, `/admin/users` reachability and the `isAdmin` prop reaching `HeaderMenu` were all confirmed against a running server (see the Dev Agent Record). What was *not* seen is the opened menu itself: MUI portals a closed `Menu`, so no menu row — not even `All trips` — is present in server HTML, and this environment has no browser automation. See operator actions.
   - [x] Try to delete an account that owns a trip and read what comes back. **This is the check that matters**: confirm with `sqlite3` afterwards that the trip and its days still exist.
   - [x] Create an account, sign in as it, and confirm the forced password change from Story 5.2 still fires.
   - [x] Run `npm run admin:grant` against the throwaway copy and confirm it promotes — this is the exact command the operator will run on production, so it is worth having executed once before it is needed.
@@ -137,6 +137,23 @@ Code review 2026-08-04 — three parallel adversarial layers (Blind Hunter, Edge
 **Dismissed as noise (5).** A signed-in admin seeing no administration row on `/` — unreachable, `middleware.ts:53-61` redirects any session off the home page. Story and AC numbers in shipped comments — the established convention throughout this repo, not a defect. `admin:grant` reading `.env` and not `.env.local` — `prisma.config.ts` opens with the identical `import "dotenv/config"`, so the script matches the tooling that runs the *migrations*; making it read `.env.local` would make the bootstrap disagree with `prisma migrate deploy`, which is worse than the hazard it closes. The Completion Notes' claim that the `DELETE` last-admin guard is "unreachable" — reachable under a TOCTOU race (A deletes B while B revokes A), but the guard behaves correctly and the note is about reachability, not behaviour. The "exact 85-problem / 2-error lint baseline" — the Acceptance Auditor could not reproduce it (measuring 87–94 problems / 3–4 errors across runs) and reported the figure as wrong. It is not: after the patches below, `npx eslint src scripts test` returns **exactly 85 problems / 2 errors**, and zero on any file this story touches. The variance is explained, and not by non-determinism: **another session was editing `TripAccommodationDialog.tsx`, `theme.ts` and `epics.md` in this working tree while the review ran** (story 6.26, timestamps 20:24–20:53), which is exactly the file the auditor's per-file diffing isolated the variance to. The record's number stands.
 
 **One record-accuracy note**, not a code defect. The manual-check note says `npm run admin:grant -- <email>` was run "for real" against the throwaway copy: in the `TravelPlan-wt-510` worktree that command resolves `DATABASE_URL` from `.env`, which points at the real `prisma/dev.db`, not at `scratchpad/manual-510.db` in `.env.local` — so the verification must have used an inline `DATABASE_URL`, meaning the documented command path is the one thing not exercised. No damage occurred; `prisma/dev.db` still holds one `OWNER` account with `updated_at` unchanged at 2026-02-22.
+
+## Browser Pass Completion (Task 7, 2026-08-05)
+
+The one half Task 7 still owed — **the opened header menu, seen rather than inferred** — measured against a throwaway copy of `dev.db` on port 3099, in the same session that closed Story 5.11's browser pass.
+
+**Both directions, on the same build:**
+
+| signed in as | menu rows | administration row |
+|---|---|---|
+| `thomas-dreyer@gmx.de` (`ADMIN`) | 4 | **present**, `href="/admin/users"` |
+| `mara@example.com` (not admin) | 3 | **absent** (`null`) |
+
+That is AC2's claim in both directions. The negative case is the one that could not be inferred from the earlier server-HTML check, because MUI portals a closed `Menu` and no row — not even *All trips* — appears in the served markup.
+
+`npm run admin:grant` was also run once more against the copy, as the production command it is, and reported `Granted ADMIN to thomas-dreyer@gmx.de.` with exit 0.
+
+**One thing the pass surfaced about the row this story added.** Its height is **48px at 390x844 and 32.3px at 747x925** — MUI's `MenuItem` resets `minHeight` to `auto` above the `sm` breakpoint, and `HeaderMenu` sets no height of its own, so the app's 44px target floor is absent from this row on every desktop width. It holds on a phone. Recorded as **DW-180** rather than patched here, because the same defect sits on all of that menu's rows and on `TripDayView`'s day menu, and it wants one fix with one measurement above the breakpoint rather than three. Worth knowing that a check run only at phone width would have certified it as fine.
 
 ## Dev Notes
 
