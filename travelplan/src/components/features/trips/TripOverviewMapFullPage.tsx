@@ -1,6 +1,7 @@
 "use client";
 
-import { Alert, Box, Button, Chip, Dialog, DialogContent, DialogTitle, List, ListItem, Skeleton, Typography, useTheme } from "@mui/material";
+import { Alert, Box, Button, Chip, Dialog, DialogContent, List, ListItem, Skeleton, Typography, useTheme } from "@mui/material";
+import { DialogTitleWithClose } from "@/components/ui/DialogCloseButton";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -241,7 +242,11 @@ export default function TripOverviewMapFullPage({ tripId }: TripOverviewMapFullP
       </Box>
 
       <Dialog open={Boolean(mapDialogItem)} onClose={() => setMapDialogItem(null)} fullWidth maxWidth="sm">
-        <DialogTitle>{mapDialogItem?.label ?? ""}</DialogTitle>
+        {/* Story 6.25 AC1 — as in `TripDayMapFullPage`: a read-only popup whose only dismissals were
+            the backdrop and Escape now carries the same `✕` as every other dialog. */}
+        <DialogTitleWithClose label={t("common.close")} onClose={() => setMapDialogItem(null)}>
+          {mapDialogItem?.label ?? ""}
+        </DialogTitleWithClose>
         <DialogContent>
           {mapDialogItem ? (
             <Box display="flex" flexDirection="column" gap={1.5}>

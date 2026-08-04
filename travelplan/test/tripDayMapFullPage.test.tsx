@@ -203,6 +203,20 @@ describe("TripDayMapFullPage", () => {
     expect(await screen.findByText("Plan details")).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Morning walk 1" })).toBeInTheDocument();
 
+    /*
+      Story 6.25 AC1, added by that story's code review. This popup is one of four that gained their
+      *first* visible dismissal in 6.25 — before it, the only ways out were the backdrop and Escape,
+      neither discoverable on a touch screen. The story recorded the glyph as covered by
+      `dialogCloseAffordance.test.tsx`; it was not, because that suite does not render any of the map
+      surfaces. It is asserted here instead, in the suite that already knows how to open this popup.
+    */
+    const closeButton = screen.getByTestId("dialog-close");
+    expect(closeButton).toBeInTheDocument();
+    expect(closeButton).toHaveAccessibleName("Close");
+
+    await user.click(closeButton);
+    expect(screen.queryByText("Plan details")).not.toBeInTheDocument();
+
     vi.unstubAllGlobals();
   });
 });

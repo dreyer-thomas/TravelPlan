@@ -167,7 +167,9 @@ describe("TripImportDialog", () => {
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: "Start import" })).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Close" }));
+    // Story 6.25: "Done", not "Close" — the title-row `✕` holds that name now, and two controls with
+    // the same accessible name in one dialog is exactly what this query could not resolve.
+    await userEvent.click(screen.getByRole("button", { name: "Done" }));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 

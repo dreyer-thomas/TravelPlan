@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Controller, useFieldArray, useForm, useWatch } from "react-hook-form";
 import {
   Box,
@@ -21,6 +21,7 @@ import FormField from "@/components/forms/FormField";
 import FormNotice from "@/components/forms/FormNotice";
 import PhotoUploadField from "@/components/forms/PhotoUploadField";
 import DialogShell from "@/components/ui/DialogShell";
+import DiscardChangesDialog, { useDiscardGuard } from "@/components/ui/DiscardChangesDialog";
 import FullscreenPhotoViewer from "@/components/ui/FullscreenPhotoViewer";
 import { formatMessage } from "@/i18n";
 import { useI18n } from "@/i18n/provider";
@@ -166,7 +167,7 @@ export default function TripAccommodationDialog({
     register,
     control,
     handleSubmit,
-    formState: { errors, isSubmitting, dirtyFields },
+    formState: { errors, isSubmitting, dirtyFields, isDirty },
     setError,
     clearErrors,
     reset,
@@ -226,17 +227,45 @@ export default function TripAccommodationDialog({
     }
   }, [defaultDueDate, open, paymentFields, paymentMode, replace, watchedPayments]);
 
+  /**
+   * True once this effect has run to convergence for the current open — i.e. once the seeded values
+   * already agree and nothing had to be written. Until then its writes are a *normalisation of what
+   * the form opened with*, not a consequence of the user editing the cost.
+   *
+   * Story 6.25 review. Marking that first pass dirty latched `isDirty` true before any interaction,
+   * so a stay whose single stored payment disagrees with its cost — a deposit against a larger total,
+   * or a null cost beside a payment row — asked "Änderungen verwerfen?" on a dialog nobody had
+   * touched. Same defect class as the `heroImage` `FileList` one the browser pass caught, and the
+   * reason it survived is that `buildDefaultPayments` derives the row from the cost whenever the stay
+   * has no `payments` array, which is the shape every fixture used.
+   */
+  const paymentSyncSettled = useRef(false);
+
+  useEffect(() => {
+    if (!open) {
+      paymentSyncSettled.current = false;
+    }
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     if (paymentMode !== "single") return;
     const normalized = (costInput ?? "").trim();
     const current = watchedPayments?.[0]?.amount ?? "";
+    // Every pass after the values have settled is a real edit and still marks the form dirty.
+    const shouldDirty = paymentSyncSettled.current;
+    let settled = true;
     if (normalized !== current) {
-      setValue("payments.0.amount", normalized, { shouldDirty: true });
+      setValue("payments.0.amount", normalized, { shouldDirty });
+      settled = false;
     }
     const dueDate = watchedPayments?.[0]?.dueDate ?? "";
     if (normalized && !dueDate) {
-      setValue("payments.0.dueDate", defaultDueDate, { shouldDirty: true });
+      setValue("payments.0.dueDate", defaultDueDate, { shouldDirty });
+      settled = false;
+    }
+    if (settled) {
+      paymentSyncSettled.current = true;
     }
   }, [costInput, defaultDueDate, open, paymentMode, setValue, watchedPayments]);
 
@@ -250,6 +279,11 @@ export default function TripAccommodationDialog({
     // Matches `TripDayPlanDialog`'s reset: a stale index left behind by a programmatic close would
     // otherwise spring the viewer open on top of the dialog the next time it is shown.
     setFullscreenIndex(null);
+    // Story 6.25 review, and the same reset `TripDayPlanDialog` already does. `setGalleryFiles([])`
+    // otherwise runs only after a *successful upload*, and this dialog is never unmounted — so photos
+    // staged and then discarded came back selected on the next open, with Upload live for them and
+    // `galleryFiles.length > 0` holding the discard guard dirty for the rest of the session.
+    setGalleryFiles([]);
     reset({
       name: day?.accommodation?.name ?? "",
       notes: day?.accommodation?.notes ?? "",
@@ -790,17 +824,41 @@ export default function TripAccommodationDialog({
     [t],
   );
 
+  /**
+   * Story 6.25 AC7 / EXPERIENCE.md.State Patterns → "Dismissing a dialog with unsaved input".
+   *
+   * `isDirty` is measured against the open effect's `reset()`, so it means "differs from the stay this
+   * dialog opened on". Two things live outside the form and are added by hand:
+   *
+   * - `resolvedLocation`, written by the geocode lookup, which no `onChange` sees. Compared against the
+   *   coordinate the stay already had rather than against `null`, so an untouched saved location does
+   *   not read as dirty. `locationQuery` is deliberately excluded: it is a search box whose text no
+   *   save persists, and Story 6.24 found that watching one makes a form dirty for nothing.
+   * - `galleryFiles`, the photos staged but not yet uploaded. `galleryImages` — the ones already on the
+   *   server — are excluded, because adding and removing those are immediate writes with nothing
+   *   pending behind them. Same split as 6.24.
+   */
+  const openLocationKey = day?.accommodation?.location
+    ? `${day.accommodation.location.lat},${day.accommodation.location.lng}`
+    : "";
+  const currentLocationKey = resolvedLocation ? `${resolvedLocation.lat},${resolvedLocation.lng}` : "";
+  const stayGuard = useDiscardGuard(
+    isDirty || currentLocationKey !== openLocationKey || galleryFiles.length > 0,
+    onClose,
+  );
+
   return (
     <>
     <DialogShell
       open={open}
-      onClose={onClose}
+      onClose={stayGuard.requestClose}
+      closeLabel={t("common.close")}
       title={title}
       subtitle={daySubtitle ?? undefined}
       // Screen G's `.dialog.w-520`. This dialog carries the payment rows, whose minWidth floors are
       // preserved rather than compressed — see the browser check in the story record.
       width={520}
-      // Cancel is disabled while a save or delete is in flight; without this the backdrop and
+      // The `✕` is disabled while a save or delete is in flight; without this the backdrop and
       // Escape would walk straight past that guard and discard the user's edits mid-request.
       disableDismiss={isSubmitting || isDeleting}
       footer={
@@ -817,10 +875,9 @@ export default function TripAccommodationDialog({
               </Button>
             )}
           </Box>
+          {/* Story 6.25 AC2. `Abbrechen` left the footer for the head's `✕`, so the wrapper that
+              stacked the pair at xs has one child and is kept for the layout, not the pair. */}
           <Box sx={{ display: "flex", flexDirection: { xs: "column-reverse", sm: "row" }, gap: "10px" }}>
-            <Button variant="outlined" onClick={onClose} disabled={isSubmitting || isDeleting}>
-              {t("common.cancel")}
-            </Button>
             <Button type="submit" form={formId} variant="contained" disabled={isSubmitting || isDeleting}>
               {isSubmitting ? <CircularProgress size={22} /> : t("trips.stay.save")}
             </Button>
@@ -1103,6 +1160,7 @@ export default function TripAccommodationDialog({
           </Box>
         </Box>
     </DialogShell>
+      <DiscardChangesDialog {...stayGuard.dialogProps} />
       <FullscreenPhotoViewer
         open={fullscreenIndex !== null}
         images={galleryPreviews}

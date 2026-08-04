@@ -77,6 +77,13 @@ export type TripCreateFormProps = {
   onCreated?: (trip: TripCreateResponse) => void;
   onSuccess?: () => void;
   onSubmittingChange?: (isSubmitting: boolean) => void;
+  /**
+   * Story 6.25 AC7. Whether this form holds input the user would lose, reported up the same way
+   * `onSubmittingChange` reports its other cross-boundary flag — the dialog that wraps this form owns
+   * the `✕`, so it is the one that has to know whether dismissing it costs anything. The standalone
+   * mount (`/trips/new`) simply does not pass it.
+   */
+  onDirtyChange?: (isDirty: boolean) => void;
   formId?: string;
   submitLabel?: string;
   showSubmit?: boolean;
@@ -86,6 +93,7 @@ export default function TripCreateForm({
   onCreated,
   onSuccess,
   onSubmittingChange,
+  onDirtyChange,
   formId,
   submitLabel,
   showSubmit = true,
@@ -99,7 +107,7 @@ export default function TripCreateForm({
   const {
     register,
     handleSubmit,
-    formState: { errors, isSubmitting },
+    formState: { errors, isSubmitting, dirtyFields },
     setError,
     setValue,
     reset,
@@ -151,6 +159,37 @@ export default function TripCreateForm({
   useEffect(() => {
     onSubmittingChange?.(isSubmitting);
   }, [isSubmitting, onSubmittingChange]);
+
+  /**
+   * **`dirtyFields`, not `isDirty` — and this is a browser finding, not a preference.**
+   *
+   * `isDirty` is `true` from the first render of this form, with `dirtyFields` empty. react-hook-form
+   * derives it by deep-comparing the live values against `defaultValues`, and `heroImage` is a
+   * registered file input whose value is an empty `FileList` while the defaults do not mention it at
+   * all. A `FileList` never compares equal to `undefined`, so the flag latches on mount and can never
+   * clear. Measured in a browser at 390px: an untouched "Neue Reise" dialog raised "Änderungen
+   * verwerfen?" on its own `✕`. jsdom does not reproduce it — its empty file input compares equal —
+   * which is exactly why this was invisible to the suite and had to be caught on screen.
+   *
+   * `dirtyFields` is populated per field by react-hook-form's own change handling and stays empty until
+   * something actually changes, so it is the honest signal. It does **not** cover the file input (a
+   * FileList change is not a value diff it can record either), hence `heroImageSelected` below.
+   *
+   * The two `*LocationQuery` boxes are deliberately absent: they are search inputs whose text no save
+   * persists, and Story 6.24 found that watching one makes a form read dirty for nothing. What a lookup
+   * *resolves* to does travel with the trip, so those two count.
+   */
+  const [heroImageSelected, setHeroImageSelected] = useState(false);
+  const heroImageField = register("heroImage");
+
+  useEffect(() => {
+    onDirtyChange?.(
+      Object.keys(dirtyFields).length > 0 ||
+        heroImageSelected ||
+        startLocation !== null ||
+        destinationLocation !== null,
+    );
+  }, [destinationLocation, dirtyFields, heroImageSelected, onDirtyChange, startLocation]);
 
   const onSubmit = async (values: TripCreateFormValues) => {
     setServerError(null);
@@ -285,6 +324,9 @@ export default function TripCreateForm({
         }),
       );
       reset({ name: "", startDate: "", endDate: "" });
+      // Cleared with the rest of the form: `reset` does not know about this flag, and a `true` left
+      // behind would make the *next* untouched form ask about changes that were already saved.
+      setHeroImageSelected(false);
       setStartLocationQuery("");
       setDestinationLocationQuery("");
       setStartLocation(null);
@@ -574,7 +616,14 @@ export default function TripCreateForm({
           type="file"
           slotProps={{ htmlInput: { accept: IMAGE_UPLOAD_ACCEPT } }}
           hint={t("trips.form.heroImageHelper")}
-          {...register("heroImage")}
+          {...heroImageField}
+          // Story 6.25. react-hook-form's own `onChange` still runs — it is what puts the FileList into
+          // `values.heroImage` for `onSubmit`; this only adds the one bit `dirtyFields` cannot carry, so
+          // a staged photo counts as something to lose. See the note on the dirty effect above.
+          onChange={(event) => {
+            void heroImageField.onChange(event);
+            setHeroImageSelected(Boolean((event.target as HTMLInputElement).files?.length));
+          }}
         />
         {showSubmit && (
           <Button type="submit" variant="contained" size="large" disabled={isSubmitting}>

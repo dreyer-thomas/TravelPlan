@@ -10,12 +10,12 @@ import {
   Dialog,
   DialogActions,
   DialogContent,
-  DialogTitle,
   TextField,
-  Typography,
 } from "@mui/material";
 import { useI18n } from "@/i18n/provider";
 import { IMAGE_UPLOAD_ACCEPT } from "@/lib/trips/imageUploads";
+import { DialogTitleWithClose } from "@/components/ui/DialogCloseButton";
+import DiscardChangesDialog, { useDiscardGuard } from "@/components/ui/DiscardChangesDialog";
 
 type ApiEnvelope<T> = {
   data: T | null;
@@ -110,7 +110,7 @@ export default function TripEditDialog({ open, trip, onClose, onUpdated }: TripE
   const {
     register,
     handleSubmit,
-    formState: { errors, isSubmitting },
+    formState: { errors, isSubmitting, dirtyFields },
     setError,
     setValue,
     reset,
@@ -124,6 +124,41 @@ export default function TripEditDialog({ open, trip, onClose, onUpdated }: TripE
 
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
+
+  /**
+   * Story 6.25 AC7 / EXPERIENCE.md.State Patterns → "Dismissing a dialog with unsaved input".
+   *
+   * The open effect below `reset()`s to the trip's current values, which is what makes `dirtyFields`
+   * mean "differs from what this dialog opened with" rather than "differs from the mount".
+   *
+   * **`dirtyFields`, not `isDirty`, and that is a browser finding.** `isDirty` deep-compares the live
+   * values against the defaults, and `heroImage` is a registered file input whose value is an empty
+   * `FileList` while the defaults do not mention it — a comparison that can never come out equal, so
+   * the flag latches on the first render and never clears. `TripCreateForm` carries the full note and
+   * the measurement; the same two lines of code produce the same defect here.
+   *
+   * `dirtyFields` cannot carry a `FileList` change either, hence `heroImageSelected` — a
+   * staged-but-unuploaded photo has to count, being the one field with nothing on the server behind it.
+   */
+  const [heroImageSelected, setHeroImageSelected] = useState(false);
+
+  /*
+    Cleared on every open, and during render rather than in the open effect below — React's own
+    prescription for resetting state when a prop changes, and what keeps this out of the
+    cascading-render lint (`react-hooks/set-state-in-effect`). It also clears *before* the render that
+    could raise the question, where an effect would clear it one render later. The same idiom is used
+    for the day menu's anchor in `TripDayView`.
+
+    A `true` left behind would make the next untouched open ask about a photo already uploaded.
+  */
+  const [openMarker, setOpenMarker] = useState(open);
+  if (openMarker !== open) {
+    setOpenMarker(open);
+    setHeroImageSelected(false);
+  }
+
+  const heroImageField = register("heroImage");
+  const editGuard = useDiscardGuard(Object.keys(dirtyFields).length > 0 || heroImageSelected, onClose);
 
   useEffect(() => {
     if (!open) return;
@@ -298,30 +333,29 @@ export default function TripEditDialog({ open, trip, onClose, onUpdated }: TripE
   };
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle>
-        <Typography variant="h6" fontWeight={600} component="div">
+    <>
+      <Dialog open={open} onClose={editGuard.requestClose} fullWidth maxWidth="sm">
+        <DialogTitleWithClose label={t("common.close")} onClose={editGuard.requestClose} disabled={isSubmitting}>
           {t("trips.edit.title")}
-        </Typography>
-      </DialogTitle>
-      <DialogContent dividers>
-        <Box display="flex" flexDirection="column" gap={2.5}>
-          {serverError && <Alert severity="error">{serverError}</Alert>}
-          <Box
-            component="form"
-            id="trip-edit-form"
-            onSubmit={handleSubmit(onSubmit)}
-            display="flex"
-            flexDirection="column"
-            gap={2}
-          >
-            <TextField
-              label={t("trips.form.name")}
-              error={Boolean(errors.name)}
-              helperText={errors.name?.message}
-              {...register("name", nameRules)}
-              fullWidth
-            />
+        </DialogTitleWithClose>
+        <DialogContent dividers>
+          <Box display="flex" flexDirection="column" gap={2.5}>
+            {serverError && <Alert severity="error">{serverError}</Alert>}
+            <Box
+              component="form"
+              id="trip-edit-form"
+              onSubmit={handleSubmit(onSubmit)}
+              display="flex"
+              flexDirection="column"
+              gap={2}
+            >
+              <TextField
+                label={t("trips.form.name")}
+                error={Boolean(errors.name)}
+                helperText={errors.name?.message}
+                {...register("name", nameRules)}
+                fullWidth
+              />
               <TextField
                 label={t("trips.form.startDate")}
                 type="date"
@@ -348,20 +382,29 @@ export default function TripEditDialog({ open, trip, onClose, onUpdated }: TripE
                 InputLabelProps={{ shrink: true }}
                 inputProps={{ accept: IMAGE_UPLOAD_ACCEPT }}
                 helperText={t("trips.form.heroImageHelper")}
-                {...register("heroImage")}
+                {...heroImageField}
+                // Story 6.25. react-hook-form's own `onChange` still runs — it is what puts the FileList
+                // into `values.heroImage` for `onSubmit`; this only adds the one bit `dirtyFields`
+                // cannot carry. See the note on `editGuard` above.
+                onChange={(event) => {
+                  void heroImageField.onChange(event);
+                  setHeroImageSelected(Boolean((event.target as HTMLInputElement).files?.length));
+                }}
                 fullWidth
               />
+            </Box>
           </Box>
-        </Box>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose} disabled={isSubmitting}>
-          {t("common.cancel")}
-        </Button>
-        <Button type="submit" form="trip-edit-form" variant="contained" disabled={isSubmitting}>
-          {isSubmitting ? <CircularProgress size={22} /> : t("trips.edit.submit")}
-        </Button>
-      </DialogActions>
-    </Dialog>
+        </DialogContent>
+        {/* Story 6.25 AC2 — a form dialog's footer keeps only the confirming action; its dismissal is
+            the `✕` in the title row. */}
+        <DialogActions>
+          <Button type="submit" form="trip-edit-form" variant="contained" disabled={isSubmitting}>
+            {isSubmitting ? <CircularProgress size={22} /> : t("trips.edit.submit")}
+          </Button>
+        </DialogActions>
+      </Dialog>
+      {/* A sibling of the dialog it guards, which is the shape `TripDayPlanDialog` already has. */}
+      <DiscardChangesDialog {...editGuard.dialogProps} />
+    </>
   );
 }

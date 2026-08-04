@@ -163,6 +163,11 @@ const en: Dictionary = {
   "trips.delete.title": "Delete trip?",
   "trips.delete.body": "This will remove “{name}” and all of its days. This action cannot be undone.",
   "trips.delete.submit": "Delete trip",
+  // Story 6.25 AC3. The safe half of a destructive confirmation, and it names the outcome it
+  // preserves rather than the mechanism — "Keep trip" beside "Delete trip" is two results side by
+  // side, where "Cancel" beside "Delete trip" asked the reader to work out *what* was being
+  // cancelled: the question, or the deletion? See EXPERIENCE.md.Voice and Tone.
+  "trips.delete.keep": "Keep trip",
   "trips.delete.open": "Delete trip",
   // `.open` rather than the `.action` Story 7.8 retired: across this block `.action` is a dialog's
   // submit label ("Start import") while `.open` is the trigger that sits in a card ("Import backup",
@@ -171,6 +176,10 @@ const en: Dictionary = {
   "trips.export.error": "Trip export failed. Please try again.",
   "trips.import.open": "Import backup",
   "trips.import.action": "Start import",
+  // Story 6.25. The post-import footer's acknowledgement. It read `common.close` until the title-row
+  // `✕` arrived and put two controls named "Close" in one dialog, which a screen reader cannot
+  // distinguish. "Done" also names the outcome rather than the mechanism — Voice and Tone.
+  "trips.import.done": "Done",
   "trips.import.title": "Import trip backup",
   "trips.import.fileLabel": "Backup file",
   "trips.import.fileHelp": "Select a .zip backup exported from TravelPlan. Older .json backups still work.",
@@ -438,6 +447,9 @@ const en: Dictionary = {
   "trips.bucketList.deleteTitle": "Delete bucket list item?",
   "trips.bucketList.deleteBody": "This will remove the item from your trip bucket list.",
   "trips.bucketList.deleteConfirm": "Delete item",
+  // Story 6.25 AC3, the second of the two carved-out confirmations. Same rule as
+  // `trips.delete.keep`: the safe half names what it preserves.
+  "trips.bucketList.deleteKeep": "Keep item",
   "trips.plan.addAction": "Add plan",
   "trips.plan.editAction": "Edit plan",
   "trips.plan.addPrimaryAction": "Add plan item",
@@ -463,13 +475,14 @@ const en: Dictionary = {
   "trips.plan.editItemAria": "Edit plan item: {title}",
   "trips.plan.deleteItemAria": "Delete plan item",
   "trips.plan.deleteConfirm": "Delete this plan item?",
-  // Story 6.24 AC3a / EXPERIENCE.md.State Patterns → "Dismissing a dialog with unsaved input". The
-  // body names what goes rather than asking "are you sure?", and the safe answer names what it
-  // preserves ("Keep editing"), never the mechanism ("Cancel") — see Voice and Tone.
-  "trips.plan.discardTitle": "Discard changes?",
+  // Story 6.24 AC3a / EXPERIENCE.md.State Patterns → "Dismissing a dialog with unsaved input", and
+  // Story 6.25 AC7, which carries the same pattern to nine more form dialogs.
+  //
+  // Only the body stays dialog-specific: it is the one line that can name the object it is about to
+  // throw away ("this plan item"), which is what "names what goes" asks for. The title, the safe
+  // answer and the discard action say the same three things on every surface, so they moved to
+  // `common.discard.*` rather than being retyped ten times.
   "trips.plan.discardBody": "Your changes to this plan item will be discarded.",
-  "trips.plan.discardConfirm": "Discard changes",
-  "trips.plan.discardKeep": "Keep editing",
   // Story 6.22. The activity dialog's four sections, in tab order. Kept short because four of them
   // share one 390px row: the German set ("Was", "Wann & Wo", "Kosten", "Medien & Links") is the
   // binding one and no label here may grow past its width.
@@ -639,12 +652,25 @@ const en: Dictionary = {
   "users.registered.empty": "No accounts registered yet.",
   "users.registered.loadError": "Unable to load registered users. Please refresh.",
   "users.registered.forbidden": "Only trip owners can view registered users.",
-  "common.cancel": "Cancel",
   // Story 6.17 removed `common.save`. It was named as though it were shared and had exactly one
   // reader — the travel-segment dialog — whose button now says "OK". That value lives on
   // `trips.travelSegment.save` instead, so the next dialog needing a save button adds its own key
   // rather than inheriting an OK button from a `common.` name.
-  "common.close": "Close"
+  //
+  // Story 6.25 removed `common.cancel` for the opposite reason: it had eleven readers and every one
+  // of them stopped needing it. Ten were form dialogs whose dismissal became the title-row `✕`; the
+  // last two were destructive confirmations, where "Cancel" was the wrong word rather than a
+  // redundant one — those now say what they keep ("Keep trip", "Keep entry"). A key with no readers
+  // left is the `common.save` shape again, so it is deleted rather than left waiting to be picked up.
+  "common.close": "Close",
+  // Story 6.25 AC7. A `common.` name with **ten** readers, which is what the 6.17 note was actually
+  // about: the trap is a shared-sounding name with one reader, not a shared name for a shared thing.
+  // Every form dialog in the app asks this same question in these same three words when a `✕` would
+  // otherwise throw typing away. Only the body varies, and that one stays per-dialog.
+  "common.discard.title": "Discard changes?",
+  "common.discard.body": "Your changes will be discarded.",
+  "common.discard.confirm": "Discard changes",
+  "common.discard.keep": "Keep editing"
 };
 
 export default en;

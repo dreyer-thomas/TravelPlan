@@ -10,7 +10,6 @@ import {
   Dialog,
   DialogActions,
   DialogContent,
-  DialogTitle,
   IconButton,
   List,
   ListItem,
@@ -21,6 +20,8 @@ import {
 import { useForm } from "react-hook-form";
 import { formatMessage } from "@/i18n";
 import { useI18n } from "@/i18n/provider";
+import { DialogTitleWithClose } from "@/components/ui/DialogCloseButton";
+import DiscardChangesDialog, { useDiscardGuard } from "@/components/ui/DiscardChangesDialog";
 import {
   ChevronDownIcon,
   ChevronUpIcon,
@@ -122,7 +123,7 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
   const {
     register,
     handleSubmit,
-    formState: { errors, isSubmitting },
+    formState: { errors, isSubmitting, isDirty },
     reset,
     setError,
     watch,
@@ -135,6 +136,23 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
   });
 
   const positionTextValue = watch("positionText");
+
+  /**
+   * Story 6.25 AC7 / EXPERIENCE.md.State Patterns → "Dismissing a dialog with unsaved input".
+   *
+   * `isDirty` alone is not enough, and that is 6.24's lesson rather than a guess: the geocode lookup
+   * writes `resolvedLocation` outside react-hook-form entirely, so a user who searched for a place
+   * and then hit the `✕` would lose it silently. The comparison is against the values the dialog
+   * *opened* with — the same seed the open effect above applies — so a coordinate that was already
+   * on the item does not read as dirty.
+   */
+  const openLocationKey = useMemo(() => {
+    const seed = dialogMode === "edit" && editingItem ? editingItem.location ?? null : null;
+    return seed ? `${seed.lat},${seed.lng}` : "";
+  }, [dialogMode, editingItem]);
+  const currentLocationKey = resolvedLocation ? `${resolvedLocation.lat},${resolvedLocation.lng}` : "";
+  const closeFormDialog = useCallback(() => setDialogOpen(false), []);
+  const formGuard = useDiscardGuard(isDirty || currentLocationKey !== openLocationKey, closeFormDialog);
 
   const resolveApiError = useCallback(
     (code?: string, fallback?: string) => {
@@ -609,12 +627,17 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
         </Box>
       </Box>
 
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>
-          <Typography variant="h6" fontWeight={600} component="div">
-            {dialogTitle}
-          </Typography>
-        </DialogTitle>
+      {/* The form half of this file. `formGuard.requestClose` is wired to the backdrop, Escape and the
+          `✕` alike — one outcome, one question. A successful save calls `setDialogOpen(false)`
+          directly, because re-asking "discard your changes?" after committing them is noise. */}
+      <Dialog open={dialogOpen} onClose={formGuard.requestClose} fullWidth maxWidth="sm">
+        <DialogTitleWithClose
+          label={t("common.close")}
+          onClose={formGuard.requestClose}
+          disabled={isSubmitting}
+        >
+          {dialogTitle}
+        </DialogTitleWithClose>
         <DialogContent dividers>
           <Box display="flex" flexDirection="column" gap={2.5}>
             {serverError && <Alert severity="error">{serverError}</Alert>}
@@ -670,18 +693,27 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
             </Box>
           </Box>
         </DialogContent>
-        <DialogActions sx={{ justifyContent: "space-between" }}>
-          <Button onClick={() => setDialogOpen(false)} disabled={isSubmitting}>
-            {t("common.cancel")}
-          </Button>
+        {/* Story 6.25 AC2. A form dialog carries no cancel button: the committing action has no
+            consequential opposite worth the same visual weight, so the footer keeps one button and
+            the dismissal is the `✕` above. `justifyContent: space-between` went with the pair it
+            was spacing. */}
+        <DialogActions>
           <Button type="submit" form="bucket-list-form" variant="contained" disabled={isSubmitting}>
             {isSubmitting ? <CircularProgress size={22} /> : saveLabel}
           </Button>
         </DialogActions>
       </Dialog>
+      <DiscardChangesDialog {...formGuard.dialogProps} />
 
+      {/* The confirmation half. One file, two rules — see Story 6.25's Trap 1. */}
       <Dialog open={Boolean(deleteTarget)} onClose={() => setDeleteTarget(null)} fullWidth maxWidth="xs">
-        <DialogTitle>{t("trips.bucketList.deleteTitle")}</DialogTitle>
+        <DialogTitleWithClose
+          label={t("common.close")}
+          onClose={() => setDeleteTarget(null)}
+          disabled={deleteBusy}
+        >
+          {t("trips.bucketList.deleteTitle")}
+        </DialogTitleWithClose>
         <DialogContent>
           {deleteError && (
             <Alert severity="error" sx={{ mb: 2 }}>
@@ -693,8 +725,11 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
           </Typography>
         </DialogContent>
         <DialogActions>
+          {/* Story 6.25 AC3. Both buttons stay and the weight is unchanged; only the safe one's word
+              changes — "Eintrag behalten" beside "Eintrag löschen" is two outcomes about the same
+              object, in the same noun. */}
           <Button onClick={() => setDeleteTarget(null)} disabled={deleteBusy}>
-            {t("common.cancel")}
+            {t("trips.bucketList.deleteKeep")}
           </Button>
           <Button color="error" variant="contained" onClick={() => void handleDelete()} disabled={deleteBusy}>
             {deleteBusy ? <CircularProgress size={22} /> : t("trips.bucketList.deleteConfirm")}

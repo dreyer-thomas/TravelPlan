@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle } from "@mui/material";
+import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent } from "@mui/material";
 import Typography from "@mui/material/Typography";
+import { DialogTitleWithClose } from "@/components/ui/DialogCloseButton";
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
 
@@ -109,7 +110,12 @@ export default function TripDeleteDialog({ open, tripName, tripId, onClose, onDe
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs">
-      <DialogTitle>{t("trips.delete.title")}</DialogTitle>
+      {/* Story 6.25 AC1/AC3. This is a destructive confirmation, so it keeps both footer buttons —
+          but it gains the `✕` too, because it is not raised *by* a `✕`: the trigger is a delete
+          action, so the glyph here is an escape rather than a second copy of the question. */}
+      <DialogTitleWithClose label={t("common.close")} onClose={onClose} disabled={isDeleting}>
+        {t("trips.delete.title")}
+      </DialogTitleWithClose>
       <DialogContent dividers>
         <Box display="flex" flexDirection="column" gap={2}>
           {serverError && <Alert severity="error">{serverError}</Alert>}
@@ -119,8 +125,19 @@ export default function TripDeleteDialog({ open, tripName, tripId, onClose, onDe
         </Box>
       </DialogContent>
       <DialogActions>
+        {/*
+          Story 6.25 AC3/AC4. `common.cancel` became `trips.delete.keep` — "Reise behalten" beside
+          "Reise löschen" is two outcomes side by side, where "Abbrechen" asked the reader to work out
+          *what* was being cancelled: the question, or the deletion?
+
+          Both buttons stay, and the visual weight is untouched: the destructive half is contained
+          and red, the keeping half is not. Naming the outcome is the change; re-ranking the pair is
+          not, and shrinking the safe answer to a corner glyph while the other one is red would make
+          the harmless answer smaller than the final one. That is the whole reason the two
+          confirmations are carved out of AC2's "form dialogs lose their cancel button".
+        */}
         <Button onClick={onClose} disabled={isDeleting}>
-          {t("common.cancel")}
+          {t("trips.delete.keep")}
         </Button>
         <Button color="error" variant="contained" onClick={handleDelete} disabled={isDeleting}>
           {isDeleting ? <CircularProgress size={22} /> : t("trips.delete.submit")}

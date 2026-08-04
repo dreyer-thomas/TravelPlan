@@ -193,9 +193,44 @@ body {
 }
 .dialog.w-460 { max-width: 460px; }
 .dialog.w-520 { max-width: 520px; }
-.dialog-head { padding: 20px 24px 16px; border-bottom: 1px solid #E4DFD3; }
+/*
+  Story 6.25. The head is a row now, because it carries the close affordance at its right: every
+  dialog in the system is dismissed by `icon-button.close` rather than by a footer Abbrechen. The
+  title block keeps `min-width: 0` so a long title wraps instead of pushing the glyph off the row.
+*/
+.dialog-head {
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid #E4DFD3;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.dialog-head-text { flex: 1; min-width: 0; }
 .dialog-title { font-size: 17px; font-weight: 900; margin: 0 0 4px; color: #2B2A26; letter-spacing: -0.2px; }
 .dialog-sub { font-size: 12.5px; color: #6B675C; font-weight: 600; }
+/*
+  `DESIGN.md.Components → icon-button → close`: 44x44, ~20px glyph, ink-soft, no fill and no border at
+  rest, 6px radius. The negative margins pull the hit area back into the head's own padding, so a 44px
+  target does not add 44px of head height and the glyph stays optically on the title's first line.
+  It always carries an accessible name in the implementation ("Schließen"); a mockup has no
+  accessibility tree, so the name lives in the spec sheet below and in the component.
+*/
+.dialog-close {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  margin: -10px -10px 0 0;
+  border: none;
+  background: none;
+  border-radius: 6px;
+  color: #6B675C;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+  padding: 0;
+}
+.dialog-close svg { width: 20px; height: 20px; }
 .dialog-body { padding: 22px 24px; }
 .dialog-footer {
   padding: 16px 24px;
@@ -542,11 +577,29 @@ body {
     Es werden ausschließlich bestehende Farbtokens, Karten-/Dialog-Rahmen, Foto-Techniken und die serifenlose
     Systemschrift wiederverwendet — keine neuen Farben, keine neue Bildsprache:
     <ol>
-      <li><strong class="inline-h">Screen F · Dialog „Trip erstellen":</strong> Modal in derselben Größenkonvention wie der Teilen-Dialog (max-width 460px, gleicher Kopf-/Fuß-Aufbau), über einer gedimmten Reiseliste, da dieser Dialog typischerweise der allererste Schritt vor jedem Inhalt ist. Reisename, Zeitraum (von/bis) als zwei nebeneinanderliegende Datumsfelder, Primäraktion „Reise erstellen" + „Abbrechen".</li>
+      <li><strong class="inline-h">Screen F · Dialog „Trip erstellen":</strong> Modal in derselben Größenkonvention wie der Teilen-Dialog (max-width 460px, gleicher Kopf-/Fuß-Aufbau), über einer gedimmten Reiseliste, da dieser Dialog typischerweise der allererste Schritt vor jedem Inhalt ist. Reisename, Zeitraum (von/bis) als zwei nebeneinanderliegende Datumsfelder, Primäraktion „Reise erstellen"; verworfen wird über das „✕" im Kopf (siehe Nachtrag unten).</li>
       <li><strong class="inline-h">Screen G · Dialog „Eintrag hinzufügen":</strong> die Bearbeitungs-Aktion hinter den Timeline-Karten aus Screen B. Typ-Umschalter (Unterkunft/Aktivität) im gleichen Pill-Stil wie die Login/Registrieren-Tabs, Titel, Zeitraum (von/bis), optionale Kosten- und Link-Felder, sowie eine Foto-Upload-Zone mit derselben scharfkantigen 56px-Vorschau-Technik wie die bestehende Fotoleiste (.tl-photo).</li>
       <li><strong class="inline-h">Screen H · Passwort zurücksetzen:</strong> zweistufiger Flow (E-Mail anfordern → neues Passwort setzen), als unauthentifizierter Geschwister-Screen zu Login/Registrierung mit identischer Foto-Hero-Seitenpanel-Technik (hero-mountains.jpg, gleicher 4-Stop-Scrim).</li>
-      <li><strong class="inline-h">Screen I · Form-Bausteine (Referenzblatt):</strong> kein echter Screen, sondern ein Bauteil-Muster für DESIGN.md — Text-Input in Standard-/Fokus-/Fehlerzustand, Select, Primär-/Sekundärbutton und Checkbox, jeweils mit sichtbarer Maßangabe.</li>
+      <li><strong class="inline-h">Screen I · Form-Bausteine (Referenzblatt):</strong> kein echter Screen, sondern ein Bauteil-Muster für DESIGN.md — Text-Input in Standard-/Fokus-/Fehlerzustand, Select, Primär-/Sekundärbutton, Icon-Button „Schließen" und Checkbox, jeweils mit sichtbarer Maßangabe.</li>
     </ol>
+    <strong style="margin-top:14px;">Nachtrag 2026-08-04 (Story 6.25) — Schließen ist ein Kreuz, und Behalten hat einen Namen</strong>
+    Die Verwerfen-Geste eines Dialogs ist nicht mehr ein „Abbrechen" im Fuß, sondern ein 44×44px „✕" oben rechts im
+    Kopf (<code>DESIGN.md.Components → icon-button → close</code>). Beide Formulardialoge dieser Datei — Screen F und
+    Screen G — haben deshalb ihren <code>btn-secondary</code>-Abbrechen verloren und tragen das Kreuz im Kopf; im Fuß
+    bleibt genau die festschreibende Aktion. Die Variante <code>btn-secondary</code> selbst bleibt im Bauteil-Blatt
+    erhalten: sie wird weiterhin gebraucht, aber nur noch als sichere Hälfte einer <em>zerstörenden Bestätigung</em>,
+    und ihr Label nennt dort das Ergebnis, das es erhält („Reise behalten"), nicht den Mechanismus.
+    <br><br>
+    <strong class="inline-h" style="color:#8A5A2B;">Bekannte Lücke:</strong> eine zerstörende Bestätigung ist in dieser
+    Datei <em>gar nicht</em> gemockt — es gibt kein Bild des Paares „Reise behalten" / „Reise löschen", obwohl DESIGN.md
+    diese Datei als verbindliche Referenz für Dialogfüße benennt. Sie wurde hier bewusst nicht erfunden: das Paar ist in
+    zwei Implementierungen belegt und in <code>EXPERIENCE.md.Voice and Tone</code> beschrieben, ein aus dem Code
+    zurückgezeichnetes Mockup wäre keine Design-Entscheidung, sondern eine Abschrift. Die Lücke gehört ins Protokoll,
+    nicht in eine Improvisation.
+    <br><br>
+    Zweite, kleinere Abweichung, ebenfalls im Protokoll statt stillschweigend behoben: der Fuß von Screen G zeigt
+    „Speichern", während der Aktivitätsdialog seit Story 6.24 „OK" sagt. Das ist eine Drift aus 6.24 und nicht aus
+    dieser Änderung; DESIGN.md legt das Wort nicht fest, deshalb bleibt es hier unangetastet.
     <strong style="margin-top:14px;">Barrierefreiheits-Fix (Pflichtvorgabe für diese Datei)</strong>
     Ein abgeschlossenes Accessibility-Review hat ergeben, dass sämtliche interaktiven Elemente der bisherigen
     Mockups — Buttons, Inputs, der 24×24px „+"-Button der Bucket-Liste — unter der vom Produkt gewünschten
@@ -619,8 +672,13 @@ body {
       <div class="dialog-stage">
         <div class="dialog w-460">
           <div class="dialog-head">
-            <p class="dialog-title">Reise erstellen</p>
-            <div class="dialog-sub">Name und Zeitraum — Details fügst du danach im Tagesplan hinzu.</div>
+            <div class="dialog-head-text">
+              <p class="dialog-title">Reise erstellen</p>
+              <div class="dialog-sub">Name und Zeitraum — Details fügst du danach im Tagesplan hinzu.</div>
+            </div>
+            <button class="dialog-close" aria-label="Schließen">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+            </button>
           </div>
           <div class="dialog-body">
             <div class="field-block">
@@ -647,7 +705,6 @@ body {
             </div>
           </div>
           <div class="dialog-footer">
-            <button class="btn-secondary">Abbrechen</button>
             <button class="btn-primary">Reise erstellen</button>
           </div>
         </div>
@@ -668,8 +725,13 @@ body {
       <div class="dialog-stage plain">
         <div class="dialog w-520">
           <div class="dialog-head">
-            <p class="dialog-title">Eintrag hinzufügen</p>
-            <div class="dialog-sub">Tag 6 · Porto → Douro-Tal · 17.9.2026</div>
+            <div class="dialog-head-text">
+              <p class="dialog-title">Eintrag hinzufügen</p>
+              <div class="dialog-sub">Tag 6 · Porto → Douro-Tal · 17.9.2026</div>
+            </div>
+            <button class="dialog-close" aria-label="Schließen">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+            </button>
           </div>
           <div class="dialog-body">
 
@@ -745,7 +807,6 @@ body {
 
           </div>
           <div class="dialog-footer">
-            <button class="btn-secondary">Abbrechen</button>
             <button class="btn-primary">Speichern</button>
           </div>
         </div>
@@ -893,10 +954,36 @@ body {
 
       <div class="swatch-block">
         <div class="swatch-name">Button — Sekundär</div>
-        <div class="swatch-spec">Höhe 44px · Radius 6px · Rand #D9D0BE · Gewicht 700</div>
+        <!--
+          Story 6.25. Die Variante bleibt — sie ist die nicht-festschreibende Hälfte eines Paares und
+          wird weiterhin gebraucht, aber nur noch dort, wo beide Antworten gleichrangig sichtbar
+          bleiben müssen: bei zerstörenden Bestätigungen. Das Muster ist ab hier über den Rang
+          definiert, nicht über das Wort. Deshalb heißt das Exemplar jetzt "Reise behalten" und nicht
+          mehr "Abbrechen": es nennt das Ergebnis, das es erhält, nicht den Mechanismus (siehe
+          EXPERIENCE.md.Voice and Tone). In einem Formulardialog kommt diese Variante nicht mehr vor —
+          dort ist die Verwerfen-Geste `icon-button.close` im Kopf.
+        -->
+        <div class="swatch-spec">Höhe 44px · Radius 6px · Rand #D9D0BE · Gewicht 700 · nur als sichere Hälfte einer zerstörenden Bestätigung</div>
         <div class="swatch-demo">
           <span class="dim-tag">✓ 44px Höhe</span>
-          <button class="btn-secondary" style="align-self:flex-start;">Abbrechen</button>
+          <button class="btn-secondary" style="align-self:flex-start;">Reise behalten</button>
+        </div>
+      </div>
+
+      <div class="swatch-block">
+        <div class="swatch-name">Icon-Button — Schließen</div>
+        <!--
+          Story 6.25. Der erste dokumentierte `icon-button` und die einzige Verwerfen-Geste eines
+          Dialogs. Wird hier als Baustein gezeigt, weil er ab jetzt in jedem Dialogkopf steht und
+          nicht mehr pro Oberfläche neu erfunden werden soll — im Kontext siehe die Köpfe von
+          Screen F und Screen G oben.
+        -->
+        <div class="swatch-spec">44×44px · Glyph 20px · Radius 6px · Farbe #6B675C · ohne Füllung und ohne Rand im Ruhezustand · trägt immer einen zugänglichen Namen ("Schließen")</div>
+        <div class="swatch-demo">
+          <span class="dim-tag">✓ 44×44px Klickfläche</span>
+          <button class="dialog-close" style="align-self:flex-start; margin:0;" aria-label="Schließen">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+          </button>
         </div>
       </div>
 

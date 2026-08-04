@@ -1,9 +1,9 @@
 "use client";
 
 import { useId, type ReactNode } from "react";
-import { Box, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Tooltip } from "@mui/material";
+import { Box, Dialog, DialogActions, DialogContent, DialogTitle } from "@mui/material";
 import { useTheme, type SxProps, type Theme } from "@mui/material/styles";
-import { CloseXIcon } from "@/components/features/trips/TripIcons";
+import { DialogCloseButton } from "@/components/ui/DialogCloseButton";
 
 /**
  * The head/body/footer dialog chrome the authoring dialogs share (`mockups/forms-authoring.html`
@@ -38,29 +38,23 @@ export type DialogShellProps = {
    */
   disableDismiss?: boolean;
   /**
-   * Story 6.24. When set, the title row carries `DESIGN.md.Components → icon-button → close`: a
-   * 44x44 `✕` at the top right that calls `onClose`, named by this string.
+   * The accessible name of the title row's `✕` — `DESIGN.md.Components → icon-button → close`: a
+   * 44x44 glyph at the top right that calls `onClose`.
    *
-   * Opt-in rather than unconditional, and that is temporary. Story 6.24 proves the affordance — and
-   * the dirty-form confirmation EXPERIENCE.md attaches to it — on the activity dialog alone; Story
-   * 6.25 carries it to every consumer, at which point this becomes required and the dialogs that
-   * build their own `Dialog` are brought into line with it. Making it unconditional here would have
-   * put a `✕` on the three other surfaces that use this shell, in a story whose AC9 says nothing
-   * else changes.
-   *
-   * The counts, since they scope Story 6.25 and the story record got them wrong twice: **four**
-   * `<DialogShell` call sites (`TripDayView`, `TripAccommodationDialog`, `TripCreateDialog` and
-   * `TripDayPlanDialog`), so three others — not five, and `FullscreenPhotoViewer` and
-   * `TripCostOverview` are not among them. And **14** raw `<Dialog>` sites across 11 files, two of
-   * them inside `TripDayPlanDialog` itself (the move picker and the discard confirmation), neither of
-   * which 6.25's Task 2 originally named.
+   * **Required, as of Story 6.25.** Story 6.24 introduced it opt-in so that proving the affordance
+   * (and the dirty-form confirmation EXPERIENCE.md attaches to it) on the activity dialog alone did
+   * not put a `✕` on three other surfaces in a story whose AC9 said nothing else changed. 6.25 is
+   * that story, and DESIGN.md now says every dialog has exactly one close — so an optional prop
+   * would mean a shell consumer could silently opt out of the system's only dismissal.
    *
    * It shares `onClose` rather than taking a handler of its own: backdrop click, Escape and the
-   * glyph are one outcome, so a caller guarding one of them (as the activity dialog now does)
-   * guards all three by construction. `FullscreenPhotoViewer` already has its own close control and
-   * must not pass this.
+   * glyph are one outcome, so a caller guarding one of them — `useDiscardGuard` in
+   * `DiscardChangesDialog.tsx` — guards all three by construction.
+   *
+   * `FullscreenPhotoViewer` does not use this shell and must not gain a second close control; see
+   * the exemptions recorded in Story 6.25.
    */
-  closeLabel?: string;
+  closeLabel: string;
 };
 
 export default function DialogShell({
@@ -80,7 +74,7 @@ export default function DialogShell({
   const titleId = useId();
 
   /**
-   * With a `closeLabel`, `DialogTitle` stops being the heading and the title line becomes it.
+   * `DialogTitle` is not the heading; the title line is.
    *
    * MUI's `DialogTitle` is an `<h2>`, and the `✕` sits inside it — so the glyph's accessible name
    * joins the *heading's* name and a screen reader navigating by heading hears "Add stay · Day 3 ·
@@ -88,22 +82,23 @@ export default function DialogShell({
    * alone.) Moving the heading role down onto the title line fixes it at the source, and is the same
    * defect class as 7.5's #1 one level up.
    *
-   * Only when `closeLabel` is set, so the three consumers that do not pass one keep the DOM they had
-   * before Story 6.24 — `formPrimitives.test.tsx` holds both shapes. Story 6.25 makes the prop
-   * required, at which point this branch becomes the only shape and the conditional goes.
+   * Story 6.24 made this conditional on `closeLabel`, so the three consumers that did not pass one
+   * kept their previous DOM. Story 6.25 made the prop required, so this is now the only shape and
+   * the conditional is gone — the same fix travels with the glyph in `DialogTitleWithClose`, for the
+   * dialogs that do not use this shell.
    */
   const titleBlock = (
     <>
       <Box
         id={titleId}
-        component={closeLabel ? "h2" : "div"}
+        component="h2"
         sx={{
           fontSize: 17,
           fontWeight: 900,
           letterSpacing: "-0.2px",
           color: tokens.ink,
           // A real `h2` brings the browser's own margin with it; the design's spacing is the head's.
-          ...(closeLabel ? { m: 0 } : null),
+          m: 0,
         }}
       >
         {title}
@@ -142,88 +137,31 @@ export default function DialogShell({
       // MUI's context does not reassign this one.
       aria-labelledby={titleId}
     >
-      {/*
-        The head keeps its padding, its `borderBottom` and its two ids in both shapes. Without a
-        `closeLabel` it renders exactly what it rendered before Story 6.24 — the three consumers that
-        do not pass one are byte-identical, which is what let this land without touching them, and
-        `formPrimitives.test.tsx` asserts that against real MUI rather than leaving it to inspection.
-      */}
+      {/* The head keeps its padding, its `borderBottom` and its two ids. */}
       <DialogTitle
         id={headId}
         // See `titleBlock`: with a `✕` inside it, an `<h2>` head would take the glyph's name into the
-        // heading's, so the heading role moves down to the title line and this becomes a plain box.
-        component={closeLabel ? "div" : "h2"}
+        // heading's, so the heading role moves down to the title line and this stays a plain box.
+        component="div"
         sx={{
           p: "20px 24px 16px",
           borderBottom: `1px solid ${tokens.border}`,
-          ...(closeLabel ? { display: "flex", alignItems: "flex-start", gap: "12px" } : null),
+          display: "flex",
+          alignItems: "flex-start",
+          gap: "12px",
         }}
       >
-        {closeLabel ? (
-          <>
-            {/* `minWidth: 0` so a long title wraps instead of pushing the glyph off the row. */}
-            <Box sx={{ flex: 1, minWidth: 0 }}>{titleBlock}</Box>
-            {/*
-              `icon-button.close`, per DESIGN.md: 44x44, ~20px glyph, {colors.ink-soft}, no fill and
-              no border at rest, and a mandatory accessible name. The negative margins pull the hit
-              area back into the head's own padding so a 44px target does not add 44px of head
-              height — the glyph stays optically on the title's first line.
+        {/* `minWidth: 0` so a long title wraps instead of pushing the glyph off the row. */}
+        <Box sx={{ flex: 1, minWidth: 0 }}>{titleBlock}</Box>
+        {/*
+          `icon-button.close`, per DESIGN.md. Its geometry, its tooltip and its focus ring live in
+          `DialogCloseButton` so the eleven dialogs that build their own `<Dialog>` render the identical
+          control rather than eleven hand-copies of it.
 
-              Disabled while `disableDismiss`, which is the same guard the footer's Cancel button
-              used to carry: a dialog that refuses Escape while honouring the `✕` has not protected
-              anyone's input.
-
-              A real `Tooltip`, not the native `title` attribute: `title` never fires on keyboard
-              focus and never on touch, so on the control that is now a dialog's only labelled-by-
-              name dismissal it would reach mouse users alone. `TripDayMapPanel` and
-              `TripOverviewMapPanel` already use this shape for their icon-only buttons. The tooltip
-              repeats the accessible name rather than replacing it (DESIGN.md.Components →
-              icon-button), so `aria-label` stays and `describeChild` is deliberately not set — it
-              would make a screen reader announce the same words twice.
-            */}
-            <Tooltip title={closeLabel} enterDelay={0}>
-              {/*
-                The `span` is MUI's documented requirement, not decoration: a disabled button fires
-                no events, so `Tooltip` cannot listen to one and warns. It carries the flex sizing
-                and the negative margins so the head's layout is unchanged by its presence.
-              */}
-              <Box
-                component="span"
-                sx={{ display: "inline-flex", flex: "0 0 auto", mt: "-10px", mr: "-10px" }}
-              >
-                <IconButton
-                  aria-label={closeLabel}
-                  onClick={onClose}
-                  disabled={disableDismiss}
-                  data-testid="dialog-shell-close"
-                  sx={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: "6px",
-                    color: tokens.inkSoft,
-                    backgroundColor: "transparent",
-                    // DESIGN.md's `icon-button` entry: "Hover and focus follow the Accessibility
-                    // Floor — the app-wide focus ring, never colour alone." `theme.ts` defines that
-                    // ring under `MuiButton` only, and MUI's `ButtonBase` ships `outline: 0`, so an
-                    // `IconButton` renders no focus indicator at all unless it says so itself — the
-                    // same reason `TripIcons`' on-photo chrome spells its own out. Repeated here
-                    // rather than added as a `MuiIconButton` theme override because that would put a
-                    // ring on sixteen other icon buttons across the app, which Story 6.24's AC9 does
-                    // not cover; the app-wide gap is logged as DW-154.
-                    "&.Mui-focusVisible": {
-                      outline: `2px solid ${tokens.ink}`,
-                      outlineOffset: "2px",
-                    },
-                  }}
-                >
-                  <CloseXIcon sx={{ fontSize: 20 }} />
-                </IconButton>
-              </Box>
-            </Tooltip>
-          </>
-        ) : (
-          titleBlock
-        )}
+          Disabled while `disableDismiss`, which is the same guard the footer's Cancel button used to
+          carry: a dialog that refuses Escape while honouring the `✕` has not protected anyone's input.
+        */}
+        <DialogCloseButton label={closeLabel} onClose={onClose} disabled={disableDismiss} />
       </DialogTitle>
 
       {/*

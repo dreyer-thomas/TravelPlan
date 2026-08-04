@@ -306,10 +306,13 @@ describe("i18n dictionaries", () => {
      */
     it("words the discard confirmation as an outcome, not a mechanism", () => {
       expect(de["trips.plan.discardBody"]).toBe("Deine Änderungen an diesem Planpunkt werden verworfen.");
-      expect(de["trips.plan.discardKeep"]).toBe("Weiter bearbeiten");
-      expect(en["trips.plan.discardKeep"]).toBe("Keep editing");
+      // Story 6.25 promoted the title, the safe answer and the discard action to `common.discard.*`
+      // — ten dialogs say those three things now, and only the body names its object. Same assertion,
+      // one level up; see the `story 6.25 key changes` block.
+      expect(de["common.discard.keep"]).toBe("Weiter bearbeiten");
+      expect(en["common.discard.keep"]).toBe("Keep editing");
       for (const dictionary of [en, de]) {
-        expect(dictionary["trips.plan.discardKeep"]).not.toMatch(/^(Cancel|Abbrechen)$/);
+        expect(dictionary["common.discard.keep"]).not.toMatch(/^(Cancel|Abbrechen)$/);
       }
     });
 
@@ -323,13 +326,106 @@ describe("i18n dictionaries", () => {
       expect(de["common.close"]).toBe("Schließen");
     });
 
-    /**
-     * `common.cancel` survives this story deliberately. Story 6.17 retired `common.save` because it
-     * had exactly one reader; this key has several, and Story 6.25 is where the remaining eleven go.
-     */
-    it("keeps common.cancel, which still has readers outside this dialog", () => {
-      expect(has(en, "common.cancel")).toBe(true);
-      expect(has(de, "common.cancel")).toBe(true);
+  });
+
+  /**
+   * Story 6.25. `common.cancel` had eleven readers when 6.24 left it alone; this story removed the
+   * last of them, so the key goes the same way `common.save` did in 6.17 — deleted rather than left
+   * defined and waiting for the next dialog to pick a footer Cancel back up.
+   *
+   * The orphan is the failure neither the parity check nor any component suite can see: a key with no
+   * readers satisfies both. That is the whole reason this block exists.
+   */
+  describe("story 6.25 key changes", () => {
+    const has = (dictionary: Record<string, string>, key: string) =>
+      Object.prototype.hasOwnProperty.call(dictionary, key);
+
+    it("no longer defines common.cancel in either language", () => {
+      expect(has(en, "common.cancel")).toBe(false);
+      expect(has(de, "common.cancel")).toBe(false);
     });
+
+    /**
+     * The three keys 6.24 scoped to the activity dialog moved to `common.discard.*` when nine more
+     * dialogs started asking the same question. Their old names must not survive alongside the new
+     * ones — two names for one word is the `common.save` trap, and here it would be four of them.
+     */
+    it.each(["trips.plan.discardTitle", "trips.plan.discardConfirm", "trips.plan.discardKeep"])(
+      "no longer defines %s in either language",
+      (key) => {
+        expect(has(en, key)).toBe(false);
+        expect(has(de, key)).toBe(false);
+      },
+    );
+
+    /**
+     * A `common.` name for a genuinely shared thing, which is the distinction the 6.17 note was
+     * drawing: the trap is a shared-*sounding* name with one reader. Ten dialogs read these.
+     */
+    it("defines the shared discard wording in both languages", () => {
+      expect(de["common.discard.title"]).toBe("Änderungen verwerfen?");
+      expect(en["common.discard.title"]).toBe("Discard changes?");
+      expect(de["common.discard.confirm"]).toBe("Änderungen verwerfen");
+      expect(en["common.discard.confirm"]).toBe("Discard changes");
+      // The generic body still names the outcome rather than asking "are you sure?" — Voice and Tone.
+      expect(de["common.discard.body"]).toBe("Deine Änderungen werden verworfen.");
+      expect(en["common.discard.body"]).toBe("Your changes will be discarded.");
+    });
+
+    /**
+     * AC3. The safe half of each destructive confirmation names what it *keeps*. Both are pinned
+     * against the mechanism word as well as for their value: "Abbrechen" creeping back here is the
+     * exact regression EXPERIENCE.md.Voice and Tone forbids, and it would still read plausibly.
+     *
+     * The English says "Keep item", not the story's parenthetical "Keep entry": its neighbour is
+     * `trips.bucketList.deleteConfirm` = "Delete item", and two outcomes about one object have to use
+     * one noun for it or the pair stops reading as a pair. The German is the binding wording and is
+     * exactly as the request wrote it.
+     */
+    it("names what each destructive confirmation keeps, in the same noun as its neighbour", () => {
+      expect(de["trips.delete.keep"]).toBe("Reise behalten");
+      expect(en["trips.delete.keep"]).toBe("Keep trip");
+      expect(de["trips.bucketList.deleteKeep"]).toBe("Eintrag behalten");
+      expect(en["trips.bucketList.deleteKeep"]).toBe("Keep item");
+
+      for (const dictionary of [en, de]) {
+        for (const key of ["trips.delete.keep", "trips.bucketList.deleteKeep"]) {
+          expect(dictionary[key]).not.toMatch(/^(Cancel|Abbrechen)$/);
+        }
+      }
+
+      // The noun match, asserted rather than left to the eye: "Keep entry" beside "Delete item" would
+      // pass every check above and still break the thing AC3 is about.
+      //
+      // Story 6.25 review rewrote this. It used to index `.split(" ")` by position and checked the
+      // English bucket-list pair and the German trip pair only — so the German bucket-list pair and
+      // the English trip pair went unchecked, and reworking German to "Eintrag behalten" beside
+      // "Punkt löschen" passed. The index arithmetic also broke on any label that gained a word.
+      // Both pairs are now checked in both languages, by shared word rather than by position: the
+      // verbs differ within a pair ("behalten"/"löschen", "Keep"/"Delete"), so the only word the two
+      // labels can have in common is the object they are both about.
+      const sharedWords = (a: string, b: string) => {
+        const bWords = b.split(/\s+/).filter(Boolean);
+        return a
+          .split(/\s+/)
+          .filter(Boolean)
+          .filter((word) => bWords.includes(word));
+      };
+
+      const pairs: [string, string][] = [
+        ["trips.delete.keep", "trips.delete.submit"],
+        ["trips.bucketList.deleteKeep", "trips.bucketList.deleteConfirm"],
+      ];
+      for (const dictionary of [en, de]) {
+        for (const [keepKey, deleteKey] of pairs) {
+          expect(sharedWords(dictionary[keepKey], dictionary[deleteKey]).length).toBeGreaterThan(0);
+        }
+      }
+    });
+
+    // `common.close` is now the accessible name of all **fifteen** title-row `✕` controls (four via
+    // `DialogShell`, eleven via `DialogTitleWithClose`) rather than one dialog's, but 6.24 already pins
+    // its value in both languages and a second copy of that assertion would only have to be kept in
+    // step with the first.
   });
 });

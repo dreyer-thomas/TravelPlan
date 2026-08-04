@@ -1,10 +1,20 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render as baseRender, screen, waitFor, within } from "@testing-library/react";
+import { ThemeProvider } from "@mui/material/styles";
+import type { ReactElement } from "react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TripEditDialog from "@/components/features/trips/TripEditDialog";
 import { I18nProvider } from "@/i18n/provider";
+import theme from "@/theme";
+
+/**
+ * Story 6.25. The dialog's title row now carries `icon-button.close`, whose colour and focus ring come
+ * from `theme.palette.tokens` — absent under MUI's bare default theme, so the component throws rather
+ * than rendering something subtly wrong. See `test/helpers/renderWithProviders.tsx`.
+ */
+const render = (ui: ReactElement) => baseRender(<ThemeProvider theme={theme}>{ui}</ThemeProvider>);
 
 const mockCsrfResponse = {
   data: { csrfToken: "test-token" },

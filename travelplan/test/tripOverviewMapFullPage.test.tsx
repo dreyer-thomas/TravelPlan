@@ -134,6 +134,18 @@ describe("TripOverviewMapFullPage", () => {
     expect(await screen.findByText("Check-in note")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open details" })).toHaveAttribute("href", "/trips/trip-1/days/day-1?open=stay");
 
+    /*
+      Story 6.25 AC1, added by that story's code review — see the matching note in
+      `tripDayMapFullPage.test.tsx`. This is one of the four read-only popups that had no visible
+      dismissal at all before 6.25, and the story's claim that the glyph was unit-covered did not hold
+      for any of them.
+    */
+    const closeButton = screen.getByTestId("dialog-close");
+    expect(closeButton).toHaveAccessibleName("Close");
+
+    await user.click(closeButton);
+    expect(screen.queryByText("Check-in note")).not.toBeInTheDocument();
+
     vi.unstubAllGlobals();
   });
 

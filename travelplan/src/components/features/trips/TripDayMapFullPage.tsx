@@ -1,6 +1,7 @@
 "use client";
 
-import { Alert, Box, Chip, Dialog, DialogContent, DialogTitle, List, ListItem, Skeleton, Typography, useTheme } from "@mui/material";
+import { Alert, Box, Chip, Dialog, DialogContent, List, ListItem, Skeleton, Typography, useTheme } from "@mui/material";
+import { DialogTitleWithClose } from "@/components/ui/DialogCloseButton";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import TripDayLeafletMap from "@/components/features/trips/TripDayLeafletMap";
 import { MiniImageStrip, PlanItemRichContent, parsePlanText, toViewerImages } from "@/components/features/trips/TripDayPlanItemContent";
@@ -475,7 +476,15 @@ export default function TripDayMapFullPage({ tripId, dayId }: TripDayMapFullPage
         </Box>
       </Box>
       <Dialog open={Boolean(mapDialogItem)} onClose={() => setMapDialogItem(null)} fullWidth maxWidth="sm">
-        <DialogTitle>{mapDialogItem?.label ?? ""}</DialogTitle>
+        {/*
+          Story 6.25 AC1. This popup is read-only and had **no** visible dismissal at all before the
+          `✕` — only the backdrop and Escape, neither of which is discoverable on a touch screen. It
+          gains the same glyph in the same corner as every other dialog rather than a footer button
+          it never had.
+        */}
+        <DialogTitleWithClose label={t("common.close")} onClose={() => setMapDialogItem(null)}>
+          {mapDialogItem?.label ?? ""}
+        </DialogTitleWithClose>
         <DialogContent>
           {mapDialogItem ? (
             <Box display="flex" flexDirection="column" gap={1.5}>

@@ -9,7 +9,6 @@ import {
   Dialog,
   DialogActions,
   DialogContent,
-  DialogTitle,
   Divider,
   IconButton,
   Menu,
@@ -25,6 +24,8 @@ import { useSearchParams } from "next/navigation";
 import FormField from "@/components/forms/FormField";
 import PhotoUploadField from "@/components/forms/PhotoUploadField";
 import DialogShell from "@/components/ui/DialogShell";
+import { DialogTitleWithClose } from "@/components/ui/DialogCloseButton";
+import DiscardChangesDialog, { useDiscardGuard } from "@/components/ui/DiscardChangesDialog";
 import FullscreenPhotoViewer, { type FullscreenPhoto } from "@/components/ui/FullscreenPhotoViewer";
 import TripAccommodationDialog from "@/components/features/trips/TripAccommodationDialog";
 import TripDayGanttBar, { buildGanttPalette } from "@/components/features/trips/TripDayGanttBar";
@@ -879,11 +880,19 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     setTransferTargetDayId("");
   };
 
-  const handleCloseTransferDialog = () => {
+  const handleCloseTransferDialog = useCallback(() => {
     if (transferSubmitting) return;
     setTransferMode(null);
     setTransferTargetDayId("");
-  };
+  }, [transferSubmitting]);
+
+  /**
+   * Story 6.25 AC7. This dialog's whole input is one select, and it opens empty (`setTransferTargetDayId("")`
+   * above), so "dirty" is simply "a day has been picked". EXPERIENCE.md's rule has no triviality
+   * threshold — a chosen target is something to lose — and applying it uniformly is what makes the
+   * `✕` mean the same thing on every dialog rather than on most of them.
+   */
+  const transferGuard = useDiscardGuard(transferTargetDayId !== "", handleCloseTransferDialog, transferSubmitting);
 
   const orderedDays = useMemo(() => {
     if (!detail) return [];
@@ -1072,6 +1081,28 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     setDayImageFile(null);
     setDayNoteDraft(day?.note ?? "");
   }, [day?.id, day?.note]);
+
+  /**
+   * Story 6.25 AC7, for the day-image dialog. Its two inputs are the staged file and the note draft;
+   * the note's baseline is the day's saved note, which is exactly what the effect above seeds it to,
+   * so reopening an unedited dialog is silent. A photo already on the day is not part of this — it is
+   * on the server, with nothing pending behind it.
+   */
+  const handleCloseDayMeta = useCallback(() => {
+    setDayMetaOpen(false);
+    // Closing ends the draft, whether the user answered "verwerfen" or the dialog was already clean.
+    // The seed effect above keys on `[day?.id, day?.note]` and neither changes when the dialog merely
+    // closes, so without this the discarded text survives into the next open — and `handleSaveDayImage`
+    // and `handleRemoveDayImage` both post `dayNoteDraft`, which would write a discarded note to the
+    // server. The two save paths close via `setDayMetaOpen(false)` directly and re-seed from the
+    // response, so they do not go through here and are unaffected.
+    setDayImageFile(null);
+    setDayNoteDraft(day?.note ?? "");
+  }, [day?.note]);
+  const dayMetaGuard = useDiscardGuard(
+    dayImageFile !== null || dayNoteDraft !== (day?.note ?? ""),
+    handleCloseDayMeta,
+  );
 
   useEffect(() => {
     if (loading || !day) return;
@@ -3204,10 +3235,14 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
             onClose={handlePlanDialogClose}
             onSaved={handlePlanDialogSaved}
           />
-          <Dialog open={transferMode !== null} onClose={handleCloseTransferDialog} fullWidth maxWidth="sm">
-            <DialogTitle>
+          <Dialog open={transferMode !== null} onClose={transferGuard.requestClose} fullWidth maxWidth="sm">
+            <DialogTitleWithClose
+              label={t("common.close")}
+              onClose={transferGuard.requestClose}
+              disabled={transferSubmitting}
+            >
               {transferMode === "move" ? t("trips.dayTransfer.moveAction") : t("trips.dayTransfer.swapAction")}
-            </DialogTitle>
+            </DialogTitleWithClose>
             <DialogContent>
               <Box mt={0.5} display="flex" flexDirection="column" gap={1.5}>
                 <Typography variant="body2" color="text.secondary">
@@ -3233,10 +3268,8 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                 ) : null}
               </Box>
             </DialogContent>
+            {/* Story 6.25 AC2 — a form dialog's footer keeps only the confirming action. */}
             <DialogActions>
-              <Button onClick={handleCloseTransferDialog} color="inherit" disabled={transferSubmitting}>
-                {t("common.cancel")}
-              </Button>
               <Button
                 onClick={() => void handleSubmitTransfer()}
                 variant="contained"
@@ -3246,13 +3279,15 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
               </Button>
             </DialogActions>
           </Dialog>
+          <DiscardChangesDialog {...transferGuard.dialogProps} />
           <DialogShell
             open={dayMetaOpen}
-            onClose={() => setDayMetaOpen(false)}
+            onClose={dayMetaGuard.requestClose}
             title={t("trips.dayImage.dialogTitle")}
             width={460}
             // Save and Remove are disabled while `dayImageSaving`; the dismissal gestures follow.
             disableDismiss={dayImageSaving}
+            closeLabel={t("common.close")}
             footer={
               <>
                 {/* No `color="error"` on the destructive action (AC8) — and none was there to begin
@@ -3265,10 +3300,9 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                 >
                   {t("trips.dayImage.removeAction")}
                 </Button>
+                {/* Story 6.25 AC2. `Abbrechen` left for the head's `✕`; Remove is not a dismissal, so
+                    the footer still holds two controls and `space-between` still earns its place. */}
                 <Box sx={{ display: "flex", flexDirection: { xs: "column-reverse", sm: "row" }, gap: "10px" }}>
-                  <Button variant="outlined" onClick={() => setDayMetaOpen(false)}>
-                    {t("common.cancel")}
-                  </Button>
                   <Button onClick={() => void handleSaveDayImage()} variant="contained" disabled={dayImageSaving}>
                     {t("trips.dayImage.saveAction")}
                   </Button>
@@ -3325,14 +3359,18 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
               />
             </Box>
           </DialogShell>
+          <DiscardChangesDialog {...dayMetaGuard.dialogProps} />
           <FullscreenPhotoViewer
             open={Boolean(fullscreenPhotos)}
             images={fullscreenPhotos?.images ?? []}
             startIndex={fullscreenPhotos?.index ?? 0}
             onClose={() => setFullscreenPhotos(null)}
           />
+          {/* Story 6.25 AC1 — a read-only popup, no footer, so the `✕` is its only visible dismissal. */}
           <Dialog open={Boolean(mapDialogItem)} onClose={() => setMapDialogItem(null)} fullWidth maxWidth="sm">
-            <DialogTitle>{mapDialogItem?.label ?? ""}</DialogTitle>
+            <DialogTitleWithClose label={t("common.close")} onClose={() => setMapDialogItem(null)}>
+              {mapDialogItem?.label ?? ""}
+            </DialogTitleWithClose>
             <DialogContent>
               {mapDialogItem ? (
                 <Box display="flex" flexDirection="column" gap={1.5}>

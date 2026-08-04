@@ -14,7 +14,6 @@ import {
   Dialog,
   DialogActions,
   DialogContent,
-  DialogTitle,
   TextField,
   Typography,
 } from "@mui/material";
@@ -22,6 +21,8 @@ import { useTheme } from "@mui/material/styles";
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
 import { MAX_IMPORT_PACKAGE_BYTES } from "@/lib/trips/importLimits";
+import { DialogTitleWithClose } from "@/components/ui/DialogCloseButton";
+import DiscardChangesDialog, { useDiscardGuard } from "@/components/ui/DiscardChangesDialog";
 
 type ApiEnvelope<T> = {
   data: T | null;
@@ -92,6 +93,24 @@ export default function TripImportDialog({ open, onClose, onImported }: TripImpo
   const [conflicts, setConflicts] = useState<TripConflict[]>([]);
   const [conflictTargetTripId, setConflictTargetTripId] = useState<string | null>(null);
   const [result, setResult] = useState<ImportResponse | null>(null);
+
+  /**
+   * Story 6.25 AC7. "Typed input" on this dialog is a **chosen file** — the one thing the user cannot
+   * get back by reopening, because the picker starts empty every time. `result` deliberately does not
+   * count: once the import has run there is nothing left to lose, and that state's footer already
+   * carries an acknowledging Close.
+   *
+   * Story 6.25 review: a *rejected* file does not count either. `file !== null && result === null` is
+   * also the state after the server refuses a backup, and the user closing that to go and pick a
+   * different one was being asked to confirm discarding changes they had not made — in the generic
+   * "deine Änderungen werden verworfen" wording, over a file the server would not take. A file the
+   * user still has a decision to make about is one nothing has been said about yet.
+   */
+  const importGuard = useDiscardGuard(
+    file !== null && result === null && serverError === null && serverIssues.length === 0,
+    onClose,
+    isSubmitting,
+  );
 
   useEffect(() => {
     if (!open) {
@@ -358,109 +377,138 @@ export default function TripImportDialog({ open, onClose, onImported }: TripImpo
   );
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle>{t("trips.import.title")}</DialogTitle>
-      <DialogContent dividers>
-        <Box display="flex" flexDirection="column" gap={2}>
-          {serverError && <Alert severity="error">{serverError}</Alert>}
+    <>
+      <Dialog open={open} onClose={importGuard.requestClose} fullWidth maxWidth="sm">
+        <DialogTitleWithClose
+          label={t("common.close")}
+          onClose={importGuard.requestClose}
+          disabled={isSubmitting}
+        >
+          {t("trips.import.title")}
+        </DialogTitleWithClose>
+        <DialogContent dividers>
+          <Box display="flex" flexDirection="column" gap={2}>
+            {serverError && <Alert severity="error">{serverError}</Alert>}
 
-          {serverIssues.length > 0 &&
-            diagnosticList("trip-import-issues", t("trips.import.issuesHeading"), serverIssues)}
+            {serverIssues.length > 0 &&
+              diagnosticList("trip-import-issues", t("trips.import.issuesHeading"), serverIssues)}
 
-          {result ? (
-            <Box data-testid="trip-import-summary" display="flex" flexDirection="column" gap={1.5}>
-              <Alert severity="success">
-                {formatMessage(
-                  t(result.mode === "overwrite" ? "trips.import.successOverwritten" : "trips.import.successCreated"),
-                  { name: result.trip.name },
-                )}
-              </Alert>
-              <Box
-                sx={{
-                  display: "grid",
-                  gridTemplateColumns: { xs: "repeat(2, 1fr)", sm: "repeat(4, 1fr)" },
-                  gap: 2,
-                  padding: "14px 16px",
-                  border: "1px solid",
-                  borderColor: tokens.border,
-                  borderRadius: "8px",
-                  backgroundColor: tokens.card,
-                }}
-              >
-                {summaryCell(t("trips.import.summaryDays"), result.dayCount)}
-                {summaryCell(t("trips.import.summaryPhotos"), result.photoCount ?? 0)}
-                {summaryCell(t("trips.import.summarySegments"), result.travelSegmentCount ?? 0)}
-                {summaryCell(t("trips.import.summaryBucket"), result.bucketListItemCount ?? 0)}
+            {result ? (
+              <Box data-testid="trip-import-summary" display="flex" flexDirection="column" gap={1.5}>
+                <Alert severity="success">
+                  {formatMessage(
+                    t(result.mode === "overwrite" ? "trips.import.successOverwritten" : "trips.import.successCreated"),
+                    { name: result.trip.name },
+                  )}
+                </Alert>
+                <Box
+                  sx={{
+                    display: "grid",
+                    gridTemplateColumns: { xs: "repeat(2, 1fr)", sm: "repeat(4, 1fr)" },
+                    gap: 2,
+                    padding: "14px 16px",
+                    border: "1px solid",
+                    borderColor: tokens.border,
+                    borderRadius: "8px",
+                    backgroundColor: tokens.card,
+                  }}
+                >
+                  {summaryCell(t("trips.import.summaryDays"), result.dayCount)}
+                  {summaryCell(t("trips.import.summaryPhotos"), result.photoCount ?? 0)}
+                  {summaryCell(t("trips.import.summarySegments"), result.travelSegmentCount ?? 0)}
+                  {summaryCell(t("trips.import.summaryBucket"), result.bucketListItemCount ?? 0)}
+                </Box>
+                {warnings.length > 0 &&
+                  diagnosticList("trip-import-warnings", t("trips.import.warningsHeading"), warnings)}
               </Box>
-              {warnings.length > 0 &&
-                diagnosticList("trip-import-warnings", t("trips.import.warningsHeading"), warnings)}
-            </Box>
-          ) : (
-            <Box display="flex" flexDirection="column" gap={1}>
-              <Typography variant="body2" color="text.secondary">
-                {t("trips.import.fileHelp")}
-              </Typography>
-              <input
-                aria-label={t("trips.import.fileLabel")}
-                type="file"
-                accept="application/zip,.zip,application/json,.json"
-                onChange={handleFileChange}
-              />
-              {fileName && (
-                <Typography variant="caption" color="text.secondary">
-                  {fileName}
+            ) : (
+              <Box display="flex" flexDirection="column" gap={1}>
+                <Typography variant="body2" color="text.secondary">
+                  {t("trips.import.fileHelp")}
                 </Typography>
-              )}
-            </Box>
-          )}
-
-          {hasConflict && !result && (
-            <Box display="flex" flexDirection="column" gap={1}>
-              <Typography variant="body2" color="text.secondary">
-                {t("trips.import.conflictHelp")}
-              </Typography>
-              <TextField
-                select
-                SelectProps={{ native: true }}
-                value={conflictTargetTripId ?? ""}
-                onChange={(event) => setConflictTargetTripId(event.target.value)}
-                label={t("trips.import.conflictSelectLabel")}
-                size="small"
-              >
-                {conflicts.map((conflict) => (
-                  <option key={conflict.id} value={conflict.id}>
-                    {conflict.name}
-                  </option>
-                ))}
-              </TextField>
-              <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
-                <Button variant="outlined" onClick={() => void submitImport("overwrite")} disabled={isSubmitting}>
-                  {t("trips.import.strategyOverwrite")}
-                </Button>
-                <Button variant="outlined" onClick={() => void submitImport("createNew")} disabled={isSubmitting}>
-                  {t("trips.import.strategyCreateNew")}
-                </Button>
+                <input
+                  aria-label={t("trips.import.fileLabel")}
+                  type="file"
+                  accept="application/zip,.zip,application/json,.json"
+                  onChange={handleFileChange}
+                />
+                {fileName && (
+                  <Typography variant="caption" color="text.secondary">
+                    {fileName}
+                  </Typography>
+                )}
               </Box>
-            </Box>
-          )}
-        </Box>
-      </DialogContent>
-      <DialogActions>
-        {result ? (
-          <Button variant="contained" onClick={onClose}>
-            {t("common.close")}
-          </Button>
-        ) : (
-          <>
-            <Button onClick={onClose} disabled={isSubmitting}>
-              {t("common.cancel")}
+            )}
+
+            {hasConflict && !result && (
+              <Box display="flex" flexDirection="column" gap={1}>
+                <Typography variant="body2" color="text.secondary">
+                  {t("trips.import.conflictHelp")}
+                </Typography>
+                <TextField
+                  select
+                  SelectProps={{ native: true }}
+                  value={conflictTargetTripId ?? ""}
+                  onChange={(event) => setConflictTargetTripId(event.target.value)}
+                  label={t("trips.import.conflictSelectLabel")}
+                  size="small"
+                >
+                  {conflicts.map((conflict) => (
+                    <option key={conflict.id} value={conflict.id}>
+                      {conflict.name}
+                    </option>
+                  ))}
+                </TextField>
+                <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                  <Button variant="outlined" onClick={() => void submitImport("overwrite")} disabled={isSubmitting}>
+                    {t("trips.import.strategyOverwrite")}
+                  </Button>
+                  <Button variant="outlined" onClick={() => void submitImport("createNew")} disabled={isSubmitting}>
+                    {t("trips.import.strategyCreateNew")}
+                  </Button>
+                </Box>
+              </Box>
+            )}
+          </Box>
+        </DialogContent>
+        {/*
+          Story 6.25 AC2. The pre-import footer lost its `Abbrechen` and keeps only "Import starten";
+          dismissal is the `✕` above.
+
+          The post-import footer keeps a button, and that is deliberate rather than an oversight: in
+          that state it is not a dismissal offered *instead* of committing, it is the acknowledgement of
+          a result the user has to read — a contained primary, the only action left on the screen, and a
+          clearer end-of-flow affordance on a phone than a corner glyph. It calls `onClose` directly,
+          since a completed import has nothing to discard.
+
+          It says "Fertig", not `common.close`. With the `✕` above it, `common.close` put **two controls
+          named "Schließen"** in one dialog — a screen-reader user would hear the same name twice with
+          no way to tell which is which, and the suite caught it as an ambiguous query. "Fertig" also
+          names the outcome rather than the mechanism, which is what Voice and Tone asks of the word on
+          a button.
+
+          **This is a written-down exemption from AC2 and DESIGN.md:257** ("a form dialog carries no
+          secondary button: its dismissal is `icon-button.close`"), ratified in Story 6.25's code
+          review rather than left as a note in the story. It is narrow and it is about one state: in
+          the post-import state this button is not a dismissal offered *instead of* committing — the
+          import has already run, and the button acknowledges a result the user has to read. Before the
+          import runs, the footer holds only the confirming action, exactly as AC2 requires. Widening
+          this to "a form dialog may keep a second button when it feels like an acknowledgement" is
+          what the exemption does *not* say.
+        */}
+        <DialogActions>
+          {result ? (
+            <Button variant="contained" onClick={onClose}>
+              {t("trips.import.done")}
             </Button>
+          ) : (
             <Button variant="contained" onClick={() => void submitImport()} disabled={isSubmitting || !file}>
               {isSubmitting ? <CircularProgress size={22} /> : t("trips.import.action")}
             </Button>
-          </>
-        )}
-      </DialogActions>
-    </Dialog>
+          )}
+        </DialogActions>
+      </Dialog>
+      <DiscardChangesDialog {...importGuard.dialogProps} />
+    </>
   );
 }

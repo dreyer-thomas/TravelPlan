@@ -2096,6 +2096,56 @@ describe("TripDayPlanDialog", () => {
       expect(screen.getByLabelText("Zieltag")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Aktivität verschieben" })).toBeInTheDocument();
     });
+
+    /**
+     * Story 6.25 code review. The picker's discard guard reads "a target day has been picked", and its
+     * docblock said it "opens with `moveTargetDayId` blank (see the open effect)" — but that effect
+     * belongs to the *activity* dialog and does not re-run when the picker alone is reopened. So a day
+     * the user picked and then explicitly discarded came back selected, with the confirm button live,
+     * one click from moving the activity to the day it had just been taken away from. The guard also
+     * reported dirty on a reopen nobody had touched.
+     *
+     * Closing the picker now clears the target, which is what makes "opens blank" true on every open
+     * rather than only the first one per activity.
+     */
+    it("forgets a target day that was picked and then discarded", async () => {
+      const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
+      vi.stubGlobal("fetch", csrfOnlyFetch());
+      const onMove = vi.fn(async () => ({ moved: true as const }));
+
+      render(
+        <Providers language="en">
+          <TripDayPlanDialog
+            open
+            mode="edit"
+            tripId="trip-1"
+            day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
+            item={existingItem}
+            moveTargetDays={targetDays}
+            onMove={onMove}
+            onClose={() => undefined}
+            onSaved={() => undefined}
+          />
+        </Providers>,
+      );
+
+      fireEvent.click(await screen.findByRole("button", { name: "Another day" }));
+      fireEvent.change(screen.getByLabelText("Target day"), { target: { value: "day-3" } });
+
+      // The picker's own `✕` is the last close control on screen — the activity dialog behind it has
+      // one too, and each closes the surface it sits on.
+      const closeControls = screen.getAllByTestId("dialog-close");
+      fireEvent.click(closeControls[closeControls.length - 1]);
+
+      // A target was chosen, so the guard asks rather than closing straight through.
+      fireEvent.click(await screen.findByRole("button", { name: "Discard changes" }));
+
+      fireEvent.click(await screen.findByRole("button", { name: "Another day" }));
+
+      expect(screen.getByLabelText("Target day")).toHaveValue("");
+      expect(screen.getByRole("button", { name: "Move activity" })).toBeDisabled();
+      expect(onMove).not.toHaveBeenCalled();
+    });
   });
 
   /**

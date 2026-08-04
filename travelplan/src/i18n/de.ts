@@ -159,12 +159,17 @@ const de: Dictionary = {
   "trips.delete.title": "Reise löschen?",
   "trips.delete.body": "„{name}“ und alle Tage werden entfernt. Diese Aktion kann nicht rückgängig gemacht werden.",
   "trips.delete.submit": "Reise löschen",
+  // Story 6.25 AC3 — siehe en.ts. Die sichere Antwort nennt das Ergebnis, nicht den Mechanismus.
+  // Das ist die verbindliche Formulierung aus der Anfrage selbst.
+  "trips.delete.keep": "Reise behalten",
   "trips.delete.open": "Reise löschen",
   // Siehe en.ts: `.open` ist der Auslöser in der Karte, `.action` der Absende-Button eines Dialogs.
   "trips.export.open": "Backup exportieren",
   "trips.export.error": "Reiseexport fehlgeschlagen. Bitte erneut versuchen.",
   "trips.import.open": "Backup importieren",
   "trips.import.action": "Import starten",
+  // Story 6.25 — siehe en.ts. Nicht `common.close`: der `✕` im Kopf trägt dieses Wort schon.
+  "trips.import.done": "Fertig",
   "trips.import.title": "Reise-Backup importieren",
   "trips.import.fileLabel": "Backup-Datei",
   "trips.import.fileHelp": "Wähle ein .zip-Backup aus, das aus TravelPlan exportiert wurde. Ältere .json-Backups funktionieren weiterhin.",
@@ -426,6 +431,9 @@ const de: Dictionary = {
   "trips.bucketList.deleteTitle": "Bucket-List-Eintrag löschen?",
   "trips.bucketList.deleteBody": "Dieser Eintrag wird aus deiner Bucket-Liste entfernt.",
   "trips.bucketList.deleteConfirm": "Eintrag löschen",
+  // Story 6.25 AC3 — siehe en.ts. "Eintrag behalten" neben "Eintrag löschen": zwei Ergebnisse,
+  // dasselbe Objekt, dasselbe Wort dafür.
+  "trips.bucketList.deleteKeep": "Eintrag behalten",
   "trips.plan.addAction": "Plan hinzufügen",
   "trips.plan.editAction": "Plan bearbeiten",
   "trips.plan.addPrimaryAction": "+ Aktivität",
@@ -443,12 +451,10 @@ const de: Dictionary = {
   "trips.plan.editItemAria": "Planpunkt bearbeiten: {title}",
   "trips.plan.deleteItemAria": "Planpunkt löschen",
   "trips.plan.deleteConfirm": "Diesen Planpunkt löschen?",
-  // Story 6.24 AC3a — siehe en.ts. Der Text nennt, was verloren geht; die sichere Antwort nennt,
-  // was bleibt ("Weiter bearbeiten"), nicht den Mechanismus ("Abbrechen").
-  "trips.plan.discardTitle": "Änderungen verwerfen?",
+  // Story 6.24 AC3a, verallgemeinert durch 6.25 — siehe en.ts. Nur der Text bleibt hier, weil er
+  // das Objekt benennt; Titel, sichere Antwort und Verwerfen-Aktion liegen jetzt unter
+  // `common.discard.*` und gelten für alle zehn Formulardialoge.
   "trips.plan.discardBody": "Deine Änderungen an diesem Planpunkt werden verworfen.",
-  "trips.plan.discardConfirm": "Änderungen verwerfen",
-  "trips.plan.discardKeep": "Weiter bearbeiten",
   // Story 6.22 — siehe en.ts. Diese vier Labels teilen sich eine Zeile auf 390px.
   "trips.plan.tabsLabel": "Bereiche der Aktivität",
   "trips.plan.tabWhat": "Was",
@@ -591,10 +597,13 @@ const de: Dictionary = {
   "users.registered.empty": "Noch keine Konten registriert.",
   "users.registered.loadError": "Registrierte Benutzer konnten nicht geladen werden. Bitte aktualisieren.",
   "users.registered.forbidden": "Nur Reise-Eigentümer können registrierte Benutzer sehen.",
-  "common.cancel": "Abbrechen",
-  // Story 6.17 hat `common.save` entfernt — siehe die Notiz in `en.ts`. Der einzige Leser nutzt
-  // jetzt `trips.travelSegment.save`.
-  "common.close": "Schließen"
+  // Story 6.17 hat `common.save` entfernt und 6.25 `common.cancel` — siehe die Notizen in `en.ts`.
+  "common.close": "Schließen",
+  // Story 6.25 — siehe en.ts. Ein `common.`-Name mit zehn Lesern, nicht mit einem.
+  "common.discard.title": "Änderungen verwerfen?",
+  "common.discard.body": "Deine Änderungen werden verworfen.",
+  "common.discard.confirm": "Änderungen verwerfen",
+  "common.discard.keep": "Weiter bearbeiten"
 };
 
 export default de;

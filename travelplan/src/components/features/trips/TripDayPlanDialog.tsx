@@ -8,7 +8,6 @@ import {
   Dialog,
   DialogActions,
   DialogContent,
-  DialogTitle,
   FormControl,
   FormControlLabel,
   FormHelperText,
@@ -28,6 +27,8 @@ import FormField from "@/components/forms/FormField";
 import FormNotice from "@/components/forms/FormNotice";
 import PhotoUploadField from "@/components/forms/PhotoUploadField";
 import DialogShell from "@/components/ui/DialogShell";
+import { DialogTitleWithClose } from "@/components/ui/DialogCloseButton";
+import DiscardChangesDialog, { useDiscardGuard } from "@/components/ui/DiscardChangesDialog";
 import FullscreenPhotoViewer from "@/components/ui/FullscreenPhotoViewer";
 import { TrashIcon, WarningTriangleIcon } from "@/components/features/trips/TripIcons";
 import { EditorContent, useEditor } from "@tiptap/react";
@@ -1285,6 +1286,26 @@ export default function TripDayPlanDialog({
     onClose();
   }, [onClose]);
 
+  const handleDiscardKeep = useCallback(() => setDiscardOpen(false), []);
+
+  /**
+   * Story 6.25 AC7, for the **move picker** — a separate dialog with its own dismissal and its own one
+   * field. It opens with `moveTargetDayId` blank, so "dirty" is "a target day has been picked".
+   * `handleMoveConfirm` closes it directly and never asks.
+   *
+   * Clearing the target here is what makes that first sentence true on *every* open rather than only
+   * the first per activity: the outer dialog's open effect resets `moveTargetDayId`, but reopening the
+   * picker within one activity does not re-run it. Without this, a day the user picked and then
+   * discarded came back pre-selected with the confirm button live, one click from moving the activity
+   * to a day it had just been taken away from.
+   */
+  const closeMovePicker = useCallback(() => {
+    if (moving) return;
+    setMoveOpen(false);
+    setMoveTargetDayId("");
+  }, [moving]);
+  const moveGuard = useDiscardGuard(moveTargetDayId !== "", closeMovePicker, moving);
+
   const handleDelete = useCallback(async () => {
     if (!editingItemId || !onDelete) return;
     setDeleting(true);
@@ -2136,16 +2157,16 @@ export default function TripDayPlanDialog({
         what AC1 says the action must not do.
       */}
       {canMove ? (
-        <Dialog
-          open={moveOpen}
-          onClose={() => {
-            if (moving) return;
-            setMoveOpen(false);
-          }}
-          fullWidth
-          maxWidth="sm"
-        >
-          <DialogTitle>{t("trips.plan.moveDialogTitle")}</DialogTitle>
+        <Dialog open={moveOpen} onClose={moveGuard.requestClose} fullWidth maxWidth="sm">
+          {/*
+            Story 6.25 AC1/Task 2. The move picker gets the `✕` like every other dialog. It is nested
+            inside the activity dialog, which also has one, and that is fine: each closes the surface it
+            sits on. The one nested dialog that is *exempt* is the discard confirmation below — see the
+            note there.
+          */}
+          <DialogTitleWithClose label={t("common.close")} onClose={moveGuard.requestClose} disabled={moving}>
+            {t("trips.plan.moveDialogTitle")}
+          </DialogTitleWithClose>
           <DialogContent>
             <Box mt={0.5} display="flex" flexDirection="column" gap={1.5}>
               {/* AC3 said in words. The story exists because the alternative is retyping, so the
@@ -2178,10 +2199,8 @@ export default function TripDayPlanDialog({
               </TextField>
             </Box>
           </DialogContent>
+          {/* Story 6.25 AC2 — a form dialog's footer keeps only the confirming action. */}
           <DialogActions>
-            <Button variant="outlined" onClick={() => setMoveOpen(false)} disabled={moving}>
-              {t("common.cancel")}
-            </Button>
             <Button
               variant="contained"
               onClick={() => void handleMoveConfirm()}
@@ -2192,33 +2211,29 @@ export default function TripDayPlanDialog({
           </DialogActions>
         </Dialog>
       ) : null}
+      <DiscardChangesDialog {...moveGuard.dialogProps} />
       {/*
         Story 6.24 AC3a — EXPERIENCE.md.State Patterns → "Dismissing a dialog with unsaved input".
 
         Asked once, and only when there is something to lose: `handleCloseRequest` never raises this
-        for an untouched form. The two answers stay on equal footing because both are real outcomes,
-        and the safe one names what it keeps ("Weiter bearbeiten") rather than the mechanism
-        ("Abbrechen") — Voice and Tone. `color="error"` on the discard follows `TripDeleteDialog`,
-        which is the app's existing shape for "the destructive half of a pair".
+        for an untouched form. Story 6.25 moved the markup into `DiscardChangesDialog`, because nine
+        more dialogs now ask the same question and nine copies of it would drift; only the body stays
+        here, since it is the line that names *this* dialog's object. `plan-discard-body` is kept as
+        the testid so 6.24's assertions still point at the same element.
 
-        Escape and the backdrop resolve to keeping, which is the same safe default as the button.
+        It carries no `✕` of its own. That is the one exemption this story writes down rather than
+        infers: DESIGN.md gives every dialog exactly one close, but this dialog is *raised by* a `✕`,
+        so a glyph on it would mean the same thing as the glyph that opened it — and two clicks on
+        the same corner would land the user back in the form they were leaving. Escape and the
+        backdrop already resolve to keeping, so the safe default is reachable without one.
       */}
-      <Dialog open={discardOpen} onClose={() => setDiscardOpen(false)} fullWidth maxWidth="xs">
-        <DialogTitle>{t("trips.plan.discardTitle")}</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" sx={{ color: tokens.inkSoft }} data-testid="plan-discard-body">
-            {t("trips.plan.discardBody")}
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button variant="outlined" onClick={() => setDiscardOpen(false)}>
-            {t("trips.plan.discardKeep")}
-          </Button>
-          <Button color="error" variant="contained" onClick={handleDiscardConfirm}>
-            {t("trips.plan.discardConfirm")}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <DiscardChangesDialog
+        open={discardOpen}
+        onKeep={handleDiscardKeep}
+        onDiscard={handleDiscardConfirm}
+        body={t("trips.plan.discardBody")}
+        bodyTestId="plan-discard-body"
+      />
       <FullscreenPhotoViewer
         open={fullscreenIndex !== null}
         images={galleryPreviews}

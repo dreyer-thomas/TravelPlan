@@ -1,9 +1,24 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render as baseRender, screen, waitFor } from "@testing-library/react";
+import { ThemeProvider } from "@mui/material/styles";
+import type { ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import TripDayTravelSegmentDialog from "@/components/features/trips/TripDayTravelSegmentDialog";
 import { I18nProvider } from "@/i18n/provider";
+import theme from "@/theme";
+
+/**
+ * Story 6.25. This suite rendered under `I18nProvider` alone, which was enough while this dialog read
+ * no design tokens. Its title row now carries `icon-button.close`, whose colour and focus ring come
+ * from `theme.palette.tokens` — and under MUI's bare default theme that object does not exist, so the
+ * component throws rather than rendering something subtly wrong. Wrapping here rather than editing
+ * ~50 call sites; the per-test `I18nProvider` and its language stay exactly where they were.
+ *
+ * See `test/helpers/renderWithProviders.tsx`, which says the same thing for the suites that started
+ * out needing it.
+ */
+const render = (ui: ReactElement) => baseRender(<ThemeProvider theme={theme}>{ui}</ThemeProvider>);
 
 const baseProps = {
   open: true,

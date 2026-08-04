@@ -17,6 +17,7 @@ import {
   Typography,
   useTheme,
 } from "@mui/material";
+import DiscardChangesDialog, { useDiscardGuard } from "@/components/ui/DiscardChangesDialog";
 import { formatMessage } from "@/i18n";
 import { useI18n } from "@/i18n/provider";
 
@@ -134,7 +135,7 @@ export default function TripShareDialog({ open, tripId, tripName, onClose }: Tri
     handleSubmit,
     reset,
     setError,
-    formState: { errors, isSubmitting },
+    formState: { errors, isSubmitting, dirtyFields },
   } = useForm<TripShareFormValues>({
     defaultValues,
   });
@@ -401,10 +402,29 @@ export default function TripShareDialog({ open, tripId, tripName, onClose }: Tri
 
   const accessCount = collaborators.length + (ownerEmail ? 1 : 0);
 
+  /**
+   * Story 6.25 AC7, added by that story's code review.
+   *
+   * This dialog was not in AC7's list of nine, because that list was derived from the `common.cancel`
+   * readers and this dialog was never one — it has always dismissed with a named footer button. But
+   * AC7 says *every* form dialog, and this is one: an invite address, a role, and a temporary password
+   * that is typed once and not shown again. Closing threw all three away without a word.
+   *
+   * `dirtyFields` rather than `isDirty`, per the defect the browser pass caught on `heroImage`: a
+   * registered input whose value never deep-compares equal to its default latches `isDirty` true
+   * forever, and `dirtyFields` is the signal that does not. The collaborator list below is not part of
+   * this — adding and removing people are immediate writes with nothing pending behind them, the same
+   * split every other dialog in this story makes.
+   *
+   * DW-157 continues to cover the *placement* of this dialog's close control, which is unchanged.
+   */
+  const shareGuard = useDiscardGuard(Object.keys(dirtyFields).length > 0, onClose, isSubmitting);
+
   return (
+    <>
     <Dialog
       open={open}
-      onClose={onClose}
+      onClose={shareGuard.requestClose}
       fullWidth
       maxWidth={false}
       slotProps={{ paper: { sx: { width: "100%", maxWidth: 460 } } }}
@@ -625,10 +645,13 @@ export default function TripShareDialog({ open, tripId, tripName, onClose }: Tri
           justifyContent: "flex-end",
         }}
       >
-        <Button variant="outlined" onClick={onClose}>
+        <Button variant="outlined" onClick={shareGuard.requestClose}>
           {t("common.close")}
         </Button>
       </DialogActions>
     </Dialog>
+    {/* A sibling of the dialog it guards, which is the shape every other guarded dialog has. */}
+    <DiscardChangesDialog {...shareGuard.dialogProps} />
+    </>
   );
 }

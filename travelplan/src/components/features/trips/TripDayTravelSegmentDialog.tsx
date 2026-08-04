@@ -8,7 +8,6 @@ import {
   Dialog,
   DialogActions,
   DialogContent,
-  DialogTitle,
   FormControl,
   FormHelperText,
   InputLabel,
@@ -23,6 +22,8 @@ import {
   transportTypeRequiresDistance,
   type TransportType,
 } from "@/lib/trips/transportTypes";
+import { DialogTitleWithClose } from "@/components/ui/DialogCloseButton";
+import DiscardChangesDialog, { useDiscardGuard } from "@/components/ui/DiscardChangesDialog";
 
 type ApiEnvelope<T> = {
   data: T | null;
@@ -94,9 +95,9 @@ type DurationInput = { hours: string; minutes: string };
 
 /**
  * The duration a new segment opens with — 30 minutes, split the way the two boxes hold it. Frozen
- * because this one object is stored into both `durationInput` and `openSnapshotRef.current`: every
- * update path spreads into a new object today, and a future one that assigned a field in place
- * would otherwise corrupt the default for every dialog in the process.
+ * because this one object is stored into both `durationInput` and `openedValues`: every update path
+ * spreads into a new object today, and a future one that assigned a field in place would otherwise
+ * corrupt the default for every dialog in the process.
  */
 const DEFAULT_DURATION: Readonly<DurationInput> = Object.freeze({ hours: "0", minutes: "30" });
 
@@ -273,12 +274,32 @@ export default function TripDayTravelSegmentDialog({
   const seededLinkRef = useRef<string>("");
   /** True while the form holds the output of a route import, which belongs to one mode only. */
   const routePrefilledRef = useRef(false);
-  /** What the form held when it opened, so discarding a stale import restores rather than blanks. */
-  const openSnapshotRef = useRef<{ duration: DurationInput; distance: string; link: string }>({
-    duration: DEFAULT_DURATION,
-    distance: "",
-    link: "",
-  });
+  /**
+   * What the form holds when it opens.
+   *
+   * Story 6.25 turned this from a ref written by the open effect into a `useMemo`, because it now has a
+   * second reader — the dirty comparison that decides whether the `✕` asks before discarding — and that
+   * one runs during render. A ref read during render is both an eslint error (`react-hooks/refs`) and a
+   * real correctness hazard: nothing re-renders when a ref changes, so the comparison could sit on a
+   * stale baseline. Derived instead, from exactly the inputs the open effect keys on, so seeding and
+   * comparing cannot drift apart.
+   *
+   * `transport` joined for the dirty comparison only; `handleTransportTypeChange` reads the other three
+   * by name, to restore a stale route import.
+   */
+  const openedValues = useMemo(
+    () =>
+      segment
+        ? {
+            duration: splitMinutesToDuration(segment.durationMinutes),
+            distance:
+              segment.distanceKm !== null && segment.distanceKm !== undefined ? String(segment.distanceKm) : "",
+            link: segment.linkUrl ?? "",
+            transport: segment.transportType,
+          }
+        : { duration: DEFAULT_DURATION, distance: "", link: mapsLink ?? "", transport: "car" as TransportType },
+    [segment, mapsLink],
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -288,21 +309,12 @@ export default function TripDayTravelSegmentDialog({
     setRouteHelper(null);
     routePrefilledRef.current = false;
 
-    const opened = segment
-      ? {
-          duration: splitMinutesToDuration(segment.durationMinutes),
-          distance: segment.distanceKm !== null && segment.distanceKm !== undefined ? String(segment.distanceKm) : "",
-          link: segment.linkUrl ?? "",
-        }
-      : { duration: DEFAULT_DURATION, distance: "", link: mapsLink ?? "" };
-
-    setTransportType(segment ? segment.transportType : "car");
-    setDurationInput(opened.duration);
-    setDistanceKm(opened.distance);
-    setLinkUrl(opened.link);
-    openSnapshotRef.current = opened;
-    seededLinkRef.current = segment ? "" : opened.link;
-  }, [open, segment, mapsLink]);
+    setTransportType(openedValues.transport);
+    setDurationInput(openedValues.duration);
+    setDistanceKm(openedValues.distance);
+    setLinkUrl(openedValues.link);
+    seededLinkRef.current = segment ? "" : openedValues.link;
+  }, [open, segment, openedValues]);
 
   /**
    * Changing the mode discards a route imported for the *previous* one. Without this, picking
@@ -318,7 +330,7 @@ export default function TripDayTravelSegmentDialog({
     setFieldErrors((errors) => ({ ...errors, distanceKm: undefined }));
 
     if (routePrefilledRef.current) {
-      const opened = openSnapshotRef.current;
+      const opened = openedValues;
       // Re-point the link only if it is still the one this component seeded; a link the user pasted
       // is theirs to keep.
       const restoredLink =
@@ -565,11 +577,29 @@ export default function TripDayTravelSegmentDialog({
         : t("trips.travelSegment.googleMapsManualModeHelper")
       : t("trips.travelSegment.googleMapsUnavailableHelper");
 
+  /**
+   * Story 6.25 AC7. Compared against the values the dialog opened with rather than against a per-field
+   * `touched` flag, which is 6.24's finding: a flag calls the form dirty after a character is typed
+   * and deleted again, and would guard the `✕` with nothing behind it. It also covers the two paths no
+   * `onChange` sees — the route import writing all three fields, and the mode switch restoring them.
+   *
+   * `serverError`, `routeHelper` and `fieldErrors` are deliberately absent: they are the form's
+   * feedback about itself, not input the user would lose.
+   */
+  const isDirty =
+    transportType !== openedValues.transport ||
+    durationInput.hours !== openedValues.duration.hours ||
+    durationInput.minutes !== openedValues.duration.minutes ||
+    distanceKm !== openedValues.distance ||
+    linkUrl !== openedValues.link;
+  const segmentGuard = useDiscardGuard(isDirty, onClose);
+
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle>
+    <>
+    <Dialog open={open} onClose={segmentGuard.requestClose} fullWidth maxWidth="sm">
+      <DialogTitleWithClose label={t("common.close")} onClose={segmentGuard.requestClose} disabled={saving}>
         {isEditing ? t("trips.travelSegment.editTitle") : t("trips.travelSegment.addTitle")}
-      </DialogTitle>
+      </DialogTitleWithClose>
       <DialogContent sx={{ pt: 1 }}>
         {serverError ? (
           <Alert severity="error" sx={{ mb: 2 }}>
@@ -753,13 +783,14 @@ export default function TripDayTravelSegmentDialog({
             : t("trips.travelSegment.calculateGoogleMapsRoute")}
         </Button>
         <Box sx={{ flex: 1 }} />
-        <Button onClick={onClose} disabled={saving}>
-          {t("common.cancel")}
-        </Button>
+        {/* Story 6.25 AC2. `Abbrechen` left; the two remaining left-hand buttons are not dismissals —
+            one opens the route in Maps, the other imports it — so the spacer still earns its place. */}
         <Button variant="contained" onClick={() => void handleSave()} disabled={saving || !tripDayId || !fromItem || !toItem}>
           {t("trips.travelSegment.save")}
         </Button>
       </DialogActions>
     </Dialog>
+    <DiscardChangesDialog {...segmentGuard.dialogProps} />
+    </>
   );
 }

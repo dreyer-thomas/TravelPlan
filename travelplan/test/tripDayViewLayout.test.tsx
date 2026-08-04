@@ -6387,7 +6387,9 @@ describe("TripDayView layout", () => {
     expect(await screen.findByRole("heading", { name: "Move activities", level: 2 })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Confirm move" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Confirm swap" })).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    // Story 6.25: the footer's Cancel became the title row's `✕`. Nothing was picked in the select, so
+    // this closes straight through without raising the discard question.
+    await userEvent.click(screen.getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByRole("button", { name: "Confirm move" })).not.toBeInTheDocument());
 
     await activateDayOverflowItem("Swap activities");
@@ -6414,6 +6416,50 @@ describe("TripDayView layout", () => {
 
     // AC4: the menu closes on any selection, including the ones that open something on top of it.
     await waitFor(() => expect(screen.queryByRole("menuitem", { name: "Edit day details" })).not.toBeInTheDocument());
+
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * Story 6.25 code review, and the sharpest of the defects it found.
+   *
+   * The day-details dialog's discard guard compares `dayNoteDraft` against the day's saved note, but
+   * closing the dialog only flipped `dayMetaOpen` — the effect that re-seeds the draft keys on
+   * `[day?.id, day?.note]`, and neither changes when a dialog closes. So answering "Discard changes"
+   * closed the dialog and kept the text: reopening showed the note the user had just discarded, the
+   * guard read dirty on an untouched reopen, and — the part that made this worse than an annoyance —
+   * both `handleSaveDayImage` and `handleRemoveDayImage` post `dayNoteDraft`, so a later save of only
+   * the *photo* would have written the discarded note to the server.
+   *
+   * Both directions are asserted here: that typing raises the question at all, and that discarding
+   * actually discards.
+   */
+  it("discards the day note it was told to discard, and does not re-offer it (AC7)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal("fetch", buildDayResponse({}, { accessRole: "owner" }));
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    await activateDayOverflowItem("Edit day details");
+    await userEvent.type(await screen.findByLabelText("Day note"), "Ferry leaves at six");
+
+    await userEvent.click(screen.getByRole("button", { name: "Close" }));
+
+    // The draft is dirty, so the `✕` asks rather than throwing the text away.
+    expect(await screen.findByTestId("discard-changes-body")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Discard changes" }));
+    await waitFor(() => expect(screen.queryByLabelText("Day note")).not.toBeInTheDocument());
+
+    await activateDayOverflowItem("Edit day details");
+
+    // Reopened clean: the discarded text is gone, and the dialog closes silently because the draft
+    // matches the day's saved note again.
+    expect(await screen.findByLabelText("Day note")).toHaveValue("");
+    await userEvent.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByLabelText("Day note")).not.toBeInTheDocument());
+    expect(screen.queryByTestId("discard-changes-body")).toBeNull();
 
     vi.unstubAllGlobals();
   });

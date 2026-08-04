@@ -280,6 +280,8 @@ describe("DialogShell", () => {
         subtitle="Day 3 · 5/12"
         width={520}
         footer={<Button variant="contained">Save stay</Button>}
+        // Required as of Story 6.25, so it is part of the default fixture rather than a per-case prop.
+        closeLabel="Close"
         {...props}
       >
         <p>body</p>
@@ -316,22 +318,31 @@ describe("DialogShell", () => {
    * `@mui/material` and strips `sx` and `onClose` into `MUI_ONLY_PROPS`, so every geometric and
    * visual claim about the `✕` was previously asserted against an exported object literal or against
    * one unrepeatable browser pass.
+   *
+   * Story 6.25 made the prop **required** and moved the control's implementation into
+   * `DialogCloseButton`, so these cases now pin the shared piece every dialog in the app renders —
+   * not one shell's opt-in branch. The two cases that asserted the no-`closeLabel` shape are gone
+   * with the shape; `pins the required closeLabel` below is what replaced them.
    */
-  describe("the close control (Story 6.24 AC3/AC4/AC9)", () => {
-    const closeButton = () => screen.getByTestId("dialog-shell-close");
+  describe("the close control (Story 6.24 AC3/AC4, Story 6.25 AC1/AC6)", () => {
+    const closeButton = () => screen.getByTestId("dialog-close");
 
     /**
-     * AC9's actual claim. `closeLabel` is opt-in precisely so the three consumers that do not pass
-     * one are untouched by 6.24; the story asserted that by inspection, which is what let a wrong
-     * consumer count into the record in the first place.
+     * Story 6.25 AC1/AC6 in one line: the shell cannot render a dialog without a `✕`.
+     *
+     * Story 6.25 review corrected what this case claims. It used to say it caught a
+     * `closeLabel={undefined}` slipping through a spread — it did not, and could not: `renderShell`
+     * spreads `{...props}` *after* the fixture's `closeLabel`, so that case renders a button whose
+     * `aria-label` is `undefined`, and `getByTestId` finds it either way. An id survives an unnamed
+     * control, and an unnamed control is the actual failure. So the name is asserted here too, and the
+     * claim about `undefined` is gone rather than left as a comment nothing enforces — `closeLabel`
+     * being required is a compile-time guarantee, and this suite pins the rendered result instead.
      */
-    it("renders no close control at all when no closeLabel is given", () => {
+    it("puts a named close control on every dialog it renders", () => {
       renderShell();
 
-      expect(screen.queryByTestId("dialog-shell-close")).toBeNull();
-      // And the head still holds the title and sub-line it held before the prop existed.
-      expect(screen.getByRole("dialog")).toHaveAccessibleName("Add stay");
-      expect(screen.getByText("Day 3 · 5/12")).toBeInTheDocument();
+      expect(closeButton()).toBeInTheDocument();
+      expect(closeButton()).toHaveAccessibleName("Close");
     });
 
     /** AC4. An unlabelled `✕` is a button with no name for anyone not looking at it. */
@@ -355,13 +366,6 @@ describe("DialogShell", () => {
       expect(heading).not.toContainElement(closeButton());
       // The sub-line is still rendered, just not part of the heading either.
       expect(screen.getByText("Day 3 · 5/12")).toBeInTheDocument();
-    });
-
-    /** And the shape the three consumers that pass no `closeLabel` keep: the head is the heading. */
-    it("leaves the head as the heading when no closeLabel is given", () => {
-      renderShell();
-
-      expect(screen.getByRole("heading")).toHaveAccessibleName("Add stay Day 3 · 5/12");
     });
 
     /**
