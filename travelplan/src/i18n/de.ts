@@ -466,6 +466,7 @@ const de: Dictionary = {
   "trips.plan.tabWithErrors": "{label} (enthält Fehler)",
   // Story 6.22 — siehe en.ts.
   "trips.plan.galleryAfterSave": "Fotos kannst du hinzufügen, sobald der Planpunkt gespeichert ist.",
+  "trips.plan.documentsAfterSave": "Dokumente kannst du hinzufügen, sobald der Planpunkt gespeichert ist.",
   "trips.plan.contentLabel": "Plan-Notizen",
   "trips.plan.contentHelper": "Notizen für diesen Tag hinzufügen.",
   "trips.plan.editorLoading": "Editor wird geladen...",
@@ -576,6 +577,7 @@ const de: Dictionary = {
   "trips.stay.tabMedia": "Medien & Links",
   "trips.stay.tabWithErrors": "{label} (enthält Fehler)",
   "trips.stay.galleryAfterSave": "Fotos kannst du hinzufügen, sobald die Unterkunft gespeichert ist.",
+  "trips.stay.documentsAfterSave": "Dokumente kannst du hinzufügen, sobald die Unterkunft gespeichert ist.",
   "trips.gallery.title": "Bildergalerie",
   "trips.gallery.uploadAction": "Hochladen",
   "trips.gallery.moveUp": "Hoch",
@@ -591,6 +593,40 @@ const de: Dictionary = {
   "trips.gallery.viewer.close": "Fotoanzeige schließen",
   "trips.gallery.viewer.previous": "Vorheriges Foto",
   "trips.gallery.viewer.next": "Nächstes Foto",
+  // Story 9.1 — Dokumente an Unterkünften und Aktivitäten. Ein eigener Namensraum direkt neben
+  // `trips.gallery.*`: beide Felder liegen auf demselben Tab, meinen aber nicht dasselbe. Ein Foto ist
+  // eine Aufnahme der Reise, ein Dokument ein Ticket oder eine Buchungsbestätigung. Story 6.26 Task 5
+  // hält die Regel fest — zwei Oberflächen, die Unterschiedliches gruppieren, bekommen eigene Keys,
+  // auch wo der Text zufällig übereinstimmt (`uploadAction`, `selectedFiles`) oder wo
+  // `trips.image.unsupportedFormat` fast dasselbe sagt. Geteilte Keys hätten zur Folge, dass eine
+  // Umformulierung am Fotofeld das Dokumentenfeld stillschweigend mit ändert — und als Erstes ginge
+  // dabei der sichtbar andere Feldtitel aus AC2 verloren.
+  "trips.documents.title": "Dokumente",
+  "trips.documents.uploadZoneTitle": "Dokumente auswählen",
+  // Nennt beide Grenzen, die die Routen durchsetzen: ein abgelehnter 12-MB-Upload ist der schlechtere
+  // Weg, das Limit zu erfahren. Über `aria-describedby` am Datei-Input, also nie nur sichtbar.
+  "trips.documents.uploadZoneHint": "PDF, JPEG, PNG oder WebP, jeweils bis 10 MB",
+  "trips.documents.selectedFiles": "{count} Datei(en) ausgewählt",
+  "trips.documents.empty": "Noch keine Dokumente.",
+  "trips.documents.uploadAction": "Hochladen",
+  "trips.documents.removeDocument": "Dokument {index} von {total} entfernen",
+  // Der zugängliche Name des Chips. Zwei Dokumente an einem Eintrag dürfen denselben Dateinamen
+  // tragen — der eindeutige Index liegt auf `sortOrder`, nicht auf dem Namen —, deshalb gehört die
+  // Position zum Namen und ist keine Zierde: ohne sie bietet eine Karte mit zwei „Ticket.pdf“-Chips
+  // per Screenreader zwei identische Links an, genau der Mangel, den das Review zu Story 5.11 an zwei
+  // Comboboxen fand. Sichtbar bleibt der bloße Name; diese Zeile ist es, die `aria-label` darüberlegt.
+  "trips.documents.openDocument": "{name} öffnen ({index} von {total})",
+  // Der einzige zugängliche Name des „+N“-Elements, wird vorgelesen statt gelesen. Deshalb die im
+  // Projekt übliche Singular-Zwillingszeile statt eines ausgeschriebenen „(e)“, das ein Screenreader
+  // mitbuchstabieren würde. `formatMessage` kennt keine Pluralformen — siehe
+  // `trips.gallery.showMoreImages`.
+  "trips.documents.showMoreDocuments": "{count} weitere Dokumente anzeigen",
+  "trips.documents.showMoreDocumentsOne": "1 weiteres Dokument anzeigen",
+  "trips.documents.overflowTitle": "Alle Dokumente",
+  "trips.documents.unsupportedFormat": "Nicht unterstütztes Dokumentformat. Bitte eine PDF-, JPEG-, PNG- oder WebP-Datei auswählen.",
+  "trips.documents.limitReached": "Höchstens 10 Dokumente pro Eintrag.",
+  "trips.documents.uploadError": "Dokument-Upload fehlgeschlagen. Bitte erneut versuchen.",
+  "trips.documents.deleteError": "Dokument konnte nicht entfernt werden. Bitte erneut versuchen.",
   "trips.location.latLabel": "Breitengrad",
   "trips.location.lngLabel": "Längengrad",
   "trips.location.labelLabel": "Ortsbezeichnung (optional)",

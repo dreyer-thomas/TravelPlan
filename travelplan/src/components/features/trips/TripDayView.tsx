@@ -26,6 +26,7 @@ import PhotoUploadField from "@/components/forms/PhotoUploadField";
 import DialogShell from "@/components/ui/DialogShell";
 import { DialogTitleWithClose } from "@/components/ui/DialogCloseButton";
 import DiscardChangesDialog, { useDiscardGuard } from "@/components/ui/DiscardChangesDialog";
+import DocChip from "@/components/ui/DocChip";
 import FullscreenPhotoViewer, { type FullscreenPhoto } from "@/components/ui/FullscreenPhotoViewer";
 import TripAccommodationDialog from "@/components/features/trips/TripAccommodationDialog";
 import TripDayGanttBar, { buildGanttPalette } from "@/components/features/trips/TripDayGanttBar";
@@ -58,6 +59,7 @@ import { MiniImageStrip, PlanItemRichContent, isSafeLink, parsePlanText, toViewe
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
 import { buildDayMapPanelData, buildTripDayMapItems } from "@/lib/trips/dayMapData";
+import { documentDisplayName } from "@/lib/trips/documentUploads";
 import { IMAGE_UPLOAD_ACCEPT, isSupportedImageUpload } from "@/lib/trips/imageUploads";
 import { transportTypeAllowsDistance, type TransportType } from "@/lib/trips/transportTypes";
 
@@ -82,6 +84,51 @@ const EDIT_GLYPH_CLASS = "day-plan-item-edit-glyph";
  * own - a screen reader would otherwise announce the whole note every time focus lands on the card.
  */
 const EDIT_LABEL_MAX_CHARS = 80;
+
+/**
+ * The width at which the `doc-chip` group is allowed to sit beside the photo strip on a `tl-card`'s
+ * media row (DESIGN.md `:260-264`, AC4).
+ *
+ * ⚠️ **PROVISIONAL — this number has not been measured in a browser yet.** It is arithmetic, and the
+ * story says in as many words that arithmetic is not good enough for it: `STAY_PANEL_MIN_HEIGHT` in
+ * `TripAccommodationDialog.tsx` is the precedent, and Story 6.26's browser pass found its arithmetic
+ * wrong twice over before it shipped as a measured 400. Assume this one is wrong too until the
+ * measurement pass has run. **That pass owns this constant and this comment**: it corrects the value
+ * against what the browser reports and replaces the paragraph below with a table of the form
+ *
+ *   | viewport | card content width | photo strip | chips that fit | wraps? |
+ *   |----------|--------------------|-------------|----------------|--------|
+ *   | 390×844  |                    |             |                |        |
+ *   | desktop  |                    |             |                |        |
+ *
+ * Where 200 comes from, so the pass knows what it is correcting: the epic's own figures put the photo
+ * strip at ≈180px (three 56px thumbnails plus two 6px gaps = 180px exactly) against ≈150px of row
+ * left over at 390px, and AC4 requires room for **two** chips or none. A chip is 20px of horizontal
+ * padding plus a 14px glyph plus a 6px gap plus its label, so two of them with even short labels clear
+ * 150px comfortably and do not clear it at all with long ones. 200 is the round number just above the
+ * point where two ellipsised chips stop being legible; it is a guess at where that lands, not a
+ * reading of it.
+ *
+ * How it works, because the mechanism is the reason a single number suffices: the media row is a
+ * wrapping flex container and this is the chip group's `minWidth`. Flexbox therefore moves the **whole
+ * group** below the strip the moment the leftover space drops under it — never a chip at a time, which
+ * is the truncation AC4 and DESIGN.md `:262` both reject. No `ResizeObserver`, no breakpoint, and one
+ * value for the measurement pass to correct.
+ */
+const DOC_ROW_MIN_WIDTH = 200;
+
+/**
+ * How many `doc-chip`s a `tl-card` renders before the `+N` control takes over.
+ *
+ * Three, which is `MiniImageStrip`'s own cap (`TripDayPlanItemContent.tsx:191`) — one number for both
+ * media kinds, so the row does not present two different ideas of "too many" side by side.
+ *
+ * **It is not a width decision**, and keeping it apart from `DOC_ROW_MIN_WIDTH` is what makes the row
+ * testable: this one fixes what renders and therefore what `+N` counts, which a test can assert
+ * deterministically at any viewport; that one fixes where the group sits, and is the only half the
+ * browser measurement pass touches.
+ */
+const DOC_CHIP_VISIBLE_CAP = 3;
 
 /**
  * Screen-reader-only text. The units are the entire point.
@@ -308,6 +355,31 @@ type GalleryImage = {
   sortOrder: number;
 };
 
+/**
+ * One attached document as the two `…/documents` GET routes return it (Story 9.1).
+ *
+ * Declared here, per component, because that is this codebase's existing convention for a media row
+ * type and not because a shared one would be wrong: `GalleryImage` is declared four times over
+ * (`TripDayView.tsx` above, `TripAccommodationDialog.tsx:278`, `TripDayPlanDialog.tsx:75`,
+ * `TripDayMapFullPage.tsx:63`) and this type will end up the same. **The extraction is a real
+ * candidate** — but for a story allowed to touch all four files at once, since a shared type that only
+ * three of the four use is worse than four honest copies. Mirroring the convention keeps this story
+ * inside its own surface.
+ *
+ * `accommodationId` and `dayPlanItemId` are both optional for the same reason `GalleryImage`'s owner is:
+ * one type covers both routes' rows, and only the day-wide plan-item call needs the owner field to
+ * group by.
+ */
+type GalleryDocument = {
+  id: string;
+  accommodationId?: string;
+  dayPlanItemId?: string;
+  documentUrl: string;
+  /** The stored `file_name` column, extension and all. `DocChip` strips the extension for display. */
+  fileName: string;
+  sortOrder: number;
+};
+
 type TravelSegment = NonNullable<TripDay["travelSegments"]>[number];
 
 type PlanDialogMode = "add" | "edit";
@@ -444,11 +516,27 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const [accommodationImages, setAccommodationImages] = useState<GalleryImage[]>([]);
   const [previousAccommodationImages, setPreviousAccommodationImages] = useState<GalleryImage[]>([]);
   const [planItemImagesById, setPlanItemImagesById] = useState<Record<string, GalleryImage[]>>({});
+  // Beside their image twins and loaded by the same effect, so a card never paints its photos and its
+  // documents from two different moments in time.
+  const [accommodationDocuments, setAccommodationDocuments] = useState<GalleryDocument[]>([]);
+  const [previousAccommodationDocuments, setPreviousAccommodationDocuments] = useState<GalleryDocument[]>([]);
+  const [planItemDocumentsById, setPlanItemDocumentsById] = useState<Record<string, GalleryDocument[]>>({});
   const [routePolyline, setRoutePolyline] = useState<[number, number][]>([]);
   const [routingUnavailable, setRoutingUnavailable] = useState(false);
   // The whole collection plus a starting index, not a single URL: that is what lets the shared
   // viewer page to the images the three-thumbnail strip does not render (DW-30).
   const [fullscreenPhotos, setFullscreenPhotos] = useState<{ images: FullscreenPhoto[]; index: number } | null>(
+    null,
+  );
+  // The documents' answer to `fullscreenPhotos`, and deliberately shaped the same way: one anchor plus
+  // **the whole collection**, one mount for all three cards. The collection rather than the hidden
+  // tail because that is what the strip's own `+N` does — it opens the full set at the first unshown
+  // index — and DESIGN.md `:264` asks the two overflows to read as one kind of thing.
+  //
+  // It is a `Menu` and not `FullscreenPhotoViewer` (AC6, and the viewer's own docblock: it belongs to
+  // the trip's photographs). A ticket is not a photograph, there is nothing to page through, and the
+  // name is what the user is choosing between — so the overflow surface is a list of names.
+  const [documentMenu, setDocumentMenu] = useState<{ anchorEl: HTMLElement; documents: GalleryDocument[] } | null>(
     null,
   );
   // Story 6.23 AC4. A success line, not an error: a move deletes travel segments the user typed, so
@@ -1153,12 +1241,19 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     return orderedDays[currentIndex + 1] ?? null;
   }, [day, orderedDays]);
 
+  // Story 9.1 keeps documents in this effect rather than giving them one of their own. A card's photo
+  // strip and its `doc-chip`s are one media row, and two effects racing on the same `day` would let the
+  // row paint half from before a navigation and half from after. Five requests, one `try`, one `catch`
+  // that empties everything: the card's two halves are always the same read of the same day.
   useEffect(() => {
     const loadImages = async () => {
       if (!day) {
         setAccommodationImages([]);
         setPreviousAccommodationImages([]);
         setPlanItemImagesById({});
+        setAccommodationDocuments([]);
+        setPreviousAccommodationDocuments([]);
+        setPlanItemDocumentsById({});
         return;
       }
 
@@ -1182,8 +1277,31 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
               ? previousAccommodationBody.data.images
               : [];
           setPreviousAccommodationImages(previousImages);
+
+          const previousDocumentsResponse = await fetch(
+            `/api/trips/${tripId}/accommodations/documents?tripDayId=${previousDay.id}&accommodationId=${previousDay.accommodation.id}`,
+            {
+              method: "GET",
+              credentials: "include",
+              cache: "no-store",
+            },
+          );
+          const previousDocumentsBody = (await previousDocumentsResponse.json()) as ApiEnvelope<{
+            documents: GalleryDocument[];
+          }>;
+          // The same tolerant guard the image reads use, and for the same reason: a 404 from a stay
+          // that has just been deleted, or an envelope whose `data` is a different shape entirely,
+          // has to leave the card with no chips rather than throw inside a render path.
+          setPreviousAccommodationDocuments(
+            previousDocumentsResponse.ok &&
+              !previousDocumentsBody.error &&
+              Array.isArray(previousDocumentsBody.data?.documents)
+              ? previousDocumentsBody.data.documents
+              : [],
+          );
         } else {
           setPreviousAccommodationImages([]);
+          setPreviousAccommodationDocuments([]);
         }
 
         if (day.accommodation) {
@@ -1201,8 +1319,28 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
               ? accommodationBody.data.images
               : [];
           setAccommodationImages(currentImages);
+
+          const accommodationDocumentsResponse = await fetch(
+            `/api/trips/${tripId}/accommodations/documents?tripDayId=${day.id}&accommodationId=${day.accommodation.id}`,
+            {
+              method: "GET",
+              credentials: "include",
+              cache: "no-store",
+            },
+          );
+          const accommodationDocumentsBody = (await accommodationDocumentsResponse.json()) as ApiEnvelope<{
+            documents: GalleryDocument[];
+          }>;
+          setAccommodationDocuments(
+            accommodationDocumentsResponse.ok &&
+              !accommodationDocumentsBody.error &&
+              Array.isArray(accommodationDocumentsBody.data?.documents)
+              ? accommodationDocumentsBody.data.documents
+              : [],
+          );
         } else {
           setAccommodationImages([]);
+          setAccommodationDocuments([]);
         }
 
         const nextPlanItemImages: Record<string, GalleryImage[]> = {};
@@ -1228,10 +1366,53 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
           }
         }
         setPlanItemImagesById(nextPlanItemImages);
+
+        // One day-wide call for every activity's documents, the twin of the image call above. Per
+        // activity it would be one request per card on a busy day; the route's `dayPlanItemId` is
+        // optional for exactly this reason.
+        const nextPlanItemDocuments: Record<string, GalleryDocument[]> = {};
+        const planItemDocumentsResponse = await fetch(
+          `/api/trips/${tripId}/day-plan-items/documents?tripDayId=${day.id}`,
+          {
+            method: "GET",
+            credentials: "include",
+            cache: "no-store",
+          },
+        );
+        const planItemDocumentsBody = (await planItemDocumentsResponse.json()) as ApiEnvelope<{
+          documents: GalleryDocument[];
+        }>;
+        if (
+          planItemDocumentsResponse.ok &&
+          !planItemDocumentsBody.error &&
+          Array.isArray(planItemDocumentsBody.data?.documents)
+        ) {
+          // `documentRow`, not `document`: the global of that name is what every DOM call in this file
+          // reaches for, and shadowing it inside a loop is a trap for whoever edits this next.
+          for (const documentRow of planItemDocumentsBody.data.documents) {
+            const itemId = documentRow.dayPlanItemId;
+            if (!itemId) continue;
+            if (!nextPlanItemDocuments[itemId]) {
+              nextPlanItemDocuments[itemId] = [];
+            }
+            nextPlanItemDocuments[itemId].push(documentRow);
+          }
+        }
+        // Every activity gets an entry even with nothing attached, so a card reads an empty array
+        // rather than `undefined` and the media row's "render anything at all?" test is one shape.
+        for (const item of planItems) {
+          if (!nextPlanItemDocuments[item.id]) {
+            nextPlanItemDocuments[item.id] = [];
+          }
+        }
+        setPlanItemDocumentsById(nextPlanItemDocuments);
       } catch {
         setAccommodationImages([]);
         setPreviousAccommodationImages([]);
         setPlanItemImagesById({});
+        setAccommodationDocuments([]);
+        setPreviousAccommodationDocuments([]);
+        setPlanItemDocumentsById({});
       }
     };
 
@@ -1689,6 +1870,139 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
       <PencilIcon />
     </Box>
   );
+  /**
+   * DESIGN.md's amended `tl-card` (`:254`, `:260-264`): the card's bottom media row — the `photo-strip`
+   * leading, the `doc-chip` group trailing, the group wrapping to a row of its own when the width
+   * cannot hold both. One helper for all three `tl-card`s (previous stay, activity, current stay),
+   * because the three sites were already byte-identical apart from their collections and their
+   * `altPrefix`, and three copies of a two-limit layout is three chances for one of them to drift.
+   *
+   * Only the three `variant="strip"` sites use it. The `variant="gallery"` strips further down this
+   * file and in `TripDayMapFullPage.tsx` are map-dialog surfaces, not `tl-card`s, and carry no media
+   * row at all.
+   *
+   * Returns `null` when the entry has neither photos nor documents, so a bare card renders exactly what
+   * it rendered before this story: no row, no wrapper, no empty flex box taking up a gap.
+   */
+  const renderMediaRow = (images: GalleryImage[], documents: GalleryDocument[], altPrefix: string) => {
+    if (images.length === 0 && documents.length === 0) return null;
+    const visibleDocuments = documents.slice(0, DOC_CHIP_VISIBLE_CAP);
+    const hiddenDocumentCount = documents.length - visibleDocuments.length;
+
+    return (
+      <Box
+        sx={{
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "center",
+          gap: "6px",
+          // The whole of AC4's alignment rule, from one declaration and no measurement.
+          // `space-between` is resolved **per flex line**: a line holding both children puts the strip
+          // at the start and the chip group at the end (the token's "right, beside photo-strip"), and
+          // a line holding one child puts it at the start (the token's "left, wrapped row"). Any
+          // `justify-content: flex-end` or `margin-left: auto` spelling of the same idea would keep
+          // the wrapped group pinned right, because neither can tell the two lines apart.
+          justifyContent: "space-between",
+        }}
+      >
+        {images.length > 0 ? (
+          // The wrapper restores pointer events for the strip's gaps as well as its thumbnails, so a
+          // near-miss between two of them does not fall through to the overlay and open the editor.
+          // Kept even though the thumbnails are real `<button>`s that `overlaidContentSx`'s
+          // `"& a, & button"` opt-in reaches on its own — the gaps are the point.
+          <Box sx={{ pointerEvents: "auto" }}>
+            <MiniImageStrip
+              variant="strip"
+              images={images}
+              altPrefix={altPrefix}
+              onImageClick={(index) => setFullscreenPhotos({ images: toViewerImages(images, altPrefix), index })}
+            />
+          </Box>
+        ) : null}
+        {documents.length > 0 ? (
+          <Box
+            data-testid="tl-card-doc-row"
+            sx={{
+              // Same reasoning as the strip's wrapper, and the same defect it prevents: the chips are
+              // anchors the opt-in already reaches, but the 6px between two of them is not, and a
+              // near-miss there would open the entry's editor instead of doing nothing.
+              pointerEvents: "auto",
+              display: "flex",
+              // Up to three chips wrap among themselves rather than overflowing the card at 390px.
+              // The group still moves below the photos as one unit — that is the outer row's job, not
+              // this one's.
+              flexWrap: "wrap",
+              alignItems: "center",
+              gap: "6px",
+              // Never `flexGrow`. The group shrink-wraps its chips so the outer row's
+              // `space-between` has free space to push it right with; a growing group would fill the
+              // line and pin itself to the left of it.
+              flex: "0 1 auto",
+              // The wrap threshold, and the only width decision in this row. Below it there is no
+              // room for two chips, so flexbox moves the **whole group** to the next line rather than
+              // shrinking it to one — the truncation DESIGN.md `:262` and AC4 both reject.
+              minWidth: DOC_ROW_MIN_WIDTH,
+              // Matches `MiniImageStrip`'s own `mt`, so the two children's margin boxes centre on the
+              // same line beside each other and the wrapped group still clears the photos beneath.
+              mt: 0.75,
+            }}
+          >
+            {visibleDocuments.map((documentRow, index) => (
+              <DocChip
+                key={documentRow.id}
+                documentUrl={documentRow.documentUrl}
+                fileName={documentRow.fileName}
+                // The position within **the entry**, not within the visible slice, and the entry's
+                // full count — so the third chip of five is announced as 3 of 5 rather than 3 of 3.
+                // Two documents on one entry may share a file name (the unique index is on
+                // `sortOrder`, not on the name), and this is what keeps their accessible names apart.
+                index={index}
+                total={documents.length}
+                // No cache-buster on the href. `withImageCacheBuster` exists because the hero and
+                // day-image routes write a *stable* filename, so a replacement keeps a byte-identical
+                // URL (DW-23). A document's name carries a timestamp and a random suffix and is never
+                // overwritten, so a stamp here would only add noise to a URL that is already unique.
+              />
+            ))}
+            {hiddenDocumentCount > 0 ? (
+              // The strip's own `+N`, down to the element, the 44px floor and the singular/plural
+              // twin — only the dictionary keys differ. A second overflow vocabulary in the same row
+              // would read as a different kind of thing (DESIGN.md `:264`).
+              <Typography
+                component="button"
+                type="button"
+                variant="caption"
+                color="text.secondary"
+                aria-haspopup="menu"
+                aria-label={
+                  hiddenDocumentCount === 1
+                    ? t("trips.documents.showMoreDocumentsOne")
+                    : formatMessage(t("trips.documents.showMoreDocuments"), { count: hiddenDocumentCount })
+                }
+                // The whole collection, not the hidden tail: the strip's `+N` opens the full set at
+                // the first unshown index, and a list that omitted the three names already on the
+                // card would be a different affordance wearing the same glyph.
+                onClick={(event) => setDocumentMenu({ anchorEl: event.currentTarget, documents })}
+                sx={{
+                  fontWeight: 600,
+                  // The 44px touch floor, below the 56px thumbnails so the row's height is unchanged.
+                  minWidth: 44,
+                  minHeight: 44,
+                  padding: 0,
+                  border: "none",
+                  background: "none",
+                  cursor: "pointer",
+                  "&:focus-visible": { outline: "2px solid", outlineColor: "text.primary", outlineOffset: "2px" },
+                }}
+              >
+                +{hiddenDocumentCount}
+              </Typography>
+            ) : null}
+          </Box>
+        ) : null}
+      </Box>
+    );
+  };
   // Two-part, and not the same condition as the current-night card's: with no previous day there is no
   // accommodation to edit and nothing for the add dialog to attach to, so the card stays inert even for
   // someone who can otherwise plan.
@@ -2732,25 +3046,14 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                           variant="outlined"
                         />
                       </Box>
-                      {/* Last child: DESIGN.md's photo-strip runs along the bottom of the card.
-                          The wrapper restores pointer events for the strip's gaps as well as its
-                          thumbnails, so a near-miss between two of them does not fall through to the
-                          overlay and open the stay editor instead. */}
-                      {previousAccommodationImages.length > 0 ? (
-                        <Box sx={{ pointerEvents: "auto" }}>
-                          <MiniImageStrip
-                            variant="strip"
-                            images={previousAccommodationImages}
-                            altPrefix={previousStay.name}
-                            onImageClick={(index) =>
-                              setFullscreenPhotos({
-                                images: toViewerImages(previousAccommodationImages, previousStay.name),
-                                index,
-                              })
-                            }
-                          />
-                        </Box>
-                      ) : null}
+                      {/* Last child: DESIGN.md's media row runs along the bottom of the card - the
+                          photo-strip leading, the doc-chips trailing. Both halves and their
+                          pointer-events wrappers live in `renderMediaRow`. */}
+                      {renderMediaRow(
+                        previousAccommodationImages,
+                        previousAccommodationDocuments,
+                        previousStay.name,
+                      )}
                     </Box>
                   ) : null}
                   </Box>
@@ -2898,35 +3201,18 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                                   {t("trips.plan.noLink")}
                                 </Typography>
                               )}
-                              {/* Last child: DESIGN.md's photo-strip runs along the bottom of the card.
-                                  The strip is shared with four other call sites, so the wrapper is
-                                  here rather than inside it.
-                                  The wrapper is kept even though the thumbnails are now real
-                                  `<button>`s that `overlaidContentSx`'s `"& a, & button"` opt-in
-                                  reaches on its own: it also restores pointer events for the strip's
-                                  gaps, and it is what stops a near-miss between two thumbnails from
-                                  falling through to the overlay and opening the editor.
+                              {/* Last child: DESIGN.md's media row runs along the bottom of the card -
+                                  the photo-strip leading, the doc-chips trailing. The strip is shared
+                                  with four other call sites, so its pointer-events wrapper lives in
+                                  `renderMediaRow` rather than inside it.
 
                                   `altPrefix` is the activity's own title, not the section heading. It
                                   is now a control name, not just an `<img alt>` - a day with three
                                   photo-bearing activities would otherwise present nine buttons sharing
                                   three names, and AC7 wants a name that says which photo it opens.
-                                  Capped, because an untitled activity falls back to its whole note. */}
-                              {itemImages.length > 0 ? (
-                                <Box sx={{ pointerEvents: "auto" }}>
-                                  <MiniImageStrip
-                                    variant="strip"
-                                    images={itemImages}
-                                    altPrefix={capLabel(title)}
-                                    onImageClick={(index) =>
-                                      setFullscreenPhotos({
-                                        images: toViewerImages(itemImages, capLabel(title)),
-                                        index,
-                                      })
-                                    }
-                                  />
-                                </Box>
-                              ) : null}
+                                  Capped, because an untitled activity falls back to its whole note.
+                                  The chips need no such prefix: a document's own name is its label. */}
+                              {renderMediaRow(itemImages, planItemDocumentsById[item.id] ?? [], capLabel(title))}
                             </Box>
                           </Box>
                         </Box>
@@ -3058,25 +3344,10 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                           <Typography sx={tlCostSx}>{formatCost(currentStay.costCents)}</Typography>
                         ) : null}
                       </Box>
-                      {/* Last child: DESIGN.md's photo-strip runs along the bottom of the card.
-                          The wrapper restores pointer events for the strip's gaps as well as its
-                          thumbnails, so a near-miss between two of them does not fall through to the
-                          overlay and open the stay editor instead. */}
-                      {accommodationImages.length > 0 ? (
-                        <Box sx={{ pointerEvents: "auto" }}>
-                          <MiniImageStrip
-                            variant="strip"
-                            images={accommodationImages}
-                            altPrefix={currentStay.name}
-                            onImageClick={(index) =>
-                              setFullscreenPhotos({
-                                images: toViewerImages(accommodationImages, currentStay.name),
-                                index,
-                              })
-                            }
-                          />
-                        </Box>
-                      ) : null}
+                      {/* Last child: DESIGN.md's media row runs along the bottom of the card - the
+                          photo-strip leading, the doc-chips trailing. Both halves and their
+                          pointer-events wrappers live in `renderMediaRow`. */}
+                      {renderMediaRow(accommodationImages, accommodationDocuments, currentStay.name)}
                     </Box>
                   ) : null}
                   </Box>
@@ -3366,6 +3637,56 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
             startIndex={fullscreenPhotos?.index ?? 0}
             onClose={() => setFullscreenPhotos(null)}
           />
+          {/* The `doc-chip` row's `+N` surface (Story 9.1 AC5, and Tommy's 2026-08-05 decision: a
+              menu, not a `DialogShell` list). One mount for all three `tl-card`s, the way one
+              `FullscreenPhotoViewer` serves every photo strip - and pointedly *not* that viewer, which
+              belongs to the trip's photographs. An image document must never enter it (AC6), which is
+              why every entry below is an anchor and nothing here has a handler that could route one
+              into a viewer.
+
+              The list is the entry's whole collection, including the three names already on the card:
+              the strip's `+N` opens the full set at the first unshown index, and a list that showed
+              only the tail would be a different affordance wearing the same glyph. */}
+          <Menu
+            anchorEl={documentMenu?.anchorEl ?? null}
+            open={Boolean(documentMenu)}
+            onClose={() => setDocumentMenu(null)}
+            anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
+            transformOrigin={{ vertical: "top", horizontal: "left" }}
+            // The menu is named, not the trigger: the trigger is a bare `+N` whose own accessible name
+            // ("Show 2 more documents") describes the act of opening rather than what was opened, so
+            // `aria-labelledby` pointing back at it would announce the list as an instruction.
+            slotProps={{ list: { "aria-label": t("trips.documents.overflowTitle") } }}
+          >
+            {(documentMenu?.documents ?? []).map((documentRow, index) => (
+              <MenuItem
+                key={documentRow.id}
+                component="a"
+                href={documentRow.documentUrl}
+                target="_blank"
+                rel="noreferrer noopener"
+                // The one place in this file an item carries an `aria-label`, and it earns it: two
+                // documents on one entry may share a file name, and two menu items with the same
+                // accessible name is the defect Story 5.11's review found on two comboboxes. The
+                // visible label is still contained in the name, so a voice-control user saying what
+                // they read still matches (WCAG 2.5.3) - which is what the day-hero menu's blanket
+                // "no aria-label" rule is protecting, and it is not violated here.
+                aria-label={formatMessage(t("trips.documents.openDocument"), {
+                  name: documentDisplayName(documentRow.fileName),
+                  index: index + 1,
+                  total: documentMenu?.documents.length ?? 0,
+                })}
+                onClick={() => setDocumentMenu(null)}
+                // `&&` rather than a bare `minHeight`, unlike `DAY_MENU_ITEM_SX` above: MenuItem's own
+                // root sets `minHeight: 48` and then resets it to `auto` above `sm`, and DW-180
+                // records that reset winning against a plain `sx` twice. The bump is cheap here and
+                // the 44px floor is not negotiable at either width.
+                sx={{ "&&": { minHeight: 44 } }}
+              >
+                <Typography>{documentDisplayName(documentRow.fileName)}</Typography>
+              </MenuItem>
+            ))}
+          </Menu>
           {/* Story 6.25 AC1 — a read-only popup, no footer, so the `✕` is its only visible dismissal. */}
           <Dialog open={Boolean(mapDialogItem)} onClose={() => setMapDialogItem(null)} fullWidth maxWidth="sm">
             <DialogTitleWithClose label={t("common.close")} onClose={() => setMapDialogItem(null)}>

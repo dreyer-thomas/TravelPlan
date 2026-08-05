@@ -501,6 +501,7 @@ const en: Dictionary = {
   // the add flow this tab would otherwise be one URL box: the line explains the absence instead of
   // showing an upload zone that cannot upload.
   "trips.plan.galleryAfterSave": "You can add photos once this plan item is saved.",
+  "trips.plan.documentsAfterSave": "You can add documents once this plan item is saved.",
   "trips.plan.contentLabel": "Plan notes",
   "trips.plan.contentHelper": "Add notes for this day.",
   "trips.plan.editorLoading": "Loading editor...",
@@ -616,6 +617,7 @@ const en: Dictionary = {
   "trips.stay.tabMedia": "Media & links",
   "trips.stay.tabWithErrors": "{label} (contains errors)",
   "trips.stay.galleryAfterSave": "You can add photos once this stay is saved.",
+  "trips.stay.documentsAfterSave": "You can add documents once this stay is saved.",
   "trips.gallery.title": "Image gallery",
   "trips.gallery.uploadAction": "Upload",
   "trips.gallery.moveUp": "Up",
@@ -638,6 +640,39 @@ const en: Dictionary = {
   "trips.gallery.viewer.close": "Close photo viewer",
   "trips.gallery.viewer.previous": "Previous photo",
   "trips.gallery.viewer.next": "Next photo",
+  // Story 9.1 — documents on stays and activities. A namespace of its own, sitting beside
+  // `trips.gallery.*` because the two are the same gesture on the same tab, and separate from it
+  // because they are not the same thing: a photo is one of the trip's photographs and a document is a
+  // ticket or a booking confirmation. Story 6.26 Task 5 rules on this — two surfaces that group
+  // different things get their own keys, even where the English happens to coincide with the
+  // gallery's (`uploadAction`, `selectedFiles`) or with `trips.image.unsupportedFormat`. Sharing them
+  // would mean one wording change to the photo field silently rewording the document field, and it is
+  // AC2's "visibly distinct label" that would be lost first.
+  "trips.documents.title": "Documents",
+  "trips.documents.uploadZoneTitle": "Choose documents",
+  // States both ceilings the routes enforce, because a rejected 12 MB upload is a worse way to learn
+  // the limit than reading it. Wired to the file input as `aria-describedby`, never sighted-only.
+  "trips.documents.uploadZoneHint": "PDF, JPEG, PNG or WebP, up to 10 MB each",
+  "trips.documents.selectedFiles": "{count} file(s) selected",
+  "trips.documents.empty": "No documents yet.",
+  "trips.documents.uploadAction": "Upload",
+  "trips.documents.removeDocument": "Remove document {index} of {total}",
+  // The chip's accessible name. Two documents on one entry may share a file name — the unique index
+  // is on `sortOrder`, not on the name — so the position is part of the name rather than decoration:
+  // without it a card with two "Ticket.pdf" chips offers a screen-reader user two identical links,
+  // which is the defect Story 5.11's review found on two comboboxes. The *visible* label stays the
+  // bare name; this string is what `aria-label` overrides it with.
+  "trips.documents.openDocument": "Open {name} ({index} of {total})",
+  // The `+N` control's only accessible name, read aloud rather than seen, so it takes the codebase's
+  // singular-twin treatment rather than a written-out "(s)" a screen reader would spell out.
+  // `formatMessage` has no plural support — see the note on `trips.gallery.showMoreImages`.
+  "trips.documents.showMoreDocuments": "Show {count} more documents",
+  "trips.documents.showMoreDocumentsOne": "Show 1 more document",
+  "trips.documents.overflowTitle": "All documents",
+  "trips.documents.unsupportedFormat": "Unsupported document format. Please choose a PDF, JPEG, PNG, or WebP file.",
+  "trips.documents.limitReached": "Up to 10 documents per entry.",
+  "trips.documents.uploadError": "Document upload failed. Please try again.",
+  "trips.documents.deleteError": "Document removal failed. Please try again.",
   "trips.location.latLabel": "Latitude",
   "trips.location.lngLabel": "Longitude",
   "trips.location.labelLabel": "Location label (optional)",

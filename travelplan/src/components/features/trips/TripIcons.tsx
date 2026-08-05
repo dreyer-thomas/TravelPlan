@@ -266,6 +266,35 @@ export function UploadIcon({ sx }: IconProps) {
   );
 }
 
+/**
+ * `components.doc-chip`'s file glyph (`DESIGN.md:157`). Used by `DocChip`, which passes
+ * `sx={{ fontSize: 14 }}` for the token's 14px; the 20px default matches `UploadIcon` beside it so a
+ * dropzone-sized use needs no override. A page outline with a folded corner, drawn stroke-only like
+ * every other glyph here — the fold is what separates it from a bare rectangle at 14px.
+ */
+export function DocumentIcon({ sx }: IconProps) {
+  return (
+    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={[{ fontSize: 20 }, ...(Array.isArray(sx) ? sx : [sx])]}>
+      <path
+        d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M14 3v5h5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </SvgIcon>
+  );
+}
+
 /** The `×` inside `.photo-thumb .remove-x`. Decorative — the button around it carries the name. */
 export function CloseXIcon({ sx }: IconProps) {
   return (

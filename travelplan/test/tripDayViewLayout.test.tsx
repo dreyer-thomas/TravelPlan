@@ -6804,3 +6804,363 @@ describe("TripDayView layout", () => {
     },
   );
 });
+
+/**
+ * Story 9.1, Task 6 — the `doc-chip` row on the three timeline `tl-card`s.
+ *
+ * These live in this file rather than in `docChip.test.tsx` on purpose. `docChip.test.tsx` renders the
+ * primitive in isolation and proves what one chip *is*; everything below is about what `TripDayView`
+ * *does with a collection of them* — the cap, the `+N`, the menu, the absence of a row — and all of it
+ * needs this file's harness: the three dialog mocks, `next/navigation`, leaflet, and the bucket-list
+ * fetch wrapper. A new file would have been a 250-line copy of the top of this one.
+ *
+ * It also matters that this suite does **not** mock `@mui/material` (DW-53 is open against
+ * `tripDayPlanDialog.test.tsx` for doing exactly that): the `+N` overflow is a real MUI `Menu`, and a
+ * mocked one would prove nothing about what it renders or how it is named.
+ */
+describe("TripDayView document chips", () => {
+  type TestDocument = { id: string; documentUrl: string; fileName: string; sortOrder: number };
+
+  const documentUrlFor = (name: string) =>
+    `/uploads/trips/trip-1/days/day-2/accommodations/stay-current/documents/${name}`;
+
+  const buildDocumentFetch = ({
+    previousStayDocuments = [],
+    currentStayDocuments = [],
+    planItemDocuments = [],
+    currentStayImages = [],
+    planItemImages = [],
+  }: {
+    previousStayDocuments?: TestDocument[];
+    currentStayDocuments?: TestDocument[];
+    planItemDocuments?: (TestDocument & { dayPlanItemId: string })[];
+    currentStayImages?: { id: string; imageUrl: string; sortOrder: number }[];
+    planItemImages?: { id: string; dayPlanItemId: string; imageUrl: string; sortOrder: number }[];
+  }) =>
+    withBucketList(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const payload = (data: unknown) => ({ ok: true, status: 200, json: async () => ({ data, error: null }) });
+
+      if (url.includes("/accommodations/documents")) {
+        return payload({
+          documents: url.includes("accommodationId=stay-prev") ? previousStayDocuments : currentStayDocuments,
+        });
+      }
+      if (url.includes("/day-plan-items/documents")) return payload({ documents: planItemDocuments });
+      if (url.includes("/accommodations/images")) {
+        return payload({ images: url.includes("accommodationId=stay-prev") ? [] : currentStayImages });
+      }
+      if (url.includes("/day-plan-items/images")) return payload({ images: planItemImages });
+
+      return payload({
+        trip: {
+          id: "trip-1",
+          name: "Trip",
+          startDate: "2026-12-01T00:00:00.000Z",
+          endDate: "2026-12-02T00:00:00.000Z",
+          dayCount: 2,
+          accommodationCostTotalCents: 20000,
+          heroImageUrl: null,
+        },
+        days: [
+          {
+            id: "day-1",
+            date: "2026-12-01T00:00:00.000Z",
+            dayIndex: 1,
+            plannedCostSubtotal: 10000,
+            missingAccommodation: false,
+            missingPlan: true,
+            accommodation: {
+              id: "stay-prev",
+              name: "Previous Hotel",
+              notes: null,
+              status: "booked",
+              costCents: 10000,
+              link: null,
+              location: null,
+            },
+            dayPlanItems: [],
+          },
+          {
+            id: "day-2",
+            date: "2026-12-02T00:00:00.000Z",
+            dayIndex: 2,
+            plannedCostSubtotal: 10000,
+            missingAccommodation: false,
+            missingPlan: false,
+            accommodation: {
+              id: "stay-current",
+              name: "Current Hotel",
+              notes: null,
+              status: "booked",
+              costCents: 10000,
+              link: null,
+              location: null,
+            },
+            dayPlanItems: [
+              {
+                id: "item-1",
+                contentJson: JSON.stringify({
+                  type: "doc",
+                  content: [{ type: "paragraph", content: [{ type: "text", text: "Museum" }] }],
+                }),
+                linkUrl: null,
+                location: null,
+              },
+            ],
+          },
+        ],
+      });
+    }) as unknown as typeof fetch;
+
+  const renderDayTwo = async () => {
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-2" />);
+    await screen.findByRole("heading", { name: "Day 2", level: 5 });
+  };
+
+  beforeEach(() => {
+    bucketListItemsOverride = null;
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+  });
+
+  it("renders a chip on all three tl-card kinds, labelled with the file name minus its extension", async () => {
+    vi.stubGlobal(
+      "fetch",
+      buildDocumentFetch({
+        previousStayDocuments: [
+          { id: "prev-doc-1", documentUrl: documentUrlFor("d1.pdf"), fileName: "Previous Ticket.pdf", sortOrder: 1 },
+        ],
+        currentStayDocuments: [
+          { id: "stay-doc-1", documentUrl: documentUrlFor("d2.pdf"), fileName: "Hotel Booking.pdf", sortOrder: 1 },
+        ],
+        planItemDocuments: [
+          {
+            id: "item-doc-1",
+            dayPlanItemId: "item-1",
+            documentUrl: documentUrlFor("d3.pdf"),
+            fileName: "Museum Entry.pdf",
+            sortOrder: 1,
+          },
+        ],
+      }),
+    );
+
+    await renderDayTwo();
+
+    // Scoped per card, not looked up globally: "a chip renders somewhere on the page" would pass with
+    // all three attached to one card, which is exactly the wiring mistake the three sites can make.
+    const previousCard = within(await screen.findByTestId("timeline-previous-stay"));
+    const activityCard = within(screen.getByTestId("day-plan-item-card"));
+    const currentCard = within(screen.getByTestId("timeline-current-stay"));
+
+    await waitFor(() => expect(previousCard.getByText("Previous Ticket")).toBeInTheDocument());
+    expect(activityCard.getByText("Museum Entry")).toBeInTheDocument();
+    expect(currentCard.getByText("Hotel Booking")).toBeInTheDocument();
+
+    // Named here so the `queryByTestId(...)` nulls in the "no chip row" case below are falsifiable:
+    // this is the test that proves the id exists at all when there is a group to find.
+    expect(previousCard.getByTestId("tl-card-doc-row")).toBeInTheDocument();
+    expect(activityCard.getByTestId("tl-card-doc-row")).toBeInTheDocument();
+    expect(currentCard.getByTestId("tl-card-doc-row")).toBeInTheDocument();
+
+    // The extension is stripped from the *label*, not from the href — the file on disk is unchanged.
+    expect(previousCard.queryByText("Previous Ticket.pdf")).toBeNull();
+    expect(currentCard.getByRole("link", { name: /Hotel Booking/ })).toHaveAttribute(
+      "href",
+      documentUrlFor("d2.pdf"),
+    );
+
+    vi.unstubAllGlobals();
+  });
+
+  it("gives every chip a new tab and a severed opener", async () => {
+    vi.stubGlobal(
+      "fetch",
+      buildDocumentFetch({
+        currentStayDocuments: [
+          { id: "stay-doc-1", documentUrl: documentUrlFor("d1.pdf"), fileName: "Hotel Booking.pdf", sortOrder: 1 },
+          { id: "stay-doc-2", documentUrl: documentUrlFor("d2.pdf"), fileName: "Parking.pdf", sortOrder: 2 },
+        ],
+      }),
+    );
+
+    await renderDayTwo();
+
+    const currentCard = within(await screen.findByTestId("timeline-current-stay"));
+    await waitFor(() => expect(currentCard.getAllByRole("link")).toHaveLength(2));
+    for (const chip of currentCard.getAllByRole("link")) {
+      expect(chip).toHaveAttribute("target", "_blank");
+      const rel = chip.getAttribute("rel") ?? "";
+      expect(rel.split(/\s+/)).toEqual(expect.arrayContaining(["noreferrer", "noopener"]));
+    }
+
+    vi.unstubAllGlobals();
+  });
+
+  it("renders no chip row without documents, and no media row at all without either kind", async () => {
+    vi.stubGlobal(
+      "fetch",
+      buildDocumentFetch({
+        currentStayImages: [{ id: "stay-img-1", imageUrl: "/uploads/a1.webp", sortOrder: 1 }],
+      }),
+    );
+
+    await renderDayTwo();
+
+    // The current stay has photos and no documents: a media row, but no chip group inside it.
+    const currentCard = within(await screen.findByTestId("timeline-current-stay"));
+    await waitFor(() => expect(currentCard.getByAltText(/Current Hotel 1/i)).toBeInTheDocument());
+    expect(currentCard.queryByTestId("tl-card-doc-row")).toBeNull();
+
+    // The activity has neither, so it renders exactly what it rendered before this story: no row.
+    const activityCard = within(screen.getByTestId("day-plan-item-card"));
+    expect(activityCard.queryByTestId("tl-card-doc-row")).toBeNull();
+    expect(activityCard.queryByRole("img")).toBeNull();
+
+    vi.unstubAllGlobals();
+  });
+
+  it.each([
+    { extra: 1, expectedName: "Show 1 more document" },
+    { extra: 2, expectedName: "Show 2 more documents" },
+  ])("caps the chips at three and names the +$extra for what it hides", async ({ extra, expectedName }) => {
+    const total = 3 + extra;
+    vi.stubGlobal(
+      "fetch",
+      buildDocumentFetch({
+        currentStayDocuments: Array.from({ length: total }, (_, index) => ({
+          id: `stay-doc-${index + 1}`,
+          documentUrl: documentUrlFor(`d${index + 1}.pdf`),
+          fileName: `Ticket ${index + 1}.pdf`,
+          sortOrder: index + 1,
+        })),
+      }),
+    );
+
+    await renderDayTwo();
+
+    const currentCard = within(await screen.findByTestId("timeline-current-stay"));
+    // Exactly three, whatever the total: the cap is a fixed number and not a width decision, which is
+    // what lets this assert an exact count in jsdom, where nothing has a width at all.
+    await waitFor(() => expect(currentCard.getAllByRole("link")).toHaveLength(3));
+    expect(currentCard.getByText(`+${extra}`)).toBeInTheDocument();
+    // The singular/plural twin, because `formatMessage` has no plural support and "Show 1 more
+    // documents" is the defect the `…One` key exists to prevent.
+    expect(currentCard.getByRole("button", { name: expectedName })).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("opens every document's name from +N, not just the hidden ones", async () => {
+    vi.stubGlobal(
+      "fetch",
+      buildDocumentFetch({
+        currentStayDocuments: Array.from({ length: 5 }, (_, index) => ({
+          id: `stay-doc-${index + 1}`,
+          documentUrl: documentUrlFor(`d${index + 1}.pdf`),
+          fileName: `Ticket ${index + 1}.pdf`,
+          sortOrder: index + 1,
+        })),
+      }),
+    );
+
+    await renderDayTwo();
+
+    const currentCard = within(await screen.findByTestId("timeline-current-stay"));
+    await waitFor(() => expect(currentCard.getByText("+2")).toBeInTheDocument());
+    await userEvent.click(currentCard.getByRole("button", { name: "Show 2 more documents" }));
+
+    // Five, not two. The strip's `+N` opens the whole collection at the first unshown index, and a
+    // list that omitted the three names already on the card would be a different affordance wearing
+    // the same glyph. The count is asserted, not merely that something opened.
+    const items = await screen.findAllByRole("menuitem");
+    expect(items).toHaveLength(5);
+    expect(items.map((item) => item.textContent)).toEqual([
+      "Ticket 1",
+      "Ticket 2",
+      "Ticket 3",
+      "Ticket 4",
+      "Ticket 5",
+    ]);
+    // Each entry is an anchor into a new tab, not a viewer page.
+    expect(items[4]).toHaveAttribute("href", documentUrlFor("d5.pdf"));
+    expect(items[4]).toHaveAttribute("target", "_blank");
+    expect(screen.getByRole("menu", { name: "All documents" })).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps an image document out of FullscreenPhotoViewer, from the chip and from the menu (AC6)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      buildDocumentFetch({
+        // Four, so the row carries a `+1` as well as chips: both routes to a document have to stay
+        // clear of the viewer, and the menu is the one that could most easily be wired into it.
+        currentStayDocuments: Array.from({ length: 4 }, (_, index) => ({
+          id: `stay-doc-${index + 1}`,
+          documentUrl: documentUrlFor(`d${index + 1}.jpg`),
+          fileName: `Boarding Pass ${index + 1}.jpg`,
+          sortOrder: index + 1,
+        })),
+        // A real photo on the same card, and it is what makes the two negatives below falsifiable:
+        // the final assertion proves this exact query *does* find the viewer when something opens it,
+        // so the nulls above are the component's behaviour and not a query that never matches.
+        currentStayImages: [{ id: "stay-img-1", imageUrl: "/uploads/a1.webp", sortOrder: 1 }],
+      }),
+    );
+
+    await renderDayTwo();
+
+    const currentCard = within(await screen.findByTestId("timeline-current-stay"));
+    await waitFor(() => expect(currentCard.getAllByRole("link")).toHaveLength(3));
+
+    // A JPEG document is still a document. `FullscreenPhotoViewer` belongs to the trip's photographs
+    // and a boarding pass is not one, so activating the chip must not mount it.
+    fireEvent.click(currentCard.getAllByRole("link")[0]);
+    expect(screen.queryByRole("dialog", { name: "Photo viewer" })).toBeNull();
+
+    await userEvent.click(currentCard.getByRole("button", { name: "Show 1 more document" }));
+    const items = await screen.findAllByRole("menuitem");
+    expect(items).toHaveLength(4);
+    fireEvent.click(items[0]);
+    expect(screen.queryByRole("dialog", { name: "Photo viewer" })).toBeNull();
+
+    // The falsifiability guard: the photo thumbnail on the same card *does* open it.
+    fireEvent.click(currentCard.getByRole("img", { name: /Current Hotel 1/i }));
+    expect(await screen.findByRole("dialog", { name: "Photo viewer" })).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("distinguishes two documents on one entry that share a file name", async () => {
+    vi.stubGlobal(
+      "fetch",
+      buildDocumentFetch({
+        // Nothing forbids this: the unique index is on `sortOrder`, not on the name, and two people's
+        // tickets are commonly issued under one file name.
+        currentStayDocuments: [
+          { id: "stay-doc-1", documentUrl: documentUrlFor("d1.pdf"), fileName: "Ticket.pdf", sortOrder: 1 },
+          { id: "stay-doc-2", documentUrl: documentUrlFor("d2.pdf"), fileName: "Ticket.pdf", sortOrder: 2 },
+        ],
+      }),
+    );
+
+    await renderDayTwo();
+
+    const currentCard = within(await screen.findByTestId("timeline-current-stay"));
+    await waitFor(() => expect(currentCard.getAllByRole("link")).toHaveLength(2));
+    const [first, second] = currentCard.getAllByRole("link");
+
+    // The visible label stays the bare name on both — the label is the content — while the accessible
+    // names differ by position. Two controls sharing an accessible name is the defect Story 5.11's
+    // review found on two comboboxes.
+    expect(first).toHaveTextContent(/^Ticket$/);
+    expect(second).toHaveTextContent(/^Ticket$/);
+    expect(first).toHaveAccessibleName("Open Ticket (1 of 2)");
+    expect(second).toHaveAccessibleName("Open Ticket (2 of 2)");
+    expect(first.getAttribute("aria-label")).not.toBe(second.getAttribute("aria-label"));
+
+    vi.unstubAllGlobals();
+  });
+});

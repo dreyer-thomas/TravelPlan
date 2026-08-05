@@ -65,15 +65,23 @@ describe("document upload accept filter", () => {
   });
 
   /**
-   * The component tree currently contains no document field at all - Story 9.1's UI layer lands after
-   * this module - so today this passes by finding nothing. It is written now rather than later
-   * because the moment `DocumentUploadField` appears is exactly the moment a hand-rolled
-   * `accept="application/pdf,..."` becomes possible, and a scan added after the fact tends to be
-   * added *around* whatever was written. Any component spelling a document accept list inline, or
-   * naming one of the bogus types anywhere, fails here.
+   * Written before Story 9.1's UI layer existed, on the reasoning that the moment
+   * `DocumentUploadField` appears is exactly the moment a hand-rolled `accept="application/pdf,..."`
+   * becomes possible, and a scan added after the fact tends to be added *around* whatever was
+   * written. The field has since landed and takes `accept` as a prop, so the call sites pass
+   * `DOCUMENT_UPLOAD_ACCEPT` and the scan still finds nothing - which is the passing condition, not
+   * the absence of a document field.
+   *
+   * The two components are asserted to be *in* the scanned set for that reason: a scan whose subject
+   * has quietly moved out of `src/components` passes by finding nothing at all, which is the
+   * unfalsifiable-assertion failure Story 5.11's review found twice.
    */
   it("keeps the accept list in one place and never reintroduces a bogus MIME type", async () => {
     const files = await collectTsxFiles(COMPONENT_DIR);
+    const scanned = files.map((file) => path.relative(process.cwd(), file));
+    expect(scanned).toContain(path.join("src", "components", "forms", "DocumentUploadField.tsx"));
+    expect(scanned).toContain(path.join("src", "components", "ui", "DocChip.tsx"));
+
     const offenders: string[] = [];
     for (const file of files) {
       const source = await readFile(file, "utf8");
