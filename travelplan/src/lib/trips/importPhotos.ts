@@ -19,10 +19,10 @@ import {
  * generated server-side with the same conventions the upload routes use, and the extension comes
  * from the allow-listed `contentType` rather than from anything in the file.
  *
- * **Paths come from `uploadPaths.ts` only.** Those helpers resolve through `UPLOADS_PUBLIC_ROOT`,
- * which is the single reason `npm test` cannot reach the developer's real uploads - see the header
- * comment there for what happened the one time suites rolled their own paths. Rebuilding a path from
- * `process.cwd()` here would reintroduce exactly that.
+ * **Paths come from `uploadPaths.ts` only.** Those helpers resolve through `MEDIA_STORAGE_ROOT`,
+ * which is what keeps `npm test` away from the developer's real uploads and what keeps restored
+ * photos out of the statically-served tree - see the header comment there for both incidents.
+ * Rebuilding a path from `process.cwd()` here would reintroduce exactly that.
  *
  * Writes happen *after* the transaction commits, because every URL contains an id Prisma only
  * generates on insert. That ordering means the disk can be left behind the database, so

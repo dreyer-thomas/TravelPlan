@@ -18,7 +18,7 @@ import {
   accommodationImageUploadSchema,
 } from "@/lib/validation/imageGallerySchemas";
 import { requireSession } from "@/lib/auth/sessionGuard";
-import { getAccommodationImageUploadDir, resolvePublicFilePath } from "@/lib/trips/uploadPaths";
+import { getAccommodationImageUploadDir, resolveStoredMediaPath } from "@/lib/trips/uploadPaths";
 
 export const runtime = "nodejs";
 
@@ -52,7 +52,7 @@ const removeManagedFile = async (tripId: string, imageUrl: string) => {
   if (!imageUrl.startsWith(prefix)) {
     return;
   }
-  const filePath = resolvePublicFilePath(imageUrl);
+  const filePath = resolveStoredMediaPath(imageUrl);
   try {
     await fs.unlink(filePath);
   } catch (error) {

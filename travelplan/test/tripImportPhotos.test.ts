@@ -12,7 +12,7 @@ import {
   stashTripUploadDir,
   writeImportedPhotos,
 } from "@/lib/trips/importPhotos";
-import { getPublicRoot, getTripUploadDir, getTripsUploadRoot } from "@/lib/trips/uploadPaths";
+import { getMediaRoot, getTripUploadDir, getTripsUploadRoot } from "@/lib/trips/uploadPaths";
 import { jpegBytes, pngBytes, webpBytes, writeUploadFile } from "./helpers/uploadFixtures";
 
 const exists = async (filePath: string) =>
@@ -28,7 +28,7 @@ describe("importPhotos", () => {
     await fs.rm(uploadsRoot, { recursive: true, force: true });
   });
 
-  it("places every photo kind under UPLOADS_PUBLIC_ROOT with the upload routes' own urls", () => {
+  it("places every photo kind under MEDIA_STORAGE_ROOT with the upload routes' own urls", () => {
     const takenFileNames = new Set<string>();
     const hero = planTripHeroPhoto("trip-1", "image/jpeg");
     const dayImage = planTripDayPhoto("trip-1", "day-1", "image/png");
@@ -44,8 +44,8 @@ describe("importPhotos", () => {
     // Every path resolves through the helpers, so the redirected test root is what they land in -
     // this is the assertion that stops a future edit rebuilding a path from `process.cwd()`.
     for (const placement of [hero, dayImage, stay, activity]) {
-      expect(placement.filePath.startsWith(getPublicRoot())).toBe(true);
-      expect(path.join(getPublicRoot(), placement.imageUrl.replace(/^\/+/, ""))).toBe(placement.filePath);
+      expect(placement.filePath.startsWith(getMediaRoot())).toBe(true);
+      expect(path.join(getMediaRoot(), placement.imageUrl.replace(/^\/+/, ""))).toBe(placement.filePath);
     }
 
     expect(hero.imageUrl).toBe("/uploads/trips/trip-1/hero.jpg");

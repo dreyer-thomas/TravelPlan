@@ -3,7 +3,7 @@ import path from "node:path";
 
 /**
  * Fixture writer for export photos. Paths must come from the upload helpers, never from
- * `process.cwd() + "/public"` - `test/setup.ts` redirects `UPLOADS_PUBLIC_ROOT` to a per-worker temp
+ * `process.cwd() + "/public"` - `test/setup.ts` redirects `MEDIA_STORAGE_ROOT` to a per-worker temp
  * directory and the helpers are the only thing that honours it. See the header comment in
  * `src/lib/trips/uploadPaths.ts` for what happened the last time suites rolled their own paths.
  *

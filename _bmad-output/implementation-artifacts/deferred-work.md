@@ -1698,3 +1698,49 @@ severity: medium
 summary: MUI's `MenuItem` sets `minHeight: 48` and then resets it to `auto` inside a `theme.breakpoints.up('sm')` block. A plain `sx={{ minHeight: 44 }}` is the same one class of specificity as that media rule, so above 600px the later rule in the emotion sheet wins and the item collapses. **Measured: 44px at 390x844 and 32.3px at 747x925 for the identical constant.** The app's 44px target floor is therefore absent from every overflow and header menu on every desktop width.
 evidence: Found because Story 5.11's review patch had the bug too — `ROW_MENU_ITEM_SX = { minHeight: 44 }` was written from `DAY_MENU_ITEM_SX` as the precedent, passed at 390px, and was caught only when the browser pass ran the same measurement at 747px. That one is now `{ "&&": { minHeight: 44 } }`, where the doubled selector reaches (0,2,0) and the ordering question disappears. `DAY_MENU_ITEM_SX` is the byte-identical single-class version and predates this story, so it is recorded rather than changed here. `HeaderMenu`'s rows are worse: they set no height at all, so they inherit MUI's base 48 below the breakpoint and its `auto` above it. Measured in the same pass, on the same menu: **48px at 390x844 and 32.3px at 747x925** — including the row Story 5.10 added ("Nutzerverwaltung" / "User administration"), a privileged navigation target that holds the floor on a phone and loses it on every desktop. That pair of numbers is the clearest statement of the mechanism: the bug is invisible at the width most people would think to check. Fix is the `&&` form in both places, plus a measurement above 600px rather than below it, because below the breakpoint the bug is invisible.
 status: open
+
+### DW-181: `grep` reports zero matches in `tripRepo.ts`, the repo's largest consumer of `uploadPaths.ts`
+
+source_spec: 8-3-uploaded-media-behind-the-login
+origin: dev session, 2026-08-05
+location: `travelplan/src/lib/repositories/tripRepo.ts`
+severity: low
+summary: The file contains **a single raw NUL byte at offset 46830, `tripRepo.ts:1435`**, used as a composite map-key separator — `` `${sortOrder}<NUL>${imageUrl}` `` — written as a literal NUL rather than the `\0` escape. `grep` therefore applies its binary heuristic, prints `Binary file ... matches` at best and **silently reports nothing** when piped or used with `-l`/`-c`. Every ripgrep-style sweep of the codebase misses the single largest consumer of `uploadPaths.ts` — 3 call sites of the two renamed exports, plus the three-layer containment check every path-safety story is told to mirror.
+evidence: Found while taking Story 8.3's call-site inventory: a plain `grep -rn "resolvePublicFilePath" src/` returned four hits across three files and omitted `tripRepo.ts` entirely, which would have shipped a half-completed rename that `tsc` happens to catch — but a *prose* or comment sweep, which `tsc` does not check, would have shipped silently wrong. `grep -a` finds them.
+  **Diagnosis corrected by Story 8.3's code review, 2026-08-05.** This entry originally guessed the cause was "a mangled character inside a comment or a German string" and recommended locating it with `grep -an '[^\x00-\x7F]'` or `iconv -f utf-8 -t utf-8`. All three were wrong: the character class `[^\x00-\x7F]` **excludes** `\x00` and so cannot match the cause; `iconv` passes cleanly because a NUL *is* valid UTF-8; and the file holds only 6 non-ASCII bytes, none of them the problem. What finds it is a byte scan for `\x00` (`python3 -c "print(open(f,'rb').read().find(b'\x00'))"`), which reports offset 46830.
+  Fix is **one character** — escape the separator as `\0` — and is behaviour-preserving, since the runtime value of the key is identical either way. Pre-existing at `3a42ec7`; a source edit was outside Story 8.3's scope, so it is carried here rather than applied.
+status: open
+
+## Deferred from: code review of 8-3-uploaded-media-behind-the-login (2026-08-05)
+
+- **`APP_BASE_URL` silently defaults to `http://localhost:3000`.** `src/app/api/auth/password-reset/request/route.ts:53`
+  reads it with `?? "http://localhost:3000"`, so on a production host where the variable is unset every
+  password-reset email links to localhost and the reset flow is unusable — with no error anywhere, because
+  the fallback is a valid URL. Surfaced by Story 8.3's review while auditing the new deployment docs, which
+  claimed a closed set of three production variables; the tree reads five (`DATABASE_URL`, `JWT_SECRET`,
+  `MEDIA_STORAGE_ROOT`, `APP_BASE_URL`, `OSRM_BASE_URL` — the last has a sane public default and is genuinely
+  optional). Pre-existing, not caused by 8.3. The fix is a decision, not a patch: either fail fast in
+  production the way `MEDIA_STORAGE_ROOT` now does, or derive the origin from the request. Wants its own story
+  alongside Story 8.1's deployment discovery.
+  status: open
+
+- **The `/uploads` serve route derives its ETag and `Content-Length` from a `stat` taken before the read
+  stream is opened.** `src/app/uploads/[...path]/route.ts:191-199,257,316`. A file replaced or removed between
+  the `stat` and the end of the read yields a truncated 200 with a `Content-Length` that lies, surfacing to the
+  client as a protocol-level truncation rather than a clean status. Reachable without an attacker: trip import's
+  `stashTripUploadDir` renames an entire trip directory aside while a day view is loading twenty images out of
+  it, and trip delete `fs.rm`s it. The cheap guards (a `stream.on("error")` handler and an
+  `if (request.signal.aborted)` check for the already-aborted case) were patched in 8.3's review; closing the
+  race properly means restructuring to `fs.open` → `fstat` → stream from the same descriptor so every derived
+  value comes from one open file, which is more than 8.3 should carry.
+  status: open
+
+- **`src/lib/repositories/tripRepo.ts:1435` contains a raw NUL byte.** It is used as a composite map-key
+  separator — `` `${sortOrder}<NUL>${imageUrl}` `` — written as a literal NUL rather than the `\0` escape, at
+  byte offset 46830. Consequence: `grep` applies its binary heuristic and silently reports **zero matches** in
+  the repo's single largest consumer of `uploadPaths.ts`, so a rename sweep that greps rather than relying on
+  `tsc` will quietly miss this file. `grep -a` works. This is the corrected diagnosis for DW-181, whose original
+  entry blamed "a mangled character or a German string" and recommended `grep -an '[^\x00-\x7F]'` — a character
+  class that *excludes* `\x00` and therefore cannot match the cause. The file holds only 6 non-ASCII bytes, none
+  of them the problem. Fix is one character and behaviour-preserving; pre-existing at `3a42ec7`.
+  status: open

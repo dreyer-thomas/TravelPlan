@@ -6,7 +6,7 @@ import { Prisma } from "@/generated/prisma/client";
 import type { TravelSegmentItemType, TravelTransportType } from "@/generated/prisma/enums";
 import type { TripAccessRole } from "@/lib/auth/tripAccess";
 import { buildDayMapPanelData, buildTripDayMapItems, type TripDayMapPanelData } from "@/lib/trips/dayMapData";
-import { getTripUploadDir, resolvePublicFilePath } from "@/lib/trips/uploadPaths";
+import { getTripUploadDir, resolveStoredMediaPath } from "@/lib/trips/uploadPaths";
 import {
   PHOTO_SIGNATURE_HEAD_BYTES,
   sniffPhotoContentType,
@@ -1416,7 +1416,7 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
   const ownedUploadRoot = path.resolve(getTripUploadDir(tripId));
   // Both sides of the containment test must be compared in the same terms. The upload root itself
   // can sit under a symlinked ancestor (macOS `/tmp` -> `/private/tmp`, and the per-worker temp dir
-  // `test/setup.ts` points `UPLOADS_PUBLIC_ROOT` at), so realpath the root once here rather than
+  // `test/setup.ts` points `MEDIA_STORAGE_ROOT` at), so realpath the root once here rather than
   // comparing a realpath-ed file against a lexical root and rejecting every legitimate photo.
   const ownedUploadRootReal = await fs.realpath(ownedUploadRoot).catch(() => ownedUploadRoot);
 
@@ -1459,7 +1459,7 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
     if (!imageUrl.startsWith(ownedUrlPrefix)) {
       return null;
     }
-    const resolved = path.resolve(resolvePublicFilePath(imageUrl));
+    const resolved = path.resolve(resolveStoredMediaPath(imageUrl));
     if (!resolved.startsWith(`${ownedUploadRoot}${path.sep}`)) {
       return null;
     }
