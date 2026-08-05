@@ -104,6 +104,72 @@ No stored URL changes and there is no database migration: a stored URL is
 `/uploads/trips/<tripId>/…` before and after, because `uploads` comes from the URL rather than from
 the root.
 
+## Reverse proxy — `/uploads/` must reach the application
+
+**This is a hard requirement, not a tuning option, and it is the one that actually broke on the
+2026-08-05 rollout.** No `location` block may answer `/uploads/` from the filesystem. Story 8.3 put an
+authorising route handler in front of uploaded media, and that handler is only reached if nginx passes
+the request through. A proxy that serves those paths itself bypasses the session check completely —
+the application cannot detect it, no test can see it, and the URLs keep working, so nothing looks
+wrong.
+
+What was actually deployed, and what it cost:
+
+```nginx
+# WRONG — this was live and served every trip photo without any authorisation
+location ^~ /uploads/ {
+    alias /home/app/apps/TravelPlan/travelplan/public/uploads/;
+    try_files $uri =404;
+    access_log off;
+    expires 7d;
+    add_header Cache-Control "public";
+}
+```
+
+Three separate problems in seven lines: `alias` + `try_files` served the bytes straight off disk with
+no session check; `expires 7d` + `Cache-Control: public` told **browsers and any intermediary cache**
+to keep trip photos for a week, which is the opposite of the route's `private, max-age=0,
+must-revalidate`; and `access_log off` meant no record of who fetched what. NFR2 was therefore still
+open after Story 8.3 shipped — what closed it in practice was moving the files out of nginx's reach,
+not the route handler, which never saw those requests.
+
+**The fix is to delete the block.** With no regex `location` competing, `/uploads/` then falls through
+to `location / { proxy_pass http://127.0.0.1:3001; … }` like every other path, and no `^~` is needed.
+
+If a future config does introduce an extension-based static block — `location ~* \.(png|jpe?g|webp)$`
+is the common shape — then `/uploads/` needs an explicit exemption, and it must use `^~`:
+
+```nginx
+location ^~ /uploads/ {           # ^~ is required: a plain prefix location loses to a regex location
+    proxy_pass http://127.0.0.1:3001;
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+### The one-line check, after every proxy change
+
+```sh
+curl -s -o /dev/null -w '%{http_code}\n' https://<host>/uploads/trips/x/y.png
+```
+
+- **`401`** — correct. The request reached the route and was refused for having no session. The path
+  need not exist; authentication is checked before the filesystem.
+- **`404`** — the proxy is answering it, or serving from a root that has no such file. The
+  authorisation gate is being bypassed. A `404` whose `Content-Type` is `text/html` is proof: the
+  route only ever answers with `application/json`.
+
+Verify from outside, through the real hostname. A check against `127.0.0.1:3001` bypasses the proxy
+and will answer `401` even while the public URL is wide open — that is precisely why this defect
+survived the story's own test suite and its browser pass, both of which talked to the port directly.
+
+**Before Story 9.1 ships, this must be true.** 9.1 puts ticket PDFs — names, addresses, booking codes
+— behind the same `/uploads/trips/<tripId>/…` scheme. Any proxy rule that bypasses the handler
+publishes them.
+
 ## CI/CD
 - TBD (Story 8.1)
 

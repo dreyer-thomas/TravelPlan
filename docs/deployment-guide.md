@@ -18,6 +18,10 @@ written down: **where uploaded media lives**. Full detail in
 - A reverse proxy. `npm start` is `next start -p 3001 -H 127.0.0.1`, bound to loopback.
   `next.config.ts` documents an nginx `client_max_body_size 320m`, which is what lets a large trip
   backup reach the import route to be accepted or refused on its own terms.
+- **The proxy must not serve `/uploads/` itself.** Uploaded media is authorised by a route handler, so
+  a `location` block that answers those paths from disk bypasses the session check entirely and
+  publishes every trip photo. This was live until 2026-08-05. Full detail and the one-line check in
+  [deployment-configuration.md](deployment-configuration.md#reverse-proxy--uploads-must-reach-the-application).
 - **A persistent media directory outside the application tree** — see below. This is the one
   infrastructure requirement that will silently destroy user data if it is missed.
 
@@ -68,6 +72,18 @@ commands are in
 
 No stored URL and no database row changes: a stored URL is `/uploads/trips/<tripId>/…` before and
 after.
+
+**And check the reverse proxy in the same pass**, because the move alone does not finish the job — this
+is what went wrong on 2026-08-05. Remove any `location` that answers `/uploads/` from the filesystem,
+then verify **through the public hostname**:
+
+```sh
+curl -s -o /dev/null -w '%{http_code}\n' https://<host>/uploads/trips/x/y.png   # must be 401, not 404
+```
+
+`401` means the request reached the authorising handler. `404` means the proxy is still answering it
+and the authorisation gate is bypassed. Checking `127.0.0.1:3001` instead proves nothing here — it
+skips the proxy, which is exactly how this defect stayed invisible.
 
 ## Deployment process
 

@@ -1744,3 +1744,48 @@ status: open
   class that *excludes* `\x00` and therefore cannot match the cause. The file holds only 6 non-ASCII bytes, none
   of them the problem. Fix is one character and behaviour-preserving; pre-existing at `3a42ec7`.
   status: open
+
+## Deferred from: 8-3 production rollout (2026-08-05)
+
+- **Story 9.1 prerequisite: verify the reverse proxy does not bypass `/uploads/` before documents
+  exist.** On the 2026-08-05 rollout, nginx carried
+  `location ^~ /uploads/ { alias …/public/uploads/; try_files $uri =404; expires 7d; add_header Cache-Control "public"; }`
+  and served every trip photo off disk with no session check, a 7-day `public` cache and no access log.
+  Story 8.3's route handler never received those requests. Fixed by deleting the block, and written up
+  as a hard requirement in `docs/deployment-configuration.md` with the check
+  `curl -s -o /dev/null -w '%{http_code}\n' https://<host>/uploads/trips/x/y.png` — which must answer
+  `401`, not `404`, and must be run **through the public hostname** (a check against `127.0.0.1:3001`
+  bypasses the proxy and passes while the public URL is open). **Why this is 9.1's problem and not
+  closed:** 9.1 puts ticket PDFs carrying names, addresses and booking codes behind the same
+  `/uploads/trips/<tripId>/…` scheme, so the rule has to hold at that point too — on this host and on
+  any environment added later. 9.1 should assert it in its own browser pass rather than assume it.
+  status: open
+
+- **The production SQLite database lives inside the application tree.**
+  `DATABASE_URL=file:/home/app/apps/TravelPlan/travelplan/prisma/prod.db` on the deployment host. This
+  is the same construction fault Story 8.3 just fixed for media, with worse consequences: a deploy that
+  replaces the directory rather than updating it in place takes the database with it. Not acute today —
+  the host deploys with `git pull --ff-only`, so the tree is updated in place — but two ordinary events
+  break it: a `git clean -fdx` during troubleshooting, or a switch to a deploy that checks out a fresh
+  directory. The only backup found is `/home/app/backups/travelplan/2026-08-01T101441/prod.db`, i.e. a
+  point-in-time copy, not a schedule that was verified. Belongs with Story 8.1's deployment work: move
+  it beside the media root (`/var/lib/travelplan/`), point `DATABASE_URL` at the new path, and record a
+  backup schedule. **Related trap found at the same time and already removed:** a zero-byte
+  `prisma/dev.db` sat next to it, which any Prisma command run without an explicit `DATABASE_URL` would
+  have targeted — `prisma migrate` would have silently created and migrated it while appearing to work
+  on production.
+  status: open
+
+- **Six image rows on the production database point at files that no longer exist.** Three
+  `accommodation_images` under
+  `trips/cmlzhtbni0038gsu8che5t89c/days/cmlzhtbnq003jgsu8t38a5kxu/accommodations/cmm0ylham000dthu8f6i2w156/`
+  and three `day_plan_item_images` under
+  `trips/cmlzhtbni0038gsu8che5t89c/days/cmlzhtbnp003fgsu84okrusnd/day-plan-items/cmmtn7f6n0002y0u86d9f3gr4/`.
+  The filename timestamps are February and March 2026, so they predate the media migration by months —
+  and the migration moved 214 files and delivered 214, so it neither caused nor can heal them. They
+  render as broken images in exactly one accommodation and one activity. This is the data-quality half
+  of `DW-88`, whose disclosure half Story 8.3 closed. Found by cross-checking every stored URL against
+  the filesystem; the same check reported zero misses for all 32 day heroes, both trip heroes and the
+  remaining 210 gallery images. Fix is a product decision — drop the rows, or surface a placeholder —
+  not a technical one.
+  status: open

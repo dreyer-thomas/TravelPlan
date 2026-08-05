@@ -283,6 +283,44 @@ anti-patterns was committed.
 - [x] [Review][Defer] The stream lifecycle wants restructuring to `fs.open` → `fstat` → stream from the same descriptor, so the ETag, `Content-Length` and bytes all come from one open file [travelplan/src/app/uploads/[...path]/route.ts:191](../../travelplan/src/app/uploads/[...path]/route.ts#L191) — deferred; the cheap guards are patched above, but closing the `stat`→read TOCTOU properly is a larger change than this story should carry.
 - [x] [Review][Defer] The raw NUL byte in `tripRepo.ts` should be escaped to `\0` [travelplan/src/lib/repositories/tripRepo.ts:1435](../../travelplan/src/lib/repositories/tripRepo.ts#L1435) — deferred, pre-existing at `3a42ec7`; one behaviour-preserving character, but a source edit outside this story's scope. DW-181 (corrected above) is the ledger entry that tracks it.
 
+**Post-rollout addendum, 2026-08-05 — found in production, after the review closed**
+
+The rollout onto `plan.dreyer-travels.de` surfaced a defect that neither this review, the story's test
+suite, nor the Task 8 browser pass could have seen, because all three talk to Node on port 3001 and
+this one lived in front of it. Recording it here because it changes what "the route authorises" means
+in practice.
+
+- [x] **nginx served `/uploads/` off the filesystem, bypassing the authorising route completely.** The
+  live config carried `location ^~ /uploads/ { alias …/public/uploads/; try_files $uri =404;
+  access_log off; expires 7d; add_header Cache-Control "public"; }`. So every trip photo was served
+  straight off disk with **no session check**, with a **7-day `public` cache** that contradicts the
+  route's `private, max-age=0, must-revalidate`, and with **no access log**. **NFR2 was therefore still
+  open after this story shipped** — what actually closed it was moving the files out of nginx's reach,
+  not the handler, which never received those requests. Had the media stayed under `public/`, the
+  entire story would have had no effect in production.
+  **Diagnosis trail, because the symptom pointed everywhere except the cause:** images appeared missing
+  per-day and all-or-nothing, which suggested a containment bug in the new route. Ruled out in turn —
+  the media move was complete (214 = 214 files / 352 MB), permissions were uniform (`app:app 644`, zero
+  unreadable), every extension was in the content-type map, all 32 day heroes existed on disk, and
+  every stored URL resolved to a real file except six pre-existing orphans. An authenticated
+  server-side probe returned `200` with full bytes for real day-hero URLs. What finally identified it
+  was the browser's network panel: the failures were `404` with `Content-Type: text/html` at 0.6 kB —
+  and this route only ever answers with `application/json`, so those responses were never its own. The
+  apparent per-day pattern was an artefact of which images happened to still sit in the browser's
+  7-day cache.
+  **Fixed** by deleting the block, so `/uploads/` falls through to `location /`'s `proxy_pass`. Verified
+  `401` through the public hostname and images restored. Written up as a hard requirement with a
+  one-line check in [deployment-configuration.md](../../docs/deployment-configuration.md) and
+  [deployment-guide.md](../../docs/deployment-guide.md).
+  **Story status left at `done`:** AC2 is about the application, and it holds — the handler refuses
+  unauthenticated requests, as its tests and the live `401` both show. The proxy layer was explicitly
+  delegated to Story 8.1 by this story's own Task 7. The gap was that nobody stated the proxy has a
+  *requirement* placed on it by AC2, and that omission is now closed in the deployment docs rather than
+  by reopening this story.
+  **Carried forward to Story 9.1:** the same rule must hold before documents exist, or ticket PDFs with
+  names, addresses and booking codes take the same public path. Logged in
+  [deferred-work.md](deferred-work.md).
+
 **Dismissed as noise** (5): an unhandled `hasTripReadAccess` throw returning raw 500 HTML — the cited exemplar `travel-segments/route.ts` does the same, so the route matches house convention; testing the handler by direct invocation rather than through Next's pipeline — Task 5 explicitly prescribed that harness shape and all ~35 route suites use it; restoring the `public/uploads/` `.gitignore` line — Task 1 explicitly instructed its removal and the 458 MB hazard window closed when the move completed; `accept-ranges` absent from the 304 — harmless; the DW-22 narrative being reflowed rather than kept verbatim — the addition ("and two day images") is factually correct per `test/setup.ts`, so a correction rather than drift.
 
 ## Dev Agent Record
