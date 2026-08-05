@@ -408,6 +408,8 @@ export const ModelName = {
   CostPayment: 'CostPayment',
   AccommodationImage: 'AccommodationImage',
   DayPlanItemImage: 'DayPlanItemImage',
+  AccommodationDocument: 'AccommodationDocument',
+  DayPlanItemDocument: 'DayPlanItemDocument',
   TripBucketListItem: 'TripBucketListItem'
 } as const
 
@@ -424,7 +426,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "passwordResetToken" | "trip" | "tripMember" | "tripDay" | "travelSegment" | "accommodation" | "dayPlanItem" | "costPayment" | "accommodationImage" | "dayPlanItemImage" | "tripBucketListItem"
+    modelProps: "user" | "passwordResetToken" | "trip" | "tripMember" | "tripDay" | "travelSegment" | "accommodation" | "dayPlanItem" | "costPayment" | "accommodationImage" | "dayPlanItemImage" | "accommodationDocument" | "dayPlanItemDocument" | "tripBucketListItem"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -1242,6 +1244,154 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    AccommodationDocument: {
+      payload: Prisma.$AccommodationDocumentPayload<ExtArgs>
+      fields: Prisma.AccommodationDocumentFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.AccommodationDocumentFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AccommodationDocumentPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.AccommodationDocumentFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AccommodationDocumentPayload>
+        }
+        findFirst: {
+          args: Prisma.AccommodationDocumentFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AccommodationDocumentPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.AccommodationDocumentFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AccommodationDocumentPayload>
+        }
+        findMany: {
+          args: Prisma.AccommodationDocumentFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AccommodationDocumentPayload>[]
+        }
+        create: {
+          args: Prisma.AccommodationDocumentCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AccommodationDocumentPayload>
+        }
+        createMany: {
+          args: Prisma.AccommodationDocumentCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.AccommodationDocumentCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AccommodationDocumentPayload>[]
+        }
+        delete: {
+          args: Prisma.AccommodationDocumentDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AccommodationDocumentPayload>
+        }
+        update: {
+          args: Prisma.AccommodationDocumentUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AccommodationDocumentPayload>
+        }
+        deleteMany: {
+          args: Prisma.AccommodationDocumentDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.AccommodationDocumentUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.AccommodationDocumentUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AccommodationDocumentPayload>[]
+        }
+        upsert: {
+          args: Prisma.AccommodationDocumentUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AccommodationDocumentPayload>
+        }
+        aggregate: {
+          args: Prisma.AccommodationDocumentAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateAccommodationDocument>
+        }
+        groupBy: {
+          args: Prisma.AccommodationDocumentGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AccommodationDocumentGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.AccommodationDocumentCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AccommodationDocumentCountAggregateOutputType> | number
+        }
+      }
+    }
+    DayPlanItemDocument: {
+      payload: Prisma.$DayPlanItemDocumentPayload<ExtArgs>
+      fields: Prisma.DayPlanItemDocumentFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.DayPlanItemDocumentFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DayPlanItemDocumentPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.DayPlanItemDocumentFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DayPlanItemDocumentPayload>
+        }
+        findFirst: {
+          args: Prisma.DayPlanItemDocumentFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DayPlanItemDocumentPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.DayPlanItemDocumentFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DayPlanItemDocumentPayload>
+        }
+        findMany: {
+          args: Prisma.DayPlanItemDocumentFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DayPlanItemDocumentPayload>[]
+        }
+        create: {
+          args: Prisma.DayPlanItemDocumentCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DayPlanItemDocumentPayload>
+        }
+        createMany: {
+          args: Prisma.DayPlanItemDocumentCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.DayPlanItemDocumentCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DayPlanItemDocumentPayload>[]
+        }
+        delete: {
+          args: Prisma.DayPlanItemDocumentDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DayPlanItemDocumentPayload>
+        }
+        update: {
+          args: Prisma.DayPlanItemDocumentUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DayPlanItemDocumentPayload>
+        }
+        deleteMany: {
+          args: Prisma.DayPlanItemDocumentDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.DayPlanItemDocumentUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.DayPlanItemDocumentUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DayPlanItemDocumentPayload>[]
+        }
+        upsert: {
+          args: Prisma.DayPlanItemDocumentUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DayPlanItemDocumentPayload>
+        }
+        aggregate: {
+          args: Prisma.DayPlanItemDocumentAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateDayPlanItemDocument>
+        }
+        groupBy: {
+          args: Prisma.DayPlanItemDocumentGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.DayPlanItemDocumentGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.DayPlanItemDocumentCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.DayPlanItemDocumentCountAggregateOutputType> | number
+        }
+      }
+    }
     TripBucketListItem: {
       payload: Prisma.$TripBucketListItemPayload<ExtArgs>
       fields: Prisma.TripBucketListItemFieldRefs
@@ -1520,6 +1670,32 @@ export const DayPlanItemImageScalarFieldEnum = {
 export type DayPlanItemImageScalarFieldEnum = (typeof DayPlanItemImageScalarFieldEnum)[keyof typeof DayPlanItemImageScalarFieldEnum]
 
 
+export const AccommodationDocumentScalarFieldEnum = {
+  id: 'id',
+  accommodationId: 'accommodationId',
+  documentUrl: 'documentUrl',
+  fileName: 'fileName',
+  sortOrder: 'sortOrder',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type AccommodationDocumentScalarFieldEnum = (typeof AccommodationDocumentScalarFieldEnum)[keyof typeof AccommodationDocumentScalarFieldEnum]
+
+
+export const DayPlanItemDocumentScalarFieldEnum = {
+  id: 'id',
+  dayPlanItemId: 'dayPlanItemId',
+  documentUrl: 'documentUrl',
+  fileName: 'fileName',
+  sortOrder: 'sortOrder',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type DayPlanItemDocumentScalarFieldEnum = (typeof DayPlanItemDocumentScalarFieldEnum)[keyof typeof DayPlanItemDocumentScalarFieldEnum]
+
+
 export const TripBucketListItemScalarFieldEnum = {
   id: 'id',
   tripId: 'tripId',
@@ -1796,6 +1972,8 @@ export type GlobalOmitConfig = {
   costPayment?: Prisma.CostPaymentOmit
   accommodationImage?: Prisma.AccommodationImageOmit
   dayPlanItemImage?: Prisma.DayPlanItemImageOmit
+  accommodationDocument?: Prisma.AccommodationDocumentOmit
+  dayPlanItemDocument?: Prisma.DayPlanItemDocumentOmit
   tripBucketListItem?: Prisma.TripBucketListItemOmit
 }
 

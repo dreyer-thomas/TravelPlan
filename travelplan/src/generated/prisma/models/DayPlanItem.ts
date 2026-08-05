@@ -290,6 +290,7 @@ export type DayPlanItemWhereInput = {
   updatedAt?: Prisma.DateTimeFilter<"DayPlanItem"> | Date | string
   tripDay?: Prisma.XOR<Prisma.TripDayScalarRelationFilter, Prisma.TripDayWhereInput>
   images?: Prisma.DayPlanItemImageListRelationFilter
+  documents?: Prisma.DayPlanItemDocumentListRelationFilter
   payments?: Prisma.CostPaymentListRelationFilter
 }
 
@@ -309,6 +310,7 @@ export type DayPlanItemOrderByWithRelationInput = {
   updatedAt?: Prisma.SortOrder
   tripDay?: Prisma.TripDayOrderByWithRelationInput
   images?: Prisma.DayPlanItemImageOrderByRelationAggregateInput
+  documents?: Prisma.DayPlanItemDocumentOrderByRelationAggregateInput
   payments?: Prisma.CostPaymentOrderByRelationAggregateInput
 }
 
@@ -331,6 +333,7 @@ export type DayPlanItemWhereUniqueInput = Prisma.AtLeast<{
   updatedAt?: Prisma.DateTimeFilter<"DayPlanItem"> | Date | string
   tripDay?: Prisma.XOR<Prisma.TripDayScalarRelationFilter, Prisma.TripDayWhereInput>
   images?: Prisma.DayPlanItemImageListRelationFilter
+  documents?: Prisma.DayPlanItemDocumentListRelationFilter
   payments?: Prisma.CostPaymentListRelationFilter
 }, "id">
 
@@ -389,6 +392,7 @@ export type DayPlanItemCreateInput = {
   updatedAt?: Date | string
   tripDay: Prisma.TripDayCreateNestedOneWithoutDayPlanItemsInput
   images?: Prisma.DayPlanItemImageCreateNestedManyWithoutDayPlanItemInput
+  documents?: Prisma.DayPlanItemDocumentCreateNestedManyWithoutDayPlanItemInput
   payments?: Prisma.CostPaymentCreateNestedManyWithoutDayPlanItemInput
 }
 
@@ -407,6 +411,7 @@ export type DayPlanItemUncheckedCreateInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   images?: Prisma.DayPlanItemImageUncheckedCreateNestedManyWithoutDayPlanItemInput
+  documents?: Prisma.DayPlanItemDocumentUncheckedCreateNestedManyWithoutDayPlanItemInput
   payments?: Prisma.CostPaymentUncheckedCreateNestedManyWithoutDayPlanItemInput
 }
 
@@ -425,6 +430,7 @@ export type DayPlanItemUpdateInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   tripDay?: Prisma.TripDayUpdateOneRequiredWithoutDayPlanItemsNestedInput
   images?: Prisma.DayPlanItemImageUpdateManyWithoutDayPlanItemNestedInput
+  documents?: Prisma.DayPlanItemDocumentUpdateManyWithoutDayPlanItemNestedInput
   payments?: Prisma.CostPaymentUpdateManyWithoutDayPlanItemNestedInput
 }
 
@@ -443,6 +449,7 @@ export type DayPlanItemUncheckedUpdateInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   images?: Prisma.DayPlanItemImageUncheckedUpdateManyWithoutDayPlanItemNestedInput
+  documents?: Prisma.DayPlanItemDocumentUncheckedUpdateManyWithoutDayPlanItemNestedInput
   payments?: Prisma.CostPaymentUncheckedUpdateManyWithoutDayPlanItemNestedInput
 }
 
@@ -645,6 +652,20 @@ export type DayPlanItemUpdateOneRequiredWithoutImagesNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.DayPlanItemUpdateToOneWithWhereWithoutImagesInput, Prisma.DayPlanItemUpdateWithoutImagesInput>, Prisma.DayPlanItemUncheckedUpdateWithoutImagesInput>
 }
 
+export type DayPlanItemCreateNestedOneWithoutDocumentsInput = {
+  create?: Prisma.XOR<Prisma.DayPlanItemCreateWithoutDocumentsInput, Prisma.DayPlanItemUncheckedCreateWithoutDocumentsInput>
+  connectOrCreate?: Prisma.DayPlanItemCreateOrConnectWithoutDocumentsInput
+  connect?: Prisma.DayPlanItemWhereUniqueInput
+}
+
+export type DayPlanItemUpdateOneRequiredWithoutDocumentsNestedInput = {
+  create?: Prisma.XOR<Prisma.DayPlanItemCreateWithoutDocumentsInput, Prisma.DayPlanItemUncheckedCreateWithoutDocumentsInput>
+  connectOrCreate?: Prisma.DayPlanItemCreateOrConnectWithoutDocumentsInput
+  upsert?: Prisma.DayPlanItemUpsertWithoutDocumentsInput
+  connect?: Prisma.DayPlanItemWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.DayPlanItemUpdateToOneWithWhereWithoutDocumentsInput, Prisma.DayPlanItemUpdateWithoutDocumentsInput>, Prisma.DayPlanItemUncheckedUpdateWithoutDocumentsInput>
+}
+
 export type DayPlanItemCreateWithoutTripDayInput = {
   id?: string
   title?: string | null
@@ -659,6 +680,7 @@ export type DayPlanItemCreateWithoutTripDayInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   images?: Prisma.DayPlanItemImageCreateNestedManyWithoutDayPlanItemInput
+  documents?: Prisma.DayPlanItemDocumentCreateNestedManyWithoutDayPlanItemInput
   payments?: Prisma.CostPaymentCreateNestedManyWithoutDayPlanItemInput
 }
 
@@ -676,6 +698,7 @@ export type DayPlanItemUncheckedCreateWithoutTripDayInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   images?: Prisma.DayPlanItemImageUncheckedCreateNestedManyWithoutDayPlanItemInput
+  documents?: Prisma.DayPlanItemDocumentUncheckedCreateNestedManyWithoutDayPlanItemInput
   payments?: Prisma.CostPaymentUncheckedCreateNestedManyWithoutDayPlanItemInput
 }
 
@@ -738,6 +761,7 @@ export type DayPlanItemCreateWithoutPaymentsInput = {
   updatedAt?: Date | string
   tripDay: Prisma.TripDayCreateNestedOneWithoutDayPlanItemsInput
   images?: Prisma.DayPlanItemImageCreateNestedManyWithoutDayPlanItemInput
+  documents?: Prisma.DayPlanItemDocumentCreateNestedManyWithoutDayPlanItemInput
 }
 
 export type DayPlanItemUncheckedCreateWithoutPaymentsInput = {
@@ -755,6 +779,7 @@ export type DayPlanItemUncheckedCreateWithoutPaymentsInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   images?: Prisma.DayPlanItemImageUncheckedCreateNestedManyWithoutDayPlanItemInput
+  documents?: Prisma.DayPlanItemDocumentUncheckedCreateNestedManyWithoutDayPlanItemInput
 }
 
 export type DayPlanItemCreateOrConnectWithoutPaymentsInput = {
@@ -788,6 +813,7 @@ export type DayPlanItemUpdateWithoutPaymentsInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   tripDay?: Prisma.TripDayUpdateOneRequiredWithoutDayPlanItemsNestedInput
   images?: Prisma.DayPlanItemImageUpdateManyWithoutDayPlanItemNestedInput
+  documents?: Prisma.DayPlanItemDocumentUpdateManyWithoutDayPlanItemNestedInput
 }
 
 export type DayPlanItemUncheckedUpdateWithoutPaymentsInput = {
@@ -805,6 +831,7 @@ export type DayPlanItemUncheckedUpdateWithoutPaymentsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   images?: Prisma.DayPlanItemImageUncheckedUpdateManyWithoutDayPlanItemNestedInput
+  documents?: Prisma.DayPlanItemDocumentUncheckedUpdateManyWithoutDayPlanItemNestedInput
 }
 
 export type DayPlanItemCreateWithoutImagesInput = {
@@ -821,6 +848,7 @@ export type DayPlanItemCreateWithoutImagesInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   tripDay: Prisma.TripDayCreateNestedOneWithoutDayPlanItemsInput
+  documents?: Prisma.DayPlanItemDocumentCreateNestedManyWithoutDayPlanItemInput
   payments?: Prisma.CostPaymentCreateNestedManyWithoutDayPlanItemInput
 }
 
@@ -838,6 +866,7 @@ export type DayPlanItemUncheckedCreateWithoutImagesInput = {
   locationLabel?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  documents?: Prisma.DayPlanItemDocumentUncheckedCreateNestedManyWithoutDayPlanItemInput
   payments?: Prisma.CostPaymentUncheckedCreateNestedManyWithoutDayPlanItemInput
 }
 
@@ -871,6 +900,7 @@ export type DayPlanItemUpdateWithoutImagesInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   tripDay?: Prisma.TripDayUpdateOneRequiredWithoutDayPlanItemsNestedInput
+  documents?: Prisma.DayPlanItemDocumentUpdateManyWithoutDayPlanItemNestedInput
   payments?: Prisma.CostPaymentUpdateManyWithoutDayPlanItemNestedInput
 }
 
@@ -888,6 +918,95 @@ export type DayPlanItemUncheckedUpdateWithoutImagesInput = {
   locationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  documents?: Prisma.DayPlanItemDocumentUncheckedUpdateManyWithoutDayPlanItemNestedInput
+  payments?: Prisma.CostPaymentUncheckedUpdateManyWithoutDayPlanItemNestedInput
+}
+
+export type DayPlanItemCreateWithoutDocumentsInput = {
+  id?: string
+  title?: string | null
+  fromTime?: string | null
+  toTime?: string | null
+  contentJson: string
+  costCents?: number | null
+  linkUrl?: string | null
+  locationLat?: number | null
+  locationLng?: number | null
+  locationLabel?: string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  tripDay: Prisma.TripDayCreateNestedOneWithoutDayPlanItemsInput
+  images?: Prisma.DayPlanItemImageCreateNestedManyWithoutDayPlanItemInput
+  payments?: Prisma.CostPaymentCreateNestedManyWithoutDayPlanItemInput
+}
+
+export type DayPlanItemUncheckedCreateWithoutDocumentsInput = {
+  id?: string
+  tripDayId: string
+  title?: string | null
+  fromTime?: string | null
+  toTime?: string | null
+  contentJson: string
+  costCents?: number | null
+  linkUrl?: string | null
+  locationLat?: number | null
+  locationLng?: number | null
+  locationLabel?: string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  images?: Prisma.DayPlanItemImageUncheckedCreateNestedManyWithoutDayPlanItemInput
+  payments?: Prisma.CostPaymentUncheckedCreateNestedManyWithoutDayPlanItemInput
+}
+
+export type DayPlanItemCreateOrConnectWithoutDocumentsInput = {
+  where: Prisma.DayPlanItemWhereUniqueInput
+  create: Prisma.XOR<Prisma.DayPlanItemCreateWithoutDocumentsInput, Prisma.DayPlanItemUncheckedCreateWithoutDocumentsInput>
+}
+
+export type DayPlanItemUpsertWithoutDocumentsInput = {
+  update: Prisma.XOR<Prisma.DayPlanItemUpdateWithoutDocumentsInput, Prisma.DayPlanItemUncheckedUpdateWithoutDocumentsInput>
+  create: Prisma.XOR<Prisma.DayPlanItemCreateWithoutDocumentsInput, Prisma.DayPlanItemUncheckedCreateWithoutDocumentsInput>
+  where?: Prisma.DayPlanItemWhereInput
+}
+
+export type DayPlanItemUpdateToOneWithWhereWithoutDocumentsInput = {
+  where?: Prisma.DayPlanItemWhereInput
+  data: Prisma.XOR<Prisma.DayPlanItemUpdateWithoutDocumentsInput, Prisma.DayPlanItemUncheckedUpdateWithoutDocumentsInput>
+}
+
+export type DayPlanItemUpdateWithoutDocumentsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  title?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  fromTime?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  toTime?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  contentJson?: Prisma.StringFieldUpdateOperationsInput | string
+  costCents?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  linkUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  locationLat?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  locationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  locationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  tripDay?: Prisma.TripDayUpdateOneRequiredWithoutDayPlanItemsNestedInput
+  images?: Prisma.DayPlanItemImageUpdateManyWithoutDayPlanItemNestedInput
+  payments?: Prisma.CostPaymentUpdateManyWithoutDayPlanItemNestedInput
+}
+
+export type DayPlanItemUncheckedUpdateWithoutDocumentsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  tripDayId?: Prisma.StringFieldUpdateOperationsInput | string
+  title?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  fromTime?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  toTime?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  contentJson?: Prisma.StringFieldUpdateOperationsInput | string
+  costCents?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  linkUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  locationLat?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  locationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  locationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  images?: Prisma.DayPlanItemImageUncheckedUpdateManyWithoutDayPlanItemNestedInput
   payments?: Prisma.CostPaymentUncheckedUpdateManyWithoutDayPlanItemNestedInput
 }
 
@@ -920,6 +1039,7 @@ export type DayPlanItemUpdateWithoutTripDayInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   images?: Prisma.DayPlanItemImageUpdateManyWithoutDayPlanItemNestedInput
+  documents?: Prisma.DayPlanItemDocumentUpdateManyWithoutDayPlanItemNestedInput
   payments?: Prisma.CostPaymentUpdateManyWithoutDayPlanItemNestedInput
 }
 
@@ -937,6 +1057,7 @@ export type DayPlanItemUncheckedUpdateWithoutTripDayInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   images?: Prisma.DayPlanItemImageUncheckedUpdateManyWithoutDayPlanItemNestedInput
+  documents?: Prisma.DayPlanItemDocumentUncheckedUpdateManyWithoutDayPlanItemNestedInput
   payments?: Prisma.CostPaymentUncheckedUpdateManyWithoutDayPlanItemNestedInput
 }
 
@@ -962,11 +1083,13 @@ export type DayPlanItemUncheckedUpdateManyWithoutTripDayInput = {
 
 export type DayPlanItemCountOutputType = {
   images: number
+  documents: number
   payments: number
 }
 
 export type DayPlanItemCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   images?: boolean | DayPlanItemCountOutputTypeCountImagesArgs
+  documents?: boolean | DayPlanItemCountOutputTypeCountDocumentsArgs
   payments?: boolean | DayPlanItemCountOutputTypeCountPaymentsArgs
 }
 
@@ -985,6 +1108,13 @@ export type DayPlanItemCountOutputTypeDefaultArgs<ExtArgs extends runtime.Types.
  */
 export type DayPlanItemCountOutputTypeCountImagesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   where?: Prisma.DayPlanItemImageWhereInput
+}
+
+/**
+ * DayPlanItemCountOutputType without action
+ */
+export type DayPlanItemCountOutputTypeCountDocumentsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.DayPlanItemDocumentWhereInput
 }
 
 /**
@@ -1011,6 +1141,7 @@ export type DayPlanItemSelect<ExtArgs extends runtime.Types.Extensions.InternalA
   updatedAt?: boolean
   tripDay?: boolean | Prisma.TripDayDefaultArgs<ExtArgs>
   images?: boolean | Prisma.DayPlanItem$imagesArgs<ExtArgs>
+  documents?: boolean | Prisma.DayPlanItem$documentsArgs<ExtArgs>
   payments?: boolean | Prisma.DayPlanItem$paymentsArgs<ExtArgs>
   _count?: boolean | Prisma.DayPlanItemCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["dayPlanItem"]>
@@ -1069,6 +1200,7 @@ export type DayPlanItemOmit<ExtArgs extends runtime.Types.Extensions.InternalArg
 export type DayPlanItemInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   tripDay?: boolean | Prisma.TripDayDefaultArgs<ExtArgs>
   images?: boolean | Prisma.DayPlanItem$imagesArgs<ExtArgs>
+  documents?: boolean | Prisma.DayPlanItem$documentsArgs<ExtArgs>
   payments?: boolean | Prisma.DayPlanItem$paymentsArgs<ExtArgs>
   _count?: boolean | Prisma.DayPlanItemCountOutputTypeDefaultArgs<ExtArgs>
 }
@@ -1084,6 +1216,7 @@ export type $DayPlanItemPayload<ExtArgs extends runtime.Types.Extensions.Interna
   objects: {
     tripDay: Prisma.$TripDayPayload<ExtArgs>
     images: Prisma.$DayPlanItemImagePayload<ExtArgs>[]
+    documents: Prisma.$DayPlanItemDocumentPayload<ExtArgs>[]
     payments: Prisma.$CostPaymentPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
@@ -1496,6 +1629,7 @@ export interface Prisma__DayPlanItemClient<T, Null = never, ExtArgs extends runt
   readonly [Symbol.toStringTag]: "PrismaPromise"
   tripDay<T extends Prisma.TripDayDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.TripDayDefaultArgs<ExtArgs>>): Prisma.Prisma__TripDayClient<runtime.Types.Result.GetResult<Prisma.$TripDayPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
   images<T extends Prisma.DayPlanItem$imagesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.DayPlanItem$imagesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$DayPlanItemImagePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  documents<T extends Prisma.DayPlanItem$documentsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.DayPlanItem$documentsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$DayPlanItemDocumentPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   payments<T extends Prisma.DayPlanItem$paymentsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.DayPlanItem$paymentsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$CostPaymentPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
@@ -1959,6 +2093,30 @@ export type DayPlanItem$imagesArgs<ExtArgs extends runtime.Types.Extensions.Inte
   take?: number
   skip?: number
   distinct?: Prisma.DayPlanItemImageScalarFieldEnum | Prisma.DayPlanItemImageScalarFieldEnum[]
+}
+
+/**
+ * DayPlanItem.documents
+ */
+export type DayPlanItem$documentsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the DayPlanItemDocument
+   */
+  select?: Prisma.DayPlanItemDocumentSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the DayPlanItemDocument
+   */
+  omit?: Prisma.DayPlanItemDocumentOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.DayPlanItemDocumentInclude<ExtArgs> | null
+  where?: Prisma.DayPlanItemDocumentWhereInput
+  orderBy?: Prisma.DayPlanItemDocumentOrderByWithRelationInput | Prisma.DayPlanItemDocumentOrderByWithRelationInput[]
+  cursor?: Prisma.DayPlanItemDocumentWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.DayPlanItemDocumentScalarFieldEnum | Prisma.DayPlanItemDocumentScalarFieldEnum[]
 }
 
 /**

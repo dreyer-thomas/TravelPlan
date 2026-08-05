@@ -298,6 +298,7 @@ export type AccommodationWhereInput = {
   updatedAt?: Prisma.DateTimeFilter<"Accommodation"> | Date | string
   tripDay?: Prisma.XOR<Prisma.TripDayScalarRelationFilter, Prisma.TripDayWhereInput>
   images?: Prisma.AccommodationImageListRelationFilter
+  documents?: Prisma.AccommodationDocumentListRelationFilter
   payments?: Prisma.CostPaymentListRelationFilter
 }
 
@@ -318,6 +319,7 @@ export type AccommodationOrderByWithRelationInput = {
   updatedAt?: Prisma.SortOrder
   tripDay?: Prisma.TripDayOrderByWithRelationInput
   images?: Prisma.AccommodationImageOrderByRelationAggregateInput
+  documents?: Prisma.AccommodationDocumentOrderByRelationAggregateInput
   payments?: Prisma.CostPaymentOrderByRelationAggregateInput
 }
 
@@ -341,6 +343,7 @@ export type AccommodationWhereUniqueInput = Prisma.AtLeast<{
   updatedAt?: Prisma.DateTimeFilter<"Accommodation"> | Date | string
   tripDay?: Prisma.XOR<Prisma.TripDayScalarRelationFilter, Prisma.TripDayWhereInput>
   images?: Prisma.AccommodationImageListRelationFilter
+  documents?: Prisma.AccommodationDocumentListRelationFilter
   payments?: Prisma.CostPaymentListRelationFilter
 }, "id" | "tripDayId">
 
@@ -402,6 +405,7 @@ export type AccommodationCreateInput = {
   updatedAt?: Date | string
   tripDay: Prisma.TripDayCreateNestedOneWithoutAccommodationInput
   images?: Prisma.AccommodationImageCreateNestedManyWithoutAccommodationInput
+  documents?: Prisma.AccommodationDocumentCreateNestedManyWithoutAccommodationInput
   payments?: Prisma.CostPaymentCreateNestedManyWithoutAccommodationInput
 }
 
@@ -421,6 +425,7 @@ export type AccommodationUncheckedCreateInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   images?: Prisma.AccommodationImageUncheckedCreateNestedManyWithoutAccommodationInput
+  documents?: Prisma.AccommodationDocumentUncheckedCreateNestedManyWithoutAccommodationInput
   payments?: Prisma.CostPaymentUncheckedCreateNestedManyWithoutAccommodationInput
 }
 
@@ -440,6 +445,7 @@ export type AccommodationUpdateInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   tripDay?: Prisma.TripDayUpdateOneRequiredWithoutAccommodationNestedInput
   images?: Prisma.AccommodationImageUpdateManyWithoutAccommodationNestedInput
+  documents?: Prisma.AccommodationDocumentUpdateManyWithoutAccommodationNestedInput
   payments?: Prisma.CostPaymentUpdateManyWithoutAccommodationNestedInput
 }
 
@@ -459,6 +465,7 @@ export type AccommodationUncheckedUpdateInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   images?: Prisma.AccommodationImageUncheckedUpdateManyWithoutAccommodationNestedInput
+  documents?: Prisma.AccommodationDocumentUncheckedUpdateManyWithoutAccommodationNestedInput
   payments?: Prisma.CostPaymentUncheckedUpdateManyWithoutAccommodationNestedInput
 }
 
@@ -659,6 +666,20 @@ export type AccommodationUpdateOneRequiredWithoutImagesNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.AccommodationUpdateToOneWithWhereWithoutImagesInput, Prisma.AccommodationUpdateWithoutImagesInput>, Prisma.AccommodationUncheckedUpdateWithoutImagesInput>
 }
 
+export type AccommodationCreateNestedOneWithoutDocumentsInput = {
+  create?: Prisma.XOR<Prisma.AccommodationCreateWithoutDocumentsInput, Prisma.AccommodationUncheckedCreateWithoutDocumentsInput>
+  connectOrCreate?: Prisma.AccommodationCreateOrConnectWithoutDocumentsInput
+  connect?: Prisma.AccommodationWhereUniqueInput
+}
+
+export type AccommodationUpdateOneRequiredWithoutDocumentsNestedInput = {
+  create?: Prisma.XOR<Prisma.AccommodationCreateWithoutDocumentsInput, Prisma.AccommodationUncheckedCreateWithoutDocumentsInput>
+  connectOrCreate?: Prisma.AccommodationCreateOrConnectWithoutDocumentsInput
+  upsert?: Prisma.AccommodationUpsertWithoutDocumentsInput
+  connect?: Prisma.AccommodationWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.AccommodationUpdateToOneWithWhereWithoutDocumentsInput, Prisma.AccommodationUpdateWithoutDocumentsInput>, Prisma.AccommodationUncheckedUpdateWithoutDocumentsInput>
+}
+
 export type AccommodationCreateWithoutTripDayInput = {
   id?: string
   name: string
@@ -674,6 +695,7 @@ export type AccommodationCreateWithoutTripDayInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   images?: Prisma.AccommodationImageCreateNestedManyWithoutAccommodationInput
+  documents?: Prisma.AccommodationDocumentCreateNestedManyWithoutAccommodationInput
   payments?: Prisma.CostPaymentCreateNestedManyWithoutAccommodationInput
 }
 
@@ -692,6 +714,7 @@ export type AccommodationUncheckedCreateWithoutTripDayInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   images?: Prisma.AccommodationImageUncheckedCreateNestedManyWithoutAccommodationInput
+  documents?: Prisma.AccommodationDocumentUncheckedCreateNestedManyWithoutAccommodationInput
   payments?: Prisma.CostPaymentUncheckedCreateNestedManyWithoutAccommodationInput
 }
 
@@ -726,6 +749,7 @@ export type AccommodationUpdateWithoutTripDayInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   images?: Prisma.AccommodationImageUpdateManyWithoutAccommodationNestedInput
+  documents?: Prisma.AccommodationDocumentUpdateManyWithoutAccommodationNestedInput
   payments?: Prisma.CostPaymentUpdateManyWithoutAccommodationNestedInput
 }
 
@@ -744,6 +768,7 @@ export type AccommodationUncheckedUpdateWithoutTripDayInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   images?: Prisma.AccommodationImageUncheckedUpdateManyWithoutAccommodationNestedInput
+  documents?: Prisma.AccommodationDocumentUncheckedUpdateManyWithoutAccommodationNestedInput
   payments?: Prisma.CostPaymentUncheckedUpdateManyWithoutAccommodationNestedInput
 }
 
@@ -763,6 +788,7 @@ export type AccommodationCreateWithoutPaymentsInput = {
   updatedAt?: Date | string
   tripDay: Prisma.TripDayCreateNestedOneWithoutAccommodationInput
   images?: Prisma.AccommodationImageCreateNestedManyWithoutAccommodationInput
+  documents?: Prisma.AccommodationDocumentCreateNestedManyWithoutAccommodationInput
 }
 
 export type AccommodationUncheckedCreateWithoutPaymentsInput = {
@@ -781,6 +807,7 @@ export type AccommodationUncheckedCreateWithoutPaymentsInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   images?: Prisma.AccommodationImageUncheckedCreateNestedManyWithoutAccommodationInput
+  documents?: Prisma.AccommodationDocumentUncheckedCreateNestedManyWithoutAccommodationInput
 }
 
 export type AccommodationCreateOrConnectWithoutPaymentsInput = {
@@ -815,6 +842,7 @@ export type AccommodationUpdateWithoutPaymentsInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   tripDay?: Prisma.TripDayUpdateOneRequiredWithoutAccommodationNestedInput
   images?: Prisma.AccommodationImageUpdateManyWithoutAccommodationNestedInput
+  documents?: Prisma.AccommodationDocumentUpdateManyWithoutAccommodationNestedInput
 }
 
 export type AccommodationUncheckedUpdateWithoutPaymentsInput = {
@@ -833,6 +861,7 @@ export type AccommodationUncheckedUpdateWithoutPaymentsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   images?: Prisma.AccommodationImageUncheckedUpdateManyWithoutAccommodationNestedInput
+  documents?: Prisma.AccommodationDocumentUncheckedUpdateManyWithoutAccommodationNestedInput
 }
 
 export type AccommodationCreateWithoutImagesInput = {
@@ -850,6 +879,7 @@ export type AccommodationCreateWithoutImagesInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   tripDay: Prisma.TripDayCreateNestedOneWithoutAccommodationInput
+  documents?: Prisma.AccommodationDocumentCreateNestedManyWithoutAccommodationInput
   payments?: Prisma.CostPaymentCreateNestedManyWithoutAccommodationInput
 }
 
@@ -868,6 +898,7 @@ export type AccommodationUncheckedCreateWithoutImagesInput = {
   checkOutTime?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  documents?: Prisma.AccommodationDocumentUncheckedCreateNestedManyWithoutAccommodationInput
   payments?: Prisma.CostPaymentUncheckedCreateNestedManyWithoutAccommodationInput
 }
 
@@ -902,6 +933,7 @@ export type AccommodationUpdateWithoutImagesInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   tripDay?: Prisma.TripDayUpdateOneRequiredWithoutAccommodationNestedInput
+  documents?: Prisma.AccommodationDocumentUpdateManyWithoutAccommodationNestedInput
   payments?: Prisma.CostPaymentUpdateManyWithoutAccommodationNestedInput
 }
 
@@ -920,6 +952,99 @@ export type AccommodationUncheckedUpdateWithoutImagesInput = {
   checkOutTime?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  documents?: Prisma.AccommodationDocumentUncheckedUpdateManyWithoutAccommodationNestedInput
+  payments?: Prisma.CostPaymentUncheckedUpdateManyWithoutAccommodationNestedInput
+}
+
+export type AccommodationCreateWithoutDocumentsInput = {
+  id?: string
+  name: string
+  status?: $Enums.AccommodationStatus
+  costCents?: number | null
+  link?: string | null
+  locationLat?: number | null
+  locationLng?: number | null
+  locationLabel?: string | null
+  notes?: string | null
+  checkInTime?: string | null
+  checkOutTime?: string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  tripDay: Prisma.TripDayCreateNestedOneWithoutAccommodationInput
+  images?: Prisma.AccommodationImageCreateNestedManyWithoutAccommodationInput
+  payments?: Prisma.CostPaymentCreateNestedManyWithoutAccommodationInput
+}
+
+export type AccommodationUncheckedCreateWithoutDocumentsInput = {
+  id?: string
+  tripDayId: string
+  name: string
+  status?: $Enums.AccommodationStatus
+  costCents?: number | null
+  link?: string | null
+  locationLat?: number | null
+  locationLng?: number | null
+  locationLabel?: string | null
+  notes?: string | null
+  checkInTime?: string | null
+  checkOutTime?: string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  images?: Prisma.AccommodationImageUncheckedCreateNestedManyWithoutAccommodationInput
+  payments?: Prisma.CostPaymentUncheckedCreateNestedManyWithoutAccommodationInput
+}
+
+export type AccommodationCreateOrConnectWithoutDocumentsInput = {
+  where: Prisma.AccommodationWhereUniqueInput
+  create: Prisma.XOR<Prisma.AccommodationCreateWithoutDocumentsInput, Prisma.AccommodationUncheckedCreateWithoutDocumentsInput>
+}
+
+export type AccommodationUpsertWithoutDocumentsInput = {
+  update: Prisma.XOR<Prisma.AccommodationUpdateWithoutDocumentsInput, Prisma.AccommodationUncheckedUpdateWithoutDocumentsInput>
+  create: Prisma.XOR<Prisma.AccommodationCreateWithoutDocumentsInput, Prisma.AccommodationUncheckedCreateWithoutDocumentsInput>
+  where?: Prisma.AccommodationWhereInput
+}
+
+export type AccommodationUpdateToOneWithWhereWithoutDocumentsInput = {
+  where?: Prisma.AccommodationWhereInput
+  data: Prisma.XOR<Prisma.AccommodationUpdateWithoutDocumentsInput, Prisma.AccommodationUncheckedUpdateWithoutDocumentsInput>
+}
+
+export type AccommodationUpdateWithoutDocumentsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  status?: Prisma.EnumAccommodationStatusFieldUpdateOperationsInput | $Enums.AccommodationStatus
+  costCents?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  link?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  locationLat?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  locationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  locationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  checkInTime?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  checkOutTime?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  tripDay?: Prisma.TripDayUpdateOneRequiredWithoutAccommodationNestedInput
+  images?: Prisma.AccommodationImageUpdateManyWithoutAccommodationNestedInput
+  payments?: Prisma.CostPaymentUpdateManyWithoutAccommodationNestedInput
+}
+
+export type AccommodationUncheckedUpdateWithoutDocumentsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  tripDayId?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  status?: Prisma.EnumAccommodationStatusFieldUpdateOperationsInput | $Enums.AccommodationStatus
+  costCents?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  link?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  locationLat?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  locationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  locationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  checkInTime?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  checkOutTime?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  images?: Prisma.AccommodationImageUncheckedUpdateManyWithoutAccommodationNestedInput
   payments?: Prisma.CostPaymentUncheckedUpdateManyWithoutAccommodationNestedInput
 }
 
@@ -930,11 +1055,13 @@ export type AccommodationUncheckedUpdateWithoutImagesInput = {
 
 export type AccommodationCountOutputType = {
   images: number
+  documents: number
   payments: number
 }
 
 export type AccommodationCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   images?: boolean | AccommodationCountOutputTypeCountImagesArgs
+  documents?: boolean | AccommodationCountOutputTypeCountDocumentsArgs
   payments?: boolean | AccommodationCountOutputTypeCountPaymentsArgs
 }
 
@@ -953,6 +1080,13 @@ export type AccommodationCountOutputTypeDefaultArgs<ExtArgs extends runtime.Type
  */
 export type AccommodationCountOutputTypeCountImagesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   where?: Prisma.AccommodationImageWhereInput
+}
+
+/**
+ * AccommodationCountOutputType without action
+ */
+export type AccommodationCountOutputTypeCountDocumentsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.AccommodationDocumentWhereInput
 }
 
 /**
@@ -980,6 +1114,7 @@ export type AccommodationSelect<ExtArgs extends runtime.Types.Extensions.Interna
   updatedAt?: boolean
   tripDay?: boolean | Prisma.TripDayDefaultArgs<ExtArgs>
   images?: boolean | Prisma.Accommodation$imagesArgs<ExtArgs>
+  documents?: boolean | Prisma.Accommodation$documentsArgs<ExtArgs>
   payments?: boolean | Prisma.Accommodation$paymentsArgs<ExtArgs>
   _count?: boolean | Prisma.AccommodationCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["accommodation"]>
@@ -1041,6 +1176,7 @@ export type AccommodationOmit<ExtArgs extends runtime.Types.Extensions.InternalA
 export type AccommodationInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   tripDay?: boolean | Prisma.TripDayDefaultArgs<ExtArgs>
   images?: boolean | Prisma.Accommodation$imagesArgs<ExtArgs>
+  documents?: boolean | Prisma.Accommodation$documentsArgs<ExtArgs>
   payments?: boolean | Prisma.Accommodation$paymentsArgs<ExtArgs>
   _count?: boolean | Prisma.AccommodationCountOutputTypeDefaultArgs<ExtArgs>
 }
@@ -1056,6 +1192,7 @@ export type $AccommodationPayload<ExtArgs extends runtime.Types.Extensions.Inter
   objects: {
     tripDay: Prisma.$TripDayPayload<ExtArgs>
     images: Prisma.$AccommodationImagePayload<ExtArgs>[]
+    documents: Prisma.$AccommodationDocumentPayload<ExtArgs>[]
     payments: Prisma.$CostPaymentPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
@@ -1469,6 +1606,7 @@ export interface Prisma__AccommodationClient<T, Null = never, ExtArgs extends ru
   readonly [Symbol.toStringTag]: "PrismaPromise"
   tripDay<T extends Prisma.TripDayDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.TripDayDefaultArgs<ExtArgs>>): Prisma.Prisma__TripDayClient<runtime.Types.Result.GetResult<Prisma.$TripDayPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
   images<T extends Prisma.Accommodation$imagesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Accommodation$imagesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$AccommodationImagePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  documents<T extends Prisma.Accommodation$documentsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Accommodation$documentsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$AccommodationDocumentPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   payments<T extends Prisma.Accommodation$paymentsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Accommodation$paymentsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$CostPaymentPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
@@ -1933,6 +2071,30 @@ export type Accommodation$imagesArgs<ExtArgs extends runtime.Types.Extensions.In
   take?: number
   skip?: number
   distinct?: Prisma.AccommodationImageScalarFieldEnum | Prisma.AccommodationImageScalarFieldEnum[]
+}
+
+/**
+ * Accommodation.documents
+ */
+export type Accommodation$documentsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the AccommodationDocument
+   */
+  select?: Prisma.AccommodationDocumentSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the AccommodationDocument
+   */
+  omit?: Prisma.AccommodationDocumentOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.AccommodationDocumentInclude<ExtArgs> | null
+  where?: Prisma.AccommodationDocumentWhereInput
+  orderBy?: Prisma.AccommodationDocumentOrderByWithRelationInput | Prisma.AccommodationDocumentOrderByWithRelationInput[]
+  cursor?: Prisma.AccommodationDocumentWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.AccommodationDocumentScalarFieldEnum | Prisma.AccommodationDocumentScalarFieldEnum[]
 }
 
 /**

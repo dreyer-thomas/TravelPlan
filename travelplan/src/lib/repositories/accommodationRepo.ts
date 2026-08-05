@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
+import { MAX_DOCUMENTS_PER_ENTRY } from "@/lib/trips/documentUploads";
 
 export type AccommodationDetail = {
   id: string;
@@ -85,6 +86,41 @@ export type AccommodationImageReorderResult =
   | { status: "missing" }
   | { status: "reordered" };
 
+export type AccommodationDocumentDetail = {
+  id: string;
+  accommodationId: string;
+  documentUrl: string;
+  fileName: string;
+  sortOrder: number;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type AccommodationDocumentCreateParams = AccommodationImageScopeParams & {
+  documentUrl: string;
+  fileName: string;
+};
+
+type AccommodationDocumentDeleteParams = AccommodationImageScopeParams & {
+  documentId: string;
+};
+
+/**
+ * Three outcomes rather than the images' `Detail | null`, because the create has three answers to
+ * give: the entry is not this user's to write to, the entry is full, or here is the row. Folding
+ * "full" into `null` would have the route answer 404 for a document the caller can see, and folding
+ * it into a thrown error would make the cap an exception rather than a rule.
+ */
+export type AccommodationDocumentCreateResult =
+  | { status: "not_found" }
+  | { status: "limit_reached" }
+  | { status: "created"; document: AccommodationDocumentDetail };
+
+export type AccommodationDocumentDeleteResult =
+  | { status: "not_found" }
+  | { status: "missing" }
+  | { status: "deleted" };
+
 const findTripDayForTripWriter = async (userId: string, tripId: string, tripDayId: string) =>
   prisma.tripDay.findFirst({
     where: {
@@ -145,6 +181,24 @@ const toImageDetail = (image: {
   sortOrder: image.sortOrder,
   createdAt: image.createdAt,
   updatedAt: image.updatedAt,
+});
+
+const toDocumentDetail = (document: {
+  id: string;
+  accommodationId: string;
+  documentUrl: string;
+  fileName: string;
+  sortOrder: number;
+  createdAt: Date;
+  updatedAt: Date;
+}): AccommodationDocumentDetail => ({
+  id: document.id,
+  accommodationId: document.accommodationId,
+  documentUrl: document.documentUrl,
+  fileName: document.fileName,
+  sortOrder: document.sortOrder,
+  createdAt: document.createdAt,
+  updatedAt: document.updatedAt,
 });
 
 const toStatus = (status: string): AccommodationStatus => (status === "BOOKED" ? "booked" : "planned");
@@ -555,4 +609,83 @@ export const reorderAccommodationImages = async (
   });
 
   return { status: "reordered" };
+};
+
+export const listAccommodationDocuments = async (
+  params: AccommodationImageScopeParams,
+): Promise<AccommodationDocumentDetail[] | null> => {
+  // The participant scope, exactly as the gallery read uses: a viewer who can see the day must be
+  // able to see what is attached to it. The write functions below use the owner-only scope instead.
+  const accommodation = await findScopedAccommodationForTripParticipant(params);
+  if (!accommodation) {
+    return null;
+  }
+
+  const documents = await prisma.accommodationDocument.findMany({
+    where: { accommodationId: accommodation.id },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+  });
+
+  return documents.map(toDocumentDetail);
+};
+
+export const createAccommodationDocument = async (
+  params: AccommodationDocumentCreateParams,
+): Promise<AccommodationDocumentCreateResult> => {
+  const accommodation = await findScopedAccommodation(params);
+  if (!accommodation) {
+    return { status: "not_found" };
+  }
+
+  // Counted here rather than in the dialog. The route has already written the file by the time it
+  // calls this, so the refusal has to be distinguishable enough for it to roll that write back - see
+  // `AccommodationDocumentCreateResult`.
+  const existingCount = await prisma.accommodationDocument.count({
+    where: { accommodationId: accommodation.id },
+  });
+  if (existingCount >= MAX_DOCUMENTS_PER_ENTRY) {
+    return { status: "limit_reached" };
+  }
+
+  const last = await prisma.accommodationDocument.findFirst({
+    where: { accommodationId: accommodation.id },
+    orderBy: [{ sortOrder: "desc" }],
+    select: { sortOrder: true },
+  });
+  const nextSortOrder = (last?.sortOrder ?? 0) + 1;
+
+  const created = await prisma.accommodationDocument.create({
+    data: {
+      accommodationId: accommodation.id,
+      documentUrl: params.documentUrl,
+      fileName: params.fileName,
+      sortOrder: nextSortOrder,
+    },
+  });
+
+  return { status: "created", document: toDocumentDetail(created) };
+};
+
+export const deleteAccommodationDocument = async (
+  params: AccommodationDocumentDeleteParams,
+): Promise<AccommodationDocumentDeleteResult> => {
+  const accommodation = await findScopedAccommodation(params);
+  if (!accommodation) {
+    return { status: "not_found" };
+  }
+
+  const existing = await prisma.accommodationDocument.findFirst({
+    where: {
+      id: params.documentId,
+      accommodationId: accommodation.id,
+    },
+    select: { id: true },
+  });
+
+  if (!existing) {
+    return { status: "missing" };
+  }
+
+  await prisma.accommodationDocument.delete({ where: { id: existing.id } });
+  return { status: "deleted" };
 };

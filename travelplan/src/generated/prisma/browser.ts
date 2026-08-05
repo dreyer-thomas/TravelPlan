@@ -73,6 +73,16 @@ export type AccommodationImage = Prisma.AccommodationImageModel
  */
 export type DayPlanItemImage = Prisma.DayPlanItemImageModel
 /**
+ * Model AccommodationDocument
+ * 
+ */
+export type AccommodationDocument = Prisma.AccommodationDocumentModel
+/**
+ * Model DayPlanItemDocument
+ * 
+ */
+export type DayPlanItemDocument = Prisma.DayPlanItemDocumentModel
+/**
  * Model TripBucketListItem
  * 
  */

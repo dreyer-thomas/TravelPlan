@@ -3,7 +3,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { assertMediaRootConfigured } from "@/lib/trips/mediaRootBoot";
 import {
+  getAccommodationDocumentUploadDir,
   getAccommodationImageUploadDir,
+  getDayPlanItemDocumentUploadDir,
   getDayPlanItemImageUploadDir,
   getMediaRoot,
   getTripDayUploadDir,
@@ -38,7 +40,10 @@ describe("upload paths", () => {
       getTripDayUploadDir("trip-1", "day-1"),
       getAccommodationImageUploadDir("trip-1", "day-1", "stay-1"),
       getDayPlanItemImageUploadDir("trip-1", "day-1", "item-1"),
+      getAccommodationDocumentUploadDir("trip-1", "day-1", "stay-1"),
+      getDayPlanItemDocumentUploadDir("trip-1", "day-1", "item-1"),
       resolveStoredMediaPath("/uploads/trips/trip-1/hero.png"),
+      resolveStoredMediaPath("/uploads/trips/trip-1/days/day-1/accommodations/stay-1/documents/doc-1.pdf"),
     ];
 
     for (const resolved of paths) {
@@ -257,6 +262,24 @@ describe("upload paths", () => {
     );
     expect(getDayPlanItemImageUploadDir("trip-1", "day-1", "item-1")).toBe(
       path.join(root, "uploads", "trips", "trip-1", "days", "day-1", "day-plan-items", "item-1"),
+    );
+
+    // Documents (Story 9.1) sit in a `documents` subdirectory of the entry's own directory, not
+    // beside its photos: a directory walk over the entry reads it as "this entry's photographs", and
+    // an image filed as a ticket would otherwise be indistinguishable from one.
+    expect(getAccommodationDocumentUploadDir("trip-1", "day-1", "stay-1")).toBe(
+      path.join(getAccommodationImageUploadDir("trip-1", "day-1", "stay-1"), "documents"),
+    );
+    expect(getDayPlanItemDocumentUploadDir("trip-1", "day-1", "item-1")).toBe(
+      path.join(getDayPlanItemImageUploadDir("trip-1", "day-1", "item-1"), "documents"),
+    );
+    // Spelled out as well as composed, because the composition is what the assertion above checks and
+    // the served URL shape is what the database and the browser actually agree on.
+    expect(getAccommodationDocumentUploadDir("trip-1", "day-1", "stay-1")).toBe(
+      path.join(root, "uploads", "trips", "trip-1", "days", "day-1", "accommodations", "stay-1", "documents"),
+    );
+    expect(getDayPlanItemDocumentUploadDir("trip-1", "day-1", "item-1")).toBe(
+      path.join(root, "uploads", "trips", "trip-1", "days", "day-1", "day-plan-items", "item-1", "documents"),
     );
   });
 

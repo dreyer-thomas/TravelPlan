@@ -54,19 +54,28 @@ type RouteContext = {
  * `X-Content-Type-Options: nosniff` is set on every response, which means a wrong declared type is
  * not a cosmetic problem - the browser refuses to reinterpret and the file simply fails to render.
  * So the type comes from the *stored* extension and nothing else: never sniffed from the bytes, never
- * taken from anything a client sent. These three are exactly what the four upload routes accept
- * (`imageUploads.ts`), and an import can only write an extension derived from that same allow-list.
+ * taken from anything a client sent. The three image types are exactly what the four image upload
+ * routes accept (`imageUploads.ts`), `pdf` is what Story 9.1's two document routes added
+ * (`documentUploads.ts`), and an import can only write an extension derived from those same
+ * allow-lists.
  *
- * Story 9.1 adds `pdf` -> `application/pdf` with `Content-Disposition: inline`. `inline` alongside
- * `nosniff` is the correct pairing for a PDF and does not suppress rendering - `nosniff` only stops
- * the browser second-guessing a *declared* type, and `application/pdf` is the right declaration.
+ * **`pdf` is the one entry served `Content-Disposition: inline`.** A document chip opens in a new tab
+ * and the file has to render there; without the entry a PDF is `application/octet-stream` with
+ * `attachment`, which downloads instead of opening - a green test suite and a feature that does not
+ * work. `inline` alongside `nosniff` does not suppress rendering: `nosniff` only stops the browser
+ * second-guessing a *declared* type, and `application/pdf` is the right declaration. Everything
+ * unmapped keeps `attachment`, which is what makes a file of unknown type harmless.
  */
 const CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
   jpg: "image/jpeg",
   jpeg: "image/jpeg",
   png: "image/png",
   webp: "image/webp",
+  pdf: "application/pdf",
 };
+
+/** The one mapped type that renders in place rather than being handed to the OS. */
+const INLINE_CONTENT_TYPE = "application/pdf";
 
 const FALLBACK_CONTENT_TYPE = "application/octet-stream";
 
@@ -348,6 +357,11 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
   if (!mappedContentType) {
     // An unrecognised extension is never guessed at and never rendered in place.
     headers.set("content-disposition", "attachment");
+  } else if (contentType === INLINE_CONTENT_TYPE) {
+    // Stated rather than left to the default, because the default is a browser preference: some
+    // builds and some enterprise policies download a PDF that carries no disposition at all, and the
+    // chip's whole promise is that the ticket opens.
+    headers.set("content-disposition", "inline");
   }
 
   // `If-None-Match` is evaluated before `Range` (RFC 9110), and the `ETag` must be echoed on the 304:

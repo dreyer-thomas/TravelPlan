@@ -188,6 +188,7 @@ model Accommodation {
 
   tripDay TripDay @relation(fields: [tripDayId], references: [id], onDelete: Cascade)
   images  AccommodationImage[]
+  documents AccommodationDocument[]
   payments CostPayment[]
 
   @@map("accommodations")
@@ -210,6 +211,7 @@ model DayPlanItem {
 
   tripDay TripDay @relation(fields: [tripDayId], references: [id], onDelete: Cascade)
   images  DayPlanItemImage[]
+  documents DayPlanItemDocument[]
   payments CostPayment[]
 
   @@index([tripDayId], map: "idx_day_plan_items_trip_day_id")
@@ -264,6 +266,42 @@ model DayPlanItemImage {
   @@index([dayPlanItemId], map: "idx_day_plan_item_images_item_id")
   @@unique([dayPlanItemId, sortOrder], map: "idx_day_plan_item_images_order")
   @@map("day_plan_item_images")
+}
+
+// Documents (Story 9.1) are the image galleries' shape plus `file_name`. The on-disk name is
+// server-generated (`doc-<ts>-<rand>.<ext>`) and carries no trace of what the user called the file,
+// so the name has to be stored: it is the chip's label and the backup has to round-trip it. It is a
+// column value only - nothing on disk is ever named from client input.
+model AccommodationDocument {
+  id              String   @id @default(cuid()) @map("id")
+  accommodationId String   @map("accommodation_id")
+  documentUrl     String   @map("document_url")
+  fileName        String   @map("file_name")
+  sortOrder       Int      @map("sort_order")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  accommodation Accommodation @relation(fields: [accommodationId], references: [id], onDelete: Cascade)
+
+  @@index([accommodationId], map: "idx_accommodation_documents_accommodation_id")
+  @@unique([accommodationId, sortOrder], map: "idx_accommodation_documents_order")
+  @@map("accommodation_documents")
+}
+
+model DayPlanItemDocument {
+  id            String   @id @default(cuid()) @map("id")
+  dayPlanItemId String   @map("day_plan_item_id")
+  documentUrl   String   @map("document_url")
+  fileName      String   @map("file_name")
+  sortOrder     Int      @map("sort_order")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  dayPlanItem DayPlanItem @relation(fields: [dayPlanItemId], references: [id], onDelete: Cascade)
+
+  @@index([dayPlanItemId], map: "idx_day_plan_item_documents_item_id")
+  @@unique([dayPlanItemId, sortOrder], map: "idx_day_plan_item_documents_order")
+  @@map("day_plan_item_documents")
 }
 
 model TripBucketListItem {

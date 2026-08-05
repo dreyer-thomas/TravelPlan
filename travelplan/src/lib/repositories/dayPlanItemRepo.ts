@@ -3,6 +3,7 @@ import {
   deleteBucketListItemForTripInTransaction,
   findBucketListItemForTripInTransaction,
 } from "@/lib/repositories/bucketListRepo";
+import { MAX_DOCUMENTS_PER_ENTRY } from "@/lib/trips/documentUploads";
 
 type TransactionClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 
@@ -119,6 +120,40 @@ export type DayPlanItemImageReorderResult =
   | { status: "not_found" }
   | { status: "missing" }
   | { status: "reordered" };
+
+export type DayPlanItemDocumentDetail = {
+  id: string;
+  dayPlanItemId: string;
+  documentUrl: string;
+  fileName: string;
+  sortOrder: number;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type DayPlanItemDocumentCreateParams = DayPlanItemImageScopeParams & {
+  documentUrl: string;
+  fileName: string;
+};
+
+type DayPlanItemDocumentDeleteParams = DayPlanItemImageScopeParams & {
+  documentId: string;
+};
+
+/**
+ * Three outcomes rather than the images' `Detail | null`, because the create has three answers to
+ * give: the entry is not this user's to write to, the entry is full, or here is the row. The stay
+ * repository carries the twin of this type and the same reasoning.
+ */
+export type DayPlanItemDocumentCreateResult =
+  | { status: "not_found" }
+  | { status: "limit_reached" }
+  | { status: "created"; document: DayPlanItemDocumentDetail };
+
+export type DayPlanItemDocumentDeleteResult =
+  | { status: "not_found" }
+  | { status: "missing" }
+  | { status: "deleted" };
 
 export type DayPlanItemMoveResult =
   | { status: "not_found" }
@@ -320,6 +355,24 @@ const toImageDetail = (item: {
   id: item.id,
   dayPlanItemId: item.dayPlanItemId,
   imageUrl: item.imageUrl,
+  sortOrder: item.sortOrder,
+  createdAt: item.createdAt,
+  updatedAt: item.updatedAt,
+});
+
+const toDocumentDetail = (item: {
+  id: string;
+  dayPlanItemId: string;
+  documentUrl: string;
+  fileName: string;
+  sortOrder: number;
+  createdAt: Date;
+  updatedAt: Date;
+}): DayPlanItemDocumentDetail => ({
+  id: item.id,
+  dayPlanItemId: item.dayPlanItemId,
+  documentUrl: item.documentUrl,
+  fileName: item.fileName,
   sortOrder: item.sortOrder,
   createdAt: item.createdAt,
   updatedAt: item.updatedAt,
@@ -870,4 +923,108 @@ export const reorderDayPlanItemImages = async (
   });
 
   return { status: "reordered" };
+};
+
+export const listDayPlanItemDocuments = async (
+  params: DayPlanItemImageScopeParams,
+): Promise<DayPlanItemDocumentDetail[] | null> => {
+  // The participant scope, exactly as the gallery read uses: a viewer who can see the day must be
+  // able to see what is attached to it. The write functions below use the owner-only scope instead.
+  const item = await findScopedDayPlanItemForTripParticipant(params);
+  if (!item) {
+    return null;
+  }
+
+  const documents = await prisma.dayPlanItemDocument.findMany({
+    where: { dayPlanItemId: item.id },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+  });
+  return documents.map(toDocumentDetail);
+};
+
+/**
+ * Every activity's documents for one day in a single query, twinning
+ * `listDayPlanItemImagesForTripDay`. The day view renders a media row per activity and would
+ * otherwise issue one request per card.
+ */
+export const listDayPlanItemDocumentsForTripDay = async (params: {
+  userId: string;
+  tripId: string;
+  tripDayId: string;
+}): Promise<DayPlanItemDocumentDetail[] | null> => {
+  const tripDay = await findTripDayForTripParticipant(params.userId, params.tripId, params.tripDayId);
+  if (!tripDay) {
+    return null;
+  }
+
+  const documents = await prisma.dayPlanItemDocument.findMany({
+    where: {
+      dayPlanItem: {
+        tripDayId: params.tripDayId,
+      },
+    },
+    orderBy: [{ dayPlanItemId: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
+  });
+
+  return documents.map(toDocumentDetail);
+};
+
+export const createDayPlanItemDocument = async (
+  params: DayPlanItemDocumentCreateParams,
+): Promise<DayPlanItemDocumentCreateResult> => {
+  const item = await findScopedDayPlanItem(params);
+  if (!item) {
+    return { status: "not_found" };
+  }
+
+  // Counted here rather than in the dialog. The route has already written the file by the time it
+  // calls this, so the refusal has to be distinguishable enough for it to roll that write back - see
+  // `DayPlanItemDocumentCreateResult`.
+  const existingCount = await prisma.dayPlanItemDocument.count({
+    where: { dayPlanItemId: item.id },
+  });
+  if (existingCount >= MAX_DOCUMENTS_PER_ENTRY) {
+    return { status: "limit_reached" };
+  }
+
+  const last = await prisma.dayPlanItemDocument.findFirst({
+    where: { dayPlanItemId: item.id },
+    orderBy: [{ sortOrder: "desc" }],
+    select: { sortOrder: true },
+  });
+  const nextSortOrder = (last?.sortOrder ?? 0) + 1;
+
+  const created = await prisma.dayPlanItemDocument.create({
+    data: {
+      dayPlanItemId: item.id,
+      documentUrl: params.documentUrl,
+      fileName: params.fileName,
+      sortOrder: nextSortOrder,
+    },
+  });
+
+  return { status: "created", document: toDocumentDetail(created) };
+};
+
+export const deleteDayPlanItemDocument = async (
+  params: DayPlanItemDocumentDeleteParams,
+): Promise<DayPlanItemDocumentDeleteResult> => {
+  const item = await findScopedDayPlanItem(params);
+  if (!item) {
+    return { status: "not_found" };
+  }
+
+  const existing = await prisma.dayPlanItemDocument.findFirst({
+    where: {
+      id: params.documentId,
+      dayPlanItemId: item.id,
+    },
+    select: { id: true },
+  });
+  if (!existing) {
+    return { status: "missing" };
+  }
+
+  await prisma.dayPlanItemDocument.delete({ where: { id: existing.id } });
+  return { status: "deleted" };
 };

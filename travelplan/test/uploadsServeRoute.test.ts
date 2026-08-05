@@ -295,6 +295,7 @@ describe("GET /uploads/[...path]", () => {
     await writeHero(trip.id, "photo.JPG");
     await writeHero(trip.id, "shot.webp");
     await writeHero(trip.id, "ticket.pdf");
+    await writeHero(trip.id, "notes.txt");
 
     const png = await get(["trips", trip.id, "hero.png"], { token: ownerToken });
     expect(png.status).toBe(200);
@@ -320,14 +321,27 @@ describe("GET /uploads/[...path]", () => {
     );
 
     /**
-     * An unrecognised extension is never guessed at and never rendered in place. `pdf` is
-     * deliberately unrecognised *here*: Story 9.1 is what adds it, with `inline`, and until then a
-     * PDF is bytes of unknown type like any other.
+     * Story 9.1's one addition to the map, and the only entry served `inline`. A document chip opens
+     * in a new tab and the ticket has to render there; served `application/octet-stream` with
+     * `attachment` - which is what this route did before the entry existed - it downloads instead,
+     * with every unit test still green. `inline` alongside `nosniff` does not suppress rendering:
+     * `nosniff` only stops the browser second-guessing a *declared* type.
      */
     const pdf = await get(["trips", trip.id, "ticket.pdf"], { token: ownerToken });
     expect(pdf.status).toBe(200);
-    expect(pdf.headers.get("content-type")).toBe("application/octet-stream");
-    expect(pdf.headers.get("content-disposition")).toBe("attachment");
+    expect(pdf.headers.get("content-type")).toBe("application/pdf");
+    expect(pdf.headers.get("content-disposition")).toBe("inline");
+    expect(pdf.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(Buffer.from(await pdf.arrayBuffer()).equals(fileBody)).toBe(true);
+
+    /**
+     * And an extension that is in neither allow-list is still never guessed at and never rendered in
+     * place - adding `pdf` widened the map by exactly one entry, not by a policy.
+     */
+    const unmapped = await get(["trips", trip.id, "notes.txt"], { token: ownerToken });
+    expect(unmapped.status).toBe(200);
+    expect(unmapped.headers.get("content-type")).toBe("application/octet-stream");
+    expect(unmapped.headers.get("content-disposition")).toBe("attachment");
   });
 
   it("answers a matching If-None-Match with a 304 that carries the ETag", async () => {

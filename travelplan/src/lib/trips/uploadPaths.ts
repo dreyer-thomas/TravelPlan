@@ -98,6 +98,27 @@ export const getDayPlanItemImageUploadDir = (tripId: string, dayId: string, dayP
   path.join(getTripDayUploadDir(tripId, dayId), "day-plan-items", dayPlanItemId);
 
 /**
+ * Documents (Story 9.1) live in a `documents` subdirectory of the entry's own image directory rather
+ * than beside its photos.
+ *
+ * Two things follow from the separation and neither is cosmetic. A directory walk over an entry - the
+ * export pool builder is one, and any future cleanup pass is another - reads the entry directory as
+ * "this entry's photographs"; a PDF, or worse a JPEG that the user filed as a ticket, sitting in it
+ * would be indistinguishable from one. And the two sets stay separable on disk, so a document can be
+ * removed, counted or archived without first consulting the database about which of the files in the
+ * directory the database thinks is a photo.
+ *
+ * Composed from the image-dir helpers rather than rebuilt from `getTripDayUploadDir`, so there is
+ * exactly one definition of where an entry's media lives and this pair cannot drift from it. Nothing
+ * here goes anywhere near `process.cwd()` - see the DW-22 note in this file's header.
+ */
+export const getAccommodationDocumentUploadDir = (tripId: string, dayId: string, accommodationId: string) =>
+  path.join(getAccommodationImageUploadDir(tripId, dayId, accommodationId), "documents");
+
+export const getDayPlanItemDocumentUploadDir = (tripId: string, dayId: string, dayPlanItemId: string) =>
+  path.join(getDayPlanItemImageUploadDir(tripId, dayId, dayPlanItemId), "documents");
+
+/**
  * Whether one URL path segment is safe to treat as a single path component.
  *
  * **One decoded segment is not the same thing as one path component.** Next URL-decodes catch-all
