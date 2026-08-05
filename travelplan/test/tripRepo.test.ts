@@ -43,6 +43,7 @@ const IMPORT_PAYLOAD: TripImportPayloadInput = {
     warnings: [],
   },
   photos: {},
+  documents: {},
   trip: {
     id: "export-trip",
     name: "Imported Trip",
@@ -77,6 +78,7 @@ const IMPORT_PAYLOAD: TripImportPayloadInput = {
         createdAt: "2026-02-14T12:00:00.000Z",
         updatedAt: "2026-02-14T12:00:00.000Z",
         images: [],
+        documents: [],
       },
       dayPlanItems: [
         {
@@ -91,6 +93,7 @@ const IMPORT_PAYLOAD: TripImportPayloadInput = {
           createdAt: "2026-02-14T12:00:00.000Z",
           updatedAt: "2026-02-14T12:00:00.000Z",
           images: [],
+          documents: [],
         },
       ],
       travelSegments: [],
@@ -131,6 +134,7 @@ const V2_IMPORT_PAYLOAD: TripImportPayloadInput = {
     p3: { contentType: "image/webp", archivePath: "photos/p3.webp" },
     p4: { contentType: "image/jpeg", archivePath: "photos/p4.jpg" },
   },
+  documents: {},
   trip: {
     id: "source-trip",
     name: "Complete Backup Trip",
@@ -184,6 +188,7 @@ const V2_IMPORT_PAYLOAD: TripImportPayloadInput = {
         createdAt: "2026-02-14T12:00:00.000Z",
         updatedAt: "2026-02-14T12:00:00.000Z",
         images: [{ sortOrder: 0, photoId: "p3" }],
+        documents: [],
       },
       dayPlanItems: [
         {
@@ -203,6 +208,7 @@ const V2_IMPORT_PAYLOAD: TripImportPayloadInput = {
             { sortOrder: 0, photoId: "p4" },
             { sortOrder: 1, photoId: "p3" },
           ],
+          documents: [],
         },
       ],
       travelSegments: [

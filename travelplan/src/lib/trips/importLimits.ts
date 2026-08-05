@@ -80,9 +80,25 @@ export const MAX_IMPORT_PACKAGE_BYTES = 300 * 1024 * 1024;
 export const MAX_IMPORT_PHOTO_BYTES = 15 * 1024 * 1024;
 
 /**
- * Ceiling on how many files one import may write.
+ * Ceiling on one restored document (Story 9.1): **10 MB, matching the two document upload routes'
+ * own `MAX_FILE_SIZE_BYTES` exactly** rather than the highest of a family.
  *
- * The photo pool is deduplicated but *references* into it are not: one pooled photo named by N
+ * The photo ceiling above is a maximum over four routes because those four disagree (5/5/5/15 MB)
+ * and import has to clear the most generous of them, or a photo the app itself accepted makes its
+ * own backup unrestorable. Documents have no such spread: `accommodations/documents` and
+ * `day-plan-items/documents` are the only writers of these rows and both allow 10 MB, so the same
+ * reasoning lands on the number itself. Raising it to 15 for symmetry with the photo pool would
+ * accept a document no route can produce and none can replace once it is restored.
+ *
+ * As with photos, nothing is weakened by the size alone: `sniffDocumentContentType` decides whether
+ * a member is a PDF or an allow-listed image at all.
+ */
+export const MAX_IMPORT_DOCUMENT_BYTES = 10 * 1024 * 1024;
+
+/**
+ * Ceiling on how many files one import may write - **photos and documents together** (Story 9.1).
+ *
+ * The pools are deduplicated but *references* into them are not: one pooled photo named by N
  * gallery slots is written N times, so a small archive can plan an arbitrarily large amount of disk
  * I/O. The container's own 200 MB uncompressed cap does not bound that - the amplification lives in
  * the manifest, not in the bytes.
@@ -90,22 +106,31 @@ export const MAX_IMPORT_PHOTO_BYTES = 15 * 1024 * 1024;
  * 5000 sits above anything the export can plausibly produce (a 365-day trip carrying a day image
  * plus a dozen gallery slots every single day is ~4700) and turns an unbounded write count into a
  * bounded one.
+ *
+ * **One budget, not one per media kind.** Documents were added to this count rather than given a
+ * cap of their own: two independent ceilings double the worst case while each still reads as
+ * correct on its own, and the thing being bounded - files this process creates in one request - does
+ * not care which pool a file came out of. The headroom above is wide enough that documents, capped
+ * at 10 per entry, cannot meaningfully crowd photos out of it.
  */
-export const MAX_IMPORT_PHOTO_WRITES = 5000;
+export const MAX_IMPORT_MEDIA_WRITES = 5000;
 
 /**
- * Ceiling on the total bytes one import may write to disk.
+ * Ceiling on the total bytes one import may write to disk - again **photos and documents together**.
  *
- * `MAX_IMPORT_PHOTO_WRITES` bounds the *count* but not the volume: 5000 references × the 15 MB
+ * `MAX_IMPORT_MEDIA_WRITES` bounds the *count* but not the volume: 5000 references × the 15 MB
  * per-photo ceiling is still ~75 GB from a package that cannot itself exceed `MAX_IMPORT_PACKAGE_BYTES`.
  * Only a byte cap closes that, because only it prices a reference by what the reference actually costs.
  *
- * Ten times `MAX_IMPORT_PACKAGE_BYTES`. A backup's *distinct* photo bytes are bounded by the
- * package, so a legitimate restore writes roughly what it carries; the only way past that is real
- * dedup, one photo genuinely occupying many gallery slots. 10x leaves that far more headroom than
- * any real trip needs while turning the worst case from "fills the disk" into a bounded 1 GB.
+ * Ten times `MAX_IMPORT_PACKAGE_BYTES`. A backup's *distinct* photo and document bytes are bounded
+ * by the package, so a legitimate restore writes roughly what it carries; the only way past that is
+ * real dedup, one file genuinely occupying many slots. 10x leaves that far more headroom than any
+ * real trip needs while turning the worst case from "fills the disk" into a bounded 1 GB.
+ *
+ * Summed over both pools by `validatePackageMedia`, for the reason above: two caps of 1 GB apiece
+ * are a 2 GB worst case wearing the label of a 1 GB one.
  */
-export const MAX_IMPORT_PHOTO_TOTAL_BYTES = 10 * MAX_IMPORT_PACKAGE_BYTES;
+export const MAX_IMPORT_MEDIA_TOTAL_BYTES = 10 * MAX_IMPORT_PACKAGE_BYTES;
 
 /**
  * The newest package format this app can read.

@@ -16,11 +16,15 @@ import {
   openImportPackage,
   parseImportPackage,
   photoSourceFromMap,
-  validatePackagePhotos,
+  validatePackageMedia,
   type PhotoSource,
 } from "@/lib/trips/importPackage";
 import { fileByteSource, ZipReadError } from "@/lib/trips/zipReader";
-import { countPhotoReferences, tripImportRequestSchema } from "@/lib/validation/tripImportSchemas";
+import {
+  countDocumentReferences,
+  countPhotoReferences,
+  tripImportRequestSchema,
+} from "@/lib/validation/tripImportSchemas";
 import { requireSession } from "@/lib/auth/sessionGuard";
 
 // `node:fs`, `node:zlib` and `Buffer` are all required by the package reader and the photo writer.
@@ -152,7 +156,7 @@ const looksLikeZipFile = async (filePath: string) => {
 };
 
 type ParsedRequestBody =
-  | { ok: true; raw: unknown; photos: PhotoSource }
+  | { ok: true; raw: unknown; photos: PhotoSource; documents: PhotoSource }
   | { ok: false; response: Response };
 
 /**
@@ -201,7 +205,12 @@ const readRequestBody = async (
         response: fail(apiError("invalid_json", "Request body must be valid JSON"), 400),
       };
     }
-    return { ok: true, raw: json.raw, photos: photoSourceFromMap(new Map()) };
+    return {
+      ok: true,
+      raw: json.raw,
+      photos: photoSourceFromMap(new Map()),
+      documents: photoSourceFromMap(new Map()),
+    };
   }
 
   if (!request.body) {
@@ -267,6 +276,7 @@ const readRequestBody = async (
       ok: true,
       raw: { payload: parsedV1.value.manifest, strategy, targetTripId },
       photos: photoSourceFromMap(parsedV1.value.photoBytes),
+      documents: photoSourceFromMap(parsedV1.value.documentBytes),
     };
   }
 
@@ -280,6 +290,7 @@ const readRequestBody = async (
     ok: true,
     raw: { payload: opened.value.manifest, strategy, targetTripId },
     photos: opened.value.photos,
+    documents: opened.value.documents,
   };
 };
 
@@ -331,13 +342,16 @@ export const POST = async (request: NextRequest) => {
       // The manifest and the archive members are two independent facts, so agreement between them is
       // not something Zod can assert. This runs before the transaction because AC3 requires an
       // unrestorable package to write neither a row nor a file.
-      const photoCheck = validatePackagePhotos({
+      const mediaCheck = validatePackageMedia({
         photos: parsed.data.payload.photos,
         photoBytes: body.photos,
-        referenceCounts: countPhotoReferences(parsed.data.payload),
+        photoReferenceCounts: countPhotoReferences(parsed.data.payload),
+        documents: parsed.data.payload.documents,
+        documentBytes: body.documents,
+        documentReferenceCounts: countDocumentReferences(parsed.data.payload),
       });
-      if (!photoCheck.ok) {
-        return fail(apiError("validation_error", "Invalid backup photos", { issues: photoCheck.issues }), 400);
+      if (!mediaCheck.ok) {
+        return fail(apiError("validation_error", "Invalid backup media", { issues: mediaCheck.issues }), 400);
       }
 
       const imported = await importTripFromExportForUser({
@@ -346,6 +360,7 @@ export const POST = async (request: NextRequest) => {
         strategy: parsed.data.strategy,
         targetTripId: parsed.data.targetTripId,
         photoBytes: body.photos,
+        documentBytes: body.documents,
       });
 
       if (imported.outcome === "conflict") {
@@ -371,6 +386,7 @@ export const POST = async (request: NextRequest) => {
         travelSegmentCount: imported.travelSegmentCount,
         bucketListItemCount: imported.bucketListItemCount,
         photoCount: imported.photoCount,
+        documentCount: imported.documentCount,
         // Two sources, one channel. The manifest's own warnings are what the *export* dropped - a photo
         // whose file was already gone, one that failed the containment check. `imported.warnings` is
         // what this *import* dropped, which since Story 2.35 means travel segments whose endpoints name
@@ -410,11 +426,20 @@ export const POST = async (request: NextRequest) => {
         // with a populated pool, say. Schema-detectable in spirit, so it answers as a 400.
         return fail(apiError("validation_error", "Backup references photos that are not in the package"), 400);
       }
+      if (error instanceof Error && error.message === "document_bytes_missing") {
+        return fail(apiError("validation_error", "Backup references documents that are not in the package"), 400);
+      }
       if (error instanceof Error && error.message === "photo_reference_missing") {
         // Same class as `photo_bytes_missing`: the payload names a pool entry that is not there. The
         // schema rejects it first, so this only fires for a caller that bypassed validation - still
         // bad input rather than a server fault, and a 500 would tell the user nothing.
         return fail(apiError("validation_error", "Backup references a photo that is not in its photo pool"), 400);
+      }
+      if (error instanceof Error && error.message === "document_reference_missing") {
+        return fail(
+          apiError("validation_error", "Backup references a document that is not in its document pool"),
+          400,
+        );
       }
       // `travel_segment_reference_missing` used to be mapped here. Story 2.35 removed the throw it
       // mapped: an endpoint naming no record in the package now drops the segment and reports a

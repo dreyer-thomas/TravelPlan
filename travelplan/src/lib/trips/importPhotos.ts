@@ -2,15 +2,17 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { toPhotoSource, type PhotoSource } from "@/lib/trips/importPackage";
 import {
+  getAccommodationDocumentUploadDir,
   getAccommodationImageUploadDir,
+  getDayPlanItemDocumentUploadDir,
   getDayPlanItemImageUploadDir,
   getTripDayUploadDir,
   getTripUploadDir,
 } from "@/lib/trips/uploadPaths";
 
 /**
- * Staging half of the photo import: where a restored photo lands, and how the disk is put back if
- * writing it fails.
+ * Staging half of the media import: where a restored photo or document lands, and how the disk is
+ * put back if writing it fails.
  *
  * Two rules shape everything here.
  *
@@ -18,6 +20,12 @@ import {
  * name is the shortest path from "restore my backup" to writing outside the uploads tree. Names are
  * generated server-side with the same conventions the upload routes use, and the extension comes
  * from the allow-listed `contentType` rather than from anything in the file.
+ *
+ * The rule is absolute and Story 9.1 did not soften it. A document's manifest entry carries the name
+ * the user gave the file, because the chip is labelled with it and AC8 requires it back - but that
+ * value is a **database column and nothing else**. It is sanitised at the schema boundary by
+ * `sanitizeDocumentFileName`, the same function the upload routes use, and it never appears in a
+ * path: the file on disk is `doc-<ts>-<rand>.<ext>` exactly as if it had been uploaded.
  *
  * **Paths come from `uploadPaths.ts` only.** Those helpers resolve through `MEDIA_STORAGE_ROOT`,
  * which is what keeps `npm test` away from the developer's real uploads and what keeps restored
@@ -34,6 +42,19 @@ const EXTENSION_BY_CONTENT_TYPE: Record<string, string> = {
   "image/jpeg": "jpg",
   "image/png": "png",
   "image/webp": "webp",
+};
+
+/**
+ * The same table for documents, matching `ALLOWED_TYPES` in the two document upload routes: PDF plus
+ * the three image types, because a ticket screenshot is a document.
+ *
+ * Spread from the photo table rather than retyped, so the three shared rows cannot drift into two
+ * spellings of the same extension. The dependency runs one way: nothing here can add an extension to
+ * the *photo* table.
+ */
+const DOCUMENT_EXTENSION_BY_CONTENT_TYPE: Record<string, string> = {
+  "application/pdf": "pdf",
+  ...EXTENSION_BY_CONTENT_TYPE,
 };
 
 export class ImportPhotoWriteError extends Error {
@@ -57,12 +78,28 @@ export type PhotoPlacement = {
   imageUrl: string;
 };
 
+/** The same for a document. A separate type because the column it feeds is `documentUrl`. */
+export type DocumentPlacement = {
+  filePath: string;
+  documentUrl: string;
+};
+
 const extensionFor = (contentType: string) => {
   const extension = EXTENSION_BY_CONTENT_TYPE[contentType];
   if (!extension) {
     // The Zod schema allow-lists the same three types, so this is a programming error rather than
     // bad input - failing loudly beats inventing an extension for bytes of unknown type.
     throw new ImportPhotoWriteError(`Unsupported photo content type: ${contentType}`);
+  }
+  return extension;
+};
+
+const documentExtensionFor = (contentType: string) => {
+  const extension = DOCUMENT_EXTENSION_BY_CONTENT_TYPE[contentType];
+  if (!extension) {
+    // Same reasoning as `extensionFor`: `validatePackageDocuments` has already refused bytes that
+    // match no allow-listed signature, so reaching here means a caller skipped it.
+    throw new ImportPhotoWriteError(`Unsupported document content type: ${contentType}`);
   }
   return extension;
 };
@@ -84,6 +121,29 @@ const generateGalleryFileName = (contentType: string, taken: Set<string>) => {
     }
   }
   throw new ImportPhotoWriteError("Unable to generate a unique photo file name");
+};
+
+/**
+ * Document filename, byte-for-byte the convention the two document upload routes use.
+ *
+ * `taken` is the same guard and for the same reason: an import writes a whole entry's documents in a
+ * single tick, so `Date.now()` is constant across it and only the random suffix separates two files
+ * in the same directory. It is shared with the gallery names rather than kept per-kind - the two
+ * prefixes make a collision impossible anyway, and one set is one thing to pass around.
+ *
+ * Nothing from the package reaches this name. The manifest's `fileName` is a column value; see this
+ * file's header.
+ */
+const generateDocumentFileName = (contentType: string, taken: Set<string>) => {
+  const extension = documentExtensionFor(contentType);
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const candidate = `doc-${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${extension}`;
+    if (!taken.has(candidate)) {
+      taken.add(candidate);
+      return candidate;
+    }
+  }
+  throw new ImportPhotoWriteError("Unable to generate a unique document file name");
 };
 
 /**
@@ -133,6 +193,35 @@ export const planDayPlanItemGalleryPhoto = (
 };
 
 /**
+ * Documents land in the entry's own `documents/` subdirectory, which is what
+ * `getAccommodationDocumentUploadDir` composes - never beside its photos. A restored document has to
+ * be indistinguishable from an uploaded one, and where it sits is half of that.
+ */
+export const planAccommodationDocument = (
+  params: { tripId: string; tripDayId: string; accommodationId: string; contentType: string },
+  takenFileNames: Set<string>,
+): DocumentPlacement => {
+  const { tripId, tripDayId, accommodationId, contentType } = params;
+  const fileName = generateDocumentFileName(contentType, takenFileNames);
+  return {
+    filePath: path.join(getAccommodationDocumentUploadDir(tripId, tripDayId, accommodationId), fileName),
+    documentUrl: `/uploads/trips/${tripId}/days/${tripDayId}/accommodations/${accommodationId}/documents/${fileName}`,
+  };
+};
+
+export const planDayPlanItemDocument = (
+  params: { tripId: string; tripDayId: string; dayPlanItemId: string; contentType: string },
+  takenFileNames: Set<string>,
+): DocumentPlacement => {
+  const { tripId, tripDayId, dayPlanItemId, contentType } = params;
+  const fileName = generateDocumentFileName(contentType, takenFileNames);
+  return {
+    filePath: path.join(getDayPlanItemDocumentUploadDir(tripId, tripDayId, dayPlanItemId), fileName),
+    documentUrl: `/uploads/trips/${tripId}/days/${tripDayId}/day-plan-items/${dayPlanItemId}/documents/${fileName}`,
+  };
+};
+
+/**
  * Writes every planned photo, or writes none of them.
  *
  * "Or none" is the AC3 obligation applied to the disk phase: a half-written gallery is a trip whose
@@ -143,7 +232,12 @@ export const planDayPlanItemGalleryPhoto = (
  * disk, `photoBytes` is a window onto the archive rather than the archive itself, and holding the
  * pool here would put back exactly the copy that story removed. A pooled photo used by several
  * gallery slots is therefore read once per slot - the read volume is already bounded by
- * `MAX_IMPORT_PHOTO_TOTAL_BYTES`, since it is the same volume as the writes.
+ * `MAX_IMPORT_MEDIA_TOTAL_BYTES`, since it is the same volume as the writes.
+ *
+ * **Documents go through this same call** (Story 9.1), as further planned writes against a source
+ * merged over both pools (`mergeMemberSources`). Not a second call: "or none" cannot span two of
+ * them, and a photo pass that succeeded followed by a document pass that failed would leave the
+ * photos on disk with nothing left to unwind them.
  */
 export const writeImportedPhotos = async (
   writes: PlannedPhotoWrite[],

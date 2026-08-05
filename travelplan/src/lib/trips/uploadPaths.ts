@@ -149,7 +149,7 @@ export const isSafeMediaSegment = (segment: string) =>
  * segment would otherwise discard the configured root and silently fall back to the filesystem root.
  *
  * This performs no containment check and must not be trusted with an untrusted URL on its own: see
- * `resolveOwnedPhotoPath` in `tripRepo.ts` and the serve route for the three layers that do.
+ * `resolveOwnedMediaPath` in `tripRepo.ts` and the serve route for the three layers that do.
  */
 export const resolveStoredMediaPath = (storedUrl: string) =>
   path.join(getMediaRoot(), storedUrl.replace(/^\/+/, ""));

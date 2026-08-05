@@ -8,7 +8,10 @@ import type { TripAccessRole } from "@/lib/auth/tripAccess";
 import { buildDayMapPanelData, buildTripDayMapItems, type TripDayMapPanelData } from "@/lib/trips/dayMapData";
 import { getTripUploadDir, resolveStoredMediaPath } from "@/lib/trips/uploadPaths";
 import {
+  DOCUMENT_SIGNATURE_HEAD_BYTES,
+  mergeMemberSources,
   PHOTO_SIGNATURE_HEAD_BYTES,
+  sniffDocumentContentType,
   sniffPhotoContentType,
   toPhotoSource,
   type PhotoSource,
@@ -16,7 +19,9 @@ import {
 import type { TransportType } from "@/lib/trips/transportTypes";
 import {
   discardStashedTripUploadDir,
+  planAccommodationDocument,
   planAccommodationGalleryPhoto,
+  planDayPlanItemDocument,
   planDayPlanItemGalleryPhoto,
   planTripDayPhoto,
   planTripHeroPhoto,
@@ -227,6 +232,35 @@ export type TripExportImageRef = {
   photoId: string;
 };
 
+/**
+ * One member of the export archive's **document** pool (Story 9.1), on the same terms as
+ * `TripExportPhoto` and deliberately not in the same pool.
+ *
+ * `photos` is validated on import against three *image* signatures, and widening that check to admit
+ * a PDF is the one change that would let a non-image be restored as a photograph. Separate pool,
+ * separate `documents/` prefix, separate `d1`, `d2`, ... ids, separate sniffer.
+ */
+export type TripExportDocument = {
+  contentType: string;
+  archivePath: string;
+};
+
+/**
+ * Document entry in the export manifest.
+ *
+ * Same reasoning as `TripExportImageRef` for what is absent - no row id, no `documentUrl` - with one
+ * addition it cannot share: `fileName`. The on-disk name is server-generated (`doc-<ts>-<rand>.<ext>`)
+ * and carries no trace of what the user called the file, so AC8's "the same names come back" has
+ * nowhere else to live. It rides on the *reference* rather than on the pool entry because it belongs
+ * to the row: one pooled document referenced twice is one file under two names, and a pool entry has
+ * no field that could hold both.
+ */
+export type TripExportDocumentRef = {
+  sortOrder: number;
+  documentId: string;
+  fileName: string;
+};
+
 export type TripExportTravelSegment = {
   id: string;
   fromItemType: "accommodation" | "dayPlanItem";
@@ -270,6 +304,12 @@ export type TripExportPayload = {
   warnings: string[];
   /** Photo pool, keyed `p1`, `p2`, ... in traversal order. `{}` for a trip with no photos. */
   photos: Record<string, TripExportPhoto>;
+  /**
+   * Document pool, keyed `d1`, `d2`, ... in the same traversal. `{}` for a trip with no documents,
+   * which is what makes this an additive v2 field rather than a format bump - see the note in
+   * `export/route.ts`.
+   */
+  documents: Record<string, TripExportDocument>;
   trip: {
     id: string;
     name: string;
@@ -309,6 +349,7 @@ export type TripExportPayload = {
       createdAt: string;
       updatedAt: string;
       images: TripExportImageRef[];
+      documents: TripExportDocumentRef[];
     } | null;
     dayPlanItems: {
       id: string;
@@ -323,6 +364,7 @@ export type TripExportPayload = {
       createdAt: string;
       updatedAt: string;
       images: TripExportImageRef[];
+      documents: TripExportDocumentRef[];
     }[];
     travelSegments: TripExportTravelSegment[];
   }[];
@@ -330,12 +372,17 @@ export type TripExportPayload = {
 
 /**
  * What `getTripExportForUser` hands back: the manifest payload plus the on-disk location of every
- * pooled photo, already in pool-key order, so the route can stream each member without re-deriving
- * (or re-validating) a single path.
+ * pooled photo and document, each already in its own pool-key order, so the route can stream each
+ * member without re-deriving (or re-validating) a single path.
+ *
+ * Two lists rather than one, because the archive's entry order is fixed as manifest, then photos,
+ * then documents - Story 2.31 AC7's byte-identity property is a statement about that order, and a
+ * single interleaved list would leave it to the route to re-derive.
  */
 export type TripExportResult = {
   payload: TripExportPayload;
   photoFiles: { archivePath: string; filePath: string }[];
+  documentFiles: { archivePath: string; filePath: string }[];
 };
 
 type TripImportConflict = {
@@ -364,6 +411,12 @@ type ImportTripSuccessResult = {
   bucketListItemCount: number;
   /** Photo *files* written to upload storage, not pool entries: one per restored image slot. */
   photoCount: number;
+  /**
+   * The same for documents (Story 9.1), and its own field rather than folded into `photoCount`: a
+   * count under a name that says photos is a number the summary would report wrongly, and the two
+   * pools are restored through separate validation for reasons the manifest's shape records.
+   */
+  documentCount: number;
   /**
    * What *this import* dropped, in the same English-string channel `meta.warnings` uses for what the
    * export dropped (Story 2.35 AC3). The route concatenates the two; the dialog needs no change.
@@ -1268,15 +1321,35 @@ const EXPORT_PHOTO_CONTENT_TYPES = new Map<string, string>([
   ["png", "image/png"],
   ["webp", "image/webp"],
 ]);
+/**
+ * The same allow-list for documents (Story 9.1): PDF, plus the four image spellings, because the two
+ * document upload routes accept an image as a document - a ticket screenshot is one.
+ *
+ * Spread from the photo table rather than retyped so the four shared rows cannot drift. The
+ * dependency runs one way only: nothing here can add `pdf` to what a *photo* may be.
+ */
+const EXPORT_DOCUMENT_CONTENT_TYPES = new Map<string, string>([
+  ...EXPORT_PHOTO_CONTENT_TYPES,
+  ["pdf", "application/pdf"],
+]);
 const EXPORT_PHOTO_FALLBACK_EXTENSION = "bin";
 const EXPORT_PHOTO_FALLBACK_CONTENT_TYPE = "application/octet-stream";
 
-const toExportPhotoExtension = (imageUrl: string) => {
-  const fileName = imageUrl.split("/").pop() ?? "";
+/**
+ * One parser, two allow-lists. Anything the given list does not know still lands as `bin` /
+ * `application/octet-stream` rather than being guessed at.
+ */
+const toExportExtension = (storedUrl: string, allowed: Map<string, string>) => {
+  const fileName = storedUrl.split("/").pop() ?? "";
   const dotIndex = fileName.lastIndexOf(".");
   const extension = dotIndex >= 0 ? fileName.slice(dotIndex + 1).toLowerCase() : "";
-  return EXPORT_PHOTO_CONTENT_TYPES.has(extension) ? extension : EXPORT_PHOTO_FALLBACK_EXTENSION;
+  return allowed.has(extension) ? extension : EXPORT_PHOTO_FALLBACK_EXTENSION;
 };
+
+const toExportPhotoExtension = (imageUrl: string) => toExportExtension(imageUrl, EXPORT_PHOTO_CONTENT_TYPES);
+
+const toExportDocumentExtension = (documentUrl: string) =>
+  toExportExtension(documentUrl, EXPORT_DOCUMENT_CONTENT_TYPES);
 
 // Same wire vocabulary the rest of the app uses; shape copied from `travelSegmentRepo.ts`.
 const toExportSegmentItemType = (value: TravelSegmentItemType): "accommodation" | "dayPlanItem" => {
@@ -1354,6 +1427,12 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
                 select: { imageUrl: true, sortOrder: true },
                 orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
               },
+              // Beside the photos, never merged with them: they land in a different pool under a
+              // different archive prefix, and `fileName` has no counterpart on an image row.
+              documents: {
+                select: { documentUrl: true, fileName: true, sortOrder: true },
+                orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+              },
             },
           },
           dayPlanItems: {
@@ -1377,6 +1456,10 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
               updatedAt: true,
               images: {
                 select: { imageUrl: true, sortOrder: true },
+                orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+              },
+              documents: {
+                select: { documentUrl: true, fileName: true, sortOrder: true },
                 orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
               },
             },
@@ -1412,6 +1495,14 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
   const poolIdByFilePath = new Map<string, string>();
   const skippedUrls = new Set<string>();
 
+  // The document pool's own state, deliberately not shared with the photo pool's: the ids are a
+  // separate sequence (`d1`, `d2`, ...), the archive prefix is separate, and a URL that failed for
+  // one media kind says nothing about the other.
+  const documents: Record<string, TripExportDocument> = {};
+  const documentFiles: { archivePath: string; filePath: string }[] = [];
+  const documentPoolIdByFilePath = new Map<string, string>();
+  const skippedDocumentUrls = new Set<string>();
+
   const ownedUrlPrefix = `/uploads/trips/${tripId}/`;
   const ownedUploadRoot = path.resolve(getTripUploadDir(tripId));
   // Both sides of the containment test must be compared in the same terms. The upload root itself
@@ -1428,6 +1519,14 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
     warnings.push(message);
   };
 
+  const warnDocumentOnce = (documentUrl: string, message: string) => {
+    if (skippedDocumentUrls.has(documentUrl)) {
+      return;
+    }
+    skippedDocumentUrls.add(documentUrl);
+    warnings.push(message);
+  };
+
   // Gallery drops are deduped per (URL, sortOrder) rather than per URL: the slot is the thing the
   // user needs to be told about, and one URL can legitimately occupy several slots.
   const warnedGalleryDrops = new Set<string>();
@@ -1440,8 +1539,26 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
     warnings.push(message);
   };
 
+  // Documents drop on the same terms and are deduped on the same key: `AccommodationDocument` is
+  // unique on `(accommodationId, sortOrder)` and not on `documentUrl`, so one URL can legitimately
+  // occupy several slots and the slot is what the user has lost.
+  const warnedDocumentDrops = new Set<string>();
+  const warnDocumentDropOnce = (documentUrl: string, sortOrder: number, message: string) => {
+    const key = `${sortOrder} ${documentUrl}`;
+    if (warnedDocumentDrops.has(key)) {
+      return;
+    }
+    warnedDocumentDrops.add(key);
+    warnings.push(message);
+  };
+
   /**
    * Resolve a stored URL to a file this trip actually owns, or `null`.
+   *
+   * Named for media rather than for photos since Story 9.1, because nothing in it ever was
+   * photo-specific and the document pool needs exactly the same three layers. It is *reused* by both
+   * pools rather than copied into a second one: a fork is how one of the two copies quietly loses
+   * the realpath step below, and the copy that loses it is the one nobody re-reads.
    *
    * The prefix test alone is the pattern `removeManagedFile` uses, and it is not enough here: that
    * function only unlinks, this one reads bytes into a file the user downloads.
@@ -1452,14 +1569,15 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
    * `path.resolve` is purely lexical, but `fs.stat` and `fs.readFile` both follow symlinks - so a
    * symlink *inside* the trip's own directory pointing anywhere on the box would pass a lexical
    * check and stream its target's bytes into the download. The realpath comparison below is what
-   * closes that. A realpath failure is left to the `stat` in `registerPhoto`, which reports a
-   * missing file with the accurate warning rather than mislabelling it a containment breach.
+   * closes that. A realpath failure is left to the `stat` in `registerPhoto` / `registerDocument`,
+   * which reports a missing file with the accurate warning rather than mislabelling it a containment
+   * breach.
    */
-  const resolveOwnedPhotoPath = async (imageUrl: string): Promise<string | null> => {
-    if (!imageUrl.startsWith(ownedUrlPrefix)) {
+  const resolveOwnedMediaPath = async (storedUrl: string): Promise<string | null> => {
+    if (!storedUrl.startsWith(ownedUrlPrefix)) {
       return null;
     }
-    const resolved = path.resolve(resolveStoredMediaPath(imageUrl));
+    const resolved = path.resolve(resolveStoredMediaPath(storedUrl));
     if (!resolved.startsWith(`${ownedUploadRoot}${path.sep}`)) {
       return null;
     }
@@ -1492,7 +1610,7 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
       return null;
     }
 
-    const filePath = await resolveOwnedPhotoPath(imageUrl);
+    const filePath = await resolveOwnedMediaPath(imageUrl);
     if (!filePath) {
       warnOnce(imageUrl, `Skipped image outside this trip's upload directory: ${imageUrl}`);
       return null;
@@ -1563,18 +1681,115 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
     return refs;
   };
 
+  /**
+   * `registerPhoto` for the document pool: register one stored document URL and return its `d`-id,
+   * or `null` when it earns no entry.
+   *
+   * The containment step is `resolveOwnedMediaPath`, shared verbatim with the photo half - the same
+   * prefix test, the same lexical check and the same realpath comparison, because a document is read
+   * off disk into a file the user downloads exactly as a photo is. Everything else is separate on
+   * purpose: its own pool, its own id sequence, its own `documents/` archive prefix and its own
+   * extension table, so no change here can widen what may be restored into a photo gallery.
+   *
+   * There is no `startsWith("/uploads/")` branch. `documentUrl` has exactly one writer - the two
+   * document upload routes - and they always write a `/uploads/trips/<tripId>/...` value, so unlike
+   * `heroImageUrl` there is no legal external URL for this column. A value that is not ours is
+   * therefore a containment failure and is reported as one rather than passed over in silence.
+   */
+  const registerDocument = async (documentUrl: string): Promise<string | null> => {
+    const filePath = await resolveOwnedMediaPath(documentUrl);
+    if (!filePath) {
+      warnDocumentOnce(documentUrl, `Skipped document outside this trip's upload directory: ${documentUrl}`);
+      return null;
+    }
+
+    const pooled = documentPoolIdByFilePath.get(filePath);
+    if (pooled) {
+      return pooled;
+    }
+    if (skippedDocumentUrls.has(documentUrl)) {
+      return null;
+    }
+
+    try {
+      const stats = await fs.stat(filePath);
+      if (!stats.isFile()) {
+        warnDocumentOnce(documentUrl, `Skipped document that is not a regular file: ${documentUrl}`);
+        return null;
+      }
+    } catch {
+      warnDocumentOnce(documentUrl, `Skipped document whose file is missing on disk: ${documentUrl}`);
+      return null;
+    }
+
+    const extension = toExportDocumentExtension(documentUrl);
+    const poolId = `d${documentFiles.length + 1}`;
+    const archivePath = `documents/${poolId}.${extension}`;
+    documents[poolId] = {
+      contentType: EXPORT_DOCUMENT_CONTENT_TYPES.get(extension) ?? EXPORT_PHOTO_FALLBACK_CONTENT_TYPE,
+      archivePath,
+    };
+    documentFiles.push({ archivePath, filePath });
+    documentPoolIdByFilePath.set(filePath, poolId);
+    return poolId;
+  };
+
+  /**
+   * The document half of `registerGallery`, and it has the same blind spot for the same reason:
+   * `TripExportDocumentRef` is `{ sortOrder, documentId, fileName }` by contract, with no
+   * `documentUrl` to fall back on, so a row that earns no pool entry vanishes from the backup
+   * entirely and `meta.warnings` is the only record the user gets. A row `registerDocument` has just
+   * reported is not reported twice; this catches the case it leaves silent - a *repeat* row whose URL
+   * an earlier row already spent the per-URL warning on.
+   *
+   * `fileName` is carried through untouched. It is the name the user gave the file and the whole
+   * reason the column exists; it is never a path segment on either side of the round trip.
+   */
+  const registerDocumentGallery = async (
+    rows: { documentUrl: string; fileName: string; sortOrder: number }[],
+  ) => {
+    const refs: TripExportDocumentRef[] = [];
+    for (const row of rows) {
+      const alreadyReported = skippedDocumentUrls.has(row.documentUrl);
+      const documentId = await registerDocument(row.documentUrl);
+      if (documentId) {
+        refs.push({ sortOrder: row.sortOrder, documentId, fileName: row.fileName });
+        continue;
+      }
+      if (!alreadyReported && skippedDocumentUrls.has(row.documentUrl)) {
+        // `registerDocument` warned about this very row - one line per row is enough.
+        continue;
+      }
+      warnDocumentDropOnce(
+        row.documentUrl,
+        row.sortOrder,
+        `Dropped document at sortOrder ${row.sortOrder} that could not be archived: ${row.documentUrl}`,
+      );
+    }
+    return refs;
+  };
+
   // Pool ids are assigned in a fixed traversal: hero, then day by day - day image, accommodation
   // gallery in sortOrder, then each plan item's gallery in sortOrder. AC7 rests on this order.
+  //
+  // Documents are registered in the same walk, immediately after their owner's photos, into their
+  // own `d`-sequence. Interleaving the two walks cannot disturb either sequence - each pool counts
+  // only its own entries - and it keeps a document's id derived from the same single pass over the
+  // trip that its photos are, so the whole ordering property is one traversal to read rather than two.
   const heroPhotoId = await registerPhoto(trip.heroImageUrl);
 
   const days: TripExportPayload["days"] = [];
   for (const day of trip.days) {
     const imagePhotoId = await registerPhoto(day.imageUrl);
     const accommodationImages = day.accommodation ? await registerGallery(day.accommodation.images) : [];
+    const accommodationDocuments = day.accommodation
+      ? await registerDocumentGallery(day.accommodation.documents)
+      : [];
 
     const dayPlanItems: TripExportPayload["days"][number]["dayPlanItems"] = [];
     for (const item of day.dayPlanItems) {
       const images = await registerGallery(item.images);
+      const itemDocuments = await registerDocumentGallery(item.documents);
       dayPlanItems.push({
         id: item.id,
         title: item.title,
@@ -1605,6 +1820,7 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
         createdAt: item.createdAt.toISOString(),
         updatedAt: item.updatedAt.toISOString(),
         images,
+        documents: itemDocuments,
       });
     }
 
@@ -1649,6 +1865,7 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
             createdAt: day.accommodation.createdAt.toISOString(),
             updatedAt: day.accommodation.updatedAt.toISOString(),
             images: accommodationImages,
+            documents: accommodationDocuments,
           }
         : null,
       dayPlanItems,
@@ -1671,6 +1888,7 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
   const payload: TripExportPayload = {
     warnings,
     photos,
+    documents,
     trip: {
       id: trip.id,
       name: trip.name,
@@ -1716,7 +1934,7 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
     days,
   };
 
-  return { payload, photoFiles };
+  return { payload, photoFiles, documentFiles };
 };
 
 const toAccommodationStatus = (status: "planned" | "booked") => (status === "booked" ? "BOOKED" : "PLANNED");
@@ -1779,6 +1997,17 @@ const requirePooledPhoto = (photos: ImportPhotoPool, photoId: string) => {
   return photo;
 };
 
+type ImportDocumentPool = TripImportPayloadInput["documents"];
+
+/** The document pool's twin of the above, and it exists for exactly the same reason. */
+const requirePooledDocument = (documents: ImportDocumentPool, documentId: string) => {
+  const document = documents[documentId];
+  if (!document) {
+    throw new Error("document_reference_missing");
+  }
+  return document;
+};
+
 /**
  * Drops a v1 `/uploads/…` string that names a file this import is about to delete.
  *
@@ -1805,6 +2034,8 @@ type ImportedDaysResult = {
   dayPlanItemIdBySourceId: Map<string, string>;
   /** Files to create once the transaction commits; the rows already carry their URLs. */
   photoWrites: PlannedPhotoWrite[];
+  /** The same for documents, kept apart so `documentCount` can be reported under its own name. */
+  documentWrites: PlannedPhotoWrite[];
   travelSegmentCount: number;
   /** Segments dropped because an endpoint named no record in the package - see the skip below. */
   skippedTravelSegmentCount: number;
@@ -1815,6 +2046,7 @@ const createImportedDays = async ({
   tripId,
   sortedDays,
   photos,
+  documents,
   takenFileNames,
   replacedUploadPrefix,
 }: {
@@ -1822,6 +2054,7 @@ const createImportedDays = async ({
   tripId: string;
   sortedDays: TripImportPayloadInput["days"];
   photos: ImportPhotoPool;
+  documents: ImportDocumentPool;
   takenFileNames: Set<string>;
   /** See `dropReplacedUploadUrl`. Only ever set in overwrite mode. */
   replacedUploadPrefix: string | null;
@@ -1830,6 +2063,7 @@ const createImportedDays = async ({
   const accommodationIdBySourceId = new Map<string, string>();
   const dayPlanItemIdBySourceId = new Map<string, string>();
   const photoWrites: PlannedPhotoWrite[] = [];
+  const documentWrites: PlannedPhotoWrite[] = [];
   let travelSegmentCount = 0;
   let skippedTravelSegmentCount = 0;
 
@@ -1895,6 +2129,32 @@ const createImportedDays = async ({
         });
       }
 
+      // `fileName` is written straight through: `documentFileNameSchema` already put it to
+      // `sanitizeDocumentFileName`, the same function the upload routes use, so the column gets
+      // byte-for-byte what an upload of that name would have stored. It is a column value and
+      // nothing else - the path comes from `planAccommodationDocument`, which never sees it.
+      for (const document of day.accommodation.documents) {
+        const pooled = requirePooledDocument(documents, document.documentId);
+        const placement = planAccommodationDocument(
+          {
+            tripId,
+            tripDayId: createdDay.id,
+            accommodationId: accommodation.id,
+            contentType: pooled.contentType,
+          },
+          takenFileNames,
+        );
+        documentWrites.push({ filePath: placement.filePath, archivePath: pooled.archivePath });
+        await tx.accommodationDocument.create({
+          data: {
+            accommodationId: accommodation.id,
+            documentUrl: placement.documentUrl,
+            fileName: document.fileName,
+            sortOrder: document.sortOrder,
+          },
+        });
+      }
+
       const accommodationPayments =
         day.accommodation.payments && day.accommodation.payments.length > 0
           ? day.accommodation.payments
@@ -1954,6 +2214,28 @@ const createImportedDays = async ({
             dayPlanItemId: createdItem.id,
             imageUrl: placement.imageUrl,
             sortOrder: image.sortOrder,
+          },
+        });
+      }
+
+      for (const document of item.documents) {
+        const pooled = requirePooledDocument(documents, document.documentId);
+        const placement = planDayPlanItemDocument(
+          {
+            tripId,
+            tripDayId: createdDay.id,
+            dayPlanItemId: createdItem.id,
+            contentType: pooled.contentType,
+          },
+          takenFileNames,
+        );
+        documentWrites.push({ filePath: placement.filePath, archivePath: pooled.archivePath });
+        await tx.dayPlanItemDocument.create({
+          data: {
+            dayPlanItemId: createdItem.id,
+            documentUrl: placement.documentUrl,
+            fileName: document.fileName,
+            sortOrder: document.sortOrder,
           },
         });
       }
@@ -2039,6 +2321,7 @@ const createImportedDays = async ({
     accommodationIdBySourceId,
     dayPlanItemIdBySourceId,
     photoWrites,
+    documentWrites,
     travelSegmentCount,
     skippedTravelSegmentCount,
   };
@@ -2090,6 +2373,7 @@ export const importTripFromExportForUser = async ({
   strategy,
   targetTripId,
   photoBytes,
+  documentBytes,
 }: {
   userId: string;
   payload: TripImportPayloadInput;
@@ -2110,6 +2394,16 @@ export const importTripFromExportForUser = async ({
    * down here rather than left implicit in the route's call order.
    */
   photoBytes?: PhotoSource | Map<string, Buffer>;
+  /**
+   * The `documents/` half of the same package (Story 9.1), on identical terms and with the identical
+   * precondition: `validatePackageMedia` must already have run over this source, because the pool
+   * sniff below reads five bytes per document through `PhotoSource.head` and that verifies nothing.
+   *
+   * A second parameter rather than a merged one, because the two pools are sniffed against different
+   * signature lists and a merged source would have no way to say which list a member belongs to.
+   * They are merged once, at the write phase, where a member is only bytes at a path.
+   */
+  documentBytes?: PhotoSource | Map<string, Buffer>;
 }): Promise<ImportTripResult> => {
   const sameNameTrips = await prisma.trip.findMany({
     where: {
@@ -2132,8 +2426,11 @@ export const importTripFromExportForUser = async ({
 
   const sortedDays = sortImportDays(payload.days);
   const availablePhotoBytes = toPhotoSource(photoBytes ?? new Map<string, Buffer>());
-  // Gallery file names are generated in a single tick, so `Date.now()` is constant across the whole
-  // import; this set is what keeps two photos in one gallery from colliding on it.
+  const availableDocumentBytes = toPhotoSource(documentBytes ?? new Map<string, Buffer>());
+  // Gallery and document file names are generated in a single tick, so `Date.now()` is constant
+  // across the whole import; this set is what keeps two files in one directory from colliding on it.
+  // One set for both kinds: the `img-` / `doc-` prefixes already make a cross-kind collision
+  // impossible, and one set is one thing to thread through.
   const takenFileNames = new Set<string>();
 
   // AC3, applied before a single row is written: a pool entry whose bytes never arrived cannot be
@@ -2143,6 +2440,11 @@ export const importTripFromExportForUser = async ({
   for (const photo of Object.values(payload.photos)) {
     if (!availablePhotoBytes.has(photo.archivePath)) {
       throw new Error("photo_bytes_missing");
+    }
+  }
+  for (const document of Object.values(payload.documents)) {
+    if (!availableDocumentBytes.has(document.archivePath)) {
+      throw new Error("document_bytes_missing");
     }
   }
 
@@ -2176,9 +2478,27 @@ export const importTripFromExportForUser = async ({
     }),
   );
 
+  /**
+   * The document pool, on the same terms and through `sniffDocumentContentType` rather than its
+   * photo twin - which is the whole reason the two pools are two pools. The manifest's declared type
+   * is a hint here too: the extension written to disk has to describe what the bytes really are, or
+   * the serve route hands back a `.pdf` that is a JPEG.
+   */
+  const documents: ImportDocumentPool = Object.fromEntries(
+    Object.entries(payload.documents).map(([documentId, document]) => {
+      const sniffed = availableDocumentBytes.has(document.archivePath)
+        ? sniffDocumentContentType(
+            availableDocumentBytes.head(document.archivePath, DOCUMENT_SIGNATURE_HEAD_BYTES),
+          )
+        : null;
+      return [documentId, sniffed === null ? document : { ...document, contentType: sniffed }];
+    }),
+  );
+
   type CommittedImport = {
     trip: ImportTripSuccessResult["trip"];
     photoWrites: PlannedPhotoWrite[];
+    documentWrites: PlannedPhotoWrite[];
     travelSegmentCount: number;
     skippedTravelSegmentCount: number;
     bucketListItemCount: number;
@@ -2264,6 +2584,7 @@ export const importTripFromExportForUser = async ({
         tripId: targetTrip.id,
         sortedDays,
         photos,
+        documents,
         takenFileNames,
         replacedUploadPrefix,
       });
@@ -2284,6 +2605,7 @@ export const importTripFromExportForUser = async ({
         photoWrites: heroPhoto && heroPlacement
           ? [{ filePath: heroPlacement.filePath, archivePath: heroPhoto.archivePath }, ...days.photoWrites]
           : days.photoWrites,
+        documentWrites: days.documentWrites,
         travelSegmentCount: days.travelSegmentCount,
         skippedTravelSegmentCount: days.skippedTravelSegmentCount,
         bucketListItemCount,
@@ -2324,6 +2646,7 @@ export const importTripFromExportForUser = async ({
         tripId: createdTrip.id,
         sortedDays,
         photos,
+        documents,
         takenFileNames,
         // Create-new touches no existing file, so every v1 URL is restored verbatim (AC2).
         replacedUploadPrefix: null,
@@ -2343,6 +2666,7 @@ export const importTripFromExportForUser = async ({
           heroImageUrl,
         },
         photoWrites: [...heroWrites, ...days.photoWrites],
+        documentWrites: days.documentWrites,
         travelSegmentCount: days.travelSegmentCount,
         skippedTravelSegmentCount: days.skippedTravelSegmentCount,
         bucketListItemCount,
@@ -2371,7 +2695,15 @@ export const importTripFromExportForUser = async ({
     throw new Error("photo_write_failed", { cause: error });
   }
   try {
-    await writeImportedPhotos(committed.photoWrites, availablePhotoBytes);
+    // One call over both pools, not two. "Every planned file or none" cannot span two calls: a photo
+    // pass that succeeded followed by a document pass that failed would leave the photos on disk with
+    // nothing left to unwind them. `mergeMemberSources` is what lets the two archives be addressed as
+    // one at the only point where a member is just bytes at a path - both have already been validated,
+    // sized and sniffed under their own rules by now.
+    await writeImportedPhotos(
+      [...committed.photoWrites, ...committed.documentWrites],
+      mergeMemberSources([availablePhotoBytes, availableDocumentBytes]),
+    );
   } catch (error) {
     // `writeImportedPhotos` already removed everything it wrote.
     //
@@ -2412,6 +2744,7 @@ export const importTripFromExportForUser = async ({
     travelSegmentCount: committed.travelSegmentCount,
     bucketListItemCount: committed.bucketListItemCount,
     photoCount: committed.photoWrites.length,
+    documentCount: committed.documentWrites.length,
     warnings: skippedTravelSegmentWarnings(committed.skippedTravelSegmentCount),
   };
 };

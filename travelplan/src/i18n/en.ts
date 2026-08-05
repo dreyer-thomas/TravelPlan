@@ -205,6 +205,7 @@ const en: Dictionary = {
   "trips.import.successOverwritten": "Replaced the existing trip “{name}”.",
   "trips.import.summaryDays": "Days",
   "trips.import.summaryPhotos": "Photos",
+  "trips.import.summaryDocuments": "Documents",
   "trips.import.summarySegments": "Travel segments",
   "trips.import.summaryBucket": "Bucket list",
   "trips.import.error": "Trip import failed. Please try again.",

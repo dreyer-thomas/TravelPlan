@@ -8,13 +8,15 @@ import { createSessionJwt } from "@/lib/auth/jwt";
 import { prisma } from "@/lib/db/prisma";
 import { createTripWithDays } from "@/lib/repositories/tripRepo";
 import {
+  getAccommodationDocumentUploadDir,
   getAccommodationImageUploadDir,
+  getDayPlanItemDocumentUploadDir,
   getDayPlanItemImageUploadDir,
   getTripDayUploadDir,
   getTripUploadDir,
   getTripsUploadRoot,
 } from "@/lib/trips/uploadPaths";
-import { jpegBytes, pngBytes, webpBytes, writeUploadFile } from "./helpers/uploadFixtures";
+import { jpegBytes, pdfBytes, pngBytes, webpBytes, writeUploadFile } from "./helpers/uploadFixtures";
 
 /**
  * The automated half of Story 2.32's manual verification: export a fully populated trip through the
@@ -43,6 +45,7 @@ type ImportResponse = {
   travelSegmentCount: number;
   bucketListItemCount: number;
   photoCount: number;
+  documentCount: number;
 };
 
 const exists = async (filePath: string) =>
@@ -57,6 +60,8 @@ describe("trip backup round trip", () => {
   beforeEach(async () => {
     await prisma.accommodationImage.deleteMany();
     await prisma.dayPlanItemImage.deleteMany();
+    await prisma.accommodationDocument.deleteMany();
+    await prisma.dayPlanItemDocument.deleteMany();
     await prisma.travelSegment.deleteMany();
     await prisma.tripBucketListItem.deleteMany();
     await prisma.dayPlanItem.deleteMany();
@@ -556,6 +561,425 @@ describe("trip backup round trip", () => {
     expect(imported.data?.photoCount).toBe(0);
     expect(imported.data?.dayCount).toBe(1);
     expect(await prisma.trip.count({ where: { userId: user.id } })).toBe(2);
+  });
+
+
+  /**
+   * Story 9.1 AC8, through both real routes: documents on a stay *and* on an activity come back on
+   * the same entries, with the same names, in the same order, and with the same bytes.
+   *
+   * The names are the load-bearing part. The file on disk is `doc-<ts>-<rand>.<ext>` on both sides -
+   * nothing in the archive names it - so `fileName` surviving is a property of the manifest ref and
+   * of nothing else. The bytes are checked too, because a restored row pointing at a file that will
+   * not open is the failure this AC exists to catch.
+   */
+  it("round-trips documents on a stay and on an activity", async () => {
+    const user = await prisma.user.create({
+      data: { email: "round-trip-documents@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const session = await createSessionJwt({ sub: user.id, role: user.role });
+
+    const { trip: sourceTrip } = await createTripWithDays({
+      userId: user.id,
+      name: "Documented Round Trip",
+      startDate: "2026-09-10T00:00:00.000Z",
+      endDate: "2026-09-10T00:00:00.000Z",
+    });
+    const [sourceDay] = await prisma.tripDay.findMany({ where: { tripId: sourceTrip.id } });
+
+    const sourceStay = await prisma.accommodation.create({
+      data: { tripDayId: sourceDay.id, name: "Ticketed Inn", status: "BOOKED" },
+    });
+    const sourcePlanItem = await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: sourceDay.id,
+        title: "Colosseum",
+        contentJson: JSON.stringify({ type: "doc", content: [] }),
+      },
+    });
+
+    // A photo as well, so the two pools are exercised side by side and a document landing in the
+    // photo gallery (or the reverse) would show up as a wrong count on one of them.
+    const stayPhotoBytes = webpBytes(128);
+    await writeUploadFile(
+      getAccommodationImageUploadDir(sourceTrip.id, sourceDay.id, sourceStay.id),
+      "stay.webp",
+      stayPhotoBytes,
+    );
+    await prisma.accommodationImage.create({
+      data: {
+        accommodationId: sourceStay.id,
+        imageUrl: `/uploads/trips/${sourceTrip.id}/days/${sourceDay.id}/accommodations/${sourceStay.id}/stay.webp`,
+        sortOrder: 0,
+      },
+    });
+
+    const bookingBytes = pdfBytes(256);
+    const mapBytes = pngBytes(192);
+    const ticketBytes = pdfBytes(320);
+
+    const stayDocumentDir = getAccommodationDocumentUploadDir(sourceTrip.id, sourceDay.id, sourceStay.id);
+    const itemDocumentDir = getDayPlanItemDocumentUploadDir(sourceTrip.id, sourceDay.id, sourcePlanItem.id);
+    await writeUploadFile(stayDocumentDir, "doc-booking.pdf", bookingBytes);
+    await writeUploadFile(stayDocumentDir, "doc-map.png", mapBytes);
+    await writeUploadFile(itemDocumentDir, "doc-ticket.pdf", ticketBytes);
+
+    const stayDocumentPrefix = `/uploads/trips/${sourceTrip.id}/days/${sourceDay.id}/accommodations/${sourceStay.id}/documents`;
+    await prisma.accommodationDocument.createMany({
+      data: [
+        {
+          accommodationId: sourceStay.id,
+          documentUrl: `${stayDocumentPrefix}/doc-booking.pdf`,
+          fileName: "Buchungsbestätigung.pdf",
+          sortOrder: 0,
+        },
+        {
+          accommodationId: sourceStay.id,
+          documentUrl: `${stayDocumentPrefix}/doc-map.png`,
+          fileName: "Lageplan Hotel.png",
+          sortOrder: 1,
+        },
+      ],
+    });
+    await prisma.dayPlanItemDocument.create({
+      data: {
+        dayPlanItemId: sourcePlanItem.id,
+        documentUrl: `/uploads/trips/${sourceTrip.id}/days/${sourceDay.id}/day-plan-items/${sourcePlanItem.id}/documents/doc-ticket.pdf`,
+        fileName: "Colosseum Ticket.pdf",
+        sortOrder: 0,
+      },
+    });
+
+    const exportResponse = await EXPORT(
+      new NextRequest(`http://localhost/api/trips/${sourceTrip.id}/export`, {
+        method: "GET",
+        headers: { cookie: `session=${session}` },
+      }),
+      { params: Promise.resolve({ id: sourceTrip.id }) }
+    );
+    expect(exportResponse.status).toBe(200);
+    const archive = Buffer.from(await exportResponse.arrayBuffer());
+
+    const form = new FormData();
+    form.set("file", new File([new Uint8Array(archive)], "backup.zip", { type: "application/zip" }));
+    form.set("strategy", "createNew");
+
+    const importResponse = await IMPORT(
+      new NextRequest("http://localhost/api/trips/import", {
+        method: "POST",
+        headers: { cookie: `session=${session}; csrf_token=csrf-token`, "x-csrf-token": "csrf-token" },
+        body: form,
+      })
+    );
+    const imported = (await importResponse.json()) as ApiEnvelope<ImportResponse>;
+
+    expect(importResponse.status).toBe(200);
+    expect(imported.error).toBeNull();
+    // Counted under its own name, never folded into `photoCount`.
+    expect(imported.data?.photoCount).toBe(1);
+    expect(imported.data?.documentCount).toBe(3);
+
+    const newTripId = imported.data!.trip.id;
+    const [newDay] = await prisma.tripDay.findMany({ where: { tripId: newTripId } });
+    const newStay = await prisma.accommodation.findFirstOrThrow({ where: { tripDayId: newDay.id } });
+    const newPlanItem = await prisma.dayPlanItem.findFirstOrThrow({ where: { tripDayId: newDay.id } });
+
+    const newStayDocuments = await prisma.accommodationDocument.findMany({
+      where: { accommodationId: newStay.id },
+      orderBy: { sortOrder: "asc" },
+    });
+    const newItemDocuments = await prisma.dayPlanItemDocument.findMany({
+      where: { dayPlanItemId: newPlanItem.id },
+      orderBy: { sortOrder: "asc" },
+    });
+
+    // Same owners, same order, same names.
+    expect(newStayDocuments.map((document) => [document.sortOrder, document.fileName])).toEqual([
+      [0, "Buchungsbestätigung.pdf"],
+      [1, "Lageplan Hotel.png"],
+    ]);
+    expect(newItemDocuments.map((document) => [document.sortOrder, document.fileName])).toEqual([
+      [0, "Colosseum Ticket.pdf"],
+    ]);
+
+    // Nothing crossed pools: the stay's photo is still a photo and its documents are still documents.
+    expect(await prisma.accommodationImage.count({ where: { accommodationId: newStay.id } })).toBe(1);
+    expect(await prisma.dayPlanItemImage.count({ where: { dayPlanItemId: newPlanItem.id } })).toBe(0);
+
+    // The stored URL is the new trip's, the on-disk name is server-generated, and it sits in the
+    // entry's own `documents/` subdirectory rather than beside its photos.
+    const documentPath = (documentUrl: string, dir: string) => path.join(dir, path.basename(documentUrl));
+    const newStayDocumentDir = getAccommodationDocumentUploadDir(newTripId, newDay.id, newStay.id);
+    const newItemDocumentDir = getDayPlanItemDocumentUploadDir(newTripId, newDay.id, newPlanItem.id);
+
+    for (const document of [...newStayDocuments, ...newItemDocuments]) {
+      expect(document.documentUrl).toContain(`/uploads/trips/${newTripId}/`);
+      expect(document.documentUrl).not.toContain(sourceTrip.id);
+      expect(document.documentUrl).toContain("/documents/");
+      // Never named from the package: the manifest's `fileName` is a column value only.
+      expect(path.basename(document.documentUrl)).toMatch(/^doc-\d+-[a-z0-9]{1,8}\.(pdf|png)$/);
+      expect(path.basename(document.documentUrl)).not.toContain(" ");
+    }
+
+    expect(await fs.readFile(documentPath(newStayDocuments[0].documentUrl, newStayDocumentDir))).toEqual(bookingBytes);
+    expect(await fs.readFile(documentPath(newStayDocuments[1].documentUrl, newStayDocumentDir))).toEqual(mapBytes);
+    expect(await fs.readFile(documentPath(newItemDocuments[0].documentUrl, newItemDocumentDir))).toEqual(ticketBytes);
+
+    // The extension follows the *bytes*, through `sniffDocumentContentType`: the PNG document is a
+    // `.png` and not a `.pdf`, and the two PDFs are `.pdf`.
+    expect(newStayDocuments[0].documentUrl.endsWith(".pdf")).toBe(true);
+    expect(newStayDocuments[1].documentUrl.endsWith(".png")).toBe(true);
+
+    // And the copy survives its source, as the photo half already must.
+    await prisma.trip.delete({ where: { id: sourceTrip.id } });
+    await fs.rm(getTripUploadDir(sourceTrip.id), { recursive: true, force: true });
+    expect(await exists(documentPath(newItemDocuments[0].documentUrl, newItemDocumentDir))).toBe(true);
+  });
+
+  /**
+   * The first of Story 9.1's two backward-compatibility negatives: **a v1 JSON backup imports exactly
+   * as today.**
+   *
+   * v1 is the pre-2.31 shape - a bare `.json` manifest with no `photos` key, no `documents` key and
+   * no archive at all. Every field the two later stories added is optional with an empty default, and
+   * this is the test that says so: it goes through the real route, and it asserts the *whole* result,
+   * counts included, rather than merely that nothing threw.
+   */
+  it("imports a v1 JSON backup exactly as before, with no documents anywhere", async () => {
+    const user = await prisma.user.create({
+      data: { email: "round-trip-v1@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const session = await createSessionJwt({ sub: user.id, role: user.role });
+
+    const v1Backup = {
+      meta: { exportedAt: "2026-02-14T12:00:00.000Z", appVersion: "0.1.0", formatVersion: 1 },
+      trip: {
+        id: "v1-trip",
+        name: "V1 Backup Trip",
+        startDate: "2026-03-01T00:00:00.000Z",
+        endDate: "2026-03-01T00:00:00.000Z",
+        heroImageUrl: "https://cdn.example.com/hero.jpg",
+        createdAt: "2026-02-14T12:00:00.000Z",
+        updatedAt: "2026-02-14T12:00:00.000Z",
+      },
+      days: [
+        {
+          id: "v1-day-1",
+          date: "2026-03-01T00:00:00.000Z",
+          dayIndex: 1,
+          imageUrl: null,
+          note: "Arrival",
+          createdAt: "2026-02-14T12:00:00.000Z",
+          updatedAt: "2026-02-14T12:00:00.000Z",
+          accommodation: {
+            id: "v1-stay-1",
+            name: "Old Format Hotel",
+            notes: "Near station",
+            status: "booked",
+            costCents: 12000,
+            link: "https://example.com/stay",
+            checkInTime: "15:00",
+            checkOutTime: "10:00",
+            location: { lat: 41.9, lng: 12.5, label: "Roma" },
+            createdAt: "2026-02-14T12:00:00.000Z",
+            updatedAt: "2026-02-14T12:00:00.000Z",
+          },
+          dayPlanItems: [
+            {
+              id: "v1-plan-1",
+              contentJson: JSON.stringify({ type: "doc", content: [] }),
+              linkUrl: "https://example.com/plan",
+              location: null,
+              createdAt: "2026-02-14T12:00:00.000Z",
+              updatedAt: "2026-02-14T12:00:00.000Z",
+            },
+          ],
+        },
+      ],
+    };
+
+    const form = new FormData();
+    form.set(
+      "file",
+      new File([new Uint8Array(Buffer.from(JSON.stringify(v1Backup), "utf8"))], "backup.json", {
+        type: "application/json",
+      })
+    );
+    form.set("strategy", "createNew");
+
+    const importResponse = await IMPORT(
+      new NextRequest("http://localhost/api/trips/import", {
+        method: "POST",
+        headers: { cookie: `session=${session}; csrf_token=csrf-token`, "x-csrf-token": "csrf-token" },
+        body: form,
+      })
+    );
+    const imported = (await importResponse.json()) as ApiEnvelope<ImportResponse>;
+
+    expect(importResponse.status).toBe(200);
+    expect(imported.error).toBeNull();
+    expect(imported.data?.mode).toBe("createNew");
+    expect(imported.data?.dayCount).toBe(1);
+    expect(imported.data?.travelSegmentCount).toBe(0);
+    expect(imported.data?.bucketListItemCount).toBe(0);
+    expect(imported.data?.photoCount).toBe(0);
+    expect(imported.data?.documentCount).toBe(0);
+
+    const newTripId = imported.data!.trip.id;
+    const newTrip = await prisma.trip.findFirstOrThrow({ where: { id: newTripId } });
+    // The v1 external hero URL comes back verbatim, as it always did.
+    expect(newTrip.heroImageUrl).toBe("https://cdn.example.com/hero.jpg");
+
+    const [newDay] = await prisma.tripDay.findMany({ where: { tripId: newTripId } });
+    const newStay = await prisma.accommodation.findFirstOrThrow({ where: { tripDayId: newDay.id } });
+    expect(newStay.name).toBe("Old Format Hotel");
+    expect(newStay.checkInTime).toBe("15:00");
+    expect(await prisma.dayPlanItem.count({ where: { tripDayId: newDay.id } })).toBe(1);
+
+    // No document rows and no document directory: the new tables are untouched by a v1 restore.
+    expect(await prisma.accommodationDocument.count()).toBe(0);
+    expect(await prisma.dayPlanItemDocument.count()).toBe(0);
+    expect(await exists(getTripUploadDir(newTripId))).toBe(false);
+  });
+
+  /**
+   * The second negative: **a documents-free v2 package imports byte-for-byte the same result as
+   * today.**
+   *
+   * Proved by comparison rather than by assertion, which is the only way to make it falsifiable: the
+   * *same* archive is imported twice into two independent trips, and the two restored trips are
+   * compared field by field with the ids and timestamps projected out. A change that quietly altered
+   * what a documents-free package restores would have to alter both copies identically to pass, and
+   * the explicit counts below pin what "the same" is.
+   */
+  it("imports a documents-free v2 package exactly as it did before documents existed", async () => {
+    const user = await prisma.user.create({
+      data: { email: "round-trip-v2-no-documents@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const session = await createSessionJwt({ sub: user.id, role: user.role });
+
+    const { trip: sourceTrip } = await createTripWithDays({
+      userId: user.id,
+      name: "Documents Free Trip",
+      startDate: "2026-04-10T00:00:00.000Z",
+      endDate: "2026-04-10T00:00:00.000Z",
+    });
+    const [sourceDay] = await prisma.tripDay.findMany({ where: { tripId: sourceTrip.id } });
+    const sourceStay = await prisma.accommodation.create({
+      data: { tripDayId: sourceDay.id, name: "Photo Only Hotel", status: "BOOKED", costCents: 9000 },
+    });
+    const sourcePlanItem = await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: sourceDay.id,
+        title: "Harbour walk",
+        contentJson: JSON.stringify({ type: "doc", content: [] }),
+      },
+    });
+    await prisma.travelSegment.create({
+      data: {
+        tripDayId: sourceDay.id,
+        fromItemType: "ACCOMMODATION",
+        fromItemId: sourceStay.id,
+        toItemType: "DAY_PLAN_ITEM",
+        toItemId: sourcePlanItem.id,
+        transportType: "WALKING",
+        durationMinutes: 20,
+      },
+    });
+    await prisma.tripBucketListItem.create({ data: { tripId: sourceTrip.id, title: "Gelato" } });
+
+    const galleryBytes = jpegBytes(192);
+    await writeUploadFile(
+      getAccommodationImageUploadDir(sourceTrip.id, sourceDay.id, sourceStay.id),
+      "stay.jpg",
+      galleryBytes,
+    );
+    await prisma.accommodationImage.create({
+      data: {
+        accommodationId: sourceStay.id,
+        imageUrl: `/uploads/trips/${sourceTrip.id}/days/${sourceDay.id}/accommodations/${sourceStay.id}/stay.jpg`,
+        sortOrder: 0,
+      },
+    });
+
+    const exportResponse = await EXPORT(
+      new NextRequest(`http://localhost/api/trips/${sourceTrip.id}/export`, {
+        method: "GET",
+        headers: { cookie: `session=${session}` },
+      }),
+      { params: Promise.resolve({ id: sourceTrip.id }) }
+    );
+    const archive = Buffer.from(await exportResponse.arrayBuffer());
+    // Nothing document-shaped is in the archive at all - not a member and not a pool entry.
+    expect(archive.includes(Buffer.from("documents/", "utf8"))).toBe(false);
+
+    const importOnce = async () => {
+      const form = new FormData();
+      form.set("file", new File([new Uint8Array(archive)], "backup.zip", { type: "application/zip" }));
+      form.set("strategy", "createNew");
+      const response = await IMPORT(
+        new NextRequest("http://localhost/api/trips/import", {
+          method: "POST",
+          headers: { cookie: `session=${session}; csrf_token=csrf-token`, "x-csrf-token": "csrf-token" },
+          body: form,
+        })
+      );
+      const envelope = (await response.json()) as ApiEnvelope<ImportResponse>;
+      expect(response.status).toBe(200);
+      expect(envelope.error).toBeNull();
+      return envelope.data!;
+    };
+
+    /** Everything the restore produced, with the ids and timestamps a new row necessarily changes projected out. */
+    const restoredShape = async (tripId: string) => {
+      const days = await prisma.tripDay.findMany({ where: { tripId }, orderBy: { dayIndex: "asc" } });
+      const stays = await prisma.accommodation.findMany({ where: { tripDayId: { in: days.map((day) => day.id) } } });
+      const items = await prisma.dayPlanItem.findMany({ where: { tripDayId: { in: days.map((day) => day.id) } } });
+      const images = await prisma.accommodationImage.findMany({
+        where: { accommodationId: { in: stays.map((stay) => stay.id) } },
+        orderBy: { sortOrder: "asc" },
+      });
+      return {
+        days: days.map((day) => ({ dayIndex: day.dayIndex, note: day.note, hasImage: day.imageUrl !== null })),
+        stays: stays.map((stay) => ({ name: stay.name, status: stay.status, costCents: stay.costCents })),
+        items: items.map((item) => ({ title: item.title, contentJson: item.contentJson })),
+        imageSortOrders: images.map((image) => image.sortOrder),
+        segments: (
+          await prisma.travelSegment.findMany({ where: { tripDayId: { in: days.map((day) => day.id) } } })
+        ).map((segment) => ({ transportType: segment.transportType, durationMinutes: segment.durationMinutes })),
+        bucketTitles: (await prisma.tripBucketListItem.findMany({ where: { tripId } })).map((item) => item.title),
+      };
+    };
+
+    const first = await importOnce();
+    const second = await importOnce();
+
+    for (const result of [first, second]) {
+      expect(result.dayCount).toBe(1);
+      expect(result.photoCount).toBe(1);
+      expect(result.travelSegmentCount).toBe(1);
+      expect(result.bucketListItemCount).toBe(1);
+      // The one field this story added, and `0` is the whole of "unchanged" for such a package.
+      expect(result.documentCount).toBe(0);
+    }
+
+    expect(await restoredShape(second.trip.id)).toEqual(await restoredShape(first.trip.id));
+    expect(await prisma.accommodationDocument.count()).toBe(0);
+    expect(await prisma.dayPlanItemDocument.count()).toBe(0);
+
+    // The restored photo is a real file with the original bytes, on both copies.
+    for (const result of [first, second]) {
+      const [day] = await prisma.tripDay.findMany({ where: { tripId: result.trip.id } });
+      const stay = await prisma.accommodation.findFirstOrThrow({ where: { tripDayId: day.id } });
+      const image = await prisma.accommodationImage.findFirstOrThrow({ where: { accommodationId: stay.id } });
+      const filePath = path.join(
+        getAccommodationImageUploadDir(result.trip.id, day.id, stay.id),
+        path.basename(image.imageUrl)
+      );
+      expect(await fs.readFile(filePath)).toEqual(galleryBytes);
+      // And no `documents/` subdirectory was created for an entry that has none.
+      expect(await exists(getAccommodationDocumentUploadDir(result.trip.id, day.id, stay.id))).toBe(false);
+    }
   });
 
   it("overwrites the source trip in place and removes its previous files", async () => {

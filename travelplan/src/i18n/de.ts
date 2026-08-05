@@ -194,6 +194,7 @@ const de: Dictionary = {
   "trips.import.successOverwritten": "Die bestehende Reise „{name}“ wurde ersetzt.",
   "trips.import.summaryDays": "Tage",
   "trips.import.summaryPhotos": "Fotos",
+  "trips.import.summaryDocuments": "Dokumente",
   "trips.import.summarySegments": "Reiseabschnitte",
   "trips.import.summaryBucket": "Bucket-Liste",
   "trips.import.error": "Reiseimport fehlgeschlagen. Bitte erneut versuchen.",

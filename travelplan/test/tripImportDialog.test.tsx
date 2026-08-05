@@ -85,6 +85,7 @@ const importedTrip = (mode: "createNew" | "overwrite", id: string) => ({
   travelSegmentCount: 3,
   bucketListItemCount: 4,
   photoCount: 5,
+  documentCount: 6,
 });
 
 const bodyOf = (call: unknown[] | undefined) => (call?.[1] as { body?: unknown } | undefined)?.body;
@@ -137,6 +138,27 @@ describe("TripImportDialog", () => {
     expect(init.headers["Content-Type"]).toBeUndefined();
   });
 
+  it("prints zero rather than undefined when an older deployment sends no documentCount", async () => {
+    // `documentCount` is optional on the wire for the same reason the three counts before it are: an
+    // envelope from a deployment that predates the field must still render a summary rather than the
+    // word `undefined` in a cell.
+    const withoutDocumentCount: Record<string, unknown> = { ...importedTrip("createNew", "trip-old") };
+    delete withoutDocumentCount.documentCount;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(csrfResponse)
+      .mockResolvedValueOnce(successResponse(withoutDocumentCount)) as unknown as typeof fetch;
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderDialog();
+    await selectBackup();
+    await userEvent.click(screen.getByRole("button", { name: "Start import" }));
+
+    const summary = await screen.findByTestId("trip-import-summary");
+    expect(summary).toHaveTextContent("Documents");
+    expect(summary).not.toHaveTextContent("undefined");
+  });
+
   it("shows the restored counts and keeps the dialog open until the user closes it", async () => {
     const fetchMock = vi
       .fn()
@@ -157,12 +179,16 @@ describe("TripImportDialog", () => {
     expect(summary).toHaveTextContent("2");
     expect(summary).toHaveTextContent("Photos");
     expect(summary).toHaveTextContent("5");
+    // Story 9.1: its own cell, never folded into the one whose label says photos.
+    expect(summary).toHaveTextContent("Documents");
+    expect(summary).toHaveTextContent("6");
     expect(summary).toHaveTextContent("Travel segments");
     expect(summary).toHaveTextContent("3");
     expect(summary).toHaveTextContent("Bucket list");
     expect(summary).toHaveTextContent("4");
 
     expect(onImported).toHaveBeenCalledTimes(1);
+
     // Success no longer closes the dialog by itself, or the counts would never be readable.
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: "Start import" })).not.toBeInTheDocument();

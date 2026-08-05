@@ -1,4 +1,8 @@
-import { MAX_IMPORT_PHOTO_BYTES, MAX_IMPORT_PHOTO_TOTAL_BYTES } from "@/lib/trips/importLimits";
+import {
+  MAX_IMPORT_DOCUMENT_BYTES,
+  MAX_IMPORT_MEDIA_TOTAL_BYTES,
+  MAX_IMPORT_PHOTO_BYTES,
+} from "@/lib/trips/importLimits";
 import {
   bufferByteSource,
   openZipArchive,
@@ -11,8 +15,8 @@ import {
  *
  * Two container shapes reach this module and both have to work (AC1 and AC2):
  *
- * - a **v2 package**: the ZIP Story 2.31 writes - a `trip.json` manifest and real photo files under
- *   `photos/`;
+ * - a **v2 package**: the ZIP Story 2.31 writes - a `trip.json` manifest, real photo files under
+ *   `photos/`, and since Story 9.1 real document files under `documents/`;
  * - a **v1 backup**: a bare `.json` file, which is the same manifest minus the v2 additions and with
  *   no photos at all.
  *
@@ -41,18 +45,32 @@ import {
 
 const MANIFEST_MEMBER_NAME = "trip.json";
 const PHOTO_MEMBER_PREFIX = "photos/";
+/**
+ * Documents live under their own prefix (Story 9.1), never under `photos/`.
+ *
+ * The separation is the whole safety property: `photos/` members are validated against three *image*
+ * signatures before anything is written, and widening that check to admit a PDF is the single change
+ * that would let a non-image be restored into a photo gallery. Two prefixes, two pools, two sniffers.
+ */
+const DOCUMENT_MEMBER_PREFIX = "documents/";
 
 // Re-exported so the package reader stays the one import for everything about a package's photos.
-export { MAX_IMPORT_PHOTO_BYTES };
+export { MAX_IMPORT_PHOTO_BYTES, MAX_IMPORT_DOCUMENT_BYTES };
 
 export type ImportPackage = {
   manifest: unknown;
   /** Archive member path (`photos/p1.jpg`) to its bytes. Always empty for a v1 backup. */
   photoBytes: Map<string, Buffer>;
+  /** Archive member path (`documents/d1.pdf`) to its bytes. Empty for v1 and for a pre-9.1 v2 package. */
+  documentBytes: Map<string, Buffer>;
 };
 
 /**
- * The package's photos, addressed by archive member path, one at a time.
+ * One pool's members, addressed by archive member path, one at a time.
+ *
+ * Named for photos because they were the only pool when Story 2.34 introduced it; it addresses
+ * *archive members* and nothing about it is photo-specific, which is why `openImportPackage` hands
+ * back a second one of these for the `documents/` pool rather than inventing a parallel interface.
  *
  * The interface a `Map<string, Buffer>` already satisfied in spirit, made explicit so the bytes can
  * come from a file instead. `read` materialises exactly one member and the caller is expected to let
@@ -167,7 +185,9 @@ const isArchiveBookkeeping = (name: string) => {
 
 /**
  * `trip.json` is a member of the archive but not of the *photo* source, so the triage's own list is
- * what a lookup is checked against - not the archive's.
+ * what a lookup is checked against - not the archive's. The same holds for the `documents/` source:
+ * each pool's source answers only for its own prefix, which is what stops a document being fetched
+ * through the photo source and vice versa.
  */
 const requirePhotoMember = (path: string, knownPaths: Set<string>) => {
   if (!knownPaths.has(path)) {
@@ -179,6 +199,11 @@ export type OpenImportPackage = {
   manifest: unknown;
   /** The archive's photo members, materialised one at a time. Empty for a package with no photos. */
   photos: PhotoSource;
+  /**
+   * The archive's document members, on the same terms (Story 9.1). Empty for a package written
+   * before this story, which is what keeps such a package importing exactly as it did.
+   */
+  documents: PhotoSource;
 };
 
 export type OpenImportPackageResult =
@@ -195,7 +220,13 @@ export type OpenImportPackageResult =
  * The triage is the same one `parseImportPackage` has always done, and it is done here because it is
  * cheap: `trip.json` is required and parsed eagerly (it is the smallest member and nothing can
  * proceed without it), the bookkeeping members Finder and Explorer inject are ignored, and a member
- * that is neither `trip.json` nor under `photos/` is the same `validation_error` it was before.
+ * that is neither `trip.json` nor under one of the two content prefixes is the same
+ * `validation_error` it was before.
+ *
+ * Story 9.1 added `documents/` to that list and **kept it a closed list**: an unrecognised member is
+ * still refused, because the anti-smuggling check on `photos/` would otherwise be dodgeable by
+ * renaming a member out of every prefix. The two prefixes are triaged into two independent sources
+ * so neither pool can be served bytes that were filed under the other.
  */
 export const openImportPackage = (source: ZipByteSource): OpenImportPackageResult => {
   let archive;
@@ -230,41 +261,56 @@ export const openImportPackage = (source: ZipByteSource): OpenImportPackageResul
   }
 
   const photoPaths: string[] = [];
+  const documentPaths: string[] = [];
   for (const entry of archive.entries) {
     if (entry.name === MANIFEST_MEMBER_NAME || isArchiveBookkeeping(entry.name)) {
       continue;
     }
-    if (!entry.name.startsWith(PHOTO_MEMBER_PREFIX)) {
-      // `validatePackagePhotos` refuses an unregistered member *under* `photos/` on anti-smuggling
-      // grounds. Silently dropping everything else made that check dodgeable by renaming the member
-      // out of the prefix, which is not a distinction worth defending: a v2 package contains
-      // `trip.json` and photos, and nothing else is meaningful to this reader.
-      return {
-        ok: false,
-        code: "validation_error",
-        message: `Archive contains a member that is neither trip.json nor a photo: ${entry.name}`,
-      };
+    if (entry.name.startsWith(PHOTO_MEMBER_PREFIX)) {
+      photoPaths.push(entry.name);
+      continue;
     }
-    photoPaths.push(entry.name);
+    if (entry.name.startsWith(DOCUMENT_MEMBER_PREFIX)) {
+      documentPaths.push(entry.name);
+      continue;
+    }
+    // `validatePackagePhotos` and `validatePackageDocuments` refuse an unregistered member *under*
+    // their own prefix on anti-smuggling grounds. Silently dropping everything else made those
+    // checks dodgeable by renaming the member out of the prefix, which is not a distinction worth
+    // defending: a v2 package contains `trip.json`, photos and documents, and nothing else is
+    // meaningful to this reader.
+    return {
+      ok: false,
+      code: "validation_error",
+      message: `Archive contains a member that is neither trip.json, a photo nor a document: ${entry.name}`,
+    };
   }
 
-  const knownPaths = new Set(photoPaths);
+  // One reader, two windows onto it. The path sets are disjoint by construction (a member matched
+  // exactly one prefix above), so a lookup through the wrong source is a `ZipReadError` rather than
+  // a quiet cross-pool read.
+  const memberSource = (paths: string[]): PhotoSource => {
+    const knownPaths = new Set(paths);
+    return {
+      paths: () => [...paths],
+      has: (path) => knownPaths.has(path),
+      head: (path, length) => {
+        requirePhotoMember(path, knownPaths);
+        return archive.readMemberHead(path, length);
+      },
+      read: (path) => {
+        requirePhotoMember(path, knownPaths);
+        return archive.readMember(path);
+      },
+    };
+  };
+
   return {
     ok: true,
     value: {
       manifest,
-      photos: {
-        paths: () => [...photoPaths],
-        has: (path) => knownPaths.has(path),
-        head: (path, length) => {
-          requirePhotoMember(path, knownPaths);
-          return archive.readMemberHead(path, length);
-        },
-        read: (path) => {
-          requirePhotoMember(path, knownPaths);
-          return archive.readMember(path);
-        },
-      },
+      photos: memberSource(photoPaths),
+      documents: memberSource(documentPaths),
     },
   };
 };
@@ -278,7 +324,14 @@ export const parseImportPackage = (bytes: Buffer): ImportPackageResult => {
     // v1: the whole file is the manifest. `invalid_json` keeps the wire behaviour a user of the old
     // format already knows - a corrupt JSON backup reported the same way before this story.
     try {
-      return { ok: true, value: { manifest: JSON.parse(bytes.toString("utf8")), photoBytes: new Map() } };
+      return {
+        ok: true,
+        value: {
+          manifest: JSON.parse(bytes.toString("utf8")),
+          photoBytes: new Map(),
+          documentBytes: new Map(),
+        },
+      };
     } catch {
       return { ok: false, code: "invalid_json", message: "Backup file must be valid JSON or a ZIP archive" };
     }
@@ -291,11 +344,19 @@ export const parseImportPackage = (bytes: Buffer): ImportPackageResult => {
 
   // The eager half, and the only place that still holds every member at once. The archive is already
   // resident here, so the copies cost what they always did.
-  const photoBytes = new Map<string, Buffer>();
-  try {
-    for (const path of opened.value.photos.paths()) {
-      photoBytes.set(path, opened.value.photos.read(path));
+  const materialise = (source: PhotoSource) => {
+    const members = new Map<string, Buffer>();
+    for (const path of source.paths()) {
+      members.set(path, source.read(path));
     }
+    return members;
+  };
+
+  let photoBytes: Map<string, Buffer>;
+  let documentBytes: Map<string, Buffer>;
+  try {
+    photoBytes = materialise(opened.value.photos);
+    documentBytes = materialise(opened.value.documents);
   } catch (error) {
     if (error instanceof ZipReadError) {
       return { ok: false, code: "validation_error", message: error.message };
@@ -303,7 +364,39 @@ export const parseImportPackage = (bytes: Buffer): ImportPackageResult => {
     throw error;
   }
 
-  return { ok: true, value: { manifest: opened.value.manifest, photoBytes } };
+  return { ok: true, value: { manifest: opened.value.manifest, photoBytes, documentBytes } };
+};
+
+/**
+ * One source addressing both pools, for the disk-write phase and only for it.
+ *
+ * `writeImportedPhotos` is "write every planned file or write none", and that guarantee cannot span
+ * two calls: a photo pass that succeeded followed by a document pass that failed would leave the
+ * photos on disk with nothing to unwind them. Handing it a single source over both pools keeps the
+ * whole disk phase one operation with one cleanup.
+ *
+ * Merging is safe *here* precisely because it is late: validation, sizing and sniffing have already
+ * run against the two pools separately, under their own ceilings and their own signature lists. By
+ * this point a member is bytes at a path, and the paths cannot collide - `openImportPackage` files
+ * every member under exactly one of the two prefixes.
+ */
+export const mergeMemberSources = (sources: (PhotoSource | Map<string, Buffer>)[]): PhotoSource => {
+  const resolved = sources.map(toPhotoSource);
+  const owner = (path: string) => resolved.find((source) => source.has(path));
+  const require = (path: string) => {
+    const source = owner(path);
+    if (!source) {
+      throw new ZipReadError(`Archive has no entry named: ${path}`);
+    }
+    return source;
+  };
+
+  return {
+    paths: () => resolved.flatMap((source) => source.paths()),
+    has: (path) => owner(path) !== undefined,
+    head: (path, length) => require(path).head(path, length),
+    read: (path) => require(path).read(path),
+  };
 };
 
 /**
@@ -344,38 +437,158 @@ export const sniffPhotoContentType = (bytes: Buffer): string | null => {
   return null;
 };
 
+/**
+ * The document allow-list: PDF, plus the same three image signatures a photo may carry (Story 9.1).
+ *
+ * The images are here **by reference to `PHOTO_SIGNATURES`, never as a second copy**, because a
+ * ticket screenshot is a document and both lists therefore have to answer "is this a PNG" the same
+ * way forever. The dependency runs one way only: this table is a superset of that one, and nothing
+ * in it can widen what a *photo* is allowed to be. That asymmetry is the point - a PDF restored into
+ * a photo gallery is the failure the two pools exist to prevent.
+ */
+const DOCUMENT_SIGNATURES: Record<string, (bytes: Buffer) => boolean> = {
+  // `%PDF-`, which every conforming PDF begins with. The version digits after it are deliberately
+  // not checked: a producer writing `%PDF-2.0` is still handing us a PDF.
+  "application/pdf": (bytes) =>
+    bytes.length >= 5 && bytes.subarray(0, 5).equals(Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d])),
+  ...PHOTO_SIGNATURES,
+};
+
+/** Enough for every signature `sniffDocumentContentType` allow-lists - WebP's is still the longest. */
+export const DOCUMENT_SIGNATURE_HEAD_BYTES = PHOTO_SIGNATURE_HEAD_BYTES;
+
+/**
+ * The content type a *document's* bytes claim, or `null` when they match no allow-listed signature.
+ *
+ * Separate from `sniffPhotoContentType` rather than a widening of it, and the separation is the
+ * story's one non-negotiable: that function decides what may be written into a photo gallery, and
+ * adding `application/pdf` to it is the single change that would let a non-image be restored as a
+ * photograph. Same reasoning as its twin otherwise - the bytes are the authority, never the
+ * manifest's `contentType`, and they are also what picks the extension on disk.
+ */
+export const sniffDocumentContentType = (bytes: Buffer): string | null => {
+  for (const [contentType, matchesSignature] of Object.entries(DOCUMENT_SIGNATURES)) {
+    if (matchesSignature(bytes)) {
+      return contentType;
+    }
+  }
+  return null;
+};
+
 export type PackagePhotoPoolEntry = { contentType: string; archivePath: string };
 
 export type PackagePhotoValidation = { ok: true } | { ok: false; issues: string[] };
 
 /**
- * Archive-level photo validation, run **before** the transaction opens (AC3).
+ * One pool's worth of the archive-level checks, returning what it plans to write rather than
+ * judging it.
  *
- * Zod cannot do any of this: the bytes are not in the manifest, so the pool and the archive members
+ * Shared by both pools because everything except the noun, the per-file ceiling and the signature
+ * list is identical, and because the byte budget is deliberately *not* decided here: it is one
+ * budget over both pools and only `validatePackageMedia` can see both.
+ */
+const collectPoolIssues = ({
+  pool,
+  bytes: memberBytes,
+  referenceCounts,
+  noun,
+  poolName,
+  sizeLimitNoun,
+  maxEntryBytes,
+  sniff,
+  contentDescription,
+}: {
+  pool: Record<string, PackagePhotoPoolEntry>;
+  bytes: PhotoSource | Map<string, Buffer>;
+  referenceCounts: Map<string, number>;
+  /** How one entry is named in a message: `Photo p1 is empty`. */
+  noun: string;
+  /** How the pool is named: `... is not registered in the photo pool`. */
+  poolName: string;
+  /** How the per-file ceiling is named: `... byte image size limit`. Not always `poolName`. */
+  sizeLimitNoun: string;
+  maxEntryBytes: number;
+  sniff: (bytes: Buffer) => string | null;
+  contentDescription: string;
+}): { issues: string[]; plannedBytes: number } => {
+  const source = toPhotoSource(memberBytes);
+  const issues: string[] = [];
+  const claimedPaths = new Set<string>();
+  let plannedBytes = 0;
+
+  for (const [entryId, entry] of Object.entries(pool)) {
+    claimedPaths.add(entry.archivePath);
+    if (!source.has(entry.archivePath)) {
+      issues.push(`${noun} ${entryId} references archive member ${entry.archivePath}, which is not in the package`);
+      continue;
+    }
+    const bytes = source.read(entry.archivePath);
+    if (bytes.length === 0) {
+      issues.push(`${noun} ${entryId} is empty`);
+      continue;
+    }
+    if (bytes.length > maxEntryBytes) {
+      issues.push(`${noun} ${entryId} exceeds the ${maxEntryBytes} byte ${sizeLimitNoun} size limit`);
+      continue;
+    }
+    if (!sniff(bytes)) {
+      issues.push(`${noun} ${entryId} does not contain ${contentDescription}`);
+      continue;
+    }
+    plannedBytes += bytes.length * (referenceCounts.get(entryId) ?? 0);
+  }
+
+  for (const archivePath of source.paths()) {
+    if (!claimedPaths.has(archivePath)) {
+      issues.push(`Archive member ${archivePath} is not registered in the ${poolName} pool`);
+    }
+  }
+
+  return { issues, plannedBytes };
+};
+
+/** The absent half, for the two single-pool entry points below. */
+const EMPTY_POOL: Record<string, PackagePhotoPoolEntry> = {};
+const EMPTY_MEMBERS = new Map<string, Buffer>();
+const EMPTY_COUNTS = new Map<string, number>();
+
+/**
+ * Archive-level media validation, run **before** the transaction opens (AC3).
+ *
+ * Zod cannot do any of this: the bytes are not in the manifest, so a pool and the archive members
  * are two independent facts that only agree if something compares them. The comparison runs in both
- * directions - a pool entry with no member would produce a broken image, and a member no entry
- * claims is either a mistake or an attempt to smuggle a file past the type checks.
+ * directions - a pool entry with no member would produce a broken image or a dead chip, and a member
+ * no entry claims is either a mistake or an attempt to smuggle a file past the type checks.
  *
- * The pool's declared `contentType` is *not* one of the things checked: see
- * `sniffPhotoContentType` for why the bytes decide alone, and `importPhotos.ts` for the extension
- * that gets derived from them.
+ * A pool's declared `contentType` is *not* one of the things checked: see `sniffPhotoContentType`
+ * for why the bytes decide alone, and `importPhotos.ts` for the extension that gets derived from
+ * them.
  *
  * All issues are collected rather than short-circuited: a user fixing a hand-built package should
  * see everything wrong with it at once. **With one exception, for an archive-backed source:** `read`
- * verifies the member it materialises, so the first photo that fails its CRC-32 or will not
+ * verifies the member it materialises, so the first member that fails its CRC-32 or will not
  * decompress throws out of the loop and no later issue is reached. That is intended rather than
  * tolerated - the eager path answered such a package with that one accurate message too, and Story
  * 2.34's rule was that moving *when* a member is verified must not move what the client sees. A
  * package the reader cannot read is not a package whose remaining problems are worth enumerating.
  *
- * One photo is resident at a time. Nothing here accumulates the pool - it needs a length and the
+ * One member is resident at a time. Nothing here accumulates a pool - it needs a length and the
  * first twelve bytes of each member and then it is done with it, which is why this can run against a
  * package that is still on disk.
+ *
+ * **Both pools in one call, because there is one disk budget** (Story 9.1). Everything per-file
+ * stays per-pool - a document is sized against `MAX_IMPORT_DOCUMENT_BYTES` and sniffed against
+ * `sniffDocumentContentType`, a photo against its own two, which is what keeps a PDF out of a photo
+ * gallery. The *total* is the one thing that has to be summed: two independent applications of a
+ * 1 GB ceiling are a 2 GB worst case that reads as correct from either side.
  */
-export const validatePackagePhotos = ({
+export const validatePackageMedia = ({
   photos,
   photoBytes,
-  referenceCounts,
+  photoReferenceCounts,
+  documents,
+  documentBytes,
+  documentReferenceCounts,
 }: {
   photos: Record<string, PackagePhotoPoolEntry>;
   /**
@@ -391,46 +604,96 @@ export const validatePackagePhotos = ({
    * reference *count*, but only here are the two halves of the product in the same place: the
    * manifest knows how often a photo is used and the archive knows how big it is.
    */
-  referenceCounts: Map<string, number>;
+  photoReferenceCounts: Map<string, number>;
+  documents: Record<string, PackagePhotoPoolEntry>;
+  documentBytes: PhotoSource | Map<string, Buffer>;
+  /** The same product, from `countDocumentReferences`. */
+  documentReferenceCounts: Map<string, number>;
 }): PackagePhotoValidation => {
-  const source = toPhotoSource(photoBytes);
-  const issues: string[] = [];
-  const claimedPaths = new Set<string>();
-  let plannedBytes = 0;
+  const photoPass = collectPoolIssues({
+    pool: photos,
+    bytes: photoBytes,
+    referenceCounts: photoReferenceCounts,
+    noun: "Photo",
+    poolName: "photo",
+    // "image", not "photo": the wording predates the document pool and is what the client has been
+    // shown since Story 2.32. A pointless rename of a user-facing diagnostic is still a rename.
+    sizeLimitNoun: "image",
+    maxEntryBytes: MAX_IMPORT_PHOTO_BYTES,
+    sniff: sniffPhotoContentType,
+    contentDescription: "JPEG, PNG or WebP image data",
+  });
+  const documentPass = collectPoolIssues({
+    pool: documents,
+    bytes: documentBytes,
+    referenceCounts: documentReferenceCounts,
+    noun: "Document",
+    poolName: "document",
+    sizeLimitNoun: "document",
+    maxEntryBytes: MAX_IMPORT_DOCUMENT_BYTES,
+    sniff: sniffDocumentContentType,
+    contentDescription: "PDF, JPEG, PNG or WebP data",
+  });
 
-  for (const [photoId, entry] of Object.entries(photos)) {
-    claimedPaths.add(entry.archivePath);
-    if (!source.has(entry.archivePath)) {
-      issues.push(`Photo ${photoId} references archive member ${entry.archivePath}, which is not in the package`);
-      continue;
-    }
-    const bytes = source.read(entry.archivePath);
-    if (bytes.length === 0) {
-      issues.push(`Photo ${photoId} is empty`);
-      continue;
-    }
-    if (bytes.length > MAX_IMPORT_PHOTO_BYTES) {
-      issues.push(`Photo ${photoId} exceeds the ${MAX_IMPORT_PHOTO_BYTES} byte image size limit`);
-      continue;
-    }
-    if (!sniffPhotoContentType(bytes)) {
-      issues.push(`Photo ${photoId} does not contain JPEG, PNG or WebP image data`);
-      continue;
-    }
-    plannedBytes += bytes.length * (referenceCounts.get(photoId) ?? 0);
-  }
-
-  for (const archivePath of source.paths()) {
-    if (!claimedPaths.has(archivePath)) {
-      issues.push(`Archive member ${archivePath} is not registered in the photo pool`);
-    }
-  }
-
-  if (plannedBytes > MAX_IMPORT_PHOTO_TOTAL_BYTES) {
+  const issues = [...photoPass.issues, ...documentPass.issues];
+  const plannedBytes = photoPass.plannedBytes + documentPass.plannedBytes;
+  if (plannedBytes > MAX_IMPORT_MEDIA_TOTAL_BYTES) {
     issues.push(
-      `Backup plans to write ${plannedBytes} bytes of photos, more than the ${MAX_IMPORT_PHOTO_TOTAL_BYTES} byte limit for one import`,
+      `Backup plans to write ${plannedBytes} bytes of photos and documents, more than the ${MAX_IMPORT_MEDIA_TOTAL_BYTES} byte limit for one import`,
     );
   }
 
   return issues.length > 0 ? { ok: false, issues } : { ok: true };
 };
+
+/**
+ * `validatePackageMedia` for a caller that has photos and nothing else.
+ *
+ * The import route no longer uses it - the byte budget spans both pools, so the route calls the
+ * combined function - but the verdict is identical for a package with no documents, which is what a
+ * v1 backup and every pre-9.1 v2 package are.
+ */
+export const validatePackagePhotos = ({
+  photos,
+  photoBytes,
+  referenceCounts,
+}: {
+  photos: Record<string, PackagePhotoPoolEntry>;
+  photoBytes: PhotoSource | Map<string, Buffer>;
+  referenceCounts: Map<string, number>;
+}): PackagePhotoValidation =>
+  validatePackageMedia({
+    photos,
+    photoBytes,
+    photoReferenceCounts: referenceCounts,
+    documents: EMPTY_POOL,
+    documentBytes: EMPTY_MEMBERS,
+    documentReferenceCounts: EMPTY_COUNTS,
+  });
+
+/**
+ * The same thing for the `documents/` pool (Story 9.1), mirroring its twin in both directions: a
+ * pool entry whose member is absent, and a member under `documents/` that no entry claims.
+ *
+ * The two differences from the photo half are the two that matter. A document is sized against
+ * `MAX_IMPORT_DOCUMENT_BYTES`, which is the document routes' own 10 MB rather than the widest of the
+ * image routes' spread. And its bytes are put to `sniffDocumentContentType`, which allows a PDF -
+ * the whole reason this is a separate pool with a separate sniffer instead of a wider photo check.
+ */
+export const validatePackageDocuments = ({
+  documents,
+  documentBytes,
+  referenceCounts,
+}: {
+  documents: Record<string, PackagePhotoPoolEntry>;
+  documentBytes: PhotoSource | Map<string, Buffer>;
+  referenceCounts: Map<string, number>;
+}): PackagePhotoValidation =>
+  validatePackageMedia({
+    photos: EMPTY_POOL,
+    photoBytes: EMPTY_MEMBERS,
+    photoReferenceCounts: EMPTY_COUNTS,
+    documents,
+    documentBytes,
+    documentReferenceCounts: referenceCounts,
+  });

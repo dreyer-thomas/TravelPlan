@@ -41,6 +41,16 @@ export const jpegBytes = (filler = 64) => withFiller([0xff, 0xd8, 0xff, 0xe0], f
 export const pngBytes = (filler = 64) =>
   withFiller([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], filler);
 
+/**
+ * Document fixture with the `%PDF-` header `sniffDocumentContentType` allow-lists (Story 9.1).
+ *
+ * `%PDF-1.7` rather than a bare `%PDF-`, because that is what a real producer writes and the sniffer
+ * deliberately ignores the version digits - a fixture that stopped at the hyphen would let a
+ * tightening of that rule pass unnoticed. Nothing here parses a PDF, so the filler is filler.
+ */
+export const pdfBytes = (filler = 64) =>
+  withFiller([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37], filler);
+
 /** RIFF container: "RIFF", a four-byte size, then the "WEBP" form type at offset 8. */
 export const webpBytes = (filler = 64) => {
   const header = Buffer.alloc(12);

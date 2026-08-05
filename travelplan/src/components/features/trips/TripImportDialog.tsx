@@ -44,6 +44,8 @@ type ImportResponse = {
   travelSegmentCount?: number;
   bucketListItemCount?: number;
   photoCount?: number;
+  /** Added by Story 9.1, optional on the same terms as the three above. */
+  documentCount?: number;
   /** What the *export* skipped. Server-generated English, shown as-is under a translated heading. */
   warnings?: string[];
 };
@@ -404,7 +406,14 @@ export default function TripImportDialog({ open, onClose, onImported }: TripImpo
                 <Box
                   sx={{
                     display: "grid",
-                    gridTemplateColumns: { xs: "repeat(2, 1fr)", sm: "repeat(4, 1fr)" },
+                    // Five cells since Story 9.1 added documents, and `sm` went from four columns to
+                    // three rather than to five. Three is the only choice that makes no cell narrower
+                    // than it already was at any width: at `xs` the shape is unchanged (2 + 2 + 1),
+                    // and at `sm` each cell gains a third of its width instead of losing a fifth of
+                    // it, which the longest label - "Travel segments" / "Reiseabschnitte" - needs.
+                    // Five across would have squeezed that label onto two lines on a `maxWidth="sm"`
+                    // dialog. The last row being short of a full one is inherent to an odd count.
+                    gridTemplateColumns: { xs: "repeat(2, 1fr)", sm: "repeat(3, 1fr)" },
                     gap: 2,
                     padding: "14px 16px",
                     border: "1px solid",
@@ -415,6 +424,7 @@ export default function TripImportDialog({ open, onClose, onImported }: TripImpo
                 >
                   {summaryCell(t("trips.import.summaryDays"), result.dayCount)}
                   {summaryCell(t("trips.import.summaryPhotos"), result.photoCount ?? 0)}
+                  {summaryCell(t("trips.import.summaryDocuments"), result.documentCount ?? 0)}
                   {summaryCell(t("trips.import.summarySegments"), result.travelSegmentCount ?? 0)}
                   {summaryCell(t("trips.import.summaryBucket"), result.bucketListItemCount ?? 0)}
                 </Box>

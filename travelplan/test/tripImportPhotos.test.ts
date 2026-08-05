@@ -4,7 +4,9 @@ import path from "node:path";
 import {
   discardStashedTripUploadDir,
   ImportPhotoWriteError,
+  planAccommodationDocument,
   planAccommodationGalleryPhoto,
+  planDayPlanItemDocument,
   planDayPlanItemGalleryPhoto,
   planTripDayPhoto,
   planTripHeroPhoto,
@@ -88,6 +90,94 @@ describe("importPhotos", () => {
 
   it("rejects a content type outside the upload allow-list", () => {
     expect(() => planTripHeroPhoto("trip-1", "image/gif")).toThrow(ImportPhotoWriteError);
+  });
+
+  it("places a document in the entry's own documents subdirectory, never beside its photos", () => {
+    const takenFileNames = new Set<string>();
+    const stay = planAccommodationDocument(
+      { tripId: "trip-1", tripDayId: "day-1", accommodationId: "stay-1", contentType: "application/pdf" },
+      takenFileNames,
+    );
+    const activity = planDayPlanItemDocument(
+      { tripId: "trip-1", tripDayId: "day-1", dayPlanItemId: "item-1", contentType: "image/png" },
+      takenFileNames,
+    );
+
+    for (const placement of [stay, activity]) {
+      expect(placement.filePath.startsWith(getMediaRoot())).toBe(true);
+      expect(path.join(getMediaRoot(), placement.documentUrl.replace(/^\/+/, ""))).toBe(placement.filePath);
+    }
+
+    expect(stay.documentUrl).toMatch(
+      /^\/uploads\/trips\/trip-1\/days\/day-1\/accommodations\/stay-1\/documents\/doc-\d+-[a-z0-9]{1,8}\.pdf$/,
+    );
+    expect(activity.documentUrl).toMatch(
+      /^\/uploads\/trips\/trip-1\/days\/day-1\/day-plan-items\/item-1\/documents\/doc-\d+-[a-z0-9]{1,8}\.png$/,
+    );
+  });
+
+  it("takes a document's extension from the sniffed type and its name from nothing at all", () => {
+    // The signature accepts no name: the manifest's `fileName` is a column value and cannot reach a
+    // path even by accident, because there is no parameter it could arrive through.
+    const placement = planAccommodationDocument(
+      { tripId: "trip-1", tripDayId: "day-1", accommodationId: "stay-1", contentType: "image/webp" },
+      new Set<string>(),
+    );
+
+    expect(path.basename(placement.filePath)).toMatch(/^doc-\d+-[a-z0-9]{1,8}\.webp$/);
+    expect(placement.filePath.startsWith(`${getTripUploadDir("trip-1")}${path.sep}`)).toBe(true);
+    expect(placement.filePath).not.toContain("..");
+  });
+
+  it("never reuses a document name inside one import, where Date.now() does not move", () => {
+    const takenFileNames = new Set<string>();
+    const names = Array.from({ length: 25 }, () =>
+      path.basename(
+        planAccommodationDocument(
+          { tripId: "trip-1", tripDayId: "day-1", accommodationId: "stay-1", contentType: "application/pdf" },
+          takenFileNames,
+        ).filePath,
+      ),
+    );
+
+    expect(new Set(names).size).toBe(names.length);
+  });
+
+  it("shares the taken-name set with the photo planners without colliding with them", () => {
+    // One set for both kinds, which is only safe because the two prefixes differ. Asserted rather
+    // than assumed: a future edit that dropped one of the prefixes would silently reintroduce the
+    // collision the set exists to prevent.
+    const takenFileNames = new Set<string>();
+    const photo = planAccommodationGalleryPhoto(
+      { tripId: "trip-1", tripDayId: "day-1", accommodationId: "stay-1", contentType: "image/png" },
+      takenFileNames,
+    );
+    const document = planAccommodationDocument(
+      { tripId: "trip-1", tripDayId: "day-1", accommodationId: "stay-1", contentType: "image/png" },
+      takenFileNames,
+    );
+
+    expect(path.basename(photo.filePath)).toMatch(/^img-/);
+    expect(path.basename(document.filePath)).toMatch(/^doc-/);
+    expect(path.dirname(document.filePath)).toBe(path.join(path.dirname(photo.filePath), "documents"));
+  });
+
+  it("rejects a document content type outside the two document routes' allow-list", () => {
+    expect(() =>
+      planAccommodationDocument(
+        { tripId: "trip-1", tripDayId: "day-1", accommodationId: "stay-1", contentType: "text/plain" },
+        new Set<string>(),
+      ),
+    ).toThrow(ImportPhotoWriteError);
+  });
+
+  it("refuses to place a PDF through the photo planners, which is the separation that matters", () => {
+    expect(() =>
+      planAccommodationGalleryPhoto(
+        { tripId: "trip-1", tripDayId: "day-1", accommodationId: "stay-1", contentType: "application/pdf" },
+        new Set<string>(),
+      ),
+    ).toThrow(ImportPhotoWriteError);
   });
 
   it("writes every planned photo to disk", async () => {

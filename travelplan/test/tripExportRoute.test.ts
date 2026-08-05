@@ -7,14 +7,16 @@ import { prisma } from "@/lib/db/prisma";
 import { createSessionJwt } from "@/lib/auth/jwt";
 import { createTripWithDays } from "@/lib/repositories/tripRepo";
 import {
+  getAccommodationDocumentUploadDir,
   getAccommodationImageUploadDir,
+  getDayPlanItemDocumentUploadDir,
   getDayPlanItemImageUploadDir,
   getTripDayUploadDir,
   getTripUploadDir,
   getTripsUploadRoot,
 } from "@/lib/trips/uploadPaths";
 import { readZipArchive, readZipEntryMap, readZipEntryNames } from "./helpers/zipReader";
-import { writeUploadFile } from "./helpers/uploadFixtures";
+import { pdfBytes, writeUploadFile } from "./helpers/uploadFixtures";
 import { toDosDateTime } from "@/lib/trips/zipArchive";
 
 type ApiEnvelope<T> = {
@@ -22,9 +24,12 @@ type ApiEnvelope<T> = {
   error: { code: string; message: string; details?: unknown } | null;
 };
 
+type ExportDocumentRef = { sortOrder: number; documentId: string; fileName: string };
+
 type ExportManifest = {
   meta: { exportedAt: string; appVersion: string; formatVersion: number; warnings: string[] };
   photos: Record<string, { contentType: string; archivePath: string }>;
+  documents: Record<string, { contentType: string; archivePath: string }>;
   trip: {
     id: string;
     name: string;
@@ -44,8 +49,16 @@ type ExportManifest = {
     dayIndex: number;
     imageUrl: string | null;
     imagePhotoId: string | null;
-    accommodation: { id: string; images: { sortOrder: number; photoId: string }[] } | null;
-    dayPlanItems: { id: string; images: { sortOrder: number; photoId: string }[] }[];
+    accommodation: {
+      id: string;
+      images: { sortOrder: number; photoId: string }[];
+      documents: ExportDocumentRef[];
+    } | null;
+    dayPlanItems: {
+      id: string;
+      images: { sortOrder: number; photoId: string }[];
+      documents: ExportDocumentRef[];
+    }[];
     travelSegments: {
       id: string;
       fromItemType: string;
@@ -90,6 +103,8 @@ describe("GET /api/trips/[id]/export", () => {
   beforeEach(async () => {
     await prisma.accommodationImage.deleteMany();
     await prisma.dayPlanItemImage.deleteMany();
+    await prisma.accommodationDocument.deleteMany();
+    await prisma.dayPlanItemDocument.deleteMany();
     await prisma.travelSegment.deleteMany();
     await prisma.tripBucketListItem.deleteMany();
     await prisma.dayPlanItem.deleteMany();
@@ -146,12 +161,14 @@ describe("GET /api/trips/[id]/export", () => {
     expect(payload.meta.exportedAt).toBe(payload.trip.updatedAt);
     expect(payload.meta.warnings).toEqual([]);
     expect(payload.photos).toEqual({});
+    expect(payload.documents).toEqual({});
     expect(payload.trip.id).toBe(trip.id);
     expect(payload.trip.heroPhotoId).toBeNull();
     expect(payload.trip.bucketListItems).toEqual([]);
     expect(payload.days).toHaveLength(2);
     expect(payload.days[0].imagePhotoId).toBeNull();
     expect(payload.days[0].accommodation?.images).toEqual([]);
+    expect(payload.days[0].accommodation?.documents).toEqual([]);
     expect(payload.days[0].travelSegments).toEqual([]);
   });
 
@@ -498,6 +515,212 @@ describe("GET /api/trips/[id]/export", () => {
     expect(payload.meta.warnings).toEqual([]);
   });
 
+  it("writes document members after the photo members, in their own pool order", async () => {
+    const { user, token } = await createOwner("trip-export-documents@example.com");
+
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Document Trip",
+      startDate: "2026-07-20T00:00:00.000Z",
+      endDate: "2026-07-20T00:00:00.000Z",
+    });
+    const [day] = await prisma.tripDay.findMany({ where: { tripId: trip.id } });
+    const accommodation = await prisma.accommodation.create({
+      data: { tripDayId: day.id, name: "Ticketed Hotel" },
+    });
+    const planItem = await prisma.dayPlanItem.create({
+      data: { tripDayId: day.id, contentJson: JSON.stringify({ type: "doc", content: [] }) },
+    });
+
+    // One photo, so the fixed entry order has both halves to order.
+    await writeUploadFile(getTripUploadDir(trip.id), "hero.jpg", "hero-bytes");
+    await prisma.trip.update({
+      where: { id: trip.id },
+      data: { heroImageUrl: `/uploads/trips/${trip.id}/hero.jpg` },
+    });
+
+    const stayDocumentDir = getAccommodationDocumentUploadDir(trip.id, day.id, accommodation.id);
+    const itemDocumentDir = getDayPlanItemDocumentUploadDir(trip.id, day.id, planItem.id);
+    await writeUploadFile(stayDocumentDir, "doc-1.pdf", "stay-ticket-bytes");
+    await writeUploadFile(stayDocumentDir, "doc-2.png", "stay-map-bytes");
+    await writeUploadFile(itemDocumentDir, "doc-3.pdf", "activity-ticket-bytes");
+
+    await prisma.accommodationDocument.createMany({
+      data: [
+        {
+          accommodationId: accommodation.id,
+          documentUrl: `/uploads/trips/${trip.id}/days/${day.id}/accommodations/${accommodation.id}/documents/doc-1.pdf`,
+          fileName: "Ticket Rom.pdf",
+          sortOrder: 0,
+        },
+        {
+          accommodationId: accommodation.id,
+          documentUrl: `/uploads/trips/${trip.id}/days/${day.id}/accommodations/${accommodation.id}/documents/doc-2.png`,
+          fileName: "Lageplan.png",
+          sortOrder: 1,
+        },
+      ],
+    });
+    await prisma.dayPlanItemDocument.create({
+      data: {
+        dayPlanItemId: planItem.id,
+        documentUrl: `/uploads/trips/${trip.id}/days/${day.id}/day-plan-items/${planItem.id}/documents/doc-3.pdf`,
+        fileName: "Museum.pdf",
+        sortOrder: 0,
+      },
+    });
+
+    const response = await GET(buildRequest(trip.id, { session: token }), routeContext(trip.id));
+    const archive = await readArchive(response);
+    const payload = readManifest(archive);
+
+    expect(response.status).toBe(200);
+    expect(payload.meta.warnings).toEqual([]);
+    // Still 2: documents are an additive change *within* v2, not a new format.
+    expect(payload.meta.formatVersion).toBe(2);
+
+    // Its own pool, its own `d` sequence, its own prefix - never the photo pool.
+    expect(Object.keys(payload.photos)).toEqual(["p1"]);
+    expect(payload.documents).toEqual({
+      d1: { contentType: "application/pdf", archivePath: "documents/d1.pdf" },
+      d2: { contentType: "image/png", archivePath: "documents/d2.png" },
+      d3: { contentType: "application/pdf", archivePath: "documents/d3.pdf" },
+    });
+
+    // The refs carry the name, which is the only place AC8's "the same names come back" can live.
+    expect(payload.days[0].accommodation?.documents).toEqual([
+      { sortOrder: 0, documentId: "d1", fileName: "Ticket Rom.pdf" },
+      { sortOrder: 1, documentId: "d2", fileName: "Lageplan.png" },
+    ]);
+    expect(payload.days[0].dayPlanItems[0].documents).toEqual([
+      { sortOrder: 0, documentId: "d3", fileName: "Museum.pdf" },
+    ]);
+
+    // Fixed entry order: manifest, photos in pool order, then documents in pool order. Asserted as
+    // the whole list rather than as membership, because the order *is* the property.
+    expect(readZipEntryNames(archive)).toEqual([
+      "trip.json",
+      "photos/p1.jpg",
+      "documents/d1.pdf",
+      "documents/d2.png",
+      "documents/d3.pdf",
+    ]);
+
+    const byName = readZipEntryMap(archive);
+    expect(byName.get("documents/d1.pdf")?.toString("utf8")).toBe("stay-ticket-bytes");
+    expect(byName.get("documents/d3.pdf")?.toString("utf8")).toBe("activity-ticket-bytes");
+  });
+
+  it("drops a document whose file was deleted from disk and records a warning", async () => {
+    const { user, token } = await createOwner("trip-export-missing-document@example.com");
+
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Missing Document",
+      startDate: "2026-07-21T00:00:00.000Z",
+      endDate: "2026-07-21T00:00:00.000Z",
+    });
+    const [day] = await prisma.tripDay.findMany({ where: { tripId: trip.id } });
+    const accommodation = await prisma.accommodation.create({
+      data: { tripDayId: day.id, name: "Lost Ticket Hotel" },
+    });
+
+    const documentUrl = `/uploads/trips/${trip.id}/days/${day.id}/accommodations/${accommodation.id}/documents/doc-gone.pdf`;
+    await prisma.accommodationDocument.create({
+      data: { accommodationId: accommodation.id, documentUrl, fileName: "Ticket.pdf", sortOrder: 0 },
+    });
+
+    const response = await GET(buildRequest(trip.id, { session: token }), routeContext(trip.id));
+    const archive = await readArchive(response);
+    const payload = readManifest(archive);
+
+    // A ref has no `documentUrl` to fall back on, so the row vanishes entirely and the warning is
+    // the only trace the user gets. That is exactly why the warning has to be there.
+    expect(payload.days[0].accommodation?.documents).toEqual([]);
+    expect(payload.documents).toEqual({});
+    expect(payload.meta.warnings).toHaveLength(1);
+    expect(payload.meta.warnings[0]).toContain(documentUrl);
+    expect(readZipEntryNames(archive)).toEqual(["trip.json"]);
+  });
+
+  it("never reads a document path that escapes the trip's own upload directory", async () => {
+    const { user, token } = await createOwner("trip-export-document-traversal@example.com");
+
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Document Traversal Trip",
+      startDate: "2026-07-22T00:00:00.000Z",
+      endDate: "2026-07-22T00:00:00.000Z",
+    });
+    const [day] = await prisma.tripDay.findMany({ where: { tripId: trip.id } });
+    const accommodation = await prisma.accommodation.create({
+      data: { tripDayId: day.id, name: "Escaping Hotel" },
+    });
+
+    // A real file at the escape target, so a pass would be visible rather than silent. The document
+    // pool shares `resolveOwnedMediaPath` with the photo pool precisely so this cannot diverge.
+    await writeUploadFile(uploadsRoot, "escape.pdf", "escaped-document-bytes");
+    await prisma.accommodationDocument.create({
+      data: {
+        accommodationId: accommodation.id,
+        documentUrl: `/uploads/trips/${trip.id}/../../escape.pdf`,
+        fileName: "Escape.pdf",
+        sortOrder: 0,
+      },
+    });
+
+    const response = await GET(buildRequest(trip.id, { session: token }), routeContext(trip.id));
+    const archive = await readArchive(response);
+    const payload = readManifest(archive);
+
+    expect(response.status).toBe(200);
+    expect(payload.days[0].accommodation?.documents).toEqual([]);
+    expect(payload.documents).toEqual({});
+    expect(readZipEntryNames(archive)).toEqual(["trip.json"]);
+    expect(archive.includes(Buffer.from("escaped-document-bytes", "utf8"))).toBe(false);
+  });
+
+  it("pools one document file referenced by two rows once, keeping both names", async () => {
+    const { user, token } = await createOwner("trip-export-document-dedupe@example.com");
+
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Document Dedupe Trip",
+      startDate: "2026-07-23T00:00:00.000Z",
+      endDate: "2026-07-23T00:00:00.000Z",
+    });
+    const [day] = await prisma.tripDay.findMany({ where: { tripId: trip.id } });
+    const accommodation = await prisma.accommodation.create({
+      data: { tripDayId: day.id, name: "Shared Document Hotel" },
+    });
+
+    await writeUploadFile(
+      getAccommodationDocumentUploadDir(trip.id, day.id, accommodation.id),
+      "shared.pdf",
+      pdfBytes(),
+    );
+    const sharedUrl = `/uploads/trips/${trip.id}/days/${day.id}/accommodations/${accommodation.id}/documents/shared.pdf`;
+    await prisma.accommodationDocument.createMany({
+      data: [
+        { accommodationId: accommodation.id, documentUrl: sharedUrl, fileName: "Hinfahrt.pdf", sortOrder: 0 },
+        { accommodationId: accommodation.id, documentUrl: sharedUrl, fileName: "Rueckfahrt.pdf", sortOrder: 1 },
+      ],
+    });
+
+    const response = await GET(buildRequest(trip.id, { session: token }), routeContext(trip.id));
+    const archive = await readArchive(response);
+    const payload = readManifest(archive);
+
+    // One file, one member - and two names, which is why `fileName` is on the ref and not on the
+    // pool entry: a pool entry has nowhere to put a second one.
+    expect(Object.keys(payload.documents)).toEqual(["d1"]);
+    expect(readZipEntryNames(archive)).toEqual(["trip.json", "documents/d1.pdf"]);
+    expect(payload.days[0].accommodation?.documents).toEqual([
+      { sortOrder: 0, documentId: "d1", fileName: "Hinfahrt.pdf" },
+      { sortOrder: 1, documentId: "d1", fileName: "Rueckfahrt.pdf" },
+    ]);
+  });
+
   it("produces byte-identical archives for two exports of an unchanged trip", async () => {
     const { user, token } = await createOwner("trip-export-deterministic@example.com");
 
@@ -523,10 +746,26 @@ describe("GET /api/trips/[id]/export", () => {
         sortOrder: 0,
       },
     });
+    // A document too, since Story 9.1: byte-identity has to hold over the *whole* archive, and a
+    // fixture with no documents would leave the new pool and the new members outside the property.
+    await writeUploadFile(
+      getAccommodationDocumentUploadDir(trip.id, day.id, accommodation.id),
+      "stay.pdf",
+      pdfBytes(),
+    );
+    await prisma.accommodationDocument.create({
+      data: {
+        accommodationId: accommodation.id,
+        documentUrl: `/uploads/trips/${trip.id}/days/${day.id}/accommodations/${accommodation.id}/documents/stay.pdf`,
+        fileName: "Buchung.pdf",
+        sortOrder: 0,
+      },
+    });
 
     const first = await readArchive(await GET(buildRequest(trip.id, { session: token }), routeContext(trip.id)));
     const second = await readArchive(await GET(buildRequest(trip.id, { session: token }), routeContext(trip.id)));
 
+    expect(readZipEntryNames(first)).toEqual(["trip.json", "photos/p1.jpg", "documents/d1.pdf"]);
     expect(Buffer.compare(first, second)).toBe(0);
   });
 

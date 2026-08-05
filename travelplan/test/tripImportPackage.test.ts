@@ -5,10 +5,17 @@ import {
   openImportPackage,
   parseImportPackage,
   photoSourceFromMap,
+  sniffDocumentContentType,
   sniffPhotoContentType,
+  validatePackageDocuments,
+  validatePackageMedia,
   validatePackagePhotos,
 } from "@/lib/trips/importPackage";
-import { MAX_IMPORT_PACKAGE_BYTES, MAX_IMPORT_PHOTO_TOTAL_BYTES } from "@/lib/trips/importLimits";
+import {
+  MAX_IMPORT_DOCUMENT_BYTES,
+  MAX_IMPORT_PACKAGE_BYTES,
+  MAX_IMPORT_MEDIA_TOTAL_BYTES,
+} from "@/lib/trips/importLimits";
 import {
   bufferByteSource,
   fileByteSource,
@@ -20,7 +27,7 @@ import {
   ZipReadError,
 } from "@/lib/trips/zipReader";
 import { buildPackage, buildZip, writeZipToTempFile, type TempZipFile } from "./helpers/zipBuilder";
-import { jpegBytes, pngBytes, webpBytes } from "./helpers/uploadFixtures";
+import { jpegBytes, pdfBytes, pngBytes, webpBytes } from "./helpers/uploadFixtures";
 
 const MANIFEST = {
   meta: { formatVersion: 2 },
@@ -57,6 +64,21 @@ describe("parseImportPackage", () => {
       "photos/p2.png",
     ]);
     expect(parsed.photoBytes.get("photos/p1.jpg")).toEqual(jpegBytes());
+  });
+
+  it("reads document members out of a v2 zip, into their own map", () => {
+    // The two prefixes are two pools all the way down: a document must never turn up in
+    // `photoBytes`, because that map is what gets validated against three *image* signatures.
+    const archive = buildPackage(MANIFEST, [
+      { name: "photos/p1.jpg", data: jpegBytes() },
+      { name: "documents/d1.pdf", data: pdfBytes() },
+    ]);
+
+    const parsed = expectSuccess(parseImportPackage(archive));
+
+    expect([...parsed.photoBytes.keys()]).toEqual(["photos/p1.jpg"]);
+    expect([...parsed.documentBytes.keys()]).toEqual(["documents/d1.pdf"]);
+    expect(parsed.documentBytes.get("documents/d1.pdf")).toEqual(pdfBytes());
   });
 
   it("treats a bare json file as a v1 backup with no photos", () => {
@@ -260,6 +282,32 @@ describe("parseImportPackage", () => {
 
     expect(result.code).toBe("validation_error");
     expect(result.message).toContain("stowaway.png");
+  });
+
+  it("still refuses a member under neither prefix, now that there are two of them", () => {
+    // Adding `documents/` to the triage widened a closed list; it must not have opened it. The
+    // anti-smuggling checks in `validatePackageMedia` only cover members *under* a prefix, so a
+    // stowaway matching neither is the case this rule exists for - and `documents-not-really/` is
+    // the near miss a `includes("documents")` implementation would wave through.
+    const archive = buildZip([
+      { name: "trip.json", data: Buffer.from(JSON.stringify(MANIFEST), "utf8") },
+      { name: "documents-not-really/ticket.pdf", data: pdfBytes() },
+    ]);
+    const result = expectFailure(parseImportPackage(archive));
+
+    expect(result.code).toBe("validation_error");
+    expect(result.message).toContain("documents-not-really/ticket.pdf");
+  });
+
+  it("surfaces a document member with a wrong CRC-32 as a validation error", () => {
+    const archive = buildZip([
+      { name: "trip.json", data: Buffer.from(JSON.stringify(MANIFEST), "utf8") },
+      { name: "documents/d1.pdf", data: pdfBytes(), crc: 0x1234abcd },
+    ]);
+
+    const result = expectFailure(parseImportPackage(archive));
+    expect(result.code).toBe("validation_error");
+    expect(result.message).toContain("CRC-32");
   });
 
   it("ignores the bookkeeping members Finder and Explorer add when a backup is re-zipped", () => {
@@ -677,6 +725,36 @@ describe("openImportPackage", () => {
     expect(result.value.photos.paths()).toEqual(["photos/p1.jpg"]);
   });
 
+  it("triages documents into a second source, disjoint from the photo one", () => {
+    const result = openImportPackage(
+      onDisk(
+        buildPackage(MANIFEST, [
+          { name: "photos/p1.jpg", data: jpegBytes() },
+          { name: "documents/d1.pdf", data: pdfBytes() },
+          { name: "documents/d2.png", data: pngBytes() },
+        ]),
+      ),
+    );
+
+    if (!result.ok) throw new Error(`Expected the package to open, got: ${result.message}`);
+    expect(result.value.photos.paths()).toEqual(["photos/p1.jpg"]);
+    expect(result.value.documents.paths()).toEqual(["documents/d1.pdf", "documents/d2.png"]);
+    // Neither source answers for the other's members. A photo fetched through the document source -
+    // or the reverse - would be a member validated under one pool's rules and written under the
+    // other's, which is the whole failure the two pools exist to prevent.
+    expect(result.value.photos.has("documents/d1.pdf")).toBe(false);
+    expect(result.value.documents.has("photos/p1.jpg")).toBe(false);
+    expect(() => result.value.photos.read("documents/d1.pdf")).toThrow(ZipReadError);
+    expect(result.value.documents.read("documents/d1.pdf")).toEqual(pdfBytes());
+  });
+
+  it("hands back an empty document source for a package written before Story 9.1", () => {
+    const result = openImportPackage(onDisk(buildPackage(MANIFEST, [{ name: "photos/p1.jpg", data: jpegBytes() }])));
+
+    if (!result.ok) throw new Error(`Expected the package to open, got: ${result.message}`);
+    expect(result.value.documents.paths()).toEqual([]);
+  });
+
   it("agrees with parseImportPackage on the same archive", () => {
     const bytes = buildPackage(MANIFEST, [{ name: "photos/p1.jpg", data: jpegBytes() }]);
     const eager = expectSuccess(parseImportPackage(bytes));
@@ -827,7 +905,7 @@ describe("validatePackagePhotos", () => {
     // One modest photo referenced enough times to blow past the volume ceiling. The count cap in
     // the schema cannot see this: 5000 references is legal, 5000 × 15 MB is not.
     const bytes = Buffer.concat([jpegBytes(), Buffer.alloc(1024 * 1024)]);
-    const references = Math.ceil(MAX_IMPORT_PHOTO_TOTAL_BYTES / bytes.length) + 1;
+    const references = Math.ceil(MAX_IMPORT_MEDIA_TOTAL_BYTES / bytes.length) + 1;
 
     const result = validatePackagePhotos({
       photos: poolWith("image/jpeg", "photos/p1.jpg"),
@@ -925,5 +1003,193 @@ describe("sniffPhotoContentType", () => {
     expect(sniffPhotoContentType(webpBytes())).toBe("image/webp");
     expect(sniffPhotoContentType(Buffer.from("plain text", "utf8"))).toBeNull();
     expect(sniffPhotoContentType(Buffer.alloc(0))).toBeNull();
+  });
+
+  it("does not accept a PDF, which is the one thing widening it would break", () => {
+    // Asserted here rather than only in the document sniffer's own block, because this is the
+    // negative that has to survive: `sniffPhotoContentType` decides what may be written into a photo
+    // gallery, and a PDF passing it is a non-image restored as a photograph.
+    expect(sniffPhotoContentType(pdfBytes())).toBeNull();
+  });
+});
+
+describe("sniffDocumentContentType", () => {
+  it("accepts a PDF and the three image types a document field also takes", () => {
+    expect(sniffDocumentContentType(pdfBytes())).toBe("application/pdf");
+    expect(sniffDocumentContentType(jpegBytes())).toBe("image/jpeg");
+    expect(sniffDocumentContentType(pngBytes())).toBe("image/png");
+    expect(sniffDocumentContentType(webpBytes())).toBe("image/webp");
+  });
+
+  it("names nothing for bytes that are none of them", () => {
+    expect(sniffDocumentContentType(Buffer.from("%PDF but not at the start", "utf8"))).toBeNull();
+    expect(sniffDocumentContentType(Buffer.from("plain text", "utf8"))).toBeNull();
+    expect(sniffDocumentContentType(Buffer.alloc(0))).toBeNull();
+  });
+
+  it("reads the header regardless of the PDF version that follows it", () => {
+    const oneSeven = Buffer.from("%PDF-1.7\n%\xe2\xe3\xcf\xd3", "latin1");
+    const twoZero = Buffer.from("%PDF-2.0\n", "latin1");
+
+    expect(sniffDocumentContentType(oneSeven)).toBe("application/pdf");
+    expect(sniffDocumentContentType(twoZero)).toBe("application/pdf");
+  });
+});
+
+describe("validatePackageDocuments", () => {
+  const poolWith = (contentType: string, archivePath: string) => ({
+    d1: { contentType, archivePath },
+  });
+
+  it("accepts a pool and member set that agree", () => {
+    expect(
+      validatePackageDocuments({
+        documents: poolWith("application/pdf", "documents/d1.pdf"),
+        referenceCounts: new Map([["d1", 1]]),
+        documentBytes: new Map([["documents/d1.pdf", pdfBytes()]]),
+      }).ok,
+    ).toBe(true);
+  });
+
+  it("accepts a package with no documents at all - every backup written before Story 9.1", () => {
+    expect(
+      validatePackageDocuments({
+        documents: {},
+        documentBytes: new Map(),
+        referenceCounts: new Map(),
+      }).ok,
+    ).toBe(true);
+  });
+
+  it("rejects a pool entry with no matching archive member", () => {
+    const result = validatePackageDocuments({
+      documents: poolWith("application/pdf", "documents/d1.pdf"),
+      referenceCounts: new Map(),
+      documentBytes: new Map(),
+    });
+
+    expect(result).toMatchObject({ ok: false });
+    expect(result.ok ? [] : result.issues[0]).toContain("not in the package");
+  });
+
+  it("rejects a document member that no pool entry claims", () => {
+    const result = validatePackageDocuments({
+      documents: {},
+      referenceCounts: new Map(),
+      documentBytes: new Map([["documents/stowaway.pdf", pdfBytes()]]),
+    });
+
+    expect(result).toMatchObject({ ok: false });
+    expect(result.ok ? [] : result.issues[0]).toContain("not registered in the document pool");
+  });
+
+  it("rejects bytes that are neither a PDF nor an allow-listed image", () => {
+    const result = validatePackageDocuments({
+      documents: poolWith("application/pdf", "documents/d1.pdf"),
+      referenceCounts: new Map(),
+      documentBytes: new Map([["documents/d1.pdf", Buffer.from("%PDF is further down the file", "utf8")]]),
+    });
+
+    expect(result).toMatchObject({ ok: false });
+    expect(result.ok ? [] : result.issues[0]).toContain("PDF, JPEG, PNG or WebP");
+  });
+
+  it("rejects an empty document", () => {
+    const result = validatePackageDocuments({
+      documents: poolWith("application/pdf", "documents/d1.pdf"),
+      referenceCounts: new Map(),
+      documentBytes: new Map([["documents/d1.pdf", Buffer.alloc(0)]]),
+    });
+
+    expect(result.ok ? [] : result.issues[0]).toContain("empty");
+  });
+
+  it("caps a document at the document routes' own 10 MB, not at the photo pool's 15", () => {
+    // The photo ceiling is the *maximum* of four disagreeing routes. Documents have two routes and
+    // they agree, so the number is the number - a 12 MB document is one no route could have written.
+    expect(MAX_IMPORT_DOCUMENT_BYTES).toBe(10 * 1024 * 1024);
+    expect(MAX_IMPORT_DOCUMENT_BYTES).toBeLessThan(MAX_IMPORT_PHOTO_BYTES);
+
+    const oversize = Buffer.concat([pdfBytes(0), Buffer.alloc(MAX_IMPORT_DOCUMENT_BYTES, 0x5a)]);
+    const result = validatePackageDocuments({
+      documents: poolWith("application/pdf", "documents/d1.pdf"),
+      referenceCounts: new Map(),
+      documentBytes: new Map([["documents/d1.pdf", oversize]]),
+    });
+
+    expect(result).toMatchObject({ ok: false });
+    expect(result.ok ? [] : result.issues[0]).toContain("size limit");
+  });
+});
+
+describe("validatePackageMedia", () => {
+  it("spends one byte budget across both pools rather than one each", () => {
+    // The defect this is written against: two independent 1 GB caps look correct from either side
+    // and add up to a 2 GB worst case. Each pool alone is under the ceiling here; together they are
+    // not, and only a summed check can say so.
+    const photo = Buffer.concat([jpegBytes(), Buffer.alloc(1024 * 1024)]);
+    const document = Buffer.concat([pdfBytes(), Buffer.alloc(1024 * 1024)]);
+    const halfEach = Math.ceil(MAX_IMPORT_MEDIA_TOTAL_BYTES / photo.length / 2) + 1;
+
+    const args = {
+      photos: { p1: { contentType: "image/jpeg", archivePath: "photos/p1.jpg" } },
+      photoBytes: new Map([["photos/p1.jpg", photo]]),
+      photoReferenceCounts: new Map([["p1", halfEach]]),
+      documents: { d1: { contentType: "application/pdf", archivePath: "documents/d1.pdf" } },
+      documentBytes: new Map([["documents/d1.pdf", document]]),
+      documentReferenceCounts: new Map([["d1", halfEach]]),
+    };
+
+    // Each half on its own passes...
+    expect(
+      validatePackagePhotos({
+        photos: args.photos,
+        photoBytes: args.photoBytes,
+        referenceCounts: args.photoReferenceCounts,
+      }).ok,
+    ).toBe(true);
+    expect(
+      validatePackageDocuments({
+        documents: args.documents,
+        documentBytes: args.documentBytes,
+        referenceCounts: args.documentReferenceCounts,
+      }).ok,
+    ).toBe(true);
+
+    // ...and the two together do not.
+    const combined = validatePackageMedia(args);
+    expect(combined).toMatchObject({ ok: false });
+    expect(combined.ok ? [] : combined.issues[0]).toContain("more than the");
+  });
+
+  it("reports both pools' problems in one verdict", () => {
+    const result = validatePackageMedia({
+      photos: { p1: { contentType: "image/jpeg", archivePath: "photos/p1.jpg" } },
+      photoBytes: new Map(),
+      photoReferenceCounts: new Map(),
+      documents: { d1: { contentType: "application/pdf", archivePath: "documents/d1.pdf" } },
+      documentBytes: new Map([["documents/d1.pdf", Buffer.from("not a document", "utf8")]]),
+      documentReferenceCounts: new Map(),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? [] : result.issues).toHaveLength(2);
+  });
+
+  it("is unchanged for a package with no documents, which is every pre-9.1 backup", () => {
+    const photos = { p1: { contentType: "image/jpeg", archivePath: "photos/p1.jpg" } };
+    const photoBytes = new Map([["photos/p1.jpg", jpegBytes()]]);
+    const referenceCounts = new Map([["p1", 3]]);
+
+    expect(
+      validatePackageMedia({
+        photos,
+        photoBytes,
+        photoReferenceCounts: referenceCounts,
+        documents: {},
+        documentBytes: new Map(),
+        documentReferenceCounts: new Map(),
+      }),
+    ).toEqual(validatePackagePhotos({ photos, photoBytes, referenceCounts }));
   });
 });

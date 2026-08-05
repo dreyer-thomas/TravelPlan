@@ -1,8 +1,9 @@
 import { z } from "zod";
+import { sanitizeDocumentFileName } from "@/lib/trips/documentUploads";
 import {
   MAX_IMPORT_BUCKET_LIST_ITEMS,
   MAX_IMPORT_DAYS,
-  MAX_IMPORT_PHOTO_WRITES,
+  MAX_IMPORT_MEDIA_WRITES,
   MAX_IMPORT_SEGMENTS_PER_DAY,
   MAX_IMPORT_WARNING_LENGTH,
   MAX_IMPORT_WARNINGS,
@@ -13,6 +14,8 @@ import { isValidDateOnly } from "@/lib/validation/dateOnly";
 const ISO_UTC_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
 const DATE_ONLY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const HHMM_TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
+/** C0 plus DEL, written as escapes: the literal characters have no business in a source file. */
+const CONTROL_CHARACTER_REGEX = /[\x00-\x1f\x7f]/;
 const MINUTES_PER_HOUR = 60;
 
 const normalizeTime = (raw: string): string | null => {
@@ -164,6 +167,98 @@ const imagesSchema = z
   });
 
 /**
+ * One entry of the manifest's document pool (Story 9.1). Same shape as `photoSchema`, and
+ * deliberately a *separate* record: the two pools are validated against different signature lists
+ * and different per-file ceilings, and merging them is the one change that would let a PDF be
+ * restored into a photo gallery.
+ */
+const documentPoolSchema = z.object({
+  contentType: z.string().trim().min(1),
+  archivePath: z.string().trim().min(1),
+});
+
+/**
+ * The name the user gave the document, on its way to the `file_name` column and nowhere else.
+ *
+ * Rejecting rather than quietly repairing is the point. This value is rendered in the UI and Story
+ * 9.2 will print it onto PDF pages, so a manifest that states a path where a name belongs is a
+ * manifest whose author should be told, not one whose input should be silently rewritten - the
+ * import route's error envelope is the only channel that reaches them.
+ *
+ * The last word still goes to `sanitizeDocumentFileName`, **the same function the two upload routes
+ * use**, imported rather than reimplemented: two copies of a sanitiser is how one of them loses a
+ * rule. The explicit refusals above it are not redundant with it - they are what turns "a separator
+ * would have been stripped" into "a separator is refused" - but whatever survives them is put to the
+ * shared function anyway, so a case only it knows about (a bare `.` or `..`, a name that is nothing
+ * but trimmable space) cannot reach a column, and the value the repository writes is byte-for-byte
+ * what an upload of the same name would have written.
+ */
+const documentFileNameSchema = z
+  .string()
+  .trim()
+  .min(1, "Document fileName is required")
+  .max(255, "Document fileName must be at most 255 characters")
+  .transform((value, context): string | typeof z.NEVER => {
+    if (value.includes("/") || value.includes("\\")) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Document fileName must not contain a path separator",
+      });
+      return z.NEVER;
+    }
+    if (CONTROL_CHARACTER_REGEX.test(value)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Document fileName must not contain control characters",
+      });
+      return z.NEVER;
+    }
+    const sanitized = sanitizeDocumentFileName(value);
+    if (sanitized === null) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Document fileName is not a usable file name",
+      });
+      return z.NEVER;
+    }
+    return sanitized;
+  });
+
+/**
+ * Document references, mirroring `imagesSchema` including its `sortOrder` uniqueness check -
+ * `@@unique([accommodationId, sortOrder])` / `@@unique([dayPlanItemId, sortOrder])` exist on the
+ * document tables too, so without it the new index surfaces as a P2002 halfway through the import
+ * transaction: a 500 for something the payload states plainly.
+ *
+ * `fileName` rides on the reference rather than on the pool entry, because it belongs to the *row*
+ * and not to the bytes: one pooled document referenced by two entries is one file with two names,
+ * and the pool has no field that could hold both.
+ */
+const documentsSchema = z
+  .array(
+    z.object({
+      sortOrder: z.number().int().min(0),
+      documentId: z.string().trim().min(1),
+      fileName: documentFileNameSchema,
+    }),
+  )
+  .optional()
+  .default([])
+  .superRefine((documents, ctx) => {
+    const seen = new Set<number>();
+    for (const document of documents) {
+      if (seen.has(document.sortOrder)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Duplicate document sortOrder detected: ${document.sortOrder}`,
+        });
+        return;
+      }
+      seen.add(document.sortOrder);
+    }
+  });
+
+/**
  * Travel segments carry the **API-level lowercase** vocabulary (see `TravelSegmentDetail`), not
  * Prisma's enum spellings; the repository maps them up.
  *
@@ -258,6 +353,7 @@ const accommodationImportSchema = z.object({
   createdAt: isoUtcDate,
   updatedAt: isoUtcDate,
   images: imagesSchema,
+  documents: documentsSchema,
 }).superRefine((value, ctx) => {
   const payments = value.payments ?? [];
   if (payments.length === 0) return;
@@ -300,6 +396,7 @@ const dayPlanItemImportSchema = z
     createdAt: isoUtcDate,
     updatedAt: isoUtcDate,
     images: imagesSchema,
+    documents: documentsSchema,
   })
   .superRefine((value, ctx) => {
     const hasFromTime = typeof value.fromTime === "string";
@@ -413,6 +510,9 @@ export const tripImportPayloadSchema = z.object({
       .default([]),
   }),
   photos: z.record(z.string().min(1), photoSchema).optional().default({}),
+  // Additive within v2 (Story 9.1): `{}` when absent, which is every v1 backup and every v2 package
+  // written before this story. That default is the whole of "imports exactly as today".
+  documents: z.record(z.string().min(1), documentPoolSchema).optional().default({}),
   trip: tripImportSchema,
   days: z
     .array(tripDayImportSchema)
@@ -449,20 +549,35 @@ export const tripImportPayloadSchema = z.object({
   // silently wired to nothing - which is a 500 for a problem the payload states in plain sight.
 
   /**
-   * One planned file per *reference*, which is exactly what the repository goes on to write: the
-   * pool is deduplicated, the references into it are not. Counting here rather than in
-   * `validatePackagePhotos` is what puts the cap before the transaction - that function only sees
-   * the pool and the archive members, neither of which says how many times a photo is used.
+   * One planned file per *reference*, which is exactly what the repository goes on to write: a pool
+   * is deduplicated, the references into it are not. Counting here rather than in
+   * `validatePackageMedia` is what puts the cap before the transaction - that function only sees the
+   * pools and the archive members, neither of which says how many times a file is used.
+   *
+   * **Photos and documents share the counter** (Story 9.1), because they share the budget: what is
+   * bounded is files this request creates on disk, and that number does not care which pool a file
+   * came out of. Two counters would double the worst case while each still read as correct.
    */
-  let plannedPhotoWrites = 0;
+  let plannedMediaWrites = 0;
 
   const requirePooledPhoto = (photoId: string | null, path: (string | number)[]) => {
     if (photoId === null) return;
-    plannedPhotoWrites += 1;
+    plannedMediaWrites += 1;
     if (!Object.prototype.hasOwnProperty.call(input.photos, photoId)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: `Unknown photo reference: ${photoId}`,
+        path,
+      });
+    }
+  };
+
+  const requirePooledDocument = (documentId: string, path: (string | number)[]) => {
+    plannedMediaWrites += 1;
+    if (!Object.prototype.hasOwnProperty.call(input.documents, documentId)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Unknown document reference: ${documentId}`,
         path,
       });
     }
@@ -524,6 +639,16 @@ export const tripImportPayloadSchema = z.object({
     day.accommodation?.images.forEach((image, imageIndex) => {
       requirePooledPhoto(image.photoId, ["days", dayIndex, "accommodation", "images", imageIndex, "photoId"]);
     });
+    day.accommodation?.documents.forEach((document, documentIndex) => {
+      requirePooledDocument(document.documentId, [
+        "days",
+        dayIndex,
+        "accommodation",
+        "documents",
+        documentIndex,
+        "documentId",
+      ]);
+    });
     day.dayPlanItems.forEach((item, itemIndex) => {
       item.images.forEach((image, imageIndex) => {
         requirePooledPhoto(image.photoId, [
@@ -534,6 +659,17 @@ export const tripImportPayloadSchema = z.object({
           "images",
           imageIndex,
           "photoId",
+        ]);
+      });
+      item.documents.forEach((document, documentIndex) => {
+        requirePooledDocument(document.documentId, [
+          "days",
+          dayIndex,
+          "dayPlanItems",
+          itemIndex,
+          "documents",
+          documentIndex,
+          "documentId",
         ]);
       });
     });
@@ -667,10 +803,10 @@ export const tripImportPayloadSchema = z.object({
     });
   });
 
-  if (plannedPhotoWrites > MAX_IMPORT_PHOTO_WRITES) {
+  if (plannedMediaWrites > MAX_IMPORT_MEDIA_WRITES) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: `Backup plans ${plannedPhotoWrites} photo files, more than the ${MAX_IMPORT_PHOTO_WRITES} one import may write`,
+      message: `Backup plans ${plannedMediaWrites} media files, more than the ${MAX_IMPORT_MEDIA_WRITES} one import may write`,
       path: ["photos"],
     });
   }
@@ -728,6 +864,35 @@ export const countPhotoReferences = (payload: TripImportPayloadInput): Map<strin
     day.accommodation?.images.forEach((image) => record(image.photoId));
     for (const item of day.dayPlanItems) {
       item.images.forEach((image) => record(image.photoId));
+    }
+  }
+
+  return counts;
+};
+
+/**
+ * The same walk for the document pool (Story 9.1), and its own function rather than a second return
+ * value from the one above.
+ *
+ * The two pools are priced separately because they are sized separately - a document is measured
+ * against `MAX_IMPORT_DOCUMENT_BYTES` and a photo against `MAX_IMPORT_PHOTO_BYTES` - and only the
+ * *total* is shared. One map keyed by id across both pools would collide the moment an id spelling
+ * appeared in each.
+ *
+ * There is no document twin of `heroPhotoId` or `imagePhotoId`: a document only ever hangs off a
+ * stay or an activity, which is why this walk is two lines shorter than its sibling.
+ */
+export const countDocumentReferences = (payload: TripImportPayloadInput): Map<string, number> => {
+  const counts = new Map<string, number>();
+
+  const record = (documentId: string) => {
+    counts.set(documentId, (counts.get(documentId) ?? 0) + 1);
+  };
+
+  for (const day of payload.days) {
+    day.accommodation?.documents.forEach((document) => record(document.documentId));
+    for (const item of day.dayPlanItems) {
+      item.documents.forEach((document) => record(document.documentId));
     }
   }
 

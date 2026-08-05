@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   MAX_IMPORT_BUCKET_LIST_ITEMS,
   MAX_IMPORT_DAYS,
-  MAX_IMPORT_PHOTO_WRITES,
+  MAX_IMPORT_MEDIA_WRITES,
   MAX_IMPORT_SEGMENTS_PER_DAY,
   MAX_IMPORT_WARNINGS,
   MAX_SUPPORTED_FORMAT_VERSION,
@@ -672,7 +672,7 @@ describe("tripImportSchemas", () => {
     it("rejects a payload planning more photo files than one import may write", () => {
       // One pooled photo, thousands of gallery slots naming it: the archive stays tiny while the
       // planned write count does not. Every slot is a separate file on disk.
-      const images = Array.from({ length: MAX_IMPORT_PHOTO_WRITES + 1 }, (_, index) => ({
+      const images = Array.from({ length: MAX_IMPORT_MEDIA_WRITES + 1 }, (_, index) => ({
         sortOrder: index,
         photoId: "p1",
       }));
@@ -681,11 +681,11 @@ describe("tripImportSchemas", () => {
       );
 
       expect(result.success).toBe(false);
-      expect(JSON.stringify(result.error?.issues)).toContain("photo files");
+      expect(JSON.stringify(result.error?.issues)).toContain("media files");
     });
 
     it("accepts a payload sitting exactly on the planned-write cap", () => {
-      const images = Array.from({ length: MAX_IMPORT_PHOTO_WRITES - 2 }, (_, index) => ({
+      const images = Array.from({ length: MAX_IMPORT_MEDIA_WRITES - 2 }, (_, index) => ({
         sortOrder: index,
         photoId: "p1",
       }));
@@ -753,6 +753,163 @@ describe("tripImportSchemas", () => {
         positionText: null,
         location: null,
       });
+    });
+  });
+
+  /**
+   * Story 9.1's additions, and the two properties that outrank everything else in them: `documents`
+   * is optional with an empty default everywhere it appears, and `fileName` is judged strictly
+   * because it is a column value that gets rendered and, in Story 9.2, printed.
+   */
+  describe("v2 documents", () => {
+    const documentPool = { d1: { contentType: "application/pdf", archivePath: "documents/d1.pdf" } };
+
+    /** `v2Payload` with a document pool and one document on the day's stay. */
+    const withDocuments = (documents: unknown[], pool: Record<string, unknown> = documentPool) => ({
+      ...v2Payload,
+      documents: pool,
+      days: [{ ...v2Day, accommodation: { ...v2Day.accommodation, documents } }],
+    });
+
+    it("defaults documents to empty everywhere, so a payload that never heard of them parses", () => {
+      // The invariant in one test: `v2Payload` is a pre-9.1 manifest verbatim - no `documents` key at
+      // the root, none on the stay, none on the plan item - and it must parse into the same shape a
+      // documents-carrying payload does, with `[]` and `{}` rather than `undefined`.
+      const result = tripImportPayloadSchema.safeParse(v2Payload);
+
+      expect(result.success).toBe(true);
+      expect(result.data?.documents).toEqual({});
+      expect(result.data?.days[0].accommodation?.documents).toEqual([]);
+      expect(result.data?.days[0].dayPlanItems[0].documents).toEqual([]);
+    });
+
+    it("accepts a document on a stay and on an activity", () => {
+      const result = tripImportPayloadSchema.safeParse({
+        ...v2Payload,
+        documents: {
+          d1: { contentType: "application/pdf", archivePath: "documents/d1.pdf" },
+          d2: { contentType: "image/jpeg", archivePath: "documents/d2.jpg" },
+        },
+        days: [
+          {
+            ...v2Day,
+            accommodation: {
+              ...v2Day.accommodation,
+              documents: [{ sortOrder: 0, documentId: "d1", fileName: "Ticket Rom.pdf" }],
+            },
+            dayPlanItems: [
+              {
+                ...v2Day.dayPlanItems[0],
+                documents: [{ sortOrder: 0, documentId: "d2", fileName: "Museumskarte.jpg" }],
+              },
+            ],
+          },
+        ],
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.data?.days[0].accommodation?.documents[0].fileName).toBe("Ticket Rom.pdf");
+      expect(result.data?.days[0].dayPlanItems[0].documents[0].fileName).toBe("Museumskarte.jpg");
+    });
+
+    it("rejects a documentId that names nothing in the pool", () => {
+      const result = tripImportPayloadSchema.safeParse(
+        withDocuments([{ sortOrder: 0, documentId: "d9", fileName: "Ticket.pdf" }]),
+      );
+
+      expect(result.success).toBe(false);
+      expect(JSON.stringify(result.error?.issues)).toContain("Unknown document reference: d9");
+    });
+
+    it("rejects two documents on one owner sharing a sortOrder", () => {
+      // `@@unique([accommodationId, sortOrder])` would otherwise surface as a P2002 halfway through
+      // the import transaction - a 500 for something the payload states plainly.
+      const result = tripImportPayloadSchema.safeParse(
+        withDocuments([
+          { sortOrder: 0, documentId: "d1", fileName: "First.pdf" },
+          { sortOrder: 0, documentId: "d1", fileName: "Second.pdf" },
+        ]),
+      );
+
+      expect(result.success).toBe(false);
+      expect(JSON.stringify(result.error?.issues)).toContain("Duplicate document sortOrder");
+    });
+
+    it("allows two documents on one owner sharing a fileName, which nothing forbids", () => {
+      // The unique index is on `sortOrder`, not on the name: two tickets called `Ticket.pdf` on one
+      // stay is an ordinary thing to have, and refusing it here would refuse a restorable backup.
+      const result = tripImportPayloadSchema.safeParse(
+        withDocuments([
+          { sortOrder: 0, documentId: "d1", fileName: "Ticket.pdf" },
+          { sortOrder: 1, documentId: "d1", fileName: "Ticket.pdf" },
+        ]),
+      );
+
+      expect(result.success).toBe(true);
+    });
+
+    it("accepts a fileName at both ends of its length range", () => {
+      const oneCharacter = "a";
+      const exactly255 = `${"b".repeat(251)}.pdf`;
+      expect(exactly255).toHaveLength(255);
+
+      for (const fileName of [oneCharacter, exactly255]) {
+        const result = tripImportPayloadSchema.safeParse(
+          withDocuments([{ sortOrder: 0, documentId: "d1", fileName }]),
+        );
+        expect(result.success).toBe(true);
+        expect(result.data?.days[0].accommodation?.documents[0].fileName).toBe(fileName);
+      }
+    });
+
+    it("refuses a fileName that is empty, over-length, a path or full of control characters", () => {
+      const refused: [string, string][] = [
+        ["empty", ""],
+        ["whitespace only", "   "],
+        ["256 characters", "c".repeat(256)],
+        ["forward slash", "../../etc/passwd"],
+        ["backslash", "C:\\Users\\tommy\\ticket.pdf"],
+        ["a bare dot", "."],
+        ["a parent reference", ".."],
+        ["a control character", "Ticket\u0000Rom.pdf"],
+        ["a newline", "Ticket\nRom.pdf"],
+      ];
+
+      for (const [label, fileName] of refused) {
+        const result = tripImportPayloadSchema.safeParse(
+          withDocuments([{ sortOrder: 0, documentId: "d1", fileName }]),
+        );
+        expect(result.success, `${label} should be refused`).toBe(false);
+      }
+    });
+
+    it("counts document references against the same write cap photos use", () => {
+      // One disk budget, not two: the cap is on files this request creates, and it does not care
+      // which pool a file came out of. Two documents short of the cap, plus the hero and day image
+      // this fixture already carries, sits exactly on it - and one more is over.
+      const documents = (count: number) =>
+        Array.from({ length: count }, (_, index) => ({
+          sortOrder: index,
+          documentId: "d1",
+          fileName: `Ticket ${index}.pdf`,
+        }));
+      const payload = (count: number) => ({
+        ...v2Payload,
+        documents: documentPool,
+        days: [
+          {
+            ...v2Day,
+            accommodation: { ...v2Day.accommodation, images: [], documents: documents(count) },
+            dayPlanItems: [{ ...v2Day.dayPlanItems[0], images: [] }],
+          },
+        ],
+      });
+
+      expect(tripImportPayloadSchema.safeParse(payload(MAX_IMPORT_MEDIA_WRITES - 2)).success).toBe(true);
+
+      const over = tripImportPayloadSchema.safeParse(payload(MAX_IMPORT_MEDIA_WRITES - 1));
+      expect(over.success).toBe(false);
+      expect(JSON.stringify(over.error?.issues)).toContain("media files");
     });
   });
 

@@ -284,7 +284,7 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
     return notFound();
   }
 
-  // Three containment layers, mirroring `resolveOwnedPhotoPath` in `tripRepo.ts` layer for layer -
+  // Three containment layers, mirroring `resolveOwnedMediaPath` in `tripRepo.ts` layer for layer -
   // including *which root* it contains against, which is the trip's own directory and not the
   // uploads root. That distinction is the whole point: authorisation above is per-trip, so
   // containment must be per-trip too or the two scopes disagree. Rooted at `uploads/`, a path that
