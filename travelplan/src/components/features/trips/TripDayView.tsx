@@ -89,33 +89,47 @@ const EDIT_LABEL_MAX_CHARS = 80;
  * The width at which the `doc-chip` group is allowed to sit beside the photo strip on a `tl-card`'s
  * media row (DESIGN.md `:260-264`, AC4).
  *
- * ⚠️ **PROVISIONAL — this number has not been measured in a browser yet.** It is arithmetic, and the
- * story says in as many words that arithmetic is not good enough for it: `STAY_PANEL_MIN_HEIGHT` in
- * `TripAccommodationDialog.tsx` is the precedent, and Story 6.26's browser pass found its arithmetic
- * wrong twice over before it shipped as a measured 400. Assume this one is wrong too until the
- * measurement pass has run. **That pass owns this constant and this comment**: it corrects the value
- * against what the browser reports and replaces the paragraph below with a table of the form
+ * **Measured** in headless Chrome 151 against a production build, on `tl-card`s carrying three photos
+ * and one, two, three and five documents (Story 9.1 Task 11). The photo strip is 180.00px at every
+ * width measured — three 56px thumbnails plus two 6px gaps — so the epic's arithmetic was right about
+ * the strip and wrong about the rest.
  *
- *   | viewport | card content width | photo strip | chips that fit | wraps? |
- *   |----------|--------------------|-------------|----------------|--------|
- *   | 390×844  |                    |             |                |        |
- *   | desktop  |                    |             |                |        |
+ * | viewport  | card content width | photo strip | space beside strip | chips that fit | wraps? |
+ * |-----------|--------------------|-------------|--------------------|----------------|--------|
+ * | 390×844   | 290.00             | 180.00      | 104.00             | 0              | always, as a group |
+ * | 900×900   | 430.00             | 180.00      | 244.00             | 2 (up to 244px of group) | only when the group is wider |
+ * | 1280×900  | 619.33             | 180.00      | 433.33             | 2–3 (up to 433px of group) | only when the group is wider |
  *
- * Where 200 comes from, so the pass knows what it is correcting: the epic's own figures put the photo
- * strip at ≈180px (three 56px thumbnails plus two 6px gaps = 180px exactly) against ≈150px of row
- * left over at 390px, and AC4 requires room for **two** chips or none. A chip is 20px of horizontal
- * padding plus a 14px glyph plus a 6px gap plus its label, so two of them with even short labels clear
- * 150px comfortably and do not clear it at all with long ones. 200 is the round number just above the
- * point where two ellipsised chips stop being legible; it is a guess at where that lands, not a
- * reading of it.
+ * 900px is in the table because it is the *tightest* desktop case, not a typo: the `md` two-column
+ * layout starts there and the content column is narrower at 900 (430px) than at 880 (764px). Content
+ * width by viewport, measured: 360→260, 390→290, 600→484, 768→652, 880→764, 900→430, 1024→509,
+ * 1280→619.33, 1440→619.33 (capped).
  *
- * How it works, because the mechanism is the reason a single number suffices: the media row is a
- * wrapping flex container and this is the chip group's `minWidth`. Flexbox therefore moves the **whole
- * group** below the strip the moment the leftover space drops under it — never a chip at a time, which
- * is the truncation AC4 and DESIGN.md `:262` both reject. No `ResizeObserver`, no breakpoint, and one
- * value for the measurement pass to correct.
+ * Chip widths, measured, with real names: 63.81px (`Drei`) up to **200.00px**, which is the ceiling —
+ * 10px padding + 14px glyph + 6px gap + the token's 160px label cap + 10px padding. Two chips plus the
+ * 6px gap therefore measured 137.96 (`Eins`+`Zwei`), 206.30 (`Bootsfahrt`+`Rechnung`), 208.61
+ * (`Hotelvoucher`+`Anfahrt`), 314.97, and 406.00 for two chips both at the label cap.
+ *
+ * **Why 210 and not the shipped 200.** 200 is *exactly one* maximum-width chip. It can never hold two
+ * of anything, so as a stand-in for AC4's "room for at least two" it was off by a chip. 210 clears the
+ * widest ordinary two-chip group measured (208.61) and stays under the 244px that the narrowest
+ * desktop leaves beside the strip — the upper bound that matters, because a larger value would push
+ * the group below the photos at 900–1024px where two real chips demonstrably fit and DESIGN.md `:260`
+ * wants them beside. Guaranteeing two chips *both* at the 160px label cap would need 406, which
+ * exceeds that 244px ceiling; it is not reachable and is not what the token asks for.
+ *
+ * **What this constant actually does, corrected against the browser.** The old note claimed it is the
+ * wrap threshold. It is the *floor* of one. Flex line-breaking uses each item's hypothetical main size
+ * — its content width, clamped by `min-width` — so above this value the group's own natural width is
+ * what decides, and below it this value stands in. Both halves were observed: at 600px (298px beside
+ * the strip) a 208.61px group sat beside the strip while a 419.05px group on the same page wrapped,
+ * though both carry the same `minWidth`; at 390px (104px beside the strip) even a lone 75.95px chip
+ * wrapped below, which only this `minWidth` can cause. Either way flexbox moves the **whole group**,
+ * never a chip at a time — the truncation AC4 and DESIGN.md `:262` both reject. Confirmed at 360, 390,
+ * 600, 768, 880, 900, 910, 960, 1024, 1280 and 1440: no chip is ever dropped, the group is never
+ * reduced to one, and the page never scrolls horizontally. No `ResizeObserver` and no breakpoint.
  */
-const DOC_ROW_MIN_WIDTH = 200;
+const DOC_ROW_MIN_WIDTH = 210;
 
 /**
  * How many `doc-chip`s a `tl-card` renders before the `+N` control takes over.
@@ -1938,9 +1952,12 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
               // `space-between` has free space to push it right with; a growing group would fill the
               // line and pin itself to the left of it.
               flex: "0 1 auto",
-              // The wrap threshold, and the only width decision in this row. Below it there is no
-              // room for two chips, so flexbox moves the **whole group** to the next line rather than
-              // shrinking it to one — the truncation DESIGN.md `:262` and AC4 both reject.
+              // The floor of the wrap threshold, and the only width decision in this row. Flex line
+              // breaking reads each item's content width clamped by `min-width`, so a group naturally
+              // wider than this wraps on its own width and a narrower one wraps on this — and either
+              // way flexbox moves the **whole group** to the next line rather than shrinking it to
+              // one, the truncation DESIGN.md `:262` and AC4 both reject. Measured; see the
+              // constant's table.
               minWidth: DOC_ROW_MIN_WIDTH,
               // Matches `MiniImageStrip`'s own `mt`, so the two children's margin boxes centre on the
               // same line beside each other and the wrapped group still clears the photos beneath.
