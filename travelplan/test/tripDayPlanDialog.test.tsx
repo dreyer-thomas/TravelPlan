@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Providers } from "./helpers/renderWithProviders";
+import { DOCUMENT_UPLOAD_ACCEPT } from "@/lib/trips/documentUploads";
 import * as React from "react";
 import type { ChangeEvent, ReactNode } from "react";
 
@@ -397,6 +398,40 @@ const selectTab = (tab: TabKey, language: keyof typeof TAB_LABELS = "en") => {
   const control = screen.getByRole("tab", { name: (name: string) => name.startsWith(label) });
   fireEvent.click(control);
   return control;
+};
+
+/**
+ * The file input of one of the media tab's two upload fields, chosen by what the field accepts.
+ *
+ * Story 9.1 put a document field below the photo field on this tab, so `input[type="file"]` is no
+ * longer a unique selector and `Upload` is no longer a unique accessible name — `trips.gallery.
+ * uploadAction` and `trips.documents.uploadAction` are separate keys whose English coincides, which
+ * `en.ts` says in as many words. The `accept` attribute is what actually distinguishes the two
+ * fields, so it is what these helpers select on: an index into the panel would keep passing if the
+ * two fields swapped, which is the failure the story's "a file placed in one bucket never appears in
+ * the other" is about.
+ */
+const mediaFileInput = (container: HTMLElement, kind: "photos" | "documents") => {
+  const selector =
+    kind === "documents"
+      ? 'input[type="file"][accept*="application/pdf"]'
+      : 'input[type="file"]:not([accept*="application/pdf"])';
+  const input = container.querySelector(selector) as HTMLInputElement | null;
+  if (!input) throw new Error(`No ${kind} file input on the media tab`);
+  return input;
+};
+
+/**
+ * The `Upload` button belonging to one of the two fields, scoped to that field's own subtree.
+ *
+ * `PhotoUploadField` and `DocumentUploadField` share a shape — a root element holding the caps label,
+ * the dropzone (which is the input's parent) and the action — so the input's grandparent is the field
+ * root, and `within` it there is exactly one `Upload`.
+ */
+const mediaUploadButton = (container: HTMLElement, kind: "photos" | "documents") => {
+  const root = mediaFileInput(container, kind).parentElement?.parentElement;
+  if (!root) throw new Error(`No field root around the ${kind} file input`);
+  return within(root).getByRole("button", { name: "Upload" });
 };
 
 /**
@@ -1107,7 +1142,7 @@ describe("TripDayPlanDialog", () => {
 
     expect(screen.getByText("2 file(s) selected")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Upload" }));
+    fireEvent.click(mediaUploadButton(container, "photos"));
 
     await waitFor(() => {
       const uploadCalls = fetchMock.mock.calls.filter(
@@ -1207,7 +1242,7 @@ describe("TripDayPlanDialog", () => {
     selectTab("media");
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
     fireEvent.change(fileInput, { target: { files: [new File(["first"], "first.webp", { type: "image/webp" })] } });
-    fireEvent.click(screen.getByRole("button", { name: "Upload" }));
+    fireEvent.click(mediaUploadButton(container, "photos"));
 
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
@@ -1312,7 +1347,7 @@ describe("TripDayPlanDialog", () => {
     const fileOne = new File(["first"], "first.webp", { type: "image/webp" });
     const fileTwo = new File(["second"], "second.webp", { type: "image/webp" });
     fireEvent.change(fileInput, { target: { files: [fileOne, fileTwo] } });
-    fireEvent.click(screen.getByRole("button", { name: "Upload" }));
+    fireEvent.click(mediaUploadButton(container, "photos"));
 
     await waitFor(() => expect(screen.getByText("Plan item update failed. Please try again.")).toBeInTheDocument());
     // Pinned on the indexed alt, not on a bare <img> count: the failed upload must leave the one
@@ -2560,6 +2595,231 @@ describe("TripDayPlanDialog", () => {
       const merged = JSON.parse(footer?.getAttribute("data-sx") ?? "null") as unknown[];
       expect(Array.isArray(merged)).toBe(true);
       expect(merged.at(-1)).toEqual(PLAN_FOOTER_SX);
+    });
+  });
+
+  /**
+   * Story 9.1 — the document field on this dialog's `Medien & Links` tab.
+   *
+   * **Read these with DW-53 in hand.** This file mocks `@mui/material` wholesale and that mock has
+   * drifted from real MUI, so a case passing here does not by itself prove the rendered component
+   * behaves the same way. What is proven *here* is this dialog's own wiring — that the picker feeds
+   * `documentFiles` and not `galleryFiles`, that the fingerprint counts a staged document, that the
+   * open effect clears it, and that add mode explains the absence — none of which is MUI's to get
+   * right. The presentational half (the two `<label for>` pairings, the accept list arriving on the
+   * input, the hint reaching `aria-describedby`, a disabled `Button` actually rendering disabled) is
+   * proven against real MUI in `tripAccommodationDialog.test.tsx`, whose document field is built from
+   * the same two components with the same props.
+   */
+  describe("Story 9.1 — documents on the media tab", () => {
+    const savedItem = {
+      id: "item-1",
+      tripDayId: "day-1",
+      title: "Old Town walk",
+      fromTime: "10:00",
+      toTime: "11:00",
+      contentJson: tiptapMocks.sampleDoc,
+      costCents: null,
+      linkUrl: null,
+      location: null,
+      createdAt: "2026-12-01T09:00:00.000Z",
+    };
+
+    /**
+     * Routed by URL, not by call order: the gallery and document reads share one effect and are not
+     * awaited in sequence, so a positional mock would answer the wrong one the day their timing
+     * changes.
+     */
+    const mediaFetch = () =>
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/api/auth/csrf")) {
+          return { ok: true, status: 200, json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }) };
+        }
+        if (url.includes("/day-plan-items/documents")) {
+          return { ok: true, status: 200, json: async () => ({ data: { documents: [] }, error: null }) };
+        }
+        return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
+      }) as unknown as typeof fetch;
+
+    const renderPlan = async ({
+      mode = "edit" as "add" | "edit",
+      onClose = () => undefined,
+    } = {}) => {
+      const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
+      const fetchMock = mediaFetch();
+      vi.stubGlobal("fetch", fetchMock);
+
+      const view = render(
+        <Providers language="en">
+          <TripDayPlanDialog
+            open
+            mode={mode}
+            tripId="trip-1"
+            day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
+            item={mode === "edit" ? savedItem : null}
+            onClose={onClose}
+            onSaved={() => undefined}
+          />
+        </Providers>,
+      );
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      return { view, TripDayPlanDialog };
+    };
+
+    const documentInput = (container: HTMLElement) => mediaFileInput(container, "documents");
+    const pdf = (name = "Ticket Rom.pdf") => new File(["%PDF-1.4"], name, { type: "application/pdf" });
+
+    /**
+     * AC2. Two fields, two labels, two accept lists — and the `for`/`id` pairing that makes each label
+     * the name of its own input rather than of the other's.
+     *
+     * Reusing `trips.gallery.title` for the document field leaves both labels reading "Image gallery",
+     * which fails the inequality below; the accept assertion is what stops a hand-rolled filter, and
+     * `documentUploadAccept.test.ts` scans the component tree for the literal separately.
+     */
+    it("puts a document field beside the photo field, under a visibly different label", async () => {
+      const { view } = await renderPlan();
+      selectTab("media");
+
+      const photos = mediaFileInput(view.container, "photos");
+      const documents = documentInput(view.container);
+      expect(photos).not.toBe(documents);
+
+      const labelFor = (input: HTMLInputElement) =>
+        view.container.querySelector(`label[for="${input.id}"]`)?.textContent ?? null;
+      expect(labelFor(photos)).toBe("Image gallery");
+      expect(labelFor(documents)).toBe("Documents");
+      expect(labelFor(documents)).not.toBe(labelFor(photos));
+      expect(documents.getAttribute("accept")).toBe(DOCUMENT_UPLOAD_ACCEPT);
+    });
+
+    /**
+     * Story 6.26 AC4 for the new field. Two-sided: "1 file(s) selected" appearing proves only that
+     * *something* is staged — `trips.documents.selectedFiles` and `trips.gallery.selectedFiles` are
+     * separate keys whose English coincides — so the two `Upload` buttons are what say which bucket
+     * took the PDF. Wiring the picker to `setGalleryFiles` passes the first assertion and fails the
+     * other two.
+     */
+    it("keeps a staged document across a tab round trip, and puts it in the document bucket", async () => {
+      const { view } = await renderPlan();
+      selectTab("media");
+
+      fireEvent.change(documentInput(view.container), { target: { files: [pdf()] } });
+
+      expect(await screen.findByText("1 file(s) selected")).toBeInTheDocument();
+      expect(screen.getAllByText("1 file(s) selected")).toHaveLength(1);
+      expect(mediaUploadButton(view.container, "documents")).toBeEnabled();
+      expect(mediaUploadButton(view.container, "photos")).toBeDisabled();
+
+      selectTab("what");
+      selectTab("media");
+
+      expect(screen.getByText("1 file(s) selected")).toBeInTheDocument();
+      expect(mediaUploadButton(view.container, "documents")).toBeEnabled();
+      expect(mediaUploadButton(view.container, "photos")).toBeDisabled();
+    });
+
+    /**
+     * AC7 / Story 6.24. `pendingDocumentCount` is a term of `planFormFingerprint`, so a staged
+     * document moves the form away from the baseline the open effect took.
+     */
+    it("asks to discard a staged document exactly once", async () => {
+      const onClose = vi.fn();
+      const { view } = await renderPlan({ onClose });
+      selectTab("media");
+
+      fireEvent.change(documentInput(view.container), { target: { files: [pdf()] } });
+      await screen.findByText("1 file(s) selected");
+
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+      expect(screen.getByText("Discard changes?")).toBeInTheDocument();
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.getAllByRole("button", { name: "Discard changes" })).toHaveLength(1);
+    });
+
+    /**
+     * The negative, on the case above's fixture with the `fireEvent.change` removed and nothing else.
+     * Seeding `pendingDocumentCount` anywhere but at 0 — or leaving it out of the open effect's seed
+     * while adding it to `currentFingerprint` — makes an untouched dialog dirty on arrival, and this
+     * is the only case that can see it.
+     */
+    it("does not ask when nothing was staged", async () => {
+      const onClose = vi.fn();
+      const { view } = await renderPlan({ onClose });
+      selectTab("media");
+
+      expect(documentInput(view.container)).toBeTruthy();
+      expect(screen.getByText("No documents yet.")).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+      expect(onClose).toHaveBeenCalledTimes(1);
+      expect(screen.queryByText("Discard changes?")).toBeNull();
+    });
+
+    /**
+     * AC7's reopen half. Without the open effect's `setDocumentFiles([])` a discarded staged document
+     * comes back selected on the next open, holding the fingerprint away from its baseline for the
+     * rest of the session — this dialog is never unmounted.
+     */
+    it("forgets a document that was staged and then discarded", async () => {
+      const onClose = vi.fn();
+      const { view, TripDayPlanDialog } = await renderPlan({ onClose });
+      selectTab("media");
+
+      fireEvent.change(documentInput(view.container), { target: { files: [pdf()] } });
+      await screen.findByText("1 file(s) selected");
+
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+      fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
+      expect(onClose).toHaveBeenCalledTimes(1);
+
+      const props = {
+        mode: "edit" as const,
+        tripId: "trip-1",
+        day: { id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 },
+        item: savedItem,
+        onClose,
+        onSaved: () => undefined,
+      };
+      view.rerender(
+        <Providers language="en">
+          <TripDayPlanDialog open={false} {...props} />
+        </Providers>,
+      );
+      view.rerender(
+        <Providers language="en">
+          <TripDayPlanDialog open {...props} />
+        </Providers>,
+      );
+
+      selectTab("media");
+      expect(screen.queryByText("1 file(s) selected")).toBeNull();
+      expect(mediaUploadButton(view.container, "documents")).toBeDisabled();
+
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+      expect(screen.queryByText("Discard changes?")).toBeNull();
+      expect(onClose).toHaveBeenCalledTimes(2);
+    });
+
+    /**
+     * Add mode. The field is gated on `editingItemId` the way the gallery is, so the tab has to say
+     * why it is absent — and say it about documents, not only about photos. Both negatives are
+     * asserted, because "the field is missing" is satisfied just as well by a broken render.
+     */
+    it("explains the absent document field while adding an activity", async () => {
+      const { view } = await renderPlan({ mode: "add" });
+      selectTab("media");
+
+      expect(screen.getByText("You can add photos once this plan item is saved.")).toBeInTheDocument();
+      expect(screen.getByText("You can add documents once this plan item is saved.")).toBeInTheDocument();
+      expect(screen.queryByText("Documents")).toBeNull();
+      expect(view.container.querySelector('input[type="file"][accept*="application/pdf"]')).toBeNull();
+      // The link is still there, so the tab is not empty — which is why the link lives on it.
+      expect(screen.getByLabelText("Link")).toBeInTheDocument();
     });
   });
 });

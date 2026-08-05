@@ -23,6 +23,7 @@ import {
   Typography,
 } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
+import DocumentUploadField from "@/components/forms/DocumentUploadField";
 import FormField from "@/components/forms/FormField";
 import FormNotice from "@/components/forms/FormNotice";
 import PhotoUploadField from "@/components/forms/PhotoUploadField";
@@ -37,6 +38,11 @@ import Link from "@tiptap/extension-link";
 import { Node } from "@tiptap/core";
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
+import {
+  DOCUMENT_UPLOAD_ACCEPT,
+  MAX_DOCUMENTS_PER_ENTRY,
+  isSupportedDocumentUpload,
+} from "@/lib/trips/documentUploads";
 import { IMAGE_UPLOAD_ACCEPT, isSupportedImageUpload } from "@/lib/trips/imageUploads";
 
 declare module "@tiptap/core" {
@@ -75,6 +81,20 @@ type DayPlanItem = {
 type GalleryImage = {
   id: string;
   imageUrl: string;
+  sortOrder: number;
+};
+
+/**
+ * A row of `day_plan_item_documents` (Story 9.1), declared locally the way `GalleryImage` above is —
+ * four components each keep their own copy of the gallery row shape, and the document rows follow
+ * that convention rather than introducing a shared type and refactoring the files around it.
+ *
+ * `fileName` is the stored column, extension and all; `DocChip` strips the extension for display.
+ */
+type PlanDocument = {
+  id: string;
+  documentUrl: string;
+  fileName: string;
   sortOrder: number;
 };
 
@@ -485,6 +505,23 @@ type PlanFormValues = {
    * they are not what a discard discards.
    */
   pendingPhotoCount: number;
+  /**
+   * Documents picked but not yet uploaded (Story 9.1 AC7). The same split, one field down: a staged
+   * document is unsaved input in exactly the way a staged photo is, and `uploadDocuments` runs from
+   * the Media tab's own Upload button and from nowhere else — `handleSave` never touches
+   * `documentFiles`, so the `✕` genuinely loses them.
+   *
+   * Documents *already* on the server are not here, for the same reason images are not: adding and
+   * removing those are immediate writes, and a discard would not undo them.
+   *
+   * DW-153 applies here unchanged — pressing `OK` discards staged documents as silently as it
+   * discards staged photos. That is the pre-existing behaviour of a save on this dialog, not
+   * something this field introduces.
+   *
+   * **A count, never the array.** See `currentFingerprint`: a `File[]` rebuilt by the picker has a
+   * new identity on every render and the discard question turns on how many are staged.
+   */
+  pendingDocumentCount: number;
 };
 
 /**
@@ -521,6 +558,7 @@ const planFormFingerprint = (values: PlanFormValues) =>
     values.location ? [values.location.lat, values.location.lng, values.location.label ?? null] : null,
     values.contentJson,
     values.pendingPhotoCount,
+    values.pendingDocumentCount,
   ]);
 
 const buildDefaultPayments = ({
@@ -609,6 +647,13 @@ export default function TripDayPlanDialog({
   const [galleryImages, setGalleryImages] = useState<GalleryImage[]>([]);
   const [galleryFiles, setGalleryFiles] = useState<File[]>([]);
   const [galleryBusy, setGalleryBusy] = useState(false);
+  // Story 9.1. The document half of the `Medien & Links` tab, in the gallery's three states: rows on
+  // the server, files staged in the picker, and an in-flight flag. Separate states from the
+  // gallery's, because AC2's "a file placed in one bucket never appears in the other" is first of all
+  // a statement about these variables.
+  const [documents, setDocuments] = useState<PlanDocument[]>([]);
+  const [documentFiles, setDocumentFiles] = useState<File[]>([]);
+  const [documentBusy, setDocumentBusy] = useState(false);
   // The index into `galleryPreviews`, not a URL — the shared viewer pages through the collection.
   const [fullscreenIndex, setFullscreenIndex] = useState<number | null>(null);
   const deleteTouchGuard = useRef(false);
@@ -617,6 +662,17 @@ export default function TripDayPlanDialog({
   const sortedGalleryImages = useMemo(
     () => galleryImages.slice().sort((left, right) => left.sortOrder - right.sortOrder),
     [galleryImages],
+  );
+
+  /**
+   * Insertion order, which for documents is the only order there is — Story 9.1 adds no reorder
+   * control, so `sortOrder` only ever counts up. Sorted anyway for the reason the gallery is: the
+   * list is appended to locally after each upload and re-read wholesale on the next open, and the two
+   * must agree about what "first" means.
+   */
+  const sortedDocuments = useMemo(
+    () => documents.slice().sort((left, right) => left.sortOrder - right.sortOrder),
+    [documents],
   );
 
   // Built once and handed to both the strip and the viewer, so the alt a thumbnail announces is the
@@ -782,6 +838,11 @@ export default function TripDayPlanDialog({
     // finished on is not a state the next activity's dialog should inherit.
     setActiveTab("what");
     setGalleryFiles([]);
+    // Story 9.1, and the same hazard the line above answers: `documentFiles` is otherwise cleared
+    // only by a successful upload, and this dialog is never unmounted — so a document staged and then
+    // discarded would come back selected on the next open, and `pendingDocumentCount` would hold the
+    // fingerprint away from its baseline for the rest of the session.
+    setDocumentFiles([]);
     setFullscreenIndex(null);
     // Same reasoning as `activeTab`: a target day chosen for the *previous* activity is not a state
     // the next one's dialog should inherit.
@@ -810,6 +871,7 @@ export default function TripDayPlanDialog({
         location: item.location ?? null,
         contentJson: item.contentJson,
         pendingPhotoCount: 0,
+        pendingDocumentCount: 0,
       };
       locationQuerySeed = item.location?.label ?? "";
       // The two payment effects below would otherwise rewrite the rows this seed just restored.
@@ -827,6 +889,7 @@ export default function TripDayPlanDialog({
         location: prefill.location ?? null,
         contentJson: prefill.contentJson,
         pendingPhotoCount: 0,
+        pendingDocumentCount: 0,
       };
       locationQuerySeed = prefill.location?.label ?? "";
     } else {
@@ -841,6 +904,7 @@ export default function TripDayPlanDialog({
         location: null,
         contentJson: toDocString(emptyDoc),
         pendingPhotoCount: 0,
+        pendingDocumentCount: 0,
       };
       locationQuerySeed = "";
     }
@@ -888,9 +952,20 @@ export default function TripDayPlanDialog({
     };
   }, [day, open, t]);
 
+  /**
+   * What is already attached to this activity: the photo gallery, and — since Story 9.1 — the
+   * documents.
+   *
+   * **One effect, two independent loaders.** They share a trigger (the dialog opening on a *saved*
+   * activity), a dependency list and a cancellation flag, so splitting them would be two copies of
+   * one lifecycle. What must stay separate is failure: each loader owns its `try`/`catch` and writes
+   * only its own state, so a documents call that 500s does not empty the photo strip, and the
+   * reverse. They are not awaited in sequence either — a slow gallery must not hold the chips back.
+   */
   useEffect(() => {
     if (!open || !day || !editingItemId) {
       setGalleryImages([]);
+      setDocuments([]);
       return;
     }
     let active = true;
@@ -917,7 +992,30 @@ export default function TripDayPlanDialog({
       }
     };
 
+    const loadDocuments = async () => {
+      try {
+        const response = await fetch(
+          `/api/trips/${tripId}/day-plan-items/documents?tripDayId=${day.id}&dayPlanItemId=${editingItemId}`,
+          {
+            method: "GET",
+            credentials: "include",
+            cache: "no-store",
+          },
+        );
+        const body = (await response.json()) as ApiEnvelope<{ documents: PlanDocument[] }>;
+        if (!active) return;
+        if (!response.ok || body.error || !Array.isArray(body.data?.documents)) {
+          setDocuments([]);
+          return;
+        }
+        setDocuments(body.data.documents);
+      } catch {
+        if (active) setDocuments([]);
+      }
+    };
+
     void loadGallery();
+    void loadDocuments();
     return () => {
       active = false;
     };
@@ -1229,6 +1327,12 @@ export default function TripDayPlanDialog({
    *
    * `galleryFiles.length` rather than `galleryFiles`: the array identity changes on every render of
    * the upload field, the count is what the discard question actually turns on.
+   *
+   * `documentFiles.length` is here on the same terms and for the same reason (Story 9.1). Both the
+   * object field *and* the dependency below take the count: a `File[]` dependency would recompute
+   * this memo on every render — which is not itself wrong, since `planFormFingerprint` serialises the
+   * count either way — but it makes the memo a lie about what it depends on, and the next reader has
+   * to re-derive that the two spellings happen to agree.
    */
   const currentFingerprint = useMemo(
     () =>
@@ -1243,10 +1347,12 @@ export default function TripDayPlanDialog({
         location: resolvedLocation,
         contentJson,
         pendingPhotoCount: galleryFiles.length,
+        pendingDocumentCount: documentFiles.length,
       }),
     [
       contentJson,
       costCentsInput,
+      documentFiles.length,
       fromTimeInput,
       galleryFiles.length,
       linkUrl,
@@ -1520,6 +1626,121 @@ export default function TripDayPlanDialog({
       setServerError(t("trips.plan.saveError"));
     } finally {
       setGalleryBusy(false);
+    }
+  };
+
+  /**
+   * Story 9.1, the document twin of `uploadGalleryImages`: the same two-step flow (pick, then press
+   * Upload), the same `ensureCsrfToken` handshake, the same one-request-per-file loop that commits
+   * each success as it lands and leaves the unsent tail staged.
+   *
+   * Two deliberate differences from the pair above.
+   *
+   * The client-side pre-check is `isSupportedDocumentUpload` and it reports
+   * `trips.documents.unsupportedFormat`, never `trips.image.unsupportedFormat` — naming photo formats
+   * at a field that also takes PDF would tell the user the opposite of the truth, and the two filters
+   * staying separate is half of what keeps a file out of the bucket it was not placed in.
+   *
+   * The **10-per-entry cap is the server's**. The Upload action is disabled at the cap in the panel
+   * below, but that is a convenience: the repository counts the rows and the route answers 400 with
+   * its own message, which is the branch mapped here. A cap the client alone enforces is not a cap.
+   */
+  const uploadDocuments = async () => {
+    if (!day || !editingItemId || documentFiles.length === 0) return;
+
+    const unsupported = documentFiles.find((file) => !isSupportedDocumentUpload(file));
+    if (unsupported) {
+      setServerError(t("trips.documents.unsupportedFormat"));
+      return;
+    }
+
+    let token: string;
+    try {
+      token = await ensureCsrfToken();
+    } catch {
+      setServerError(t("errors.csrfMissing"));
+      return;
+    }
+
+    setDocumentBusy(true);
+    setServerError(null);
+    try {
+      let failedAtIndex = -1;
+      for (const [index, file] of documentFiles.entries()) {
+        const formData = new FormData();
+        formData.set("tripDayId", day.id);
+        formData.set("dayPlanItemId", editingItemId);
+        formData.set("file", file);
+        const response = await fetch(`/api/trips/${tripId}/day-plan-items/documents`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "x-csrf-token": token },
+          body: formData,
+        });
+        const body = (await response.json()) as ApiEnvelope<{ document: PlanDocument }>;
+        if (!response.ok || body.error || !body.data?.document) {
+          failedAtIndex = index;
+          // Matched on the route's own literal because `validation_error` is also what a rejected
+          // type, an oversized file and an unusable name come back as — the code alone cannot say
+          // which of the four happened, and the cap is the one of them the user can act on without
+          // being told anything further.
+          setServerError(
+            body.error?.message === "Document limit reached"
+              ? t("trips.documents.limitReached")
+              : t("trips.documents.uploadError"),
+          );
+          break;
+        }
+        const uploadedDocument = body.data.document;
+        setDocuments((current) => [...current, uploadedDocument]);
+      }
+
+      setDocumentFiles(failedAtIndex === -1 ? [] : documentFiles.slice(failedAtIndex));
+    } catch {
+      setServerError(t("trips.documents.uploadError"));
+    } finally {
+      setDocumentBusy(false);
+    }
+  };
+
+  /** The document twin of `deleteGalleryImage`: an immediate write, with nothing staged behind it. */
+  const deleteDocument = async (documentId: string) => {
+    if (!day || !editingItemId) return;
+
+    let token: string;
+    try {
+      token = await ensureCsrfToken();
+    } catch {
+      setServerError(t("errors.csrfMissing"));
+      return;
+    }
+
+    setDocumentBusy(true);
+    setServerError(null);
+    try {
+      const response = await fetch(`/api/trips/${tripId}/day-plan-items/documents`, {
+        method: "DELETE",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "x-csrf-token": token,
+        },
+        body: JSON.stringify({
+          tripDayId: day.id,
+          dayPlanItemId: editingItemId,
+          documentId,
+        }),
+      });
+      const body = (await response.json()) as ApiEnvelope<{ deleted: boolean }>;
+      if (!response.ok || body.error) {
+        setServerError(t("trips.documents.deleteError"));
+        return;
+      }
+      setDocuments((current) => current.filter((document) => document.id !== documentId));
+    } catch {
+      setServerError(t("trips.documents.deleteError"));
+    } finally {
+      setDocumentBusy(false);
     }
   };
 
@@ -2126,12 +2347,74 @@ export default function TripDayPlanDialog({
                   onImageOpen={setFullscreenIndex}
                 />
               )}
+              {editingItemId && (
+                /*
+                  Story 9.1 AC2. **Below** the photo field, on the same tab, gated on the same saved
+                  activity — and with a label of its own (`Dokumente` against `Bildergalerie`),
+                  because the whole criterion is that a JPEG's destination is the user's choice rather
+                  than the app's guess. Two fields, two accept filters, two upload actions, two
+                  server-side pools: a file placed in one never appears in the other.
+
+                  No fifth tab and no new panel; `PLAN_TAB_IDS` is unchanged. The media panel is
+                  simply the tallest of the four now, and `PLAN_PANEL_MIN_HEIGHT` is a floor.
+                */
+                <DocumentUploadField
+                  id={`${fieldIdPrefix}-documents`}
+                  label={t("trips.documents.title")}
+                  zoneTitle={t("trips.documents.uploadZoneTitle")}
+                  // The 10 MB / PDF-JPEG-PNG-WebP line, passed so it reaches the input as
+                  // `aria-describedby` rather than being sighted-only.
+                  zoneHint={t("trips.documents.uploadZoneHint")}
+                  accept={DOCUMENT_UPLOAD_ACCEPT}
+                  multiple
+                  disabled={documentBusy}
+                  onFilesSelected={setDocumentFiles}
+                  selectionLabel={
+                    documentFiles.length > 0
+                      ? formatMessage(t("trips.documents.selectedFiles"), { count: documentFiles.length })
+                      : undefined
+                  }
+                  emptyLabel={t("trips.documents.empty")}
+                  action={
+                    <Button
+                      variant="outlined"
+                      onClick={() => void uploadDocuments()}
+                      // The cap in the third term is a convenience only: the repository counts the
+                      // rows and the route answers 400, and `uploadDocuments` maps that answer.
+                      // Disabling here saves a round trip that could only fail; it enforces nothing.
+                      disabled={
+                        documentFiles.length === 0 ||
+                        documentBusy ||
+                        sortedDocuments.length >= MAX_DOCUMENTS_PER_ENTRY
+                      }
+                    >
+                      {t("trips.documents.uploadAction")}
+                    </Button>
+                  }
+                  documents={sortedDocuments.map((document) => ({
+                    key: document.id,
+                    documentUrl: document.documentUrl,
+                    fileName: document.fileName,
+                    // Keyed by the document id, not by position in a second array — an index deletes
+                    // the wrong row silently the day the two lists disagree.
+                    onRemove: () => void deleteDocument(document.id),
+                  }))}
+                />
+              )}
               {!editingItemId && (
                 // AC1: without this the add flow's `Medien & Links` is a one-field tab, because the
                 // gallery is gated on an item id that does not exist yet. Saying why is cheaper than
                 // rendering an upload zone that would 404, and cheaper than regrouping the tabs.
                 <Typography variant="body2" sx={{ color: tokens.inkSoft }}>
                   {t("trips.plan.galleryAfterSave")}
+                </Typography>
+              )}
+              {!editingItemId && (
+                // Story 9.1, its own line rather than a clause bolted onto the gallery's: the two
+                // fields are absent for the same reason but they are two fields, and a user adding an
+                // activity to attach a ticket to needs to be told about the one they came for.
+                <Typography variant="body2" sx={{ color: tokens.inkSoft }}>
+                  {t("trips.plan.documentsAfterSave")}
                 </Typography>
               )}
               {/* Moved here from between the payment block and the location search, unchanged: AC1 pairs

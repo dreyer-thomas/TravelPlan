@@ -19,6 +19,7 @@ import {
   Typography,
 } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
+import DocumentUploadField from "@/components/forms/DocumentUploadField";
 import FormField from "@/components/forms/FormField";
 import FormNotice from "@/components/forms/FormNotice";
 import PhotoUploadField from "@/components/forms/PhotoUploadField";
@@ -28,6 +29,11 @@ import FullscreenPhotoViewer from "@/components/ui/FullscreenPhotoViewer";
 import { WarningTriangleIcon } from "@/components/features/trips/TripIcons";
 import { formatMessage } from "@/i18n";
 import { useI18n } from "@/i18n/provider";
+import {
+  DOCUMENT_UPLOAD_ACCEPT,
+  MAX_DOCUMENTS_PER_ENTRY,
+  isSupportedDocumentUpload,
+} from "@/lib/trips/documentUploads";
 import { IMAGE_UPLOAD_ACCEPT, isSupportedImageUpload } from "@/lib/trips/imageUploads";
 
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
@@ -281,6 +287,24 @@ type GalleryImage = {
   sortOrder: number;
 };
 
+/**
+ * A row of `accommodation_documents` (Story 9.1), declared locally the way `GalleryImage` above is.
+ *
+ * Four components each keep their own copy of the gallery row shape rather than sharing one type
+ * (`TripDayView`, this dialog, `TripDayPlanDialog`, `TripDayMapFullPage`); the document rows follow
+ * that convention rather than introducing a shared type and refactoring the files around it. The
+ * extraction is a real candidate — for a story allowed to touch all of them.
+ *
+ * `fileName` is the stored column, extension and all: `DocChip` strips the extension for the visible
+ * label, and the label is the whole reason the chip exists rather than a thumbnail.
+ */
+type AccommodationDocument = {
+  id: string;
+  documentUrl: string;
+  fileName: string;
+  sortOrder: number;
+};
+
 type TripAccommodationDialogProps = {
   open: boolean;
   tripId: string;
@@ -371,6 +395,14 @@ export default function TripAccommodationDialog({
   const [galleryImages, setGalleryImages] = useState<GalleryImage[]>([]);
   const [galleryFiles, setGalleryFiles] = useState<File[]>([]);
   const [galleryBusy, setGalleryBusy] = useState(false);
+  // Story 9.1. The document half of the `Medien & Links` tab, split exactly as the gallery's three
+  // states are: rows already on the server, files staged in the picker but not yet sent, and an
+  // in-flight flag. Kept in three separate states from the gallery's rather than folded into them,
+  // because AC2's "a file placed in one bucket never appears in the other" is first of all a
+  // statement about these variables.
+  const [documents, setDocuments] = useState<AccommodationDocument[]>([]);
+  const [documentFiles, setDocumentFiles] = useState<File[]>([]);
+  const [documentBusy, setDocumentBusy] = useState(false);
   // The index into `galleryPreviews`, not a URL — the shared viewer pages through the collection.
   const [fullscreenIndex, setFullscreenIndex] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<StayTabId>("basics");
@@ -560,6 +592,11 @@ export default function TripAccommodationDialog({
     // staged and then discarded came back selected on the next open, with Upload live for them and
     // `galleryFiles.length > 0` holding the discard guard dirty for the rest of the session.
     setGalleryFiles([]);
+    // Story 9.1, and the identical hazard one line down: `documentFiles` is cleared only on a
+    // successful upload too, and it is a term of the discard guard below. Without this line a
+    // document staged and then discarded comes back selected on the next open and holds the guard
+    // dirty for the rest of the session — the defect the line above is the scar tissue for.
+    setDocumentFiles([]);
     reset({
       name: day?.accommodation?.name ?? "",
       notes: day?.accommodation?.notes ?? "",
@@ -623,9 +660,23 @@ export default function TripAccommodationDialog({
     };
   }, [open, t]);
 
+  /**
+   * What is already attached to this stay: the photo gallery, and — since Story 9.1 — the documents.
+   *
+   * **One effect, two independent loaders.** They share a trigger (the dialog opening on a *saved*
+   * stay), a dependency list and a cancellation flag, so splitting them would be two copies of the
+   * same lifecycle. What must stay separate is failure: each loader owns its own `try`/`catch` and
+   * writes only its own state, so a documents call that 500s does not empty the photo strip, and the
+   * reverse. They are also not awaited in sequence — a slow gallery must not hold the chips back.
+   *
+   * Tolerant in the same way on both sides: any non-`ok` answer, any error envelope and any throw
+   * leave that one list empty rather than half-populated. The upload zones still work when a list
+   * could not be read; what is lost is the view of what is attached, not the ability to attach more.
+   */
   useEffect(() => {
     if (!open || !day?.accommodation) {
       setGalleryImages([]);
+      setDocuments([]);
       return;
     }
     const accommodationId = day.accommodation.id;
@@ -649,7 +700,26 @@ export default function TripAccommodationDialog({
       }
     };
 
+    const loadDocuments = async () => {
+      try {
+        const response = await fetch(
+          `/api/trips/${tripId}/accommodations/documents?tripDayId=${day.id}&accommodationId=${accommodationId}`,
+          { method: "GET", credentials: "include", cache: "no-store" },
+        );
+        const body = (await response.json()) as ApiEnvelope<{ documents: AccommodationDocument[] }>;
+        if (!active) return;
+        if (!response.ok || body.error || !Array.isArray(body.data?.documents)) {
+          setDocuments([]);
+          return;
+        }
+        setDocuments(body.data.documents);
+      } catch {
+        if (active) setDocuments([]);
+      }
+    };
+
     void loadGallery();
+    void loadDocuments();
     return () => {
       active = false;
     };
@@ -1278,6 +1348,126 @@ export default function TripAccommodationDialog({
     }
   };
 
+  /**
+   * Story 9.1, the document twin of `uploadGalleryImages`: the same two-step flow (pick, then press
+   * Upload), the same `ensureCsrfToken` handshake, the same one-request-per-file loop.
+   *
+   * Three deliberate differences from the pair above.
+   *
+   * The client-side pre-check is `isSupportedDocumentUpload` and it reports
+   * `trips.documents.unsupportedFormat`, never `trips.image.unsupportedFormat`. Naming photo formats
+   * at a field that also accepts PDF would tell the user the opposite of the truth, and the two
+   * filters staying separate is half of what keeps a file out of the bucket it was not placed in.
+   *
+   * The **10-per-entry cap is the server's**. The Upload action is disabled at the cap in the panel
+   * below, but that is a convenience: the repository counts the rows and the route answers 400 with
+   * its own message, which is the branch mapped here. A cap the client alone enforces is not a cap.
+   *
+   * The loop follows `TripDayPlanDialog`'s rather than this file's gallery loop: each success is
+   * committed to state as it lands and only the unsent tail stays staged. `uploadGalleryImages`
+   * collects into a local array and returns on the first failure, which drops every already-stored
+   * photo out of the view until the dialog is reopened — a pre-existing wart belonging to that
+   * function's own change, and not one to ship a second copy of.
+   */
+  const uploadDocuments = async () => {
+    if (!day?.accommodation || documentFiles.length === 0) return;
+
+    const unsupported = documentFiles.find((file) => !isSupportedDocumentUpload(file));
+    if (unsupported) {
+      setServerError(t("trips.documents.unsupportedFormat"));
+      return;
+    }
+
+    let token: string;
+    try {
+      token = await ensureCsrfToken();
+    } catch {
+      setServerError(t("errors.csrfMissing"));
+      return;
+    }
+
+    setDocumentBusy(true);
+    setServerError(null);
+    try {
+      let failedAtIndex = -1;
+      for (const [index, file] of documentFiles.entries()) {
+        const formData = new FormData();
+        formData.set("tripDayId", day.id);
+        formData.set("accommodationId", day.accommodation.id);
+        formData.set("file", file);
+
+        const response = await fetch(`/api/trips/${tripId}/accommodations/documents`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "x-csrf-token": token },
+          body: formData,
+        });
+        const body = (await response.json()) as ApiEnvelope<{ document: AccommodationDocument }>;
+        if (!response.ok || body.error || !body.data?.document) {
+          failedAtIndex = index;
+          // Matched on the route's own literal because `validation_error` is also what a rejected
+          // type, an oversized file and an unusable name come back as — the code alone cannot tell
+          // the user which of the four happened, and "up to 10 per entry" is the one of them the
+          // user can act on without being told anything else.
+          setServerError(
+            body.error?.message === "Document limit reached"
+              ? t("trips.documents.limitReached")
+              : t("trips.documents.uploadError"),
+          );
+          break;
+        }
+        const uploadedDocument = body.data.document;
+        setDocuments((current) => [...current, uploadedDocument]);
+      }
+
+      setDocumentFiles(failedAtIndex === -1 ? [] : documentFiles.slice(failedAtIndex));
+    } catch {
+      setServerError(t("trips.documents.uploadError"));
+    } finally {
+      setDocumentBusy(false);
+    }
+  };
+
+  /** The document twin of `deleteGalleryImage`: an immediate write, with nothing staged behind it. */
+  const deleteDocument = async (documentId: string) => {
+    if (!day?.accommodation) return;
+    let token: string;
+    try {
+      token = await ensureCsrfToken();
+    } catch {
+      setServerError(t("errors.csrfMissing"));
+      return;
+    }
+
+    setDocumentBusy(true);
+    setServerError(null);
+    try {
+      const response = await fetch(`/api/trips/${tripId}/accommodations/documents`, {
+        method: "DELETE",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "x-csrf-token": token,
+        },
+        body: JSON.stringify({
+          tripDayId: day.id,
+          accommodationId: day.accommodation.id,
+          documentId,
+        }),
+      });
+      const body = (await response.json()) as ApiEnvelope<{ deleted: boolean }>;
+      if (!response.ok || body.error) {
+        setServerError(t("trips.documents.deleteError"));
+        return;
+      }
+      setDocuments((current) => current.filter((document) => document.id !== documentId));
+    } catch {
+      setServerError(t("trips.documents.deleteError"));
+    } finally {
+      setDocumentBusy(false);
+    }
+  };
+
   const title = day?.accommodation ? t("trips.stay.editTitle") : t("trips.stay.addTitle");
 
   /**
@@ -1300,6 +1490,17 @@ export default function TripAccommodationDialog({
   const sortedGalleryImages = useMemo(
     () => galleryImages.slice().sort((left, right) => left.sortOrder - right.sortOrder),
     [galleryImages],
+  );
+
+  /**
+   * Insertion order, which for documents is the only order there is: Story 9.1 adds no reorder
+   * control, so `sortOrder` only ever counts up. Sorted here anyway, for the same reason the gallery
+   * is — the list is appended to locally after each upload and re-read wholesale on the next open,
+   * and the two must agree about what "first" means.
+   */
+  const sortedDocuments = useMemo(
+    () => documents.slice().sort((left, right) => left.sortOrder - right.sortOrder),
+    [documents],
   );
 
   // Built once and handed to both the strip and the viewer, so the alt a thumbnail announces is the
@@ -1356,13 +1557,22 @@ export default function TripAccommodationDialog({
    * - `galleryFiles`, the photos staged but not yet uploaded. `galleryImages` — the ones already on the
    *   server — are excluded, because adding and removing those are immediate writes with nothing
    *   pending behind them. Same split as 6.24.
+   * - `documentFiles` (Story 9.1), and it splits along exactly the same line for exactly the same
+   *   reason. A staged document is unsaved input: `uploadDocuments` runs from the Media tab's own
+   *   Upload button and from nowhere else, so dismissing the dialog drops it and nothing else in this
+   *   form does. `documents` — the rows already on the server — are excluded, because adding and
+   *   removing those are immediate writes and a discard would not undo them.
+   *
+   * `.length` on both file arrays rather than the arrays themselves: what the question turns on is
+   * whether anything is staged, and the identity of a `File[]` rebuilt from a picker change is not
+   * that.
    */
   const openLocationKey = day?.accommodation?.location
     ? `${day.accommodation.location.lat},${day.accommodation.location.lng}`
     : "";
   const currentLocationKey = resolvedLocation ? `${resolvedLocation.lat},${resolvedLocation.lng}` : "";
   const stayGuard = useDiscardGuard(
-    isDirty || currentLocationKey !== openLocationKey || galleryFiles.length > 0,
+    isDirty || currentLocationKey !== openLocationKey || galleryFiles.length > 0 || documentFiles.length > 0,
     onClose,
   );
 
@@ -1786,6 +1996,14 @@ export default function TripAccommodationDialog({
                 {t("trips.stay.galleryAfterSave")}
               </Typography>
             )}
+            {!day?.accommodation && (
+              // Story 9.1. Its own line rather than a sentence bolted onto the gallery's: the two
+              // fields are absent for the same reason but they are two fields, and a user adding a
+              // stay to attach a ticket to needs to be told about the one they came for.
+              <Typography variant="body2" sx={{ color: tokens.inkSoft }}>
+                {t("trips.stay.documentsAfterSave")}
+              </Typography>
+            )}
             {day?.accommodation && (
               /*
                 AC5 rebuild: dashed dropzone + a 56px sharp preview strip, replacing the bare file
@@ -1827,6 +2045,68 @@ export default function TripAccommodationDialog({
                   onRemove: () => void deleteGalleryImage(preview.key),
                 }))}
                 onImageOpen={setFullscreenIndex}
+              />
+            )}
+            {day?.accommodation && (
+              /*
+                Story 9.1 AC2. **Below** the photo field, on the same tab, gated on the same saved
+                stay — and with a label of its own (`Dokumente` against `Bildergalerie`), because the
+                whole criterion is that a JPEG's destination is the user's choice rather than the
+                app's guess. Two fields, two accept filters, two upload actions, two server-side
+                pools: a file placed in one never appears in the other.
+
+                No fifth tab and no new panel. `STAY_TAB_IDS` is unchanged, and the media panel is now
+                the tallest of the four — which is fine, `STAY_PANEL_MIN_HEIGHT` is a floor and a
+                floor is a thing a panel is allowed to stand well above.
+
+                Deliberately outside react-hook-form, as the gallery is. Story 6.26 recorded that the
+                form keeps an unmounted field's *value* but skips its *rules*, which is why `onSubmit`
+                re-judges four fields by hand; a document field registered here would inherit that
+                problem for no gain, since nothing about it is submitted with the stay.
+              */
+              <DocumentUploadField
+                id={`${fieldIdPrefix}-documents`}
+                label={t("trips.documents.title")}
+                zoneTitle={t("trips.documents.uploadZoneTitle")}
+                // The 10 MB / PDF-JPEG-PNG-WebP line. Passed so it is wired to the input as
+                // `aria-describedby` rather than being sighted-only — a rejected 12 MB upload is a
+                // worse way to learn the ceiling than reading it before picking.
+                zoneHint={t("trips.documents.uploadZoneHint")}
+                accept={DOCUMENT_UPLOAD_ACCEPT}
+                multiple
+                disabled={documentBusy}
+                onFilesSelected={setDocumentFiles}
+                selectionLabel={
+                  documentFiles.length > 0
+                    ? formatMessage(t("trips.documents.selectedFiles"), { count: documentFiles.length })
+                    : undefined
+                }
+                emptyLabel={t("trips.documents.empty")}
+                action={
+                  <Button
+                    variant="outlined"
+                    onClick={() => void uploadDocuments()}
+                    // The cap in the third term is a convenience only: the repository counts the rows
+                    // and the route answers 400, and `uploadDocuments` maps that answer. Disabling
+                    // here saves a round trip that could only ever fail; it does not enforce anything.
+                    disabled={
+                      documentFiles.length === 0 ||
+                      documentBusy ||
+                      sortedDocuments.length >= MAX_DOCUMENTS_PER_ENTRY
+                    }
+                  >
+                    {t("trips.documents.uploadAction")}
+                  </Button>
+                }
+                documents={sortedDocuments.map((document) => ({
+                  key: document.id,
+                  documentUrl: document.documentUrl,
+                  fileName: document.fileName,
+                  // Keyed by the document id, not by position in a second array — the same reason the
+                  // gallery's remove is: an index deletes the wrong row silently the day any filtering
+                  // or async insertion makes the two lists disagree.
+                  onRemove: () => void deleteDocument(document.id),
+                }))}
               />
             )}
             </Box>

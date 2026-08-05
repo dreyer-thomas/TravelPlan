@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import TripAccommodationDialog, {
   STAY_ERROR_TAB,
@@ -8,6 +8,7 @@ import TripAccommodationDialog, {
   STAY_PANEL_MIN_HEIGHT,
   STAY_TAB_IDS,
 } from "@/components/features/trips/TripAccommodationDialog";
+import { DOCUMENT_UPLOAD_ACCEPT } from "@/lib/trips/documentUploads";
 import { Providers } from "./helpers/renderWithProviders";
 
 /**
@@ -1204,6 +1205,282 @@ describe("TripAccommodationDialog", () => {
         // which is only whether the field is present on the tab its key maps to.
         expect(screen.queryAllByLabelText(label as string).length).toBeGreaterThan(0);
       }
+    });
+  });
+
+  /**
+   * Story 9.1 — the document field on the `Medien & Links` tab.
+   *
+   * **These cases live here, and that is deliberate** (DW-53). The sibling `tripDayPlanDialog.test.tsx`
+   * mocks `@mui/material` wholesale and that mock has drifted from real MUI, so anything that turns on
+   * what MUI actually renders — a `Button`'s `disabled` reaching the DOM, a `Typography component="label"`
+   * emitting a real `<label for>` that pairs with an input — can pass there against a component the
+   * browser would render differently. This suite renders the real thing. The activity dialog's twins
+   * exist too, and the Completion Notes say which suite proved what.
+   */
+  describe("Story 9.1 — documents on the media tab", () => {
+    type StayDay = NonNullable<Parameters<typeof TripAccommodationDialog>[0]["day"]>;
+
+    const SAVED_STAY: StayDay["accommodation"] = {
+      id: "stay-1",
+      name: "Harbor Hotel",
+      notes: null,
+      status: "planned",
+      costCents: null,
+      link: null,
+      checkInTime: null,
+      checkOutTime: null,
+      location: null,
+    };
+
+    /**
+     * CSRF, an empty photo gallery and whichever documents the case wants. Routed by URL rather than
+     * by call order, because the two media fetches now share one effect and are not awaited in
+     * sequence — a positional mock would answer the wrong one the day their timing changes.
+     */
+    const mediaFetch = (documents: Array<{ id: string; documentUrl: string; fileName: string; sortOrder: number }> = []) =>
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          const url = String(input);
+          if (url.includes("/api/auth/csrf")) {
+            return { ok: true, status: 200, json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }) };
+          }
+          if (url.includes("/accommodations/documents")) {
+            return { ok: true, status: 200, json: async () => ({ data: { documents }, error: null }) };
+          }
+          return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
+        }) as unknown as typeof fetch,
+      );
+
+    const renderStay = (accommodation: StayDay["accommodation"], onClose = () => undefined) =>
+      render(
+        <Providers language="en">
+          <TripAccommodationDialog
+            open
+            tripId="trip-1"
+            stayType="current"
+            day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1, accommodation }}
+            onClose={onClose}
+            onSaved={() => undefined}
+          />
+        </Providers>,
+      );
+
+    /**
+     * The two file inputs, told apart by what they accept rather than by position.
+     *
+     * An index into the panel would keep passing if the two fields swapped places, and "a file placed
+     * in one bucket never appears in the other" (AC2) is exactly the property such a query cannot see.
+     * `application/pdf` is in one accept list and in neither photo one.
+     */
+    const photoInput = () =>
+      document.querySelector('input[type="file"]:not([accept*="application/pdf"])') as HTMLInputElement | null;
+    const documentInput = () =>
+      document.querySelector('input[type="file"][accept*="application/pdf"]') as HTMLInputElement | null;
+
+    const labelTextFor = (input: HTMLInputElement) =>
+      document.querySelector(`label[for="${input.id}"]`)?.textContent ?? null;
+
+    /** The `Upload` button inside one field's own subtree — the two share an accessible name. */
+    const uploadButtonNear = (input: HTMLInputElement) => {
+      const root = input.parentElement?.parentElement as HTMLElement;
+      return within(root).getByRole("button", { name: "Upload" });
+    };
+
+    const pdf = (name = "Ticket Rom.pdf") => new File(["%PDF-1.4"], name, { type: "application/pdf" });
+
+    /**
+     * AC2, the criterion the whole field turns on: two fields on one tab whose labels say two
+     * different things, so a JPEG's destination is the user's choice and not a guess.
+     *
+     * Written so it can fail. Reusing `trips.gallery.title` for the document field — the exact
+     * shortcut the story forbids — leaves two labels reading "Image gallery" and no "Documents" at
+     * all, and both the equality assertions and the inequality one below go red. Verified by making
+     * that edit in the source and watching this case fail.
+     */
+    it("puts a document field beside the photo field, under a visibly different label", async () => {
+      mediaFetch();
+      renderStay(SAVED_STAY);
+      await screen.findByRole("button", { name: "Save stay" });
+
+      selectTab("Media & links");
+
+      const photos = photoInput();
+      const documents = documentInput();
+      expect(photos).not.toBeNull();
+      expect(documents).not.toBeNull();
+      // Two inputs, not one element matched twice by two selectors.
+      expect(photos).not.toBe(documents);
+
+      expect(labelTextFor(photos!)).toBe("Image gallery");
+      expect(labelTextFor(documents!)).toBe("Documents");
+      expect(labelTextFor(documents!)).not.toBe(labelTextFor(photos!));
+
+      // The accept list comes from `documentUploads.ts`, never spelled inline — `documentUploadAccept.
+      // test.ts` scans the component tree for the literal, and this pins the value that arrives.
+      expect(documents!.getAttribute("accept")).toBe(DOCUMENT_UPLOAD_ACCEPT);
+
+      /*
+        The 10 MB / format line, reached the way a screen reader reaches it. Asserted through
+        `aria-describedby` rather than by `getByText`, because a hint that renders but is not wired to
+        the input is sighted-only — and a green test defending a string nothing announces is one of the
+        four weaknesses Story 5.11's review found.
+      */
+      const describedBy = (documents!.getAttribute("aria-describedby") ?? "").split(" ").filter(Boolean);
+      expect(describedBy.length).toBeGreaterThan(1);
+      const description = describedBy.map((id) => document.getElementById(id)?.textContent ?? "").join(" ");
+      expect(description).toContain("Choose documents");
+      expect(description).toContain("up to 10 MB each");
+    });
+
+    /**
+     * Story 6.26 AC4 for the new field: a tab round trip loses nothing.
+     *
+     * The staging assertions are two-sided on purpose. "1 file(s) selected" appearing proves *a* file
+     * is staged somewhere; `trips.documents.selectedFiles` and `trips.gallery.selectedFiles` are
+     * separate keys whose English coincides, so on its own that text cannot say which bucket took the
+     * PDF. The pair of `Upload` buttons can: the document field's goes live and the photo field's
+     * stays disabled. Wiring the picker to `setGalleryFiles` would satisfy the first assertion and
+     * fail both of the others.
+     */
+    it("keeps a staged document across a tab round trip, and puts it in the document bucket", async () => {
+      mediaFetch();
+      renderStay(SAVED_STAY);
+      await screen.findByRole("button", { name: "Save stay" });
+
+      selectTab("Media & links");
+      fireEvent.change(documentInput()!, { target: { files: [pdf()] } });
+
+      expect(await screen.findByText("1 file(s) selected")).toBeInTheDocument();
+      expect(screen.getAllByText("1 file(s) selected")).toHaveLength(1);
+      expect(uploadButtonNear(documentInput()!)).toBeEnabled();
+      expect(uploadButtonNear(photoInput()!)).toBeDisabled();
+
+      // Away and back.
+      selectTab("Basics");
+      selectTab("Media & links");
+
+      expect(screen.getByText("1 file(s) selected")).toBeInTheDocument();
+      expect(uploadButtonNear(documentInput()!)).toBeEnabled();
+      expect(uploadButtonNear(photoInput()!)).toBeDisabled();
+    });
+
+    /**
+     * AC7 / Story 6.25, both halves, on one fixture so the only difference between them is the staged
+     * document.
+     */
+    it("asks to discard a staged document exactly once", async () => {
+      mediaFetch();
+      const onClose = vi.fn();
+      renderStay(SAVED_STAY, onClose);
+      await screen.findByRole("button", { name: "Save stay" });
+
+      selectTab("Media & links");
+      fireEvent.change(documentInput()!, { target: { files: [pdf()] } });
+      await screen.findByText("1 file(s) selected");
+
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+      expect(await screen.findByRole("button", { name: "Discard changes" })).toBeInTheDocument();
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.getAllByRole("button", { name: "Discard changes" })).toHaveLength(1);
+    });
+
+    /**
+     * The negative, and the one that can actually fail: a guard term that reads "did the document
+     * field ever mount" rather than "is anything staged" passes the case above and this one goes red.
+     * The fixture is the one above with the `fireEvent.change` removed and nothing else.
+     */
+    it("does not ask when nothing was staged", async () => {
+      mediaFetch();
+      const onClose = vi.fn();
+      renderStay(SAVED_STAY, onClose);
+      await screen.findByRole("button", { name: "Save stay" });
+
+      selectTab("Media & links");
+      // The field is present and empty — the point is that its presence is not itself dirtiness.
+      expect(documentInput()).not.toBeNull();
+      expect(screen.getByText("No documents yet.")).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+      expect(onClose).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole("button", { name: "Discard changes" })).toBeNull();
+    });
+
+    /**
+     * AC7's reopen half. `documentFiles` is otherwise cleared only by a successful upload, and this
+     * dialog is never unmounted — so without the open effect's reset a document staged and then
+     * discarded comes back selected on the next open, with the guard held dirty behind it for the rest
+     * of the session. The gallery carries the scar tissue for exactly this.
+     */
+    it("forgets a document that was staged and then discarded", async () => {
+      mediaFetch();
+      const onClose = vi.fn();
+      const view = render(
+        <Providers language="en">
+          <TripAccommodationDialog
+            open
+            tripId="trip-1"
+            stayType="current"
+            day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1, accommodation: SAVED_STAY }}
+            onClose={onClose}
+            onSaved={() => undefined}
+          />
+        </Providers>,
+      );
+      await screen.findByRole("button", { name: "Save stay" });
+
+      selectTab("Media & links");
+      fireEvent.change(documentInput()!, { target: { files: [pdf()] } });
+      await screen.findByText("1 file(s) selected");
+
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Discard changes" }));
+      expect(onClose).toHaveBeenCalledTimes(1);
+
+      const day = { id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1, accommodation: SAVED_STAY };
+      view.rerender(
+        <Providers language="en">
+          <TripAccommodationDialog open={false} tripId="trip-1" stayType="current" day={day} onClose={onClose} onSaved={() => undefined} />
+        </Providers>,
+      );
+      view.rerender(
+        <Providers language="en">
+          <TripAccommodationDialog open tripId="trip-1" stayType="current" day={day} onClose={onClose} onSaved={() => undefined} />
+        </Providers>,
+      );
+      await screen.findByRole("button", { name: "Save stay" });
+
+      selectTab("Media & links");
+      expect(screen.queryByText("1 file(s) selected")).toBeNull();
+      expect(uploadButtonNear(documentInput()!)).toBeDisabled();
+
+      // And the guard is released with it: a reopened dialog nobody has touched closes silently.
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+      expect(screen.queryByRole("button", { name: "Discard changes" })).toBeNull();
+      expect(onClose).toHaveBeenCalledTimes(2);
+    });
+
+    /**
+     * Add mode. The document field is gated on a saved stay the same way the gallery is, so the tab
+     * has to say why it is absent — and say it about documents, not only about photos. Both negatives
+     * are asserted, because "the field is missing" is satisfied just as well by a broken render.
+     */
+    it("explains the absent document field while adding a stay", async () => {
+      mediaFetch();
+      renderStay(null);
+      await screen.findByRole("button", { name: "Save stay" });
+
+      selectTab("Media & links");
+
+      expect(screen.getByText("You can add photos once this stay is saved.")).toBeInTheDocument();
+      expect(screen.getByText("You can add documents once this stay is saved.")).toBeInTheDocument();
+      expect(screen.queryByText("Documents")).toBeNull();
+      expect(documentInput()).toBeNull();
+      // The link is still there, so the tab is not empty — which is why the link lives on it.
+      expect(screen.getByLabelText("Link")).toBeInTheDocument();
     });
   });
 });
