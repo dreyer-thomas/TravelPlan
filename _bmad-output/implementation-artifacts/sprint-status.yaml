@@ -172,4 +172,10 @@ development_status:
   epic-8: backlog
   8-1-node-24-runtime-upgrade: backlog
   8-2-middleware-to-proxy: ready-for-dev
+  8-3-uploaded-media-behind-the-login: backlog
   epic-8-retrospective: optional
+
+  epic-9: backlog
+  9-1-documents-on-stays-and-activities: backlog
+  9-2-documents-in-print-and-an-offline-packet: backlog
+  epic-9-retrospective: optional

@@ -49,6 +49,9 @@ FR29: Users can reset their password via email.
 FR30: Users can add, view, and delete trip-level bucket list items for unplanned places.
 FR31: Users can add a bucket list item to a day plan and remove it from the bucket list.
 FR35: Trip owners can view a list of all registered users in the system, to help decide who to invite as a collaborator and avoid duplicate-account confusion.
+FR38: Users can attach documents (PDF or image files) to an accommodation entry and to a day plan item.
+FR39: Users can see attached documents on the entry in the day timeline, open them, and delete them from the entry's dialog.
+FR40: Users can produce an offline document packet as a single PDF containing a day's attached documents.
 
 ### NonFunctional Requirements
 
@@ -116,6 +119,9 @@ FR29: Epic 1 - Secure Access & Personal Workspace
 FR30: Epic 4 - Trip Bucket List (Idea Capture)
 FR31: Epic 4 - Trip Bucket List (Idea Capture)
 FR35: Epic 5 - Sharing & Light Contribution
+FR38: Epic 9 - Travel Documents
+FR39: Epic 9 - Travel Documents
+FR40: Epic 9 - Travel Documents
 
 ## Epic List
 
@@ -150,6 +156,10 @@ Users experience the approved `DESIGN.md`/`EXPERIENCE.md` visual system across e
 ### Epic 8: Maintenance & Infrastructure
 The maintainer can keep the runtime, toolchain, and accumulated technical debt current without threading infrastructure work through feature or redesign epics.
 **FRs covered:** None (infrastructure and maintenance; no new product capability)
+
+### Epic 9: Travel Documents
+Users can keep tickets and booking confirmations as the original files on the stay or activity they belong to, see and open them from the day timeline, and take them offline as one PDF.
+**FRs covered:** FR38, FR39, FR40
 
 ## Epic 1: Secure Access & Personal Workspace
 
@@ -2857,3 +2867,151 @@ So that the runtime under the app keeps receiving security patches — a gap the
 **Given** `docs/deployment-guide.md` and `docs/deployment-configuration.md` are both 9-line TBD placeholders, and no `Dockerfile`, `docker-compose`, `.nvmrc`, or `.node-version` exists anywhere in the repo
 **When** the server work requires discovering the actual process manager, service names, and install paths
 **Then** both documents are filled in with what was found, including which application runs on which Node version — this is the first task in the project's history that requires knowing any of it
+
+
+### Story 8.3: Uploaded Media Behind the Login
+
+As a trip owner,
+I want every uploaded photo and document to be reachable only by someone signed in with access to that trip,
+So that content I hold no rights to is not published to anyone who learns a URL, and so that NFR2 is true of media and not only of database rows.
+
+**FRs covered:** None (closes an existing NFR2 gap on already-shipped behaviour)
+
+**Context:** Every upload route writes beneath `public/`, which Next.js serves statically ahead of any route handler and without consulting the session. NFR2 has always required authenticated access to all trip data; uploaded media is trip data, so the requirement has been unmet for media since Story 2.11 shipped the first hero image. The driver is rights rather than secrecy: trip photos are frequently not the owner's to publish. Documents (Epic 9) make it acute, which is why this story comes first — building Epic 9 on the public path means moving the same files and writing the same route afterwards.
+
+The change is cheaper than it looks, and for a reason worth stating: every stored URL is `/uploads/trips/<tripId>/…` with `tripId` always the third segment, and `getPublicRoot()` (`uploadPaths.ts:19`) is already the single source of truth for the write path. A catch-all route handler can therefore authorise and serve every existing file with no URL change, no data migration, and no component change. The access predicates exist — `requireSession` plus `hasTripReadAccess`, which admits owners, viewers and contributors alike.
+
+**Acceptance Criteria:**
+
+**Given** uploaded files live under `public/uploads/trips/` and are served statically
+**When** the move lands
+**Then** they live under a root outside the statically served tree, `public/uploads/` no longer exists, and a test asserts its **absence** rather than merely that nothing writes to it — a file left behind stays publicly readable no matter what the code does
+**And** `public/images/`, `public/hero-mountains.jpg` and the SVGs are untouched, because they are application assets and not trip data
+
+**Given** a request for `/uploads/trips/<tripId>/…`
+**When** it is served by the new route handler
+**Then** an unauthenticated request is refused, a signed-in user with no access to that trip is refused, and the owner, a viewer and a contributor each succeed — the same three-way check `hasTripReadAccess` already encodes
+**And** no stored URL anywhere in the database or in any component changes
+
+**Given** the path segment arrives from the URL
+**When** it is resolved to a file
+**Then** a traversal attempt (`..`, an encoded separator, an absolute-looking segment) cannot escape the uploads root, and the resolution is asserted against those inputs rather than trusted to `path.join`
+
+**Given** a browser PDF viewer requests a byte range
+**When** the route answers
+**Then** it serves `206` with the requested range, and a real multi-page PDF opens inline — a route that always answers `200` with the whole file makes some viewers refuse to open it at all
+
+**Given** the files are no longer public
+**When** the response headers are written
+**Then** `Cache-Control` is `private`, the ETag and conditional-request behaviour are unchanged, `Content-Type` is derived from the stored extension only, and `X-Content-Type-Options: nosniff` is set — serving user bytes from our own origin is what makes sniffing a same-origin concern
+
+**Given** `UPLOADS_PUBLIC_ROOT` is the env var the test setup uses to redirect writes away from real files
+**When** the root is no longer public
+**Then** the variable is renamed to match what it now means, all four image-route suites and the test setup follow, and the protection it exists for — that no test can reach the operator's real uploads — is re-verified rather than assumed
+
+**Given** export and import reach files through the `uploadPaths.ts` helpers
+**When** the root moves
+**Then** both continue to work with no change of their own, verified by a round trip rather than by inspection
+
+**Given** the uploads directory now sits outside the deployed application tree
+**When** the deployment docs are updated
+**Then** `docs/deployment-guide.md` and `docs/deployment-configuration.md` record where it lives, that the service user must be able to write to it, and that it must survive a redeploy — a media root inside the build output would be silently emptied on deploy
+
+**Given** the printed day plan renders `<img>` tags against these URLs
+**When** a day is printed after the move
+**Then** the images still appear, because the browser sends the session cookie on a same-origin request — verified on screen, not reasoned about
+
+
+## Epic 9: Travel Documents
+
+Users can keep tickets and booking confirmations as the original files on the stay or activity they belong to, see and open them from the day timeline, and take them offline as one PDF.
+
+### Story 9.1: Documents on Stays and Activities
+
+As a trip planner,
+I want to attach the original ticket or booking confirmation to the accommodation or activity it belongs to,
+So that I keep the multi-page, legible, forwardable file instead of a screenshot of its first screen.
+
+**FRs covered:** FR38, FR39
+
+**Depends on:** Story 8.3. Documents carry names, addresses and booking codes; they must not land in a publicly served directory even briefly.
+
+**Context:** Photos already attach to both entry types (Stories 2.16, 6.6). Documents are the same gesture with a different payload and one genuinely different display problem: a document has no thumbnail, so the card element is a labelled chip rather than a square — see `DESIGN.md`'s `doc-chip`. Both dialogs already have a `Medien & Links` tab (Stories 6.22, 6.26); documents go there, not into a fifth tab.
+
+PDF **and** image files are accepted, because the distinction between a photograph and a document is semantic rather than technical — a ticket screenshot is a document. The user places the file; the app does not guess from the MIME type.
+
+**Acceptance Criteria:**
+
+**Given** an accommodation and a day plan item
+**When** the schema gains documents
+**Then** `AccommodationDocument` and `DayPlanItemDocument` exist with the same shape and cascade behaviour as their image counterparts (`schema.prisma:239-267`), including the `(parentId, sortOrder)` uniqueness that keeps ordering total, and a migration is added
+
+**Given** the `Medien & Links` tab of each dialog
+**When** documents are added
+**Then** the tab carries a document field **visibly distinct in label from the photo field**, so a JPEG's destination is the user's choice and not a guess, and a file placed in one bucket never appears in the other
+**And** up to 10 documents per entry are accepted, each up to 10 MB — larger than the 5 MB photo limit because a ticket PDF carrying a map exceeds it
+
+**Given** a picked file
+**When** it is validated
+**Then** PDF and the image types the photo fields already accept are allowed, the client-side gate mirrors the server's list the way `isSupportedImageUpload` already mirrors it (`imageUploads.ts:25`), and the upload route remains the authoritative check
+
+**Given** an entry with documents
+**When** its `tl-card` renders in the day timeline
+**Then** `doc-chip`s appear per `DESIGN.md`: trailing on the media row beside the photo strip where the width allows at least two, wrapping to their own row below the photos where it does not, each labelled with the document's file name minus its extension and ellipsised
+**And** the wrap threshold is **measured at 390px and at desktop width**, not chosen as a breakpoint — the arithmetic that motivates it (≈180px of photo strip against ≈150px of remaining row) is the reason it exists
+
+**Given** more documents than the row shows
+**When** the overflow control is used
+**Then** it is the same `+N` affordance the photo strip uses, and it opens a list of document names rather than a viewer, each entry openable
+
+**Given** a document chip or list entry
+**When** it is activated
+**Then** the document opens in a new tab — including image documents, which do not enter `FullscreenPhotoViewer`
+
+**Given** a document attached to an entry
+**When** it is deleted from the dialog
+**Then** the row and the file on disk both go, matching how image deletion already behaves, and the dialog's dirty/discard semantics (Story 6.25) treat a staged-but-unsaved document the way it treats a staged photo
+
+**Given** the v2 backup archive carries `trip.json` plus the uploaded photo files (Stories 2.31, 2.32)
+**When** a trip with documents is exported and re-imported
+**Then** the documents come back attached to the same entries with the same names and order — a backup mechanism that silently drops a class of files is worse than one that refuses to run
+
+**Given** every user-facing string
+**When** the feature lands
+**Then** both dictionaries carry it under a `trips.documents.*` namespace, and `i18nDictionaries.test.ts` holds the two in agreement as it does for every other namespace
+
+### Story 9.2: Documents in Print and an Offline Packet
+
+As a traveller standing at a gate with no signal,
+I want the day's tickets available as files I already have on my device,
+So that the plan and the documents that make it usable are both offline.
+
+**FRs covered:** FR40
+
+**Depends on:** Story 9.1.
+
+**Context:** The printed day plan is `window.print()` over an HTML page (`TripDayPrintPage.tsx:60`), and there is no PDF library in the project. Image documents can be appended to that output as full pages. **PDF documents cannot** — an embedded PDF in an `<iframe>` or `<embed>` is not rendered into print output by any browser, and tickets are the case this story exists for.
+
+Two approaches were rejected. Rendering the whole day plan server-side through headless Chrome would produce one file, at the cost of a browser in the deployment for one feature. Listing documents by name only and leaving the user to print them is honest but is not an offline packet. So the day plan keeps printing as HTML, and the documents are merged server-side into their own PDF via `pdf-lib`. Two files offline, each doing its job, no rendering engine.
+
+**Acceptance Criteria:**
+
+**Given** a day whose entries carry image documents
+**When** the day plan is printed
+**Then** each image document appends as its own full page after the plan, page-broken, oriented so a portrait ticket is not printed sideways
+
+**Given** a day whose entries carry PDF documents
+**When** the day plan is printed
+**Then** an appendix lists them by name and by the entry they belong to, and states plainly that they are not included in this output — a silent omission on an offline artefact is the failure mode that matters here
+
+**Given** a day with documents of both kinds
+**When** the document packet is requested
+**Then** one PDF is returned containing every document of that day in timeline order: PDFs page-for-page, images embedded as pages, each preceded by or labelled with the entry name and the document name so the packet is navigable without the app
+
+**Given** the packet route serves file contents
+**When** it is called
+**Then** it enforces the same access check as Story 8.3's serving route, and a day with no documents yields a clear refusal rather than an empty PDF
+
+**Given** `pdf-lib` is a new dependency
+**When** it is added
+**Then** it is a runtime dependency of the server only, the 0-vulnerability audit gate stays green, and a real multi-page ticket PDF plus a portrait phone photo are both verified in the merged output — page count, orientation, and legibility, on screen

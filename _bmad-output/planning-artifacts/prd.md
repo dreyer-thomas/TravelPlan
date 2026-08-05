@@ -45,6 +45,8 @@ editHistory:
     changes: 'Removed WCAG AA target; clarified no formal accessibility standard required.'
   - date: '2026-07-30'
     changes: 'Removed FR31 (comments/suggestions) — comments and voting feature discontinued per product decision.'
+  - date: '2026-08-05'
+    changes: 'Added FR38-FR40 (travel documents on stays and activities, plus an offline document packet); annotated NFR2 to state that uploaded media files are in scope. See Sprint Change Proposal 2026-08-05.'
 ---
 
 # Product Requirements Document - TravelPlan
@@ -278,6 +280,12 @@ TravelPlan is a web SPA targeting Chrome/Safari on desktop and mobile/tablet.
 - FR36: Users can assign captured ideas to specific days.
 - FR37: Users can view past trips as a read-only logbook.
 
+### Travel Documents
+
+- FR38: Users can attach documents (PDF or image files) to an accommodation entry and to a day plan item.
+- FR39: Users can see attached documents on the entry in the day timeline, open them, and delete them from the entry's dialog.
+- FR40: Users can produce an offline document packet as a single PDF containing a day's attached documents.
+
 ## Non-Functional Requirements
 
 ### Performance
@@ -286,7 +294,7 @@ TravelPlan is a web SPA targeting Chrome/Safari on desktop and mobile/tablet.
 
 ### Security
 
-- NFR2: The system shall require authenticated access to all trip data.
+- NFR2: The system shall require authenticated access to all trip data. **(2026-08-05: this explicitly includes uploaded media files — hero images, day images, accommodation and activity photos, and documents. Until Story 8.3 these were served as static files from `public/`, i.e. to anyone holding the URL. Story 8.3 closes that gap; the requirement itself is unchanged.)**
 - NFR3: Encryption at rest is not required at this stage.
 
 ### Reliability
