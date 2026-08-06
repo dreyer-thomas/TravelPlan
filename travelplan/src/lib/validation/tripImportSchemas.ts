@@ -234,14 +234,20 @@ const documentFileNameSchema = z
  * and not to the bytes: one pooled document referenced by two entries is one file with two names,
  * and the pool has no field that could hold both.
  *
- * **The per-entry cap is here as well as in the repository create**, which `imagesSchema` needs no
- * equivalent of because photos have no cap at all. The import does not go through
- * `createAccommodationDocument` / `createDayPlanItemDocument` - it writes rows inside the import
- * transaction - so the cap those two enforce is not a cap on this path, and a hand-edited manifest
- * listing 500 references at distinct `sortOrder`s lands 500 rows on one stay. What follows is not
- * recoverable through the UI: the field's Upload button is disabled at 10 rows and the route answers
- * "Document limit reached" for every further upload, so the entry is permanently full. The only other
- * ceiling on this path is `MAX_IMPORT_MEDIA_WRITES`, which is a whole-package budget of 5000.
+ * **The per-entry cap is enforced here as well as in the repository create** - the `.max()` below -
+ * which `imagesSchema` needs no equivalent of because photos have no cap at all. It has to be restated
+ * on this path because the import does not go through `createAccommodationDocument` /
+ * `createDayPlanItemDocument`: it writes rows inside the import transaction, so the cap those two
+ * enforce is not a cap here. Without the `.max()` a hand-edited manifest listing 500 references at
+ * distinct `sortOrder`s *would* land 500 rows on one stay, and nothing in the UI could recover from
+ * it - the field's Upload button is disabled at 10 rows and the route answers the cap message for
+ * every further upload, so the entry would be permanently full. The only other ceiling on this path is
+ * `MAX_IMPORT_MEDIA_WRITES`, a whole-package budget of 5000, which 500 rows on one stay never reaches.
+ *
+ * One consequence of restating it here, because it is not obvious from either side: `MAX_DOCUMENTS_PER_ENTRY`
+ * is now a **backup-compatibility constraint** and not only a policy knob. Lowering it would refuse
+ * every backup already written from an entry carrying more than the new value, including backups this
+ * build produced. Raising it is safe; lowering it needs a migration story for existing archives.
  */
 const documentsSchema = z
   .array(
@@ -817,7 +823,10 @@ export const tripImportPayloadSchema = z.object({
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: `Backup plans ${plannedMediaWrites} media files, more than the ${MAX_IMPORT_MEDIA_WRITES} one import may write`,
-      path: ["photos"],
+      // The package, not a pool. `plannedMediaWrites` counts photo *and* document references against
+      // one shared budget (Story 9.1), so a manifest that overflows it on documents alone would be
+      // reported against `photos` — pointing the reader at a pool that can be empty.
+      path: [],
     });
   }
 });

@@ -7,7 +7,7 @@ baseline_revision: '7d9f661eaa6ee523bedb27abeb307979b96d43d7'
 final_revision: 'f1e2ff604177c390ba98495597bf1f489c0da93e'
 test_baseline: '120 files / 1417 tests green'
 review_loop_iteration: 0
-followup_review_recommended: true
+followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/9-1-documents-on-stays-and-activities.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-9-context.md'
@@ -181,6 +181,21 @@ warnings: ['oversized']
   - `[low]` `[patch]` Four callbacks in the two dialogs bound `document` as a parameter in files whose error-focus effects call `document.getElementById` — the exact trap the change's own comment in `TripDayView.tsx` warns against. Renamed to `documentRow`.
   - `[low]` `[patch]` Three comments stated something untrue: the loader's "Five requests" (it makes six), and `importPhotos.ts` naming `validatePackageDocuments` as the guard that ran when production calls `validatePackageMedia`. Corrected, and `validatePackageDocuments`' docblock now says what its twin's already did — that the route does not call it.
 
+### 2026-08-06 — Review pass (follow-up)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 5: (high 0, medium 1, low 4)
+- defer: 3: (high 1, medium 1, low 1)
+- reject: 7: (high 0, medium 5, low 2)
+- addressed_findings:
+  - `[medium]` `[patch]` Both dialogs discriminated the one actionable upload failure by matching the route's bare English literal `"Document limit reached"`, with nothing linking the four sites. The routes answer `validation_error` for a rejected type, an oversized file, an unusable name **and** the cap, so the message is the only discriminator — and a reword on the route side would have silently downgraded "up to 10 per entry" to "please try again", an instruction to retry a condition retrying cannot fix, with every test still green. Replaced with `DOCUMENT_LIMIT_ERROR_MESSAGE` exported from `documentUploads.ts`, which both routes and both dialogs already import.
+  - `[low]` `[patch]` The whole-package media-write budget reported its overflow at `path: ["photos"]`, although `requirePooledDocument` increments the same counter — so a manifest overflowing it on documents alone pointed the reader at a pool that can be empty. Now `path: []`, the package itself, with the shared budget named in a comment.
+  - `[low]` `[patch]` The chip group's `minWidth: DOC_ROW_MIN_WIDTH` clamps the flex item's used main size **up**, so `space-between` right-aligns the group's 210px box while the chips are left-packed inside it — a single 63.81px chip ends ~146px short of the card's right edge at 1280px, and the declaration's comment claimed DESIGN.md `:160`'s right-alignment outright. The layout is left as shipped: the `min-width` that decides *whether* the group wraps is the same thing that stops it shrink-wrapping once it has not, and `justifyContent: "flex-end"` would indent the *wrapped* group ~134px from the left at 390px — a larger deviation than the one it fixes. The comment now states what the declaration actually delivers, why the obvious override is worse, and that the container-query fix is DW-193. **Recorded as a patch because that is the action this pass took; the residual visual gap is tracked as DW-193 rather than left in a comment alone.**
+  - `[low]` `[patch]` `MAX_DOCUMENTS_PER_ENTRY` became a backup-compatibility constraint when the previous pass applied it as `.max()` on the manifest — lowering it would refuse every backup already written from an entry carrying more than the new value, including backups this build produced. Recorded at both ends: the constant's own docblock (where a change would be attempted) and `documentsSchema`'s.
+  - `[low]` `[patch]` Four comments and citations stated something untrue. `uploadPaths.ts` named "the export pool builder" as a directory walk that relies on the `documents/` separation — nothing in `src/` calls `readdir` at all, and the export builder walks Prisma rows; `documentsSchema`'s docblock described "500 rows on one stay" in the indicative as current behaviour when the `.max()` on the next line closes it; `TripIcons.tsx` cited `DESIGN.md:157` (`bg`) for the 14px glyph size, which is `:158`; `DocumentUploadField.tsx` cited `:266` (trip-row prose) for the 44px floor, which is `:155`.
+  - Deferred as new ledger entries: DW-194 (removing a day image `fs.rm`s the whole day upload tree, destroying every gallery photo and document on that day with the rows intact — pre-existing for photos, far costlier now), DW-195 (a non-`ENOENT` unlink error is rethrown after the row has committed, so the user is told "removal failed" for media that is gone), DW-196 (`fs.mkdir` runs before the repository confirms the entry exists, leaving empty directory trees on `not_found`). All three are byte-identical in shape on the image routes the spec required these to be copied from, and all three want a fix scoped to all four media routes.
+  - Rejected: four findings restating already-open entries (DW-185 stale media loader, DW-188 non-transactional cap and P2002, DW-189 upload trusts the declared MIME while the import sniffs bytes — including the zero-length-file variant, DW-191 test-only pool validators); `FORMAT_VERSION` staying `2`, which the intent contract mandates and the export route's comment already argues; the two enforced limits appearing as literals in the German and English strings, which is the app-wide convention and lands with DW-45's limit reconciliation; and a partial upload leaving its unsent tail staged, which is deliberate so the tail can be retried.
+
 ## Design Notes
 
 **Decisions carried in** (answered by Tommy on 2026-08-05, recorded in the story's Dev Agent Record — do not re-ask):
@@ -224,41 +239,37 @@ warnings: ['oversized']
 - `test/i18nDictionaries.test.ts` -- green
 
 **Browser pass (measurement, not a smoke test):** production build, throwaway database copy, scratch `MEDIA_STORAGE_ROOT`, headless Chrome over CDP. At **390×844** and at desktop width, on a card with three photos and one, two and three documents: read the media row and chip geometry, **correct `DOC_ROW_MIN_WIDTH` against what comes back**, and rewrite its comment as a measurements table. Confirm every chip and the `+N` measures ≥44px **at both widths**. Confirm a real multi-page PDF opens inline in a new tab with all pages legible, and that a portrait photo uploaded *as a document* opens in a new tab without mounting the fullscreen viewer. Confirm the German labels for the two media fields fit their column and read as two different things. Export, delete, re-import, and open one of the restored PDFs. Then stop the server, delete the scratch files, and confirm `prisma/dev.db`'s hash is unchanged and nothing was written to the real media tree.
-</content>
-</invoke>
 
 ## Auto Run Result
 
 Status: done
 Blocking condition: none
 
-**What was implemented.** Documents on stays and activities, end to end: two tables mirroring the image galleries plus a `fileName` column, two upload routes, PDF serving with `content-disposition: inline`, a shared `DocChip` on the three timeline cards with a three-chip cap and a `+N` menu, a `DocumentUploadField` on both dialogs' `Medien & Links` tab, and a separate `documents/` pool through the v2 backup archive in both directions. `FORMAT_VERSION` stays `2` and every new manifest field is `.optional()` with a default, so a v1 JSON backup and a documents-free v2 package import exactly as before. The five implementation commits (`764f96a` … `95bda10`) carry the feature; this review pass added the changes below on top.
+**What this run was.** A follow-up review pass over the whole of Story 9.1 (`7d9f661` → HEAD, 62 files, 12,098 insertions), requested because the previous pass recommended one. No spec repair and no intent gap: the second reading confirmed the feature as specified and found no deviation from the intent contract.
 
-**Files changed in this review pass.**
-- `src/lib/validation/documentGallerySchemas.ts` — `tripDayId` and the entity id are now validated as single safe path segments via `isSafeMediaSegment`
-- `src/app/api/trips/[id]/accommodations/documents/route.ts`, `.../day-plan-items/documents/route.ts` — `resolveUploadExtension` replaces the bare `ALLOWED_TYPES[file.type]` lookup
-- `src/lib/validation/tripImportSchemas.ts` — per-entry document cap on the import path
-- `src/lib/trips/documentUploads.ts` — surrogate-safe truncation of the stored name
-- `src/components/features/trips/TripDayView.tsx` — `aria-expanded` on the chip row's `+N`; corrected request count in the loader comment
-- `src/components/features/trips/TripAccommodationDialog.tsx`, `TripDayPlanDialog.tsx` — four callback parameters renamed off the `document` global
-- `src/lib/trips/importPhotos.ts`, `src/lib/trips/importPackage.ts` — comments corrected to name the validator production actually calls
-- `test/tripAccommodationDocumentsRoute.test.ts`, `test/tripDayPlanItemDocumentsRoute.test.ts` — type resolution and path-segment refusal, the latter asserted at the filesystem boundary
-- `test/documentUploadAccept.test.ts` — truncation never leaves half a character
-- `test/tripDayViewLayout.test.tsx` — `+N` reports its expanded state
-- `test/tripImportSchemas.test.ts` — per-entry cap, and the shared write-cap fixture refixtured onto photos
-- `_bmad-output/implementation-artifacts/deferred-work.md` — DW-185 … DW-192 appended
+**What the feature is.** Documents on stays and activities, end to end: two tables mirroring the image galleries plus a `fileName` column, two upload routes, PDF serving with `content-disposition: inline`, a shared `DocChip` on the three timeline cards with a three-chip cap and a `+N` menu, a `DocumentUploadField` on both dialogs' `Medien & Links` tab, and a separate `documents/` pool through the v2 backup archive in both directions. `FORMAT_VERSION` stays `2` and every new manifest field is `.optional()` with a default, so a v1 JSON backup and a documents-free v2 package import exactly as before.
 
-**Review findings.** Two adversarial reviewers ran in parallel over the full diff (19 findings after dedup). 7 patched, 8 deferred, 1 rejected, 0 intent gaps, 0 spec repairs — see the Review Triage Log for the patched set and the ledger for DW-185 … DW-192. Every finding was re-verified against the working tree before triage, and two reviewer claims did not survive that check: `PhotoUploadField` already carried `emptyLabel` at the baseline (so the "No documents yet." problem is a mirrored pattern, DW-192, not new behaviour), and the media loader had no cancellation flag at the baseline either (so DW-185 is a widened pre-existing race, not one this story introduced).
+**Files changed in this pass** (7 source files, no test changes — every patch is behaviour-preserving or comment-only, and the existing 1,539 assertions cover them unchanged):
+- `src/lib/trips/documentUploads.ts` — new exported `DOCUMENT_LIMIT_ERROR_MESSAGE`; `MAX_DOCUMENTS_PER_ENTRY`'s docblock now records that lowering it breaks existing backups
+- `src/app/api/trips/[id]/accommodations/documents/route.ts`, `.../day-plan-items/documents/route.ts` — the cap refusal answers with the shared constant
+- `src/components/features/trips/TripAccommodationDialog.tsx`, `TripDayPlanDialog.tsx` — match on the shared constant instead of a bare literal
+- `src/lib/validation/tripImportSchemas.ts` — media-write overflow reported against the package rather than the `photos` pool; `documentsSchema`'s docblock rewritten so it reads as the cap's justification rather than as a description of a hole the next line closes
+- `src/components/features/trips/TripDayView.tsx` — the media row's alignment comment now states what `space-between` plus a clamped `min-width` actually delivers, and why the obvious override is worse
+- `src/lib/trips/uploadPaths.ts` — the `documents/` rationale no longer claims an existing directory walk depends on it; nothing in `src/` calls `readdir`
+- `src/components/features/trips/TripIcons.tsx`, `src/components/forms/DocumentUploadField.tsx` — two DESIGN.md line citations corrected
+- `_bmad-output/implementation-artifacts/deferred-work.md` — DW-193 … DW-196 appended as new entries; no existing entry touched
 
-**Verification.**
+**Review findings.** Two adversarial reviewers ran in parallel over the full diff (generated Prisma client excluded); 15 findings after dedup. 5 patched, 3 deferred, 7 rejected, 0 intent gaps, 0 spec repairs. Every claim was re-verified against the tree before triage, and two reviewer claims did not survive it: the day-image `fs.rm` and the pre-`create` `fs.mkdir` were both presented as new hazards, and both are byte-identical in the image routes at the baseline — they are recorded as pre-existing (DW-194, DW-196) rather than as this story's defects. Four findings were rejected as restatements of entries this feature's earlier passes already opened (DW-185, DW-188, DW-189, DW-191).
+
+**Verification** (all in `travelplan/`):
 - `npx tsc --noEmit` — 0 `src/` errors; 143 test-side errors, exactly the recorded baseline
 - `npm run lint` — 85 problems / 2 errors, exactly the baseline; no React Compiler bail-out
-- `npm test` — 126 files / 1539 tests, all green; no assertion weakened
-- `npm run check:migrations` — passed; the story's migration is the only added file
-- `npm run audit:check` — **1 high, not 0**: `fast-uri` through `prisma`. `package.json` and `package-lock.json` are byte-identical to baseline `7d9f661`, so the advisory was published between the baseline and this run; already recorded as DW-183 in an earlier pass and not duplicated.
+- `npm test` — 126 files / 1,539 tests green, unchanged from the previous pass; no assertion weakened, none added
+- `npm run check:migrations` — passed
+- `npm run audit:check` — **1 high, not 0**: `fast-uri` through `prisma`. `package.json` and `package-lock.json` are byte-identical to baseline `7d9f661`, so this is DW-183 and is not duplicated.
 
 **Residual risks.**
-- The browser measurement pass that produced `DOC_ROW_MIN_WIDTH` ran before this review; none of the patches touches layout, so it was not repeated. The two dialog and day-view changes are ARIA and identifier renames only.
-- DW-185 (stale cross-day media writes) and DW-188 (P2002 on concurrent uploads) are open and reachable from the shipped feature. Both are pre-existing shapes shared with the image galleries, and both need a change scoped to all four media routes rather than to documents alone.
-- DW-189 means a deliberately mislabelled document can make that trip's own export fail to re-import as a whole. Narrow, but it fails a whole-package operation.
+- The browser measurement pass that produced `DOC_ROW_MIN_WIDTH` ran two passes ago and was not repeated: no patch in this pass alters a rendered value, and the one layout-adjacent finding (DW-193) was deliberately left as shipped. That pass measured the wrap decision at eleven widths and never measured chip alignment inside the group, which is how DW-193 survived it.
+- DW-194 is the heaviest open item reachable from this feature: one click on "remove day image" unlinks every photo and every document on that day with the rows left intact. It predates the story and predates the galleries' current shape, but documents raise the cost per occurrence to up to 10 MB of irrecoverable booking confirmations.
+- DW-185, DW-188, DW-189, DW-195 and DW-196 are open and reachable from the shipped feature. All five are shapes shared with the image galleries and all five want one change scoped to all four media routes, not a documents-only fix.
 - `_bmad-output/implementation-artifacts/6-27-a-comma-is-a-decimal-point.md` is untracked and belongs to a different story; it was left alone and is not in this commit.

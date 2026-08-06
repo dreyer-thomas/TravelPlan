@@ -101,12 +101,16 @@ export const getDayPlanItemImageUploadDir = (tripId: string, dayId: string, dayP
  * Documents (Story 9.1) live in a `documents` subdirectory of the entry's own image directory rather
  * than beside its photos.
  *
- * Two things follow from the separation and neither is cosmetic. A directory walk over an entry - the
- * export pool builder is one, and any future cleanup pass is another - reads the entry directory as
- * "this entry's photographs"; a PDF, or worse a JPEG that the user filed as a ticket, sitting in it
- * would be indistinguishable from one. And the two sets stay separable on disk, so a document can be
- * removed, counted or archived without first consulting the database about which of the files in the
- * directory the database thinks is a photo.
+ * The reason is separability on disk: a document can be removed, counted or archived without first
+ * consulting the database about which of the files in the entry's directory the database thinks is a
+ * photo. Flat, a PDF - or worse a JPEG the user filed as a ticket - would be indistinguishable from a
+ * photograph to anything reading the directory rather than the rows.
+ *
+ * **Nothing reads it that way today.** No code in `src/` calls `readdir`: the export pool builder in
+ * `tripRepo.ts` walks Prisma rows and resolves each stored URL through `resolveOwnedMediaPath`, and
+ * the cleanup pass that would walk the tree does not exist (DW-187). So this separation is what makes
+ * such a walker possible, not something an existing one relies on - do not read the layout as evidence
+ * that a directory walk is already the authority anywhere.
  *
  * Composed from the image-dir helpers rather than rebuilt from `getTripDayUploadDir`, so there is
  * exactly one definition of where an entry's media lives and this pair cannot drift from it. Nothing

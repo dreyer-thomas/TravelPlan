@@ -16,7 +16,7 @@ import {
   accommodationDocumentUploadSchema,
 } from "@/lib/validation/documentGallerySchemas";
 import { requireSession } from "@/lib/auth/sessionGuard";
-import { sanitizeDocumentFileName } from "@/lib/trips/documentUploads";
+import { DOCUMENT_LIMIT_ERROR_MESSAGE, sanitizeDocumentFileName } from "@/lib/trips/documentUploads";
 import { getAccommodationDocumentUploadDir, resolveStoredMediaPath } from "@/lib/trips/uploadPaths";
 
 export const runtime = "nodejs";
@@ -229,7 +229,7 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
     // The file is already on disk at this point and no row will ever reference it, so it is removed
     // here or it is orphaned for good - nothing else knows it exists.
     await fs.rm(filePath, { force: true });
-    return fail(apiError("validation_error", "Document limit reached"), 400);
+    return fail(apiError("validation_error", DOCUMENT_LIMIT_ERROR_MESSAGE), 400);
   }
 
   return ok({

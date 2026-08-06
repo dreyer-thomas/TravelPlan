@@ -39,6 +39,7 @@ import { Node } from "@tiptap/core";
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
 import {
+  DOCUMENT_LIMIT_ERROR_MESSAGE,
   DOCUMENT_UPLOAD_ACCEPT,
   MAX_DOCUMENTS_PER_ENTRY,
   isSupportedDocumentUpload,
@@ -1680,12 +1681,14 @@ export default function TripDayPlanDialog({
         const body = (await response.json()) as ApiEnvelope<{ document: PlanDocument }>;
         if (!response.ok || body.error || !body.data?.document) {
           failedAtIndex = index;
-          // Matched on the route's own literal because `validation_error` is also what a rejected
-          // type, an oversized file and an unusable name come back as — the code alone cannot say
-          // which of the four happened, and the cap is the one of them the user can act on without
-          // being told anything further.
+          // Matched on the message because `validation_error` is also what a rejected type, an
+          // oversized file and an unusable name come back as — the code alone cannot say which of the
+          // four happened, and the cap is the one of them the user can act on without being told
+          // anything further. Against the shared constant rather than a literal: the route answers
+          // with the same one, so a reword cannot silently turn the actionable message into "please
+          // try again".
           setServerError(
-            body.error?.message === "Document limit reached"
+            body.error?.message === DOCUMENT_LIMIT_ERROR_MESSAGE
               ? t("trips.documents.limitReached")
               : t("trips.documents.uploadError"),
           );

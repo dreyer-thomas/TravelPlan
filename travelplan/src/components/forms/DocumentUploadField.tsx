@@ -230,7 +230,8 @@ export default function DocumentUploadField({
                     total,
                   })}
                   sx={{
-                    // 44×44 (DESIGN.md:266), beside the chip rather than over it: the chip is a link
+                    // 44×44 (DESIGN.md:155, `doc-chip.minHeight`, and the same floor restated at
+                    // `:260`), beside the chip rather than over it: the chip is a link
                     // filling its own width, and a remove target overlapping it would sit on top of
                     // the anchor's own hit area.
                     width: 44,

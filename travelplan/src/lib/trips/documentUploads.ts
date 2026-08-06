@@ -39,8 +39,25 @@ const SUPPORTED_DOCUMENT_EXTENSIONS = new Set(["pdf", "jpg", "jpeg", "png", "web
  * same reason `importLimits.ts` exists as a dependency-free module. **The cap is enforced in the
  * repository create**, not only in the dialog: a cap the client alone enforces is not a cap, and the
  * image galleries have no count cap at all so there was no existing pattern to copy.
+ *
+ * **Raising it is safe; lowering it is not.** `documentsSchema` in `tripImportSchemas.ts` applies it as
+ * a `.max()` on the manifest, so a lower value refuses every backup already written from an entry that
+ * carries more than the new number - including backups this build produced. See that docblock.
  */
 export const MAX_DOCUMENTS_PER_ENTRY = 10;
+
+/**
+ * The exact `error.message` both document upload routes answer a cap refusal with, and the value both
+ * dialogs match on to choose `trips.documents.limitReached` over the generic upload error.
+ *
+ * It is a shared constant rather than a literal repeated four times because the code alone cannot
+ * carry the distinction: the routes answer `validation_error` for a rejected type, an oversized file,
+ * an unusable name *and* the cap, so the message is the only discriminator, and "up to 10 per entry"
+ * is the one of the four the user can act on. Spelled out on both sides, a reword on the route side
+ * would silently downgrade that to "please try again" — an instruction to retry a condition retrying
+ * cannot fix — and nothing would fail. Here, the two sides cannot drift.
+ */
+export const DOCUMENT_LIMIT_ERROR_MESSAGE = "Document limit reached";
 
 /**
  * Mirrors the routes' `ALLOWED_TYPES` lookup so an unsupported pick fails immediately with a specific

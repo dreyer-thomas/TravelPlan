@@ -267,7 +267,7 @@ export function UploadIcon({ sx }: IconProps) {
 }
 
 /**
- * `components.doc-chip`'s file glyph (`DESIGN.md:157`). Used by `DocChip`, which passes
+ * `components.doc-chip`'s file glyph (`DESIGN.md:158`, `glyphSize: 14px`). Used by `DocChip`, which passes
  * `sx={{ fontSize: 14 }}` for the token's 14px; the 20px default matches `UploadIcon` beside it so a
  * dropzone-sized use needs no override. A page outline with a folded corner, drawn stroke-only like
  * every other glyph here — the fold is what separates it from a bare rectangle at 14px.

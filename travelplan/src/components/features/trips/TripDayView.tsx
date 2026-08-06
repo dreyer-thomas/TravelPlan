@@ -1919,12 +1919,23 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
           flexWrap: "wrap",
           alignItems: "center",
           gap: "6px",
-          // The whole of AC4's alignment rule, from one declaration and no measurement.
-          // `space-between` is resolved **per flex line**: a line holding both children puts the strip
-          // at the start and the chip group at the end (the token's "right, beside photo-strip"), and
-          // a line holding one child puts it at the start (the token's "left, wrapped row"). Any
+          // AC4's alignment rule, from one declaration and no measurement. `space-between` is resolved
+          // **per flex line**: a line holding both children puts the strip at the start and the chip
+          // group at the end (DESIGN.md `:160`'s "right, beside photo-strip"), and a line holding one
+          // child puts it at the start (the same token's "left, wrapped row"). Any
           // `justify-content: flex-end` or `margin-left: auto` spelling of the same idea would keep
           // the wrapped group pinned right, because neither can tell the two lines apart.
+          //
+          // **What it delivers is the group's box, not its chips.** A flex item's used main size is
+          // clamped up by `min-width`, so a group narrower than `DOC_ROW_MIN_WIDTH` is laid out as a
+          // 210px box; `space-between` flushes that box right and the chips are left-packed inside it.
+          // One 63.81px chip at 1280px therefore ends ~146px short of the card's right edge. The two
+          // requirements are in genuine conflict — the `min-width` that decides *whether* the group
+          // wraps is the same thing that stops it shrink-wrapping once it has not — and CSS has no way
+          // to tell a same-line group from a wrapped one, which is what an alignment override would
+          // need. `justifyContent: "flex-end"` here is strictly worse: it would indent the *wrapped*
+          // group ~134px from the left at 390px, breaking the half of the token that works today.
+          // Left as shipped deliberately; the residual gap is DW-193, whose fix is a container query.
           justifyContent: "space-between",
         }}
       >
