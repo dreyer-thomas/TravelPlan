@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import TripsDashboard from "@/components/features/trips/TripsDashboard";
 import { renderWithProviders } from "./helpers/renderWithProviders";
 
@@ -13,6 +13,9 @@ const TODAY = new Date("2026-08-01T09:30:00.000Z");
 const trip = (overrides: Record<string, unknown>) => ({
   id: "trip-x",
   name: "Trip",
+  // The list is owner-OR-member since Story 5.12 and a row without this field is treated as shared,
+  // so the default has to be explicit: without it every fixture below would render a viewer pill.
+  accessRole: "owner",
   startDate: "2026-09-12T00:00:00.000Z",
   endDate: "2026-09-24T00:00:00.000Z",
   dayCount: 13,
@@ -319,6 +322,17 @@ describe("TripsDashboard", () => {
     expect(row).toHaveAttribute("data-status", "upcoming");
   });
 
+  it("leaves a freshly created trip unmarked, as the account's own", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderDashboard();
+
+    await createOsloTrip(user);
+
+    // POST returns no `accessRole`, so `handleTripCreated` sets it. Drop that one line and the
+    // absent-field fallback puts a VIEWER pill on a trip the account just created itself.
+    expect(within(await rowFor(/autumn in oslo/i)).queryByTestId("trip-row-role")).not.toBeInTheDocument();
+  });
+
   it("derives upcoming for a trip created to start today, not a warn row", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     renderDashboard();
@@ -485,6 +499,178 @@ describe("TripsDashboard", () => {
       const row = await rowFor(/portugal/i);
       expect(within(row).getByText("2.340,00 €")).toBeInTheDocument();
       expect(within(row).getByTestId("trip-row-status")).toHaveTextContent("3 Tage offen");
+    });
+  });
+
+  // Story 5.12. The list is owner-OR-member, so a row has to say which it is: an unmarked shared row
+  // would present somebody else's trip as the account's own.
+  describe("shared trips", () => {
+    const OWNED = trip({ id: "owned", name: "My own trip" });
+    const SHARED_VIEWER = trip({ id: "shared", name: "Shared with me", accessRole: "viewer", openDayCount: 3 });
+
+    it("marks a shared row with its role and leaves an owned row unmarked", async () => {
+      mockTripsResponse = { data: { trips: [OWNED, SHARED_VIEWER] }, error: null };
+      renderDashboard();
+
+      const sharedRow = await rowFor(/shared with me/i);
+      const rolePill = within(sharedRow).getByTestId("trip-row-role");
+      expect(rolePill).toHaveAttribute("data-role", "viewer");
+      expect(rolePill).toHaveTextContent("Viewer");
+
+      // The absence is the signal on an owned row - the warn-toned owner badge is reserved for the
+      // share dialog, and this row already spends warn on its gap state.
+      expect(within(await rowFor(/my own trip/i)).queryByTestId("trip-row-role")).not.toBeInTheDocument();
+    });
+
+    it("uses the contributor word for a contributor membership", async () => {
+      mockTripsResponse = {
+        data: { trips: [trip({ id: "shared", name: "Shared with me", accessRole: "contributor" })] },
+        error: null,
+      };
+      renderDashboard();
+
+      const rolePill = within(await rowFor(/shared with me/i)).getByTestId("trip-row-role");
+      expect(rolePill).toHaveAttribute("data-role", "contributor");
+      expect(rolePill).toHaveTextContent("Contributor");
+    });
+
+    it("takes the role words from the shared share-dialog dictionary keys", async () => {
+      const sharedContributor = trip({ id: "contrib", name: "Shared as contributor", accessRole: "contributor" });
+      mockTripsResponse = { data: { trips: [SHARED_VIEWER, sharedContributor] }, error: null };
+      renderWithProviders(<TripsDashboard />, { language: "de" });
+
+      // `trips.share.roleViewer` / `roleContributor`, the same keys the share dialog's badge renders
+      // - not literals. Both words are asserted because the longer one is what stresses the layout.
+      expect(within(await rowFor(/shared with me/i)).getByTestId("trip-row-role")).toHaveTextContent("Betrachter");
+      expect(within(await rowFor(/shared as contributor/i)).getByTestId("trip-row-role")).toHaveTextContent(
+        "Mitwirkender",
+      );
+    });
+
+    it("names the shared row's link in German too, with the role in it", async () => {
+      mockTripsResponse = { data: { trips: [SHARED_VIEWER] }, error: null };
+      renderWithProviders(<TripsDashboard />, { language: "de" });
+
+      // `test/i18nDictionaries.test.ts` compares key sets and non-emptiness, not placeholders, so a
+      // German value that quietly lost `{role}` would keep every other test green while the one
+      // string only screen-reader users ever receive stopped stating the role.
+      expect(
+        await screen.findByRole("link", { name: "Reise Shared with me öffnen, für dich freigegeben als Betrachter" }),
+      ).toBeInTheDocument();
+    });
+
+    it("separates the viewer pill from a planned status pill it shares a fill colour with", async () => {
+      // `statusPill`'s `planned` treatment is `accentSoft` on `primary.main` - exactly the viewer
+      // variant's. On a fully planned shared trip the two sit 8px apart in one column, so the role
+      // pill carries a border to stay its own chip rather than reading as more of the one beside it.
+      const plannedShared = trip({
+        id: "planned-shared",
+        name: "Planned and shared",
+        accessRole: "viewer",
+        openDayCount: 0,
+        planItemCount: 4,
+      });
+      mockTripsResponse = { data: { trips: [plannedShared] }, error: null };
+      renderDashboard();
+
+      const row = await rowFor(/planned and shared/i);
+      expect(within(row).getByTestId("trip-row-status")).toHaveAttribute("data-status", "planned");
+      const rolePill = within(row).getByTestId("trip-row-role");
+      expect(rolePill).toHaveAttribute("data-role", "viewer");
+
+      // The colour is the load-bearing half, not the `solid`: an outline drawn in the fill's own
+      // colour is invisible and the two chips merge again, which is the defect this case exists for.
+      // So the border is pinned against the pill's own two colours rather than against a literal -
+      // it has to be the text colour (`primary.main`) and it has to differ from the background
+      // (`accentSoft`). Changing `border` to `accentSoft` fails here; changing the palette does not.
+      const pill = window.getComputedStyle(rolePill);
+      expect(pill.borderStyle).toBe("solid");
+      expect(pill.borderColor).toBe(pill.color);
+      expect(pill.borderColor).not.toBe(pill.backgroundColor);
+      // And the separation has to come from the role pill, because the status pill beside it draws
+      // no border at all - asserting merely "not solid" there would hold for any implementation.
+      expect(window.getComputedStyle(within(row).getByTestId("trip-row-status")).borderStyle).toBe("");
+    });
+
+    it("names the shared row's link so the distinction is not visual only", async () => {
+      mockTripsResponse = { data: { trips: [OWNED, SHARED_VIEWER] }, error: null };
+      renderDashboard();
+
+      // The pill sits outside the overlay link, so a reader traversing by link list would otherwise
+      // hear only "Open trip Shared with me" - identical to the account's own row.
+      expect(
+        await screen.findByRole("link", { name: "Open trip Shared with me, shared with you as Viewer" }),
+      ).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Open trip My own trip" })).toBeInTheDocument();
+    });
+
+    it("treats a row with no accessRole as shared rather than owned", async () => {
+      // An older cached payload, from before the field existed. `TripTimeline` reads an absent role
+      // as owner; this surface must not, or an unknown row is presented as the account's own trip.
+      const legacyRow = trip({ id: "legacy", name: "Cached older payload" }) as Record<string, unknown>;
+      delete legacyRow.accessRole;
+      mockTripsResponse = { data: { trips: [legacyRow] }, error: null };
+      renderDashboard();
+
+      const rolePill = within(await rowFor(/cached older payload/i)).getByTestId("trip-row-role");
+      expect(rolePill).toHaveAttribute("data-role", "viewer");
+    });
+
+    it("offers a viewer nothing on the row beyond opening the trip", async () => {
+      mockTripsResponse = { data: { trips: [SHARED_VIEWER] }, error: null };
+      renderDashboard();
+
+      const row = await rowFor(/shared with me/i);
+      // The row is one overlay link over a four-area grid - there is no menu, no delete, no edit and
+      // no per-row control on this surface at all, for any role. Deletion lives on the trip overview,
+      // which gates on `accessRole` itself. Pinned so a future per-row action cannot arrive here
+      // ungated.
+      expect(within(row).queryAllByRole("button")).toHaveLength(0);
+      const links = within(row).getAllByRole("link");
+      expect(links).toHaveLength(1);
+      expect(links[0]).toHaveAttribute("href", "/trips/shared");
+      // The pill is a label, not a control.
+      expect(within(row).getByTestId("trip-row-role").tagName).toBe("SPAN");
+    });
+
+    it("counts a shared trip in the stat strip and the sub-line", async () => {
+      mockTripsResponse = { data: { trips: [OWNED, SHARED_VIEWER] }, error: null };
+      renderDashboard();
+
+      await screen.findAllByTestId("trip-row");
+
+      // The strip is a caption for the list beneath it, so a visible row it does not count would be
+      // a bug report waiting to be filed.
+      expect(screen.getByTestId("stat-active-trips")).toHaveTextContent("2");
+      expect(screen.getByTestId("stat-total-cost")).toHaveTextContent("€4,680.00");
+      expect(screen.getByTestId("stat-open-items")).toHaveTextContent("3");
+      expect(screen.getByText("2 trips · 1 with open items")).toBeInTheDocument();
+    });
+
+    it("asks for the list with no-store, so a replay cannot re-mark every row", async () => {
+      mockTripsResponse = { data: { trips: [OWNED] }, error: null };
+      renderDashboard();
+      await screen.findAllByTestId("trip-row");
+
+      // `cache: "no-store"` is load-bearing rather than a freshness nicety: this surface reads an
+      // absent `accessRole` as *shared*, so a replayed payload from before the field existed would
+      // put a viewer pill on every one of the account's own trips. Deleting it must fail here.
+      // `credentials: "include"` carries no such weight - the call is same-origin, where the default
+      // already sends the session cookie - and is pinned only to keep the list fetch shaped like
+      // every other authenticated GET in this tree. Removing it would be a tidy-up, not a defect.
+      const listCall = (global.fetch as unknown as Mock).mock.calls.find(
+        ([input, init]) => String(input).includes("/api/trips") && (init?.method ?? "GET") === "GET",
+      );
+      expect(listCall?.[1]).toMatchObject({ method: "GET", credentials: "include", cache: "no-store" });
+    });
+
+    it("keeps the existing empty state for an account with neither trips nor memberships", async () => {
+      mockTripsResponse = { data: { trips: [] }, error: null };
+      renderDashboard();
+
+      expect(await screen.findByText(/no trips yet/i)).toBeInTheDocument();
+      expect(screen.queryByTestId("trip-row")).not.toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
   });
 

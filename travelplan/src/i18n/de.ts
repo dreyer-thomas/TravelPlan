@@ -132,6 +132,7 @@ const de: Dictionary = {
   "trips.dashboard.costSoFar": "Kosten bisher",
   "trips.dashboard.costTotal": "Kosten gesamt",
   "trips.dashboard.openTripAria": "Reise {trip} öffnen",
+  "trips.dashboard.openSharedTripAria": "Reise {trip} öffnen, für dich freigegeben als {role}",
   "trips.create.title": "Neue Reise erstellen",
   "trips.create.helper": "Gib deiner Reise einen Namen und einen Zeitraum, um alle Planungstage zu erzeugen.",
   "trips.create.submit": "Reise erstellen",

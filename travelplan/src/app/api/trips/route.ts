@@ -81,25 +81,36 @@ export const GET = async (request: NextRequest) => {
 
   try {
     const trips = await listTripsForUser(userId);
-    return ok({
-      trips: trips.map((trip) => ({
-        id: trip.id,
-        name: trip.name,
-        startDate: trip.startDate.toISOString(),
-        endDate: trip.endDate.toISOString(),
-        dayCount: trip.dayCount,
-        heroImageUrl: trip.heroImageUrl,
-        // Versions the otherwise-stable `hero.<ext>` URL on the dashboard cards.
-        updatedAt: trip.updatedAt.toISOString(),
-        // Raw counts only. Trip *status* depends on "today" and on the viewer's timezone, neither of
-        // which the server knows, so it is derived in the component instead.
-        openDayCount: trip.openDayCount,
-        planItemCount: trip.planItemCount,
-        plannedCostTotal: trip.plannedCostTotal,
-        startLocationLabel: trip.startLocationLabel,
-        destinationLocationLabel: trip.destinationLocationLabel,
-      })),
-    });
+    return ok(
+      {
+        trips: trips.map((trip) => ({
+          id: trip.id,
+          name: trip.name,
+          // Owned, or reached through a membership and with which role. The list is owner-OR-member,
+          // so without this the dashboard cannot tell somebody else's trip from the account's own.
+          accessRole: trip.accessRole,
+          startDate: trip.startDate.toISOString(),
+          endDate: trip.endDate.toISOString(),
+          dayCount: trip.dayCount,
+          heroImageUrl: trip.heroImageUrl,
+          // Versions the otherwise-stable `hero.<ext>` URL on the dashboard cards.
+          updatedAt: trip.updatedAt.toISOString(),
+          // Raw counts only. Trip *status* depends on "today" and on the viewer's timezone, neither
+          // of which the server knows, so it is derived in the component instead.
+          openDayCount: trip.openDayCount,
+          planItemCount: trip.planItemCount,
+          plannedCostTotal: trip.plannedCostTotal,
+          startLocationLabel: trip.startLocationLabel,
+          destinationLocationLabel: trip.destinationLocationLabel,
+        })),
+      },
+      // Same treatment `/api/users` and `/api/admin/users` give their per-account bodies, and this
+      // one earned it: since the list became owner-OR-member the payload carries other people's trip
+      // names, routes, date ranges and cost totals plus this account's role on each. The dashboard
+      // asks with `cache: "no-store"`, but that governs only the browser's own cache - a proxy, curl
+      // or a future server-side reader has no other instruction.
+      { headers: { "Cache-Control": "no-store" } },
+    );
   } catch {
     return fail(apiError("server_error", "Unable to load trips"), 500);
   }

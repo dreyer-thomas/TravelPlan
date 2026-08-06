@@ -1438,6 +1438,44 @@ Widening the `where` clause is the smaller half. `TripSummary` carries no `acces
 **When** it runs
 **Then** it returns each trip exactly once for an account that both owns and is a member of trips, and a route test proves an account sees no trip it neither owns nor holds a membership on
 
+### Story 5.13: What a Contributor May Do, Made Consistent
+
+As someone invited to help plan a trip,
+I want to add photos, documents and ideas to the things I am already allowed to create and delete,
+So that "contributor" means what it says instead of stopping at the parts that carry a file.
+
+**FRs covered:** FR32
+
+**Depends on:** nothing. Stories 5.1, 5.4 and 5.6 already create the memberships this story reads.
+
+**Context:** Reported from production use on 2026-08-06: a contributor could not add photos to activities while the owner could. Nothing was broken — media writes have been owner-only since Story 2.16, which predates the contributor role entirely, and Story 9.1 copied the same gate onto the new document routes rather than diverging mid-dialog. The result is a split with no principle behind it: a contributor may rename the trip and delete an entire activity, but may not attach a picture to it, set a day image, or add a bucket-list idea.
+
+Recorded as **DW-182** and confirmed as intentional-for-now on 2026-08-05, one day before real use overturned it. The rule this story applies is *content yes, the trip as a possession no*: the four media routes, the day image, the bucket list and the backup export move to owner-or-contributor; member management, trip deletion and the trip hero image stay with the owner; a viewer gains nothing.
+
+Each widened route is guarded twice — the route's access helper **and** the repository's `trip: { userId }` scope. Opening only one produces a request that passes the gate and is then refused by the query, with the identical 404 as before, which is how a half-done version of this ships green.
+
+**Acceptance Criteria:**
+
+**Given** an account holding a CONTRIBUTOR membership
+**When** it adds or removes a photo or a document on an activity or a stay
+**Then** the write succeeds, on all four media routes, at both the route gate and the repository scope
+
+**Given** the same account
+**When** it sets a day image, adds a bucket-list idea, or exports a backup
+**Then** each succeeds — the export because a contributor can already read every byte the archive contains
+
+**Given** the same account
+**When** it attempts to manage members, change the trip hero image, or delete the trip
+**Then** each is refused, asserted as a negative, because these are the properties this change could plausibly break
+
+**Given** an account holding a VIEWER membership
+**When** it attempts any of the writes above
+**Then** every one is refused, and everything it could read before it can still read
+
+**Given** a request refused for the caller's role on a trip they already participate in
+**When** the refusal is returned
+**Then** it says so with `403 forbidden` rather than reporting the object as non-existent — a 404 to someone looking at the object on screen is what made this defect read as a broken app; refusals to non-participants keep answering 404
+
 
 ## Epic 6: Usability Refinements
 
@@ -2478,6 +2516,83 @@ So that the second-longest form on the day screen stops being one scroll through
 **Given** four panels of different heights and MUI centring the dialog
 **When** tabs are switched
 **Then** a minimum height holds the frame still, as Story 6.24 did for the activity dialog — a minimum and not a fixed height, because the payment rows and the photo strip are both unbounded
+
+### Story 6.28: Coordinates by Hand, and a Choice of Places
+
+As a traveller planning an activity the geocoder cannot find,
+I want to paste or type coordinates from Google Maps, and to pick from real search results when I do search,
+So that a pin lands where I mean it instead of somewhere with a similar name.
+
+**FRs covered:** FR26, FR28 (the way *into* the map data both describe)
+
+**Depends on:** nothing hard. Prefer landing after Story 6.27, which establishes this codebase's decimal-comma rule.
+
+**Context:** Reported from production use on 2026-08-06, as two complaints about one field. The place lookup asks Nominatim with `limit=1` and adopts `body[0]` unconditionally, so a search never presents alternatives — for an activity name rather than a street address it pins the best *name* match anywhere on earth, silently. And there is no coordinate input at all: `lat`/`lng` are only ever written from a geocoder response, so a typed pair is sent to Nominatim as a search string, does not resolve, and is reported as "no matching place".
+
+The data model is not the obstacle. `locationInputSchema` already accepts and range-checks `{lat, lng, label}`, and the maps, print path and backup archive all carry arbitrary coordinates. The whole story is the way in — plus one genuine difficulty: on a German keyboard the decimal separator is a comma, which makes a comma-separated pair ambiguous. That is the same failure class Story 6.27 documents across five money fields, and the rule here must refuse ambiguity rather than guess at it.
+
+**Acceptance Criteria:**
+
+**Given** a coordinate pair typed or pasted into the place field
+**When** the lookup is triggered
+**Then** it is accepted and sets the location with no network request at all — a pin the geocoder was never consulted about
+
+**Given** a Google Maps URL pasted into the place field
+**When** the lookup is triggered
+**Then** the pair is extracted from it, in both shapes real use produces; a URL carrying no pair is treated as an ordinary search term rather than as an error
+
+**Given** a German keyboard, where `48,8584` is the natural spelling
+**When** a pair is entered whose separators are genuinely ambiguous
+**Then** it is refused with a message naming the accepted spelling — never resolved by guessing, which would reinstate the silently-wrong pin this story exists to remove
+
+**Given** a pair that parses but lies outside ±90 or ±180
+**When** it is entered
+**Then** a visible error appears and no location is set
+
+**Given** a place search that matches several candidates
+**When** the results come back
+**Then** they are offered as a choice and none is adopted until one is picked; a single candidate may be adopted directly and zero candidates keeps the existing message
+
+**Given** the four surfaces that resolve a place — trip create (start and destination), activity dialog, accommodation dialog, bucket-list panel
+**When** any of them is used
+**Then** all behave identically, with the parsing living in exactly one module and no copy of it in a component
+
+
+### Story 6.29: The Stay's Link on the Day Page
+
+As a traveller looking at a single day,
+I want the booking link of last night's and tonight's stay right there on the day page,
+So that I can open a reservation without navigating back to the trip overview.
+
+**FRs covered:** FR6
+
+**Depends on:** nothing. The field is already loaded by the day view.
+
+**Context:** A stay's booking link is reachable only from the trip overview, where the stay name in the day row is the anchor. The day detail page shows the same stay twice — last night's at the top, tonight's at the bottom — and offers the link on neither, so opening a booking means navigating back.
+
+The data is already present: the day view's accommodation object carries `link`. This is a rendering story, with one finding attached. The link's validation is `z.string().url()`, which in Zod 4.4.3 validates URL *syntax* and not scheme — `javascript:alert(1)` and `data:text/html,…` are both accepted — and the trip overview places the stored value straight into `href` with no guard, while the day view's activity link one file over is guarded by `isSafeLink`. Adding two render sites without closing that would ship a third and fourth unguarded one, and Story 5.13 makes it matter more by letting contributors write to a trip they do not own.
+
+**Acceptance Criteria:**
+
+**Given** a day whose previous night or current night has a stay with a booking link
+**When** the day page is opened
+**Then** each stay card offers that link, and a stay without one shows nothing extra
+
+**Given** a stay card, whose whole surface is the edit target since Story 6.13
+**When** the link is clicked, by pointer or by keyboard
+**Then** only the link opens — the edit dialog does not — and the link opens in a new tab with `rel="noreferrer noopener"`
+
+**Given** a stored link whose scheme is neither `http:` nor `https:`
+**When** any surface renders it
+**Then** it is not rendered as a link anywhere, the trip overview row included, which is unguarded today
+
+**Given** the stay edit form
+**When** a link with an unsupported scheme is submitted
+**Then** it is refused; rows stored before this change are left alone and are covered by the render guard instead
+
+**Given** a viewer, who has no edit overlay on these cards
+**When** they open either link
+**Then** it works — the overlay escape hatch and the no-overlay case must both hold
 
 
 ## Epic 7: Visual Redesign — Light Cockpit System

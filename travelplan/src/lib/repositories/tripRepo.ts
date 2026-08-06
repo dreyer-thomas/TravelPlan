@@ -51,6 +51,12 @@ export type TripLocationInput = {
 export type TripSummary = {
   id: string;
   name: string;
+  /**
+   * Whether the listing account owns this trip or reaches it through a membership, and with which
+   * role. Positioned and named exactly as on `TripWithDays`, because it is the same fact derived by
+   * the same expression - the two surfaces must never disagree about who owns a trip.
+   */
+  accessRole: TripAccessRole;
   startDate: Date;
   endDate: Date;
   dayCount: number;
@@ -645,13 +651,25 @@ export const listTripsForUser = async (userId: string): Promise<TripSummary[]> =
   // One `findMany`, not one query per trip: calling `getTripWithDaysForUser` in a loop would issue a
   // raw query plus a full day/plan-item/travel-segment tree for every row on the landing surface.
   // (Prisma still expands the nested relations into their own queries - the point is that the cost
-  // is fixed, not proportional to the number of trips.) The `where`/`orderBy` stay as they are -
-  // shared trips are deliberately not listed here (see the story's Dev Notes), and past-trips-last
-  // ordering is applied client-side where "today" is known.
+  // is fixed, not proportional to the number of trips.) The `where` authorises the same way every
+  // other trip read does - owned, or reachable through a membership - because this list is the only
+  // surface offered after sign-in, and filtering it on ownership alone left an invited collaborator
+  // staring at an empty dashboard while the trip opened fine by direct URL. Prisma compiles the
+  // relation filter inside `OR` to an `EXISTS` subquery, so a trip matching both arms is returned
+  // once rather than joined into duplicates.
+  //
+  // The membership rides along in the same query rather than costing a `getTripAccessForUser` per
+  // row; `@@unique([tripId, userId])` is what makes `take: 1` exact. The `orderBy` is unchanged -
+  // past-trips-last ordering is applied client-side where "today" is known.
   const trips = await prisma.trip.findMany({
-    where: { userId },
+    where: { OR: [{ userId }, { members: { some: { userId } } }] },
     orderBy: { startDate: "asc" },
     include: {
+      members: {
+        where: { userId },
+        select: { role: true },
+        take: 1,
+      },
       days: {
         select: {
           accommodation: { select: { name: true, costCents: true } },
@@ -661,7 +679,15 @@ export const listTripsForUser = async (userId: string): Promise<TripSummary[]> =
     },
   });
 
-  return trips.map((trip) => {
+  // Prisma loads a to-many `include` as its own statement, so the `EXISTS` filter above and the
+  // membership read are not one atomic query: a membership revoked between them comes back as a
+  // non-owned row with `members: []`. `getTripAccessForUser` answers `null` - no access at all - for
+  // exactly that state, so the list drops the row rather than downgrading it to `viewer`. Downgrading
+  // would hand a just-removed collaborator the trip's name, dates, route and cost total one last
+  // time, on a row that 404s the moment it is clicked.
+  const accessible = trips.filter((trip) => trip.userId === userId || trip.members.length > 0);
+
+  return accessible.map((trip) => {
     // Mirrors `getTripWithDaysForUser`'s visible-cost rules verbatim: a stay whose name is blank
     // contributes neither cost nor "has accommodation", so the same trip reads identically here and
     // on the trip overview.
@@ -675,6 +701,12 @@ export const listTripsForUser = async (userId: string): Promise<TripSummary[]> =
     return {
       id: trip.id,
       name: trip.name,
+      // Byte-identical to `getTripWithDaysForUser`'s derivation, deliberately: the same expression on
+      // both surfaces is what stops them drifting into disagreement about a trip's ownership. The
+      // `?? "VIEWER"` arm is unreachable here - the filter above has already dropped every non-owned
+      // row with no membership - and is kept only so this line stays the same expression as the one
+      // it mirrors, where the fallback does carry weight.
+      accessRole: trip.userId === userId ? "owner" : mapTripMemberRole(trip.members[0]?.role ?? "VIEWER"),
       startDate: trip.startDate,
       endDate: trip.endDate,
       // `trip.days` is already loaded in full, so counting it here avoids a `_count` subquery.

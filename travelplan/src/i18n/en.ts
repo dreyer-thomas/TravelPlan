@@ -137,6 +137,7 @@ const en: Dictionary = {
   "trips.dashboard.costSoFar": "Costs so far",
   "trips.dashboard.costTotal": "Total costs",
   "trips.dashboard.openTripAria": "Open trip {trip}",
+  "trips.dashboard.openSharedTripAria": "Open trip {trip}, shared with you as {role}",
   "trips.create.title": "Create a new trip",
   "trips.create.helper": "Give your trip a name and a date range to generate a full set of planning days.",
   "trips.create.submit": "Create trip",

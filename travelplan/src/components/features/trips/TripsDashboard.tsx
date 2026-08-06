@@ -30,6 +30,24 @@ type ApiEnvelope<T> = {
 type TripSummary = {
   id: string;
   name: string;
+  /**
+   * Owner, or the role this account holds through a membership on somebody else's trip. Declared
+   * inline rather than imported: `TripAccessRole` lives beside the server-side access helpers and
+   * the client components here keep their own copy, as `TripTimeline` does.
+   *
+   * Optional so a payload from a server that has not yet been redeployed still parses - not for
+   * `updatedAt`'s client-cache reason, which no longer applies to this fetch now that it sends
+   * `no-store`. The absent case is read the opposite way round from every other surface; see
+   * `isShared` below.
+   *
+   * Be clear about what that window costs, because it is wider than "an unknown row": a server old
+   * enough to omit the field is also old enough to filter the list on ownership alone, so it returns
+   * *only* owned trips - and every one of them is then marked shared. That is accepted rather than
+   * overlooked. The pill grants nothing, so understating access on the account's own trips costs a
+   * wrong label for the length of a deploy; reading the absent field the other way round would
+   * present somebody else's trip as the account's own, which is the defect this field exists to fix.
+   */
+  accessRole?: "owner" | "viewer" | "contributor";
   startDate: string;
   endDate: string;
   dayCount: number;
@@ -99,7 +117,11 @@ export default function TripsDashboard() {
     setError(null);
 
     try {
-      const response = await fetch("/api/trips", { method: "GET" });
+      // `no-store` matches every other authenticated GET in this tree, and since Story 5.12 it also
+      // matters for correctness rather than freshness alone: a replayed payload from before
+      // `accessRole` existed carries no roles, and this surface reads an absent role as *shared*, so
+      // a cached response would put a viewer pill on every one of the owner's own trips.
+      const response = await fetch("/api/trips", { method: "GET", credentials: "include", cache: "no-store" });
       const body = (await response.json()) as ApiEnvelope<{ trips: TripSummary[] }>;
 
       if (!response.ok || body.error) {
@@ -146,6 +168,9 @@ export default function TripsDashboard() {
         dayCount: response.dayCount,
         heroImageUrl: response.trip.heroImageUrl ?? null,
         updatedAt: response.trip.updatedAt,
+        // The create route writes with the session's own `userId`, so a trip that arrives this way
+        // is always owned - and must not pick up the shared marking from the absent-field fallback.
+        accessRole: "owner",
         // POST does not return the derived fields, so they are reconstructed here: a fresh trip has
         // every day open and nothing planned, which derives to `upcoming` rather than a warn row.
         openDayCount: response.dayCount,
@@ -253,6 +278,52 @@ export default function TripsDashboard() {
       >
         {treatment.icon}
         {treatment.label}
+      </Box>
+    );
+  };
+
+  /**
+   * Marks a row the account reaches through a membership rather than owning. Rendered only for those
+   * rows: an owned row gets no pill at all.
+   *
+   * The two variants restate `TripShareDialog`'s `RoleBadge` values rather than importing it - Story
+   * 7.5 pinned that component as presentational and unexported. Its third variant (`owner`, warn on
+   * `warnBg`) is deliberately not reproduced: DESIGN.md reserves warn for the gap/open-item state and
+   * a trip row already spends it there on its border, background and status pill, so a warn owner
+   * badge would put two unrelated meanings in one colour inside one row. The absence is the signal.
+   *
+   * The border is the one addition to `RoleBadge`'s values, and it is load-bearing here in a way it
+   * is not in the dialog: the viewer variant's fill and text (`accentSoft` on `primary.main`) are
+   * exactly the `planned` status pill's, which sits 8px away in this same column, so a fully planned
+   * trip shared as viewer would otherwise render two same-coloured chips side by side. Outlining the
+   * role pill separates them without changing either treatment. On the contributor variant the
+   * border matches its own fill and is invisible, which keeps the two variants the same shape.
+   */
+  const roleWord = (trip: TripSummary) =>
+    t(trip.accessRole === "contributor" ? "trips.share.roleContributor" : "trips.share.roleViewer");
+
+  const rolePill = (trip: TripSummary) => {
+    const isContributor = trip.accessRole === "contributor";
+
+    return (
+      <Box
+        component="span"
+        data-testid="trip-row-role"
+        data-role={isContributor ? "contributor" : "viewer"}
+        sx={{
+          backgroundColor: isContributor ? theme.palette.primary.main : tokens.accentSoft,
+          color: isContributor ? theme.palette.primary.contrastText : theme.palette.primary.main,
+          border: `1px solid ${theme.palette.primary.main}`,
+          borderRadius: "5px",
+          padding: "5px 10px",
+          fontSize: 10.5,
+          fontWeight: 800,
+          letterSpacing: "0.04em",
+          textTransform: "uppercase",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {roleWord(trip)}
       </Box>
     );
   };
@@ -438,6 +509,13 @@ export default function TripsDashboard() {
               const status = statuses.get(trip.id) ?? "planned";
               const isGap = status === "gap";
               const isPast = status === "past";
+              // The fallback direction is inverted relative to `TripTimeline`/`TripDayView`, which
+              // read an absent `accessRole` as *owner* because they predate the field and a cached
+              // older payload had to keep working for the trip's own owner. Every entry here carries
+              // the field by construction, and defaulting an unknown row to "owner" would present
+              // somebody else's trip as this account's own - the exact failure the marking exists to
+              // prevent. An unrecognised role must not be presented as the more privileged one.
+              const isShared = trip.accessRole ? trip.accessRole !== "owner" : true;
               const route =
                 trip.startLocationLabel?.trim() && trip.destinationLocationLabel?.trim()
                   ? ` · ${trip.startLocationLabel.trim()} → ${trip.destinationLocationLabel.trim()}`
@@ -524,7 +602,17 @@ export default function TripsDashboard() {
                   <Box
                     component={Link}
                     href={`/trips/${trip.id}`}
-                    aria-label={formatMessage(t("trips.dashboard.openTripAria"), { trip: trip.name })}
+                    // The pill is the visual half of AC3 and it sits outside this link, so a reader
+                    // traversing the page by its link list would lose the distinction entirely. The
+                    // shared variant carries it in the accessible name instead.
+                    aria-label={
+                      isShared
+                        ? formatMessage(t("trips.dashboard.openSharedTripAria"), {
+                            trip: trip.name,
+                            role: roleWord(trip),
+                          })
+                        : formatMessage(t("trips.dashboard.openTripAria"), { trip: trip.name })
+                    }
                     sx={{ position: "absolute", inset: 0, zIndex: 1, borderRadius: "8px" }}
                   />
 
@@ -607,6 +695,13 @@ export default function TripsDashboard() {
                       display: "flex",
                       alignItems: "center",
                       justifyContent: { xs: "flex-start", md: "flex-end" },
+                      // Separates the status pill from the role pill beside it. Both are `nowrap`,
+                      // so without it the two backgrounds would meet and read as one control - and
+                      // without the wrap they would overflow the row instead: "Bevorstehend ·
+                      // Planung offen" beside "MITWIRKENDER" is wider than a 320px phone's content
+                      // box, and `minWidth: 0` does nothing for a `nowrap` child.
+                      flexWrap: "wrap",
+                      gap: "8px",
                       minWidth: 0,
                       // This column paints above the full-row link, so it has to let clicks through
                       // or it becomes a dead zone. Real controls opt back in.
@@ -615,6 +710,9 @@ export default function TripsDashboard() {
                     }}
                   >
                     {statusPill(trip, status)}
+                    {/* Label only - it is not a control, so it stays inside the column's
+                        click-through and never opts into `pointerEvents`. */}
+                    {isShared && rolePill(trip)}
                   </Box>
 
                   <Box
