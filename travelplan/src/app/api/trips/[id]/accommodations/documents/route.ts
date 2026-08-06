@@ -40,6 +40,35 @@ const ALLOWED_TYPES: Record<string, string> = {
   "image/webp": "webp",
 };
 
+/** Extensions accepted when the browser reports no or an unhelpful MIME type. Mirrors the client gate. */
+const ALLOWED_NAME_EXTENSIONS = new Set(["pdf", "jpg", "jpeg", "png", "webp"]);
+
+/**
+ * Resolves the on-disk extension, the same way `days/[dayId]/image/route.ts` does.
+ *
+ * Three things a bare `ALLOWED_TYPES[file.type]` lookup gets wrong, and none of them is theoretical.
+ * A MIME type is case-insensitive, so `APPLICATION/PDF` misses. A browser reports no type at all for
+ * some pickers and drops, and `isSupportedDocumentUpload` - the client gate - already falls back to
+ * the file name in exactly that case, so without the same fallback here the field accepts a PDF and
+ * the route then refuses it with a message the user cannot act on. And an index lookup on an object
+ * literal reaches `Object.prototype`: `file.type = "constructor"` returns a *function*, which is
+ * truthy, so the allow-list is bypassed and the generated name ends in the source of `Object`.
+ * `hasOwnProperty` is what closes that, not a truthiness test.
+ */
+const resolveUploadExtension = (file: { type?: string; name?: string }) => {
+  const normalizedType = (file.type ?? "").toLowerCase();
+  if (Object.prototype.hasOwnProperty.call(ALLOWED_TYPES, normalizedType)) {
+    return ALLOWED_TYPES[normalizedType];
+  }
+
+  const name = typeof file.name === "string" ? file.name : "";
+  const ext = name.includes(".") ? name.split(".").pop()?.toLowerCase() : undefined;
+  if (!ext || !ALLOWED_NAME_EXTENSIONS.has(ext)) {
+    return null;
+  }
+  return ext === "jpeg" ? "jpg" : ext;
+};
+
 type RouteContext = {
   params: Promise<{ id?: string }>;
 };
@@ -160,7 +189,7 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
     return fail(apiError("validation_error", "Invalid document upload payload", parsed.error.flatten()), 400);
   }
 
-  const extension = ALLOWED_TYPES[file.type];
+  const extension = resolveUploadExtension(file);
   if (!extension) {
     return fail(apiError("validation_error", "Invalid document type"), 400);
   }

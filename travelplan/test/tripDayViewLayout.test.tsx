@@ -7069,7 +7069,13 @@ describe("TripDayView document chips", () => {
 
     const currentCard = within(await screen.findByTestId("timeline-current-stay"));
     await waitFor(() => expect(currentCard.getByText("+2")).toBeInTheDocument());
-    await userEvent.click(currentCard.getByRole("button", { name: "Show 2 more documents" }));
+    const overflow = currentCard.getByRole("button", { name: "Show 2 more documents" });
+    // `aria-haspopup` alone promises a popup and never says whether it is open, so the control would
+    // announce the same thing in both directions and the state of the overflow would never be
+    // conveyed - the one thing a screen-reader user cannot see for themselves.
+    expect(overflow).toHaveAttribute("aria-expanded", "false");
+    await userEvent.click(overflow);
+    expect(overflow).toHaveAttribute("aria-expanded", "true");
 
     // Five, not two. The strip's `+N` opens the whole collection at the first unshown index, and a
     // list that omitted the three names already on the card would be a different affordance wearing

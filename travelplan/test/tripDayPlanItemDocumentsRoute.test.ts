@@ -246,6 +246,66 @@ describe("/api/trips/[id]/day-plan-items/documents", () => {
     expect(noDay.status).toBe(400);
   });
 
+  /**
+   * The sibling suite carries the reasoning in full. Repeated here rather than trusted to it because
+   * `resolveUploadExtension` is a *copy* in each route - the same shape `ALLOWED_TYPES` is - so a fix
+   * applied to one of them and not the other is exactly the drift this suite exists to catch.
+   */
+  it("resolves the extension case-insensitively, falls back to the name, and refuses a prototype key", async () => {
+    const { trip, day, item, token } = await seed("type-resolution");
+    const fields = { tripDayId: day.id, dayPlanItemId: item.id };
+
+    const upperCase = await upload(trip.id, fields, pdfFile("Museum.pdf"), { token });
+    expect(upperCase.status).toBe(200);
+
+    const noType = await upload(
+      trip.id,
+      fields,
+      new File([Buffer.from("%PDF-1.4 fake")], "Guide.PDF", { type: "" }),
+      { token },
+    );
+    const noTypePayload = (await noType.json()) as ApiEnvelope<{ document: DocumentPayload }>;
+    expect(noType.status).toBe(200);
+    expect(noTypePayload.data?.document.documentUrl.endsWith(".pdf")).toBe(true);
+
+    const prototypeKey = await upload(
+      trip.id,
+      fields,
+      new File([Buffer.from("payload")], "ticket", { type: "constructor" }),
+      { token },
+    );
+    expect(prototypeKey.status).toBe(400);
+    expect(((await prototypeKey.json()) as ApiEnvelope<null>).error?.message).toBe("Invalid document type");
+    expect(await listFiles(trip.id, day.id, item.id)).toHaveLength(2);
+  });
+
+  /**
+   * `tripDayId` and `dayPlanItemId` are path components of the entry's `documents` directory, and `POST`
+   * builds that directory before the repository has confirmed the entry exists - so the refusal has to
+   * precede `fs.mkdir`, which a status code alone does not say. Asserted at the boundary too.
+   */
+  it("refuses an id that is not a single safe path segment, before anything reaches the filesystem", async () => {
+    const { trip, day, item, token } = await seed("traversal");
+    const escapeTarget = `${uploadsRoot}/../../day-plan-documents-escape-probe`;
+    await fs.rm(escapeTarget, { recursive: true, force: true });
+
+    const hostile: [string, { tripDayId: string; dayPlanItemId: string }][] = [
+      ["traversing tripDayId", { tripDayId: "../../day-plan-documents-escape-probe", dayPlanItemId: item.id }],
+      ["traversing dayPlanItemId", { tripDayId: day.id, dayPlanItemId: ".." }],
+      ["separator in an id", { tripDayId: `${day.id}/nested`, dayPlanItemId: item.id }],
+    ];
+
+    for (const [label, fields] of hostile) {
+      const response = await upload(trip.id, fields, pdfFile(), { token });
+      expect(response.status, label).toBe(400);
+      expect(((await response.json()) as ApiEnvelope<null>).error?.code, label).toBe("validation_error");
+    }
+
+    await expect(fs.stat(escapeTarget)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await listFiles(trip.id, day.id, item.id)).toHaveLength(0);
+    expect(await prisma.dayPlanItemDocument.count()).toBe(0);
+  });
+
   it("refuses a file over 10 MB on the file-size check when no content-length was sent", async () => {
     const { trip, day, item, token } = await seed("oversize");
 

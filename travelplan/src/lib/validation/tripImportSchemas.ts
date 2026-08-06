@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { sanitizeDocumentFileName } from "@/lib/trips/documentUploads";
+import { MAX_DOCUMENTS_PER_ENTRY, sanitizeDocumentFileName } from "@/lib/trips/documentUploads";
 import {
   MAX_IMPORT_BUCKET_LIST_ITEMS,
   MAX_IMPORT_DAYS,
@@ -233,6 +233,15 @@ const documentFileNameSchema = z
  * `fileName` rides on the reference rather than on the pool entry, because it belongs to the *row*
  * and not to the bytes: one pooled document referenced by two entries is one file with two names,
  * and the pool has no field that could hold both.
+ *
+ * **The per-entry cap is here as well as in the repository create**, which `imagesSchema` needs no
+ * equivalent of because photos have no cap at all. The import does not go through
+ * `createAccommodationDocument` / `createDayPlanItemDocument` - it writes rows inside the import
+ * transaction - so the cap those two enforce is not a cap on this path, and a hand-edited manifest
+ * listing 500 references at distinct `sortOrder`s lands 500 rows on one stay. What follows is not
+ * recoverable through the UI: the field's Upload button is disabled at 10 rows and the route answers
+ * "Document limit reached" for every further upload, so the entry is permanently full. The only other
+ * ceiling on this path is `MAX_IMPORT_MEDIA_WRITES`, which is a whole-package budget of 5000.
  */
 const documentsSchema = z
   .array(
@@ -242,6 +251,7 @@ const documentsSchema = z
       fileName: documentFileNameSchema,
     }),
   )
+  .max(MAX_DOCUMENTS_PER_ENTRY, `At most ${MAX_DOCUMENTS_PER_ENTRY} documents per entry`)
   .optional()
   .default([])
   .superRefine((documents, ctx) => {

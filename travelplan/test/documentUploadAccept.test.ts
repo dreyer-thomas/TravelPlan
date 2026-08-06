@@ -205,4 +205,25 @@ describe("sanitizeDocumentFileName", () => {
     const exact = "b".repeat(255);
     expect(sanitizeDocumentFileName(exact)).toBe(exact);
   });
+
+  /**
+   * `slice` counts UTF-16 code units, so a cut at 255 can land *between* the two halves of an astral
+   * character - one emoji in a long file name is enough. What survives is an unpaired high surrogate:
+   * it renders as U+FFFD in the chip, `JSON.stringify` writes it into the backup as a bare `\udXXX`
+   * escape that no strict-UTF-8 reader will accept, and Story 9.2 will print it onto a PDF page.
+   *
+   * The fixture puts the emoji at exactly the boundary, which is the only position that can fail: 254
+   * ASCII characters, then a surrogate pair whose leading half is code unit 255.
+   */
+  it("never leaves half a character behind when it truncates", () => {
+    const sanitized = sanitizeDocumentFileName(`${"a".repeat(254)}🎫 Rom.pdf`);
+    expect(sanitized).not.toBeNull();
+    // The pair is dropped whole rather than split, so the name is one code unit shorter than the cap.
+    expect(sanitized).toHaveLength(254);
+    expect(sanitized).toBe("a".repeat(254));
+    // No lone surrogate survives, in either half of the range.
+    expect(/[\uD800-\uDFFF]/.test(sanitized ?? "")).toBe(false);
+    // A pair that fits is untouched.
+    expect(sanitizeDocumentFileName("Ticket 🎫.pdf")).toBe("Ticket 🎫.pdf");
+  });
 });

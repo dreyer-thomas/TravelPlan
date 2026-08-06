@@ -105,8 +105,17 @@ export const sanitizeDocumentFileName = (raw: string): string | null => {
   // Truncation rather than rejection: an over-long name is a real file the user picked, and a
   // shortened label is a better answer than a refused upload. Trimmed again because the cut can land
   // on a space, and re-checked because it can also leave `.` or `..` behind.
+  //
+  // The trailing lone surrogate goes too. `slice` counts UTF-16 code units, so a cut at 255 can land
+  // *between* the two halves of an astral character - an emoji in a file name is enough - and what
+  // survives is an unpaired high surrogate: it renders as U+FFFD in the chip, `JSON.stringify` writes
+  // it into the backup as a bare `\udXXX` escape that no strict-UTF-8 reader will accept, and Story
+  // 9.2 will print it onto a PDF page. Dropping the half character is the only repair available.
   const capped = baseName.length > MAX_DOCUMENT_FILE_NAME_LENGTH
-    ? baseName.slice(0, MAX_DOCUMENT_FILE_NAME_LENGTH).trim()
+    ? baseName
+        .slice(0, MAX_DOCUMENT_FILE_NAME_LENGTH)
+        .replace(/[\uD800-\uDBFF]$/, "")
+        .trim()
     : baseName;
   if (!capped || capped === "." || capped === "..") return null;
 

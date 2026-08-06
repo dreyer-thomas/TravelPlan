@@ -97,8 +97,10 @@ const extensionFor = (contentType: string) => {
 const documentExtensionFor = (contentType: string) => {
   const extension = DOCUMENT_EXTENSION_BY_CONTENT_TYPE[contentType];
   if (!extension) {
-    // Same reasoning as `extensionFor`: `validatePackageDocuments` has already refused bytes that
-    // match no allow-listed signature, so reaching here means a caller skipped it.
+    // Same reasoning as `extensionFor`: `validatePackageMedia` - the function the import route
+    // actually calls, and the one both `validatePackagePhotos` and `validatePackageDocuments` are
+    // thin wrappers over - has already refused bytes that match no allow-listed signature, so
+    // reaching here means a caller skipped it.
     throw new ImportPhotoWriteError(`Unsupported document content type: ${contentType}`);
   }
   return extension;

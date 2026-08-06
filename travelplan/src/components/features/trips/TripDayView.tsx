@@ -550,9 +550,13 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   // It is a `Menu` and not `FullscreenPhotoViewer` (AC6, and the viewer's own docblock: it belongs to
   // the trip's photographs). A ticket is not a photograph, there is nothing to page through, and the
   // name is what the user is choosing between — so the overflow surface is a list of names.
-  const [documentMenu, setDocumentMenu] = useState<{ anchorEl: HTMLElement; documents: GalleryDocument[] } | null>(
-    null,
-  );
+  // `ownerKey` is which entry's `+N` opened it, so that control - and only that one - can report
+  // itself expanded. See `renderMediaRow`.
+  const [documentMenu, setDocumentMenu] = useState<{
+    anchorEl: HTMLElement;
+    documents: GalleryDocument[];
+    ownerKey: string | null;
+  } | null>(null);
   // Story 6.23 AC4. A success line, not an error: a move deletes travel segments the user typed, so
   // it may not succeed in silence. It outlives the dialog on purpose — the dialog closes, and the
   // sentence has to land somewhere the user is actually looking.
@@ -1257,7 +1261,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
 
   // Story 9.1 keeps documents in this effect rather than giving them one of their own. A card's photo
   // strip and its `doc-chip`s are one media row, and two effects racing on the same `day` would let the
-  // row paint half from before a navigation and half from after. Five requests, one `try`, one `catch`
+  // row paint half from before a navigation and half from after. Six requests, one `try`, one `catch`
   // that empties everything: the card's two halves are always the same read of the same day.
   useEffect(() => {
     const loadImages = async () => {
@@ -1902,6 +1906,11 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     if (images.length === 0 && documents.length === 0) return null;
     const visibleDocuments = documents.slice(0, DOC_CHIP_VISIBLE_CAP);
     const hiddenDocumentCount = documents.length - visibleDocuments.length;
+    // Identifies this entry's chip group against the one shared `Menu` mount, for the `+N` control's
+    // `aria-expanded` below. A document row belongs to exactly one stay or activity, so its id names
+    // the group as well as any generated key would - and unlike a `useRef` it is available during the
+    // render that has to state the expanded/collapsed answer.
+    const documentGroupKey = documents[0]?.id ?? null;
 
     return (
       <Box
@@ -1991,6 +2000,14 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                 variant="caption"
                 color="text.secondary"
                 aria-haspopup="menu"
+                // `aria-haspopup` alone promises a popup and never says whether it is open, so the
+                // control announces the same thing in both directions and the state of the overflow is
+                // never conveyed - the one thing a screen-reader user cannot see for themselves. The
+                // menu is a single shared mount, so "is it mine?" is answered by the entry's first
+                // document id rather than by a ref per chip group; documents belong to exactly one
+                // entry, so that id identifies the group. No `aria-controls`: the list does not exist
+                // while the menu is closed, and pointing at an absent element is worse than silence.
+                aria-expanded={documentMenu?.ownerKey === documentGroupKey}
                 aria-label={
                   hiddenDocumentCount === 1
                     ? t("trips.documents.showMoreDocumentsOne")
@@ -1999,7 +2016,9 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                 // The whole collection, not the hidden tail: the strip's `+N` opens the full set at
                 // the first unshown index, and a list that omitted the three names already on the
                 // card would be a different affordance wearing the same glyph.
-                onClick={(event) => setDocumentMenu({ anchorEl: event.currentTarget, documents })}
+                onClick={(event) =>
+                  setDocumentMenu({ anchorEl: event.currentTarget, documents, ownerKey: documentGroupKey })
+                }
                 sx={{
                   fontWeight: 600,
                   // The 44px touch floor, below the 56px thumbnails so the row's height is unchanged.

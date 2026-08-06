@@ -7,6 +7,7 @@ import {
   MAX_IMPORT_WARNINGS,
   MAX_SUPPORTED_FORMAT_VERSION,
 } from "@/lib/trips/importLimits";
+import { MAX_DOCUMENTS_PER_ENTRY } from "@/lib/trips/documentUploads";
 import {
   tripImportRequestSchema,
   tripImportPayloadSchema,
@@ -885,31 +886,62 @@ describe("tripImportSchemas", () => {
 
     it("counts document references against the same write cap photos use", () => {
       // One disk budget, not two: the cap is on files this request creates, and it does not care
-      // which pool a file came out of. Two documents short of the cap, plus the hero and day image
-      // this fixture already carries, sits exactly on it - and one more is over.
+      // which pool a file came out of.
+      //
+      // The bulk is photos rather than documents because the two caps are different rules and this
+      // test is about the write cap only. A per-entry cap of ten documents means thousands of them on
+      // one stay is refused by `documentsSchema.max` long before the write budget is consulted, so a
+      // documents-only fixture would go green on the wrong rule. Photos have no per-entry cap, so they
+      // fill the budget, and the *only* difference between the two payloads below is one more
+      // document - which is exactly the claim: a document costs a write like anything else.
+      const images = Array.from({ length: MAX_IMPORT_MEDIA_WRITES - 4 }, (_, index) => ({
+        sortOrder: index,
+        photoId: "p1",
+      }));
       const documents = (count: number) =>
         Array.from({ length: count }, (_, index) => ({
           sortOrder: index,
           documentId: "d1",
           fileName: `Ticket ${index}.pdf`,
         }));
+      // Plus the hero and the day image, which are references too: two documents sits exactly on the
+      // cap, three is one over.
       const payload = (count: number) => ({
         ...v2Payload,
         documents: documentPool,
         days: [
           {
             ...v2Day,
-            accommodation: { ...v2Day.accommodation, images: [], documents: documents(count) },
+            accommodation: { ...v2Day.accommodation, images, documents: documents(count) },
             dayPlanItems: [{ ...v2Day.dayPlanItems[0], images: [] }],
           },
         ],
       });
 
-      expect(tripImportPayloadSchema.safeParse(payload(MAX_IMPORT_MEDIA_WRITES - 2)).success).toBe(true);
+      expect(tripImportPayloadSchema.safeParse(payload(2)).success).toBe(true);
 
-      const over = tripImportPayloadSchema.safeParse(payload(MAX_IMPORT_MEDIA_WRITES - 1));
+      const over = tripImportPayloadSchema.safeParse(payload(3));
       expect(over.success).toBe(false);
       expect(JSON.stringify(over.error?.issues)).toContain("media files");
+    });
+
+    it("refuses more documents on one entry than the repository create would allow", () => {
+      // The import does not go through `createAccommodationDocument`, so the cap that function
+      // enforces is not a cap on this path. Without this rule a hand-edited manifest lands hundreds of
+      // rows on one stay, and the entry is then permanently full: the field's Upload button is
+      // disabled at ten and the route answers "Document limit reached" for every further upload.
+      const documents = (count: number) =>
+        Array.from({ length: count }, (_, index) => ({
+          sortOrder: index,
+          documentId: "d1",
+          fileName: `Ticket ${index}.pdf`,
+        }));
+
+      expect(tripImportPayloadSchema.safeParse(withDocuments(documents(MAX_DOCUMENTS_PER_ENTRY))).success).toBe(true);
+
+      const over = tripImportPayloadSchema.safeParse(withDocuments(documents(MAX_DOCUMENTS_PER_ENTRY + 1)));
+      expect(over.success).toBe(false);
+      expect(JSON.stringify(over.error?.issues)).toContain("documents per entry");
     });
   });
 

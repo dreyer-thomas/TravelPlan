@@ -230,6 +230,91 @@ describe("/api/trips/[id]/accommodations/documents", () => {
     expect(await listFiles(trip.id, day.id, accommodation.id)).toHaveLength(3);
   });
 
+  /**
+   * The route is the authoritative gate, but it must not be a *stricter* gate than the client one, and
+   * `ALLOWED_TYPES[file.type]` was both stricter and weaker than `isSupportedDocumentUpload`.
+   *
+   * Weaker, because an index lookup on an object literal reaches `Object.prototype`: `constructor`
+   * returns a function, which is truthy, so the allow-list was bypassed and the generated name ended
+   * in the source text of `Object`. Stricter, because a MIME type is case-insensitive and because a
+   * browser reports no type at all for some pickers and drops - the field accepted those on the name's
+   * extension and the route then refused them with a message the user could do nothing about.
+   */
+  it("resolves the extension case-insensitively, falls back to the name, and refuses a prototype key", async () => {
+    const { trip, day, accommodation, token } = await seed("type-resolution");
+    const fields = { tripDayId: day.id, accommodationId: accommodation.id };
+
+    const upperCase = await upload(
+      trip.id,
+      fields,
+      new File([Buffer.from("%PDF-1.4 fake")], "Ticket.pdf", { type: "APPLICATION/PDF" }),
+      { token },
+    );
+    const upperCasePayload = (await upperCase.json()) as ApiEnvelope<{ document: DocumentPayload }>;
+    expect(upperCase.status).toBe(200);
+    expect(upperCasePayload.data?.document.documentUrl.endsWith(".pdf")).toBe(true);
+
+    // What a browser hands over when it cannot name the type - the case the client gate already
+    // accepted on the extension alone.
+    const noType = await upload(
+      trip.id,
+      fields,
+      new File([Buffer.from("%PDF-1.4 fake")], "Voucher.PDF", { type: "" }),
+      { token },
+    );
+    const noTypePayload = (await noType.json()) as ApiEnvelope<{ document: DocumentPayload }>;
+    expect(noType.status).toBe(200);
+    expect(noTypePayload.data?.document.fileName).toBe("Voucher.PDF");
+    expect(noTypePayload.data?.document.documentUrl.endsWith(".pdf")).toBe(true);
+
+    // The name carries no usable extension either, so there is nothing left to resolve from.
+    const prototypeKey = await upload(
+      trip.id,
+      fields,
+      new File([Buffer.from("payload")], "ticket", { type: "constructor" }),
+      { token },
+    );
+    const prototypePayload = (await prototypeKey.json()) as ApiEnvelope<null>;
+    expect(prototypeKey.status).toBe(400);
+    expect(prototypePayload.error?.message).toBe("Invalid document type");
+
+    // The two accepted ones only: nothing was written for the refused request.
+    expect(await listFiles(trip.id, day.id, accommodation.id)).toHaveLength(2);
+  });
+
+  /**
+   * `tripDayId` and `accommodationId` are path components of the entry's `documents` directory, and
+   * `POST` builds that directory before the repository has confirmed the entry exists. Validated only
+   * as "non-empty string", a traversal in either one creates directories outside `MEDIA_STORAGE_ROOT`
+   * and writes a file into them; the failed insert removes the file but never the directories.
+   *
+   * Asserted at the boundary as well as by the status code, because the refusal has to happen *before*
+   * `fs.mkdir`, and a 400 on its own does not say when.
+   */
+  it("refuses an id that is not a single safe path segment, before anything reaches the filesystem", async () => {
+    const { trip, day, accommodation, token } = await seed("traversal");
+    const escapeTarget = path.join(uploadsRoot, "..", "..", "documents-escape-probe");
+    await fs.rm(escapeTarget, { recursive: true, force: true });
+
+    const hostile: [string, { tripDayId: string; accommodationId: string }][] = [
+      ["traversing tripDayId", { tripDayId: "../../documents-escape-probe", accommodationId: accommodation.id }],
+      ["traversing accommodationId", { tripDayId: day.id, accommodationId: ".." }],
+      ["separator in an id", { tripDayId: `${day.id}/nested`, accommodationId: accommodation.id }],
+    ];
+
+    for (const [label, fields] of hostile) {
+      const response = await upload(trip.id, fields, pdfFile(), { token });
+      const payload = (await response.json()) as ApiEnvelope<null>;
+      expect(response.status, label).toBe(400);
+      expect(payload.error?.code, label).toBe("validation_error");
+    }
+
+    await expect(fs.stat(escapeTarget)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await listFiles(trip.id, day.id, accommodation.id)).toHaveLength(0);
+    // Nothing was created for the real day either - the refusal precedes every write.
+    expect(await prisma.accommodationDocument.count()).toBe(0);
+  });
+
   it("refuses a file over 10 MB on the file-size check when no content-length was sent", async () => {
     const { trip, day, accommodation, token } = await seed("oversize");
 

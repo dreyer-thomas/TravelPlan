@@ -1460,7 +1460,10 @@ export default function TripAccommodationDialog({
         setServerError(t("trips.documents.deleteError"));
         return;
       }
-      setDocuments((current) => current.filter((document) => document.id !== documentId));
+      // `documentRow`, not `document`: this file reaches for the global of that name (the error-focus
+      // effect calls `document.getElementById`), and a parameter shadowing it is a trap for whoever
+      // adds a focus or measurement call inside one of these callbacks next.
+      setDocuments((current) => current.filter((documentRow) => documentRow.id !== documentId));
     } catch {
       setServerError(t("trips.documents.deleteError"));
     } finally {
@@ -2098,14 +2101,14 @@ export default function TripAccommodationDialog({
                     {t("trips.documents.uploadAction")}
                   </Button>
                 }
-                documents={sortedDocuments.map((document) => ({
-                  key: document.id,
-                  documentUrl: document.documentUrl,
-                  fileName: document.fileName,
+                documents={sortedDocuments.map((documentRow) => ({
+                  key: documentRow.id,
+                  documentUrl: documentRow.documentUrl,
+                  fileName: documentRow.fileName,
                   // Keyed by the document id, not by position in a second array — the same reason the
                   // gallery's remove is: an index deletes the wrong row silently the day any filtering
                   // or async insertion makes the two lists disagree.
-                  onRemove: () => void deleteDocument(document.id),
+                  onRemove: () => void deleteDocument(documentRow.id),
                 }))}
               />
             )}

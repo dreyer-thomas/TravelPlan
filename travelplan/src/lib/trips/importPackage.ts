@@ -679,6 +679,11 @@ export const validatePackagePhotos = ({
  * `MAX_IMPORT_DOCUMENT_BYTES`, which is the document routes' own 10 MB rather than the widest of the
  * image routes' spread. And its bytes are put to `sniffDocumentContentType`, which allows a PDF -
  * the whole reason this is a separate pool with a separate sniffer instead of a wider photo check.
+ *
+ * Like its twin above, the import route does not call this: the byte budget spans both pools, so the
+ * route calls `validatePackageMedia` directly. What a test of this function proves is what the
+ * combined function does with a documents-only package, which is the useful half of it - but a
+ * regression in how the *route* validates has to be caught against `validatePackageMedia`.
  */
 export const validatePackageDocuments = ({
   documents,
