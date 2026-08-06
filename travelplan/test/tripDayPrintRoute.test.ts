@@ -25,6 +25,10 @@ describe("GET /api/trips/[id]/days/[dayId]/print", () => {
   beforeEach(async () => {
     await prisma.accommodationImage.deleteMany();
     await prisma.dayPlanItemImage.deleteMany();
+    // Story 9.2. Documents cascade from their parents, but this list is FK-ordered explicitly so a suite
+    // that starts creating them cannot be broken by the order the parents are removed in.
+    await prisma.accommodationDocument.deleteMany();
+    await prisma.dayPlanItemDocument.deleteMany();
     await prisma.travelSegment.deleteMany();
     await prisma.dayPlanItem.deleteMany();
     await prisma.accommodation.deleteMany();
@@ -172,5 +176,124 @@ describe("GET /api/trips/[id]/days/[dayId]/print", () => {
     });
 
     expect(response.status).toBe(404);
+  });
+
+  /**
+   * Story 9.2. The route is the print sheet's only source of data, so the `documents` field has to survive
+   * the JSON round trip - a payload type that carried it while the response did not would leave the sheet
+   * with an appendix it can never populate, and no component test could see that.
+   */
+  it("serialises each entry's documents, in sortOrder, on both stay kinds and on plan items", async () => {
+    const user = await prisma.user.create({
+      data: { email: "print-documents@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const session = await createSessionJwt({ sub: user.id, role: user.role });
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Documented Trip",
+      startDate: "2026-09-01T00:00:00.000Z",
+      endDate: "2026-09-02T00:00:00.000Z",
+    });
+    const [day1, day2] = await prisma.tripDay.findMany({ where: { tripId: trip.id }, orderBy: { dayIndex: "asc" } });
+
+    const previousStay = await prisma.accommodation.create({
+      data: { tripDayId: day1.id, name: "Airport Hotel", status: "BOOKED" },
+    });
+    const currentStay = await prisma.accommodation.create({
+      data: { tripDayId: day2.id, name: "City Hotel", status: "PLANNED" },
+    });
+    const activity = await prisma.dayPlanItem.create({
+      data: { tripDayId: day2.id, title: "Museum", fromTime: "10:00", contentJson: '{"type":"doc","content":[]}' },
+    });
+
+    await prisma.accommodationDocument.create({
+      data: {
+        accommodationId: previousStay.id,
+        documentUrl: "/uploads/trips/doc/prev.pdf",
+        fileName: "Voucher.pdf",
+        sortOrder: 0,
+      },
+    });
+    await prisma.accommodationDocument.create({
+      data: {
+        accommodationId: currentStay.id,
+        documentUrl: "/uploads/trips/doc/curr.jpg",
+        fileName: "Confirmation.jpg",
+        sortOrder: 0,
+      },
+    });
+    // Created in reverse `sortOrder`, so insertion order and sort order disagree.
+    await prisma.dayPlanItemDocument.create({
+      data: {
+        dayPlanItemId: activity.id,
+        documentUrl: "/uploads/trips/doc/item-b.pdf",
+        fileName: "Second.pdf",
+        sortOrder: 1,
+      },
+    });
+    await prisma.dayPlanItemDocument.create({
+      data: {
+        dayPlanItemId: activity.id,
+        documentUrl: "/uploads/trips/doc/item-a.jpg",
+        fileName: "First.jpg",
+        sortOrder: 0,
+      },
+    });
+
+    const response = await GET(buildRequest(trip.id, day2.id, session), {
+      params: Promise.resolve({ id: trip.id, dayId: day2.id }),
+    });
+    const body = (await response.json()) as ApiEnvelope<{
+      timeline: Array<
+        | { kind: "previousStay" | "currentStay"; stay: { documents: Array<{ fileName: string; documentUrl: string }> } }
+        | { kind: "planItem"; item: { documents: Array<{ fileName: string; documentUrl: string }> } }
+        | { kind: "travelSegment" }
+      >;
+    }>;
+
+    expect(response.status).toBe(200);
+    const timeline = body.data!.timeline;
+
+    const previous = timeline.find((entry) => entry.kind === "previousStay");
+    expect(previous && "stay" in previous && previous.stay.documents).toEqual([
+      { id: expect.any(String), documentUrl: "/uploads/trips/doc/prev.pdf", fileName: "Voucher.pdf", sortOrder: 0 },
+    ]);
+
+    const current = timeline.find((entry) => entry.kind === "currentStay");
+    expect(current && "stay" in current && current.stay.documents.map((d) => d.fileName)).toEqual([
+      "Confirmation.jpg",
+    ]);
+
+    const planItem = timeline.find((entry) => entry.kind === "planItem");
+    expect(planItem && "item" in planItem && planItem.item.documents.map((d) => d.fileName)).toEqual([
+      "First.jpg",
+      "Second.pdf",
+    ]);
+  });
+
+  it("serialises an empty documents array for a day whose entries carry none", async () => {
+    const user = await prisma.user.create({
+      data: { email: "print-no-documents@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const session = await createSessionJwt({ sub: user.id, role: user.role });
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Bare Trip",
+      startDate: "2026-09-05T00:00:00.000Z",
+      endDate: "2026-09-05T00:00:00.000Z",
+    });
+    const day = await prisma.tripDay.findFirstOrThrow({ where: { tripId: trip.id } });
+    await prisma.accommodation.create({ data: { tripDayId: day.id, name: "Motel", status: "PLANNED" } });
+
+    const response = await GET(buildRequest(trip.id, day.id, session), {
+      params: Promise.resolve({ id: trip.id, dayId: day.id }),
+    });
+    const body = (await response.json()) as ApiEnvelope<{
+      timeline: Array<{ kind: string; stay?: { documents: unknown[] } }>;
+    }>;
+
+    const stay = body.data!.timeline.find((entry) => entry.kind === "currentStay");
+    // Present and empty, not missing: the sheet reads it unconditionally.
+    expect(stay?.stay?.documents).toEqual([]);
   });
 });

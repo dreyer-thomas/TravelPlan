@@ -163,6 +163,22 @@ export type TripDayPrintImage = {
   sortOrder: number;
 };
 
+/**
+ * One document attached to a stay or a plan item, as the print payload carries it (Story 9.2).
+ *
+ * `TripDayPrintImage` plus `fileName`, mirroring the schema difference between the two pairs of tables.
+ * The name is here because it is the only human-readable identification a document has: the on-disk
+ * name is `doc-<ts>-<rand>.<ext>`, so both the print sheet's pages and the packet's label pages have
+ * nothing else to print. Whether a row is a PDF or an image is **not** a field: it is derived from
+ * `documentUrl` by `isPdfDocumentUrl`, because `fileName` is client-supplied and may lie.
+ */
+export type TripDayPrintDocument = {
+  id: string;
+  documentUrl: string;
+  fileName: string;
+  sortOrder: number;
+};
+
 export type TripDayPrintStay = {
   id: string;
   name: string;
@@ -174,6 +190,7 @@ export type TripDayPrintStay = {
   checkOutTime: string | null;
   location: { lat: number; lng: number; label: string | null } | null;
   images: TripDayPrintImage[];
+  documents: TripDayPrintDocument[];
 };
 
 export type TripDayPrintPlanItem = {
@@ -186,6 +203,7 @@ export type TripDayPrintPlanItem = {
   linkUrl: string | null;
   location: { lat: number; lng: number; label: string | null } | null;
   images: TripDayPrintImage[];
+  documents: TripDayPrintDocument[];
 };
 
 export type TripDayPrintTravelSegment = TripDaySummary["travelSegments"][number];
@@ -1142,8 +1160,11 @@ export const getTripDayPrintPayloadForUser = async ({
 
   const planItemIds = targetDay.dayPlanItems.map((item) => item.id);
 
-  // Round 2 (parallel): previous day accommodation + plan item images
-  const [prevDay, planItemImages] = await Promise.all([
+  // Round 2 (parallel): previous day accommodation + plan item images + plan item documents.
+  //
+  // Documents join the existing round rather than adding a fourth (Story 9.2): they depend on exactly
+  // the ids the image query already has, so a serial round would cost a round trip and buy nothing.
+  const [prevDay, planItemImages, planItemDocuments] = await Promise.all([
     targetDay.dayIndex > 1
       ? prisma.tripDay.findFirst({
           where: { tripId, dayIndex: targetDay.dayIndex - 1 },
@@ -1157,6 +1178,13 @@ export const getTripDayPrintPayloadForUser = async ({
           orderBy: [{ dayPlanItemId: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
         })
       : Promise.resolve([]),
+    planItemIds.length
+      ? prisma.dayPlanItemDocument.findMany({
+          where: { dayPlanItemId: { in: planItemIds } },
+          select: { id: true, dayPlanItemId: true, documentUrl: true, fileName: true, sortOrder: true },
+          orderBy: [{ dayPlanItemId: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
+        })
+      : Promise.resolve([]),
   ]);
 
   const previousStaySummary = prevDay?.accommodation ?? null;
@@ -1166,13 +1194,21 @@ export const getTripDayPrintPayloadForUser = async ({
   const accommodationIds = [previousStaySummary?.id, currentStaySummary?.id].filter(
     (v): v is string => Boolean(v),
   );
-  const accommodationImages = accommodationIds.length
-    ? await prisma.accommodationImage.findMany({
-        where: { accommodationId: { in: accommodationIds } },
-        select: { id: true, accommodationId: true, imageUrl: true, sortOrder: true },
-        orderBy: [{ accommodationId: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
-      })
-    : [];
+  // Documents ride alongside, so round 3 stays one round: both queries key off the same ids.
+  const [accommodationImages, accommodationDocuments] = accommodationIds.length
+    ? await Promise.all([
+        prisma.accommodationImage.findMany({
+          where: { accommodationId: { in: accommodationIds } },
+          select: { id: true, accommodationId: true, imageUrl: true, sortOrder: true },
+          orderBy: [{ accommodationId: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
+        }),
+        prisma.accommodationDocument.findMany({
+          where: { accommodationId: { in: accommodationIds } },
+          select: { id: true, accommodationId: true, documentUrl: true, fileName: true, sortOrder: true },
+          orderBy: [{ accommodationId: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
+        }),
+      ])
+    : [[], []];
 
   const accommodationImagesById = new Map<string, TripDayPrintImage[]>();
   for (const image of accommodationImages) {
@@ -1188,6 +1224,32 @@ export const getTripDayPrintPayloadForUser = async ({
     planItemImagesById.set(image.dayPlanItemId, existing);
   }
 
+  // Built exactly as their image twins above are, off the same `orderBy`, so an entry's documents reach
+  // the sheet and the packet in the order the user arranged them.
+  const accommodationDocumentsById = new Map<string, TripDayPrintDocument[]>();
+  for (const document of accommodationDocuments) {
+    const existing = accommodationDocumentsById.get(document.accommodationId) ?? [];
+    existing.push({
+      id: document.id,
+      documentUrl: document.documentUrl,
+      fileName: document.fileName,
+      sortOrder: document.sortOrder,
+    });
+    accommodationDocumentsById.set(document.accommodationId, existing);
+  }
+
+  const planItemDocumentsById = new Map<string, TripDayPrintDocument[]>();
+  for (const document of planItemDocuments) {
+    const existing = planItemDocumentsById.get(document.dayPlanItemId) ?? [];
+    existing.push({
+      id: document.id,
+      documentUrl: document.documentUrl,
+      fileName: document.fileName,
+      sortOrder: document.sortOrder,
+    });
+    planItemDocumentsById.set(document.dayPlanItemId, existing);
+  }
+
   const toPrintStay = (
     stay: NonNullable<typeof previousStaySummary>,
   ): TripDayPrintStay => ({
@@ -1201,6 +1263,7 @@ export const getTripDayPrintPayloadForUser = async ({
     checkOutTime: stay.checkOutTime,
     location: mapPrintLocation(stay),
     images: accommodationImagesById.get(stay.id) ?? [],
+    documents: accommodationDocumentsById.get(stay.id) ?? [],
   });
 
   const previousStay = previousStaySummary ? toPrintStay(previousStaySummary) : null;
@@ -1218,6 +1281,7 @@ export const getTripDayPrintPayloadForUser = async ({
       linkUrl: item.linkUrl,
       location: mapPrintLocation(item),
       images: planItemImagesById.get(item.id) ?? [],
+      documents: planItemDocumentsById.get(item.id) ?? [],
     }));
 
   const timeline: TripDayPrintTimelineEntry[] = [];

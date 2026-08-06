@@ -1400,6 +1400,45 @@ So that a row stops being a paragraph with five text buttons trailing it.
 **Then** the owned trips stay outside it, under their own label — the table holds memberships and nothing else
 
 
+### Story 5.12: Shared Trips on the Collaborator's Dashboard
+
+As someone who has been invited to another person's trip,
+I want that trip to appear in my trip list after I sign in,
+So that I can reach it at all without being sent a link every time.
+
+**FRs covered:** FR29, FR30, FR32
+
+**Depends on:** nothing. Stories 5.1, 5.4 and 5.6 already create the memberships this story reads.
+
+**Context:** This is a **live defect on production**, observed 2026-08-06: an invited collaborator signed in, saw an empty dashboard, and concluded the invitation had failed. It had not. `listTripsForUser` (`tripRepo.ts:652`) filters `where: { userId }` — owner only — while every other read in the codebase authorises with `OR: [{ userId }, { members: { some: { userId } } }]` (`getTripWithDaysForUser`, the accommodation, plan-item, travel-segment, cost and route repositories). The collaborator therefore has full read access to the trip and no way to reach it: the dashboard is the only surface offered after sign-in, and it is the one surface that ignores memberships. The trip opens correctly by direct URL.
+
+The gap is not new. Story 7.4 recorded it while redesigning this list — *"a real product gap, it is not in this story's ACs […] note it for the backlog"* — and Story 7.5 declined it again as out of scope. Neither note reached `deferred-work.md` or the sprint plan, which is why it survived to be found by a real user.
+
+Widening the `where` clause is the smaller half. `TripSummary` carries no `accessRole`, so a widened list would render a shared trip in a card identical to an owned one, offering actions the member may not perform — and a VIEWER must not be shown edit affordances. The payload has to say which trips are the user's own before the list can show both.
+
+**Acceptance Criteria:**
+
+**Given** an account holding a VIEWER or CONTRIBUTOR membership on somebody else's trip
+**When** it signs in and opens the trip list
+**Then** that trip appears in the list alongside any trips the account owns, reachable without a direct link
+
+**Given** the trip list payload
+**When** it is returned
+**Then** each entry states whether the account owns the trip or holds a membership on it, and with which role — the list cannot present the two as the same thing
+
+**Given** a shared trip on the list
+**When** it is rendered
+**Then** it is visibly distinguishable from an owned trip, and a VIEWER is offered no action their role forbids; deletion in particular is never offered on a trip the account does not own
+
+**Given** an account with no trips of its own and no memberships
+**When** it opens the trip list
+**Then** the existing empty state is unchanged — the widened query must not turn "nothing to show" into an error
+
+**Given** the widened query
+**When** it runs
+**Then** it returns each trip exactly once for an account that both owns and is a member of trips, and a route test proves an account sees no trip it neither owns nor holds a membership on
+
+
 ## Epic 6: Usability Refinements
 
 Users can iterate on focused UX improvements that simplify planning screens without changing the core product model.

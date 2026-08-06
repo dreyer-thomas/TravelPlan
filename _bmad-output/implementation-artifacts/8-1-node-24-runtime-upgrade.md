@@ -4,7 +4,7 @@ authored_against: b18997c
 
 # Story 8.1: Node 24 LTS Runtime Upgrade (CI, Local, Server)
 
-Status: backlog
+Status: ready-for-dev
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -36,7 +36,7 @@ so that the runtime under the app keeps receiving security patches — a gap the
   - [ ] Leave the `--ignore-scripts` flag on the audit job's `npm ci` alone. It is unrelated to the Node version; it exists because `postinstall` → `prisma generate` needs a `DATABASE_URL` that CI does not have (`b18997c`).
   - [ ] Push and confirm both workflows go green on `main`. The Security Audit job is the meaningful one — it is the job that actually installs dependencies.
 - [ ] Task 3: Upgrade the deployment server. (AC: 5)
-  - [ ] **Read Dev Notes → "The server is undocumented" before starting.** `docs/deployment-guide.md` and `docs/deployment-configuration.md` are both 9-line placeholders, so the actual process/service setup has to be discovered on the box.
+  - [ ] **Read Dev Notes → "The server is undocumented" before starting.** Both deployment documents now carry real content from Story 8.3 (95 and 185 lines) — extend them, never replace them. The runtime half they still lack (process manager, service names, install paths, install command, CI/CD) has to be discovered on the box.
   - [ ] Install Node 24 alongside Node 20 — do not replace it. The second application depends on 20 and moving it is explicitly out of scope.
   - [ ] Point **only** TravelPlan's service at the Node 24 binary: an absolute path in the systemd unit's `ExecStart`, or an `nvm`-selected version scoped to the service user. Avoid changing the system-wide default `node` — that is the one action that could silently take the other app with it.
   - [ ] Reinstall `node_modules` on the server on Node 24 (native ABI again — AC4 applies here too, and the server is `linux-x64` where the dev machine is `darwin-arm64`).
@@ -61,6 +61,8 @@ Node 22.22.0:  0 packages incompatible
 Node 24.14.0:  0 packages incompatible
 ```
 
+**Re-run on 2026-08-06 against the tree as it stands after Epic 9: unchanged.** Still 405 distinct packages declaring `engines.node`, still exactly one incompatible with Node 20 and none with 24. Worth stating because Story 9.2 added a runtime dependency (`pdf-lib@1.17.1`) after the original sweep — neither it nor anything in its subtree (`@pdf-lib/standard-fonts`, `@pdf-lib/upng`, `pako`, `tslib`) declares `engines.node` at all, which is why the count did not move.
+
 Two conclusions worth carrying into the work:
 
 - **Node 24 is exactly as safe as Node 22 here.** No dependency prefers 22. That removes the usual "take the smaller jump" argument.
@@ -72,18 +74,34 @@ Node 22 left **Active** LTS in Oct 2025 and is in Maintenance with EOL around Ap
 
 ### `better-sqlite3` is the real risk, and it is covered (read before Task 1)
 
-Native modules are the thing that actually breaks on a Node major bump, because they compile against Node's ABI (`NODE_MODULE_VERSION`). The pinned `better-sqlite3@12.6.2` release ships prebuilds for:
+Native modules are the thing that actually breaks on a Node major bump, because they compile against Node's ABI (`NODE_MODULE_VERSION`).
+
+**The version moved since this story was written.** `package.json` declares the caret range `^12.6.2`, and the lockfile now resolves **`better-sqlite3@12.11.1`** — that is the version this work will actually install, not `12.6.2`. The good news is that 12.11.1 answers the compatibility question itself, in its own manifest:
+
+```
+engines.node: "20.x || 22.x || 23.x || 24.x || 25.x || 26.x"
+```
+
+Node 24 is explicitly supported by the resolved version. The prebuild table from the original sweep still applies:
 
 ```
 node-v115 → Node 20      node-v137 → Node 24  ← target
 node-v127 → Node 22      node-v141 → Node 25/26
 ```
 
-`node-v137` is published for both `linux-x64` (CI + server) and `darwin-arm64` (dev machine), so `prebuild-install` should fetch a binary and no build toolchain is needed. If it *does* fall back to a source compile, that is the signal something is off — stop and check the ABI rather than installing build tools to force it through.
+`node-v137` was confirmed published for both `linux-x64` (CI + server) and `darwin-arm64` (dev machine) at `12.6.2`. **Re-confirm it for `12.11.1` against the package's GitHub releases before Task 1** — that is a network check this story could not make offline, and it is the single fact the whole "no build toolchain needed" claim rests on.
+
+**Correction to the original anomaly signal.** This note used to say that a fallback to a source compile is itself the signal something is off. It is not, on this machine: `node_modules/better-sqlite3/build/Release/` currently holds `obj/`, `obj.target/` and `sqlite3.a` alongside the `.node` binary — node-gyp artefacts, i.e. the local install is *already* a source build today, on Node 20, where a `node-v115` prebuild does exist. So a source compile after the bump proves nothing on its own and must not be treated as a stop signal. **Check the ABI of the produced binary instead** (`process.versions.modules` must read `137` under Node 24), and only stop if that disagrees.
 
 ### The server is undocumented (read before Task 3)
 
-`docs/deployment-guide.md` and `docs/deployment-configuration.md` are both 9-line "No deployment configuration detected yet / TBD" placeholders at baseline. There is no `Dockerfile`, no `docker-compose`, no `.nvmrc`, and no `.node-version` anywhere in the repo — a repo-wide search for Node version pins finds hits **only** in the two workflow files. So Task 3 is partly discovery, and Task 4 exists to make sure that discovery is not thrown away.
+**This changed after the story was written.** Both documents were 9-line "No deployment configuration detected yet / TBD" placeholders at baseline `b18997c`. Story 8.3 has since written real content into them — `docs/deployment-guide.md` is now 95 lines and `docs/deployment-configuration.md` 185 — covering media storage, the environment variables and the reverse-proxy rules. **Read them before Task 3 and extend rather than replace.**
+
+What they do *not* yet contain is the runtime half, and the guide says so in its own words: *"The infrastructure half — process manager, service names, install paths, the deployment process itself and CI/CD — is Story 8.1's to discover and write."* It also already records the fact this story starts from: *"The current environment runs v20.19.2; nothing in the repository pins it (`engines` is absent). Story 8.1 owns the move to Node 24."*
+
+There is still no `Dockerfile`, no `docker-compose`, no `.nvmrc`, and no `.node-version` anywhere in the repo — a repo-wide search for Node version pins finds hits **only** in the two workflow files. So Task 3 is partly discovery, and Task 4 exists to make sure that discovery is not thrown away.
+
+One question to settle during that discovery, surfaced by a production install log on 2026-08-06: a deprecation warning for `glob@10.5.0` appeared, and that package reaches the tree only through `@vitest/coverage-v8 → test-exclude`, which is a **devDependency**. That suggests the server installs dev dependencies. If so it is worth recording plainly in the guide, because `npm run audit:check` runs `npm audit --omit=dev` and would then be auditing a different tree than the one deployed. Confirm on the server (`ls node_modules/vitest`) rather than assuming; either answer belongs in the written deployment process.
 
 The one known constraint: a second application on the same server runs on Node 20 and must keep running. That is what makes "install alongside, repoint one service" the required approach rather than a system-wide upgrade.
 

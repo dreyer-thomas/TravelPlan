@@ -1,31 +1,43 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import TripDayPrintDocument from "@/components/features/trips/TripDayPrintDocument";
 import type { TripDayPrintPayload } from "@/lib/repositories/tripRepo";
 
 const EMPTY_MAP = { points: [], missingLocations: [] };
 
-const makeStay = (overrides: Partial<TripDayPrintPayload["timeline"][number] extends { stay: infer S } ? S : never> = {}) => ({
+/**
+ * Story 9.2 adds `documents: []` to both factories, so every existing case still describes a day with no
+ * documents at all - which is exactly what AC3 asks for and what the seventeen assertions below hold.
+ *
+ * The override types are now the payload's own types rather than hand-written approximations. The old
+ * `Partial<... extends { stay: infer S } ? S : never>` resolved to `never`, and the item's spelled-out
+ * shape declared `images: []`, so *every* existing call passing a non-empty `images` array or any stay
+ * field at all was a type error. That made it impossible to add a `documents` case without adding to the
+ * type-error baseline, and it is the reason a required field going missing from either type would not have
+ * been caught here.
+ */
+type PrintStay = Extract<TripDayPrintPayload["timeline"][number], { kind: "currentStay" }>["stay"];
+type PrintItem = Extract<TripDayPrintPayload["timeline"][number], { kind: "planItem" }>["item"];
+type PrintDocument = PrintItem["documents"][number];
+
+const makeStay = (overrides: Partial<PrintStay> = {}): PrintStay => ({
   id: "stay-1",
   name: "Grand Hotel",
   notes: null,
-  status: "booked" as const,
+  status: "booked",
   costCents: null,
   link: null,
   checkInTime: null,
   checkOutTime: null,
   location: null,
   images: [],
+  documents: [],
   ...overrides,
 });
 
-const makeItem = (overrides: Partial<{
-  id: string; title: string | null; fromTime: string | null; toTime: string | null;
-  contentJson: string; costCents: number | null; linkUrl: string | null;
-  location: null; images: [];
-}> = {}) => ({
+const makeItem = (overrides: Partial<PrintItem> = {}): PrintItem => ({
   id: "item-1",
   title: "Museum Visit",
   fromTime: "09:00",
@@ -35,6 +47,20 @@ const makeItem = (overrides: Partial<{
   linkUrl: null,
   location: null,
   images: [],
+  documents: [],
+  ...overrides,
+});
+
+/**
+ * Default URL ends `.jpg`, so the default document is an image. Every PDF case below sets `documentUrl`
+ * explicitly - the URL is the discriminator, and a fixture that flipped the kind by changing `fileName`
+ * would be asserting the opposite of AC1/AC2's rule.
+ */
+const makeDocument = (overrides: Partial<PrintDocument> = {}): PrintDocument => ({
+  id: "doc-1",
+  documentUrl: "/uploads/trips/trip-1/days/day-1/day-plan-items/item-1/documents/doc-1.jpg",
+  fileName: "Ticket.jpg",
+  sortOrder: 0,
   ...overrides,
 });
 
@@ -293,11 +319,307 @@ describe("TripDayPrintDocument", () => {
     expect(screen.getByText(/450 km/)).toBeInTheDocument();
   });
 
+  /**
+   * Story 9.2, AC1-AC3.
+   *
+   * **Nothing here asserts a height, a page break or any other computed layout value.** jsdom resolves
+   * `height` to `""` for every element and applies no `@media print` rule at all, so an assertion about
+   * either passes whether the code is right, wrong or absent - the defect Story 6.26's review found
+   * masquerading as proof. What is testable here is which blocks exist, what they say, and in what order;
+   * the page geometry is the browser verification pass's job.
+   */
+  describe("story 9.2 document pages and PDF appendix", () => {
+    it("renders one captioned page per image document, in timeline order across entry kinds", () => {
+      const payload = basePayload({
+        timeline: [
+          {
+            kind: "previousStay",
+            stay: makeStay({
+              id: "prev",
+              name: "Airport Inn",
+              documents: [
+                makeDocument({
+                  id: "doc-stay",
+                  documentUrl: "/uploads/trips/trip-1/days/day-1/accommodations/prev/documents/doc-a.png",
+                  fileName: "Hotel voucher.png",
+                }),
+              ],
+            }),
+          },
+          {
+            kind: "planItem",
+            item: makeItem({
+              id: "item-1",
+              title: "Museum",
+              documents: [
+                makeDocument({ id: "doc-item-1", fileName: "Entry ticket.jpg", sortOrder: 0 }),
+                makeDocument({
+                  id: "doc-item-2",
+                  documentUrl: "/uploads/trips/trip-1/days/day-1/day-plan-items/item-1/documents/doc-2.jpeg",
+                  fileName: "Audio guide.jpeg",
+                  sortOrder: 1,
+                }),
+              ],
+            }),
+          },
+        ],
+      });
+
+      render(<TripDayPrintDocument payload={payload} />);
+
+      const pages = screen.getAllByTestId("print-document-page");
+      expect(pages).toHaveLength(3);
+      // Timeline order, not per-entry order: the stay's document comes before both of the activity's.
+      expect(pages[0]).toHaveTextContent("Airport Inn");
+      expect(pages[0]).toHaveTextContent("Hotel voucher.png");
+      expect(pages[1]).toHaveTextContent("Museum");
+      expect(pages[1]).toHaveTextContent("Entry ticket.jpg");
+      expect(pages[2]).toHaveTextContent("Audio guide.jpeg");
+
+      const images = screen.getAllByTestId("print-document-image");
+      expect(images.map((image) => image.getAttribute("src"))).toEqual([
+        "/uploads/trips/trip-1/days/day-1/accommodations/prev/documents/doc-a.png",
+        "/uploads/trips/trip-1/days/day-1/day-plan-items/item-1/documents/doc-1.jpg",
+        "/uploads/trips/trip-1/days/day-1/day-plan-items/item-1/documents/doc-2.jpeg",
+      ]);
+      // An image document is a page, never an appendix entry.
+      expect(screen.queryByTestId("print-document-appendix")).not.toBeInTheDocument();
+    });
+
+    it("names PDF documents in an appendix that states they are absent, and gives them no page", () => {
+      const payload = basePayload({
+        timeline: [
+          {
+            kind: "planItem",
+            item: makeItem({
+              id: "item-1",
+              title: "Flight to Rome",
+              documents: [
+                makeDocument({
+                  id: "doc-pdf",
+                  documentUrl: "/uploads/trips/trip-1/days/day-1/day-plan-items/item-1/documents/doc-1.pdf",
+                  fileName: "Boarding pass.pdf",
+                }),
+              ],
+            }),
+          },
+          {
+            kind: "currentStay",
+            stay: makeStay({
+              id: "curr",
+              name: "Hotel Roma",
+              documents: [
+                makeDocument({
+                  id: "doc-pdf-2",
+                  documentUrl: "/uploads/trips/trip-1/days/day-1/accommodations/curr/documents/doc-2.PDF",
+                  fileName: "Booking confirmation.pdf",
+                }),
+              ],
+            }),
+          },
+        ],
+      });
+
+      render(<TripDayPrintDocument payload={payload} />);
+
+      expect(screen.queryByTestId("print-document-page")).not.toBeInTheDocument();
+
+      const items = screen.getAllByTestId("print-document-appendix-item");
+      // `.PDF` upper case counts: the extension is lowercased before it is compared.
+      expect(items).toHaveLength(2);
+      expect(items[0]).toHaveTextContent("Flight to Rome — Boarding pass.pdf");
+      expect(items[1]).toHaveTextContent("Hotel Roma — Booking confirmation.pdf");
+
+      // AC2's whole point: the sheet has to say in print that these files are not in it. Matched on the
+      // claim rather than the exact sentence, so a reword stays free and a deletion does not.
+      const appendix = screen.getByTestId("print-document-appendix");
+      expect(appendix).toHaveTextContent(/not part of this printout/i);
+      expect(appendix).toHaveTextContent(/packet/i);
+    });
+
+    it("decides PDF from the URL, never from the file name", () => {
+      const payload = basePayload({
+        timeline: [
+          {
+            kind: "planItem",
+            item: makeItem({
+              id: "item-1",
+              title: "Ferry",
+              documents: [
+                // A `.jpg` URL whose user-supplied name claims `.pdf`. `fileName` is client input and may
+                // lie; the URL's extension is what the upload route generated from its own allow-list.
+                makeDocument({
+                  id: "doc-liar",
+                  documentUrl: "/uploads/trips/trip-1/days/day-1/day-plan-items/item-1/documents/doc-1.jpg",
+                  fileName: "Ferry ticket.pdf",
+                }),
+              ],
+            }),
+          },
+        ],
+      });
+
+      render(<TripDayPrintDocument payload={payload} />);
+
+      expect(screen.getAllByTestId("print-document-page")).toHaveLength(1);
+      expect(screen.queryByTestId("print-document-appendix")).not.toBeInTheDocument();
+    });
+
+    it("adds neither block when the day has no documents at all", () => {
+      const payload = basePayload({
+        timeline: [
+          { kind: "previousStay", stay: makeStay({ id: "prev", name: "Airport Inn" }) },
+          { kind: "planItem", item: makeItem({ id: "item-1", title: "City Walk" }) },
+          { kind: "travelSegment", segment: makeSegment() },
+          { kind: "currentStay", stay: makeStay({ id: "curr", name: "Beach Hotel" }) },
+        ],
+      });
+
+      render(<TripDayPrintDocument payload={payload} />);
+
+      expect(screen.queryByTestId("print-document-page")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("print-document-image")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("print-document-appendix")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("print-document-appendix-item")).not.toBeInTheDocument();
+    });
+
+    it("labels a document page from the same positional fallback its itinerary card shows", () => {
+      const payload = basePayload({
+        timeline: [
+          { kind: "previousStay", stay: makeStay({ id: "prev", name: "Airport Inn" }) },
+          {
+            kind: "planItem",
+            item: makeItem({
+              id: "item-1",
+              title: null,
+              contentJson: '{"type":"doc","content":[]}',
+              documents: [makeDocument({ fileName: "Unnamed ticket.jpg" })],
+            }),
+          },
+        ],
+      });
+
+      render(<TripDayPrintDocument payload={payload} />);
+
+      // Index 1 in the timeline, so "Plan item 2" - the card's own number, which is the whole point of
+      // sharing `getPrintEntryLabel`: a loose printed page has to name the card it belongs to.
+      const card = screen.getAllByTestId("print-timeline-entry").find((entry) => entry.dataset.kind === "planItem");
+      expect(card).toHaveTextContent("Plan item 2");
+      expect(screen.getByTestId("print-document-page")).toHaveTextContent("Plan item 2");
+    });
+  });
+
   describe("onReady callback", () => {
     it("calls onReady after mount when there are no map points", async () => {
       const onReady = vi.fn();
       render(<TripDayPrintDocument payload={basePayload()} onReady={onReady} />);
       await waitFor(() => expect(onReady).toHaveBeenCalledTimes(1));
+    });
+
+    it("waits for a document image to load before firing, so the print dialog does not snapshot a blank page", async () => {
+      // `onReady` is what fires `window.print()`, and the dialog captures the page at the moment it opens -
+      // a later image load never reaches the preview. The day view renders documents as chips, never as
+      // `<img>`, so a document image's bytes are always cold on the first print. Firing on mount therefore
+      // prints AC1's full-page ticket blank. Without the wait, onReady is called before the load event.
+      const onReady = vi.fn();
+      render(
+        <TripDayPrintDocument
+          payload={basePayload({
+            timeline: [
+              {
+                kind: "planItem",
+                item: makeItem({
+                  documents: [
+                    { id: "d1", documentUrl: "/uploads/trips/t/days/d/day-plan-items/i/documents/doc-1.jpg", fileName: "Ticket.jpg", sortOrder: 1 },
+                  ],
+                }),
+              },
+            ],
+          })}
+          onReady={onReady}
+        />,
+      );
+
+      const image = screen.getByTestId("print-document-image");
+      // jsdom never loads an `<img>`, so `complete` stays false and nothing has fired yet.
+      expect(onReady).not.toHaveBeenCalled();
+
+      fireEvent.load(image);
+      await waitFor(() => expect(onReady).toHaveBeenCalledTimes(1));
+    });
+
+    it("fires once a document image fails, so a broken document cannot hold the print dialog shut", async () => {
+      // The itinerary is still worth printing when a ticket image 404s, so `error` settles the wait exactly
+      // as `load` does. Asserting the negative matters here: an implementation that waited only for `load`
+      // would leave the user on a page with no print dialog at all.
+      const onReady = vi.fn();
+      render(
+        <TripDayPrintDocument
+          payload={basePayload({
+            timeline: [
+              {
+                kind: "planItem",
+                item: makeItem({
+                  documents: [
+                    { id: "d1", documentUrl: "/uploads/trips/t/days/d/day-plan-items/i/documents/doc-1.png", fileName: "Map.png", sortOrder: 1 },
+                  ],
+                }),
+              },
+            ],
+          })}
+          onReady={onReady}
+        />,
+      );
+
+      expect(onReady).not.toHaveBeenCalled();
+      fireEvent.error(screen.getByTestId("print-document-image"));
+      await waitFor(() => expect(onReady).toHaveBeenCalledTimes(1));
+    });
+
+    it("gives up after a ceiling scaled by how many images are outstanding, and not before", async () => {
+      // The third path through the wait, and the one no assertion covered: an `<img>` that neither loads
+      // nor errors, which on an authenticated media route is a stalled connection. Two things are pinned
+      // here. That the wait ends at all - without it a stalled ticket leaves the user on a page with no
+      // print dialog, worse than the blank page the wait exists to prevent. And that the budget is *per
+      // outstanding image*: with one flat 8s for the whole set, six 3 MB tickets share it and the dialog
+      // opens over three still-blank pages, silently. Fake timers rather than a real 16s wait.
+      vi.useFakeTimers();
+      try {
+        const onReady = vi.fn();
+        render(
+          <TripDayPrintDocument
+            payload={basePayload({
+              timeline: [
+                {
+                  kind: "planItem",
+                  item: makeItem({
+                    documents: [
+                      makeDocument({ id: "d1", documentUrl: "/uploads/trips/t/days/d/day-plan-items/i/documents/a.jpg" }),
+                      makeDocument({ id: "d2", documentUrl: "/uploads/trips/t/days/d/day-plan-items/i/documents/b.jpg" }),
+                    ],
+                  }),
+                },
+              ],
+            })}
+            onReady={onReady}
+          />,
+        );
+
+        // jsdom loads no `<img>`, so both document images are outstanding and nothing else on this fixture
+        // renders one: the budget is two images' worth.
+        expect(screen.getAllByTestId("print-document-image")).toHaveLength(2);
+        await act(async () => {
+          vi.advanceTimersByTime(8000);
+        });
+        expect(onReady).not.toHaveBeenCalled();
+
+        await act(async () => {
+          vi.advanceTimersByTime(8000);
+        });
+        expect(onReady).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("calls onReady after mount when map points are present", async () => {

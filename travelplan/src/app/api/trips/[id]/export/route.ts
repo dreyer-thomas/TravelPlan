@@ -5,6 +5,7 @@ import { hasTripOwnerAccess } from "@/lib/auth/tripAccess";
 import { getTripExportForUser } from "@/lib/repositories/tripRepo";
 import { requireSession } from "@/lib/auth/sessionGuard";
 import { createZipStream, type ZipEntry } from "@/lib/trips/zipArchive";
+import { toSafeSlug } from "@/lib/trips/toSafeSlug";
 
 // `node:fs` and `node:zlib` are required by the archive writer.
 export const runtime = "nodejs";
@@ -36,16 +37,6 @@ const APP_VERSION = process.env.npm_package_version ?? "0.1.0";
  */
 const FORMAT_VERSION = 2;
 const MANIFEST_ENTRY_NAME = "trip.json";
-
-const toSafeSlug = (name: string) => {
-  const normalized = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 64);
-
-  return normalized || "trip";
-};
 
 export const GET = async (request: NextRequest, context: RouteContext) => {
   const auth = await requireSession(request);

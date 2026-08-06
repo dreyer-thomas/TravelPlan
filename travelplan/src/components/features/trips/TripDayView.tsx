@@ -58,6 +58,7 @@ import TripDayTravelSegmentDialog from "@/components/features/trips/TripDayTrave
 import { MiniImageStrip, PlanItemRichContent, isSafeLink, parsePlanText, toViewerImages } from "@/components/features/trips/TripDayPlanItemContent";
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
+import { extractAttachmentFilename, triggerBlobDownload } from "@/lib/browser/blobDownload";
 import { buildDayMapPanelData, buildTripDayMapItems } from "@/lib/trips/dayMapData";
 import { documentDisplayName } from "@/lib/trips/documentUploads";
 import { IMAGE_UPLOAD_ACCEPT, isSupportedImageUpload } from "@/lib/trips/imageUploads";
@@ -67,6 +68,13 @@ type ApiEnvelope<T> = {
   data: T | null;
   error: { code: string; message: string; details?: unknown } | null;
 };
+
+/**
+ * Only reached when `content-disposition` is absent or unparseable. The packet route always sends one,
+ * so this is the "something upstream changed" name rather than the normal one - and it still has to end
+ * in `.pdf`, because the extension is what decides whether the saved file opens in anything.
+ */
+const PACKET_FILENAME_FALLBACK = "day-documents.pdf";
 
 /**
  * Styling hook for the activity card's edit glyph.
@@ -565,11 +573,27 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const [transferTargetDayId, setTransferTargetDayId] = useState("");
   const [transferSubmitting, setTransferSubmitting] = useState(false);
   const [dayMenuAnchor, setDayMenuAnchor] = useState<null | HTMLElement>(null);
+  // Story 9.2. Its own flag rather than a shared "busy": the packet is built server-side out of up to ten
+  // files and is the one action on this screen with a wait worth reporting.
+  const [packetPending, setPacketPending] = useState(false);
   // Reset-on-prop-change during render rather than in an effect, which is React's own prescription
   // and keeps this out of the cascading-render lint. The menu's backdrop swallows clicks but not
   // browser back/forward, so navigating to a sibling day can leave the anchor pointing at the
   // trigger the loading skeleton just unmounted - a detached node, which Popover then measures as
   // the viewport's top-left corner.
+  // Story 9.2. The packet is the one action here that outlives the day it was started on: the merge can
+  // take seconds, this component survives a sibling-day navigation (that is what the reset below is for),
+  // and `handleDownloadPacket` closes over the `dayId` of the render that created it. Without a live
+  // reading of the current day, a `no_documents` refusal for day 3 paints "This day has no documents to
+  // package" over day 4 - a false statement about a day that may be full of them.
+  // Synced in an effect, not in the reset block below: writing `.current` during render is a
+  // `react-hooks` error ("Cannot access refs during render") and React Compiler is on here. An effect is
+  // early enough regardless - it runs on the navigation's own commit, long before a merge that takes
+  // seconds resolves.
+  const currentDayIdRef = useRef(dayId);
+  useEffect(() => {
+    currentDayIdRef.current = dayId;
+  }, [dayId]);
   const [dayMenuDayId, setDayMenuDayId] = useState(dayId);
   if (dayMenuDayId !== dayId) {
     setDayMenuDayId(dayId);
@@ -598,17 +622,32 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   // off this screen and it renders for every role, which is also what retires the `hasDayMenuItems`
   // guard this record used to feed: the menu can no longer be empty, so the trigger is unconditional
   // (6.19 AC8, and its trap 4 - gating the trigger now would strand a viewer on the day screen).
-  const dayMenuItemsVisible: Record<"dayImage" | "transfers" | "print", boolean> = {
+  //
+  // Story 9.2 adds `packet`, gated `true` for the same reason `print` is: it produces nothing and
+  // changes nothing, and taking the day's tickets offline is exactly as much a viewer's business as
+  // printing the day is.
+  const dayMenuItemsVisible: Record<"dayImage" | "transfers" | "print" | "packet", boolean> = {
     dayImage: isOwner,
     transfers: canEditPlanning,
     print: true,
+    packet: true,
   };
   // The divider only earns its place when there is a planning group above it to separate.
-  const showDayMenuDivider = (dayMenuItemsVisible.dayImage || dayMenuItemsVisible.transfers) && dayMenuItemsVisible.print;
+  const showDayMenuDivider =
+    (dayMenuItemsVisible.dayImage || dayMenuItemsVisible.transfers) &&
+    (dayMenuItemsVisible.print || dayMenuItemsVisible.packet);
   // MUI drops MenuItem to 36px at sm and up. The three controls that moved into this menu were all
   // 44px buttons and the codebase enforces that floor deliberately, so it has to be restated here -
   // relocating a control is not a licence to shrink its hit area on a tablet.
-  const DAY_MENU_ITEM_SX = { minHeight: 44 } as const;
+  //
+  // `&&` rather than a bare `{ minHeight: 44 }` — DW-180, fixed here for all of this menu's items at
+  // once. A plain `sx` has the same specificity as the `@media (min-width: sm)` rule inside MUI's own
+  // `MenuItem` styles that resets `minHeight` to `auto`, so source order decides, and MUI's wins:
+  // Story 5.11's browser pass measured these at **32.3px at 747px width** while this constant said 44.
+  // Doubling the class selector doubles the specificity, which is why the map dialog's own MenuItem in
+  // this file already carries the correct form with a comment saying so. `HeaderMenu`'s items are the
+  // other half of DW-180 and remain open.
+  const DAY_MENU_ITEM_SX = { "&&": { minHeight: 44 } } as const;
 
   useEffect(() => {
     planItemsRef.current = planItems;
@@ -2438,6 +2477,96 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     setDayMenuAnchor(null);
   };
 
+  /**
+   * Story 9.2 AC6/AC7. Fetched into a blob rather than handed to an `<a download>` pointing at the route.
+   *
+   * The route answers every failure as a JSON `{data,error}` envelope, and AC6's empty-day refusal is
+   * precisely the response an anchor would save to disk as a file called `packet` - the user would find
+   * out by opening it. Going through `fetch` is what makes `response.ok`, and therefore the branch below,
+   * reachable at all; it is also what makes the pending state possible, and a ten-document day is real
+   * work on the server. The same argument, written out at greater length, is in `TripTimeline.tsx`'s
+   * `handleExport`, which is where the two helpers this uses come from.
+   *
+   * The menu is deliberately left open for the duration and closed in `finally`: the item's own pending
+   * label is the only progress this action has, and closing first would hide it. `error` is the day
+   * screen's alert slot at the very top of the page, which is where a refusal has to land once the menu
+   * is gone.
+   */
+  const handleDownloadPacket = async () => {
+    if (packetPending) return;
+    setError(null);
+    setPacketPending(true);
+
+    // The day this request is about, compared against the ref on the way out. Only the *messages* are
+    // gated: a packet that arrives after the traveller moved on is still the packet they asked for and
+    // still saves itself, correctly named for its own day by the route. An error about that day, painted
+    // on a different one, is the only part that becomes a lie.
+    const requestedDayId = dayId;
+    const reportPacketError = (message: string) => {
+      if (currentDayIdRef.current !== requestedDayId) return;
+      setError(message);
+    };
+
+    try {
+      const response = await fetch(`/api/trips/${tripId}/days/${dayId}/documents/packet`, {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        // The envelope, not one sentence for every failure. `no_documents` is the whole reason the route
+        // has a code of its own: it is a true statement about a day that exists, and the generic
+        // not-found string would send the traveller looking for a trip that is fine.
+        const body = (await response.json().catch(() => null)) as ApiEnvelope<unknown> | null;
+
+        switch (body?.error?.code) {
+          case "no_documents":
+            reportPacketError(t("trips.documents.packetEmpty"));
+            break;
+          // Its own message, not the default's "please try again": retrying cannot fix a day with more
+          // documents than the packet can hold, and telling the user to retry a permanent condition is the
+          // failure mode Story 9.1's review caught on the upload cap.
+          case "too_many_documents":
+            reportPacketError(t("trips.documents.packetTooMany"));
+            break;
+          // Both codes, one message, exactly as `AdminUsersList` and `RegisteredUsersList` already do it:
+          // the middleware answers every `/api/trips/*` request from a must-change-password session with
+          // a 403 `password_change_required`, and it guards the navigation, not the XHR that follows it.
+          // Left in the default branch it becomes "please try again", which is the same retry-a-permanent-
+          // condition advice `too_many_documents` above exists to avoid.
+          case "unauthorized":
+          case "password_change_required":
+            reportPacketError(t("errors.unauthorized"));
+            break;
+          case "not_found":
+            reportPacketError(t("trips.detail.notFoundBody"));
+            break;
+          case "server_error":
+            reportPacketError(t("errors.server"));
+            break;
+          default:
+            reportPacketError(t("trips.documents.packetError"));
+        }
+
+        return;
+      }
+
+      // Read back from the header rather than rebuilt here: the route names the file from the trip slug
+      // and the day index, and a second copy of that rule on the client is a second thing to keep in step.
+      const filename =
+        extractAttachmentFilename(response.headers.get("content-disposition")) ?? PACKET_FILENAME_FALLBACK;
+      triggerBlobDownload(await response.blob(), filename);
+    } catch {
+      // A thrown request, or a `blob()` that rejected because the response failed mid-stream. Not a
+      // network-specific message: this branch cannot tell a truncated packet from an unreachable server.
+      reportPacketError(t("trips.documents.packetError"));
+    } finally {
+      setPacketPending(false);
+      handleDayMenuClose();
+    }
+  };
+
   useEffect(() => {
     const fallbackPolyline = mapData.points.map((point) => point.position);
     setRoutePolyline(fallbackPolyline);
@@ -2801,6 +2930,31 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                     onClick={handleDayMenuClose}
                   >
                     <Typography>{t("trips.dayView.printAction")}</Typography>
+                  </MenuItem>
+                ) : null}
+                {/* Story 9.2, after print because the two are the same gesture at different fidelities:
+                    the sheet is the plan, the packet is the tickets that make it usable. A handler and
+                    not a link, for the reason `handleDownloadPacket` records - the route answers a
+                    refusal as JSON, and an anchor would save that to disk as the packet.
+
+                    No aria-label, per the block comment above: it would replace the visible name rather
+                    than supplement it (WCAG 2.5.3). No aria-haspopup either - nothing opens.
+
+                    `disabled` plus `aria-busy` plus the label swap, all three: `disabled` is what stops
+                    a second request while the first is building, `aria-busy` is what says so to a screen
+                    reader, and the label is what says so to everyone else. A disabled item with an
+                    unchanged label reads as "not available here", which is the wrong thing entirely. */}
+                {dayMenuItemsVisible.packet ? (
+                  <MenuItem
+                    data-testid="day-menu-packet"
+                    sx={DAY_MENU_ITEM_SX}
+                    disabled={packetPending}
+                    aria-busy={packetPending}
+                    onClick={handleDownloadPacket}
+                  >
+                    <Typography>
+                      {packetPending ? t("trips.documents.packetPending") : t("trips.documents.packetAction")}
+                    </Typography>
                   </MenuItem>
                 ) : null}
               </Menu>
@@ -3724,10 +3878,11 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                   total: documentMenu?.documents.length ?? 0,
                 })}
                 onClick={() => setDocumentMenu(null)}
-                // `&&` rather than a bare `minHeight`, unlike `DAY_MENU_ITEM_SX` above: MenuItem's own
-                // root sets `minHeight: 48` and then resets it to `auto` above `sm`, and DW-180
-                // records that reset winning against a plain `sx` twice. The bump is cheap here and
-                // the 44px floor is not negotiable at either width.
+                // `&&` rather than a bare `minHeight`, the same form `DAY_MENU_ITEM_SX` above now uses:
+                // MenuItem's own root sets `minHeight: 48` and then resets it to `auto` above `sm`, and
+                // DW-180 records that reset winning against a plain `sx` twice. The bump is cheap here
+                // and the 44px floor is not negotiable at either width. (This comment used to draw a
+                // contrast with the constant above, which was bare until Story 9.2 fixed it.)
                 sx={{ "&&": { minHeight: 44 } }}
               >
                 <Typography>{documentDisplayName(documentRow.fileName)}</Typography>

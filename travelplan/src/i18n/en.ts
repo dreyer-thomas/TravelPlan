@@ -674,6 +674,17 @@ const en: Dictionary = {
   "trips.documents.limitReached": "Up to 10 documents per entry.",
   "trips.documents.uploadError": "Document upload failed. Please try again.",
   "trips.documents.deleteError": "Document removal failed. Please try again.",
+  // Story 9.2's day-menu entry and its three outcomes. "Packet" rather than "PDF" because what the
+  // traveller gets is one file containing the day's tickets, and naming the format says nothing about
+  // that; the printed sheet's appendix uses the same word to point here.
+  "trips.documents.packetAction": "Download document packet",
+  "trips.documents.packetPending": "Building packet…",
+  "trips.documents.packetTooMany": "This day has too many documents for one packet. Remove a few and try again.",
+  // Deliberately not `trips.detail.notFoundBody`, which the route's own `no_documents` code exists to
+  // keep this case away from: a traveller told the trip does not exist, when the day simply has no
+  // tickets on it, goes looking in the wrong place.
+  "trips.documents.packetEmpty": "This day has no documents to package.",
+  "trips.documents.packetError": "Document packet could not be created. Please try again.",
   "trips.location.latLabel": "Latitude",
   "trips.location.lngLabel": "Longitude",
   "trips.location.labelLabel": "Location label (optional)",

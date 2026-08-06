@@ -31,6 +31,50 @@ const SUPPORTED_DOCUMENT_MIME_TYPES = new Set([
 /** Extensions the document upload routes accept when a browser reports no or an unhelpful MIME type. */
 const SUPPORTED_DOCUMENT_EXTENSIONS = new Set(["pdf", "jpg", "jpeg", "png", "webp"]);
 
+/** The five spellings `SUPPORTED_DOCUMENT_EXTENSIONS` admits, as a type the compiler can switch on. */
+export type DocumentUrlExtension = "pdf" | "jpg" | "jpeg" | "png" | "webp";
+
+/**
+ * The stored `documentUrl`'s final extension, lowercased, or `null` when it is not one of the five the
+ * upload routes produce.
+ *
+ * **This, and never `fileName`, is what decides whether a document is a PDF or an image** (Story 9.2).
+ * The two columns have completely different provenance: the on-disk name - and therefore the URL - is
+ * generated server-side as `doc-<ts>-<rand>.<ext>` with `<ext>` chosen by the upload route from its own
+ * `ALLOWED_TYPES`, while `fileName` is whatever the client sent, sanitised for rendering and nothing
+ * more. So `fileName` may legitimately end in `.pdf` for a file the route stored as a `.jpg`, and both
+ * halves of Story 9.2 would then disagree with each other and with the bytes: the print sheet would
+ * list a JPEG in its "not included" PDF appendix, and the packet would hand `PDFDocument.load` a JPEG.
+ *
+ * No query string is stripped, deliberately: the column never carries one, and `resolveStoredMediaPath`
+ * makes exactly the same assumption when it maps the URL back onto a file. Tolerating one here and not
+ * there would move the failure rather than remove it.
+ *
+ * Anything unrecognised is `null` rather than a guess. For the packet that is the right answer already -
+ * a format it cannot embed degrades to a label page - and for the print sheet it means the document is
+ * neither paged nor listed, which is the same treatment an unreadable file gets.
+ */
+export const documentUrlExtension = (documentUrl: string): DocumentUrlExtension | null => {
+  // No `typeof documentUrl !== "string"` guard: the parameter is typed, both callers pass a non-null
+  // Prisma column, and this file's own reasoning about `readJpegOrientation`'s EOI branch is that
+  // defensive code no fixture can make fail does not belong in the tree. The same rule applies here.
+  //
+  // The last path segment first, so a dot in a directory name cannot be mistaken for the extension.
+  const lastSlash = documentUrl.lastIndexOf("/");
+  const fileSegment = lastSlash >= 0 ? documentUrl.slice(lastSlash + 1) : documentUrl;
+  // `> 0`, matching `documentDisplayName`: a leading dot with nothing before it is the whole name.
+  const lastDot = fileSegment.lastIndexOf(".");
+  if (lastDot <= 0) return null;
+  const extension = fileSegment.slice(lastDot + 1).toLowerCase();
+  return SUPPORTED_DOCUMENT_EXTENSIONS.has(extension) ? (extension as DocumentUrlExtension) : null;
+};
+
+/**
+ * Whether a stored document URL names a PDF. The single discriminator both halves of Story 9.2 use -
+ * see `documentUrlExtension` for why it is the URL and not the file name.
+ */
+export const isPdfDocumentUrl = (documentUrl: string) => documentUrlExtension(documentUrl) === "pdf";
+
 /**
  * How many documents one stay or activity may carry.
  *

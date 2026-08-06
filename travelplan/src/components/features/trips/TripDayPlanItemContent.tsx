@@ -24,25 +24,13 @@ export const isSafeLink = (value: string) => {
   return normalized.startsWith("http://") || normalized.startsWith("https://");
 };
 
-export const parsePlanText = (value: string) => {
-  try {
-    const doc = JSON.parse(value);
-    const parts: string[] = [];
-
-    const walk = (node: { text?: string; content?: unknown[] }) => {
-      if (!node) return;
-      if (typeof node.text === "string") parts.push(node.text);
-      if (Array.isArray(node.content)) {
-        node.content.forEach((child) => walk(child as { text?: string; content?: unknown[] }));
-      }
-    };
-
-    walk(doc as { text?: string; content?: unknown[] });
-    return parts.join(" ").trim();
-  } catch {
-    return "";
-  }
-};
+/**
+ * Re-exported, not defined here: this module is `"use client"`, so an export of it is a client
+ * reference and server code cannot call it (Story 9.2's packet route needs the same label rule the
+ * printed sheet uses). The definition is `@/lib/trips/planText`; this line is what keeps the six
+ * existing importers of *this* module working unchanged.
+ */
+export { parsePlanText } from "@/lib/trips/planText";
 
 const parseRichDoc = (value: string): RichDocNode | null => {
   try {

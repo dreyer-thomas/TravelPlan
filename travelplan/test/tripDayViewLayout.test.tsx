@@ -6285,6 +6285,9 @@ describe("TripDayView layout", () => {
       "Swap activities",
       "---",
       "Print day",
+      // Story 9.2, after print: the two are the same gesture at different fidelities, and both sit below
+      // the divider because neither changes this day.
+      "Download document packet",
     ]);
     // A <ul> may only contain <li>, so the separator has to be one - as a bare <hr> it validates as
     // an error and AT rebuilding the list from valid children can drop it.
@@ -6309,6 +6312,7 @@ describe("TripDayView layout", () => {
       "Swap activities",
       "---",
       "Print day",
+      "Download document packet",
     ]);
 
     vi.unstubAllGlobals();
@@ -6326,9 +6330,11 @@ describe("TripDayView layout", () => {
     // in `isOwner` because the day-image item moved in is the regression 6.11 AC6 was written for -
     // and after Story 6.19 it would also strand the viewer, since back-to-trip lives in here too.
     expect(screen.getByTestId("day-hero-overflow")).toBeInTheDocument();
-    expect(await dayOverflowItemNames()).toEqual(["Back to trip", "Print day"]);
-    // Two items, no rule between them: the divider marks off the day-changing group, and a viewer has
-    // none. A separator drawn between a viewer's only two entries would be noise, not structure.
+    // Story 9.2 adds the packet, on the same read-access gate print is on - so a viewer gets three items
+    // and still no divider, because a viewer has no day-changing group for one to mark off.
+    expect(await dayOverflowItemNames()).toEqual(["Back to trip", "Print day", "Download document packet"]);
+    // Three items, no rule between them: the divider marks off the day-changing group, and a viewer has
+    // none. A separator drawn above a viewer's read-only entries would be noise, not structure.
     expect(screen.queryByTestId("day-hero-overflow-divider")).not.toBeInTheDocument();
 
     vi.unstubAllGlobals();
@@ -7168,5 +7174,395 @@ describe("TripDayView document chips", () => {
     expect(first.getAttribute("aria-label")).not.toBe(second.getAttribute("aria-label"));
 
     vi.unstubAllGlobals();
+  });
+
+  /**
+   * Story 9.2, AC6/AC7 - the half of them jsdom can answer.
+   *
+   * The 44px measurement at 390px and 747px is deliberately **not** here: jsdom lays nothing out and
+   * resolves `height` to `""`, so an assertion about it would pass whether the `&&` specificity fix is
+   * present, absent or wrong. That is the browser verification pass's job. What is checkable here is that
+   * the item exists for a viewer, that a success path saves a `.pdf` rather than a JSON envelope, and that
+   * a `no_documents` refusal shows a message distinct from "trip not found".
+   */
+  describe("story 9.2 document packet menu item", () => {
+    const dayPayload = (accessRole?: "owner" | "viewer" | "contributor") => ({
+      data: {
+        trip: {
+          id: "trip-1",
+          name: "Trip",
+          ...(accessRole ? { accessRole } : {}),
+          startDate: "2026-12-01T00:00:00.000Z",
+          endDate: "2026-12-01T00:00:00.000Z",
+          dayCount: 1,
+          accommodationCostTotalCents: null,
+          heroImageUrl: null,
+        },
+        days: [
+          {
+            id: "day-1",
+            date: "2026-12-01T00:00:00.000Z",
+            dayIndex: 1,
+            plannedCostSubtotal: 0,
+            missingAccommodation: false,
+            missingPlan: false,
+            accommodation: null,
+            dayPlanItems: [],
+          },
+        ],
+      },
+      error: null,
+    });
+
+    const mockPacketFetch = (packetResponse: () => unknown) =>
+      withBucketList(async (input) => {
+        const url = String(input);
+        if (url.includes("/documents/packet")) {
+          return packetResponse() as { ok: boolean; status: number; json: () => Promise<unknown> };
+        }
+        return { ok: true, status: 200, json: async () => dayPayload("viewer") };
+      }) as unknown as typeof fetch;
+
+    it("saves the packet as a .pdf file and never the response envelope", async () => {
+      planDialogMockState.lastProps = null;
+      navigationMockState.search = "";
+
+      const clicked: { download: string; href: string }[] = [];
+      const clickSpy = vi
+        .spyOn(HTMLAnchorElement.prototype, "click")
+        .mockImplementation(function (this: HTMLAnchorElement) {
+          clicked.push({ download: this.download, href: this.href });
+        });
+      // jsdom implements neither, and `triggerBlobDownload` is built on both.
+      const createObjectURL = vi.fn(() => "blob:packet-1");
+      const revokeObjectURL = vi.fn();
+      const originalCreate = URL.createObjectURL;
+      const originalRevoke = URL.revokeObjectURL;
+      URL.createObjectURL = createObjectURL as unknown as typeof URL.createObjectURL;
+      URL.revokeObjectURL = revokeObjectURL as unknown as typeof URL.revokeObjectURL;
+
+      const blob = vi.fn(async () => new Blob([new Uint8Array([0x25, 0x50, 0x44, 0x46])], { type: "application/pdf" }));
+      vi.stubGlobal(
+        "fetch",
+        mockPacketFetch(() => ({
+          ok: true,
+          status: 200,
+          headers: new Headers({ "content-disposition": 'attachment; filename="trip-day-1-documents.pdf"' }),
+          blob,
+          // Present but must never be called on the success path: reading the envelope instead of the body
+          // is the mistake, and this is what makes it visible rather than merely unlikely.
+          json: async () => {
+            throw new Error("json() must not be read on a successful packet response");
+          },
+        })),
+      );
+
+      try {
+        renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+        expect(await screen.findByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
+
+        await activateDayOverflowItem("Download document packet");
+
+        await waitFor(() => expect(clicked).toHaveLength(1));
+        // The name comes from `content-disposition`, and it ends in `.pdf` - the extension is what decides
+        // whether the saved file opens in anything.
+        expect(clicked[0].download).toBe("trip-day-1-documents.pdf");
+        expect(clicked[0].href).toBe("blob:packet-1");
+        expect(blob).toHaveBeenCalledTimes(1);
+        // No error alert on the success path.
+        expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      } finally {
+        clickSpy.mockRestore();
+        URL.createObjectURL = originalCreate;
+        URL.revokeObjectURL = originalRevoke;
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it("reports an empty day with its own message rather than trip-not-found, and saves nothing", async () => {
+      planDialogMockState.lastProps = null;
+      navigationMockState.search = "";
+
+      const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+      const createObjectURL = vi.fn(() => "blob:should-not-happen");
+      const originalCreate = URL.createObjectURL;
+      URL.createObjectURL = createObjectURL as unknown as typeof URL.createObjectURL;
+
+      vi.stubGlobal(
+        "fetch",
+        mockPacketFetch(() => ({
+          ok: false,
+          status: 404,
+          json: async () => ({ data: null, error: { code: "no_documents", message: "This day has no documents" } }),
+        })),
+      );
+
+      try {
+        renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+        expect(await screen.findByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
+
+        await activateDayOverflowItem("Download document packet");
+
+        const alert = await screen.findByRole("alert");
+        expect(alert).toHaveTextContent("This day has no documents to package.");
+        // The distinction AC6 exists for: the generic not-found sentence would send the traveller looking
+        // for a trip that is perfectly fine.
+        expect(alert).not.toHaveTextContent(/might have been deleted/i);
+        // And nothing reached the disk: an `<a download>` pointing at the route would have saved the JSON
+        // envelope as a file called `packet`.
+        expect(createObjectURL).not.toHaveBeenCalled();
+        expect(clickSpy).not.toHaveBeenCalled();
+      } finally {
+        clickSpy.mockRestore();
+        URL.createObjectURL = originalCreate;
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it("gives a day with too many documents its own message rather than telling the user to retry", async () => {
+      // The route answers 413 `too_many_documents` when the day's document count is past what one packet
+      // can hold. Falling through to the default would show "Please try again", which is advice for a
+      // condition retrying cannot fix - the exact failure Story 9.1's review caught on the upload cap.
+      planDialogMockState.lastProps = null;
+      navigationMockState.search = "";
+
+      const createObjectURL = vi.fn(() => "blob:should-not-happen");
+      const originalCreate = URL.createObjectURL;
+      URL.createObjectURL = createObjectURL as unknown as typeof URL.createObjectURL;
+
+      vi.stubGlobal(
+        "fetch",
+        mockPacketFetch(() => ({
+          ok: false,
+          status: 413,
+          json: async () => ({
+            data: null,
+            error: { code: "too_many_documents", message: "This day has more than 60 documents to package" },
+          }),
+        })),
+      );
+
+      try {
+        renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+        expect(await screen.findByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
+
+        await activateDayOverflowItem("Download document packet");
+
+        const alert = await screen.findByRole("alert");
+        expect(alert).toHaveTextContent("This day has too many documents for one packet.");
+        expect(alert).not.toHaveTextContent("Document packet could not be created. Please try again.");
+        expect(alert).not.toHaveTextContent("This day has no documents to package.");
+        expect(createObjectURL).not.toHaveBeenCalled();
+      } finally {
+        URL.createObjectURL = originalCreate;
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it("says the packet is building, disables the item and refuses a second request until it finishes", async () => {
+      // All three parts of the pending state, because each one covers a different failure. Without the
+      // label the user has no idea the click did anything and clicks again; without `disabled` that second
+      // click starts a second build of a file that can be hundreds of megabytes; without `aria-busy` a
+      // screen-reader user gets a disabled item with no explanation, which reads as "not available here".
+      planDialogMockState.lastProps = null;
+      navigationMockState.search = "";
+
+      const clicked: string[] = [];
+      const clickSpy = vi
+        .spyOn(HTMLAnchorElement.prototype, "click")
+        .mockImplementation(function (this: HTMLAnchorElement) {
+          clicked.push(this.download);
+        });
+      const originalCreate = URL.createObjectURL;
+      const originalRevoke = URL.revokeObjectURL;
+      URL.createObjectURL = vi.fn(() => "blob:packet-1") as unknown as typeof URL.createObjectURL;
+      URL.revokeObjectURL = vi.fn() as unknown as typeof URL.revokeObjectURL;
+
+      // The route is held open until this resolves, which is what makes the pending state observable at
+      // all - the real one lasts as long as the merge does.
+      let release: () => void = () => {};
+      const inFlight = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let packetRequests = 0;
+
+      vi.stubGlobal(
+        "fetch",
+        withBucketList(async (input) => {
+          const url = String(input);
+          if (url.includes("/documents/packet")) {
+            packetRequests += 1;
+            await inFlight;
+            return {
+              ok: true,
+              status: 200,
+              headers: new Headers({ "content-disposition": 'attachment; filename="trip-day-1-documents.pdf"' }),
+              blob: async () => new Blob([new Uint8Array([0x25, 0x50, 0x44, 0x46])], { type: "application/pdf" }),
+              json: async () => {
+                throw new Error("json() must not be read on a successful packet response");
+              },
+            } as unknown as Response;
+          }
+          return { ok: true, status: 200, json: async () => dayPayload("viewer") } as unknown as Response;
+        }) as unknown as typeof fetch,
+      );
+
+      try {
+        renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+        expect(await screen.findByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
+
+        await activateDayOverflowItem("Download document packet");
+
+        // The label swap is what the sighted user reads, and it is also how this test proves the item is
+        // the same one: the action name is gone while the build is in flight.
+        const building = await screen.findByRole("menuitem", { name: "Building packet…" });
+        expect(building).toHaveAttribute("aria-busy", "true");
+        expect(building).toHaveAttribute("aria-disabled", "true");
+        expect(screen.queryByRole("menuitem", { name: "Download document packet" })).not.toBeInTheDocument();
+
+        // `fireEvent`, not `userEvent`: a disabled MUI item has `pointer-events: none`, which `userEvent`
+        // refuses to click - and refusing to click it is not the assertion. What is under test is that a
+        // click that does land starts no second build.
+        fireEvent.click(building);
+        expect(packetRequests).toBe(1);
+
+        release();
+        await waitFor(() => expect(clicked).toEqual(["trip-day-1-documents.pdf"]));
+        expect(packetRequests).toBe(1);
+      } finally {
+        clickSpy.mockRestore();
+        URL.createObjectURL = originalCreate;
+        URL.revokeObjectURL = originalRevoke;
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it("does not paint one day's packet refusal over a different day the user has since opened", async () => {
+      // The packet is the only action here that outlives the day it was started on. `TripDayView` takes
+      // `dayId` as a prop and survives a sibling-day navigation - the `dayMenuDayId` reset in the component
+      // exists for exactly that - so a merge that takes seconds can resolve after the traveller has moved
+      // on. Ungated, day 1's `no_documents` would put "This day has no documents to package." at the top
+      // of day 2, which may be full of them: a false statement about the day on screen.
+      planDialogMockState.lastProps = null;
+      navigationMockState.search = "";
+
+      const twoDayPayload = {
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            accessRole: "viewer",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-02T00:00:00.000Z",
+            dayCount: 2,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
+          },
+          days: [1, 2].map((index) => ({
+            id: `day-${index}`,
+            date: `2026-12-0${index}T00:00:00.000Z`,
+            dayIndex: index,
+            plannedCostSubtotal: 0,
+            missingAccommodation: false,
+            missingPlan: false,
+            accommodation: null,
+            dayPlanItems: [],
+          })),
+        },
+        error: null,
+      };
+
+      // Held open so the navigation lands strictly between the click and the response, which is the only
+      // window in which this can happen at all.
+      let release: () => void = () => {};
+      const inFlight = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+
+      vi.stubGlobal(
+        "fetch",
+        withBucketList(async (input) => {
+          const url = String(input);
+          if (url.includes("/documents/packet")) {
+            await inFlight;
+            return {
+              ok: false,
+              status: 404,
+              json: async () => ({ data: null, error: { code: "no_documents", message: "no documents" } }),
+            } as unknown as Response;
+          }
+          return { ok: true, status: 200, json: async () => twoDayPayload } as unknown as Response;
+        }) as unknown as typeof fetch,
+      );
+
+      try {
+        const { rerender } = renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+        expect(await screen.findByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
+
+        await activateDayOverflowItem("Download document packet");
+
+        // The sibling-day navigation the app does: same component instance, new `dayId` prop.
+        rerender(
+          <Providers>
+            <TripDayView tripId="trip-1" dayId="day-2" />
+          </Providers>,
+        );
+        expect(await screen.findByRole("heading", { name: "Day 2", level: 5 })).toBeInTheDocument();
+
+        release();
+
+        // Waited out rather than asserted instantly: the refusal has to have been *handled* and dropped,
+        // not merely still in flight, or this passes for the wrong reason.
+        await waitFor(() => expect(screen.queryByRole("menuitem", { name: "Building packet…" })).toBeNull());
+        expect(screen.queryByRole("alert")).toBeNull();
+        expect(screen.queryByText("This day has no documents to package.")).toBeNull();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it("maps a forced password change to the sign-in message rather than telling the user to retry", async () => {
+      // The middleware answers every `/api/trips/*` request from a must-change-password session with a 403
+      // `password_change_required`, and it guards the navigation rather than the XHR that follows it - so a
+      // day screen already on the page can produce this code. Left in the default branch it becomes
+      // "Please try again", which is advice for a condition no retry can fix.
+      planDialogMockState.lastProps = null;
+      navigationMockState.search = "";
+
+      const createObjectURL = vi.fn(() => "blob:should-not-happen");
+      const originalCreate = URL.createObjectURL;
+      URL.createObjectURL = createObjectURL as unknown as typeof URL.createObjectURL;
+
+      vi.stubGlobal(
+        "fetch",
+        mockPacketFetch(() => ({
+          ok: false,
+          status: 403,
+          json: async () => ({
+            data: null,
+            error: { code: "password_change_required", message: "Password change required" },
+          }),
+        })),
+      );
+
+      try {
+        renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+        expect(await screen.findByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
+
+        await activateDayOverflowItem("Download document packet");
+
+        const alert = await screen.findByRole("alert");
+        // The same string `AdminUsersList` and `RegisteredUsersList` already show for this code.
+        expect(alert).toHaveTextContent("Authentication required. Please sign in.");
+        expect(alert).not.toHaveTextContent("Document packet could not be created. Please try again.");
+        expect(createObjectURL).not.toHaveBeenCalled();
+      } finally {
+        URL.createObjectURL = originalCreate;
+        vi.unstubAllGlobals();
+      }
+    });
+
+    // Which roles see the item, and where it sits relative to print and the divider, is asserted by the
+    // three exhaustive `dayOverflowItemNames()` cases further down rather than duplicated here.
   });
 });

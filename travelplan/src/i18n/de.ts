@@ -628,6 +628,18 @@ const de: Dictionary = {
   "trips.documents.limitReached": "Höchstens 10 Dokumente pro Eintrag.",
   "trips.documents.uploadError": "Dokument-Upload fehlgeschlagen. Bitte erneut versuchen.",
   "trips.documents.deleteError": "Dokument konnte nicht entfernt werden. Bitte erneut versuchen.",
+  // Der Menüeintrag aus Story 9.2 und seine drei Ausgänge. „Paket“ statt „PDF“: Was die Reisenden
+  // bekommen, ist eine Datei mit den Tickets des Tages — das Format sagt darüber nichts. Der Anhang des
+  // Ausdrucks verweist mit demselben Wort hierher.
+  "trips.documents.packetAction": "Dokumentenpaket herunterladen",
+  "trips.documents.packetPending": "Paket wird erstellt …",
+  "trips.documents.packetTooMany":
+    "Dieser Tag hat zu viele Dokumente für ein Paket. Bitte einige entfernen und erneut versuchen.",
+  // Bewusst nicht `trips.detail.notFoundBody`: genau davor soll der eigene Fehlercode `no_documents` der
+  // Route diesen Fall bewahren. Wem gesagt wird, die Reise existiere nicht, obwohl der Tag nur keine
+  // Tickets hat, sucht an der falschen Stelle.
+  "trips.documents.packetEmpty": "Dieser Tag hat keine Dokumente für ein Paket.",
+  "trips.documents.packetError": "Dokumentenpaket konnte nicht erstellt werden. Bitte erneut versuchen.",
   "trips.location.latLabel": "Breitengrad",
   "trips.location.lngLabel": "Längengrad",
   "trips.location.labelLabel": "Ortsbezeichnung (optional)",

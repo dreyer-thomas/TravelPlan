@@ -1061,6 +1061,9 @@ describe("tripRepo", () => {
           id: previousStay.id,
           name: "Airport Hotel",
           images: [{ id: expect.any(String), imageUrl: "/uploads/trips/printable/prev-stay.webp", sortOrder: 0 }],
+          // Story 9.2: this day carries no documents, so the field has to be present and empty rather than
+          // absent. The print sheet and the packet both read it unconditionally.
+          documents: [],
         }),
       }),
     );
@@ -1071,6 +1074,7 @@ describe("tripRepo", () => {
           id: breakfast.id,
           title: "Breakfast stop",
           images: [{ id: expect.any(String), imageUrl: "/uploads/trips/printable/breakfast.webp", sortOrder: 0 }],
+          documents: [],
         }),
       }),
     );
@@ -1094,6 +1098,125 @@ describe("tripRepo", () => {
       "City Hotel",
     ]);
     expect(printable?.map.missingLocations).toEqual([]);
+  });
+
+  /**
+   * Story 9.2. The print payload carries documents on both stay kinds and on plan items, ordered by
+   * `sortOrder` the way the image galleries are.
+   *
+   * Rows are created out of `sortOrder` order on purpose: inserted ascending, an `orderBy` that was dropped
+   * entirely would still produce the expected list, because SQLite would hand back insertion order. The
+   * only way this assertion can fail is if the ordering rule is actually gone.
+   */
+  it("carries documents on both stay kinds and on plan items, ordered by sortOrder", async () => {
+    const owner = await prisma.user.create({
+      data: { email: "trip-print-documents@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+
+    const { trip } = await createTripWithDays({
+      userId: owner.id,
+      name: "Documented Trip",
+      startDate: "2026-11-01T00:00:00.000Z",
+      endDate: "2026-11-02T00:00:00.000Z",
+    });
+    const [day1, day2] = await prisma.tripDay.findMany({
+      where: { tripId: trip.id },
+      orderBy: { dayIndex: "asc" },
+    });
+
+    const previousStay = await prisma.accommodation.create({
+      data: { tripDayId: day1.id, name: "Airport Hotel", status: "BOOKED" },
+    });
+    const currentStay = await prisma.accommodation.create({
+      data: { tripDayId: day2.id, name: "City Hotel", status: "PLANNED" },
+    });
+    const activity = await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: day2.id,
+        title: "Museum visit",
+        fromTime: "10:00",
+        contentJson: '{"type":"doc","content":[]}',
+      },
+    });
+    const withoutDocuments = await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: day2.id,
+        title: "Evening walk",
+        fromTime: "18:00",
+        contentJson: '{"type":"doc","content":[]}',
+      },
+    });
+
+    await prisma.accommodationDocument.createMany({
+      data: [
+        {
+          accommodationId: previousStay.id,
+          documentUrl: "/uploads/trips/documented/prev-booking.pdf",
+          fileName: "Booking.pdf",
+          sortOrder: 0,
+        },
+        {
+          accommodationId: currentStay.id,
+          documentUrl: "/uploads/trips/documented/current-second.pdf",
+          fileName: "Second.pdf",
+          sortOrder: 1,
+        },
+        {
+          accommodationId: currentStay.id,
+          documentUrl: "/uploads/trips/documented/current-first.jpg",
+          fileName: "First.jpg",
+          sortOrder: 0,
+        },
+      ],
+    });
+    await prisma.dayPlanItemDocument.createMany({
+      data: [
+        {
+          dayPlanItemId: activity.id,
+          documentUrl: "/uploads/trips/documented/item-second.pdf",
+          fileName: "Audio guide.pdf",
+          sortOrder: 1,
+        },
+        {
+          dayPlanItemId: activity.id,
+          documentUrl: "/uploads/trips/documented/item-first.jpg",
+          fileName: "Entry ticket.jpg",
+          sortOrder: 0,
+        },
+      ],
+    });
+
+    const printable = await getTripDayPrintPayloadForUser({ userId: owner.id, tripId: trip.id, dayId: day2.id });
+
+    expect(printable).not.toBeNull();
+    const timeline = printable!.timeline;
+
+    const previous = timeline.find((entry) => entry.kind === "previousStay");
+    expect(previous?.kind === "previousStay" && previous.stay.documents).toEqual([
+      {
+        id: expect.any(String),
+        documentUrl: "/uploads/trips/documented/prev-booking.pdf",
+        fileName: "Booking.pdf",
+        sortOrder: 0,
+      },
+    ]);
+
+    const current = timeline.find((entry) => entry.kind === "currentStay");
+    expect(current?.kind === "currentStay" && current.stay.documents.map((document) => document.fileName)).toEqual([
+      "First.jpg",
+      "Second.pdf",
+    ]);
+
+    const planItems = timeline.filter((entry) => entry.kind === "planItem");
+    expect(planItems).toHaveLength(2);
+    expect(planItems[0].kind === "planItem" && planItems[0].item.id).toBe(activity.id);
+    expect(planItems[0].kind === "planItem" && planItems[0].item.documents.map((d) => d.fileName)).toEqual([
+      "Entry ticket.jpg",
+      "Audio guide.pdf",
+    ]);
+    // The empty-array default, on an entry that exists alongside ones that have documents.
+    expect(planItems[1].kind === "planItem" && planItems[1].item.id).toBe(withoutDocuments.id);
+    expect(planItems[1].kind === "planItem" && planItems[1].item.documents).toEqual([]);
   });
 
   it("allows viewer collaborators to load printable day payloads", async () => {
