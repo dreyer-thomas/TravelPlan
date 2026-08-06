@@ -4,6 +4,7 @@ type: 'feature'
 created: '2026-08-05'
 status: 'done'
 baseline_revision: '7d9f661eaa6ee523bedb27abeb307979b96d43d7'
+final_revision: 'f1e2ff604177c390ba98495597bf1f489c0da93e'
 test_baseline: '120 files / 1417 tests green'
 review_loop_iteration: 0
 followup_review_recommended: true
