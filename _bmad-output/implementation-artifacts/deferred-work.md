@@ -2148,3 +2148,53 @@ severity: low
 summary: A well-formed `https://` link longer than 2000 characters passes the dialog, is rejected by the route, and surfaces as the generic "Stay update failed" banner with no field marked — the same failure shape Story 6.29 fixed for the scheme half and left in place for the length half.
 evidence: Story 6.29 changed this function to add the scheme check and its Design Notes name the generic-banner outcome as "technically AC5, visibly a bug", so the reasoning covers the length case identically; it was left because a correct message needs a new key ("Link is too long", there is no `trips.stay.linkTooLong`) and AC7 forbade adding one — reusing `linkInvalid` ("Enter a valid http(s) link") would describe the wrong problem. Rare in practice: a 2000-character booking URL is unusual. Worth doing with the next key-adding story that touches this dialog.
 status: open
+
+### DW-210: The travel-segment distance field still never clears its error on change, and the one-decimal cap makes that state routine
+
+origin: 6-30-one-decimal-for-a-distance-a-comma-in-the-box review, 2026-08-07
+location: `travelplan/src/components/features/trips/TripDayTravelSegmentDialog.tsx` — the distance `TextField`'s `onChange` (~`:748`), against the duration boxes' `onChange` in the same file
+source_spec: `spec-6-30-one-decimal-for-a-distance-a-comma-in-the-box.md`
+severity: medium
+summary: Correcting a refused distance leaves the red error line standing under a now-valid field until the next *OK* press, and Story 6.30 turned that from a rare state into the normal one.
+evidence: This is DW-124 restated with a new reachability argument, not a new defect — both duration boxes call `setFieldErrors((e) => ({ ...e, durationMinutes: undefined }))` in their `onChange` and the distance field's `onChange` is `setDistanceKm(event.target.value)` and nothing else, which 6.18's review already recorded. What changed is the traffic: before this story the stale-error state needed `abc`, `0` or `-3`, all typos. Now every two-decimal entry reaches it — `10.25`, `12,555`, `1,000` — so the ordinary correction loop is "type a legal value, watch the error stay red". Story 6.30's spec put DW-124 explicitly out of scope, which was right for the story, but the cap is what makes the two-line fix worth doing: the pattern is already in the same file, on the boxes directly above.
+status: open
+
+### DW-211: Two dialog open effects now suppress exhaustive-deps for their whole dependency array rather than for `language`
+
+origin: 6-30-one-decimal-for-a-distance-a-comma-in-the-box review, 2026-08-07
+location: `travelplan/src/components/features/trips/TripAccommodationDialog.tsx` (~`:651`) and `travelplan/src/components/features/trips/TripDayPlanDialog.tsx` (~`:919`)
+source_spec: `spec-6-30-one-decimal-for-a-distance-a-comma-in-the-box.md`
+severity: low
+summary: Both seed effects read `language` and answer the resulting exhaustive-deps warning with a blanket `eslint-disable-next-line`, which switches the rule off for every other reactive value those effects read as well.
+evidence: The suppression is correct today and argued at length in place — adding `language` to the deps is the spec's own Block If, because `reset()` / re-taking `openFingerprint.current` mid-dialog would discard the user's edits — and a review confirmed every other dependency is stable across a language switch (`day`/`item`/`prefill` are `useState` values in `TripDayView.tsx`, `defaultDueDate` memoises on `day?.date`, `applyPlanFormValues` on `editor`). The cost is future: these effects are ~35 and ~100 lines and read `day`/`item`/`mode`/`prefill`/`defaultDueDate`/`applyPlanFormValues` besides, so the next story that adds a reactive value to either seed and forgets the dep gets no warning, seeds from a stale value, and drifts the guard baseline from what is on screen — the silent "✕ discards typing without asking" failure these dialogs' comments exist to prevent. The narrower shape is a ref holding the language captured at open, which needs no suppression and leaves the rule live for everything else; it was not done under a review because render-phase ref mutation in two large dialogs deserves its own change rather than a patch.
+status: open
+
+### DW-212: A language switch with a cost dialog already open leaves the value dot-decimal beside a comma placeholder
+
+origin: 6-30-one-decimal-for-a-distance-a-comma-in-the-box review, 2026-08-07
+location: `travelplan/src/components/features/trips/TripAccommodationDialog.tsx` (placeholder ~`:1980`, seed ~`:621`) and `travelplan/src/components/features/trips/TripDayPlanDialog.tsx` (~`:2388`, ~`:854`)
+source_spec: `spec-6-30-one-decimal-for-a-distance-a-comma-in-the-box.md`
+severity: low
+summary: The cost placeholder is language-reactive but the seeded value is not, so switching to German with a dialog open reproduces exactly the `120.50`-beside-`0,00` contradiction Story 6.30 Part 2 exists to remove.
+evidence: Story 6.30 AC7 required that such a switch report nothing dirty, and the chosen answer — seed with the language at open time and never re-seed — delivers that, but leaves the two halves of the field disagreeing for as long as the dialog stays open. Two new tests assert `toHaveValue("120.50")` after the switch, which pins the guard rather than endorsing the value; both now carry a comment saying so and pointing here. Barely reachable: the language switcher lives in the header menu, and MUI puts an open dialog in a portal with the rest of the document `aria-hidden` and focus-trapped, so nothing in the app takes a user through this path. Not fixed because the obvious fix — re-seed on a language change — is the spec's Block If. The middle path the spec did not consider is to re-format only those fields still byte-identical to their seed, which is information both guards already hold (`isDirty` per field; the fingerprint terms), and which would leave an edited field alone while correcting an untouched one.
+status: open
+
+### DW-213: The distance box seeds dot-decimal under German while the cost box beside it now seeds with a comma
+
+origin: 6-30-one-decimal-for-a-distance-a-comma-in-the-box review, 2026-08-07
+location: `travelplan/src/components/features/trips/TripDayTravelSegmentDialog.tsx` — `openedValues` (~`:288`), `distance: String(segment.distanceKm)`
+source_spec: `spec-6-30-one-decimal-for-a-distance-a-comma-in-the-box.md`
+severity: low
+summary: After Story 6.30 a German user reads `120,50` in a stay's cost field and `60.5` in the same day's distance field, because Part 2 localised the amount formatter and nothing localises the distance seed.
+evidence: `openedValues` seeds `String(segment.distanceKm)` with no locale step, which was consistent while every numeric field was dot-decimal and is not any more — and the distance field's own error copy offers `12,5` first under German, so the box contradicts its own helper. Both spellings parse, so nothing is at risk; this is the same cosmetic class as the entry Part 2 was written to close, one field over. Story 6.30 scoped Part 2 to amounts and covered the distance field only for Part 1's cap, so the seed was never in scope. It is not a one-line change either: the untouched-value exemption at `parseDistanceInput` compares byte-identically against this exact string, so localising the seed means deciding what "untouched" means first — which makes it a story rather than a patch.
+status: open
+
+### DW-214: A route shorter than 50 m prefills a distance of 0, and the refusal now blames decimals
+
+origin: 6-30-one-decimal-for-a-distance-a-comma-in-the-box review, 2026-08-07
+location: `travelplan/src/components/features/trips/TripDayTravelSegmentDialog.tsx` — `formatDistanceKmInput` (~`:116`), against `validate()`'s `<= 0` branches
+source_spec: `spec-6-30-one-decimal-for-a-distance-a-comma-in-the-box.md`
+severity: low
+summary: `Math.round((distanceMeters / 1000) * 10) / 10` rounds anything under 50 m to `0`, which the app writes into the field itself and then refuses on save with a message about decimals.
+evidence: Pre-existing on both halves — the rounding and the `<= 0` rejection both predate Story 6.30 — and reachable on the everyday case DW-116 already describes: two points pinned metres apart, a hotel and the restaurant inside it. Story 6.30 only made the message worse, because the reworded string leads with the decimal rule and a `0` has no decimals to fix, so the user is told to correct something they did not do to a value they did not type. Same family as DW-116 (a zero-length route reported as an import failure) and best decided with it: either clamp a non-zero route to `0.1`, or refuse to prefill a sub-50 m route and say why, rather than writing a value the next gate rejects.
+status: open

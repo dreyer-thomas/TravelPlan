@@ -13,10 +13,10 @@ operator_actions:
   - 'Confirm the cost placeholder renders 0,00 under German and that the helper line under both cost fields names the accepted forms (Optionaler Betrag (z. B. 10,00 oder 10.00)).'
   - 'Confirm the payment-amount row is still read-only unless "Aufteilen" (split) is selected, on both the stay and the activity dialog.'
   - 'Switch the device to English and confirm a period still works on all five fields and nothing about the English keyboard changed.'
-  - 'Type abc into the stay cost field on the phone and confirm the save is blocked with a visible error rather than the stay saving with no cost.'
+  - 'Confirm an unusable cost is refused rather than swallowed as "no cost": type abc into the stay cost field on a desktop browser, which is the simpler path, or paste abc into it on the phone, which is the only reachable mobile one — inputMode="decimal" yields a keypad with no letters, so typing abc there is not performable. Either way the save must be blocked with a visible error rather than the stay saving with no cost.'
   - 'Run the phone pass against a throwaway environment only — a copy of dev.db on an isolated port with MEDIA_STORAGE_ROOT pointed at a scratch directory, never prisma/dev.db and never the real media tree (recipe in 7-12-bucket-list-sidebar-card.md Dev Notes).'
   - 'Decide Story 6.27 open question 4: whether this bug fix stays numbered 6.27 inside a closed epic or moves to a maintenance epic, and add the matching entry to epics.md — the epics file currently jumps 6.26 to 6.28.'
-  - 'Rule on the deferred distance-grouping question (DW entry from this spec): cap distanceKm at one decimal, which makes both 1,000 and 12,555 rejectable, or keep it uncapped and accept that a lone three-digit group is read as a decimal.'
+  - 'SETTLED 2026-08-07, no action owed: the deferred distance-grouping question (cap distanceKm at one decimal, or keep it uncapped and accept that a lone three-digit group is read as a decimal) was ruled on by Tommy in favour of the one-decimal cap, and Story 6.30 implemented it. Kept here rather than deleted so the list still shows what was asked; see the Spec Change Log entry below.'
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/6-27-a-comma-is-a-decimal-point.md'
 warnings: ['oversized']
@@ -131,6 +131,32 @@ distinguish "empty" (legal, means no cost) from "unparseable" (a visible, blocki
 - Given the four server-side suites in Verification, when they run unmodified, then all pass and `git diff --stat` over those four files is empty.
 
 ## Spec Change Log
+
+### 2026-08-07 — amended by Story 6.30 (`spec-6-30-one-decimal-for-a-distance-a-comma-in-the-box.md`)
+
+Two corrections, both made from outside this story after its operator pass ran on a real German phone.
+
+- **`operator_actions` entry 6 rewritten.** It asked the operator to *type* `abc` into the stay cost
+  field on the phone, which is not a performable action: Story 6.27's own fix sets
+  `inputMode="decimal"` on that field, so the phone offers a keypad with no letters on it. The entry now
+  names what it was actually checking — an unusable cost is refused rather than swallowed as "no cost" —
+  and gives both reachable routes to it: typing on a desktop browser, or pasting on the phone.
+- **`operator_actions` entry 9 marked settled.** It asked an operator to rule on the distance-grouping
+  question; Tommy ruled on 2026-08-07 and Story 6.30 shipped the ruling, so leaving the entry live
+  would have asked someone to re-decide a closed question. Marked `SETTLED` in place rather than
+  deleted, so the list still records what was asked.
+- **AC1's distance expectation is reversed.** This spec's I/O matrix requires `parseDecimal("12,555")`
+  to return `12.555`, and open question 9 (`operator_actions` entry 9) left the distance-grouping
+  ambiguity for a human. Tommy ruled on it on 2026-08-07: cap the distance field at one decimal. So
+  `12,555` is now refused as a distance, and `1,000`/`1.000` — which this parser read as `1`, turning
+  1000 km into 1 km with no warning — are refused with it. The cap is the *caller's*, passed as
+  `parseDecimal(raw, { maxDecimals: 1 })`; `parseDecimal`'s own unbounded default and this spec's
+  reasoning for it are unchanged. Story 6.30 carries the reversed test.
+
+The `## Operator Confirmation` block below is left **verbatim**. It is the historical record of what a
+human actually confirmed on 2026-08-07, and rewriting it would falsify that record — so it still
+contains the old entry-6 wording and the two entries now differ by design. Read `operator_actions` for
+what the story asks of an operator today, and `## Operator Confirmation` for what was signed off then.
 
 ## Review Triage Log
 

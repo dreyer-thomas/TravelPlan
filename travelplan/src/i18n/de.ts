@@ -331,7 +331,16 @@ const de: Dictionary = {
   "trips.travelSegment.durationMinutesLabel": "Dauer (Min.)",
   "trips.travelSegment.distanceLabel": "Entfernung (km)",
   "trips.travelSegment.distanceOptionalLabel": "Entfernung (km, optional)",
-  "trips.travelSegment.distanceInvalid": "Gib eine Entfernung größer als 0 ein oder lass das Feld leer.",
+  // Story 6.30: both distance errors name the one-decimal cap and carry the same both-separators
+  // example, because the distance field's `helperText` is error-only - these two strings *are* its
+  // helper, and a refusal that does not say what is accepted leaves the user no next move.
+  //
+  // "1000 statt 1.000" is there for the case the cap exists for, and it is the half that is easy to
+  // leave out. Someone typing `1,000` believes they typed a *thousand*, not a decimal, so "höchstens
+  // einer Dezimalstelle" describes a rule they do not think they broke and leaves them nothing to try.
+  // Naming the repair is what turns the refusal into the visible question the cap was for.
+  "trips.travelSegment.distanceInvalid":
+    "Entfernung größer als 0 mit höchstens einer Dezimalstelle: 12,5 oder 12.5, und 1000 statt 1.000, oder leer lassen.",
   "trips.travelSegment.linkLabel": "Link (optional)",
   "trips.travelSegment.linkHelper": "Google-Maps- oder Routenlink einfügen",
   "trips.travelSegment.linkInvalid": "Bitte einen gültigen http(s)-Link eingeben",
@@ -359,7 +368,8 @@ const de: Dictionary = {
   "trips.travelSegment.openLink": "Maps",
   "trips.travelSegment.durationRequired": "Dauer ist erforderlich",
   "trips.travelSegment.distanceRequired": "Entfernung ist für Auto erforderlich",
-  "trips.travelSegment.distancePositive": "Bitte eine Entfernung größer als 0 eingeben, z. B. 12,5 oder 12.5",
+  "trips.travelSegment.distancePositive":
+    "Entfernung größer als 0 mit höchstens einer Dezimalstelle: 12,5 oder 12.5, und 1000 statt 1.000",
   "trips.travelSegment.initError": "Reiseabschnitt konnte nicht geladen werden. Bitte aktualisieren.",
   "trips.travelSegment.saveError": "Reiseabschnitt konnte nicht gespeichert werden. Bitte erneut versuchen.",
   "trips.travelSegment.kmSuffix": "km",

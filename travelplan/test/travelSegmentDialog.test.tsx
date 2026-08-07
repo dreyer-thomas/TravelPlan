@@ -805,11 +805,49 @@ describe("TripDayTravelSegmentDialog", () => {
     fireEvent.change(await screen.findByLabelText("Distance (km, optional)"), { target: { value } });
     fireEvent.click(screen.getByRole("button", { name: "OK" }));
 
-    expect(await screen.findByText("Enter a distance greater than 0, or leave the field empty.")).toBeInTheDocument();
+    // Story 6.30 reworded this string to name the one-decimal cap; `0` and `-3` are still what it is
+    // reporting here, and they are still refused.
+    expect(
+      await screen.findByText("Enter a distance greater than 0 with at most one decimal: 12.5 or 12,5, and 1000 not 1.000, or leave empty."),
+    ).toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/travel-segments"))).toBe(false);
 
     vi.unstubAllGlobals();
   });
+
+  /**
+   * Story 6.30 AC1's other half: the required and the optional branch must refuse the *same* values.
+   * Every other new decimal-cap case drives "Distance (km)" — the car branch — so without this one,
+   * reverting `parseDistanceInput` to a bare `parseDecimal` on the optional branch alone would leave
+   * every suite green while a walking or cycling leg silently saved `1,000` km as 1 km again, which is
+   * the original defect on the branch whose copy was reworded for it.
+   */
+  it.each(["1,000", "12,555"])(
+    "refuses %s on the optional branch too, not only on the car branch",
+    async (value) => {
+      const fetchMock = stubSaveFetch();
+
+      render(
+        <I18nProvider initialLanguage="en">
+          <TripDayTravelSegmentDialog {...baseProps} />
+        </I18nProvider>,
+      );
+
+      await openTransportMenu();
+      fireEvent.click(await screen.findByRole("option", { name: "Cycling" }));
+      fireEvent.change(await screen.findByLabelText("Distance (km, optional)"), { target: { value } });
+      fireEvent.click(screen.getByRole("button", { name: "OK" }));
+
+      expect(
+        await screen.findByText(
+          "Enter a distance greater than 0 with at most one decimal: 12.5 or 12,5, and 1000 not 1.000, or leave empty.",
+        ),
+      ).toBeInTheDocument();
+      expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/travel-segments"))).toBe(false);
+
+      vi.unstubAllGlobals();
+    },
+  );
 
   /** AC4: an empty result reads as "no route for this mode here", not as a failure. */
   it("reports an empty cycling result as no route for this mode", async () => {
@@ -1309,11 +1347,17 @@ describe("TripDayTravelSegmentDialog", () => {
     });
 
     /**
-     * A distance is not money, so the shared parser's *money* half must not be what reads it: that
-     * one caps at two decimals and multiplies by 100. `step: "0.1"` implied one decimal and never
-     * enforced it, so an uncapped value is the change-nothing answer.
+     * **This assertion is the reverse of what Story 6.27 required, and the reversal is deliberate.**
+     * 6.27's intent contract has `12,555` parsing to `12.555` — a distance is not money, so an
+     * uncapped value looked like the change-nothing answer. What that left standing was measured on a
+     * German phone during 6.27's operator pass: a *lone* three-digit group is a fraction in both
+     * spellings, so `1,000` and `1.000` each parsed to `1` and 1000 km saved as 1 km, silently, in the
+     * story whose whole subject is silent numeric loss. Tommy ruled on 2026-08-07 that the distance
+     * field caps at one decimal — 100 m resolution is past anything trip planning uses — which makes
+     * all three ambiguous forms refusable. Story 6.30 records that as a spec amendment; this case is
+     * where it is visible.
      */
-    it("keeps three decimals, uncapped and unscaled", async () => {
+    it("refuses more than one decimal instead of keeping three", async () => {
       const fetchMock = stubSaveFetch();
 
       render(
@@ -1326,10 +1370,121 @@ describe("TripDayTravelSegmentDialog", () => {
       fireEvent.change(await screen.findByLabelText("Distance (km)"), { target: { value: "12,555" } });
       fireEvent.click(screen.getByRole("button", { name: "OK" }));
 
+      expect(
+        await screen.findByText("Enter a distance greater than 0 with at most one decimal: 12.5 or 12,5, and 1000 not 1.000"),
+      ).toBeInTheDocument();
+      expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/travel-segments"))).toBe(false);
+
+      vi.unstubAllGlobals();
+    });
+
+    /**
+     * The number the cap exists for, entered the way the person who reported it would enter it. Under
+     * German `1,000` is how "one thousand kilometres" is written, and it is exactly the string that
+     * used to save as 1 km without a word.
+     */
+    it("refuses a German thousand typed as 1,000 rather than saving it as 1 km", async () => {
+      const fetchMock = stubSaveFetch();
+
+      render(
+        <I18nProvider initialLanguage="de">
+          <TripDayTravelSegmentDialog {...baseProps} />
+        </I18nProvider>,
+      );
+
+      // The duration boxes are filled by hand rather than through `setDuration`, which hardcodes the
+      // English labels. (The suite's other German renders at `:445` and `:1005`-`:1198` never touch
+      // them, which is why the helper has never needed a language.)
+      fireEvent.change(await screen.findByLabelText("Dauer (Std.)"), { target: { value: "0" } });
+      fireEvent.change(screen.getByLabelText("Dauer (Min.)"), { target: { value: "45" } });
+      fireEvent.change(screen.getByLabelText("Entfernung (km)"), { target: { value: "1,000" } });
+      fireEvent.click(screen.getByRole("button", { name: "OK" }));
+
+      expect(
+        await screen.findByText(
+          "Entfernung größer als 0 mit höchstens einer Dezimalstelle: 12,5 oder 12.5, und 1000 statt 1.000",
+        ),
+      ).toBeInTheDocument();
+      expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/travel-segments"))).toBe(false);
+
+      vi.unstubAllGlobals();
+    });
+
+    /**
+     * AC4, and the trap the cap would otherwise walk into. The cap governs *input*; a row stored before
+     * the rule existed must still open and save. `60.12345` is not invented — Story 6.27's own scratch
+     * pass produced it. Input validation reaching backwards to make an untouched row unsaveable would
+     * be a worse bug than the one Part 1 fixes, because the user has no way to correct it.
+     */
+    it("saves an untouched pre-rule distance of 60.12345 unchanged", async () => {
+      const fetchMock = stubSaveFetch();
+
+      render(
+        <I18nProvider initialLanguage="en">
+          <TripDayTravelSegmentDialog
+            {...baseProps}
+            segment={{
+              id: "segment-1",
+              fromItemType: "dayPlanItem",
+              fromItemId: "item-1",
+              toItemType: "accommodation",
+              toItemId: "stay-1",
+              transportType: "car",
+              durationMinutes: 45,
+              distanceKm: 60.12345,
+              linkUrl: null,
+            }}
+          />
+        </I18nProvider>,
+      );
+
+      // Displayed as it is stored: `openedValues` seeds `String(segment.distanceKm)` with no `toFixed`.
+      expect(await screen.findByDisplayValue("60.12345")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "OK" }));
+
       await waitFor(() =>
         expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/travel-segments"))).toBe(true),
       );
-      expect(saveCallBody(fetchMock).distanceKm).toBe(12.555);
+      expect(saveCallBody(fetchMock).distanceKm).toBe(60.12345);
+
+      vi.unstubAllGlobals();
+    });
+
+    /**
+     * The other half of AC4, and the half that keeps the exemption honest: it is "this string is
+     * byte-identical to what the dialog seeded", not "this row is old, so anything goes". One
+     * keystroke of editing and the cap applies again.
+     */
+    it("refuses a five-decimal distance once the pre-rule field is edited", async () => {
+      const fetchMock = stubSaveFetch();
+
+      render(
+        <I18nProvider initialLanguage="en">
+          <TripDayTravelSegmentDialog
+            {...baseProps}
+            segment={{
+              id: "segment-1",
+              fromItemType: "dayPlanItem",
+              fromItemId: "item-1",
+              toItemType: "accommodation",
+              toItemId: "stay-1",
+              transportType: "car",
+              durationMinutes: 45,
+              distanceKm: 60.12345,
+              linkUrl: null,
+            }}
+          />
+        </I18nProvider>,
+      );
+
+      const distance = await screen.findByLabelText("Distance (km)");
+      fireEvent.change(distance, { target: { value: "60,12346" } });
+      fireEvent.click(screen.getByRole("button", { name: "OK" }));
+
+      expect(
+        await screen.findByText("Enter a distance greater than 0 with at most one decimal: 12.5 or 12,5, and 1000 not 1.000"),
+      ).toBeInTheDocument();
+      expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/travel-segments"))).toBe(false);
 
       vi.unstubAllGlobals();
     });
@@ -1352,7 +1507,8 @@ describe("TripDayTravelSegmentDialog", () => {
       expect(distance).toHaveAttribute("type", "text");
       expect(distance).toHaveAttribute("inputmode", "decimal");
       // `min`/`step` left with the type: inert on a text input, and `step: "0.1"` advertised a
-      // one-decimal cap that nothing has ever enforced.
+      // one-decimal cap nothing enforced. Story 6.30 made the cap real in `parseDistanceInput`, where a
+      // refusal carries an error line — not back in a `step` attribute no code path validates.
       expect(distance).not.toHaveAttribute("min");
       expect(distance).not.toHaveAttribute("step");
 
@@ -1377,7 +1533,9 @@ describe("TripDayTravelSegmentDialog", () => {
       fireEvent.change(await screen.findByLabelText("Distance (km)"), { target: { value: "abc" } });
       fireEvent.click(screen.getByRole("button", { name: "OK" }));
 
-      expect(await screen.findByText("Enter a distance greater than 0, e.g. 12.5 or 12,5")).toBeInTheDocument();
+      expect(
+        await screen.findByText("Enter a distance greater than 0 with at most one decimal: 12.5 or 12,5, and 1000 not 1.000"),
+      ).toBeInTheDocument();
       expect(screen.queryByText("Distance is required for car travel")).not.toBeInTheDocument();
       expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/travel-segments"))).toBe(false);
 

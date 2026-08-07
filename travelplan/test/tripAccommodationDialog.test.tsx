@@ -8,6 +8,7 @@ import TripAccommodationDialog, {
   STAY_PANEL_MIN_HEIGHT,
   STAY_TAB_IDS,
 } from "@/components/features/trips/TripAccommodationDialog";
+import { useI18n } from "@/i18n/provider";
 import { DOCUMENT_UPLOAD_ACCEPT } from "@/lib/trips/documentUploads";
 import { Providers } from "./helpers/renderWithProviders";
 
@@ -31,6 +32,21 @@ const selectTab = (name: string) => fireEvent.click(screen.getByRole("tab", { na
  * required on both sides is a small confirmation the rename put the two dialogs on the same word.
  */
 const costField = () => screen.getByLabelText("Cost", { selector: "input" });
+
+/**
+ * Story 6.30 AC7. `I18nProvider` takes an *initial* language and owns it in state from then on, so a
+ * re-render with a different prop changes nothing — the only way to switch a rendered tree is from
+ * inside it. Mounted as a sibling of the dialog so the switch is a real account-language change with
+ * the dialog already open, which is the situation AC7 is about.
+ */
+const LanguageSwitch = () => {
+  const { setLanguage } = useI18n();
+  return (
+    <button type="button" onClick={() => setLanguage("de")}>
+      switch-to-de
+    </button>
+  );
+};
 
 describe("TripAccommodationDialog", () => {
   afterEach(() => {
@@ -1704,6 +1720,177 @@ describe("TripAccommodationDialog", () => {
 
       await waitFor(() => expect(sentBodies).toHaveLength(1));
       expect(JSON.parse(sentBodies[0]).costCents).toBe(1250);
+    });
+
+    /**
+     * Story 6.30 Part 2. The case above pins the German *placeholder* as `0,00`; this one pins the
+     * *value* beside it, which read `120.50` until now. The box contradicting its own hint was the
+     * first thing a German user noticed after 6.27 landed, and only a stay that already *has* a cost
+     * can show it — an empty field falls back to the placeholder and looks correct either way.
+     */
+    it("renders an existing cost and payment amount with a comma under de", async () => {
+      saveFetch([]);
+      render(
+        <Providers language="de">
+          <TripAccommodationDialog
+            open
+            tripId="trip-1"
+            stayType="current"
+            day={{
+              id: "day-1",
+              date: "2026-11-01T00:00:00.000Z",
+              dayIndex: 1,
+              accommodation: {
+                id: "stay-1",
+                name: "Harbor Hotel",
+                notes: null,
+                status: "planned",
+                costCents: 12050,
+                payments: [{ amountCents: 12050, dueDate: "2026-11-01" }],
+                link: null,
+                checkInTime: null,
+                checkOutTime: null,
+                location: null,
+              },
+            }}
+            onClose={() => undefined}
+            onSaved={() => undefined}
+          />
+        </Providers>,
+      );
+
+      await screen.findByLabelText("Name der Unterkunft");
+      selectTab("Kosten");
+
+      const cost = screen.getByLabelText("Kosten", { selector: "input" });
+      // Not `"120.50"`, and not the grouped `"1.234,50"` shape either — `formatCentsAsAmount` emits a
+      // decimal separator and nothing else, because grouping in an edit box invites `1.000` into the
+      // distance field next door.
+      expect(cost).toHaveValue("120,50");
+      expect(cost).toHaveAttribute("placeholder", "0,00");
+      expect(screen.getAllByLabelText("Betrag")[0]).toHaveValue("120,50");
+    });
+
+    /**
+     * The same assertion on a *split* stay, and it is the one that actually tests
+     * `buildDefaultPayments`. With one payment the dialog is in `single` mode, where the effect above
+     * (`TripAccommodationDialog.tsx:542-562`) copies the trimmed cost string straight into
+     * `payments.0.amount` — so the row reads `120,50` there whether or not the builder was given a
+     * language, and reverting the `language` argument inside it would leave the case above green.
+     * Two payments put the dialog in `split` mode, the mirror returns early, and the row keeps exactly
+     * what `buildDefaultPayments` produced. This is the only place Part 2's threading is observable.
+     */
+    it("renders split payment amounts with a comma under de", async () => {
+      saveFetch([]);
+      render(
+        <Providers language="de">
+          <TripAccommodationDialog
+            open
+            tripId="trip-1"
+            stayType="current"
+            day={{
+              id: "day-1",
+              date: "2026-11-01T00:00:00.000Z",
+              dayIndex: 1,
+              accommodation: {
+                id: "stay-1",
+                name: "Harbor Hotel",
+                notes: null,
+                status: "planned",
+                costCents: 12000,
+                payments: [
+                  { amountCents: 5000, dueDate: "2026-11-01" },
+                  { amountCents: 7050, dueDate: "2026-11-02" },
+                ],
+                link: null,
+                checkInTime: null,
+                checkOutTime: null,
+                location: null,
+              },
+            }}
+            onClose={() => undefined}
+            onSaved={() => undefined}
+          />
+        </Providers>,
+      );
+
+      await screen.findByLabelText("Name der Unterkunft");
+      selectTab("Kosten");
+
+      expect(await screen.findByLabelText("In mehrere Zahlungen aufteilen")).toBeChecked();
+      const amounts = screen.getAllByLabelText("Betrag");
+      expect(amounts[0]).toHaveValue("50,00");
+      expect(amounts[1]).toHaveValue("70,50");
+      // The English pins at `:477-478` are the same fixture under `en` and stay `"50.00"`/`"70.00"`.
+    });
+
+    /**
+     * Story 6.30 AC7, and it exists to pin a non-issue rather than to fix one. A `language`-dependent
+     * seed is one dependency array away from rewriting a field nobody touched: add `language` to the
+     * open effect's deps and `reset()` re-seeds mid-dialog, which would both discard the user's edits
+     * and — if the baseline and the values ever fell out of step — leave the guard reporting changes
+     * the user did not make. Neither dialog's open effect depends on `language`, deliberately, so an
+     * untouched form closes clean across a switch. This is the assertion that would go red if that
+     * changed.
+     */
+    it("reports nothing dirty when the language changes while the dialog is open", async () => {
+      saveFetch([]);
+      const onClose = vi.fn();
+      render(
+        <Providers language="en">
+          <LanguageSwitch />
+          <TripAccommodationDialog
+            open
+            tripId="trip-1"
+            stayType="current"
+            day={{
+              id: "day-1",
+              date: "2026-11-01T00:00:00.000Z",
+              dayIndex: 1,
+              accommodation: {
+                id: "stay-1",
+                name: "Harbor Hotel",
+                notes: null,
+                status: "planned",
+                costCents: 12050,
+                payments: [{ amountCents: 12050, dueDate: "2026-11-01" }],
+                link: null,
+                checkInTime: null,
+                checkOutTime: null,
+                location: null,
+              },
+            }}
+            onClose={onClose}
+            onSaved={() => undefined}
+          />
+        </Providers>,
+      );
+
+      await screen.findByLabelText("Stay name");
+      selectTab("Cost");
+      expect(screen.getByLabelText("Cost", { selector: "input" })).toHaveValue("120.50");
+
+      // `getByText`, not `getByRole`: MUI puts the open dialog in a portal and `aria-hidden`s the rest
+      // of the document, so this sibling button is outside the accessibility tree by design.
+      fireEvent.click(screen.getByText("switch-to-de"));
+      // The dialog re-renders in German — the labels move — while the seeded value stays exactly the
+      // string the form was reset with. That is the point: nothing rewrote it.
+      //
+      // What this pins is the guard, *not* that `120.50` is the ideal thing to be looking at: the
+      // placeholder is language-reactive and the value is not, so mid-switch the box does briefly read
+      // `120.50` beside a `0,00` hint — Part 2's own complaint, in a state Part 2 does not reach. Not
+      // fixed here on purpose. Re-seeding on a language change is the spec's Block If (it would discard
+      // edits), the header menu is unreachable behind a modal so nobody arrives here in the app, and the
+      // middle path — reformat only fields still byte-identical to their seed — is recorded as deferred
+      // work rather than invented under a review.
+      await screen.findByRole("tab", { name: "Kosten" });
+      expect(screen.getByLabelText("Kosten", { selector: "input" })).toHaveValue("120.50");
+
+      fireEvent.click(screen.getByRole("button", { name: "Schließen" }));
+
+      expect(onClose).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole("button", { name: "Änderungen verwerfen" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Discard changes" })).toBeNull();
     });
 
     it("reports a filled-but-unparseable payment amount as invalid rather than missing", async () => {

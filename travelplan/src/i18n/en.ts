@@ -349,7 +349,16 @@ const en: Dictionary = {
   "trips.travelSegment.durationMinutesLabel": "Duration (min)",
   "trips.travelSegment.distanceLabel": "Distance (km)",
   "trips.travelSegment.distanceOptionalLabel": "Distance (km, optional)",
-  "trips.travelSegment.distanceInvalid": "Enter a distance greater than 0, or leave the field empty.",
+  // Story 6.30: both distance errors name the one-decimal cap and carry the same both-separators
+  // example, because the distance field's `helperText` is error-only - these two strings *are* its
+  // helper, and a refusal that does not say what is accepted leaves the user no next move.
+  //
+  // "1000 not 1.000" is there for the case the cap exists for, and it is the half that is easy to
+  // leave out. Someone typing `1,000` believes they typed a *thousand*, not a decimal, so "at most one
+  // decimal" describes a rule they do not think they broke and leaves them nothing to try. Naming the
+  // repair is what turns the refusal into the visible question the cap was for.
+  "trips.travelSegment.distanceInvalid":
+    "Enter a distance greater than 0 with at most one decimal: 12.5 or 12,5, and 1000 not 1.000, or leave empty.",
   "trips.travelSegment.linkLabel": "Link (optional)",
   "trips.travelSegment.linkHelper": "Paste a Google Maps or other directions link",
   "trips.travelSegment.linkInvalid": "Enter a valid http(s) link",
@@ -374,7 +383,8 @@ const en: Dictionary = {
   "trips.travelSegment.openLink": "Maps",
   "trips.travelSegment.durationRequired": "Duration is required",
   "trips.travelSegment.distanceRequired": "Distance is required for car travel",
-  "trips.travelSegment.distancePositive": "Enter a distance greater than 0, e.g. 12.5 or 12,5",
+  "trips.travelSegment.distancePositive":
+    "Enter a distance greater than 0 with at most one decimal: 12.5 or 12,5, and 1000 not 1.000",
   "trips.travelSegment.initError": "Unable to initialize travel segment editor. Please refresh.",
   "trips.travelSegment.saveError": "Travel segment update failed. Please try again.",
   "trips.travelSegment.kmSuffix": "km",

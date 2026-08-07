@@ -3,6 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Providers } from "./helpers/renderWithProviders";
+import { useI18n } from "@/i18n/provider";
 import { DOCUMENT_UPLOAD_ACCEPT } from "@/lib/trips/documentUploads";
 import * as React from "react";
 import type { ChangeEvent, ReactNode } from "react";
@@ -440,6 +441,21 @@ const mediaUploadButton = (container: HTMLElement, kind: "photos" | "documents")
  * the query on the label rather than falling back to a test id.
  */
 const costField = () => screen.getByLabelText("Cost", { selector: "input" });
+
+/**
+ * Story 6.30 AC7. `I18nProvider` takes an *initial* language and owns it in state from then on, so a
+ * re-render with a different prop changes nothing — the only way to switch a rendered tree is from
+ * inside it. Mounted as a sibling of the dialog so the switch is a real account-language change with
+ * the dialog already open, which is the situation AC7 is about.
+ */
+const LanguageSwitch = () => {
+  const { setLanguage } = useI18n();
+  return (
+    <button type="button" onClick={() => setLanguage("de")}>
+      switch-to-de
+    </button>
+  );
+};
 
 /**
  * A media-tab harness whose photo upload answers one chosen error envelope. The CSRF fetch and the
@@ -3083,6 +3099,122 @@ describe("TripDayPlanDialog", () => {
       // The separator the field wants, said in the language the user is reading. Both are accepted
       // either way — this is rendering, and only rendering follows the locale.
       expect(screen.getByLabelText("Kosten", { selector: "input" })).toHaveAttribute("placeholder", "0,00");
+    });
+
+    /**
+     * An edit-mode dialog on an activity that already has a cost — an empty cost field falls back to
+     * the placeholder and looks right in either language, so only a seeded one shows a separator.
+     *
+     * `payments` is the interesting knob: one row puts the dialog in `single` mode, where the mirror
+     * effect (`TripDayPlanDialog.tsx:1056-1077`) overwrites `payments[0].amount` with the cost string;
+     * two rows put it in `split`, where the row keeps what `buildDefaultPayments` produced.
+     * `<LanguageSwitch />` is mounted as a sibling for the AC7 caller below; the rendering cases simply
+     * never click it.
+     */
+    const renderEditWithCost = async (
+      language: "en" | "de",
+      onClose: () => void = () => undefined,
+      payments: { amountCents: number; dueDate: string }[] = [{ amountCents: 12050, dueDate: "2026-11-01" }],
+    ) => {
+      const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
+      return render(
+        <Providers language={language}>
+          <LanguageSwitch />
+          <TripDayPlanDialog
+            open
+            mode="edit"
+            tripId="trip-1"
+            day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
+            item={{
+              id: "item-1",
+              tripDayId: "day-1",
+              title: "Museum",
+              fromTime: "09:00",
+              toTime: "10:00",
+              contentJson: '{"type":"doc"}',
+              costCents: payments.reduce((sum, payment) => sum + payment.amountCents, 0),
+              payments,
+              linkUrl: null,
+              location: null,
+              createdAt: new Date().toISOString(),
+            }}
+            onClose={onClose}
+            onSaved={() => undefined}
+          />
+        </Providers>,
+      );
+    };
+
+    /**
+     * Story 6.30 Part 2. The case above pins the German *placeholder*; this one pins the *value*, which
+     * read `120.50` next to a `0,00` hint until now.
+     */
+    it("renders an existing cost and payment amount with a comma under de", async () => {
+      const fetchMock = commaFetch([]);
+      await renderEditWithCost("de");
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+      selectTab("cost", "de");
+      // Not `"120.50"`, and not a grouped `"1.234,50"` either: `formatCentsAsAmount` emits a decimal
+      // separator and nothing more, because grouping in an edit box invites `1.000` into a number field.
+      expect(screen.getByLabelText("Kosten", { selector: "input" })).toHaveValue("120,50");
+      expect(screen.getAllByLabelText("Betrag")[0]).toHaveValue("120,50");
+    });
+
+    /**
+     * The same assertion on a *split* activity, and it is the one that actually tests
+     * `buildDefaultPayments`. In `single` mode the mirror effect copies the trimmed cost string into
+     * `payments[0].amount`, so the row above reads `120,50` whether or not the builder was given a
+     * language — reverting the `language` argument inside it would leave that case green. Two rows
+     * mean `split`, the mirror returns early, and the row is exactly what the builder produced. This
+     * is the only place Part 2's threading through `buildDefaultPayments` is observable.
+     */
+    it("renders split payment amounts with a comma under de", async () => {
+      const fetchMock = commaFetch([]);
+      await renderEditWithCost("de", undefined, [
+        { amountCents: 5000, dueDate: "2026-11-01" },
+        { amountCents: 7050, dueDate: "2026-11-02" },
+      ]);
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+      selectTab("cost", "de");
+      expect(screen.getByLabelText("In mehrere Zahlungen aufteilen")).toBeChecked();
+      const amounts = screen.getAllByLabelText("Betrag");
+      expect(amounts[0]).toHaveValue("50,00");
+      expect(amounts[1]).toHaveValue("70,50");
+    });
+
+    /**
+     * Story 6.30 AC7, and this suite is the strict one: `values.cost` and every `payment.amount` are
+     * literal terms of `planFormFingerprint`, so a `language`-keyed re-seed would move the fingerprint
+     * away from the `openFingerprint.current` baseline and the close would ask to discard a change the
+     * user never made. The open effect deliberately does not depend on `language` — the values and the
+     * baseline are taken in the same breath — and this is the assertion that would catch it changing.
+     */
+    it("reports nothing dirty when the language changes while the dialog is open", async () => {
+      const fetchMock = commaFetch([]);
+      const onClose = vi.fn();
+      await renderEditWithCost("en", onClose);
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+      selectTab("cost");
+      expect(costField()).toHaveValue("120.50");
+
+      fireEvent.click(screen.getByText("switch-to-de"));
+
+      await waitFor(() => expect(screen.getByLabelText("Kosten", { selector: "input" })).toBeInTheDocument());
+      // The seeded string is untouched by the switch — that is what keeps the fingerprint matched. It is
+      // also `120.50` beside a `0,00` placeholder for as long as the dialog stays open, which is Part
+      // 2's own complaint in a state Part 2 does not reach: re-seeding is the spec's Block If, the
+      // language switcher is unreachable behind a modal, and the narrower fix is deferred, not invented
+      // here. This assertion is about the guard.
+      expect(screen.getByLabelText("Kosten", { selector: "input" })).toHaveValue("120.50");
+
+      fireEvent.click(screen.getByRole("button", { name: "Schließen" }));
+
+      expect(onClose).toHaveBeenCalledTimes(1);
+      expect(screen.queryByText("Änderungen verwerfen?")).toBeNull();
+      expect(screen.queryByText("Discard changes?")).toBeNull();
     });
   });
 

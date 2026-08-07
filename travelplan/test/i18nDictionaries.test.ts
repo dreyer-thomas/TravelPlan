@@ -673,4 +673,79 @@ describe("i18n dictionaries", () => {
       expect(dictionary["trips.travelSegment.linkInvalid"]).toContain("http(s)");
     });
   });
+
+  /**
+   * Story 6.30 AC2. The distance field's `helperText` is error-only by design, so these two strings
+   * *are* its helper — there is no standing line beside them stating the rule, and no key was added to
+   * make one. That makes the wording load-bearing in a way a placeholder is not: `parseDistanceInput`
+   * refuses `1,000`, `12,555` and `60,12345`, and a refusal that does not say what *is* accepted is
+   * worse than the silent parse it replaced, because the user has no next move.
+   *
+   * Pinned as "names the rule and shows both spellings", not as the literal strings: a test that
+   * restates the dictionary passes iff someone copied it across, and catches no regression. What must
+   * not happen is the copy quietly losing the rule while the code keeps enforcing it.
+   */
+  describe("story 6.30 distance copy names the one-decimal rule", () => {
+    const DISTANCE_ERROR_KEYS = [
+      "trips.travelSegment.distancePositive",
+      "trips.travelSegment.distanceInvalid",
+    ] as const;
+
+    it.each(DISTANCE_ERROR_KEYS)("states the one-decimal cap in %s, in both languages", (key) => {
+      expect(en[key]).toMatch(/at most one decimal/i);
+      expect(de[key]).toMatch(/höchstens einer Dezimalstelle/i);
+    });
+
+    /**
+     * Both examples, in both languages, on both keys. `distanceInvalid` carried none until this story —
+     * the optional branch refused a value and named no acceptable form at all — and the pair matters
+     * rather than one of them: the point of the copy is that *either* separator is accepted, which is
+     * Story 6.27's rule and the reason a German user can type at all.
+     */
+    it.each(DISTANCE_ERROR_KEYS)("shows both the 12.5 and the 12,5 spelling in %s", (key) => {
+      for (const dictionary of [en, de]) {
+        expect(dictionary[key]).toContain("12.5");
+        expect(dictionary[key]).toContain("12,5");
+      }
+    });
+
+    /**
+     * A character ceiling, not a width measurement — nothing here knows about pixels or German compound
+     * nouns, and a 115-character string of short words may well wrap shorter than a 100-character one.
+     * What it does buy is that these two cannot *balloon*: they hang under a field sharing a narrow
+     * dialog with the two duration boxes on a 390px phone, and every rewrite so far has added a clause.
+     * 120 is where the current pair (en 90/107, de 95/114) sits with room to reword but not to append
+     * another clause without someone deciding to.
+     */
+    it.each(DISTANCE_ERROR_KEYS)("keeps %s under the anti-ballooning ceiling", (key) => {
+      expect(en[key].length).toBeLessThanOrEqual(120);
+      expect(de[key].length).toBeLessThanOrEqual(120);
+    });
+
+    /**
+     * AC2 is met by rewording the two existing keys. No third key was invented for a standing helper
+     * line — the field's `helperText` is error-only, so a new key would be an orphan the moment it
+     * landed, which is the defect Story 5.11's review found and 6.27 had to clean up.
+     *
+     * Frozen as a whole key *set* rather than as the absence of two guessed names: asserting that
+     * `distanceHelper` does not exist catches only someone who picks that exact spelling and passes for
+     * every other one. This fails for any new `distance*` key, which is what the rule actually says.
+     */
+    it("adds no new distance key in either language", () => {
+      const expected = [
+        "trips.travelSegment.distanceInvalid",
+        "trips.travelSegment.distanceLabel",
+        "trips.travelSegment.distanceOptionalLabel",
+        "trips.travelSegment.distancePositive",
+        "trips.travelSegment.distanceRequired",
+      ];
+      for (const dictionary of [en, de]) {
+        expect(
+          Object.keys(dictionary)
+            .filter((key) => key.startsWith("trips.travelSegment.distance"))
+            .sort(),
+        ).toEqual(expected);
+      }
+    });
+  });
 });

@@ -294,6 +294,32 @@ export default function TripDayTravelSegmentDialog({
     [segment, mapsLink],
   );
 
+  /**
+   * The distance field's own parse - one function for all three sites (`validate()`'s required branch,
+   * its optional branch, and the request body), because a cap that lands in some of them either
+   * refuses what the request would have accepted or drops what the form accepted.
+   *
+   * Story 6.30, ruled by Tommy on 2026-08-07. `{ maxDecimals: 1 }` is a **distance** rule passed in,
+   * not a narrowing of `parseDecimal`: a lone three-digit group reads as a fraction in both spellings,
+   * so `1,000` and `1.000` both parsed to `1` and "one thousand kilometres" saved as one, silently.
+   * One decimal makes those refusable, and 100 m resolution is past anything trip planning uses.
+   * `formatDistanceKmInput` (`:116`) has always rounded an imported route to one decimal, so the
+   * *route* import already obeys the rule its input side is now getting and needs no exemption. It is
+   * not the only writer, though: `tripImportSchemas.ts` restores a backed-up `distanceKm` as any
+   * positive float, and `travelSegmentSchemas.ts` accepts one, so the column can hold more decimals
+   * than this field will now take. That is deliberate - the cap governs input, not the stored column -
+   * and it is what the exemption below is for.
+   *
+   * The exemption: a string byte-identical to what the dialog seeded is parsed unbounded. A row stored
+   * before the rule existed (this story's scratch pass left a `60.12345`), or restored from a backup,
+   * must still open and save as it is. `openedValues.distance` is already the dirty guard's reference
+   * for "the user has not touched this field", so this needs no new state and no "was this stored
+   * before the rule" flag. Byte-identical is the deliberate strictness: re-spelling `60.12345` as
+   * `60,12345` is an edit, and the cap applies to it.
+   */
+  const parseDistanceInput = (raw: string) =>
+    raw === openedValues.distance ? parseDecimal(raw) : parseDecimal(raw, { maxDecimals: 1 });
+
   useEffect(() => {
     if (!open) return;
     setServerError(null);
@@ -396,7 +422,7 @@ export default function TripDayTravelSegmentDialog({
       // an unparseable distance arrived as `""`, so "required" described both states. It arrives
       // intact now, and answering "required" to a box the user can see holds `abc` is the lie this
       // story removed everywhere else.
-      const distanceValue = parseDecimal(distanceKm);
+      const distanceValue = parseDistanceInput(distanceKm);
       if (!distanceKm.trim()) {
         nextErrors.distanceKm = t("trips.travelSegment.distanceRequired");
       } else if (distanceValue === null || distanceValue <= 0) {
@@ -406,7 +432,7 @@ export default function TripDayTravelSegmentDialog({
       // Optional is not the same as silently discarded. Nothing runs constraint validation on submit,
       // so `0` and `-3` reach here, and the API rejects both (`travelSegmentSchemas.ts` is
       // `.positive()`). Saying so beats dropping the number the user typed and closing on a success.
-      const distanceValue = parseDecimal(distanceKm);
+      const distanceValue = parseDistanceInput(distanceKm);
       if (distanceValue === null || distanceValue <= 0) {
         nextErrors.distanceKm = t("trips.travelSegment.distanceInvalid");
       }
@@ -525,7 +551,7 @@ export default function TripDayTravelSegmentDialog({
     // Walking and cycling may carry a distance but are not obliged to, so an *empty* field becomes
     // `null` rather than a `NaN` the API would reject. A field that is filled in but not positive no
     // longer reaches here - `validate()` now reports it instead of discarding it.
-    const parsedDistance = parseDecimal(distanceKm);
+    const parsedDistance = parseDistanceInput(distanceKm);
     const distanceValue =
       allowsDistance(transportType) && parsedDistance !== null && parsedDistance > 0 ? parsedDistance : null;
     const payload = {
@@ -730,7 +756,9 @@ export default function TripDayTravelSegmentDialog({
               // difference - `inputMode="decimal"` rather than `"numeric"`, because a distance has a
               // fractional part. `min`/`step` go with the type: nothing ran constraint validation on
               // them, `validate()` is what rejects `0` and `-3`, and `step: "0.1"` implied a
-              // one-decimal cap that has never existed.
+              // one-decimal cap that nothing enforced. Story 6.30 made that cap real, in
+              // `parseDistanceInput` where a refusal can carry an error line the user reads - not in a
+              // `step` attribute no code path validates.
               type="text"
               size="small"
               margin="dense"

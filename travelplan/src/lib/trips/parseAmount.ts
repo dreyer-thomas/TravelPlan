@@ -21,6 +21,8 @@
  * decimals), which is why the ambiguity only reaches `parseDecimal`.
  */
 
+import type { Language } from "@/i18n";
+
 /**
  * Whitespace out, thousands separator out, decimal separator normalised to `.` - the shared step
  * before money and distance part ways. Returns the digits-and-one-dot form, or `null` for an empty
@@ -88,12 +90,43 @@ export const parseAmountToCents = (rawValue: string): number | null => {
  * the raw string, which the distance field used while it was `type="number"` and could get away with:
  * `Number.parseFloat("12,5")` returns `12`, so on a text input that call would silently turn half a
  * kilometre into none.
+ *
+ * **`maxDecimals` is the caller's rule, never this helper's.** Omitted, the promise above still holds
+ * exactly: the gate is today's `^\d+(\.\d+)?$` and every digit typed survives. Story 6.30 added the
+ * option because of one number, measured on a German phone on 2026-08-07: a *lone* three-digit group
+ * is read as a fraction in **both** spellings (`normalizeDecimalInput` only resolves the ambiguity
+ * when both separators appear), so `parseDecimal("1,000")` and `parseDecimal("1.000")` each returned
+ * `1`. A distance typed "one thousand kilometres" saved as one kilometre - a factor of 1000, with no
+ * warning, in the story whose whole subject is silent numeric loss. The travel-segment dialog passes
+ * `{ maxDecimals: 1 }`, which makes all three ambiguous forms refusable and turns that silent loss
+ * into a visible question. The cap lives at the call site and not in the regex here, because this
+ * helper's only consumer today is exactly what would make hard-coding it look harmless: the next,
+ * non-distance caller would inherit a distance rule it never asked for.
+ *
+ * A non-finite `maxDecimals` reads as no cap at all, and anything below one as integers only; see the
+ * comment in the body for why neither may be handed to a quantifier as it arrives.
  */
-export const parseDecimal = (rawValue: string): number | null => {
+export const parseDecimal = (
+  rawValue: string,
+  options?: { maxDecimals?: number },
+): number | null => {
   const normalized = normalizeDecimalInput(rawValue);
   if (normalized === null) return null;
 
-  if (!/^\d+(\.\d+)?$/.test(normalized)) {
+  // A cap has to become a whole number of digits before it can become a quantifier, and the two ways
+  // of getting there wrong fail in opposite directions - so both are normalised here rather than
+  // trusted from the call site. Below one (a literal `0`, a negative, or a fraction like `0.5` that
+  // floors to `0`) would build `\d{1,0}`, which no engine accepts: it throws a `SyntaxError` out of a
+  // function whose entire contract is to answer `null` instead. Non-finite is the quieter one -
+  // `Infinity` interpolates as *text*, and `\d{1,Infinity}` is a perfectly valid pattern matching
+  // those literal characters, so the natural spelling of "no cap" would refuse every decimal and
+  // accept only integers, silently. Non-finite therefore means unbounded, and below one means
+  // integers only, which is what each was reaching for.
+  const requested = options?.maxDecimals;
+  const cap = requested === undefined || !Number.isFinite(requested) ? null : Math.floor(requested);
+  const pattern = cap === null ? /^\d+(\.\d+)?$/ : cap < 1 ? /^\d+$/ : new RegExp(`^\\d+(\\.\\d{1,${cap}})?$`);
+
+  if (!pattern.test(normalized)) {
     return null;
   }
 
@@ -102,10 +135,36 @@ export const parseDecimal = (rawValue: string): number | null => {
 };
 
 /**
- * Cents back into the plain string a text field holds - `1250` to `"12.50"`.
+ * Cents back into the plain string a text field holds - `1250` to `"12.50"` under `en`, `"12,50"`
+ * under `de`.
  *
  * Not `formatCost`: this is an editable field's value, so it carries no currency symbol and no
- * thousands separator, and it stays dot-decimal because that is what an unedited round-trip must hand
- * back to `parseAmountToCents`. `formatCost` is for reading, this is for editing.
+ * thousands separator. It mirrors `formatCost(cents, language)` next door in *signature* only -
+ * `formatCost` hands the whole job to `Intl.NumberFormat`, which is how it gets grouping and symbol
+ * placement, and neither of those may appear in a box the user types back into. `language` is
+ * **required** so that adding it named every existing call site instead of leaving one silently
+ * English. Note what that does *not* buy: the separator here is a hand-written `=== "de"` ternary, so
+ * a third dictionary would compile and test clean while rendering `120.50` beside its own locale's
+ * placeholder. The fix at that point is `Intl` for the separator alone -
+ * `new Intl.NumberFormat(tag).formatToParts(1.1)`, taking the `decimal` part and nothing else. It is
+ * a different repair from the one `formatCost` will need, which is a `Language`-to-BCP-47 map instead
+ * of its own `=== "de"` fallback to `en-US`.
+ *
+ * **What Story 6.30 retired.** This used to be dot-decimal on purpose, and the stated reason was that
+ * an unedited round trip has to hand the string back to `parseAmountToCents`. That reason was sound
+ * only while the parser was dot-only, and since Story 6.27 it is not - `parseAmountToCents("120,50")`
+ * returns `12050` exactly as `"120.50"` does. What the old argument left behind was a German field
+ * whose placeholder read `0,00` while its own value read `120.50`: the box contradicting its own hint,
+ * spotted by the first German user to look at it after 6.27 landed on 2026-08-07.
+ *
+ * **Still no thousands separator, even though grouping would round-trip.**
+ * `parseAmountToCents("1.234,50")` does return `123450`, so emitting `"1.234,50"` would be safe for
+ * *this* field. It is refused anyway, because a box showing `1.234,50` teaches the habit the distance
+ * field next door exists to refuse: a lone three-digit group like `1.000` is a fraction to
+ * `normalizeDecimalInput`, and reading `1.000` as a thousand is what silently turned 1000 km into 1 km.
+ * Grouping belongs in `formatCost`, which is read-only.
  */
-export const formatCentsAsAmount = (value: number) => (value / 100).toFixed(2);
+export const formatCentsAsAmount = (value: number, language: Language) => {
+  const plain = (value / 100).toFixed(2);
+  return language === "de" ? plain.replace(".", ",") : plain;
+};

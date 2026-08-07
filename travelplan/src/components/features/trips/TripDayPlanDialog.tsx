@@ -37,7 +37,7 @@ import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
 import { Node } from "@tiptap/core";
 import { useI18n } from "@/i18n/provider";
-import { formatMessage } from "@/i18n";
+import { formatMessage, type Language } from "@/i18n";
 import {
   DOCUMENT_LIMIT_ERROR_MESSAGE,
   DOCUMENT_UPLOAD_ACCEPT,
@@ -533,23 +533,33 @@ const planFormFingerprint = (values: PlanFormValues) =>
     values.pendingDocumentCount,
   ]);
 
+/**
+ * Story 6.30: `language` is a parameter because this builder is module-level, so `useI18n()` is not in
+ * scope here and the two `formatCentsAsAmount` calls below would otherwise be stuck on the English
+ * separator. A payment row carries no placeholder of its own to disagree with - it is the *cost* field
+ * that promises `0,00` - but the row is seeded from that same cost and read back by the same
+ * `parseAmountToCents`, so a row spelled `120.50` under a cost spelled `120,50` would be one field
+ * contradicting the other.
+ */
 const buildDefaultPayments = ({
   payments,
   costCents,
   fallbackDate,
+  language,
 }: {
   payments?: { amountCents: number; dueDate: string }[];
   costCents: number | null | undefined;
   fallbackDate: string;
+  language: Language;
 }) => {
   if (payments && payments.length > 0) {
     return payments.map((payment) => ({
-      amount: formatCentsAsAmount(payment.amountCents),
+      amount: formatCentsAsAmount(payment.amountCents, language),
       dueDate: payment.dueDate,
     }));
   }
   if (typeof costCents === "number") {
-    return [{ amount: formatCentsAsAmount(costCents), dueDate: fallbackDate }];
+    return [{ amount: formatCentsAsAmount(costCents, language), dueDate: fallbackDate }];
   }
   return [{ amount: "", dueDate: "" }];
 };
@@ -844,12 +854,13 @@ export default function TripDayPlanDialog({
         title: item.title ?? "",
         fromTime: item.fromTime ?? "",
         toTime: item.toTime ?? "",
-        cost: item.costCents !== null ? formatCentsAsAmount(item.costCents) : "",
+        cost: item.costCents !== null ? formatCentsAsAmount(item.costCents, language) : "",
         paymentMode: item.payments && item.payments.length > 1 ? "split" : "single",
         payments: buildDefaultPayments({
           payments: item.payments,
           costCents: item.costCents,
           fallbackDate: defaultDueDate,
+          language,
         }),
         linkUrl: item.linkUrl ?? "",
         location: item.location ?? null,
@@ -868,7 +879,7 @@ export default function TripDayPlanDialog({
         toTime: "",
         cost: "",
         paymentMode: "single",
-        payments: buildDefaultPayments({ payments: [], costCents: null, fallbackDate: defaultDueDate }),
+        payments: buildDefaultPayments({ payments: [], costCents: null, fallbackDate: defaultDueDate, language }),
         linkUrl: "",
         location: prefill.location ?? null,
         contentJson: prefill.contentJson,
@@ -883,7 +894,7 @@ export default function TripDayPlanDialog({
         toTime: "",
         cost: "",
         paymentMode: "single",
-        payments: buildDefaultPayments({ payments: [], costCents: null, fallbackDate: defaultDueDate }),
+        payments: buildDefaultPayments({ payments: [], costCents: null, fallbackDate: defaultDueDate, language }),
         linkUrl: "",
         location: null,
         contentJson: toDocString(emptyDoc),
@@ -901,6 +912,14 @@ export default function TripDayPlanDialog({
     // edited are both values the user is looking at rather than values they entered.
     openFingerprint.current = planFormFingerprint(applyPlanFormValues(seed, locationQuerySeed));
     setLoadingInit(false);
+    // Story 6.30 AC7, and `language` is left out of the deps **on purpose**. It is read above to seed
+    // `cost` and every `payment.amount` with the right decimal separator, and both of those are literal
+    // terms of `planFormFingerprint` — so re-running this effect on a language switch would overwrite
+    // the form *and* re-take `openFingerprint.current` from it, discarding whatever the user had typed.
+    // Seeding with the language at open time is the behaviour we want: the values and the baseline are
+    // then taken in the same breath and stay matched, so an untouched form reports nothing dirty on
+    // close even if the language changed in between.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [applyPlanFormValues, defaultDueDate, item, mode, open, prefill]);
 
   useEffect(() => {

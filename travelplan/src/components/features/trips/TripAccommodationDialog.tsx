@@ -28,7 +28,7 @@ import DiscardChangesDialog, { useDiscardGuard } from "@/components/ui/DiscardCh
 import FullscreenPhotoViewer from "@/components/ui/FullscreenPhotoViewer";
 import { WarningTriangleIcon } from "@/components/features/trips/TripIcons";
 import LocationCandidateList from "@/components/features/trips/LocationCandidateList";
-import { formatMessage } from "@/i18n";
+import { formatMessage, type Language } from "@/i18n";
 import { useI18n } from "@/i18n/provider";
 import {
   DOCUMENT_LIMIT_ERROR_MESSAGE,
@@ -335,23 +335,33 @@ const toDateOnly = (value?: string | null) => {
   return parsed.toISOString().slice(0, 10);
 };
 
+/**
+ * Story 6.30: `language` is a parameter because this builder is module-level, so `useI18n()` is not in
+ * scope here and the two `formatCentsAsAmount` calls below would otherwise be stuck on the English
+ * separator. A payment row carries no placeholder of its own to disagree with - it is the *cost* field
+ * that promises `0,00` - but the row is seeded from that same cost and read back by the same
+ * `parseAmountToCents`, so a row spelled `120.50` under a cost spelled `120,50` would be one field
+ * contradicting the other.
+ */
 const buildDefaultPayments = ({
   payments,
   costCents,
   fallbackDate,
+  language,
 }: {
   payments?: { amountCents: number; dueDate: string }[];
   costCents: number | null | undefined;
   fallbackDate: string;
+  language: Language;
 }) => {
   if (payments && payments.length > 0) {
     return payments.map((payment) => ({
-      amount: formatCentsAsAmount(payment.amountCents),
+      amount: formatCentsAsAmount(payment.amountCents, language),
       dueDate: payment.dueDate,
     }));
   }
   if (typeof costCents === "number") {
-    return [{ amount: formatCentsAsAmount(costCents), dueDate: fallbackDate }];
+    return [{ amount: formatCentsAsAmount(costCents, language), dueDate: fallbackDate }];
   }
   return [{ amount: "", dueDate: "" }];
 };
@@ -441,7 +451,7 @@ export default function TripAccommodationDialog({
       status: day?.accommodation?.status ?? "planned",
       costCents:
         day?.accommodation?.costCents !== null && day?.accommodation?.costCents !== undefined
-          ? formatCentsAsAmount(day.accommodation.costCents)
+          ? formatCentsAsAmount(day.accommodation.costCents, language)
           : "",
       link: day?.accommodation?.link ?? "",
       checkInTime: day?.accommodation?.checkInTime ?? DEFAULT_CHECK_IN,
@@ -451,6 +461,7 @@ export default function TripAccommodationDialog({
         payments: day?.accommodation?.payments,
         costCents: day?.accommodation?.costCents,
         fallbackDate: defaultDueDate,
+        language,
       }),
     },
   });
@@ -610,7 +621,7 @@ export default function TripAccommodationDialog({
       status: day?.accommodation?.status ?? "planned",
       costCents:
         day?.accommodation?.costCents !== null && day?.accommodation?.costCents !== undefined
-          ? formatCentsAsAmount(day.accommodation.costCents)
+          ? formatCentsAsAmount(day.accommodation.costCents, language)
           : "",
       link: day?.accommodation?.link ?? "",
       checkInTime: day?.accommodation?.checkInTime ?? DEFAULT_CHECK_IN,
@@ -620,6 +631,7 @@ export default function TripAccommodationDialog({
         payments: day?.accommodation?.payments,
         costCents: day?.accommodation?.costCents,
         fallbackDate: defaultDueDate,
+        language,
       }),
     });
     setResolvedLocation(
@@ -632,6 +644,14 @@ export default function TripAccommodationDialog({
         : null,
     );
     setLocationQuery(day?.accommodation?.location?.label ?? day?.accommodation?.name ?? "");
+    // Story 6.30 AC7, and `language` is left out of the deps **on purpose**. It is read above to seed
+    // `costCents` and the payment rows with the right decimal separator, which is exactly what makes
+    // adding it here look correct and be wrong: `reset()` rewrites every field, so a language switch
+    // while the dialog is open would silently throw away edits the user had already made. Seeding with
+    // whatever the language was at open time is the behaviour we want. Nothing goes stale as a result —
+    // the guard below compares against the `reset()` baseline, so an unchanged form stays unchanged and
+    // no discard prompt appears on close.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [day, defaultDueDate, open, reset]);
 
   useEffect(() => {
