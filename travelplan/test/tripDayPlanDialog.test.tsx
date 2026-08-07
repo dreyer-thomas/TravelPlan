@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Providers } from "./helpers/renderWithProviders";
 import { DOCUMENT_UPLOAD_ACCEPT } from "@/lib/trips/documentUploads";
@@ -534,7 +534,9 @@ describe("TripDayPlanDialog", () => {
           ok: true,
           status: 200,
           json: async () => ({
-            data: { result: { lat: 48.145, lng: 11.582, label: "Museum" } },
+            // Story 6.28 turned the route's `result` into a `results` array. One candidate is still
+            // adopted directly, which is why this case reads exactly as it did.
+            data: { results: [{ lat: 48.145, lng: 11.582, label: "Museum" }] },
             error: null,
           }),
         };
@@ -3081,6 +3083,477 @@ describe("TripDayPlanDialog", () => {
       // The separator the field wants, said in the language the user is reading. Both are accepted
       // either way — this is rendering, and only rendering follows the locale.
       expect(screen.getByLabelText("Kosten", { selector: "input" })).toHaveAttribute("placeholder", "0,00");
+    });
+  });
+
+  /**
+   * Story 6.28. Reported from production on 2026-08-06 as two complaints about one field: a pasted
+   * `-36.8485, 174.7633` came back "no matching place found" (the route sent it to Nominatim's
+   * `/search`, which does not resolve a bare pair), and an activity name pinned the best *name* match
+   * anywhere on earth because the route asked with `limit=1` and adopted `body[0]` unconditionally.
+   *
+   * This dialog is the canonical surface of the four, so the rules are pinned here in full and the
+   * sibling suites carry the same cases in their own idiom.
+   */
+  describe("story 6.28 — coordinates by hand and a choice of places", () => {
+    /**
+     * A harness whose `/api/geocode` answers with the candidate list it is handed. The mock is
+     * *returned* rather than asserted on with `not.toHaveBeenCalled()`: this dialog fetches its CSRF
+     * token on mount, so the only honest form of "no request reached the geocoder" is a filtered call
+     * list — which is Trap 2 of the story, and the half of AC1 a readout assertion cannot see.
+     */
+    const geocodeFetch = (results: Array<{ lat: number; lng: number; label: string }>) => {
+      const fetchMock = vi.fn(async (input: RequestInfo, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.url;
+        if (url.includes("/api/auth/csrf")) {
+          return { ok: true, status: 200, json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }) };
+        }
+        if (url.includes("/api/geocode")) {
+          return { ok: true, status: 200, json: async () => ({ data: { results }, error: null }) };
+        }
+        if (init?.body) sentPlanBodies.push(String(init.body));
+        return { ok: true, status: 200, json: async () => ({ data: { dayPlanItem: { id: "item-1" } }, error: null }) };
+      }) as unknown as typeof fetch;
+      vi.stubGlobal("fetch", fetchMock);
+      return fetchMock;
+    };
+
+    let sentPlanBodies: string[] = [];
+
+    const geocodeCalls = (fetchMock: typeof fetch) =>
+      (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls.filter((call) =>
+        String(call[0]).includes("/api/geocode"),
+      );
+
+    const renderPlace = async (
+      results: Array<{ lat: number; lng: number; label: string }> = [],
+      onClose: () => void = () => undefined,
+    ) => {
+      sentPlanBodies = [];
+      const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
+      const fetchMock = geocodeFetch(results);
+      render(
+        <Providers language="en">
+          <TripDayPlanDialog
+            open
+            mode="add"
+            tripId="trip-1"
+            day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
+            item={null}
+            onClose={onClose}
+            onSaved={() => undefined}
+          />
+        </Providers>,
+      );
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      selectTab("whenWhere");
+      return fetchMock;
+    };
+
+    const find = (value: string) => {
+      fireEvent.change(screen.getByLabelText("Search place"), { target: { value } });
+      fireEvent.click(screen.getByRole("button", { name: "Find" }));
+    };
+
+    // AC1. The pair is the readout to six decimals *and* the absence of the request; either alone
+    // passes for the wrong reason.
+    it("resolves a typed coordinate pair without touching the geocoder", async () => {
+      const fetchMock = await renderPlace();
+
+      find("48.8584, 2.2945");
+
+      expect(await screen.findByText("Latitude: 48.858400 · Longitude: 2.294500")).toBeInTheDocument();
+      expect(geocodeCalls(fetchMock)).toHaveLength(0);
+    });
+
+    // AC2. The shape the address bar hands over while panning, zoom segment and `data=` tail included.
+    it("resolves a pasted Google Maps URL without touching the geocoder", async () => {
+      const fetchMock = await renderPlace();
+
+      find("https://www.google.com/maps/@48.8584,2.2945,17z/data=!3m1!4b1");
+
+      expect(await screen.findByText("Latitude: 48.858400 · Longitude: 2.294500")).toBeInTheDocument();
+      expect(geocodeCalls(fetchMock)).toHaveLength(0);
+    });
+
+    // AC4. A visible error and *nothing set* — the readout must still read its empty state, or a
+    // differently wrong pin has replaced the silently wrong one.
+    it("faults an out-of-range pair and leaves the readout empty", async () => {
+      const fetchMock = await renderPlace();
+
+      find("91.0, 2.0");
+
+      expect(await screen.findByText("Latitude must be between -90 and 90")).toBeInTheDocument();
+      expect(screen.getByText("No coordinates selected")).toBeInTheDocument();
+      expect(geocodeCalls(fetchMock)).toHaveLength(0);
+    });
+
+    // AC3. The refusal names the spelling to use instead, and still sets nothing.
+    it("refuses an ambiguous comma pair with the spelling to use instead", async () => {
+      await renderPlace();
+
+      find("48,8584,2,2945");
+
+      expect(await screen.findByText("Coordinates unclear. Write 48.8584, 2.2945 or 48,8584; 2,2945.")).toBeInTheDocument();
+      expect(screen.getByText("No coordinates selected")).toBeInTheDocument();
+    });
+
+    /**
+     * AC5, the reported "it only ever offers wrong places". Every candidate is listed in the route's
+     * order, **nothing** is resolved until a row is activated, and the label that then gets stored is the
+     * row's own — not the typed query, which is what the old single-result path effectively pinned.
+     */
+    it("adopts nothing until a candidate row is activated, then stores that row's label", async () => {
+      await renderPlace([
+        { lat: -36.8485, lng: 174.7633, label: "Sky Tower, Auckland" },
+        { lat: 10.7769, lng: 106.7009, label: "Sky Tower, Ho Chi Minh City" },
+      ]);
+
+      find("Sky Tower");
+
+      expect(await screen.findByRole("button", { name: "Sky Tower, Auckland" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Sky Tower, Ho Chi Minh City" })).toBeInTheDocument();
+      expect(screen.getByText("Select a place (2)")).toBeInTheDocument();
+      // The whole point: still nothing pinned.
+      expect(screen.getByText("No coordinates selected")).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "Sky Tower, Auckland" }));
+
+      expect(await screen.findByText("Latitude: -36.848500 · Longitude: 174.763300")).toBeInTheDocument();
+      expect(screen.getByLabelText("Search place")).toHaveValue("Sky Tower, Auckland");
+      // The list is dismissed by the same gesture that resolved the pin — there is no selected state to
+      // leave behind.
+      expect(screen.queryByRole("button", { name: "Sky Tower, Ho Chi Minh City" })).toBeNull();
+    });
+
+    // AC8. `Clear` still empties the location, including after a manual entry, which is the path that
+    // never went through a geocoder response.
+    it("clears a manually entered pair", async () => {
+      await renderPlace();
+
+      find("48.8584, 2.2945");
+      expect(await screen.findByText("Latitude: 48.858400 · Longitude: 2.294500")).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+
+      expect(screen.getByText("No coordinates selected")).toBeInTheDocument();
+    });
+
+    /**
+     * `Clear` also dismisses an unanswered candidate list, which is why this story widened its enabled
+     * condition: it used to be disabled while nothing was resolved, and after a multi-candidate search
+     * nothing *is* resolved — so the only way out of the list would have been to search for something
+     * else. The spec asks for the list to clear on `Clear`; this is what makes that reachable.
+     */
+    it("dismisses an unanswered candidate list on Clear", async () => {
+      await renderPlace([
+        { lat: 48.8584, lng: 2.2945, label: "Paris, France" },
+        { lat: 33.6617, lng: -95.5555, label: "Paris, Texas" },
+      ]);
+
+      find("Paris");
+      expect(await screen.findByRole("button", { name: "Paris, Texas" })).toBeInTheDocument();
+
+      const clear = screen.getByRole("button", { name: "Clear" });
+      expect(clear).not.toBeDisabled();
+      fireEvent.click(clear);
+
+      expect(screen.queryByRole("button", { name: "Paris, Texas" })).toBeNull();
+      expect(screen.queryByText("Select a place (2)")).toBeNull();
+      expect(screen.getByText("No coordinates selected")).toBeInTheDocument();
+    });
+
+    /**
+     * "What must not regress": setting a location by parse rather than by fetch has to mark the form
+     * dirty exactly as the fetch path does, or a coordinate typed and then dismissed is lost with no
+     * prompt. `resolvedLocation` is in `planFormFingerprint`, and this is what says so.
+     */
+    it("raises the discard guard for a coordinate set by parse", async () => {
+      await renderPlace();
+
+      find("48.8584, 2.2945");
+      expect(await screen.findByText("Latitude: 48.858400 · Longitude: 2.294500")).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+      expect(screen.getByText("Discard changes?")).toBeInTheDocument();
+    });
+
+    /**
+     * Story 6.28 review, P7. The claim in `LocationCandidateList`'s docblock and in DESIGN.md is a *named
+     * group*, and a bare `<div aria-labelledby>` does not deliver one: `<div>`'s implicit `generic` role
+     * prohibits an accessible name, so the label was dropped and the group existed only in the comment.
+     * The heading is also a live region, because focus stays on *Find* while the list arrives and its count
+     * line is the only announcement that a choice is now waiting.
+     */
+    it("names the candidate group and announces the count line when the list arrives", async () => {
+      await renderPlace([
+        { lat: 48.8584, lng: 2.2945, label: "Paris, France" },
+        { lat: 33.6617, lng: -95.5555, label: "Paris, Texas" },
+      ]);
+
+      find("Paris");
+
+      const group = await screen.findByRole("group", { name: "Select a place (2)" });
+      expect(within(group).getByRole("button", { name: "Paris, France" })).toBeInTheDocument();
+      expect(screen.getByRole("status")).toHaveTextContent("Select a place (2)");
+    });
+
+    /**
+     * Story 6.28 review, P2. The rows answer the text as it was when *Find* was pressed; an edit of that
+     * text makes every one of them a wrong answer, and activating one would pin a place the field no longer
+     * names.
+     */
+    it("dismisses an unanswered candidate list when the place field is edited", async () => {
+      await renderPlace([
+        { lat: 48.8584, lng: 2.2945, label: "Paris, France" },
+        { lat: 33.6617, lng: -95.5555, label: "Paris, Texas" },
+      ]);
+
+      find("Paris");
+      expect(await screen.findByRole("button", { name: "Paris, Texas" })).toBeInTheDocument();
+
+      fireEvent.change(screen.getByLabelText("Search place"), { target: { value: "Parison" } });
+
+      expect(screen.queryByRole("button", { name: "Paris, Texas" })).toBeNull();
+      expect(screen.queryByText("Select a place (2)")).toBeNull();
+    });
+
+    /**
+     * Story 6.28 review, P1. This dialog is permanently mounted with `open` toggled — the same hazard
+     * `activeTab`, `galleryFiles` and `documentFiles` are each reset for by name in the open effect. An
+     * unanswered list is cleared only by a select, a *Clear* or a new *Find*, so activity A's offer was
+     * still standing over activity B's empty field, and activating one of its rows pinned A's place on B.
+     */
+    it("does not carry an unanswered candidate list into the next activity's dialog", async () => {
+      const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
+      const fetchMock = geocodeFetch([
+        { lat: 48.8584, lng: 2.2945, label: "Paris, France" },
+        { lat: 33.6617, lng: -95.5555, label: "Paris, Texas" },
+      ]);
+      const day = { id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 };
+      const activity = (id: string, title: string) => ({
+        id,
+        tripDayId: "day-1",
+        title,
+        fromTime: "09:00",
+        toTime: "10:00",
+        contentJson: tiptapMocks.sampleDoc,
+        costCents: null,
+        linkUrl: null,
+        location: null,
+        createdAt: "2026-11-01T09:00:00.000Z",
+      });
+      const dialog = (open: boolean, id: string, title: string) => (
+        <Providers language="en">
+          <TripDayPlanDialog
+            open={open}
+            mode="edit"
+            tripId="trip-1"
+            day={day}
+            item={activity(id, title)}
+            onClose={() => undefined}
+            onSaved={() => undefined}
+          />
+        </Providers>
+      );
+
+      const { rerender } = render(dialog(true, "item-a", "Activity A"));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      selectTab("whenWhere");
+
+      find("Paris");
+      expect(await screen.findByRole("button", { name: "Paris, Texas" })).toBeInTheDocument();
+
+      // Dismissed without resolving anything — no discard prompt is involved, because nothing was pinned.
+      // `act` around the reopen because the open effect fires a fresh CSRF request whose resolution would
+      // otherwise land outside it.
+      await act(async () => {
+        rerender(dialog(false, "item-a", "Activity A"));
+      });
+      await act(async () => {
+        rerender(dialog(true, "item-b", "Activity B"));
+      });
+      selectTab("whenWhere");
+
+      expect(screen.queryByRole("button", { name: "Paris, Texas" })).toBeNull();
+      expect(screen.queryByText("Select a place (2)")).toBeNull();
+      expect(screen.getByText("No coordinates selected")).toBeInTheDocument();
+    });
+
+    /**
+     * Story 6.28 review, P8. The helper line on this field now invites a typed pair, and `locationQuery` is
+     * deliberately outside `planFormFingerprint` — so a pair typed and saved without pressing *Find* was
+     * dropped with no pin, no message and no discard prompt to notice it by. The save path parses too.
+     */
+    it("saves a pair typed into the place field without pressing Find", async () => {
+      const fetchMock = await renderPlace();
+
+      fireEvent.change(screen.getByLabelText("Search place"), { target: { value: "-36.8485, 174.7633" } });
+      selectTab("what");
+      fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Lookout" } });
+      fireEvent.click(screen.getByRole("button", { name: "OK" }));
+
+      await waitFor(() => expect(sentPlanBodies).toHaveLength(1));
+      expect(JSON.parse(sentPlanBodies[0]).location).toEqual({
+        lat: -36.8485,
+        lng: 174.7633,
+        label: "-36.848500, 174.763300",
+      });
+      // Still no request: the parser answered, exactly as it does behind *Find*.
+      expect(geocodeCalls(fetchMock)).toHaveLength(0);
+    });
+
+    /**
+     * The other half of P8, and the half that must **not** change: a place name typed and never searched
+     * still saves the activity with no location and no request. Blocking the save, or geocoding behind the
+     * user's back, would both be new behaviour on a field whose value is optional.
+     */
+    it("saves with no location when the place field holds an unsearched place name", async () => {
+      const fetchMock = await renderPlace();
+
+      fireEvent.change(screen.getByLabelText("Search place"), { target: { value: "Sky Tower" } });
+      selectTab("what");
+      fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Lookout" } });
+      fireEvent.click(screen.getByRole("button", { name: "OK" }));
+
+      await waitFor(() => expect(sentPlanBodies).toHaveLength(1));
+      expect(JSON.parse(sentPlanBodies[0]).location).toBeNull();
+      expect(geocodeCalls(fetchMock)).toHaveLength(0);
+    });
+
+    // AC1's last clause: the location *saves*, with the formatted pair as its label — a pin with no name
+    // reads as a bug on the trip overview, and `display_name` does not exist on this path.
+    it("saves a manually entered pair with the formatted pair as its label", async () => {
+      await renderPlace();
+
+      find("-36.8485, 174.7633");
+      expect(await screen.findByText("Latitude: -36.848500 · Longitude: 174.763300")).toBeInTheDocument();
+
+      // The title lives on `Was`, and the save is in the footer, reachable from every tab.
+      selectTab("what");
+      fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Lookout" } });
+      fireEvent.click(screen.getByRole("button", { name: "OK" }));
+
+      await waitFor(() => expect(sentPlanBodies).toHaveLength(1));
+      expect(JSON.parse(sentPlanBodies[0]).location).toEqual({
+        lat: -36.8485,
+        lng: 174.7633,
+        label: "-36.848500, 174.763300",
+      });
+    });
+
+    /**
+     * 6.28 follow-up review. `Clear` and the save-path parse were on a collision course: `Clear` nulled the
+     * coordinate but left the text, `locationQuery` is seeded from the stored label, and for a hand-entered
+     * pair that label *is* the pair — so the parse on save read it back and restored the pin. `Clear`
+     * followed by *OK* was a no-op, which meant a manually entered location could not be removed at all.
+     */
+    it("removes a manually entered location for good when Clear is pressed before OK", async () => {
+      await renderPlace();
+
+      find("-36.8485, 174.7633");
+      expect(await screen.findByText("Latitude: -36.848500 · Longitude: 174.763300")).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+      expect(screen.getByText("No coordinates selected")).toBeInTheDocument();
+      // The text is what the parse on save would have read back.
+      expect(screen.getByLabelText("Search place")).toHaveValue("");
+
+      selectTab("what");
+      fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Lookout" } });
+      fireEvent.click(screen.getByRole("button", { name: "OK" }));
+
+      await waitFor(() => expect(sentPlanBodies).toHaveLength(1));
+      expect(JSON.parse(sentPlanBodies[0]).location).toBeNull();
+    });
+
+    /**
+     * 6.28 follow-up review. Pressing *OK* on an unanswered candidate list used to save the activity with
+     * `location: null` in silence: nothing was resolved, so the parse answered `search` and the rows the
+     * user was choosing between left with the dialog. `TripBucketListPanel` refuses this state with this
+     * same key and `TripCreateForm` refuses it too — the two dialogs were the outliers.
+     */
+    it("refuses to save past an unanswered candidate list", async () => {
+      await renderPlace([
+        { lat: 48.8584, lng: 2.2945, label: "Paris, France" },
+        { lat: 33.6617, lng: -95.5555, label: "Paris, Texas" },
+      ]);
+
+      find("Paris");
+      expect(await screen.findByRole("button", { name: "Paris, Texas" })).toBeInTheDocument();
+
+      selectTab("what");
+      fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Lookout" } });
+      fireEvent.click(screen.getByRole("button", { name: "OK" }));
+
+      expect(await screen.findByText("Select one of the places found.")).toBeInTheDocument();
+      expect(sentPlanBodies).toHaveLength(0);
+      // Reported on the tab that holds the field, not on whichever tab the user was standing on.
+      expect(screen.getByRole("button", { name: "Paris, Texas" })).toBeInTheDocument();
+
+      // And the way through: answer the question, then save.
+      fireEvent.click(screen.getByRole("button", { name: "Paris, France" }));
+      /*
+        6.28 follow-up review. Activating a row is the *only* answer to "Select one of the places found.",
+        so the banner has to go down with it — the pass that added the refusal to the two dialogs added the
+        clear to none of them, and `TripBucketListPanel` has had it since the pass before. Leaving it up
+        told the user to do the thing they had just done, on a dialog that was now ready to save.
+      */
+      expect(screen.queryByText("Select one of the places found.")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "OK" }));
+
+      await waitFor(() => expect(sentPlanBodies).toHaveLength(1));
+      expect(JSON.parse(sentPlanBodies[0]).location).toEqual({
+        lat: 48.8584,
+        lng: 2.2945,
+        label: "Paris, France",
+      });
+    });
+
+    /**
+     * 6.28 follow-up review. `role="status"` only announces a *change* in a region the screen reader was
+     * already watching, and the component used to return `null` while empty — so the region and its first
+     * text arrived in the same tick and the one announcement the design rests on was routinely never read
+     * out. The heading is mounted from the start, empty, and the count is a content change in it.
+     */
+    it("keeps the count line's live region mounted before any search runs", async () => {
+      await renderPlace([{ lat: 48.8584, lng: 2.2945, label: "Paris, France" }]);
+
+      expect(screen.getByRole("status")).toHaveTextContent("");
+      // Empty means empty: no group, and therefore no stray bordered hairline either.
+      expect(screen.queryByRole("group")).toBeNull();
+    });
+
+    /**
+     * 6.28 follow-up review. `locationQuery` is outside `planFormFingerprint` on purpose — Story 6.24 found
+     * that watching a search box makes a form dirty for nothing — but the pass before this one taught the
+     * save to parse that box, which made one reading of it load-bearing: a typed pair now *saves*. The
+     * fingerprint could not see it, so the ✕ closed on it without asking and the value was gone. Only the
+     * `coordinates` reading enters, which is exactly the set the save acts on.
+     */
+    it("asks before discarding a typed pair that was never resolved", async () => {
+      const onClose = vi.fn();
+      await renderPlace([], onClose);
+
+      fireEvent.change(screen.getByLabelText("Search place"), { target: { value: "48.8584, 2.2945" } });
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.getByText("Discard changes?")).toBeInTheDocument();
+    });
+
+    // The other half, and the reason the exclusion is still an exclusion: a search *term* persists
+    // nothing, so typing one must not hold the discard guard open.
+    it("closes without asking on an unresolved place name", async () => {
+      const onClose = vi.fn();
+      await renderPlace([], onClose);
+
+      fireEvent.change(screen.getByLabelText("Search place"), { target: { value: "Paris" } });
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+      expect(screen.queryByText("Discard changes?")).toBeNull();
+      expect(onClose).toHaveBeenCalledTimes(1);
     });
   });
 });

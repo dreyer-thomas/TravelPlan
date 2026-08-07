@@ -152,7 +152,6 @@ const en: Dictionary = {
   "trips.form.endDate": "End date",
   "trips.form.startLocation": "Start location (optional)",
   "trips.form.destinationLocation": "Destination (optional)",
-  "trips.form.locationHelper": "Search and select a place",
   "trips.form.locationResolveError": "Resolve this location before creating the trip",
   "trips.form.heroImage": "Hero image (optional)",
   "trips.form.heroImageHelper": "JPEG, PNG, or WebP up to 5MB.",
@@ -438,7 +437,6 @@ const en: Dictionary = {
   "trips.bucketList.countLine": "{count} entries",
   "trips.bucketList.expandAction": "Expand bucket list",
   "trips.bucketList.collapseAction": "Collapse bucket list",
-  "trips.bucketList.locationLabelFallback": "Pinned location",
   "trips.bucketList.locationMissing": "No coordinates saved",
   "trips.bucketList.addTitle": "Add bucket list item",
   "trips.bucketList.editTitle": "Edit bucket list item",
@@ -691,19 +689,38 @@ const en: Dictionary = {
   "trips.documents.packetError": "Document packet could not be created. Please try again.",
   "trips.location.latLabel": "Latitude",
   "trips.location.lngLabel": "Longitude",
-  "trips.location.labelLabel": "Location label (optional)",
-  "trips.location.latHelper": "Enter a value between -90 and 90",
-  "trips.location.lngHelper": "Enter a value between -180 and 180",
-  "trips.location.labelHelper": "Optional place name shown on maps",
   "trips.location.searchLabel": "Search place",
-  "trips.location.searchHelper": "Type a place name, e.g. Frankfurt Airport",
+  // Story 6.28 AC3. The helper on all five place fields, and the only place the separator rule can be
+  // stated before it is needed. It names the latitude-first order because the parser deliberately does
+  // not guess at a swapped pair (two valid latitudes are indistinguishable), and it shows both accepted
+  // spellings — the dot form and the German comma form with a semicolon between the halves.
+  //
+  // The trip-create form's own helper key ("Search and select a place") was deleted in favour of this
+  // one: it said less, on two of the same five fields. See `i18nDictionaries.test.ts` for the full list
+  // of seven keys Story 6.28 removed and why each went.
+  "trips.location.searchHelper": "Place name, or coordinates — latitude first: 48.8584, 2.2945 (or 48,8584; 2,2945)",
   "trips.location.searchAction": "Find",
   "trips.location.clearAction": "Clear",
-  "trips.location.searchRequired": "Enter a place name to search",
+  // Story 6.28 review. This said "Enter a place name to search" on a field that, one row below, states in
+  // its own helper text that it also takes coordinates and a Maps link — the empty-field message must not
+  // contradict the helper it sits under. `searchLabel` above is deliberately untouched: "Search place" is
+  // still what the box does, and several suites resolve their controls through it.
+  "trips.location.searchRequired": "Enter a place name, coordinates or a Maps link",
   "trips.location.lookupError": "Location lookup failed. Please try again.",
   "trips.location.noResult": "No matching place found",
   "trips.location.noCoordinates": "No coordinates selected",
-  "trips.location.coordinatesRequiredTogether": "Latitude and longitude must both be provided",
+  // Story 6.28 AC3's refusal. It names what to type instead rather than only saying "invalid": the input
+  // that reaches this message is `48,8584,2,2945`, which has two readings and no way to choose, so the
+  // only useful answer is the spelling that has one.
+  "trips.location.coordinatesAmbiguous": "Coordinates unclear. Write 48.8584, 2.2945 or 48,8584; 2,2945.",
+  // Story 6.28 AC5. `{count}` because a heading over a list of choices has to say how many there are;
+  // `formatMessage` has no plural support, and this string is grammatical for every count.
+  "trips.location.resultsLabel": "Select a place ({count})",
+  // The bucket list's submit path only. It geocodes silently when the user typed a place and never
+  // pressed Find, and with several candidates it cannot prompt mid-save — so it stops and asks.
+  "trips.location.selectRequired": "Select one of the places found.",
+  // Already worded for AC4 before this story existed, and reused as-is: `parseLocationInput` checks the
+  // latitude first, so exactly one of the two is ever shown.
   "trips.location.latInvalid": "Latitude must be between -90 and 90",
   "trips.location.lngInvalid": "Longitude must be between -180 and 180",
   // Story 5.8. A `users.` namespace of its own rather than a `trips.` sub-key: the surface is not

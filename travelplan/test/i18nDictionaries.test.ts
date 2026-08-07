@@ -536,4 +536,101 @@ describe("i18n dictionaries", () => {
     // its value in both languages and a second copy of that assertion would only have to be kept in
     // step with the first.
   });
+
+  /**
+   * Story 6.28 AC7. Seven keys left and three arrived.
+   *
+   * The seven are the interesting half. Five of them — `latHelper`, `lngHelper`, `labelLabel`,
+   * `labelHelper` and `coordinatesRequiredTogether` — described a manual coordinate *form* with separate
+   * latitude, longitude and label boxes, which this story deliberately does not build: the way in is one
+   * free-text field that now understands a pair. They had **zero** consumers in `src/` through two
+   * features already, and the story's own Dev Notes call that the signal it is: a key that survives two
+   * features without a reader will survive a third. `trips.bucketList.locationLabelFallback` was a ninth
+   * orphan in the same neighbourhood, and `trips.form.locationHelper` ("Search and select a place") lost
+   * its two readers to the reworded `searchHelper`, which says the same thing and states the coordinate
+   * spelling as well.
+   *
+   * An orphan is exactly the failure the parity check above cannot see: it only says the two dictionaries
+   * agree, not that a key still has a reason to exist.
+   */
+  describe("story 6.28 key changes", () => {
+    const has = (dictionary: Record<string, string>, key: string) =>
+      Object.prototype.hasOwnProperty.call(dictionary, key);
+
+    it.each([
+      "trips.location.latHelper",
+      "trips.location.lngHelper",
+      "trips.location.labelLabel",
+      "trips.location.labelHelper",
+      "trips.location.coordinatesRequiredTogether",
+      "trips.bucketList.locationLabelFallback",
+      "trips.form.locationHelper",
+    ])("no longer defines %s in either language", (key) => {
+      expect(has(en, key)).toBe(false);
+      expect(has(de, key)).toBe(false);
+    });
+
+    it.each([
+      "trips.location.coordinatesAmbiguous",
+      "trips.location.resultsLabel",
+      "trips.location.selectRequired",
+    ])("defines %s in both languages", (key) => {
+      expect(has(en, key)).toBe(true);
+      expect(has(de, key)).toBe(true);
+      expect(en[key].trim()).not.toBe("");
+      expect(de[key].trim()).not.toBe("");
+    });
+
+    /**
+     * AC3 is a documentation requirement as much as a parsing one: whatever rule ships, the helper has to
+     * state it. So the helper is pinned against the two things it must carry in **both** languages — both
+     * accepted spellings, dot form and German comma form — and against the latitude-first order, which is
+     * the only defence there is against a swapped pair (Trap 4: two valid latitudes are indistinguishable,
+     * so the parser must not guess and the text has to say).
+     */
+    it.each(["en", "de"] as const)("states both coordinate spellings and the latitude-first order in %s", (language) => {
+      const helper = (language === "en" ? en : de)["trips.location.searchHelper"];
+      expect(helper).toContain("48.8584, 2.2945");
+      expect(helper).toContain("48,8584; 2,2945");
+      expect(helper).toMatch(language === "en" ? /latitude first/i : /Breitengrad zuerst/i);
+    });
+
+    /**
+     * The refusal must name the spelling to use instead rather than only saying "invalid" — that is the
+     * whole difference between AC3's "refuse" and a dead end, since the input that reaches it is
+     * `48,8584,2,2945` and the user has no way to guess what would work.
+     */
+    it.each(["en", "de"] as const)("names an accepted spelling in the ambiguity message in %s", (language) => {
+      const message = (language === "en" ? en : de)["trips.location.coordinatesAmbiguous"];
+      expect(message).toContain("48.8584, 2.2945");
+      expect(message).toContain("48,8584; 2,2945");
+    });
+
+    /**
+     * Story 6.28 review, P12. The empty-field message still said "Enter a place name to search" on a field
+     * whose own helper line, one row below, states that it also takes coordinates and a Maps URL — so the
+     * two contradicted each other on all five surfaces. It now names all three ways in.
+     *
+     * `searchLabel` is deliberately *not* part of this: "Search place" / "Ort suchen" is still exactly what
+     * the box does, and several suites resolve their controls through it.
+     */
+    it.each(["en", "de"] as const)("names coordinates and a link in the empty-field message in %s", (language) => {
+      const message = (language === "en" ? en : de)["trips.location.searchRequired"];
+      expect(message).toMatch(language === "en" ? /coordinates/i : /Koordinaten/i);
+      expect(message).toMatch(/maps/i);
+    });
+
+    it.each(["en", "de"] as const)("leaves the place field's own label alone in %s", (language) => {
+      expect((language === "en" ? en : de)["trips.location.searchLabel"]).toBe(
+        language === "en" ? "Search place" : "Ort suchen",
+      );
+    });
+
+    // The count placeholder is what makes the candidate heading a heading rather than a label;
+    // `formatMessage` substitutes `{count}` and has no plural support, so the string must read correctly
+    // for every count.
+    it.each(["en", "de"] as const)("keeps the {count} placeholder in the results heading in %s", (language) => {
+      expect((language === "en" ? en : de)["trips.location.resultsLabel"]).toContain("{count}");
+    });
+  });
 });

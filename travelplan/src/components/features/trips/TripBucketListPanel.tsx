@@ -29,6 +29,8 @@ import {
   PlusIcon,
   TrashIcon,
 } from "@/components/features/trips/TripIcons";
+import LocationCandidateList from "@/components/features/trips/LocationCandidateList";
+import { formatCoordinateLabel, parseLocationInput } from "@/lib/trips/parseLocationInput";
 
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 type ApiEnvelope<T> = {
@@ -117,6 +119,33 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
   );
   const [resolvedLocationQuery, setResolvedLocationQuery] = useState<string>("");
   const [isGeocoding, setIsGeocoding] = useState(false);
+  // Story 6.28 AC5. The places a search came back with while more than one is still on offer. Filled by
+  // both fetch sites in this file — the explicit *Find* and the silent submit-time lookup.
+  const [locationCandidates, setLocationCandidates] = useState<{ lat: number; lng: number; label: string }[]>([]);
+  /**
+   * The exact position text that is already known to want **no** location, so the silent submit-time
+   * lookup does not run for it (6.28 follow-up review).
+   *
+   * `positionText` is a saved free-text column, so — unlike the three dialogs, whose *Clear* now empties
+   * the search box as well — this surface cannot express "no place" by clearing the text. Without a
+   * marker two things broke. *Clear* could not delete a hand-typed pin at all: it nulled
+   * `resolvedLocation` and left `48.8584, 2.2945` in the note, and the parse on save read the pair
+   * straight back. And an existing item saved with a note but no location (a legal shape — a position is
+   * optional) could no longer be saved after a title edit: the note went to Nominatim, came back with
+   * several rows, and the save aborted with `selectRequired` for a choice the user never asked to make.
+   *
+   * It is a *query*, not a flag, so it self-heals: any edit to the note makes it differ and the lookup
+   * comes back. Seeded on open for the already-saved-without-a-location case, and set by *Clear*.
+   */
+  const [noLocationQuery, setNoLocationQuery] = useState<string>("");
+  /**
+   * The position text the candidate list on offer was raised for (Story 6.28 review).
+   *
+   * The other four surfaces clear their list in the field's own `onChange`; here the field is
+   * `register("positionText")` and its handler belongs to react-hook-form, so the drift is watched
+   * instead — the same shape as `resolvedLocationQuery` above, and for the same reason.
+   */
+  const [candidatesQuery, setCandidatesQuery] = useState<string>("");
   const [deleteTarget, setDeleteTarget] = useState<BucketListItem | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
 
@@ -209,6 +238,9 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
   useEffect(() => {
     if (!dialogOpen) return;
     setServerError(null);
+    // Story 6.28: an unanswered choice belongs to the open that raised it, not to the next one.
+    setLocationCandidates([]);
+    setCandidatesQuery("");
     if (dialogMode === "edit" && editingItem) {
       reset({
         title: editingItem.title ?? "",
@@ -217,6 +249,9 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
       });
       setResolvedLocation(editingItem.location ?? null);
       setResolvedLocationQuery(editingItem.positionText?.trim() ?? "");
+      // This note was already saved once with no location; re-saving it must not turn into a lookup the
+      // user never asked for, and must not be refused because that lookup found several places.
+      setNoLocationQuery(editingItem.location ? "" : (editingItem.positionText?.trim() ?? ""));
     } else {
       reset({
         title: "",
@@ -225,6 +260,7 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
       });
       setResolvedLocation(null);
       setResolvedLocationQuery("");
+      setNoLocationQuery("");
     }
   }, [dialogMode, dialogOpen, editingItem, reset]);
 
@@ -243,6 +279,32 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
     }
   }, [positionTextValue, resolvedLocation, resolvedLocationQuery]);
 
+  /**
+   * Story 6.28 review, and the counterpart of the invalidation effect above: the candidate list does not
+   * outlive an edit of the text it answers.
+   *
+   * Without it the list was the one thing on this surface that did not self-heal, and the result was a
+   * *saved wrong pin* rather than a stale offer: search "Sky Tower", get two rows, change the position
+   * text to "Eiffelturm", then activate "Sky Tower, Auckland" — `selectLocationCandidate` sets
+   * `resolvedLocationQuery` to the text as it is *now*, so the effect above sees agreement and leaves the
+   * pin, and the entry saves as "Eiffelturm" at Auckland's coordinates.
+   *
+   * An effect rather than an `onChange`: the field is `register("positionText")`, so react-hook-form owns
+   * its handler and wrapping it would put this panel's only field registration out of step with the other
+   * two. `locationCandidates.length` is the dependency, not the array — a new array identity per render
+   * would re-run this on every keystroke for nothing.
+   */
+  useEffect(() => {
+    if (locationCandidates.length === 0) return;
+    if ((positionTextValue?.trim() ?? "") !== candidatesQuery) {
+      setLocationCandidates([]);
+      setCandidatesQuery("");
+      // The submit-time abort's message outlived the rows it pointed at (6.28 follow-up review): the list
+      // went with the edit and "Select one of the places found." stayed, with nothing left to select from.
+      setServerError((previous) => (previous === t("trips.location.selectRequired") ? null : previous));
+    }
+  }, [candidatesQuery, locationCandidates.length, positionTextValue, t]);
+
   const ensureCsrfToken = useCallback(async () => {
     if (csrfToken) return csrfToken;
     const response = await fetch("/api/auth/csrf", { method: "GET", credentials: "include", cache: "no-store" });
@@ -254,6 +316,36 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
     return body.data.csrfToken;
   }, [csrfToken]);
 
+  /**
+   * Story 6.28 AC5. Activating a candidate row stores that row and dismisses the list.
+   *
+   * The candidate's label is what gets **stored**, but it is deliberately not written into the position
+   * field: unlike the dialogs' search box, `positionText` is a saved column carrying the user's own words
+   * ("Trailhead"), and this site has never overwritten it with a geocoder's display name. What has to be
+   * kept in step is `resolvedLocationQuery` — the invalidation effect above nulls the pin whenever the
+   * field text drifts from it.
+   */
+  const selectLocationCandidate = (candidate: { lat: number; lng: number; label: string }) => {
+    setResolvedLocation({ lat: candidate.lat, lng: candidate.lng, label: candidate.label });
+    setResolvedLocationQuery(positionTextValue?.trim() ?? "");
+    setLocationCandidates([]);
+    setCandidatesQuery("");
+    // Story 6.28 review. The submit path raises `trips.location.selectRequired` ("Select one of the places
+    // found.") when it aborts, and only this gesture can answer it — leaving the banner up after the
+    // answer tells the user to do the thing they just did. Only *that* message: a failed save's
+    // `errors.csrfMissing` is not answered by picking a place, and clearing the whole slot took the record
+    // of the failure away with it (6.28 follow-up review).
+    setServerError((previous) => (previous === t("trips.location.selectRequired") ? null : previous));
+  };
+
+  /**
+   * Story 6.28, the explicit *Find*. Parse first, exactly as `TripDayPlanDialog` does.
+   *
+   * The one thing this surface needs that the dialogs do not: a coordinate result must also set
+   * `resolvedLocationQuery` to the **raw typed text**. The invalidation effect above nulls the pin
+   * whenever `positionText` drifts from `resolvedLocationQuery`, and a pair is not written back into the
+   * field — so without this line a manually entered pair would be wiped on the very next render.
+   */
   const handleLookupLocation = async () => {
     const query = positionTextValue?.trim() ?? "";
     if (!query) {
@@ -262,6 +354,31 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
     }
 
     setServerError(null);
+    setLocationCandidates([]);
+    setCandidatesQuery("");
+    // An explicit *Find* revokes whatever *Clear* or the open effect recorded: the user is asking for this
+    // note to be looked up, so the save path must judge the answer rather than skip it (6.28 follow-up).
+    setNoLocationQuery("");
+
+    const parsed = parseLocationInput(query);
+    if (parsed.status === "ambiguous") {
+      setServerError(t("trips.location.coordinatesAmbiguous"));
+      return;
+    }
+    if (parsed.status === "out_of_range") {
+      setServerError(t(parsed.field === "lat" ? "trips.location.latInvalid" : "trips.location.lngInvalid"));
+      return;
+    }
+    if (parsed.status === "coordinates") {
+      setResolvedLocation({
+        lat: parsed.lat,
+        lng: parsed.lng,
+        label: formatCoordinateLabel(parsed.lat, parsed.lng),
+      });
+      setResolvedLocationQuery(query);
+      return;
+    }
+
     setIsGeocoding(true);
     try {
       const response = await fetch(`/api/geocode?q=${encodeURIComponent(query)}`, {
@@ -269,7 +386,7 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
         credentials: "include",
       });
       const body = (await response.json()) as ApiEnvelope<{
-        result: { lat: number; lng: number; label: string } | null;
+        results: { lat: number; lng: number; label: string }[];
       }>;
 
       if (!response.ok || body.error) {
@@ -277,17 +394,22 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
         return;
       }
 
-      if (!body.data?.result) {
+      const results = body.data?.results ?? [];
+      if (results.length === 0) {
         setServerError(t("trips.location.noResult"));
         return;
       }
 
-      setResolvedLocation({
-        lat: body.data.result.lat,
-        lng: body.data.result.lng,
-        label: body.data.result.label,
-      });
-      setResolvedLocationQuery(query);
+      if (results.length === 1) {
+        setResolvedLocation({ lat: results[0].lat, lng: results[0].lng, label: results[0].label });
+        // The typed text, not the label: this site has never written the geocoder's name back into the
+        // position field, and the effect above only asks that the two agree.
+        setResolvedLocationQuery(query);
+        return;
+      }
+
+      setLocationCandidates(results);
+      setCandidatesQuery(query);
     } catch {
       setServerError(t("trips.location.lookupError"));
     } finally {
@@ -295,27 +417,46 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
     }
   };
 
-  const attemptGeocode = async (query: string) => {
+  /**
+   * The silent submit-time lookup: the user typed a place and never pressed *Find*.
+   *
+   * Three outcomes now, where there used to be a location or `null`. `choose` is the one behaviour this
+   * story changes anywhere: with several candidates the save **stops and asks**, because it cannot prompt
+   * mid-submit and the alternative — adopting `results[0]` — is precisely the silent wrong pin the story
+   * exists to remove. `none` still saves the entry without a location, as it always has: a bucket-list
+   * item's position is optional and a failed lookup is not a reason to refuse the note.
+   */
+  const attemptGeocode = async (
+    query: string,
+  ): Promise<
+    | { outcome: "resolved"; location: { lat: number; lng: number; label: string } }
+    | { outcome: "choose"; candidates: { lat: number; lng: number; label: string }[] }
+    | { outcome: "none" }
+  > => {
     try {
       const response = await fetch(`/api/geocode?q=${encodeURIComponent(query)}`, {
         method: "GET",
         credentials: "include",
       });
       const body = (await response.json()) as ApiEnvelope<{
-        result: { lat: number; lng: number; label: string } | null;
+        results: { lat: number; lng: number; label: string }[];
       }>;
 
-      if (!response.ok || body.error || !body.data?.result) {
-        return null;
+      if (!response.ok || body.error) {
+        return { outcome: "none" };
       }
 
-      return {
-        lat: body.data.result.lat,
-        lng: body.data.result.lng,
-        label: body.data.result.label,
-      };
+      const results = body.data?.results ?? [];
+      if (results.length === 0) {
+        return { outcome: "none" };
+      }
+      if (results.length === 1) {
+        return { outcome: "resolved", location: results[0] };
+      }
+
+      return { outcome: "choose", candidates: results };
     } catch {
-      return null;
+      return { outcome: "none" };
     }
   };
 
@@ -333,12 +474,47 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
     const trimmedPosition = values.positionText.trim();
     let nextLocation = resolvedLocation;
 
-    if (trimmedPosition && !nextLocation) {
-      const geocoded = await attemptGeocode(trimmedPosition);
-      if (geocoded) {
-        nextLocation = geocoded;
-        setResolvedLocation(geocoded);
+    if (trimmedPosition && !nextLocation && trimmedPosition !== noLocationQuery) {
+      /**
+       * Story 6.28. The parser runs here too, so saving a typed pair without pressing *Find* costs no
+       * request and still stores the pin.
+       *
+       * `noLocationQuery` is the third condition and the one the follow-up review added: this whole block
+       * is skipped for a note already known to want no location — see the state's own docblock for the two
+       * things that broke without it (*Clear* could not delete a hand-typed pin, and an existing
+       * note-without-a-location item could not be re-saved at all).
+       *
+       * **Only `coordinates` changes what this path does.** `ambiguous` and `out_of_range` fall through to
+       * the geocode attempt exactly as they did before this story, and the 6.28 review is why: this is the
+       * *silent* path, and `positionText` is a 200-character free-text note column, not a search box.
+       * Aborting on a refusal made ordinary notes unsaveable — `1,2,3` was refused with "Coordinates
+       * unclear" and could never be stored at all, and `2026, 8` was refused with a latitude error. The
+       * interactive `handleLookupLocation` above still reports both refusals visibly, which is where AC4's
+       * "visible error and sets nothing" belongs: there the user asked a question about a coordinate. The
+       * multi-candidate abort below stays, because that one is spec-mandated and is a genuine choice.
+       */
+      const parsed = parseLocationInput(trimmedPosition);
+      if (parsed.status === "coordinates") {
+        nextLocation = {
+          lat: parsed.lat,
+          lng: parsed.lng,
+          label: formatCoordinateLabel(parsed.lat, parsed.lng),
+        };
+        setResolvedLocation(nextLocation);
         setResolvedLocationQuery(trimmedPosition);
+      } else {
+        const geocoded = await attemptGeocode(trimmedPosition);
+        if (geocoded.outcome === "choose") {
+          setLocationCandidates(geocoded.candidates);
+          setCandidatesQuery(trimmedPosition);
+          setServerError(t("trips.location.selectRequired"));
+          return;
+        }
+        if (geocoded.outcome === "resolved") {
+          nextLocation = geocoded.location;
+          setResolvedLocation(geocoded.location);
+          setResolvedLocationQuery(trimmedPosition);
+        }
       }
     }
 
@@ -666,7 +842,10 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
               <TextField
                 label={t("trips.bucketList.positionLabel")}
                 error={Boolean(errors.positionText)}
-                helperText={errors.positionText?.message}
+                // Story 6.28 AC3. The one place field that is a raw `TextField` rather than a
+                // `FormField`, so the helper line arrives as `helperText` — and only when there is no
+                // validation message to show, which is how `FormField` orders the same pair.
+                helperText={errors.positionText?.message ?? t("trips.location.searchHelper")}
                 inputProps={{ maxLength: 200 }}
                 {...register("positionText")}
                 fullWidth
@@ -682,13 +861,29 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
                 </Button>
                 <Button
                   variant="text"
-                  onClick={() => setResolvedLocation(null)}
-                  disabled={isSubmitting || isGeocoding || !resolvedLocation}
+                  onClick={() => {
+                    setResolvedLocation(null);
+                    setLocationCandidates([]);
+                    setCandidatesQuery("");
+                    // The three dialogs empty their search box here; this field is a saved note, so what
+                    // *Clear* means is recorded against the note's current text instead — otherwise the
+                    // parse on save reads a hand-typed pair straight back out of it and the button is a
+                    // no-op (6.28 follow-up review).
+                    setNoLocationQuery(positionTextValue?.trim() ?? "");
+                  }}
+                  // Story 6.28: an unanswered candidate list is something to clear too.
+                  disabled={isSubmitting || isGeocoding || (!resolvedLocation && locationCandidates.length === 0)}
                   sx={{ mt: 1 }}
                 >
                   {t("trips.location.clearAction")}
                 </Button>
               </Box>
+              <LocationCandidateList
+                candidates={locationCandidates}
+                onSelect={selectLocationCandidate}
+                disabled={isSubmitting || isGeocoding}
+                idPrefix="bucket-list-place"
+              />
               <Typography variant="body2" color="text.secondary">
                 {resolvedLocation
                   ? `${t("trips.location.latLabel")}: ${resolvedLocation.lat.toFixed(6)} · ${t("trips.location.lngLabel")}: ${resolvedLocation.lng.toFixed(6)}`

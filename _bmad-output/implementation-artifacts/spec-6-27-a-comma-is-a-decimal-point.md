@@ -2,7 +2,7 @@
 title: 'Story 6.27: A Comma Is a Decimal Point'
 type: 'bugfix'
 created: '2026-08-07'
-status: 'awaiting-operator'
+status: done
 baseline_revision: 'b759ec3'
 final_revision: 'da25d1d'
 review_loop_iteration: 0
@@ -246,3 +246,19 @@ the bug was reported on — is unverified until the operator pass runs. jsdom do
 `validity.badInput`, which is why nothing reads or asserts it and why the per-field `type`/`inputmode`
 assertions exist. The distance-grouping ambiguity (`1,000` km read as 1 km) is deferred rather than
 patched, because no rule separates it from `12,555`, which the intent contract requires to parse.
+
+## Operator Confirmation
+
+Confirmed 2026-08-07: the external actions this story owed were carried out.
+
+- Set a phone to German and open a stay dialog on it; type 12,50 into the cost field and confirm the numeric keypad offers a comma, the comma appears in the box, and the saved cost reads 12,50 after closing and reopening the dialog.
+- Repeat that comma check on the four remaining fields — the stay payment amount, the activity cost, the activity payment amount, and the travel-segment distance in km — confirming each accepts the comma and saves the value it displayed.
+- Confirm the cost placeholder renders 0,00 under German and that the helper line under both cost fields names the accepted forms (Optionaler Betrag (z. B. 10,00 oder 10.00)).
+- Confirm the payment-amount row is still read-only unless "Aufteilen" (split) is selected, on both the stay and the activity dialog.
+- Switch the device to English and confirm a period still works on all five fields and nothing about the English keyboard changed.
+- Type abc into the stay cost field on the phone and confirm the save is blocked with a visible error rather than the stay saving with no cost.
+- Run the phone pass against a throwaway environment only — a copy of dev.db on an isolated port with MEDIA_STORAGE_ROOT pointed at a scratch directory, never prisma/dev.db and never the real media tree (recipe in 7-12-bucket-list-sidebar-card.md Dev Notes).
+- Decide Story 6.27 open question 4: whether this bug fix stays numbered 6.27 inside a closed epic or moves to a maintenance epic, and add the matching entry to epics.md — the epics file currently jumps 6.26 to 6.28.
+- Rule on the deferred distance-grouping question (DW entry from this spec): cap distanceKm at one decimal, which makes both 1,000 and 12,555 rejectable, or keep it uncapped and accept that a lone three-digit group is read as a decimal.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._

@@ -400,3 +400,66 @@ files.
 ### File List
 
 ## Change Log
+
+## Operator Pass — 2026-08-07
+
+Run by Tommy on a real German phone plus a desktop pass, against a throwaway copy of `dev.db` on an
+isolated port (`MEDIA_STORAGE_ROOT` pointed at an empty scratch directory; the real database and the
+303-file media tree were never opened). Every result below was read back out of the database rather
+than taken from the screen.
+
+| Field | Entered | Stored |
+|---|---|---|
+| Stay cost (the reported defect) | `120,50` | `cost_cents = 12050` |
+| Stay payment amounts (split) | `60,50` / `60,00` | `6050` / `6000`, sum `12050`, difference `0` |
+| Activity cost | `2,50` | `cost_cents = 250` |
+| Travel-segment distance | `60,5` | `distance_km = 60.5` — **not** `60` |
+
+The distance row is the one that would have regressed silently: `Number.parseFloat("12,5")` returns
+`12`, so moving that field to `type="text"` without the shared parser would newly have truncated it.
+
+**AC-by-AC:**
+
+- German numeric keypad offers a comma under `inputMode="decimal"`, and the comma reaches React — the
+  whole premise of the defect. **Confirmed on device.**
+- Placeholder renders `0,00` under German and `0.00` under English; helper line names both forms.
+  **Confirmed.**
+- Payment rows stay read-only until *In mehrere Zahlungen aufteilen* is selected. **Confirmed.**
+- Unparseable input is a visible, blocking error (`trips.stay.costInvalid`), not a silent save with no
+  cost. **Confirmed** — this is the empty-versus-invalid distinction the story exists for.
+- Dot-decimal input still works on all five fields. **Confirmed on desktop.**
+
+**Not covered, stated rather than glossed:** the English-*device* keyboard was not exercised — no
+English phone was at hand. What that leaves unverified is whether an English numeric keypad offers a
+period, which is an OS keyboard property this story does not touch. The application-side path was
+covered two ways instead: a parser table (`"60.5"` → `60.5`, `"1,234.50"` → `1234.5` / `123450`,
+`"12000"` → `12000`) and a full desktop pass typing periods into all five fields.
+
+**A defect in the instruction, not in the app:** operator action 6 asks for `abc` to be typed into the
+cost field *on the phone*. That is not performable — `inputMode="decimal"` yields a keypad with no
+letters, which is the measure working as intended. The case was produced on the desktop instead. The
+wording should be corrected so the next operator pass does not stall on it; paste is the reachable
+mobile path.
+
+### Decisions taken
+
+**Operator action 8 — numbering.** Stays `6.27`. The story file, spec, board, commits and ledger all
+say 6.27, and the "closed epic" premise no longer holds: Epic 6 now carries 6.28 and 6.29. The missing
+`epics.md` entry was written, so the file runs 6.26 → 6.27 → 6.28 → 6.29 without a gap.
+
+**Operator action 9 — distance grouping.** **Cap `distanceKm` at one decimal.** Measured against the
+parser rather than argued: a *lone* three-digit group is read as a fraction in **both** spellings —
+`"1,000"` → `1` and `"1.000"` → `1`. Two separators are handled correctly (`"1.234,50"` → `1234.5`).
+So "one thousand kilometres" silently becomes one kilometre, either way it is typed. A one-decimal cap
+turns both into a visible refusal, and rejects `60,12345` with them. 100 m resolution is beyond what
+trip planning uses. Tommy's words: *"wir sind 12000 km von zu Hause weg, da messe ich keine Meter"*.
+
+Two consequences to carry into the follow-up: this contradicts the intent contract's current
+requirement that `12,555` parse as a distance (a spec amendment, not a dev decision), and the cap also
+rejects `1.234,50` km at two decimals — `1234,5` remains the way to write it.
+
+**Raised during the pass, not yet decided.** `formatCentsAsAmount` writes `120.50` into the edit field
+under every locale while the placeholder beside it renders `0,00`. It is deliberate and documented
+(*"it stays dot-decimal because that is what an unedited round-trip must hand back"*), but that reason
+is weaker after this story: the parser now accepts both, so a comma value round-trips too. No data is
+at risk — it is a cosmetic inconsistency in a story whose whole subject is German number entry.

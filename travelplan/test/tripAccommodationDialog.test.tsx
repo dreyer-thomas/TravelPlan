@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import TripAccommodationDialog, {
   STAY_ERROR_TAB,
@@ -1692,6 +1692,385 @@ describe("TripAccommodationDialog", () => {
       expect(await screen.findByText("Enter a valid amount")).toBeInTheDocument();
       expect(screen.queryByText("Payment amount is required")).toBeNull();
       expect(sentBodies).toHaveLength(0);
+    });
+  });
+
+  /**
+   * Story 6.28. The same rules as `tripDayPlanDialog.test.tsx`'s canonical block, in this dialog's own
+   * idiom — the place field lives on the `Place & notes` tab here and the pending flag is `isGeocoding`.
+   * Both surfaces are covered rather than one: the story's own Dev Notes say the five copies of this
+   * handler must not diverge further, and the only way a suite can hold them to that is to ask each one.
+   */
+  describe("story 6.28 — coordinates by hand and a choice of places", () => {
+    const geocodeFetch = (results: Array<{ lat: number; lng: number; label: string }>, sentBodies: string[] = []) => {
+      const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/api/auth/csrf")) {
+          return { ok: true, status: 200, json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }) };
+        }
+        if (url.includes("/api/geocode")) {
+          return { ok: true, status: 200, json: async () => ({ data: { results }, error: null }) };
+        }
+        if (init?.body) sentBodies.push(String(init.body));
+        return { ok: true, status: 200, json: async () => ({ data: { accommodation: { id: "stay-1" } }, error: null }) };
+      }) as unknown as typeof fetch;
+      vi.stubGlobal("fetch", fetchMock);
+      return fetchMock;
+    };
+
+    // The CSRF fetch fires on mount, so "no request reached the geocoder" can only honestly be a
+    // filtered call list — Trap 2.
+    const geocodeCalls = (fetchMock: typeof fetch) =>
+      (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls.filter((call) =>
+        String(call[0]).includes("/api/geocode"),
+      );
+
+    const renderPlace = async (
+      results: Array<{ lat: number; lng: number; label: string }> = [],
+      sentBodies: string[] = [],
+      onClose: () => void = () => undefined,
+    ) => {
+      const fetchMock = geocodeFetch(results, sentBodies);
+      render(
+        <Providers language="en">
+          <TripAccommodationDialog
+            open
+            tripId="trip-1"
+            stayType="current"
+            day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1, accommodation: null }}
+            onClose={onClose}
+            onSaved={() => undefined}
+          />
+        </Providers>,
+      );
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      selectTab("Place & notes");
+      return fetchMock;
+    };
+
+    const find = (value: string) => {
+      fireEvent.change(screen.getByLabelText("Search place"), { target: { value } });
+      fireEvent.click(screen.getByRole("button", { name: "Find" }));
+    };
+
+    // AC1.
+    it("resolves a typed coordinate pair without touching the geocoder", async () => {
+      const fetchMock = await renderPlace();
+
+      find("48.8584, 2.2945");
+
+      expect(await screen.findByText("Latitude: 48.858400 · Longitude: 2.294500")).toBeInTheDocument();
+      expect(geocodeCalls(fetchMock)).toHaveLength(0);
+    });
+
+    // AC2.
+    it("resolves a pasted Google Maps URL without touching the geocoder", async () => {
+      const fetchMock = await renderPlace();
+
+      find("https://www.google.com/maps?q=48.8584,2.2945");
+
+      expect(await screen.findByText("Latitude: 48.858400 · Longitude: 2.294500")).toBeInTheDocument();
+      expect(geocodeCalls(fetchMock)).toHaveLength(0);
+    });
+
+    // AC4. A visible error and nothing set.
+    it("faults an out-of-range pair and leaves the readout empty", async () => {
+      const fetchMock = await renderPlace();
+
+      find("48.0, 181.0");
+
+      expect(await screen.findByText("Longitude must be between -180 and 180")).toBeInTheDocument();
+      expect(screen.getByText("No coordinates selected")).toBeInTheDocument();
+      expect(geocodeCalls(fetchMock)).toHaveLength(0);
+    });
+
+    // AC5. Nothing is adopted until a row is activated, and the stored label is the row's.
+    it("adopts nothing until a candidate row is activated", async () => {
+      await renderPlace([
+        { lat: 38.7223, lng: -9.1393, label: "Harbor Hotel, Lisbon" },
+        { lat: 41.1579, lng: -8.6291, label: "Harbor Hotel, Porto" },
+      ]);
+
+      find("Harbor Hotel");
+
+      expect(await screen.findByRole("button", { name: "Harbor Hotel, Lisbon" })).toBeInTheDocument();
+      expect(screen.getByText("Select a place (2)")).toBeInTheDocument();
+      expect(screen.getByText("No coordinates selected")).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "Harbor Hotel, Porto" }));
+
+      expect(await screen.findByText("Latitude: 41.157900 · Longitude: -8.629100")).toBeInTheDocument();
+      expect(screen.getByLabelText("Search place")).toHaveValue("Harbor Hotel, Porto");
+      expect(screen.queryByRole("button", { name: "Harbor Hotel, Lisbon" })).toBeNull();
+    });
+
+    // AC8. `Clear` still empties the location after the path that never saw a geocoder response.
+    it("clears a manually entered pair", async () => {
+      await renderPlace();
+
+      find("48.8584, 2.2945");
+      expect(await screen.findByText("Latitude: 48.858400 · Longitude: 2.294500")).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+
+      expect(screen.getByText("No coordinates selected")).toBeInTheDocument();
+    });
+
+    /**
+     * Story 6.28 review, P10. DESIGN.md's `candidate-list` entry cites {typography.label-caps} for this
+     * heading, and the component had a hand-rolled 11px/700/0.06em with no `text-transform` instead — so
+     * the record and the code did not match. Real MUI here, so the variant's own uppercase is observable;
+     * `role="status"` is asserted alongside it because the two live on the same element (P7).
+     */
+    it("renders the count heading with the labelCaps variant and announces it", async () => {
+      await renderPlace([
+        { lat: 38.7223, lng: -9.1393, label: "Harbor Hotel, Lisbon" },
+        { lat: 41.1579, lng: -8.6291, label: "Harbor Hotel, Porto" },
+      ]);
+
+      find("Harbor Hotel");
+
+      const heading = await screen.findByRole("status");
+      expect(heading).toHaveTextContent("Select a place (2)");
+      expect(window.getComputedStyle(heading).textTransform).toBe("uppercase");
+      // P7: the rows are a named group, which a bare <div aria-labelledby> cannot be.
+      expect(screen.getByRole("group", { name: "Select a place (2)" })).toBeInTheDocument();
+    });
+
+    /**
+     * Story 6.28 review, P2. The rows answer the text as it was when *Find* was pressed, so they do not
+     * survive an edit of it — activating a stale row would pin a place the field no longer names.
+     */
+    it("dismisses an unanswered candidate list when the place field is edited", async () => {
+      await renderPlace([
+        { lat: 38.7223, lng: -9.1393, label: "Harbor Hotel, Lisbon" },
+        { lat: 41.1579, lng: -8.6291, label: "Harbor Hotel, Porto" },
+      ]);
+
+      find("Harbor Hotel");
+      expect(await screen.findByRole("button", { name: "Harbor Hotel, Porto" })).toBeInTheDocument();
+
+      fireEvent.change(screen.getByLabelText("Search place"), { target: { value: "Harbor Hostel" } });
+
+      expect(screen.queryByRole("button", { name: "Harbor Hotel, Porto" })).toBeNull();
+      expect(screen.queryByText("Select a place (2)")).toBeNull();
+    });
+
+    /**
+     * Story 6.28 review, P1. This dialog is never unmounted — the open effect resets `activeTab`,
+     * `galleryFiles` and `documentFiles` for exactly that reason, each with a comment saying so — and an
+     * unanswered candidate list is otherwise cleared only by a select, a *Clear* or a new *Find*. So stay
+     * A's offer stood over stay B's empty field, and activating a row pinned A's place on B.
+     */
+    it("does not carry an unanswered candidate list into the next stay's dialog", async () => {
+      const fetchMock = geocodeFetch([
+        { lat: 38.7223, lng: -9.1393, label: "Harbor Hotel, Lisbon" },
+        { lat: 41.1579, lng: -8.6291, label: "Harbor Hotel, Porto" },
+      ]);
+      const dialog = (open: boolean, dayId: string) => (
+        <Providers language="en">
+          <TripAccommodationDialog
+            open={open}
+            tripId="trip-1"
+            stayType="current"
+            day={{ id: dayId, date: "2026-11-01T00:00:00.000Z", dayIndex: 1, accommodation: null }}
+            onClose={() => undefined}
+            onSaved={() => undefined}
+          />
+        </Providers>
+      );
+
+      const { rerender } = render(dialog(true, "day-1"));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      selectTab("Place & notes");
+
+      find("Harbor Hotel");
+      expect(await screen.findByRole("button", { name: "Harbor Hotel, Porto" })).toBeInTheDocument();
+
+      await act(async () => {
+        rerender(dialog(false, "day-1"));
+      });
+      await act(async () => {
+        rerender(dialog(true, "day-2"));
+      });
+      selectTab("Place & notes");
+
+      expect(screen.queryByRole("button", { name: "Harbor Hotel, Porto" })).toBeNull();
+      expect(screen.queryByText("Select a place (2)")).toBeNull();
+      expect(screen.getByText("No coordinates selected")).toBeInTheDocument();
+    });
+
+    /**
+     * Story 6.28 review, P8. The helper line invites a typed pair and `locationQuery` is outside the dirty
+     * key comparison, so a pair typed and saved without pressing *Find* was dropped silently — no pin, no
+     * message, no prompt. The save path parses too, and still issues no geocode request.
+     */
+    it("saves a pair typed into the place field without pressing Find", async () => {
+      const sentBodies: string[] = [];
+      const fetchMock = await renderPlace([], sentBodies);
+
+      fireEvent.change(screen.getByLabelText("Search place"), { target: { value: "-36.8485, 174.7633" } });
+      selectTab("Basics");
+      fireEvent.change(screen.getByLabelText("Stay name"), { target: { value: "Auckland Lookout" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+
+      await waitFor(() => expect(sentBodies).toHaveLength(1));
+      expect(JSON.parse(sentBodies[0]).location).toEqual({
+        lat: -36.8485,
+        lng: 174.7633,
+        label: "-36.848500, 174.763300",
+      });
+      expect(geocodeCalls(fetchMock)).toHaveLength(0);
+    });
+
+    /**
+     * The half of P8 that must **not** change: an unsearched place name still saves the stay with no
+     * location and no request. Blocking the save, or geocoding behind the user's back, would both be new
+     * behaviour on a field whose value is optional.
+     */
+    it("saves with no location when the place field holds an unsearched place name", async () => {
+      const sentBodies: string[] = [];
+      const fetchMock = await renderPlace([], sentBodies);
+
+      fireEvent.change(screen.getByLabelText("Search place"), { target: { value: "Harbor Hotel" } });
+      selectTab("Basics");
+      fireEvent.change(screen.getByLabelText("Stay name"), { target: { value: "Harbor Hotel" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+
+      await waitFor(() => expect(sentBodies).toHaveLength(1));
+      expect(JSON.parse(sentBodies[0]).location).toBeNull();
+      expect(geocodeCalls(fetchMock)).toHaveLength(0);
+    });
+
+    // AC1's last clause: it saves, with the formatted pair standing in for the `display_name` a manual
+    // entry does not have.
+    it("saves a manually entered pair with the formatted pair as its label", async () => {
+      const sentBodies: string[] = [];
+      await renderPlace([], sentBodies);
+
+      find("-36.8485, 174.7633");
+      expect(await screen.findByText("Latitude: -36.848500 · Longitude: 174.763300")).toBeInTheDocument();
+
+      selectTab("Basics");
+      fireEvent.change(screen.getByLabelText("Stay name"), { target: { value: "Auckland Lookout" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+
+      await waitFor(() => expect(sentBodies).toHaveLength(1));
+      expect(JSON.parse(sentBodies[0]).location).toEqual({
+        lat: -36.8485,
+        lng: 174.7633,
+        label: "-36.848500, 174.763300",
+      });
+    });
+
+    /**
+     * 6.28 follow-up review, the same collision `TripDayPlanDialog` carries. `Clear` nulled the coordinate
+     * and left the text; `locationQuery` is seeded from the stored label, which for a hand-entered pair *is*
+     * the pair; and the save path parses that text. So `Clear` then *Save stay* put the pin straight back
+     * and a manually entered location could not be removed.
+     */
+    it("removes a manually entered location for good when Clear is pressed before Save", async () => {
+      const sentBodies: string[] = [];
+      await renderPlace([], sentBodies);
+
+      find("-36.8485, 174.7633");
+      expect(await screen.findByText("Latitude: -36.848500 · Longitude: 174.763300")).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+      expect(screen.getByText("No coordinates selected")).toBeInTheDocument();
+      expect(screen.getByLabelText("Search place")).toHaveValue("");
+
+      selectTab("Basics");
+      fireEvent.change(screen.getByLabelText("Stay name"), { target: { value: "Auckland Lookout" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+
+      await waitFor(() => expect(sentBodies).toHaveLength(1));
+      expect(JSON.parse(sentBodies[0]).location).toBeNull();
+    });
+
+    /**
+     * 6.28 follow-up review. *Save stay* on an unanswered candidate list saved with `location: null` in
+     * silence — nothing was resolved, so the save-path parse answered `search` and the rows the user was
+     * choosing between left with the dialog. The bucket list and the create form both refuse here.
+     */
+    it("refuses to save past an unanswered candidate list", async () => {
+      const sentBodies: string[] = [];
+      await renderPlace(
+        [
+          { lat: 38.7223, lng: -9.1393, label: "Harbor Hotel, Lisbon" },
+          { lat: 41.1579, lng: -8.6291, label: "Harbor Hotel, Porto" },
+        ],
+        sentBodies,
+      );
+
+      find("Harbor Hotel");
+      expect(await screen.findByRole("button", { name: "Harbor Hotel, Porto" })).toBeInTheDocument();
+
+      selectTab("Basics");
+      fireEvent.change(screen.getByLabelText("Stay name"), { target: { value: "Harbor Hotel" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+
+      expect(await screen.findByText("Select one of the places found.")).toBeInTheDocument();
+      expect(sentBodies).toHaveLength(0);
+      // Reported on the tab that holds the field, not on the one the user was standing on.
+      expect(screen.getByRole("button", { name: "Harbor Hotel, Porto" })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "Harbor Hotel, Porto" }));
+      /*
+        6.28 follow-up review, the same clear the day-plan dialog and the bucket list carry: activating a
+        row is the only answer to this message, so it must not outlive the answer.
+      */
+      expect(screen.queryByText("Select one of the places found.")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+
+      await waitFor(() => expect(sentBodies).toHaveLength(1));
+      expect(JSON.parse(sentBodies[0]).location).toEqual({
+        lat: 41.1579,
+        lng: -8.6291,
+        label: "Harbor Hotel, Porto",
+      });
+    });
+
+    /**
+     * 6.28 follow-up review. `role="status"` announces a *change* in a region the screen reader was already
+     * watching; the component used to return `null` while empty, so region and first text arrived together
+     * and the announcement the design rests on was routinely never made. Real MUI here, so this is also the
+     * check that an empty heading leaves no visible trace: no group, hence no stray bordered hairline.
+     */
+    it("keeps the count line's live region mounted before any search runs", async () => {
+      await renderPlace([{ lat: 38.7223, lng: -9.1393, label: "Harbor Hotel, Lisbon" }]);
+
+      expect(screen.getByRole("status")).toHaveTextContent("");
+      expect(screen.queryByRole("group")).toBeNull();
+    });
+
+    /**
+     * 6.28 follow-up review, the same hole the day-plan dialog had. `locationQuery` is excluded from the
+     * dirty comparison because a search box persists nothing — but the pass before this one taught
+     * `onSubmit` to parse it, so a typed pair *does* persist now, and the ✕ was closing on it without
+     * asking. Only the `coordinates` reading enters the comparison.
+     */
+    it("asks before discarding a typed pair that was never resolved", async () => {
+      const onClose = vi.fn();
+      await renderPlace([], [], onClose);
+
+      fireEvent.change(screen.getByLabelText("Search place"), { target: { value: "48.8584, 2.2945" } });
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+      expect(onClose).not.toHaveBeenCalled();
+      expect(await screen.findByRole("button", { name: "Discard changes" })).toBeInTheDocument();
+    });
+
+    // ...and a search *term* still holds nothing open, which is what the exclusion is for.
+    it("closes without asking on an unresolved place name", async () => {
+      const onClose = vi.fn();
+      await renderPlace([], [], onClose);
+
+      fireEvent.change(screen.getByLabelText("Search place"), { target: { value: "Harbor Hotel" } });
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+      expect(screen.queryByRole("button", { name: "Discard changes" })).toBeNull();
+      expect(onClose).toHaveBeenCalledTimes(1);
     });
   });
 });

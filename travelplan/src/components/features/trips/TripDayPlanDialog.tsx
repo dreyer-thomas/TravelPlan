@@ -46,6 +46,8 @@ import {
 } from "@/lib/trips/documentUploads";
 import { IMAGE_UPLOAD_ACCEPT, isSupportedImageUpload } from "@/lib/trips/imageUploads";
 import { formatCentsAsAmount, parseAmountToCents } from "@/lib/trips/parseAmount";
+import { formatCoordinateLabel, parseLocationInput } from "@/lib/trips/parseLocationInput";
+import LocationCandidateList from "@/components/features/trips/LocationCandidateList";
 
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
@@ -604,6 +606,13 @@ export default function TripDayPlanDialog({
   );
   const [locationQuery, setLocationQuery] = useState<string>("");
   const [lookupLoading, setLookupLoading] = useState(false);
+  /**
+   * Story 6.28 AC5. The places a search came back with while more than one is still on offer. Empty is
+   * the normal state — it is filled only between a multi-result *Find* and the choice that resolves it —
+   * and it is deliberately **not** in the dirty fingerprint: an unanswered list of candidates is a
+   * question, not a value a save would keep.
+   */
+  const [locationCandidates, setLocationCandidates] = useState<{ lat: number; lng: number; label: string }[]>([]);
   const [fieldErrors, setFieldErrors] = useState<PlanFieldErrors>({});
   const [activeTab, setActiveTab] = useState<PlanTabId>("what");
   /**
@@ -813,6 +822,11 @@ export default function TripDayPlanDialog({
     // discarded would come back selected on the next open, and `pendingDocumentCount` would hold the
     // fingerprint away from its baseline for the rest of the session.
     setDocumentFiles([]);
+    // Story 6.28 review, and the third instance of the hazard the two lines above answer: this dialog is
+    // never unmounted, and an unanswered candidate list is cleared only by a select, a *Clear* or a new
+    // *Find*. Without this, activity A's "Select a place (2)" was still standing over activity B's empty
+    // field on the next open — and activating one of A's rows pinned A's place on B.
+    setLocationCandidates([]);
     setFullscreenIndex(null);
     // Same reasoning as `activeTab`: a target day chosen for the *previous* activity is not a state
     // the next one's dialog should inherit.
@@ -1205,6 +1219,53 @@ export default function TripDayPlanDialog({
       }
     }
 
+    /**
+     * An unanswered candidate list is a question, not something to save past (6.28 follow-up review).
+     *
+     * With several matches on screen nothing is resolved yet and `locationQuery` parses as `search`, so the
+     * block below left `location: null` — the activity saved with no place, no message, and the list the
+     * user was looking at simply vanished with the dialog. `TripBucketListPanel` refuses this state with
+     * this same key and `TripCreateForm` refuses it with `locationResolveError`; the two dialogs were the
+     * outliers on the one surface this story set out to make consistent. Refusing is safe now that *Clear*
+     * is enabled while a list is pending, which is the way out for a user who has decided none of the rows
+     * is the place they meant.
+     */
+    if (!resolvedLocation && locationCandidates.length > 0) {
+      setSaving(false);
+      setServerError(t("trips.location.selectRequired"));
+      setActiveTab("whenWhere");
+      return;
+    }
+
+    /**
+     * A pair typed into the place field and saved **without** pressing *Find* (Story 6.28 review).
+     *
+     * The helper line on this field now invites exactly that, and `locationQuery` is deliberately outside
+     * `planFormFingerprint` — so the pair was dropped on save with no pin, no message and no discard
+     * prompt to notice it by. Parsing here costs nothing: the parser is pure and this is the one place the
+     * save can still see the text.
+     *
+     * **Only `coordinates` does anything.** Every other status leaves the save exactly as it was before
+     * this block existed — the item saves with no location, no request is issued and nothing is blocked.
+     * The rejected alternative was to refuse the save the way `handleLookupLocation` refuses a *Find*: a
+     * place is optional on an activity, and turning a stray "48,,2" in a field nobody asked about into a
+     * blocked *OK* would be a new dead end rather than a fix. `setResolvedLocation` as well as the
+     * payload, so the read-only readout agrees with what was just stored.
+     */
+    let locationForSave = resolvedLocation;
+    const unresolvedQuery = locationQuery.trim();
+    if (!locationForSave && unresolvedQuery) {
+      const parsed = parseLocationInput(unresolvedQuery);
+      if (parsed.status === "coordinates") {
+        locationForSave = {
+          lat: parsed.lat,
+          lng: parsed.lng,
+          label: formatCoordinateLabel(parsed.lat, parsed.lng),
+        };
+        setResolvedLocation(locationForSave);
+      }
+    }
+
     const payload = {
       tripDayId: day.id,
       title: titleInput.trim(),
@@ -1214,7 +1275,7 @@ export default function TripDayPlanDialog({
       costCents: trimmedCost.length > 0 ? parsedCostCents : null,
       payments: paymentsPayload,
       linkUrl: trimmedLink.length > 0 ? trimmedLink : null,
-      location: resolvedLocation,
+      location: locationForSave,
     } as {
       tripDayId: string;
       title: string;
@@ -1315,6 +1376,27 @@ export default function TripDayPlanDialog({
    * count either way — but it makes the memo a lie about what it depends on, and the next reader has
    * to re-derive that the two spellings happen to agree.
    */
+  /**
+   * The pair the **save** would persist from an unresolved search box, and nothing else (6.28 follow-up
+   * review).
+   *
+   * `locationQuery` is deliberately outside the fingerprint — Story 6.24 found that watching a search box
+   * makes a form dirty for nothing. But the review pass before this one taught `onSubmit` to parse that
+   * box when nothing is resolved, which made one reading of it load-bearing: type `48.8584, 2.2945`, press
+   * *OK*, and the activity saves with that pin. Dismissing instead threw the same value away in silence,
+   * with no discard prompt, because the guard could not see it. Only a `coordinates` reading enters —
+   * every other status is text the save ignores, so it stays outside exactly as before.
+   */
+  const unresolvedPairLocation = useMemo(() => {
+    if (resolvedLocation) return null;
+    const trimmed = locationQuery.trim();
+    if (!trimmed) return null;
+    const parsed = parseLocationInput(trimmed);
+    return parsed.status === "coordinates"
+      ? { lat: parsed.lat, lng: parsed.lng, label: formatCoordinateLabel(parsed.lat, parsed.lng) }
+      : null;
+  }, [locationQuery, resolvedLocation]);
+
   const currentFingerprint = useMemo(
     () =>
       planFormFingerprint({
@@ -1325,7 +1407,7 @@ export default function TripDayPlanDialog({
         paymentMode,
         payments,
         linkUrl,
-        location: resolvedLocation,
+        location: resolvedLocation ?? unresolvedPairLocation,
         contentJson,
         pendingPhotoCount: galleryFiles.length,
         pendingDocumentCount: documentFiles.length,
@@ -1342,6 +1424,7 @@ export default function TripDayPlanDialog({
       resolvedLocation,
       titleInput,
       toTimeInput,
+      unresolvedPairLocation,
     ],
   );
 
@@ -1473,6 +1556,38 @@ export default function TripDayPlanDialog({
       .run();
   };
 
+  /**
+   * Story 6.28 AC5. What activating a candidate row does — and it is exactly what the old single-result
+   * success path did: store the row, write its label back into the field, and dismiss the list. The
+   * stored label is the geocoder's own `display_name`, never the typed query.
+   */
+  const selectLocationCandidate = (candidate: { lat: number; lng: number; label: string }) => {
+    setResolvedLocation({ lat: candidate.lat, lng: candidate.lng, label: candidate.label });
+    setLocationQuery(candidate.label);
+    setLocationCandidates([]);
+    /*
+      The save path refuses an unanswered list with `trips.location.selectRequired`, and this gesture is
+      the only answer to it — leaving the banner up tells the user to do the thing they just did. The
+      refusal was added in the same review pass that added this list to the save path, and the clear was
+      missed on both dialogs; `TripBucketListPanel` has had it since the pass before (6.28 follow-up).
+      Only that message: an unrelated save failure still on screen is not answered by picking a place.
+    */
+    setServerError((previous) => (previous === t("trips.location.selectRequired") ? null : previous));
+  };
+
+  /**
+   * Story 6.28. The parser runs **before** the fetch, so a coordinate pair — typed, or carried by a
+   * pasted Google Maps link — resolves with no network request at all, and the two refusals set nothing
+   * and say why. Everything else is a search term and goes to the route exactly as it did.
+   *
+   * This dialog is the canonical one of the four surfaces; the other three follow this order. The
+   * parsing itself lives in `parseLocationInput.ts` and is not restated here — five byte-similar copies
+   * of this handler exist, and one parser is what keeps them from drifting further apart.
+   *
+   * Errors go to `setServerError` rather than a per-field slot because this dialog has no per-field
+   * channel for the location (it is component state, not a registered field) — the same place
+   * `noResult` has always been shown.
+   */
   const handleLookupLocation = async () => {
     const query = locationQuery.trim();
     if (!query) {
@@ -1481,6 +1596,30 @@ export default function TripDayPlanDialog({
     }
 
     setServerError(null);
+    // A new Find replaces the previous answer rather than adding to it: leaving the old rows up while a
+    // different query is in flight offers places that have nothing to do with what was asked.
+    setLocationCandidates([]);
+
+    const parsed = parseLocationInput(query);
+    if (parsed.status === "ambiguous") {
+      setServerError(t("trips.location.coordinatesAmbiguous"));
+      return;
+    }
+    if (parsed.status === "out_of_range") {
+      setServerError(t(parsed.field === "lat" ? "trips.location.latInvalid" : "trips.location.lngInvalid"));
+      return;
+    }
+    if (parsed.status === "coordinates") {
+      // The pair is its own label — there is no `display_name` to keep — and `resolvedLocation` is in
+      // the dirty fingerprint, so this marks the form dirty exactly as the fetch path does.
+      setResolvedLocation({
+        lat: parsed.lat,
+        lng: parsed.lng,
+        label: formatCoordinateLabel(parsed.lat, parsed.lng),
+      });
+      return;
+    }
+
     setLookupLoading(true);
     try {
       const response = await fetch(`/api/geocode?q=${encodeURIComponent(query)}`, {
@@ -1488,7 +1627,7 @@ export default function TripDayPlanDialog({
         credentials: "include",
       });
       const body = (await response.json()) as ApiEnvelope<{
-        result: { lat: number; lng: number; label: string } | null;
+        results: { lat: number; lng: number; label: string }[];
       }>;
 
       if (!response.ok || body.error) {
@@ -1496,17 +1635,21 @@ export default function TripDayPlanDialog({
         return;
       }
 
-      if (!body.data?.result) {
+      const results = body.data?.results ?? [];
+      if (results.length === 0) {
         setServerError(t("trips.location.noResult"));
         return;
       }
 
-      setResolvedLocation({
-        lat: body.data.result.lat,
-        lng: body.data.result.lng,
-        label: body.data.result.label,
-      });
-      setLocationQuery(body.data.result.label);
+      // One candidate is adopted directly — the behaviour every surface has had — and several are
+      // offered, because with more than one the route's first row is only Nominatim's best *name* match
+      // and pinning it silently is the reported bug.
+      if (results.length === 1) {
+        selectLocationCandidate(results[0]);
+        return;
+      }
+
+      setLocationCandidates(results);
     } catch {
       setServerError(t("trips.location.lookupError"));
     } finally {
@@ -2141,7 +2284,17 @@ export default function TripDayPlanDialog({
                       id={`${fieldIdPrefix}-place`}
                       label={t("trips.location.searchLabel")}
                       value={locationQuery}
-                      onChange={(event) => setLocationQuery(event.target.value)}
+                      onChange={(event) => {
+                        setLocationQuery(event.target.value);
+                        // Story 6.28 review. A candidate list must not outlive an edit of the query it
+                        // answers: the rows describe the old text, and activating one after the field has
+                        // moved on pins a place the field no longer names.
+                        setLocationCandidates([]);
+                      }}
+                      // Story 6.28 AC3: the field is the only place the separator rule can be stated
+                      // before it is needed, and it names the latitude-first order the parser cannot
+                      // detect (Trap 4).
+                      hint={t("trips.location.searchHelper")}
                     />
                   </Box>
                   <Button variant="outlined" onClick={() => void handleLookupLocation()} disabled={isBusy || lookupLoading}>
@@ -2149,13 +2302,34 @@ export default function TripDayPlanDialog({
                   </Button>
                   <Button
                     variant="text"
-                    onClick={() => setResolvedLocation(null)}
-                    disabled={isBusy || lookupLoading || !resolvedLocation}
+                    onClick={() => {
+                      setResolvedLocation(null);
+                      setLocationCandidates([]);
+                      /*
+                        The text goes too (6.28 follow-up review). `locationQuery` is seeded from the
+                        stored label, and for a hand-entered pair the label *is* the pair — so with the
+                        save path below re-parsing that text, clearing only the coordinate put the pin
+                        straight back on the next *OK* and a manual location could not be deleted at all.
+                        `TripCreateForm`'s Clear has always reset its query box; this matches it, and it is
+                        also simply what the button says.
+                      */
+                      setLocationQuery("");
+                    }}
+                    // Story 6.28 widened the enabled condition: an unanswered candidate list is
+                    // something to clear too, and with `!resolvedLocation` alone the only way to dismiss
+                    // it would have been to search for something else.
+                    disabled={isBusy || lookupLoading || (!resolvedLocation && locationCandidates.length === 0)}
                     sx={{ color: tokens.ink }}
                   >
                     {t("trips.location.clearAction")}
                   </Button>
                 </Box>
+                <LocationCandidateList
+                  candidates={locationCandidates}
+                  onSelect={selectLocationCandidate}
+                  disabled={isBusy || lookupLoading}
+                  idPrefix={`${fieldIdPrefix}-place`}
+                />
                 <Typography sx={{ fontSize: 11, fontWeight: 600, color: tokens.inkSoft }}>
                   {resolvedLocation
                     ? `${t("trips.location.latLabel")}: ${resolvedLocation.lat.toFixed(6)} · ${t("trips.location.lngLabel")}: ${resolvedLocation.lng.toFixed(6)}`

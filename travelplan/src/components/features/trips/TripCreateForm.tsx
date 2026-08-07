@@ -6,9 +6,11 @@ import { Box, Button, CircularProgress, Typography } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import FormField from "@/components/forms/FormField";
 import FormNotice from "@/components/forms/FormNotice";
+import LocationCandidateList from "@/components/features/trips/LocationCandidateList";
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
 import { IMAGE_UPLOAD_ACCEPT } from "@/lib/trips/imageUploads";
+import { formatCoordinateLabel, parseLocationInput } from "@/lib/trips/parseLocationInput";
 
 type ApiEnvelope<T> = {
   data: T | null;
@@ -130,6 +132,13 @@ export default function TripCreateForm({
   const [destinationLookupLoading, setDestinationLookupLoading] = useState(false);
   const [startLocationError, setStartLocationError] = useState<string | null>(null);
   const [destinationLocationError, setDestinationLocationError] = useState<string | null>(null);
+  /**
+   * Story 6.28 AC5. One candidate list per end of the trip, kept in two slots rather than one keyed by
+   * `kind`: this form's eight existing location slots are flat for the same reason, and a shared list
+   * would make a search for the destination dismiss an unanswered question about the start.
+   */
+  const [startCandidates, setStartCandidates] = useState<{ lat: number; lng: number; label: string }[]>([]);
+  const [destinationCandidates, setDestinationCandidates] = useState<{ lat: number; lng: number; label: string }[]>([]);
 
   useEffect(() => {
     const fetchCsrf = async () => {
@@ -367,23 +376,75 @@ export default function TripCreateForm({
     }
   };
 
+  /**
+   * Story 6.28 AC5. Activating a candidate row for one end of the trip: store it, write its label into
+   * that end's search box, and dismiss that end's list. The two ends never share state — the form can
+   * legitimately hold an unanswered question about the destination while the start is already resolved.
+   */
+  const selectLocationCandidate = (kind: "start" | "destination", candidate: { lat: number; lng: number; label: string }) => {
+    if (kind === "start") {
+      setStartLocation(candidate);
+      setStartLocationQuery(candidate.label);
+      setStartCandidates([]);
+      return;
+    }
+    setDestinationLocation(candidate);
+    setDestinationLocationQuery(candidate.label);
+    setDestinationCandidates([]);
+  };
+
+  /**
+   * Story 6.28, the same order as `TripDayPlanDialog`'s canonical copy — parse before the fetch, so a
+   * coordinate pair or a pasted Google Maps link resolves with no network request at all.
+   *
+   * Unlike the three dialogs, this surface already has a per-field error channel, so every parse failure
+   * goes to `setStartLocationError` / `setDestinationLocationError` rather than to the form-level notice:
+   * the message is about one of two boxes, and the form banner cannot say which.
+   */
   const handleLookupLocation = async (kind: "start" | "destination") => {
     const query = (kind === "start" ? startLocationQuery : destinationLocationQuery).trim();
+    const setLocationError = kind === "start" ? setStartLocationError : setDestinationLocationError;
     if (!query) {
+      setLocationError(t("trips.location.searchRequired"));
+      return;
+    }
+
+    setLocationError(null);
+    if (kind === "start") {
+      setStartCandidates([]);
+    } else {
+      setDestinationCandidates([]);
+    }
+
+    const parsed = parseLocationInput(query);
+    if (parsed.status === "ambiguous") {
+      setLocationError(t("trips.location.coordinatesAmbiguous"));
+      return;
+    }
+    if (parsed.status === "out_of_range") {
+      setLocationError(t(parsed.field === "lat" ? "trips.location.latInvalid" : "trips.location.lngInvalid"));
+      return;
+    }
+    if (parsed.status === "coordinates") {
+      // The query box is deliberately left as typed. Its `onChange` nulls the location on every
+      // keystroke, so writing the formatted pair back would be a second, pointless invalidation round.
+      const location = {
+        lat: parsed.lat,
+        lng: parsed.lng,
+        label: formatCoordinateLabel(parsed.lat, parsed.lng),
+      };
       if (kind === "start") {
-        setStartLocationError(t("trips.location.searchRequired"));
+        setStartLocation(location);
       } else {
-        setDestinationLocationError(t("trips.location.searchRequired"));
+        setDestinationLocation(location);
       }
       return;
     }
 
     if (kind === "start") {
       setStartLookupLoading(true);
-      setStartLocationError(null);
     } else {
       setDestinationLookupLoading(true);
-      setDestinationLocationError(null);
     }
 
     try {
@@ -392,49 +453,32 @@ export default function TripCreateForm({
         credentials: "include",
       });
       const body = (await response.json()) as ApiEnvelope<{
-        result: { lat: number; lng: number; label: string } | null;
+        results: { lat: number; lng: number; label: string }[];
       }>;
 
       if (!response.ok || body.error) {
-        const message = body.error?.message ?? t("trips.location.lookupError");
-        if (kind === "start") {
-          setStartLocationError(message);
-        } else {
-          setDestinationLocationError(message);
-        }
+        setLocationError(body.error?.message ?? t("trips.location.lookupError"));
         return;
       }
 
-      if (!body.data?.result) {
-        if (kind === "start") {
-          setStartLocationError(t("trips.location.noResult"));
-        } else {
-          setDestinationLocationError(t("trips.location.noResult"));
-        }
+      const results = body.data?.results ?? [];
+      if (results.length === 0) {
+        setLocationError(t("trips.location.noResult"));
+        return;
+      }
+
+      if (results.length === 1) {
+        selectLocationCandidate(kind, results[0]);
         return;
       }
 
       if (kind === "start") {
-        setStartLocation({
-          lat: body.data.result.lat,
-          lng: body.data.result.lng,
-          label: body.data.result.label,
-        });
-        setStartLocationQuery(body.data.result.label);
+        setStartCandidates(results);
       } else {
-        setDestinationLocation({
-          lat: body.data.result.lat,
-          lng: body.data.result.lng,
-          label: body.data.result.label,
-        });
-        setDestinationLocationQuery(body.data.result.label);
+        setDestinationCandidates(results);
       }
     } catch {
-      if (kind === "start") {
-        setStartLocationError(t("trips.location.lookupError"));
-      } else {
-        setDestinationLocationError(t("trips.location.lookupError"));
-      }
+      setLocationError(t("trips.location.lookupError"));
     } finally {
       if (kind === "start") {
         setStartLookupLoading(false);
@@ -520,9 +564,15 @@ export default function TripCreateForm({
                   setStartLocationQuery(event.target.value);
                   setStartLocation(null);
                   setStartLocationError(null);
+                  // Story 6.28 review, and the same reason the pin above is nulled: the rows answer the
+                  // text as it was, so they must not outlive an edit of it.
+                  setStartCandidates([]);
                 }}
                 error={startLocationError ?? undefined}
-                hint={startLocationError ? undefined : t("trips.form.locationHelper")}
+                // Story 6.28 AC7 replaced this form's own deleted helper key ("Search and select a place")
+                // with the shared `searchHelper`, which says the same thing and states the coordinate
+                // spelling and the latitude-first order as well. One helper on all five place fields.
+                hint={startLocationError ? undefined : t("trips.location.searchHelper")}
               />
             </Box>
             {/* Both buttons are already ≥44px from theme.ts's MuiButton override. */}
@@ -540,6 +590,7 @@ export default function TripCreateForm({
                 setStartLocation(null);
                 setStartLocationQuery("");
                 setStartLocationError(null);
+                setStartCandidates([]);
               }}
               disabled={isSubmitting || startLookupLoading || (!startLocation && !startLocationQuery)}
               sx={{ mb: "23px" }}
@@ -547,6 +598,12 @@ export default function TripCreateForm({
               {t("trips.location.clearAction")}
             </Button>
           </Box>
+          <LocationCandidateList
+            candidates={startCandidates}
+            onSelect={(candidate) => selectLocationCandidate("start", candidate)}
+            disabled={isSubmitting || startLookupLoading}
+            idPrefix={`${fieldIdPrefix}-start-location`}
+          />
           <Typography sx={{ fontSize: 11, fontWeight: 600, color: tokens.inkSoft }}>
             {startLocation
               ? `${t("trips.location.latLabel")}: ${startLocation.lat.toFixed(6)} · ${t("trips.location.lngLabel")}: ${startLocation.lng.toFixed(6)}`
@@ -571,9 +628,11 @@ export default function TripCreateForm({
                   setDestinationLocationQuery(event.target.value);
                   setDestinationLocation(null);
                   setDestinationLocationError(null);
+                  // Story 6.28 review: same as the start field one block up.
+                  setDestinationCandidates([]);
                 }}
                 error={destinationLocationError ?? undefined}
-                hint={destinationLocationError ? undefined : t("trips.form.locationHelper")}
+                hint={destinationLocationError ? undefined : t("trips.location.searchHelper")}
               />
             </Box>
             <Button
@@ -590,6 +649,7 @@ export default function TripCreateForm({
                 setDestinationLocation(null);
                 setDestinationLocationQuery("");
                 setDestinationLocationError(null);
+                setDestinationCandidates([]);
               }}
               disabled={isSubmitting || destinationLookupLoading || (!destinationLocation && !destinationLocationQuery)}
               sx={{ mb: "23px" }}
@@ -597,6 +657,12 @@ export default function TripCreateForm({
               {t("trips.location.clearAction")}
             </Button>
           </Box>
+          <LocationCandidateList
+            candidates={destinationCandidates}
+            onSelect={(candidate) => selectLocationCandidate("destination", candidate)}
+            disabled={isSubmitting || destinationLookupLoading}
+            idPrefix={`${fieldIdPrefix}-destination-location`}
+          />
           <Typography sx={{ fontSize: 11, fontWeight: 600, color: tokens.inkSoft }}>
             {destinationLocation
               ? `${t("trips.location.latLabel")}: ${destinationLocation.lat.toFixed(6)} · ${t("trips.location.lngLabel")}: ${destinationLocation.lng.toFixed(6)}`

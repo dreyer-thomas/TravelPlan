@@ -27,6 +27,7 @@ import DialogShell from "@/components/ui/DialogShell";
 import DiscardChangesDialog, { useDiscardGuard } from "@/components/ui/DiscardChangesDialog";
 import FullscreenPhotoViewer from "@/components/ui/FullscreenPhotoViewer";
 import { WarningTriangleIcon } from "@/components/features/trips/TripIcons";
+import LocationCandidateList from "@/components/features/trips/LocationCandidateList";
 import { formatMessage } from "@/i18n";
 import { useI18n } from "@/i18n/provider";
 import {
@@ -37,6 +38,7 @@ import {
 } from "@/lib/trips/documentUploads";
 import { IMAGE_UPLOAD_ACCEPT, isSupportedImageUpload } from "@/lib/trips/imageUploads";
 import { formatCentsAsAmount, parseAmountToCents } from "@/lib/trips/parseAmount";
+import { formatCoordinateLabel, parseLocationInput } from "@/lib/trips/parseLocationInput";
 
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 type ApiEnvelope<T> = {
@@ -122,11 +124,17 @@ export const STAY_ERROR_TAB: Record<StayErrorKey, StayTabId> = {
  * Tabs for keys the **server** can fault that are not form fields at all (review of Story 6.26,
  * Tommy's call).
  *
- * `location` is the reachable one: `locationSchemas.ts` caps `location.label` at 200 characters and
- * `handleLookupLocation` writes the geocoder's label into `resolvedLocation` untruncated, so a
- * Nominatim display name long enough to fail is an ordinary search result rather than a freak input.
- * It lives here and not in `STAY_ERROR_TAB` because it is component state, not a registered field —
- * putting it in that map would break the `keyof AccommodationFormValues` identity AC6 rests on.
+ * `location` is the one worth mapping. It lives here and not in `STAY_ERROR_TAB` because it is
+ * component state, not a registered field — putting it in that map would break the
+ * `keyof AccommodationFormValues` identity AC6 rests on.
+ *
+ * The original reason given here was that `locationSchemas.ts` caps `location.label` at 200 characters
+ * while `handleLookupLocation` wrote the geocoder's label in untruncated, making a long Nominatim
+ * display name an ordinary way to fail. That is **no longer true**: `api/geocode/route.ts` slices every
+ * candidate's label to 200 before it leaves the server, so the cap is not reachable from a search result
+ * any more (Story 6.28 kept that slice per candidate for exactly this reason). The mapping stays
+ * regardless — the server can still fault `location` on a payload this form did not compose, and AC2's
+ * rule is that an unmappable key gets the banner while a mappable one also gets its tab.
  *
  * The Place tab *does* surface this value, in the coordinate line under the search box, so AC2's "a
  * field the form does not surface" does not describe it: the honest response is to select the tab
@@ -382,6 +390,9 @@ export default function TripAccommodationDialog({
   const [resolvedLocation, setResolvedLocation] = useState<{ lat: number; lng: number; label: string | null } | null>(
     null,
   );
+  // Story 6.28 AC5. The places a search came back with while more than one is still on offer; empty
+  // otherwise, and never part of the dirty comparison — an unanswered question is not a value.
+  const [locationCandidates, setLocationCandidates] = useState<{ lat: number; lng: number; label: string }[]>([]);
   const [initError, setInitError] = useState<string | null>(null);
   const [galleryImages, setGalleryImages] = useState<GalleryImage[]>([]);
   const [galleryFiles, setGalleryFiles] = useState<File[]>([]);
@@ -588,6 +599,10 @@ export default function TripAccommodationDialog({
     // document staged and then discarded comes back selected on the next open and holds the guard
     // dirty for the rest of the session — the defect the line above is the scar tissue for.
     setDocumentFiles([]);
+    // Story 6.28 review, the same hazard once more: an unanswered candidate list is cleared only by a
+    // select, a *Clear* or a new *Find*, and this dialog is never unmounted — so stay A's "Select a place
+    // (2)" was still on offer over stay B's empty field, and picking a row pinned A's place on B.
+    setLocationCandidates([]);
     reset({
       name: day?.accommodation?.name ?? "",
       notes: day?.accommodation?.notes ?? "",
@@ -1045,6 +1060,42 @@ export default function TripAccommodationDialog({
       }
     }
 
+    /**
+     * An unanswered candidate list is a question, not something to save past (6.28 follow-up review), the
+     * same amendment `TripDayPlanDialog` carries: with several matches on screen nothing is resolved, the
+     * parse below answers `search`, and the stay used to save with `location: null` while the rows the user
+     * was choosing between disappeared unremarked. The bucket list and the create form both refuse here.
+     */
+    if (!resolvedLocation && locationCandidates.length > 0) {
+      setServerError(t("trips.location.selectRequired"));
+      setActiveTab("place");
+      return;
+    }
+
+    /**
+     * A pair typed into the place field and saved **without** pressing *Find* (Story 6.28 review), the
+     * same amendment `TripDayPlanDialog` carries and for the same reason: the helper line now invites a
+     * typed pair, `locationQuery` is outside the dirty-key comparison, and the pair was therefore dropped
+     * on save with no pin, no message and no prompt.
+     *
+     * **Only `coordinates` does anything.** Any other status leaves this save byte-for-byte as it was —
+     * the stay saves with no location, no request is issued, nothing is blocked. `handleLookupLocation` is
+     * where a refusal is reported, because there the user asked.
+     */
+    let locationForSave = resolvedLocation;
+    const unresolvedQuery = locationQuery.trim();
+    if (!locationForSave && unresolvedQuery) {
+      const parsed = parseLocationInput(unresolvedQuery);
+      if (parsed.status === "coordinates") {
+        locationForSave = {
+          lat: parsed.lat,
+          lng: parsed.lng,
+          label: formatCoordinateLabel(parsed.lat, parsed.lng),
+        };
+        setResolvedLocation(locationForSave);
+      }
+    }
+
     const payload: {
       tripDayId: string;
       name: string;
@@ -1064,7 +1115,7 @@ export default function TripAccommodationDialog({
       payments: paymentsPayload,
       link: linkValue.length > 0 ? linkValue : null,
       notes: values.notes.trim() ? values.notes : null,
-      location: resolvedLocation,
+      location: locationForSave,
     };
     if (stayType === "current" && dirtyFields.checkInTime) {
       payload.checkInTime = normalizeTimeInput(values.checkInTime) ?? null;
@@ -1225,6 +1276,23 @@ export default function TripAccommodationDialog({
     }
   };
 
+  /** Story 6.28 AC5. Activating a candidate row does what the old single-result success path did. */
+  const selectLocationCandidate = (candidate: { lat: number; lng: number; label: string }) => {
+    setResolvedLocation({ lat: candidate.lat, lng: candidate.lng, label: candidate.label });
+    setLocationQuery(candidate.label);
+    setLocationCandidates([]);
+    // The counterpart of the `selectRequired` refusal in `onSubmit`, and the same clear
+    // `TripDayPlanDialog` and `TripBucketListPanel` carry: this gesture is the only answer to that
+    // message, so it must take it down — and only it (6.28 follow-up review).
+    setServerError((previous) => (previous === t("trips.location.selectRequired") ? null : previous));
+  };
+
+  /**
+   * Story 6.28, the same order as `TripDayPlanDialog`'s canonical copy: parse first, so a coordinate pair
+   * or a pasted Google Maps link resolves with **no** network request, the two refusals set nothing, and
+   * only a genuine search term reaches the route. `isGeocoding` keeps its meaning — it is the flag for a
+   * request in flight, and a coordinate parse has no request to be in flight.
+   */
   const handleLookupLocation = async () => {
     const query = locationQuery.trim();
     if (!query) {
@@ -1233,6 +1301,28 @@ export default function TripAccommodationDialog({
     }
 
     setServerError(null);
+    setLocationCandidates([]);
+
+    const parsed = parseLocationInput(query);
+    if (parsed.status === "ambiguous") {
+      setServerError(t("trips.location.coordinatesAmbiguous"));
+      return;
+    }
+    if (parsed.status === "out_of_range") {
+      setServerError(t(parsed.field === "lat" ? "trips.location.latInvalid" : "trips.location.lngInvalid"));
+      return;
+    }
+    if (parsed.status === "coordinates") {
+      // `currentLocationKey` below is derived from `resolvedLocation`, so this marks the form dirty
+      // exactly as the fetch path does — a pair typed and then dismissed still raises the guard.
+      setResolvedLocation({
+        lat: parsed.lat,
+        lng: parsed.lng,
+        label: formatCoordinateLabel(parsed.lat, parsed.lng),
+      });
+      return;
+    }
+
     setIsGeocoding(true);
     try {
       const response = await fetch(`/api/geocode?q=${encodeURIComponent(query)}`, {
@@ -1240,7 +1330,7 @@ export default function TripAccommodationDialog({
         credentials: "include",
       });
       const body = (await response.json()) as ApiEnvelope<{
-        result: { lat: number; lng: number; label: string } | null;
+        results: { lat: number; lng: number; label: string }[];
       }>;
 
       if (!response.ok || body.error) {
@@ -1248,17 +1338,18 @@ export default function TripAccommodationDialog({
         return;
       }
 
-      if (!body.data?.result) {
+      const results = body.data?.results ?? [];
+      if (results.length === 0) {
         setServerError(t("trips.location.noResult"));
         return;
       }
 
-      setResolvedLocation({
-        lat: body.data.result.lat,
-        lng: body.data.result.lng,
-        label: body.data.result.label,
-      });
-      setLocationQuery(body.data.result.label);
+      if (results.length === 1) {
+        selectLocationCandidate(results[0]);
+        return;
+      }
+
+      setLocationCandidates(results);
     } catch {
       setServerError(t("trips.location.lookupError"));
     } finally {
@@ -1581,10 +1672,28 @@ export default function TripAccommodationDialog({
    * whether anything is staged, and the identity of a `File[]` rebuilt from a picker change is not
    * that.
    */
+  /**
+   * The pair the **save** would persist from an unresolved search box (6.28 follow-up review), and the
+   * one narrow exception to the `locationQuery` exclusion stated above.
+   *
+   * The review pass before this one taught `onSubmit` to parse that box when nothing is resolved, so a
+   * typed `48.8584, 2.2945` saved with *Save stay* — while dismissing threw it away in silence, because
+   * the guard below could not see it. Only a `coordinates` reading enters; every other status is text the
+   * save ignores, so the 6.24 finding this exclusion exists for still holds for it.
+   */
+  const unresolvedPairKey = (() => {
+    if (resolvedLocation) return "";
+    const trimmed = locationQuery.trim();
+    if (!trimmed) return "";
+    const parsed = parseLocationInput(trimmed);
+    return parsed.status === "coordinates" ? `${parsed.lat},${parsed.lng}` : "";
+  })();
   const openLocationKey = day?.accommodation?.location
     ? `${day.accommodation.location.lat},${day.accommodation.location.lng}`
     : "";
-  const currentLocationKey = resolvedLocation ? `${resolvedLocation.lat},${resolvedLocation.lng}` : "";
+  const currentLocationKey = resolvedLocation
+    ? `${resolvedLocation.lat},${resolvedLocation.lng}`
+    : unresolvedPairKey;
   const stayGuard = useDiscardGuard(
     isDirty || currentLocationKey !== openLocationKey || galleryFiles.length > 0 || documentFiles.length > 0,
     onClose,
@@ -1953,7 +2062,15 @@ export default function TripAccommodationDialog({
                     id={`${fieldIdPrefix}-place`}
                     label={t("trips.location.searchLabel")}
                     value={locationQuery}
-                    onChange={(event) => setLocationQuery(event.target.value)}
+                    onChange={(event) => {
+                      setLocationQuery(event.target.value);
+                      // Story 6.28 review: the rows answer the *old* text, so they do not survive an edit
+                      // of it. Activating a stale row would pin a place this field no longer names.
+                      setLocationCandidates([]);
+                    }}
+                    // Story 6.28 AC3. Same helper line on all five place fields — the rule and the
+                    // latitude-first order have to be readable before the field is used.
+                    hint={t("trips.location.searchHelper")}
                   />
                 </Box>
                 <Button
@@ -1965,13 +2082,30 @@ export default function TripAccommodationDialog({
                 </Button>
                 <Button
                   variant="text"
-                  onClick={() => setResolvedLocation(null)}
-                  disabled={isSubmitting || isDeleting || isGeocoding || !resolvedLocation}
+                  onClick={() => {
+                    setResolvedLocation(null);
+                    setLocationCandidates([]);
+                    // The text goes too (6.28 follow-up review), the same amendment `TripDayPlanDialog`
+                    // carries: `locationQuery` is seeded from the stored label, which for a hand-entered
+                    // pair *is* the pair, and the save path re-parses it — so clearing only the coordinate
+                    // put the pin back on the next Save and a manual location could not be deleted.
+                    setLocationQuery("");
+                  }}
+                  // Story 6.28: an unanswered candidate list is something to clear too.
+                  disabled={
+                    isSubmitting || isDeleting || isGeocoding || (!resolvedLocation && locationCandidates.length === 0)
+                  }
                   sx={{ color: tokens.ink }}
                 >
                   {t("trips.location.clearAction")}
                 </Button>
               </Box>
+              <LocationCandidateList
+                candidates={locationCandidates}
+                onSelect={selectLocationCandidate}
+                disabled={isSubmitting || isDeleting || isGeocoding}
+                idPrefix={`${fieldIdPrefix}-place`}
+              />
               <Typography sx={{ fontSize: 11, fontWeight: 600, color: tokens.inkSoft }}>
                 {resolvedLocation
                   ? `${t("trips.location.latLabel")}: ${resolvedLocation.lat.toFixed(6)} · ${t("trips.location.lngLabel")}: ${resolvedLocation.lng.toFixed(6)}`

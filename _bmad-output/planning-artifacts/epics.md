@@ -2517,6 +2517,42 @@ So that the second-longest form on the day screen stops being one scroll through
 **When** tabs are switched
 **Then** a minimum height holds the frame still, as Story 6.24 did for the activity dialog — a minimum and not a fixed height, because the payment rows and the photo strip are both unbounded
 
+### Story 6.27: A Comma Is a Decimal Point
+
+As someone planning a trip on a German phone,
+I want to type 12,50 into a cost field and have it saved as 12,50,
+So that a stay does not save with no cost at all while the box looked filled.
+
+**FRs covered:** None (defect fix; silent data loss on four numeric inputs)
+
+**Depends on:** nothing.
+
+**Context:** Reported from a real German phone on 2026-08-05. Four numeric inputs are `type="number"` while also setting `inputMode="decimal"` — the second asks a German keyboard for a comma, the first rejects it. On `badInput` a browser reports `value === ""`, so the comma never reaches React, and the cost validation opens with "empty is legal, it means no cost". The stay therefore saves **with no cost at all**, silently, and no error is shown. That is data loss, not an input annoyance.
+
+The fix already existed one field deep: the activity cost field was already `type="text"` + `inputMode="decimal"` with a comma-aware parser, and was never propagated. The app also already promises comma support in its own copy — `trips.plan.costHelper` reads "z. B. 10,00 oder 10.00" — and kept that promise at exactly one of five fields.
+
+**Acceptance Criteria:**
+
+**Given** a German keyboard and any of the five numeric fields — stay cost, stay payment amount, activity cost, activity payment amount, travel-segment distance
+**When** a comma decimal is typed
+**Then** it is accepted and saved as the value shown, including grouped forms such as `1.234,50` and `1,234.50`
+
+**Given** the underlying cause is the input type and not the parser
+**When** the fix is applied
+**Then** `type="number"` is gone from all five: a parser cannot recover a comma the browser discarded before any code runs
+
+**Given** a value that cannot be parsed at all
+**When** it is submitted
+**Then** it becomes a visible, blocking error rather than falling through to "empty means no cost" — the empty-versus-invalid distinction that only becomes expressible once the field is text
+
+**Given** a distance in km, which is not money
+**When** it is parsed
+**Then** it is neither rounded to two decimals nor multiplied by 100, and one shared parser serves all of them with both local copies deleted
+
+**Given** the German locale
+**When** a cost field is empty
+**Then** its placeholder and helper line are locale-correct — `0,00`, and the accepted forms named
+
 ### Story 6.28: Coordinates by Hand, and a Choice of Places
 
 As a traveller planning an activity the geocoder cannot find,
@@ -2593,6 +2629,45 @@ The data is already present: the day view's accommodation object carries `link`.
 **Given** a viewer, who has no edit overlay on these cards
 **When** they open either link
 **Then** it works — the overlay escape hatch and the no-overlay case must both hold
+
+
+### Story 6.30: One Decimal for a Distance, a Comma in the Box
+
+As someone entering numbers in German,
+I want a distance to refuse precision it cannot mean, and an amount to be shown the way I would write it,
+So that the fields finish the job Story 6.27 started.
+
+**FRs covered:** None (follow-up to a defect fix)
+
+**Depends on:** Story 6.27, whose operator pass produced both items.
+
+**Context:** Story 6.27's operator pass on a real German phone (2026-08-07) confirmed the fix against the database on all five fields. Two things it could not close came out of that pass.
+
+The first was deferred by 6.27 for a human ruling and is now ruled: a **lone** three-digit group is read as a fraction in both spellings — `parseDecimal("1,000")` and `parseDecimal("1.000")` both return `1` — so "one thousand kilometres" silently becomes one kilometre however it is typed. Two separators are understood correctly, which keeps this narrow. Capping a distance at one decimal makes every ambiguous form refusable and turns a factor-of-1000 error into a visible question; 100 m resolution is beyond anything trip planning uses. This deliberately amends 6.27's intent contract, which currently requires `12,555` to parse as a distance.
+
+The second nobody had noticed until a person used it: under German the cost field's placeholder renders `0,00` while the value beside it renders `120.50`. That is deliberate and documented — the edit value stays dot-decimal "because that is what an unedited round-trip must hand back" — but the reason is weaker after 6.27, which taught the parser to accept both. Nothing is at risk; it is a cosmetic inconsistency in the one story that exists because German number entry was broken.
+
+**Acceptance Criteria:**
+
+**Given** a distance field
+**When** a value with more than one decimal is entered — `1,000`, `1.000`, `12,555`, `60,12345`
+**Then** it is refused with a visible, blocking error that names the rule, while `60,5`, `1234,5` and `12000` are accepted
+
+**Given** the shared decimal parser, whose documented contract is that whatever precision was typed survives
+**When** the cap is applied
+**Then** it is expressed as the distance field's rule and not hard-coded into the helper, so a future caller is not silently bound by it
+
+**Given** a segment already storing more decimals than the new rule allows
+**When** its dialog is opened and saved without touching the distance
+**Then** it is unchanged — the cap governs input, not stored history
+
+**Given** an account set to German
+**When** an existing amount is loaded into a cost or payment field
+**Then** it renders with a comma, agreeing with the placeholder and helper beside it; under English it renders with a period
+
+**Given** any stored amount and either language
+**When** it is formatted into the field and parsed back without an edit
+**Then** the cent value is identical, and the dialog reports no unsaved changes
 
 
 ## Epic 7: Visual Redesign — Light Cockpit System
