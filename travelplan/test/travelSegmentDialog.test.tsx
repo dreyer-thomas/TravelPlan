@@ -1276,4 +1276,112 @@ describe("TripDayTravelSegmentDialog", () => {
 
     vi.unstubAllGlobals();
   });
+
+  /**
+   * Story 6.27. The docblock above the duration boxes has named this bug since Story 6.18 — a
+   * comma-decimal typed on a German keyboard arrives empty from a `type="number"` box — and the
+   * distance field twenty lines below it stayed `type="number"` anyway. Here it loses data less
+   * quietly than the money fields did, because `validate()` then says a distance is required; it
+   * still refuses a number the user legitimately typed.
+   */
+  describe("comma decimals on the distance field", () => {
+    it("saves 12,5 km as 12.5 rather than reporting a missing distance", async () => {
+      const fetchMock = stubSaveFetch();
+
+      render(
+        <I18nProvider initialLanguage="en">
+          <TripDayTravelSegmentDialog {...baseProps} />
+        </I18nProvider>,
+      );
+
+      setDuration("0", "45");
+      fireEvent.change(await screen.findByLabelText("Distance (km)"), { target: { value: "12,5" } });
+      fireEvent.click(screen.getByRole("button", { name: "OK" }));
+
+      await waitFor(() =>
+        expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/travel-segments"))).toBe(true),
+      );
+      // Not `12`, which `Number.parseFloat("12,5")` returns and which nothing would have flagged.
+      expect(saveCallBody(fetchMock).distanceKm).toBe(12.5);
+      expect(screen.queryByText("Distance is required")).not.toBeInTheDocument();
+
+      vi.unstubAllGlobals();
+    });
+
+    /**
+     * A distance is not money, so the shared parser's *money* half must not be what reads it: that
+     * one caps at two decimals and multiplies by 100. `step: "0.1"` implied one decimal and never
+     * enforced it, so an uncapped value is the change-nothing answer.
+     */
+    it("keeps three decimals, uncapped and unscaled", async () => {
+      const fetchMock = stubSaveFetch();
+
+      render(
+        <I18nProvider initialLanguage="en">
+          <TripDayTravelSegmentDialog {...baseProps} />
+        </I18nProvider>,
+      );
+
+      setDuration("0", "45");
+      fireEvent.change(await screen.findByLabelText("Distance (km)"), { target: { value: "12,555" } });
+      fireEvent.click(screen.getByRole("button", { name: "OK" }));
+
+      await waitFor(() =>
+        expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/travel-segments"))).toBe(true),
+      );
+      expect(saveCallBody(fetchMock).distanceKm).toBe(12.555);
+
+      vi.unstubAllGlobals();
+    });
+
+    /**
+     * Story 6.27 AC8b. jsdom's sanitisation of `type="number"` is the only thing between a green
+     * suite and a broken German phone, so the type is asserted directly rather than inferred from
+     * the cases above.
+     */
+    it("renders the distance box as a decimal text input", async () => {
+      stubCsrfOnlyFetch();
+
+      render(
+        <I18nProvider initialLanguage="en">
+          <TripDayTravelSegmentDialog {...baseProps} />
+        </I18nProvider>,
+      );
+
+      const distance = await screen.findByLabelText("Distance (km)");
+      expect(distance).toHaveAttribute("type", "text");
+      expect(distance).toHaveAttribute("inputmode", "decimal");
+      // `min`/`step` left with the type: inert on a text input, and `step: "0.1"` advertised a
+      // one-decimal cap that nothing has ever enforced.
+      expect(distance).not.toHaveAttribute("min");
+      expect(distance).not.toHaveAttribute("step");
+
+      vi.unstubAllGlobals();
+    });
+
+    /**
+     * The same empty-versus-invalid split the money fields got. While the box was `type="number"` an
+     * unparseable distance arrived as `""` and "required" described it accurately; now it arrives
+     * intact, and "required" would be a message about a field the user can see is full.
+     */
+    it("calls a filled-but-unparseable car distance invalid rather than missing", async () => {
+      const fetchMock = stubSaveFetch();
+
+      render(
+        <I18nProvider initialLanguage="en">
+          <TripDayTravelSegmentDialog {...baseProps} />
+        </I18nProvider>,
+      );
+
+      setDuration("0", "45");
+      fireEvent.change(await screen.findByLabelText("Distance (km)"), { target: { value: "abc" } });
+      fireEvent.click(screen.getByRole("button", { name: "OK" }));
+
+      expect(await screen.findByText("Enter a distance greater than 0, e.g. 12.5 or 12,5")).toBeInTheDocument();
+      expect(screen.queryByText("Distance is required for car travel")).not.toBeInTheDocument();
+      expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/travel-segments"))).toBe(false);
+
+      vi.unstubAllGlobals();
+    });
+  });
 });

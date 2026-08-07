@@ -1,0 +1,17 @@
+{
+  "actions": [
+    "Set a phone to German and open a stay dialog on it; type 12,50 into the cost field and confirm the numeric keypad offers a comma, the comma appears in the box, and the saved cost reads 12,50 after closing and reopening the dialog.",
+    "Repeat that comma check on the four remaining fields \u2014 the stay payment amount, the activity cost, the activity payment amount, and the travel-segment distance in km \u2014 confirming each accepts the comma and saves the value it displayed.",
+    "Confirm the cost placeholder renders 0,00 under German and that the helper line under both cost fields names the accepted forms (Optionaler Betrag (z. B. 10,00 oder 10.00)).",
+    "Confirm the payment-amount row is still read-only unless \"Aufteilen\" (split) is selected, on both the stay and the activity dialog.",
+    "Switch the device to English and confirm a period still works on all five fields and nothing about the English keyboard changed.",
+    "Type abc into the stay cost field on the phone and confirm the save is blocked with a visible error rather than the stay saving with no cost.",
+    "Run the phone pass against a throwaway environment only \u2014 a copy of dev.db on an isolated port with MEDIA_STORAGE_ROOT pointed at a scratch directory, never prisma/dev.db and never the real media tree (recipe in 7-12-bucket-list-sidebar-card.md Dev Notes).",
+    "Decide Story 6.27 open question 4: whether this bug fix stays numbered 6.27 inside a closed epic or moves to a maintenance epic, and add the matching entry to epics.md \u2014 the epics file currently jumps 6.26 to 6.28.",
+    "Rule on the deferred distance-grouping question (DW entry from this spec): cap distanceKm at one decimal, which makes both 1,000 and 12,555 rejectable, or keep it uncapped and accept that a lone three-digit group is read as a decimal."
+  ],
+  "parked_at": "2026-08-07",
+  "run_id": "20260807-065558-0b87",
+  "spec_file": "_bmad-output/implementation-artifacts/spec-6-27-a-comma-is-a-decimal-point.md",
+  "story_key": "6-27-a-comma-is-a-decimal-point"
+}

@@ -45,6 +45,7 @@ import {
   isSupportedDocumentUpload,
 } from "@/lib/trips/documentUploads";
 import { IMAGE_UPLOAD_ACCEPT, isSupportedImageUpload } from "@/lib/trips/imageUploads";
+import { formatCentsAsAmount, parseAmountToCents } from "@/lib/trips/parseAmount";
 
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
@@ -425,38 +426,6 @@ const parseDoc = (value: string) => {
   }
 };
 
-const formatCentsAsAmount = (value: number) => (value / 100).toFixed(2);
-
-const parseAmountToCents = (rawValue: string): number | null => {
-  const value = rawValue.trim();
-  if (!value) return null;
-
-  const compact = value.replace(/\s+/g, "");
-  const lastComma = compact.lastIndexOf(",");
-  const lastDot = compact.lastIndexOf(".");
-  let normalized = compact;
-
-  if (lastComma !== -1 && lastDot !== -1) {
-    const decimalSeparator = lastComma > lastDot ? "," : ".";
-    const thousandsSeparator = decimalSeparator === "," ? "." : ",";
-    normalized = compact.split(thousandsSeparator).join("");
-    if (decimalSeparator === ",") normalized = normalized.replace(",", ".");
-  } else if (lastComma !== -1) {
-    normalized = compact.replace(",", ".");
-  }
-
-  if (!/^\d+(\.\d{1,2})?$/.test(normalized)) {
-    return null;
-  }
-
-  const amount = Number.parseFloat(normalized);
-  if (!Number.isFinite(amount) || amount < 0) {
-    return null;
-  }
-
-  return Math.round(amount * 100);
-};
-
 const toDateOnly = (value?: string | null) => {
   if (!value) return new Date().toISOString().slice(0, 10);
   const parsed = new Date(value);
@@ -596,7 +565,7 @@ export default function TripDayPlanDialog({
   onClose,
   onSaved,
 }: TripDayPlanDialogProps) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   // Unique `htmlFor`/`id` prefix for the above-field labels this restyle introduces.
   const fieldIdPrefix = useId();
   const { tokens, warning } = useTheme().palette;
@@ -1200,8 +1169,15 @@ export default function TripDayPlanDialog({
         const amountCents = parseAmountToCents(amountValue);
         const dueDate = payment.dueDate.trim();
         const nextError: { amount?: string; dueDate?: string } = {};
-        if (!amountValue || amountCents === null) {
+        // Story 6.27. Two states, not one. While the row was `type="number"` an unparseable amount
+        // arrived as `""` and was indistinguishable from an empty one, so "required" covered both;
+        // now that the box hands over what was typed, answering "required" to a row the user can see
+        // contains `abc` is the same lie this story removed from the cost field.
+        if (!amountValue) {
           nextError.amount = t("trips.payments.amountRequired");
+          hasError = true;
+        } else if (amountCents === null) {
+          nextError.amount = t("trips.payments.amountInvalid");
           hasError = true;
         }
         if (!dueDate) {
@@ -2216,7 +2192,10 @@ export default function TripDayPlanDialog({
                 hint={t("trips.plan.costHelper")}
                 type="text"
                 slotProps={{ htmlInput: { inputMode: "decimal" } }}
-                placeholder="0.00"
+                // Story 6.27 AC5a. The placeholder is the first thing telling a German user which
+                // separator this box wants, and `0.00` was telling them the wrong one. Both are
+                // accepted either way - this is rendering, and rendering follows the locale.
+                placeholder={language === "de" ? "0,00" : "0.00"}
               />
               <FormControl component="fieldset" error={Boolean(paymentError)} variant="standard">
                 <FormLabel
@@ -2261,9 +2240,14 @@ export default function TripDayPlanDialog({
                             setPayments(next);
                           }}
                           error={paymentRowErrors[index]?.amount}
-                          type="number"
+                          // Story 6.27. `type="number"` and `inputMode="decimal"` contradicted each
+                          // other here: the second asks a German keyboard for a comma, the first
+                          // refuses it and reports the box empty. `min`/`step` go with the type -
+                          // both are inert on a text input, and leaving them implies a constraint
+                          // nothing enforces. `readOnly` is unrelated to all of that and stays.
+                          type="text"
                           slotProps={{
-                            htmlInput: { min: 0, step: 0.01, readOnly: paymentMode !== "split", inputMode: "decimal" },
+                            htmlInput: { readOnly: paymentMode !== "split", inputMode: "decimal" },
                           }}
                         />
                       </Box>

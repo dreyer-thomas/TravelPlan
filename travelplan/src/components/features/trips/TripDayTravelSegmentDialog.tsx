@@ -22,6 +22,7 @@ import {
   transportTypeRequiresDistance,
   type TransportType,
 } from "@/lib/trips/transportTypes";
+import { parseDecimal } from "@/lib/trips/parseAmount";
 import { DialogTitleWithClose } from "@/components/ui/DialogCloseButton";
 import DiscardChangesDialog, { useDiscardGuard } from "@/components/ui/DiscardChangesDialog";
 
@@ -395,17 +396,26 @@ export default function TripDayTravelSegmentDialog({
     }
 
     if (requiresDistance(transportType)) {
-      const distanceValue = Number.parseFloat(distanceKm);
-      if (!Number.isFinite(distanceValue) || distanceValue <= 0) {
+      // Story 6.27: `parseDecimal`, not `Number.parseFloat`. Now that the box is `type="text"` a
+      // German `12,5` arrives intact, and `Number.parseFloat` would read it as `12` - a silent
+      // truncation the number input was accidentally hiding by delivering `""` instead.
+      //
+      // And the same empty-versus-invalid split the money fields get: while this was `type="number"`
+      // an unparseable distance arrived as `""`, so "required" described both states. It arrives
+      // intact now, and answering "required" to a box the user can see holds `abc` is the lie this
+      // story removed everywhere else.
+      const distanceValue = parseDecimal(distanceKm);
+      if (!distanceKm.trim()) {
         nextErrors.distanceKm = t("trips.travelSegment.distanceRequired");
+      } else if (distanceValue === null || distanceValue <= 0) {
+        nextErrors.distanceKm = t("trips.travelSegment.distancePositive");
       }
     } else if (allowsDistance(transportType) && distanceKm.trim().length > 0) {
-      // Optional is not the same as silently discarded. `inputProps.min` is not enforced on submit -
-      // nothing runs constraint validation - so `0` and `-3` reach here, and the API rejects both
-      // (`travelSegmentSchemas.ts` is `.positive()`). Saying so beats dropping the number the user
-      // typed and closing on a success.
-      const distanceValue = Number.parseFloat(distanceKm);
-      if (!Number.isFinite(distanceValue) || distanceValue <= 0) {
+      // Optional is not the same as silently discarded. Nothing runs constraint validation on submit,
+      // so `0` and `-3` reach here, and the API rejects both (`travelSegmentSchemas.ts` is
+      // `.positive()`). Saying so beats dropping the number the user typed and closing on a success.
+      const distanceValue = parseDecimal(distanceKm);
+      if (distanceValue === null || distanceValue <= 0) {
         nextErrors.distanceKm = t("trips.travelSegment.distanceInvalid");
       }
     }
@@ -523,9 +533,9 @@ export default function TripDayTravelSegmentDialog({
     // Walking and cycling may carry a distance but are not obliged to, so an *empty* field becomes
     // `null` rather than a `NaN` the API would reject. A field that is filled in but not positive no
     // longer reaches here - `validate()` now reports it instead of discarding it.
-    const parsedDistance = Number.parseFloat(distanceKm);
+    const parsedDistance = parseDecimal(distanceKm);
     const distanceValue =
-      allowsDistance(transportType) && Number.isFinite(parsedDistance) && parsedDistance > 0 ? parsedDistance : null;
+      allowsDistance(transportType) && parsedDistance !== null && parsedDistance > 0 ? parsedDistance : null;
     const payload = {
       tripDayId,
       fromItemType: fromItem.type,
@@ -722,10 +732,17 @@ export default function TripDayTravelSegmentDialog({
               }
               value={distanceKm}
               onChange={(event) => setDistanceKm(event.target.value)}
-              type="number"
+              // Story 6.27. The argument the docblock above makes for the duration boxes was never
+              // applied to this one, twenty lines below it: this stayed `type="number"`, so `12,5`
+              // arrived empty and the user was told a distance was required. Same fix, one
+              // difference - `inputMode="decimal"` rather than `"numeric"`, because a distance has a
+              // fractional part. `min`/`step` go with the type: nothing ran constraint validation on
+              // them, `validate()` is what rejects `0` and `-3`, and `step: "0.1"` implied a
+              // one-decimal cap that has never existed.
+              type="text"
               size="small"
               margin="dense"
-              inputProps={{ min: 0, step: "0.1" }}
+              slotProps={{ htmlInput: { inputMode: "decimal" } }}
               error={Boolean(fieldErrors.distanceKm)}
               helperText={fieldErrors.distanceKm ?? ""}
               FormHelperTextProps={{ sx: { minHeight: 0 } }}

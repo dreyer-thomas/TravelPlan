@@ -455,8 +455,12 @@ describe("TripAccommodationDialog", () => {
     expect(splitOption).toBeChecked();
     const amountInputs = screen.getAllByLabelText("Amount");
     const dateInputs = screen.getAllByLabelText("Due date");
-    expect(amountInputs[0]).toHaveValue(50);
-    expect(amountInputs[1]).toHaveValue(70);
+    // Story 6.27 turned this row into `type="text"`, so `toHaveValue` reads the string the field
+    // actually holds rather than the number a number input coerced it to. Tightened, not relaxed:
+    // `50` passed against "50", "50.0" and "50.00" alike, and the exact string is the thing that has
+    // to survive a round trip back through the parser.
+    expect(amountInputs[0]).toHaveValue("50.00");
+    expect(amountInputs[1]).toHaveValue("70.00");
     expect(dateInputs[0]).toHaveValue("2026-11-01");
     expect(dateInputs[1]).toHaveValue("2026-11-02");
   });
@@ -717,7 +721,9 @@ describe("TripAccommodationDialog", () => {
     selectTab("Basics");
     expect(screen.getByLabelText("Stay name")).toHaveValue("Harbor Hotel");
     selectTab("Cost");
-    expect(costField()).toHaveValue(120);
+    // Story 6.27: `type="text"`, so this is now the string that was typed rather than the number the
+    // field coerced it to — which is the stricter reading of "keeps typed values".
+    expect(costField()).toHaveValue("120.00");
     selectTab("Place & notes");
     expect(screen.getByLabelText("Search place")).toHaveValue("Lisbon");
     expect(screen.getByLabelText("Notes")).toHaveValue("Ask for a quiet room");
@@ -1481,6 +1487,211 @@ describe("TripAccommodationDialog", () => {
       expect(documentInput()).toBeNull();
       // The link is still there, so the tab is not empty — which is why the link lives on it.
       expect(screen.getByLabelText("Link")).toBeInTheDocument();
+    });
+  });
+
+  /**
+   * Story 6.27. Reported from a German phone on 2026-08-05: `12,50` in the cost field saved the stay
+   * with no cost at all. With `type="number"` jsdom sanitises a comma-decimal to `""` exactly as a
+   * browser does, so these cases fail against the pre-6.27 code by asserting the *saved* value —
+   * `costCents` arrived as `null`, not as an error. Anything that only reads the input's `value`
+   * would pass on both sides of the fix and prove nothing.
+   */
+  describe("comma decimals", () => {
+    /** Collects the save body; the dialog also GETs this path, and only the save carries one. */
+    const saveFetch = (sentBodies: string[]) => {
+      const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/api/auth/csrf")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
+          };
+        }
+        if (init?.body) sentBodies.push(String(init.body));
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { accommodation: { id: "stay-1" } }, error: null }),
+        };
+      }) as unknown as typeof fetch;
+      vi.stubGlobal("fetch", fetchMock);
+      return fetchMock;
+    };
+
+    const renderEmptyStay = () =>
+      render(
+        <Providers language="en">
+          <TripAccommodationDialog
+            open
+            tripId="trip-1"
+            stayType="current"
+            day={{
+              id: "day-1",
+              date: "2026-11-01T00:00:00.000Z",
+              dayIndex: 1,
+              accommodation: null,
+            }}
+            onClose={() => undefined}
+            onSaved={() => undefined}
+          />
+        </Providers>,
+      );
+
+    it("saves a comma-decimal stay cost as the cents a period would have produced", async () => {
+      const sentBodies: string[] = [];
+      const fetchMock = saveFetch(sentBodies);
+
+      renderEmptyStay();
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+      fireEvent.change(screen.getByLabelText("Stay name"), { target: { value: "Test Stay" } });
+      selectTab("Cost");
+      fireEvent.change(costField(), { target: { value: "12,50" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+
+      await waitFor(() => expect(sentBodies).toHaveLength(1));
+      expect(JSON.parse(sentBodies[0]).costCents).toBe(1250);
+    });
+
+    it("saves a comma-decimal total split across comma-decimal payment rows", async () => {
+      const sentBodies: string[] = [];
+      const fetchMock = saveFetch(sentBodies);
+
+      renderEmptyStay();
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+      fireEvent.change(screen.getByLabelText("Stay name"), { target: { value: "Test Stay" } });
+      selectTab("Cost");
+      fireEvent.change(costField(), { target: { value: "100,00" } });
+      fireEvent.click(screen.getByLabelText("Split into multiple payments"));
+
+      const amountInputs = screen.getAllByLabelText("Amount");
+      const dateInputs = screen.getAllByLabelText("Due date");
+      fireEvent.change(amountInputs[0], { target: { value: "50,00" } });
+      fireEvent.change(dateInputs[0], { target: { value: "2026-11-01" } });
+      fireEvent.change(amountInputs[1], { target: { value: "50,00" } });
+      fireEvent.change(dateInputs[1], { target: { value: "2026-11-02" } });
+
+      fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+
+      await waitFor(() => expect(sentBodies).toHaveLength(1));
+      const body = JSON.parse(sentBodies[0]);
+      expect(body.costCents).toBe(10000);
+      expect(body.payments).toEqual([
+        { amountCents: 5000, dueDate: "2026-11-01" },
+        { amountCents: 5000, dueDate: "2026-11-02" },
+      ]);
+      expect(screen.queryByText("Payments must add up to the total cost")).toBeNull();
+    });
+
+    /**
+     * The half of the story that is not about commas: once the field is `type="text"`, junk arrives
+     * intact instead of arriving as `""`, and "empty means no cost" must no longer swallow it.
+     */
+    it("blocks the save and shows an error for an unparseable stay cost", async () => {
+      const sentBodies: string[] = [];
+      const fetchMock = saveFetch(sentBodies);
+
+      renderEmptyStay();
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+      fireEvent.change(screen.getByLabelText("Stay name"), { target: { value: "Test Stay" } });
+      selectTab("Cost");
+      fireEvent.change(costField(), { target: { value: "abc" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+
+      expect(await screen.findByText("Enter an amount like 10.00 or 10,00 — at most 2 decimals")).toBeInTheDocument();
+      expect(sentBodies).toHaveLength(0);
+    });
+
+    /**
+     * Story 6.27 AC8b. jsdom's sanitisation is the only thing standing between a green suite and a
+     * broken German phone, so the input type is asserted directly: a refactor putting `type="number"`
+     * back would break every comma while the behavioural cases could be argued green again.
+     */
+    it("renders the cost and payment-amount fields as decimal text inputs", async () => {
+      const fetchMock = saveFetch([]);
+      renderEmptyStay();
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+      selectTab("Cost");
+      expect(costField()).toHaveAttribute("type", "text");
+      expect(costField()).toHaveAttribute("inputmode", "decimal");
+      expect(costField()).toHaveAttribute("placeholder", "0.00");
+      // Renders `trips.stay.costHelper`, which until this story was in both dictionaries and on no
+      // screen.
+      expect(screen.getByText("Optional amount (e.g. 10.00 or 10,00)")).toBeInTheDocument();
+
+      const amount = screen.getByLabelText("Amount");
+      expect(amount).toHaveAttribute("type", "text");
+      expect(amount).toHaveAttribute("inputmode", "decimal");
+      // AC1b: unrelated to the type change and easy to lose while rewriting the `htmlInput` object.
+      expect(amount).toHaveAttribute("readonly");
+    });
+
+    it("shows a comma placeholder and the accepted forms under de, and saves a comma there", async () => {
+      const sentBodies: string[] = [];
+      const fetchMock = saveFetch(sentBodies);
+      render(
+        <Providers language="de">
+          <TripAccommodationDialog
+            open
+            tripId="trip-1"
+            stayType="current"
+            day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1, accommodation: null }}
+            onClose={() => undefined}
+            onSaved={() => undefined}
+          />
+        </Providers>,
+      );
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+      // The dialog opens on the basics tab, and its German label carries a soft hyphen (Story 6.26's
+      // 390px fix), so the name is filled here rather than by querying that tab back by its text.
+      fireEvent.change(screen.getByLabelText("Name der Unterkunft"), { target: { value: "Test Stay" } });
+
+      selectTab("Kosten");
+      // The separator the field wants, said in the language being read. Both are accepted either
+      // way — this is rendering, and only rendering follows the locale.
+      const cost = screen.getByLabelText("Kosten", { selector: "input" });
+      expect(cost).toHaveAttribute("placeholder", "0,00");
+      expect(screen.getByText("Optionaler Betrag (z. B. 10,00 oder 10.00)")).toBeInTheDocument();
+
+      // The bug was reported in German, so the save is asserted in German too. Parsing does not read
+      // the locale by design — this is the case that proves the design holds rather than assuming it.
+      fireEvent.change(cost, { target: { value: "12,50" } });
+      fireEvent.click(screen.getByRole("button", { name: "Unterkunft speichern" }));
+
+      await waitFor(() => expect(sentBodies).toHaveLength(1));
+      expect(JSON.parse(sentBodies[0]).costCents).toBe(1250);
+    });
+
+    it("reports a filled-but-unparseable payment amount as invalid rather than missing", async () => {
+      const sentBodies: string[] = [];
+      const fetchMock = saveFetch(sentBodies);
+
+      renderEmptyStay();
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+      fireEvent.change(screen.getByLabelText("Stay name"), { target: { value: "Test Stay" } });
+      selectTab("Cost");
+      fireEvent.change(costField(), { target: { value: "100,00" } });
+      fireEvent.click(screen.getByLabelText("Split into multiple payments"));
+
+      const amountInputs = screen.getAllByLabelText("Amount");
+      const dateInputs = screen.getAllByLabelText("Due date");
+      fireEvent.change(amountInputs[0], { target: { value: "abc" } });
+      fireEvent.change(dateInputs[0], { target: { value: "2026-11-01" } });
+      fireEvent.change(amountInputs[1], { target: { value: "50,00" } });
+      fireEvent.change(dateInputs[1], { target: { value: "2026-11-02" } });
+
+      fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+
+      expect(await screen.findByText("Enter a valid amount")).toBeInTheDocument();
+      expect(screen.queryByText("Payment amount is required")).toBeNull();
+      expect(sentBodies).toHaveLength(0);
     });
   });
 });

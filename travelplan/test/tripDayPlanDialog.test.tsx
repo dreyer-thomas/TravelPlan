@@ -1109,8 +1109,11 @@ describe("TripDayPlanDialog", () => {
     expect(splitOption).toBeChecked();
     const amountInputs = screen.getAllByLabelText("Amount");
     const dateInputs = screen.getAllByLabelText("Due date");
-    expect(amountInputs[0]).toHaveValue(50);
-    expect(amountInputs[1]).toHaveValue(70);
+    // Story 6.27 turned this row into `type="text"`, so `toHaveValue` reads the string the field
+    // actually holds rather than the number a number input coerced it to. Tightened, not relaxed:
+    // `50` passed against "50", "50.0" and "50.00" alike.
+    expect(amountInputs[0]).toHaveValue("50.00");
+    expect(amountInputs[1]).toHaveValue("70.00");
     expect(dateInputs[0]).toHaveValue("2026-11-01");
     expect(dateInputs[1]).toHaveValue("2026-11-02");
   });
@@ -1704,7 +1707,7 @@ describe("TripDayPlanDialog", () => {
     expect(costTab).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tab", { name: "What" })).toHaveAttribute("aria-selected", "false");
     // The marker says "contains errors" in words, so it is not carried by colour alone.
-    expect(screen.getByText("Enter a valid non-negative amount with up to 2 decimals")).toBeInTheDocument();
+    expect(screen.getByText("Enter an amount like 10.00 or 10,00 — at most 2 decimals")).toBeInTheDocument();
     // And the caret is on the field, not just on the tab.
     expect(costField()).toHaveFocus();
 
@@ -2942,6 +2945,142 @@ describe("TripDayPlanDialog", () => {
       expect(view.container.querySelector('input[type="file"][accept*="application/pdf"]')).toBeNull();
       // The link is still there, so the tab is not empty — which is why the link lives on it.
       expect(screen.getByLabelText("Link")).toBeInTheDocument();
+    });
+  });
+
+  /**
+   * Story 6.27. The activity cost field above has taken a comma since Story 2.19 and is the only
+   * reason the parser exists at all — the `"26,00"` case at the top of this file is against *it*, and
+   * it is precisely why the bug survived: the comma path was tested exactly where it already worked.
+   * These cases are about the payment-amount row beside it, which stayed `type="number"`.
+   */
+  describe("comma decimals", () => {
+    const commaFetch = (sentBodies: string[]) => {
+      const fetchMock = vi.fn(async (input: RequestInfo, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.url;
+        if (url.includes("/api/auth/csrf")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
+          };
+        }
+        if (init?.body) sentBodies.push(String(init.body));
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { dayPlanItem: { id: "item-1" } }, error: null }),
+        };
+      }) as unknown as typeof fetch;
+      vi.stubGlobal("fetch", fetchMock);
+      return fetchMock;
+    };
+
+    const renderAdd = async (language: "en" | "de" = "en") => {
+      const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
+      return render(
+        <Providers language={language}>
+          <TripDayPlanDialog
+            open
+            mode="add"
+            tripId="trip-1"
+            day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
+            item={null}
+            onClose={() => undefined}
+            onSaved={() => undefined}
+          />
+        </Providers>,
+      );
+    };
+
+    it("saves a comma-decimal split across the payment-amount rows", async () => {
+      const sentBodies: string[] = [];
+      const fetchMock = commaFetch(sentBodies);
+      await renderAdd();
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+      fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Tickets" } });
+      selectTab("cost");
+      fireEvent.change(costField(), { target: { value: "100,00" } });
+      fireEvent.click(screen.getByLabelText("Split into multiple payments"));
+
+      const amountInputs = screen.getAllByLabelText("Amount");
+      const dateInputs = screen.getAllByLabelText("Due date");
+      fireEvent.change(amountInputs[0], { target: { value: "60,50" } });
+      fireEvent.change(dateInputs[0], { target: { value: "2026-11-01" } });
+      fireEvent.change(amountInputs[1], { target: { value: "39,50" } });
+      fireEvent.change(dateInputs[1], { target: { value: "2026-11-02" } });
+
+      fireEvent.click(screen.getByRole("button", { name: "OK" }));
+
+      await waitFor(() => expect(sentBodies).toHaveLength(1));
+      const body = JSON.parse(sentBodies[0]);
+      expect(body.costCents).toBe(10000);
+      expect(body.payments).toEqual([
+        { amountCents: 6050, dueDate: "2026-11-01" },
+        { amountCents: 3950, dueDate: "2026-11-02" },
+      ]);
+      expect(screen.queryByText("Payments must add up to the total cost")).toBeNull();
+    });
+
+    it("calls a filled-but-unparseable payment amount invalid rather than missing", async () => {
+      const sentBodies: string[] = [];
+      const fetchMock = commaFetch(sentBodies);
+      await renderAdd();
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+      fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Tickets" } });
+      selectTab("cost");
+      fireEvent.change(costField(), { target: { value: "100,00" } });
+      fireEvent.click(screen.getByLabelText("Split into multiple payments"));
+
+      const amountInputs = screen.getAllByLabelText("Amount");
+      const dateInputs = screen.getAllByLabelText("Due date");
+      fireEvent.change(amountInputs[0], { target: { value: "12,,5" } });
+      fireEvent.change(dateInputs[0], { target: { value: "2026-11-01" } });
+      fireEvent.change(amountInputs[1], { target: { value: "39,50" } });
+      fireEvent.change(dateInputs[1], { target: { value: "2026-11-02" } });
+
+      fireEvent.click(screen.getByRole("button", { name: "OK" }));
+
+      expect(await screen.findByText("Enter a valid amount")).toBeInTheDocument();
+      expect(screen.queryByText("Payment amount is required")).toBeNull();
+      expect(sentBodies).toHaveLength(0);
+    });
+
+    /**
+     * Story 6.27 AC8b. The `@mui/material` stub at the top of this file spreads `slotProps.htmlInput`
+     * and `...rest` onto a real `<input>`, so these are the attributes the component asked for. The
+     * activity cost field is here as the parity anchor: it was already right, and a regression on it
+     * would otherwise be invisible.
+     */
+    it("renders both cost and the payment amount as decimal text inputs", async () => {
+      const fetchMock = commaFetch([]);
+      await renderAdd();
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+      selectTab("cost");
+      expect(costField()).toHaveAttribute("type", "text");
+      expect(costField()).toHaveAttribute("inputmode", "decimal");
+      expect(costField()).toHaveAttribute("placeholder", "0.00");
+
+      const amount = screen.getByLabelText("Amount");
+      expect(amount).toHaveAttribute("type", "text");
+      expect(amount).toHaveAttribute("inputmode", "decimal");
+      // AC1b: the single-payment row mirrors the cost and is not editable directly. Unrelated to the
+      // type change, and the easiest thing to lose while rewriting the `htmlInput` object.
+      expect(amount).toHaveAttribute("readonly");
+    });
+
+    it("shows a comma placeholder under de and a period under en", async () => {
+      const fetchMock = commaFetch([]);
+      await renderAdd("de");
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+      selectTab("cost", "de");
+      // The separator the field wants, said in the language the user is reading. Both are accepted
+      // either way — this is rendering, and only rendering follows the locale.
+      expect(screen.getByLabelText("Kosten", { selector: "input" })).toHaveAttribute("placeholder", "0,00");
     });
   });
 });

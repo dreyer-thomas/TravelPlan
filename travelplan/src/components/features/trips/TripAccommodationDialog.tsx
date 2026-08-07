@@ -36,6 +36,7 @@ import {
   isSupportedDocumentUpload,
 } from "@/lib/trips/documentUploads";
 import { IMAGE_UPLOAD_ACCEPT, isSupportedImageUpload } from "@/lib/trips/imageUploads";
+import { formatCentsAsAmount, parseAmountToCents } from "@/lib/trips/parseAmount";
 
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 type ApiEnvelope<T> = {
@@ -318,17 +319,6 @@ type TripAccommodationDialogProps = {
 const DEFAULT_CHECK_IN = "16:00";
 const DEFAULT_CHECK_OUT = "10:00";
 
-const formatCents = (value: number) => (value / 100).toFixed(2);
-
-const parseAmountToCents = (rawValue: string): number | null => {
-  const value = rawValue.trim();
-  if (!value) return null;
-  if (!/^\d+(\.\d{1,2})?$/.test(value)) return null;
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < 0) return null;
-  return Math.round(parsed * 100);
-};
-
 const toDateOnly = (value?: string | null) => {
   if (!value) return new Date().toISOString().slice(0, 10);
   const parsed = new Date(value);
@@ -347,12 +337,12 @@ const buildDefaultPayments = ({
 }) => {
   if (payments && payments.length > 0) {
     return payments.map((payment) => ({
-      amount: formatCents(payment.amountCents),
+      amount: formatCentsAsAmount(payment.amountCents),
       dueDate: payment.dueDate,
     }));
   }
   if (typeof costCents === "number") {
-    return [{ amount: formatCents(costCents), dueDate: fallbackDate }];
+    return [{ amount: formatCentsAsAmount(costCents), dueDate: fallbackDate }];
   }
   return [{ amount: "", dueDate: "" }];
 };
@@ -439,7 +429,7 @@ export default function TripAccommodationDialog({
       status: day?.accommodation?.status ?? "planned",
       costCents:
         day?.accommodation?.costCents !== null && day?.accommodation?.costCents !== undefined
-          ? (day.accommodation.costCents / 100).toFixed(2)
+          ? formatCentsAsAmount(day.accommodation.costCents)
           : "",
       link: day?.accommodation?.link ?? "",
       checkInTime: day?.accommodation?.checkInTime ?? DEFAULT_CHECK_IN,
@@ -604,7 +594,7 @@ export default function TripAccommodationDialog({
       status: day?.accommodation?.status ?? "planned",
       costCents:
         day?.accommodation?.costCents !== null && day?.accommodation?.costCents !== undefined
-          ? (day.accommodation.costCents / 100).toFixed(2)
+          ? formatCentsAsAmount(day.accommodation.costCents)
           : "",
       link: day?.accommodation?.link ?? "",
       checkInTime: day?.accommodation?.checkInTime ?? DEFAULT_CHECK_IN,
@@ -807,19 +797,25 @@ export default function TripAccommodationDialog({
   );
 
   const maxCostCents = 100000000;
+  /**
+   * Story 6.27. One gate, and it is the parser's.
+   *
+   * This used to test `^\d+(\.\d{1,2})?$` against the raw string before parsing it, which was
+   * harmless only for as long as the field was `type="number"` and a comma could never get this far.
+   * Once it can, keeping the regex alongside the parser would reject exactly the input the story
+   * exists to accept - `12,50` passes `parseAmountToCents` and fails that pattern. So the parser is
+   * the only judge, and the two answers it cannot tell apart are separated here instead: an empty box
+   * is valid and means "no price", `null` from a *filled* box is an error the user has to see.
+   */
   const costRules = useMemo(
     () => ({
       validate: (value: string) => {
         const trimmed = value.trim();
         if (!trimmed) return true;
-        if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) {
+        const cents = parseAmountToCents(trimmed);
+        if (cents === null) {
           return t("trips.stay.costInvalid");
         }
-        const parsed = Number(trimmed);
-        if (!Number.isFinite(parsed) || parsed < 0) {
-          return t("trips.stay.costInvalid");
-        }
-        const cents = Math.round(parsed * 100);
         if (cents > maxCostCents) {
           return t("trips.stay.costTooHigh");
         }
@@ -1016,8 +1012,13 @@ export default function TripAccommodationDialog({
         values.payments.forEach((payment, index) => {
           const amountValue = payment.amount?.trim() ?? "";
           const amountCents = parseAmountToCents(amountValue);
+          // Story 6.27, and the same split the day-plan dialog makes: an empty row is missing, a
+          // filled one that will not parse is wrong, and after the type change those stopped being
+          // the same arrival.
           if (!amountValue || amountCents === null) {
-            setError(`payments.${index}.amount` as const, { message: t("trips.payments.amountRequired") });
+            setError(`payments.${index}.amount` as const, {
+              message: amountValue ? t("trips.payments.amountInvalid") : t("trips.payments.amountRequired"),
+            });
             hasError = true;
             firstFailedFocusId ??= `${fieldIdPrefix}-payment-amount-${index}`;
             return;
@@ -1840,9 +1841,17 @@ export default function TripAccommodationDialog({
               label={t("trips.stay.costLabel")}
               error={errors.costCents?.message}
               {...register("costCents", costRules)}
-              type="number"
-              slotProps={{ htmlInput: { min: 0, step: 0.01, inputMode: "decimal" } }}
-              placeholder="0.00"
+              // Story 6.27, the field the bug was reported against. `type="number"` refused the comma
+              // a German keyboard offers and reported the box empty, which "empty means no price"
+              // then saved as no price at all. `inputMode` is what narrows the phone keypad; the type
+              // was only ever throwing the value away. `min`/`step` leave with it - inert on a text
+              // input, and `costRules` is what actually judges the number.
+              type="text"
+              slotProps={{ htmlInput: { inputMode: "decimal" } }}
+              // `trips.stay.costHelper` has been in both dictionaries and on no screen; the field it
+              // was written for is the one field that never said which separators it takes.
+              hint={t("trips.stay.costHelper")}
+              placeholder={language === "de" ? "0,00" : "0.00"}
             />
             <FormControl component="fieldset" error={Boolean(errors.payments)} variant="standard">
               <FormLabel
@@ -1880,9 +1889,12 @@ export default function TripAccommodationDialog({
                         label={t("trips.payments.amountLabel")}
                         error={errors.payments?.[index]?.amount?.message}
                         {...register(`payments.${index}.amount` as const)}
-                        type="number"
+                        // Story 6.27, same change as the cost field above. `readOnly` is what keeps
+                        // the single-payment row mirroring the cost rather than being edited, and it
+                        // has nothing to do with the type - it stays.
+                        type="text"
                         slotProps={{
-                          htmlInput: { min: 0, step: 0.01, readOnly: paymentMode !== "split", inputMode: "decimal" },
+                          htmlInput: { readOnly: paymentMode !== "split", inputMode: "decimal" },
                         }}
                       />
                     </Box>

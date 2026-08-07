@@ -5,7 +5,7 @@ baseline_commit: 3be7c37
 
 # Story 6.27: A Comma Is a Decimal Point
 
-Status: ready-for-dev
+Status: awaiting-operator
 
 ## ⚠️ Read before Task 1 — this is a silent-data-loss bug, not an input annoyance
 
