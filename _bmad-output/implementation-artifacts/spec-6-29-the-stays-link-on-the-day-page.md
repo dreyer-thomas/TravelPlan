@@ -2,7 +2,7 @@
 title: "Story 6.29: The Stay's Link on the Day Page"
 type: 'feature'
 created: '2026-08-07'
-status: 'awaiting-operator'
+status: done
 operator_actions:
   - 'Open a trip day that has a booking link on both the previous night''s and the current night''s stay, in Chrome at a 390px-wide viewport, and tap each "Open link" control: confirm the booking opens in a new tab and the stay edit dialog does NOT open. This is AC3''s pointer half under real hit-testing, which jsdom cannot answer because it does not hit-test.'
   - 'Repeat the same two taps on a real iOS Safari device at portrait width, because the stretched edit overlay and the link overlap and touch hit-testing is the only thing separating them.'
@@ -528,3 +528,15 @@ floor. 2 findings rejected. Full breakdown in the Review Triage Log above.
 4. **Two accessibility deviations are recorded rather than fixed** (DW-206 tap-target size, DW-207 duplicate
    accessible names). Both fixes need either a new i18n key or a decision applied to all three link sites,
    and AC7 forbade the former.
+
+## Operator Confirmation
+
+Confirmed 2026-08-07: the external actions this story owed were carried out.
+
+- Open a trip day that has a booking link on both the previous night's and the current night's stay, in Chrome at a 390px-wide viewport, and tap each "Open link" control: confirm the booking opens in a new tab and the stay edit dialog does NOT open. This is AC3's pointer half under real hit-testing, which jsdom cannot answer because it does not hit-test.
+- Repeat the same two taps on a real iOS Safari device at portrait width, because the stretched edit overlay and the link overlap and touch hit-testing is the only thing separating them.
+- While at 390px, measure the tap-target height of both stay-card "Open link" controls and the activity card's, and record the numbers on DW-206 — the three are ~22px against DESIGN.md's 44px floor and the fix needs one measured decision applied to all three.
+- Sign in as a VIEWER on a shared trip and tap both stay-card links at 390px: confirm they open (AC6). A viewer has no overlay at all, so this is the branch where the pointer-events opt-in is absent rather than restored.
+- Open the stay dialog, type javascript:alert(1) into the Link field and press Save: confirm the inline field error "Enter a valid http(s) link" appears on the Media & links tab and no generic "Stay update failed" banner is shown (AC5 on screen).
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
