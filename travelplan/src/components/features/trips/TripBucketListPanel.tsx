@@ -165,6 +165,10 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
           return t("errors.server");
         case "invalid_json":
           return t("errors.invalidJson");
+        // Story 5.13: the widened routes answer this to a participant refused for her role, where they
+        // used to answer `not_found`. Without this branch the fallback would still say "it is not there".
+        case "forbidden":
+          return t("errors.forbidden");
         default:
           return fallback ?? t("trips.bucketList.loadError");
       }

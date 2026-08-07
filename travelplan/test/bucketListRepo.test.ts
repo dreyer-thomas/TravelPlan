@@ -3,6 +3,8 @@ import { prisma } from "@/lib/db/prisma";
 import {
   createBucketListItemForTrip,
   deleteBucketListItemForTrip,
+  findBucketListItemForTrip,
+  findBucketListItemForTripInTransaction,
   listBucketListItemsForTrip,
   updateBucketListItemForTrip,
 } from "@/lib/repositories/bucketListRepo";
@@ -29,6 +31,7 @@ const createTrip = async (userId: string) =>
 describe("bucketListRepo", () => {
   beforeEach(async () => {
     await prisma.tripBucketListItem.deleteMany();
+    await prisma.tripMember.deleteMany();
     await prisma.trip.deleteMany();
     await prisma.user.deleteMany();
   });
@@ -224,5 +227,135 @@ describe("bucketListRepo", () => {
 
     expect(deleted.status).toBe("not_found");
     expect(await prisma.tripBucketListItem.count()).toBe(1);
+  });
+
+  /**
+   * `findTripForTripWriter` is the single gate behind all four exported functions, so Story 5.13 moved
+   * list, create, update and delete by widening one query. This case is the only thing that can tell that
+   * widened clause apart from the participant *read* clause: the routes now refuse a viewer with 403 via
+   * `refuseUnlessTripWriter` before the repository is ever called, so nothing at the route level reaches
+   * this query with a viewer's id, and dropping `role: "CONTRIBUTOR"` from it would ship green.
+   *
+   * The accounts are deliberately `User.role: "OWNER"` in both cases - what decides the outcome must be
+   * the `TripMember` row, not the account role.
+   */
+  it("admits a contributor to all four bucket-list operations and refuses a viewer every one", async () => {
+    const owner = await createUser("bucket-scope-owner@example.com");
+    const contributor = await createUser("bucket-scope-contributor@example.com");
+    const viewer = await createUser("bucket-scope-viewer@example.com");
+    const trip = await createTrip(owner.id);
+    await prisma.tripMember.create({
+      data: { tripId: trip.id, userId: contributor.id, role: "CONTRIBUTOR" },
+    });
+    await prisma.tripMember.create({
+      data: { tripId: trip.id, userId: viewer.id, role: "VIEWER" },
+    });
+
+    const created = await createBucketListItemForTrip({
+      userId: contributor.id,
+      tripId: trip.id,
+      title: "Contributor idea",
+    });
+    expect(created).not.toBeNull();
+
+    expect(
+      (await listBucketListItemsForTrip({ userId: contributor.id, tripId: trip.id }))?.map((entry) => entry.title),
+    ).toEqual(["Contributor idea"]);
+
+    const contributorUpdate = await updateBucketListItemForTrip({
+      userId: contributor.id,
+      tripId: trip.id,
+      itemId: created!.id,
+      title: "Contributor idea, edited",
+      description: null,
+      positionText: null,
+    });
+    expect(contributorUpdate.status).toBe("updated");
+
+    // The viewer half. `not_found`/`null` rather than a distinct refusal status is what these functions
+    // return for "outside your scope"; the route above them is what turns it into 403.
+    expect(await listBucketListItemsForTrip({ userId: viewer.id, tripId: trip.id })).toBeNull();
+    expect(
+      await createBucketListItemForTrip({ userId: viewer.id, tripId: trip.id, title: "Viewer idea" }),
+    ).toBeNull();
+    expect(
+      (
+        await updateBucketListItemForTrip({
+          userId: viewer.id,
+          tripId: trip.id,
+          itemId: created!.id,
+          title: "Viewer edit",
+          description: null,
+          positionText: null,
+        })
+      ).status,
+    ).toBe("not_found");
+    expect(
+      (await deleteBucketListItemForTrip({ userId: viewer.id, tripId: trip.id, itemId: created!.id })).status,
+    ).toBe("not_found");
+
+    // Nothing the viewer attempted landed, and the contributor's edit survived intact.
+    const remaining = await prisma.tripBucketListItem.findMany({ where: { tripId: trip.id } });
+    expect(remaining.map((entry) => entry.title)).toEqual(["Contributor idea, edited"]);
+
+    const contributorDelete = await deleteBucketListItemForTrip({
+      userId: contributor.id,
+      tripId: trip.id,
+      itemId: created!.id,
+    });
+    expect(contributorDelete.status).toBe("deleted");
+  });
+
+  /**
+   * The two item-level scopes, tested side by side because they are two spellings of one query and the
+   * only guard against them drifting apart is that both are asserted with the same inputs.
+   *
+   * `findBucketListItemForTrip` has no callers at all, so nothing else in the suite touches it.
+   * `findBucketListItemForTripInTransaction` has exactly one - `convertBucketListItemToDayPlanItemForTripDay`
+   * - which gates on `findTripDayForTripWriter` first, so a viewer is already turned away as `not_found`
+   * before this query runs. That makes a direct call the only way to observe it with a viewer's id.
+   */
+  it("scopes both bucket-list item lookups to writers, in and out of a transaction", async () => {
+    const owner = await createUser("bucket-item-scope-owner@example.com");
+    const contributor = await createUser("bucket-item-scope-contributor@example.com");
+    const viewer = await createUser("bucket-item-scope-viewer@example.com");
+    const stranger = await createUser("bucket-item-scope-stranger@example.com");
+    const trip = await createTrip(owner.id);
+    await prisma.tripMember.create({
+      data: { tripId: trip.id, userId: contributor.id, role: "CONTRIBUTOR" },
+    });
+    await prisma.tripMember.create({
+      data: { tripId: trip.id, userId: viewer.id, role: "VIEWER" },
+    });
+
+    const item = await prisma.tripBucketListItem.create({
+      data: { tripId: trip.id, title: "Shared idea" },
+    });
+
+    const inTransaction = (userId: string) =>
+      prisma.$transaction((tx) =>
+        findBucketListItemForTripInTransaction({ tx, userId, tripId: trip.id, itemId: item.id }),
+      );
+
+    for (const [label, userId, expected] of [
+      ["owner", owner.id, true],
+      ["contributor", contributor.id, true],
+      ["viewer", viewer.id, false],
+      ["stranger", stranger.id, false],
+    ] as const) {
+      const direct = await findBucketListItemForTrip({ userId, tripId: trip.id, itemId: item.id });
+      const scoped = await inTransaction(userId);
+
+      expect(direct !== null, `findBucketListItemForTrip for ${label}`).toBe(expected);
+      expect(scoped !== null, `findBucketListItemForTripInTransaction for ${label}`).toBe(expected);
+      // The anti-drift work is done by the two assertions above: each spelling is checked against the
+      // same `expected` for the same id, so mutating either clause alone goes red. This one is weaker
+      // than it looks - for `viewer` and `stranger` it reduces to `null` equals `null`, and for the two
+      // writers both functions read the same row by the same id, so equality is nearly given. It earns
+      // its place only by pinning the *selection*: if one spelling ever grows an `include` or narrows a
+      // `select` the other does not, the two stop being interchangeable even while both still admit
+      // exactly the right people.
+      expect(scoped, `both lookups select the same shape for ${label}`).toEqual(direct);
+    }
   });
 });

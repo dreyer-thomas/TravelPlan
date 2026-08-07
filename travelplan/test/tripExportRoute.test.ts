@@ -110,6 +110,9 @@ describe("GET /api/trips/[id]/export", () => {
     await prisma.dayPlanItem.deleteMany();
     await prisma.accommodation.deleteMany();
     await prisma.tripDay.deleteMany();
+    // Added by Story 5.13, which gave this suite its first memberships. Without it a stale row would
+    // decide the next test's role.
+    await prisma.tripMember.deleteMany();
     await prisma.trip.deleteMany();
     await prisma.user.deleteMany();
     await fs.rm(uploadsRoot, { recursive: true, force: true });
@@ -896,5 +899,63 @@ describe("GET /api/trips/[id]/export", () => {
     expect(contentDisposition).toMatch(/^attachment; filename="trip-trip-injected-\d{4}-\d{2}-\d{2}\.zip"$/);
     expect(contentDisposition).not.toContain("\r");
     expect(contentDisposition).not.toContain("\n");
+  });
+  /**
+   * Story 5.13, AC2/AC4/AC6. The export moved to owner-or-contributor because a contributor can already
+   * read every stay, activity, photo and document the archive contains - it changes the container, not
+   * the exposure. The whole archive hangs off `getTripExportForUser`'s single root query, so the
+   * manifest is read here rather than only the status: a 200 carrying an empty or wrong-trip archive
+   * would mean the route gate moved and the repository scope did not.
+   *
+   * The contributor's account row is `role: "VIEWER"` on purpose: the route must decide on
+   * `TripMember.role` and never on `User.role`.
+   */
+  it("exports the archive for a contributor, refuses a viewer 403 forbidden and a non-participant 404", async () => {
+    const { user: owner } = await createOwner("trip-export-roles-owner@example.com");
+    const contributor = await prisma.user.create({
+      data: { email: "trip-export-roles-contributor@example.com", passwordHash: "hashed", role: "VIEWER" },
+    });
+    const contributorToken = await createSessionJwt({ sub: contributor.id, role: contributor.role });
+    const viewer = await prisma.user.create({
+      data: { email: "trip-export-roles-viewer@example.com", passwordHash: "hashed", role: "VIEWER" },
+    });
+    const viewerToken = await createSessionJwt({ sub: viewer.id, role: viewer.role });
+    const { token: strangerToken } = await createOwner("trip-export-roles-stranger@example.com");
+
+    const { trip } = await createTripWithDays({
+      userId: owner.id,
+      name: "Shared Export Trip",
+      startDate: "2026-11-01T00:00:00.000Z",
+      endDate: "2026-11-02T00:00:00.000Z",
+    });
+    const [day1] = await prisma.tripDay.findMany({ where: { tripId: trip.id }, orderBy: { dayIndex: "asc" } });
+    await prisma.accommodation.create({ data: { tripDayId: day1.id, name: "Shared Hotel", status: "BOOKED" } });
+    await prisma.tripBucketListItem.create({ data: { tripId: trip.id, title: "Shared idea" } });
+    await prisma.tripMember.create({ data: { tripId: trip.id, userId: contributor.id, role: "CONTRIBUTOR" } });
+    await prisma.tripMember.create({ data: { tripId: trip.id, userId: viewer.id, role: "VIEWER" } });
+
+    const contributorResponse = await GET(
+      buildRequest(trip.id, { session: contributorToken }),
+      routeContext(trip.id),
+    );
+    expect(contributorResponse.status).toBe(200);
+    expect(contributorResponse.headers.get("content-type")).toBe("application/zip");
+
+    const manifest = readManifest(await readArchive(contributorResponse));
+    expect(manifest.trip.id).toBe(trip.id);
+    expect(manifest.trip.name).toBe("Shared Export Trip");
+    expect(manifest.days).toHaveLength(2);
+    // The whole archive hangs off one root query, so a stay and an idea reached through two different
+    // includes are what say the root resolved to this trip rather than to an empty result.
+    expect(manifest.days[0].accommodation?.id).toBeTruthy();
+    expect(manifest.trip.bucketListItems.map((entry) => entry.title)).toEqual(["Shared idea"]);
+
+    const viewerResponse = await GET(buildRequest(trip.id, { session: viewerToken }), routeContext(trip.id));
+    expect(viewerResponse.status).toBe(403);
+    expect(((await viewerResponse.json()) as { error: { code: string } | null }).error?.code).toBe("forbidden");
+
+    const strangerResponse = await GET(buildRequest(trip.id, { session: strangerToken }), routeContext(trip.id));
+    expect(strangerResponse.status).toBe(404);
+    expect(((await strangerResponse.json()) as { error: { code: string } | null }).error?.code).toBe("not_found");
   });
 });

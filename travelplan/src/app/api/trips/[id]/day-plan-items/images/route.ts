@@ -4,7 +4,7 @@ import path from "node:path";
 import { apiError } from "@/lib/errors/apiError";
 import { fail, ok } from "@/lib/http/response";
 import { declaredBodyExceedsFileLimit } from "@/lib/http/bodyLimit";
-import { hasTripOwnerAccess } from "@/lib/auth/tripAccess";
+import { refuseUnlessTripWriter } from "@/lib/auth/tripAccess";
 import {
   createDayPlanItemImage,
   deleteDayPlanItemImage,
@@ -123,8 +123,9 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
   if (!tripId) {
     return fail(apiError("not_found", "Trip not found"), 404);
   }
-  if (!(await hasTripOwnerAccess(userId, tripId))) {
-    return fail(apiError("not_found", "Day plan item not found"), 404);
+  const refusal = await refuseUnlessTripWriter(userId, tripId, "Day plan item not found");
+  if (refusal) {
+    return refusal;
   }
 
   // Before `formData()` below - not before the buffering, which the middleware already did. Over
@@ -207,8 +208,9 @@ export const DELETE = async (request: NextRequest, context: RouteContext) => {
   if (!tripId) {
     return fail(apiError("not_found", "Trip not found"), 404);
   }
-  if (!(await hasTripOwnerAccess(userId, tripId))) {
-    return fail(apiError("not_found", "Day plan item not found"), 404);
+  const refusal = await refuseUnlessTripWriter(userId, tripId, "Day plan item not found");
+  if (refusal) {
+    return refusal;
   }
 
   const rawPayload = await parseJson(request);
@@ -267,6 +269,14 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
   const { id: tripId } = await context.params;
   if (!tripId) {
     return fail(apiError("not_found", "Trip not found"), 404);
+  }
+  // Reordering had no route gate at all before Story 5.13; it was safe only because
+  // `reorderDayPlanItemImages` resolved through an owner-only scope. That scope is now the writer clause,
+  // so without a gate here a viewer's refusal would come back from the repository as a 404 and silently
+  // break AC6 on this one verb.
+  const refusal = await refuseUnlessTripWriter(userId, tripId, "Day plan item not found");
+  if (refusal) {
+    return refusal;
   }
 
   const rawPayload = await parseJson(request);

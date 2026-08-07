@@ -94,6 +94,7 @@ const de: Dictionary = {
   "errors.server": "Etwas ist schiefgelaufen. Bitte erneut versuchen.",
   "errors.invalidJson": "Anfrage konnte nicht verarbeitet werden. Bitte erneut versuchen.",
   "errors.unauthorized": "Anmeldung erforderlich. Bitte anmelden.",
+  "errors.forbidden": "Deine Rolle für diese Reise erlaubt diese Aktion nicht.",
   "demo.title": "Mit ruhiger Klarheit planen",
   "home.kicker": "Mit ruhiger Klarheit planen",
   "home.title": "Ein Reiseplaner, der die ganze Reise im Blick behält.",

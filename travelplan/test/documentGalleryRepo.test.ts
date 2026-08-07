@@ -144,12 +144,14 @@ describe("document gallery repositories", () => {
   });
 
   /**
-   * AC7's read half. The write gate is owner-only, mirroring the image routes; the read gate is not,
-   * because a contributor who can see the day must be able to see what is attached to it. Copying the
-   * write scope onto the read - the easy mistake, since they sit next to each other - would hide
-   * every document from every member of a shared trip while leaving the owner's own view perfect.
+   * Story 9.1's AC7 read half, with its write half inverted by Story 5.13. The read scope was always
+   * participant-wide, because a contributor who can see the day must be able to see what is attached to
+   * it; the write scope was owner-only, mirroring the image routes, and this case pinned that. Story
+   * 5.13 widened `findScopedAccommodation` to the writer clause, so the contributor's write now
+   * succeeds - and the assertion this case still owes is that the two scopes did not *converge*: the
+   * viewer half below is what keeps the widened write from becoming the participant read.
    */
-  it("admits a contributor on the read and refuses one on the write", async () => {
+  it("admits a contributor on both the read and the write, and still refuses a viewer's write", async () => {
     const owner = await createUser("document-repo-scope-owner@example.com");
     const contributor = await createUser("document-repo-contributor@example.com");
     const { trip, day } = await createTripWithDay(owner.id);
@@ -185,7 +187,31 @@ describe("document gallery repositories", () => {
       documentUrl: "/uploads/contributor.pdf",
       fileName: "Contributor.pdf",
     });
-    expect(contributorWrite.status).toBe("not_found");
+    expect(contributorWrite.status).toBe("created");
+
+    // Trap 3 of Story 5.13: the widened write scope must not have become the participant read scope.
+    // A bare `members: { some: { userId } }` would pass every assertion above and this one is the only
+    // one that would fail.
+    const viewer = await createUser("document-repo-viewer@example.com");
+    await prisma.tripMember.create({ data: { tripId: trip.id, userId: viewer.id, role: "VIEWER" } });
+
+    const viewerRead = await listAccommodationDocuments({
+      userId: viewer.id,
+      tripId: trip.id,
+      tripDayId: day.id,
+      accommodationId: accommodation.id,
+    });
+    expect(viewerRead?.map((entry) => entry.fileName)).toEqual(["Shared.pdf", "Contributor.pdf"]);
+
+    const viewerWrite = await createAccommodationDocument({
+      userId: viewer.id,
+      tripId: trip.id,
+      tripDayId: day.id,
+      accommodationId: accommodation.id,
+      documentUrl: "/uploads/viewer.pdf",
+      fileName: "Viewer.pdf",
+    });
+    expect(viewerWrite.status).toBe("not_found");
   });
 
   /**
@@ -328,6 +354,92 @@ describe("document gallery repositories", () => {
       documentId: first.status === "created" ? first.document.id : "",
     });
     expect(deleted.status).toBe("deleted");
+  });
+
+  /**
+   * The activity-side twin of the accommodation case above, and the only net under
+   * `findScopedDayPlanItem` (`dayPlanItemRepo.ts`) that can tell the writer clause from the participant
+   * read clause.
+   *
+   * It has to call the repository directly. Story 5.13 added `refuseUnlessTripWriter` to the routes that
+   * reach this scope, so a viewer driving `POST /day-plan-items/documents` is refused with 403 *before*
+   * the repository is called - which means no route-level test can ever observe this query with a
+   * viewer's id, and dropping `role: "CONTRIBUTOR"` here would stay green through the whole suite.
+   *
+   * `findScopedDayPlanItem` is one shared function behind `createDayPlanItemImage`,
+   * `deleteDayPlanItemImage`, `reorderDayPlanItemImages`, `createDayPlanItemDocument` and
+   * `deleteDayPlanItemDocument`, so the document pair below pins all five.
+   */
+  it("admits a contributor on an activity's documents and still refuses a viewer's write", async () => {
+    const owner = await createUser("document-plan-scope-owner@example.com");
+    const contributor = await createUser("document-plan-contributor@example.com");
+    const viewer = await createUser("document-plan-viewer@example.com");
+    const { trip, day } = await createTripWithDay(owner.id);
+    await prisma.tripMember.create({
+      data: { tripId: trip.id, userId: contributor.id, role: "CONTRIBUTOR" },
+    });
+    await prisma.tripMember.create({
+      data: { tripId: trip.id, userId: viewer.id, role: "VIEWER" },
+    });
+    const item = await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: day.id,
+        contentJson: JSON.stringify({
+          type: "doc",
+          content: [{ type: "paragraph", content: [{ type: "text", text: "Shared stop" }] }],
+        }),
+      },
+    });
+
+    const contributorWrite = await createDayPlanItemDocument({
+      userId: contributor.id,
+      tripId: trip.id,
+      tripDayId: day.id,
+      dayPlanItemId: item.id,
+      documentUrl: "/uploads/plan-contributor.pdf",
+      fileName: "Contributor.pdf",
+    });
+    expect(contributorWrite.status).toBe("created");
+
+    // The read stayed participant-wide, so the viewer still sees what the contributor attached. Asserted
+    // so the case fails loudly if the two scopes are ever unified in the *other* direction.
+    const viewerRead = await listDayPlanItemDocuments({
+      userId: viewer.id,
+      tripId: trip.id,
+      tripDayId: day.id,
+      dayPlanItemId: item.id,
+    });
+    expect(viewerRead?.map((entry) => entry.fileName)).toEqual(["Contributor.pdf"]);
+
+    const viewerWrite = await createDayPlanItemDocument({
+      userId: viewer.id,
+      tripId: trip.id,
+      tripDayId: day.id,
+      dayPlanItemId: item.id,
+      documentUrl: "/uploads/plan-viewer.pdf",
+      fileName: "Viewer.pdf",
+    });
+    expect(viewerWrite.status).toBe("not_found");
+
+    const viewerDelete = await deleteDayPlanItemDocument({
+      userId: viewer.id,
+      tripId: trip.id,
+      tripDayId: day.id,
+      dayPlanItemId: item.id,
+      documentId: contributorWrite.status === "created" ? contributorWrite.document.id : "",
+    });
+    // `not_found` rather than `missing`: the refusal is the scope, not the row - the document is there.
+    expect(viewerDelete.status).toBe("not_found");
+    expect(await prisma.dayPlanItemDocument.count()).toBe(1);
+
+    const contributorDelete = await deleteDayPlanItemDocument({
+      userId: contributor.id,
+      tripId: trip.id,
+      tripDayId: day.id,
+      dayPlanItemId: item.id,
+      documentId: contributorWrite.status === "created" ? contributorWrite.document.id : "",
+    });
+    expect(contributorDelete.status).toBe("deleted");
   });
 
   /**

@@ -699,6 +699,8 @@ describe("PATCH /api/trips/[id]", () => {
 describe("DELETE /api/trips/[id]", () => {
   beforeEach(async () => {
     await prisma.tripDay.deleteMany();
+    // Added by Story 5.13, which gave this block its first membership.
+    await prisma.tripMember.deleteMany();
     await prisma.trip.deleteMany();
     await prisma.user.deleteMany();
   });
@@ -777,5 +779,41 @@ describe("DELETE /api/trips/[id]", () => {
     expect(response.status).toBe(401);
     expect(payload.data).toBeNull();
     expect(payload.error?.code).toBe("unauthorized");
+  });
+  /**
+   * Story 5.13, AC3 - a negative, and the one whose guard is easiest to remove by accident. This handler
+   * carries **no route gate at all**: the refusal comes from one layer down, where `deleteTripForUser`
+   * scopes `deleteMany({ where: { id: tripId, userId } })`, so a contributor matches zero rows and gets
+   * `deleted: false` -> 404. It looks like an omission and is not, which is exactly why widening the
+   * sibling routes makes it tempting to "make consistent". This case is what would fail if someone did.
+   */
+  it("refuses a contributor's delete and leaves the trip in place", async () => {
+    const owner = await prisma.user.create({
+      data: { email: "trip-delete-contributor-owner@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const contributor = await prisma.user.create({
+      data: { email: "trip-delete-contributor@example.com", passwordHash: "hashed", role: "VIEWER" },
+    });
+    const token = await createSessionJwt({ sub: contributor.id, role: contributor.role });
+
+    const { trip } = await createTripWithDays({
+      userId: owner.id,
+      name: "Contributor Delete Trip",
+      startDate: "2026-08-01T00:00:00.000Z",
+      endDate: "2026-08-02T00:00:00.000Z",
+    });
+    await prisma.tripMember.create({ data: { tripId: trip.id, userId: contributor.id, role: "CONTRIBUTOR" } });
+
+    const response = await DELETE(
+      buildRequest(trip.id, { session: token, csrf: "csrf-token", method: "DELETE" }),
+      { params: Promise.resolve({ id: trip.id }) },
+    );
+    const payload = (await response.json()) as ApiEnvelope<null>;
+
+    expect(response.status).toBe(404);
+    expect(payload.error?.code).toBe("not_found");
+    // The assertion the status alone cannot make.
+    expect(await prisma.trip.count({ where: { id: trip.id } })).toBe(1);
+    expect(await prisma.tripDay.count({ where: { tripId: trip.id } })).toBeGreaterThan(0);
   });
 });

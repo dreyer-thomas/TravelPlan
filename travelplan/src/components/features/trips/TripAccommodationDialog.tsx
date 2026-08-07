@@ -740,6 +740,41 @@ export default function TripAccommodationDialog({
   }, [csrfToken]);
 
   /**
+   * Component-scope, added by Story 5.13. This file used to carry two copies of this switch, both declared
+   * *inside* `onSubmit` and `handleDelete` and therefore invisible to the four media and document handlers
+   * below, which set a fixed key and never looked at `body.error.code` at all. Adding a `case` to the two
+   * local copies would have changed nothing on the surfaces this story widened, so the switch had to become
+   * reachable first — and once it was, the two locals were deleted rather than left to shadow it. Three
+   * bodies under one identifier would mean the next `case` has to be added in three places, and a reader
+   * standing in `onSubmit` would be looking at a different function from the one the file appears to define.
+   *
+   * `fallback` is required rather than defaulted: each call site has its own "this write failed" message
+   * (`trips.stay.error`, `trips.documents.deleteError`, …) and picking one of them as a default here
+   * would silently relabel the others. Shape copied from `TripBucketListPanel`.
+   */
+  const resolveApiError = useCallback(
+    (code: string | undefined, fallback: string) => {
+      switch (code) {
+        case "unauthorized":
+          return t("errors.unauthorized");
+        case "csrf_invalid":
+          return t("errors.csrfInvalid");
+        case "server_error":
+          return t("errors.server");
+        case "invalid_json":
+          return t("errors.invalidJson");
+        // Story 5.13: the widened routes answer this to a participant refused for her role, where they
+        // used to answer `not_found`. Without this branch the fallback would still say "it is not there".
+        case "forbidden":
+          return t("errors.forbidden");
+        default:
+          return fallback;
+      }
+    },
+    [t],
+  );
+
+  /**
    * The three `validate` rules, declared **above** `onSubmit` rather than below the request handlers
    * where they used to sit.
    *
@@ -1138,22 +1173,7 @@ export default function TripAccommodationDialog({
           return;
         }
 
-        const resolveApiError = (code?: string) => {
-          switch (code) {
-            case "unauthorized":
-              return t("errors.unauthorized");
-            case "csrf_invalid":
-              return t("errors.csrfInvalid");
-            case "server_error":
-              return t("errors.server");
-            case "invalid_json":
-              return t("errors.invalidJson");
-            default:
-              return t("trips.stay.error");
-          }
-        };
-
-        setServerError(resolveApiError(body.error?.code));
+        setServerError(resolveApiError(body.error?.code, t("trips.stay.error")));
         return;
       }
 
@@ -1192,22 +1212,7 @@ export default function TripAccommodationDialog({
       const body = (await response.json()) as ApiEnvelope<{ deleted: boolean }>;
 
       if (!response.ok || body.error) {
-        const resolveApiError = (code?: string) => {
-          switch (code) {
-            case "unauthorized":
-              return t("errors.unauthorized");
-            case "csrf_invalid":
-              return t("errors.csrfInvalid");
-            case "server_error":
-              return t("errors.server");
-            case "invalid_json":
-              return t("errors.invalidJson");
-            default:
-              return t("trips.stay.deleteError");
-          }
-        };
-
-        setServerError(resolveApiError(body.error?.code));
+        setServerError(resolveApiError(body.error?.code, t("trips.stay.deleteError")));
         return;
       }
 
@@ -1296,7 +1301,7 @@ export default function TripAccommodationDialog({
         });
         const body = (await response.json()) as ApiEnvelope<{ image: GalleryImage }>;
         if (!response.ok || body.error || !body.data?.image) {
-          setServerError(t("trips.stay.error"));
+          setServerError(resolveApiError(body.error?.code, t("trips.stay.error")));
           return;
         }
         uploaded.push(body.data.image);
@@ -1304,7 +1309,7 @@ export default function TripAccommodationDialog({
       setGalleryImages((current) => [...current, ...uploaded]);
       setGalleryFiles([]);
     } catch {
-      setServerError(t("trips.stay.error"));
+      setServerError(resolveApiError(undefined, t("trips.stay.error")));
     } finally {
       setGalleryBusy(false);
     }
@@ -1338,12 +1343,12 @@ export default function TripAccommodationDialog({
       });
       const body = (await response.json()) as ApiEnvelope<{ deleted: boolean }>;
       if (!response.ok || body.error) {
-        setServerError(t("trips.stay.deleteError"));
+        setServerError(resolveApiError(body.error?.code, t("trips.stay.deleteError")));
         return;
       }
       setGalleryImages((current) => current.filter((image) => image.id !== imageId));
     } catch {
-      setServerError(t("trips.stay.deleteError"));
+      setServerError(resolveApiError(undefined, t("trips.stay.deleteError")));
     } finally {
       setGalleryBusy(false);
     }
@@ -1411,11 +1416,13 @@ export default function TripAccommodationDialog({
           // which of the four happened, and "up to 10 per entry" is the one of them the user can act
           // on without being told anything else. Against the shared constant rather than a literal:
           // the route answers with the same one, so a reword cannot silently turn the actionable
-          // message into "please try again".
+          // message into "please try again". It stays ahead of `resolveApiError` for that same reason:
+          // the cap is a `validation_error` like three other rejections, so the code switch cannot tell
+          // it apart and would flatten it back into the generic message.
           setServerError(
             body.error?.message === DOCUMENT_LIMIT_ERROR_MESSAGE
               ? t("trips.documents.limitReached")
-              : t("trips.documents.uploadError"),
+              : resolveApiError(body.error?.code, t("trips.documents.uploadError")),
           );
           break;
         }
@@ -1425,7 +1432,7 @@ export default function TripAccommodationDialog({
 
       setDocumentFiles(failedAtIndex === -1 ? [] : documentFiles.slice(failedAtIndex));
     } catch {
-      setServerError(t("trips.documents.uploadError"));
+      setServerError(resolveApiError(undefined, t("trips.documents.uploadError")));
     } finally {
       setDocumentBusy(false);
     }
@@ -1460,7 +1467,7 @@ export default function TripAccommodationDialog({
       });
       const body = (await response.json()) as ApiEnvelope<{ deleted: boolean }>;
       if (!response.ok || body.error) {
-        setServerError(t("trips.documents.deleteError"));
+        setServerError(resolveApiError(body.error?.code, t("trips.documents.deleteError")));
         return;
       }
       // `documentRow`, not `document`: this file reaches for the global of that name (the error-focus
@@ -1468,7 +1475,7 @@ export default function TripAccommodationDialog({
       // adds a focus or measurement call inside one of these callbacks next.
       setDocuments((current) => current.filter((documentRow) => documentRow.id !== documentId));
     } catch {
-      setServerError(t("trips.documents.deleteError"));
+      setServerError(resolveApiError(undefined, t("trips.documents.deleteError")));
     } finally {
       setDocumentBusy(false);
     }

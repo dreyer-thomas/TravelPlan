@@ -63,6 +63,11 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
   if (!tripId) {
     return fail(apiError("not_found", "Trip not found"), 404);
   }
+  // Owner-only, and its 404, are deliberate rather than left over. Story 5.13 widened the four media
+  // routes, the day image, the bucket list and the export to owner-or-contributor and considered this
+  // route with them: the hero image is the trip's identity on someone else's dashboard card, not content
+  // of a day, so it stays with the trip as a possession. `TripEditDialog` hides the field for a
+  // contributor for the same reason, so nobody reaches this refusal from the UI.
   if (!(await hasTripOwnerAccess(userId, tripId))) {
     return fail(apiError("not_found", "Trip not found"), 404);
   }

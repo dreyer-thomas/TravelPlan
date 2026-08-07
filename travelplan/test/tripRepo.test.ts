@@ -1346,6 +1346,54 @@ describe("tripRepo", () => {
     ]);
   });
 
+  /**
+   * Story 5.13 widened `getTripExportForUser`'s root `where` to the writer clause, and every `include`
+   * hangs off that one root - so the single line decides who may download the whole archive.
+   *
+   * Route-level tests cannot pin the `role: "CONTRIBUTOR"` half of it: `refuseUnlessTripWriter` answers a
+   * viewer 403 on the export route before the repository is reached, so the query is never observed with
+   * a viewer's id there. Dropping the role and leaving the participant read clause would hand every
+   * viewer a full ZIP of the trip and no other test would notice.
+   */
+  it("exports a trip for a contributor and refuses a viewer", async () => {
+    const owner = await prisma.user.create({
+      data: { email: "trip-export-scope-owner@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    // Account roles deliberately unlike the membership roles below: the export scope must read the
+    // `TripMember` row, never `User.role`.
+    const contributor = await prisma.user.create({
+      data: { email: "trip-export-scope-contributor@example.com", passwordHash: "hashed", role: "VIEWER" },
+    });
+    const viewer = await prisma.user.create({
+      data: { email: "trip-export-scope-viewer@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+
+    const trip = await prisma.trip.create({
+      data: {
+        userId: owner.id,
+        name: "Export Scope Trip",
+        startDate: new Date("2026-12-01T00:00:00.000Z"),
+        endDate: new Date("2026-12-01T00:00:00.000Z"),
+      },
+    });
+    await prisma.tripDay.create({
+      data: { tripId: trip.id, date: new Date("2026-12-01T00:00:00.000Z"), dayIndex: 1 },
+    });
+    await prisma.tripMember.create({
+      data: { tripId: trip.id, userId: contributor.id, role: "CONTRIBUTOR" },
+    });
+    await prisma.tripMember.create({
+      data: { tripId: trip.id, userId: viewer.id, role: "VIEWER" },
+    });
+
+    const contributorExport = await getTripExportForUser(contributor.id, trip.id);
+    expect(contributorExport).not.toBeNull();
+    expect(contributorExport?.payload.trip.name).toBe("Export Scope Trip");
+    expect(contributorExport?.payload.days).toHaveLength(1);
+
+    expect(await getTripExportForUser(viewer.id, trip.id)).toBeNull();
+  });
+
   it("preserves payment row order in exports when due dates match", async () => {
     const user = await prisma.user.create({
       data: {
@@ -1791,6 +1839,65 @@ describe("tripRepo", () => {
     });
 
     expect(updated).toBeNull();
+  });
+
+  /**
+   * The membership half of the same guard. The case above only proves a stranger is refused, which the
+   * pre-5.13 `trip: { userId }` scope also did; this one is the only assertion that separates the widened
+   * writer clause from the participant read clause, because the day-image route refuses a viewer with 403
+   * before `updateTripDayImageForUser` is called and no route test can reach the query with her id.
+   */
+  it("updates a day image for a contributor and refuses a viewer", async () => {
+    const owner = await prisma.user.create({
+      data: { email: "trip-day-image-scope-owner@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const contributor = await prisma.user.create({
+      data: { email: "trip-day-image-scope-contributor@example.com", passwordHash: "hashed", role: "VIEWER" },
+    });
+    const viewer = await prisma.user.create({
+      data: { email: "trip-day-image-scope-viewer@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+
+    const { trip } = await createTripWithDays({
+      userId: owner.id,
+      name: "Day Image Scope Trip",
+      startDate: "2026-07-01T00:00:00.000Z",
+      endDate: "2026-07-01T00:00:00.000Z",
+    });
+    await prisma.tripMember.create({
+      data: { tripId: trip.id, userId: contributor.id, role: "CONTRIBUTOR" },
+    });
+    await prisma.tripMember.create({
+      data: { tripId: trip.id, userId: viewer.id, role: "VIEWER" },
+    });
+
+    const day = await prisma.tripDay.findFirstOrThrow({ where: { tripId: trip.id } });
+
+    const byContributor = await updateTripDayImageForUser({
+      userId: contributor.id,
+      tripId: trip.id,
+      dayId: day.id,
+      imageUrl: "/uploads/trips/day/contributor.webp",
+      note: "Contributor note",
+    });
+    expect(byContributor).not.toBeNull();
+    expect(byContributor?.imageUrl).toBe("/uploads/trips/day/contributor.webp");
+    expect(byContributor?.note).toBe("Contributor note");
+
+    const byViewer = await updateTripDayImageForUser({
+      userId: viewer.id,
+      tripId: trip.id,
+      dayId: day.id,
+      imageUrl: "/uploads/trips/day/viewer.webp",
+      note: "Viewer note",
+    });
+    expect(byViewer).toBeNull();
+
+    // The write is a raw `$executeRawUnsafe` after the scope check, so assert the row itself rather than
+    // trusting the null return: a refusal that still wrote would be invisible above.
+    const stored = await prisma.tripDay.findUniqueOrThrow({ where: { id: day.id } });
+    expect(stored.imageUrl).toBe("/uploads/trips/day/contributor.webp");
+    expect(stored.note).toBe("Contributor note");
   });
 
   it("returns conflict without writes when same-name trip exists and no strategy is set", async () => {

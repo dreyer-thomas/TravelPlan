@@ -30,6 +30,11 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
   if (!tripId) {
     return fail(apiError("not_found", "Trip not found"), 404);
   }
+  // Owner-only, and its 404, are deliberate rather than left over. Story 5.13 widened the media, day-image,
+  // bucket-list and export routes to owner-or-contributor and stopped exactly here: who else gets access is
+  // the trip as a possession, and a contributor must not be able to add someone or - above all - remove the
+  // owner. That boundary is the one that has to hold, so all three verbs below keep this gate. `TripTimeline`
+  // hides the sharing controls from a contributor for the same reason.
   if (!(await hasTripOwnerAccess(userId, tripId))) {
     return fail(apiError("not_found", "Trip not found"), 404);
   }
@@ -63,6 +68,7 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
   if (!tripId) {
     return fail(apiError("not_found", "Trip not found"), 404);
   }
+  // Owner-only by decision, not omission - see the note above `GET` (Story 5.13).
   if (!(await hasTripOwnerAccess(userId, tripId))) {
     return fail(apiError("not_found", "Trip not found"), 404);
   }
@@ -136,6 +142,7 @@ export const DELETE = async (request: NextRequest, context: RouteContext) => {
   if (!tripId) {
     return fail(apiError("not_found", "Trip not found"), 404);
   }
+  // Owner-only by decision, not omission - see the note above `GET` (Story 5.13).
   if (!(await hasTripOwnerAccess(userId, tripId))) {
     return fail(apiError("not_found", "Trip not found"), 404);
   }

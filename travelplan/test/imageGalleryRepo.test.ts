@@ -48,6 +48,7 @@ describe("image gallery repositories", () => {
     await prisma.accommodationImage.deleteMany();
     await prisma.dayPlanItemImage.deleteMany();
     await prisma.dayPlanItem.deleteMany();
+    await prisma.tripMember.deleteMany();
     await prisma.accommodation.deleteMany();
     await prisma.tripDay.deleteMany();
     await prisma.trip.deleteMany();
@@ -199,5 +200,91 @@ describe("image gallery repositories", () => {
       imageId: first!.id,
     });
     expect(deleted.status).toBe("deleted");
+  });
+
+  /**
+   * The photo half of `findScopedDayPlanItem`, the scope Story 5.13 widened to the writer clause. The
+   * three writes here and the two document writes in `documentGalleryRepo.test.ts` share that one query,
+   * so this case exists for the same reason as its twin: `refuseUnlessTripWriter` now answers a viewer
+   * 403 at the route, which puts the repository out of reach of any route-level test and leaves the
+   * `role: "CONTRIBUTOR"` in the clause otherwise unpinned. Dropping it would leave the role-agnostic
+   * *participant read* spelling and hand viewers the galleries.
+   */
+  it("admits a contributor on an activity's photos and still refuses a viewer's writes", async () => {
+    const owner = await createUser("gallery-plan-scope-owner@example.com");
+    const contributor = await createUser("gallery-plan-contributor@example.com");
+    const viewer = await createUser("gallery-plan-viewer@example.com");
+    const { trip, day } = await createTripWithDay(owner.id);
+    await prisma.tripMember.create({
+      data: { tripId: trip.id, userId: contributor.id, role: "CONTRIBUTOR" },
+    });
+    await prisma.tripMember.create({
+      data: { tripId: trip.id, userId: viewer.id, role: "VIEWER" },
+    });
+    const item = await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: day.id,
+        contentJson: JSON.stringify({
+          type: "doc",
+          content: [{ type: "paragraph", content: [{ type: "text", text: "Shared stop" }] }],
+        }),
+      },
+    });
+
+    const contributorImage = await createDayPlanItemImage({
+      userId: contributor.id,
+      tripId: trip.id,
+      tripDayId: day.id,
+      dayPlanItemId: item.id,
+      imageUrl: "/uploads/plan-contributor.webp",
+    });
+    expect(contributorImage).not.toBeNull();
+
+    // Read scope is unchanged and participant-wide, so the viewer sees the photo she may not touch.
+    const viewerList = await listDayPlanItemImages({
+      userId: viewer.id,
+      tripId: trip.id,
+      tripDayId: day.id,
+      dayPlanItemId: item.id,
+    });
+    expect(viewerList?.map((entry) => entry.imageUrl)).toEqual(["/uploads/plan-contributor.webp"]);
+
+    expect(
+      await createDayPlanItemImage({
+        userId: viewer.id,
+        tripId: trip.id,
+        tripDayId: day.id,
+        dayPlanItemId: item.id,
+        imageUrl: "/uploads/plan-viewer.webp",
+      }),
+    ).toBeNull();
+
+    const viewerReorder = await reorderDayPlanItemImages({
+      userId: viewer.id,
+      tripId: trip.id,
+      tripDayId: day.id,
+      dayPlanItemId: item.id,
+      order: [{ imageId: contributorImage!.id, sortOrder: 5 }],
+    });
+    expect(viewerReorder.status).toBe("not_found");
+
+    const viewerDelete = await deleteDayPlanItemImage({
+      userId: viewer.id,
+      tripId: trip.id,
+      tripDayId: day.id,
+      dayPlanItemId: item.id,
+      imageId: contributorImage!.id,
+    });
+    expect(viewerDelete.status).toBe("not_found");
+
+    // Nothing the viewer attempted landed: still one photo, still at its original position.
+    const afterViewer = await listDayPlanItemImages({
+      userId: owner.id,
+      tripId: trip.id,
+      tripDayId: day.id,
+      dayPlanItemId: item.id,
+    });
+    expect(afterViewer).toHaveLength(1);
+    expect(afterViewer?.[0].sortOrder).toBe(1);
   });
 });

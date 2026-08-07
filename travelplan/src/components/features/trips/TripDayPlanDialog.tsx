@@ -1109,6 +1109,10 @@ export default function TripDayPlanDialog({
           return t("errors.server");
         case "invalid_json":
           return t("errors.invalidJson");
+        // Story 5.13: the widened routes answer this to a participant refused for her role, where they
+        // used to answer `not_found`. Without this branch the fallback would still say "it is not there".
+        case "forbidden":
+          return t("errors.forbidden");
         default:
           return fallback;
       }
@@ -1571,7 +1575,10 @@ export default function TripDayPlanDialog({
         const body = (await response.json()) as ApiEnvelope<{ image: GalleryImage }>;
         if (!response.ok || body.error || !body.data?.image) {
           failedAtIndex = index;
-          setServerError(t("trips.plan.saveError"));
+          // Story 5.13 routed the four media calls in this file through `resolveApiError`; they set a
+          // fixed key before. The key it used stays as the fallback, so only a recognised code - in
+          // practice `forbidden` from the widened route - changes what the user reads.
+          setServerError(resolveApiError(body.error?.code, t("trips.plan.saveError")));
           break;
         }
         const uploadedImage = body.data.image;
@@ -1584,7 +1591,7 @@ export default function TripDayPlanDialog({
         setGalleryFiles(galleryFiles.slice(failedAtIndex));
       }
     } catch {
-      setServerError(t("trips.plan.saveError"));
+      setServerError(resolveApiError(undefined, t("trips.plan.saveError")));
     } finally {
       setGalleryBusy(false);
     }
@@ -1619,12 +1626,12 @@ export default function TripDayPlanDialog({
       });
       const body = (await response.json()) as ApiEnvelope<{ deleted: boolean }>;
       if (!response.ok || body.error) {
-        setServerError(t("trips.plan.saveError"));
+        setServerError(resolveApiError(body.error?.code, t("trips.plan.saveError")));
         return;
       }
       setGalleryImages((current) => current.filter((image) => image.id !== imageId));
     } catch {
-      setServerError(t("trips.plan.saveError"));
+      setServerError(resolveApiError(undefined, t("trips.plan.saveError")));
     } finally {
       setGalleryBusy(false);
     }
@@ -1687,10 +1694,13 @@ export default function TripDayPlanDialog({
           // anything further. Against the shared constant rather than a literal: the route answers
           // with the same one, so a reword cannot silently turn the actionable message into "please
           // try again".
+          // The limit branch stays ahead of `resolveApiError` because it matches on `message`, not on
+          // `code`: the cap arrives as `validation_error` like three other rejections, so routing it
+          // through the code switch first would lose the one message the user can act on.
           setServerError(
             body.error?.message === DOCUMENT_LIMIT_ERROR_MESSAGE
               ? t("trips.documents.limitReached")
-              : t("trips.documents.uploadError"),
+              : resolveApiError(body.error?.code, t("trips.documents.uploadError")),
           );
           break;
         }
@@ -1700,7 +1710,7 @@ export default function TripDayPlanDialog({
 
       setDocumentFiles(failedAtIndex === -1 ? [] : documentFiles.slice(failedAtIndex));
     } catch {
-      setServerError(t("trips.documents.uploadError"));
+      setServerError(resolveApiError(undefined, t("trips.documents.uploadError")));
     } finally {
       setDocumentBusy(false);
     }
@@ -1736,7 +1746,7 @@ export default function TripDayPlanDialog({
       });
       const body = (await response.json()) as ApiEnvelope<{ deleted: boolean }>;
       if (!response.ok || body.error) {
-        setServerError(t("trips.documents.deleteError"));
+        setServerError(resolveApiError(body.error?.code, t("trips.documents.deleteError")));
         return;
       }
       // `documentRow`, not `document`: this file reaches for the global of that name (the error-focus
@@ -1744,7 +1754,7 @@ export default function TripDayPlanDialog({
       // adds a focus or measurement call inside one of these callbacks next.
       setDocuments((current) => current.filter((documentRow) => documentRow.id !== documentId));
     } catch {
-      setServerError(t("trips.documents.deleteError"));
+      setServerError(resolveApiError(undefined, t("trips.documents.deleteError")));
     } finally {
       setDocumentBusy(false);
     }

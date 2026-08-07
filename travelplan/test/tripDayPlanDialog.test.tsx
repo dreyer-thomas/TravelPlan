@@ -441,6 +441,69 @@ const mediaUploadButton = (container: HTMLElement, kind: "photos" | "documents")
  */
 const costField = () => screen.getByLabelText("Cost", { selector: "input" });
 
+/**
+ * A media-tab harness whose photo upload answers one chosen error envelope. The CSRF fetch and the
+ * gallery GET succeed, so the only thing under test is what `resolveApiError` makes of the code the
+ * upload came back with.
+ */
+const stubPhotoUploadError = (status: number, error: { code: string; message: string }) => {
+  const fetchMock = vi.fn(async (input: RequestInfo, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input.url;
+    const method = init?.method ?? "GET";
+
+    if (url.includes("/api/auth/csrf")) {
+      return { ok: true, status: 200, json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }) };
+    }
+
+    if (url.includes("/day-plan-items/images?") && method === "GET") {
+      return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
+    }
+
+    return { ok: false, status, json: async () => ({ data: null, error }) };
+  }) as unknown as typeof fetch;
+
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+};
+
+/**
+ * The dialog is imported per test rather than at module scope (the MUI/tiptap mocks above have to be
+ * in place first), so the component comes in as an argument.
+ */
+const renderEditableDialog = (Dialog: React.ComponentType<Record<string, unknown>>) =>
+  render(
+    <Providers language="en">
+      <Dialog
+        open
+        mode="edit"
+        tripId="trip-1"
+        day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
+        item={{
+          id: "item-1",
+          tripDayId: "day-1",
+          title: "Museum",
+          fromTime: "09:00",
+          toTime: "10:00",
+          contentJson: tiptapMocks.sampleDoc,
+          costCents: 1200,
+          linkUrl: null,
+          location: null,
+          createdAt: new Date().toISOString(),
+        }}
+        onClose={() => undefined}
+        onSaved={() => undefined}
+      />
+    </Providers>,
+  );
+
+const uploadOnePhoto = (container: HTMLElement) => {
+  selectTab("media");
+  fireEvent.change(mediaFileInput(container, "photos"), {
+    target: { files: [new File(["bytes"], "shot.webp", { type: "image/webp" })] },
+  });
+  fireEvent.click(mediaUploadButton(container, "photos"));
+};
+
 describe("TripDayPlanDialog", () => {
   afterEach(() => {
     cleanup();
@@ -1349,12 +1412,71 @@ describe("TripDayPlanDialog", () => {
     fireEvent.change(fileInput, { target: { files: [fileOne, fileTwo] } });
     fireEvent.click(mediaUploadButton(container, "photos"));
 
-    await waitFor(() => expect(screen.getByText("Plan item update failed. Please try again.")).toBeInTheDocument());
+    // Story 5.13 routed this block through `resolveApiError`, which recognises the stub's
+    // `server_error` and answers `errors.server`; `trips.plan.saveError` is now the fallback for a code
+    // the switch does not know. The subject of this case is the *state* below - the surviving
+    // thumbnail and the re-staged file - and both are unchanged.
+    await waitFor(() => expect(screen.getByText("Something went wrong. Please try again.")).toBeInTheDocument());
     // Pinned on the indexed alt, not on a bare <img> count: the failed upload must leave the one
     // pre-existing thumbnail and add nothing.
     expect(container.querySelectorAll('img[alt="Image 1 of 1"]')).toHaveLength(1);
     expect(container.querySelectorAll("img")).toHaveLength(1);
     expect(screen.getByText("1 file(s) selected")).toBeInTheDocument();
+  });
+
+  /**
+   * Story 5.13 AC7, on a screen rather than in a dictionary.
+   *
+   * The widened routes answer a participant refused for her role `403 forbidden` where they used to
+   * answer `404 not_found`, and the whole point of the new code is that she reads "your role does not
+   * allow this" instead of "it is not there". Until this case, that promise was pinned only by
+   * `i18nDictionaries.test.ts` key-parity and by the `case "forbidden"` label itself - both of which
+   * survive a regression that maps the code to the `fallback` argument, because the fallback is also a
+   * real translated string and nothing asserted *which* string reaches the alert.
+   *
+   * The stub is the exact envelope `refuseUnlessTripWriter` produces (`tripAccess.ts`), status and all.
+   */
+  it("shows the permission message, not the generic one, when a media write is refused for the role", async () => {
+    const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
+
+    const fetchMock = stubPhotoUploadError(403, { code: "forbidden", message: "Trip write access required" });
+    const { container } = renderEditableDialog(TripDayPlanDialog as never);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    uploadOnePhoto(container);
+
+    await waitFor(() =>
+      expect(screen.getByText("Your role on this trip does not allow this action.")).toBeInTheDocument(),
+    );
+    // And specifically *not* the surface fallback, which is what a regression to `default:` would show.
+    expect(screen.queryByText("Plan item update failed. Please try again.")).not.toBeInTheDocument();
+    // Nor the server-error text, so a switch that folded `forbidden` into `server_error` fails here too.
+    expect(screen.queryByText("Something went wrong. Please try again.")).not.toBeInTheDocument();
+  });
+
+  /**
+   * The other half of the same contract, and the assertion the media cases lost when Story 5.13 routed
+   * these blocks through `resolveApiError`: the `fallback` argument must still be what an *unrecognised*
+   * code falls back to. Without this, `resolveApiError` could ignore its second parameter entirely - or
+   * hard-code a generic default - and every remaining case in this file would stay green, because they
+   * all stub codes the switch knows.
+   */
+  it("keeps the surface-specific message for an error code the switch does not know", async () => {
+    const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
+
+    const fetchMock = stubPhotoUploadError(418, { code: "teapot", message: "I'm a teapot" });
+    const { container } = renderEditableDialog(TripDayPlanDialog as never);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    uploadOnePhoto(container);
+
+    await waitFor(() =>
+      expect(screen.getByText("Plan item update failed. Please try again.")).toBeInTheDocument(),
+    );
+    // The server's own `message` is never surfaced raw - the fallback key is, so an unknown code cannot
+    // leak an untranslated backend string into the dialog.
+    expect(screen.queryByText("I'm a teapot")).not.toBeInTheDocument();
+    expect(screen.queryByText("Your role on this trip does not allow this action.")).not.toBeInTheDocument();
   });
 
   it("localizes the selected gallery file summary", async () => {

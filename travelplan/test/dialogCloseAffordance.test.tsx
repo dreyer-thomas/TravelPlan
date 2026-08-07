@@ -307,7 +307,7 @@ describe("every dialog carries exactly one ✕ (AC1) and no Cancel (AC2)", () =>
   it("trip edit dialog", async () => {
     const onClose = vi.fn();
     renderWithProviders(
-      <TripEditDialog open trip={TRIP} onClose={onClose} onUpdated={() => undefined} />,
+      <TripEditDialog open trip={TRIP} canEditHeroImage onClose={onClose} onUpdated={() => undefined} />,
     );
 
     await expectSingleNamedClose(onClose);
@@ -394,7 +394,7 @@ describe("each form dialog's own dirty signal (AC7)", () => {
   it("the trip edit dialog closes silently when nothing was typed", async () => {
     const onClose = vi.fn();
     renderWithProviders(
-      <TripEditDialog open trip={TRIP} onClose={onClose} onUpdated={() => undefined} />,
+      <TripEditDialog open trip={TRIP} canEditHeroImage onClose={onClose} onUpdated={() => undefined} />,
     );
 
     await userEvent.click(closeControl());
@@ -406,7 +406,7 @@ describe("each form dialog's own dirty signal (AC7)", () => {
   it("the trip edit dialog asks once a field has been typed into", async () => {
     const onClose = vi.fn();
     renderWithProviders(
-      <TripEditDialog open trip={TRIP} onClose={onClose} onUpdated={() => undefined} />,
+      <TripEditDialog open trip={TRIP} canEditHeroImage onClose={onClose} onUpdated={() => undefined} />,
     );
 
     await userEvent.type(screen.getByLabelText("Trip name"), " 2027");
@@ -433,7 +433,7 @@ describe("each form dialog's own dirty signal (AC7)", () => {
   it("the trip edit dialog asks after a hero image is chosen", async () => {
     const onClose = vi.fn();
     renderWithProviders(
-      <TripEditDialog open trip={TRIP} onClose={onClose} onUpdated={() => undefined} />,
+      <TripEditDialog open trip={TRIP} canEditHeroImage onClose={onClose} onUpdated={() => undefined} />,
     );
 
     const file = new File(["binary"], "hero.jpg", { type: "image/jpeg" });

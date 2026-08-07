@@ -392,6 +392,13 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
           case "not_found":
             setExportErrorKey("trips.detail.notFoundBody");
             break;
+          // Story 5.13 moved this route to owner-or-contributor, so a refusal for the caller's role now
+          // arrives as `forbidden` rather than folded into the 404 above. "Please try again" is the same
+          // wrong advice here as it is for the two cases above it - the role is not going to change on a
+          // retry - and this button is reachable by a contributor, so the case is not theoretical.
+          case "forbidden":
+            setExportErrorKey("errors.forbidden");
+            break;
           case "server_error":
             setExportErrorKey("errors.server");
             break;
@@ -462,15 +469,19 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
               {t("trips.delete.open")}
             </Button>
           ) : null}
-          {/* `isOwner`, not `canEditPlanning`: the route gates on `hasTripOwnerAccess` and answers
-              404 - not 403 - to everyone else, so a contributor pressing this would get a bare "not
-              found". That mismatch is exactly the defect Story 7.8 removed the old button over, so
-              this one sits with Delete rather than with Edit. Whether a contributor *should* be
-              able to export is a question about the route's gate, not about this button.
+          {/* `canEditPlanning` as of Story 5.13, which answered the question this comment used to
+              leave open. The export route is owner-or-contributor now: a contributor can already
+              read every stay, activity, photo and document the archive contains, so refusing her the
+              ZIP protected nothing and only changed the container. It still sits beside Delete
+              rather than beside Edit, because that is where Story 7.8 put it.
+
+              Note the button and the route move together. `isOwner` here was never a guard - it was
+              a mirror of a gate, and leaving it behind after widening the route would have hidden a
+              control a contributor is now entitled to.
 
               No `color`, `size` or `startIcon`: the Epic 7 outlined treatment comes from
               `theme.ts`, and anything declared here would make this button the odd one of three. */}
-          {isOwner ? (
+          {canEditPlanning ? (
             <Button
               variant="outlined"
               onClick={() => void handleExport()}
@@ -949,8 +960,12 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                   (Story 7.8), so the wrapper carries spacing only - a bordered wrapper here would
                   double the edge. The side column has no flex gap: its rhythm is the sibling
                   `mb: 2` / `mt: 2` used by the cost card and the gap alert, so this joins that same
-                  16px rule rather than introducing a second spacing scale. */}
-              {isOwner ? (
+                  16px rule rather than introducing a second spacing scale.
+
+                  `canEditPlanning` as of Story 5.13: all four bucket-list verbs moved to
+                  owner-or-contributor, so this panel mirrors its route again. A viewer still gets
+                  nothing, which is the same answer the route would give her. */}
+              {canEditPlanning ? (
                 <Box sx={{ mt: 2 }}>
                   <TripBucketListPanel tripId={detail.trip.id} />
                 </Box>
@@ -1001,7 +1016,16 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
 
       {detail && (
         <>
-          <TripEditDialog open={editOpen} trip={detail.trip} onClose={handleEditClose} onUpdated={handleUpdated} />
+          {/* `isOwner` and not `canEditPlanning`: the Edit button above opens this for a contributor
+              too, because renaming the trip and moving its dates are hers to do - the hero image is
+              not (Story 5.13), so the dialog is told which of its two writes she may perform. */}
+          <TripEditDialog
+            open={editOpen}
+            trip={detail.trip}
+            canEditHeroImage={isOwner}
+            onClose={handleEditClose}
+            onUpdated={handleUpdated}
+          />
           <TripDeleteDialog
             open={deleteOpen}
             tripId={detail.trip.id}

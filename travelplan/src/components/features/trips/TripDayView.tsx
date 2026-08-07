@@ -608,7 +608,9 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const scrollRestoreKey = useMemo(() => `trip-day-scroll:${tripId}:${dayId}`, [dayId, tripId]);
   const defaultCheckInTime = "16:00";
   const defaultCheckOutTime = "10:00";
-  const isOwner = detail?.trip.accessRole ? detail.trip.accessRole === "owner" : true;
+  // `isOwner` used to sit beside this and is gone as of Story 5.13: its last three readers (the day-image
+  // menu item, the bucket-list fetch and the bucket-list panel) all moved to `canEditPlanning`, and this
+  // screen now holds nothing that is the owner's alone.
   const canEditPlanning = detail?.trip.accessRole ? detail.trip.accessRole !== "viewer" : true;
 
   // Story 6.15: the hero overflow used to hold one ungated item (print), so the trigger could be
@@ -626,8 +628,12 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   // Story 9.2 adds `packet`, gated `true` for the same reason `print` is: it produces nothing and
   // changes nothing, and taking the day's tickets offline is exactly as much a viewer's business as
   // printing the day is.
+  //
+  // Story 5.13 moves `dayImage` from `isOwner` to `canEditPlanning`, keeping the mirror true: the route
+  // behind it now gates on write-level role, because a day image is content of a day and a contributor
+  // already fills that day with stays and activities.
   const dayMenuItemsVisible: Record<"dayImage" | "transfers" | "print" | "packet", boolean> = {
-    dayImage: isOwner,
+    dayImage: canEditPlanning,
     transfers: canEditPlanning,
     print: true,
     packet: true,
@@ -705,6 +711,10 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
           return t("errors.server");
         case "invalid_json":
           return t("errors.invalidJson");
+        // Story 5.13: the widened routes answer this to a participant refused for her role, where they
+        // used to answer `not_found`. Without this branch the fallback would still say "it is not there".
+        case "forbidden":
+          return t("errors.forbidden");
         case "network_error":
           return t("errors.network");
         default:
@@ -825,7 +835,10 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     setBucketLoading(true);
     setBucketError(null);
     try {
-      if (!isOwner) {
+      // Story 5.13 widened this from `isOwner`: the bucket-list route is owner-or-contributor now, so a
+      // contributor short-circuited here would see an empty panel rather than the trip's ideas. A viewer
+      // still stops here, which keeps the request the route would refuse from being made at all.
+      if (!canEditPlanning) {
         setBucketItems([]);
         setBucketError(null);
         setBucketLoading(false);
@@ -852,7 +865,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     } finally {
       setBucketLoading(false);
     }
-  }, [isOwner, resolveApiError, t, tripId]);
+  }, [canEditPlanning, resolveApiError, t, tripId]);
 
   const ensureCsrfToken = useCallback(async () => {
     if (csrfToken) return csrfToken;
@@ -2299,10 +2312,21 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
           day: { id: string; imageUrl: string | null; note: string | null; updatedAt: string };
         }>;
         if (!uploadResponse.ok || uploadBody.error || !uploadBody.data?.day) {
+          // Story 5.13 routed the three day-image writes through `resolveApiError`, so that `forbidden` -
+          // which this route can now answer - reads as a sentence about permission rather than "Trip write
+          // access required" in brackets. Note what else that changes: every code the switch already knew
+          // (`unauthorized`, `csrf_invalid`, `server_error`, `invalid_json`, `network_error`) now renders
+          // its shared `errors.*` string instead of this key plus the server's own text. That is the
+          // intended trade and not a side effect worth undoing - those server messages are English-only
+          // internals, and a German reader was getting them raw. The bracketed form survives only as the
+          // fallback, for codes the switch does not recognise.
           setError(
-            uploadBody.error?.message
-              ? `${t("trips.dayImage.uploadError")} (${uploadBody.error.message})`
-              : t("trips.dayImage.uploadError"),
+            resolveApiError(
+              uploadBody.error?.code,
+              uploadBody.error?.message
+                ? `${t("trips.dayImage.uploadError")} (${uploadBody.error.message})`
+                : t("trips.dayImage.uploadError"),
+            ),
           );
           return;
         }
@@ -2334,7 +2358,12 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
         day: { id: string; imageUrl: string | null; note: string | null; updatedAt: string };
       }>;
       if (!response.ok || body.error || !body.data?.day) {
-        setError(body.error?.message ? `${t("trips.dayImage.saveError")} (${body.error.message})` : t("trips.dayImage.saveError"));
+        setError(
+          resolveApiError(
+            body.error?.code,
+            body.error?.message ? `${t("trips.dayImage.saveError")} (${body.error.message})` : t("trips.dayImage.saveError"),
+          ),
+        );
         return;
       }
 
@@ -2347,7 +2376,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     } finally {
       setDayImageSaving(false);
     }
-  }, [day, dayImageFile, dayNoteDraft, ensureCsrfToken, t, tripId, updateLocalDayMeta]);
+  }, [day, dayImageFile, dayNoteDraft, ensureCsrfToken, resolveApiError, t, tripId, updateLocalDayMeta]);
 
   const handleRemoveDayImage = useCallback(async () => {
     if (!day) return;
@@ -2371,7 +2400,12 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
         day: { id: string; imageUrl: string | null; note: string | null; updatedAt: string };
       }>;
       if (!response.ok || body.error || !body.data?.day) {
-        setError(body.error?.message ? `${t("trips.dayImage.saveError")} (${body.error.message})` : t("trips.dayImage.saveError"));
+        setError(
+          resolveApiError(
+            body.error?.code,
+            body.error?.message ? `${t("trips.dayImage.saveError")} (${body.error.message})` : t("trips.dayImage.saveError"),
+          ),
+        );
         return;
       }
 
@@ -2383,7 +2417,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     } finally {
       setDayImageSaving(false);
     }
-  }, [day, dayNoteDraft, ensureCsrfToken, t, tripId, updateLocalDayMeta]);
+  }, [day, dayNoteDraft, ensureCsrfToken, resolveApiError, t, tripId, updateLocalDayMeta]);
 
   const budgetEntries = useMemo(() => {
     const entries: { id: string; label: string; amountCents: number | null }[] = [];
@@ -3639,7 +3673,10 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                 onExpandClick={handleMapExpand}
                 onMarkerClick={handleMapMarkerClick}
               />
-              {isOwner ? (
+              {/* Story 5.13: `canEditPlanning`, not `isOwner` - the bucket-list route and the
+                  "add to this day" conversion behind this panel are both owner-or-contributor now.
+                  A viewer still sees nothing, which matches the route she would be refused by. */}
+              {canEditPlanning ? (
                 <TripDayBucketListPanel
                   items={bucketItems}
                   loading={bucketLoading}

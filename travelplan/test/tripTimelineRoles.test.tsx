@@ -344,7 +344,7 @@ describe("TripTimeline role gating", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows contributor trip editing while keeping owner-only management actions hidden", async () => {
+  it("shows contributor trip editing, export and the bucket list while keeping owner-only actions hidden", async () => {
     const fetchMock = stubDetailFetch(
       buildDetailResponse(
         { name: "Contributor Trip", accessRole: "contributor" },
@@ -359,12 +359,14 @@ describe("TripTimeline role gating", () => {
     expect(screen.getByRole("button", { name: "Edit trip" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Share trip" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Delete trip" })).not.toBeInTheDocument();
-    // Story 2.33 AC3: a contributor gets the card and its Edit button, but Export sits with Delete
-    // on `isOwner` - the route answers 404 to a contributor, so a visible button would only produce
-    // a bare "not found", which is what Story 7.8 removed the old one over.
-    expect(screen.queryByRole("button", { name: EXPORT_LABEL })).not.toBeInTheDocument();
+    // Story 5.13 AC2, flipping the two assertions Story 2.33 wrote here. Export sat on `isOwner`
+    // because the route answered 404 to a contributor and a visible button would have produced a bare
+    // "not found"; the route is owner-or-contributor now, so the reason for the absence is gone. Same
+    // for the bucket-list panel: all four of its verbs moved. Import does not flip - Story 2.32 put it
+    // on the trips list and nothing has moved it.
+    expect(screen.getByRole("button", { name: EXPORT_LABEL })).toBeInTheDocument();
+    expect(screen.getByTestId("bucket-list-panel")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: IMPORT_LABEL })).not.toBeInTheDocument();
-    expect(screen.queryByTestId("bucket-list-panel")).not.toBeInTheDocument();
 
     vi.unstubAllGlobals();
   });

@@ -577,6 +577,75 @@ describe("/api/trips/[id]/day-plan-items", () => {
     expect(await prisma.dayPlanItem.count()).toBe(1);
   });
 
+  /**
+   * Story 5.13, AC2/AC5. The route gate here was already contributor-permissive and so was the day
+   * lookup, but `findBucketListItemForTripInTransaction` was owner-only - so a contributor's "add this
+   * idea to that day" got all the way inside the transaction and died there as `bucket_missing` -> 404,
+   * which reads as a vanished idea rather than a refusal. This case is the one that pins the third
+   * layer; the route-level contributor cases above cannot see it.
+   *
+   * The contributor's account row is `role: "VIEWER"` on purpose: the route must decide on
+   * `TripMember.role` and never on `User.role`.
+   */
+  it("lets a contributor convert a bucket list item into an activity", async () => {
+    const owner = await prisma.user.create({
+      data: { email: "plan-route-convert-owner@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const contributor = await prisma.user.create({
+      data: { email: "plan-route-convert-contributor@example.com", passwordHash: "hashed", role: "VIEWER" },
+    });
+    const token = await createSessionJwt({ sub: contributor.id, role: contributor.role });
+
+    const trip = await prisma.trip.create({
+      data: {
+        userId: owner.id,
+        name: "Shared Convert Trip",
+        startDate: new Date("2026-12-03T00:00:00.000Z"),
+        endDate: new Date("2026-12-03T00:00:00.000Z"),
+      },
+    });
+    const day = await prisma.tripDay.create({
+      data: { tripId: trip.id, date: new Date("2026-12-03T00:00:00.000Z"), dayIndex: 1 },
+    });
+    await prisma.tripMember.create({ data: { tripId: trip.id, userId: contributor.id, role: "CONTRIBUTOR" } });
+
+    const bucketItem = await prisma.tripBucketListItem.create({
+      data: { tripId: trip.id, title: "Shared stop", description: "Shared notes" },
+    });
+
+    const response = await POST(
+      buildRequest(`http://localhost/api/trips/${trip.id}/day-plan-items`, {
+        session: token,
+        csrf: "csrf-token",
+        method: "POST",
+        body: JSON.stringify({
+          tripDayId: day.id,
+          bucketListItemId: bucketItem.id,
+          title: "Shared stop",
+          fromTime: "09:15",
+          toTime: "10:15",
+          contentJson: sampleDoc("Shared notes"),
+          costCents: null,
+          linkUrl: null,
+          location: null,
+        }),
+      }),
+      { params: Promise.resolve({ id: trip.id }) },
+    );
+    const payload = (await response.json()) as ApiEnvelope<{
+      dayPlanItem: { id: string; tripDayId: string; title: string | null };
+    }>;
+
+    expect(response.status).toBe(200);
+    // Specifically not `bucket_missing`: that is the code the owner-only lookup produced, and it is
+    // what a half-applied version of this story would answer here.
+    expect(payload.error).toBeNull();
+    expect(payload.data?.dayPlanItem.tripDayId).toBe(day.id);
+    // The idea is consumed, so the conversion committed rather than half-ran.
+    expect(await prisma.tripBucketListItem.count()).toBe(0);
+    expect(await prisma.dayPlanItem.count()).toBe(1);
+  });
+
   it("creates and returns rich formatted content without data loss", async () => {
     const user = await prisma.user.create({
       data: { email: "plan-route-rich@example.com", passwordHash: "hashed", role: "OWNER" },

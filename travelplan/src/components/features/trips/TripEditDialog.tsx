@@ -69,6 +69,18 @@ type TripEditFormValues = {
 type TripEditDialogProps = {
   open: boolean;
   trip: TripSummary;
+  /**
+   * Story 5.13. The trip `PATCH` this dialog performs is owner-or-contributor, so `TripTimeline` opens
+   * the dialog for both roles - but `POST /api/trips/[id]/hero-image` is owner-only and stays that way:
+   * the hero is the trip's identity on someone else's dashboard card, not content of a day.
+   *
+   * Before this prop existed the dialog had no role conditional at all, so a contributor was shown a
+   * hero-image field, submitted it, and got a bare `trips.edit.uploadError` while the name and dates
+   * beside it committed. That is DW-182's shape exactly - a control on screen, a route that refuses,
+   * and a message that names neither - so the field and the upload are both suppressed here rather
+   * than only the field: a stale `FileList` must not be able to reach a route that will refuse it.
+   */
+  canEditHeroImage: boolean;
   onClose: () => void;
   onUpdated: (detail: TripDetail) => void;
 };
@@ -105,7 +117,7 @@ const isValidDateInput = (value: string) => {
   );
 };
 
-export default function TripEditDialog({ open, trip, onClose, onUpdated }: TripEditDialogProps) {
+export default function TripEditDialog({ open, trip, canEditHeroImage, onClose, onUpdated }: TripEditDialogProps) {
   const { t } = useI18n();
   const {
     register,
@@ -264,7 +276,12 @@ export default function TripEditDialog({ open, trip, onClose, onUpdated }: TripE
     // Carried through so the consumer can version the hero URL. The upload bumps the trip's
     // `updatedAt`, so the value from the upload response is newer than the one on the PATCH body.
     let heroUpdatedAt = body.data.trip.updatedAt;
-    const file = values.heroImage?.item(0);
+    // `canEditHeroImage &&`, not just the hidden field. `register("heroImage")` above runs unconditionally,
+    // so the field stays registered for a contributor and is merely never mounted - which is exactly why
+    // this guard cannot be left to the rendering. The request is the thing that must not happen, and
+    // stating it here keeps the guard standing if the field is ever mounted, moved, or given
+    // `shouldUnregister`.
+    const file = canEditHeroImage ? values.heroImage?.item(0) : undefined;
     let uploadFailed = false;
 
     if (file) {
@@ -376,22 +393,26 @@ export default function TripEditDialog({ open, trip, onClose, onUpdated }: TripE
                 onBlur={handleDateBlur("endDate")}
                 fullWidth
               />
-              <TextField
-                label={t("trips.form.heroImage")}
-                type="file"
-                InputLabelProps={{ shrink: true }}
-                inputProps={{ accept: IMAGE_UPLOAD_ACCEPT }}
-                helperText={t("trips.form.heroImageHelper")}
-                {...heroImageField}
-                // Story 6.25. react-hook-form's own `onChange` still runs — it is what puts the FileList
-                // into `values.heroImage` for `onSubmit`; this only adds the one bit `dirtyFields`
-                // cannot carry. See the note on `editGuard` above.
-                onChange={(event) => {
-                  void heroImageField.onChange(event);
-                  setHeroImageSelected(Boolean((event.target as HTMLInputElement).files?.length));
-                }}
-                fullWidth
-              />
+              {/* Story 5.13: hidden for a contributor, who reaches this dialog through the Edit button
+                  (gated `canEditPlanning`) but whose hero upload the route refuses. See the prop. */}
+              {canEditHeroImage ? (
+                <TextField
+                  label={t("trips.form.heroImage")}
+                  type="file"
+                  InputLabelProps={{ shrink: true }}
+                  inputProps={{ accept: IMAGE_UPLOAD_ACCEPT }}
+                  helperText={t("trips.form.heroImageHelper")}
+                  {...heroImageField}
+                  // Story 6.25. react-hook-form's own `onChange` still runs — it is what puts the FileList
+                  // into `values.heroImage` for `onSubmit`; this only adds the one bit `dirtyFields`
+                  // cannot carry. See the note on `editGuard` above.
+                  onChange={(event) => {
+                    void heroImageField.onChange(event);
+                    setHeroImageSelected(Boolean((event.target as HTMLInputElement).files?.length));
+                  }}
+                  fullWidth
+                />
+              ) : null}
             </Box>
           </Box>
         </DialogContent>

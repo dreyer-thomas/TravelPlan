@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { apiError } from "@/lib/errors/apiError";
 import { fail } from "@/lib/http/response";
-import { hasTripOwnerAccess } from "@/lib/auth/tripAccess";
+import { refuseUnlessTripWriter } from "@/lib/auth/tripAccess";
 import { getTripExportForUser } from "@/lib/repositories/tripRepo";
 import { requireSession } from "@/lib/auth/sessionGuard";
 import { createZipStream, type ZipEntry } from "@/lib/trips/zipArchive";
@@ -49,8 +49,9 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
   if (!tripId) {
     return fail(apiError("not_found", "Trip not found"), 404);
   }
-  if (!(await hasTripOwnerAccess(userId, tripId))) {
-    return fail(apiError("not_found", "Trip not found"), 404);
+  const refusal = await refuseUnlessTripWriter(userId, tripId, "Trip not found");
+  if (refusal) {
+    return refusal;
   }
 
   try {

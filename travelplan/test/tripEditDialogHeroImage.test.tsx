@@ -96,6 +96,7 @@ describe("TripEditDialog hero image", () => {
             dayCount: 3,
             accommodationCostTotalCents: null,
           }}
+          canEditHeroImage
           onClose={handleClose}
           onUpdated={handleUpdated}
         />
@@ -161,6 +162,7 @@ describe("TripEditDialog hero image", () => {
             dayCount: 3,
             accommodationCostTotalCents: null,
           }}
+          canEditHeroImage
           onClose={handleClose}
           onUpdated={handleUpdated}
         />
@@ -175,5 +177,78 @@ describe("TripEditDialog hero image", () => {
     await waitFor(() => expect(handleUpdated).toHaveBeenCalled());
     expect(handleClose).not.toHaveBeenCalled();
     expect(screen.getByText(/hero image upload failed/i)).toBeInTheDocument();
+  });
+  /**
+   * Story 5.13, AC3. The Edit button that opens this dialog is gated `canEditPlanning`, so a contributor
+   * reaches it - and before this story she was shown a hero-image field, submitted it, and got a generic
+   * `trips.edit.uploadError` while the name and dates beside it committed. That is DW-182's own shape on
+   * a different surface: a control on screen, a route that refuses, and a message that names neither.
+   *
+   * Both halves are asserted, because the field's absence alone would not prove the request is gone: the
+   * `POST` must not be attempted either, or a stale `FileList` would still reach an owner-only route.
+   */
+  it("hides the hero-image field from a contributor and performs no hero upload for her", async () => {
+    const user = userEvent.setup();
+    const handleUpdated = vi.fn();
+    const handleClose = vi.fn();
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripEditDialog
+          open
+          trip={{
+            id: "trip-edit-hero",
+            name: "Original Trip",
+            startDate: "2026-06-10T00:00:00.000Z",
+            endDate: "2026-06-12T00:00:00.000Z",
+            dayCount: 3,
+            accommodationCostTotalCents: null,
+          }}
+          canEditHeroImage={false}
+          onClose={handleClose}
+          onUpdated={handleUpdated}
+        />
+      </I18nProvider>
+    );
+
+    const scope = within(screen.getByRole("dialog"));
+    expect(scope.queryByLabelText(/hero image/i)).not.toBeInTheDocument();
+    // The trip's own fields are untouched - a contributor may still rename it and move its dates.
+    expect(scope.getByLabelText(/trip name/i)).toBeInTheDocument();
+
+    await user.click(scope.getByRole("button", { name: /save changes/i }));
+    await waitFor(() => expect(handleUpdated).toHaveBeenCalled());
+
+    const heroCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.find(([input, init]) => {
+      const url = typeof input === "string" ? input : String(input);
+      return url.includes("/api/trips/trip-edit-hero/hero-image") && init?.method === "POST";
+    });
+    expect(heroCall).toBeUndefined();
+  });
+
+  // `findBy`, not `getBy`: the dialog fetches a CSRF token on open, and resolving that promise outside
+  // an `act` is what produces React's "not wrapped in act(...)" warning on an otherwise green case.
+  it("still shows the hero-image field to an owner", async () => {
+    const handleUpdated = vi.fn();
+    const handleClose = vi.fn();
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripEditDialog
+          open
+          trip={{
+            id: "trip-edit-hero",
+            name: "Original Trip",
+            startDate: "2026-06-10T00:00:00.000Z",
+            endDate: "2026-06-12T00:00:00.000Z",
+            dayCount: 3,
+            accommodationCostTotalCents: null,
+          }}
+          canEditHeroImage
+          onClose={handleClose}
+          onUpdated={handleUpdated}
+        />
+      </I18nProvider>
+    );
+
+    expect(await within(screen.getByRole("dialog")).findByLabelText(/hero image/i)).toBeInTheDocument();
   });
 });

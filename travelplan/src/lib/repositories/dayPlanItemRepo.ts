@@ -237,7 +237,14 @@ const findScopedDayPlanItem = async ({ userId, tripId, tripDayId, dayPlanItemId 
       tripDay: {
         id: tripDayId,
         tripId,
-        trip: { userId },
+        // The writer clause, identical to `findTripDayForTripWriter` above. Story 5.13 widened it from
+        // `trip: { userId }`: a contributor may create, move and delete the activity itself, so refusing
+        // her the photos and documents attached to it was chronology (Story 2.16 predates the role), not
+        // a rule. The explicit `role: "CONTRIBUTOR"` is load-bearing - the role-agnostic spelling just
+        // below is the *participant read* scope and admits viewers.
+        trip: {
+          OR: [{ userId }, { members: { some: { userId, role: "CONTRIBUTOR" } } }],
+        },
       },
     },
     select: { id: true },

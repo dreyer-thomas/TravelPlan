@@ -46,9 +46,21 @@ type BucketListItemScopeParams = {
   itemId: string;
 };
 
-const findTripForUser = async (userId: string, tripId: string) =>
+/**
+ * The single scope gate behind all four exported bucket-list functions, so Story 5.13 moved list, create,
+ * update and delete together by widening this one query from `where: { id: tripId, userId }` to the flat
+ * writer clause. Renamed from `findTripForUser` in the same commit: the old name would tell the next
+ * reader it is owner-only, which it no longer is.
+ *
+ * The explicit `role: "CONTRIBUTOR"` is load-bearing. A bare `members: { some: { userId } }` is the
+ * participant *read* clause and would hand viewers write access to the list.
+ */
+const findTripForTripWriter = async (userId: string, tripId: string) =>
   prisma.trip.findFirst({
-    where: { id: tripId, userId },
+    where: {
+      id: tripId,
+      OR: [{ userId }, { members: { some: { userId, role: "CONTRIBUTOR" } } }],
+    },
     select: { id: true },
   });
 
@@ -91,7 +103,7 @@ export const listBucketListItemsForTrip = async (params: {
   tripId: string;
 }): Promise<BucketListItemDetail[] | null> => {
   const { userId, tripId } = params;
-  const trip = await findTripForUser(userId, tripId);
+  const trip = await findTripForTripWriter(userId, tripId);
   if (!trip) {
     return null;
   }
@@ -108,7 +120,7 @@ export const createBucketListItemForTrip = async (
   params: BucketListItemCreateParams,
 ): Promise<BucketListItemDetail | null> => {
   const { userId, tripId, title, description, positionText, location } = params;
-  const trip = await findTripForUser(userId, tripId);
+  const trip = await findTripForTripWriter(userId, tripId);
   if (!trip) {
     return null;
   }
@@ -132,7 +144,7 @@ export const updateBucketListItemForTrip = async (
   params: BucketListItemUpdateParams,
 ): Promise<BucketListItemUpdateResult> => {
   const { userId, tripId, itemId, title, description, positionText, location } = params;
-  const trip = await findTripForUser(userId, tripId);
+  const trip = await findTripForTripWriter(userId, tripId);
   if (!trip) {
     return { status: "not_found" };
   }
@@ -167,7 +179,7 @@ export const deleteBucketListItemForTrip = async (
   params: BucketListItemDeleteParams,
 ): Promise<BucketListItemDeleteResult> => {
   const { userId, tripId, itemId } = params;
-  const trip = await findTripForUser(userId, tripId);
+  const trip = await findTripForTripWriter(userId, tripId);
   if (!trip) {
     return { status: "not_found" };
   }
@@ -188,6 +200,11 @@ export const deleteBucketListItemForTrip = async (
   return { status: "deleted" };
 };
 
+/**
+ * Widened to the writer clause by Story 5.13 in step with its transaction twin below. It has no callers
+ * today; it is kept in the same spelling precisely so the two cannot drift and the next caller does not
+ * pick up an owner-only scope by accident.
+ */
 export const findBucketListItemForTrip = async (
   params: BucketListItemScopeParams,
 ): Promise<BucketListItemDetail | null> => {
@@ -195,13 +212,22 @@ export const findBucketListItemForTrip = async (
     where: {
       id: params.itemId,
       tripId: params.tripId,
-      trip: { userId: params.userId },
+      trip: {
+        OR: [{ userId: params.userId }, { members: { some: { userId: params.userId, role: "CONTRIBUTOR" } } }],
+      },
     },
   });
 
   return item ? toDetail(item) : null;
 };
 
+/**
+ * The "add this idea to that day" flow's item lookup, inside `convertBucketListItemToDayPlanItemForTripDay`'s
+ * transaction. Story 5.13 widened it to the writer clause: the route (`day-plan-items/route.ts`) and the day
+ * lookup beside it were already contributor-permissive, so an owner-only scope here let a contributor get all
+ * the way into the transaction and then fail as `bucket_missing` -> 404, which reads as a vanished idea rather
+ * than a refusal.
+ */
 export const findBucketListItemForTripInTransaction = async (
   params: BucketListItemScopeParams & { tx: TransactionClient },
 ): Promise<BucketListItemDetail | null> => {
@@ -209,7 +235,9 @@ export const findBucketListItemForTripInTransaction = async (
     where: {
       id: params.itemId,
       tripId: params.tripId,
-      trip: { userId: params.userId },
+      trip: {
+        OR: [{ userId: params.userId }, { members: { some: { userId: params.userId, role: "CONTRIBUTOR" } } }],
+      },
     },
   });
 

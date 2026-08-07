@@ -1048,7 +1048,13 @@ export const updateTripDayImageForUser = async ({
     where: {
       id: dayId,
       tripId,
-      trip: { userId },
+      // The writer clause. Story 5.13 widened it from `trip: { userId }` alongside the route gate: a day
+      // image is content of a day, and a contributor already fills that day with stays and activities.
+      // Widening the route alone would have left the request dying here as a `null`, which the handler
+      // reports as the same 404 as before - the half-done shape of this story that ships green.
+      trip: {
+        OR: [{ userId }, { members: { some: { userId, role: "CONTRIBUTOR" } } }],
+      },
     },
     select: { id: true },
   });
@@ -1488,7 +1494,15 @@ const toExportTransportType = (value: TravelTransportType): TransportTypeInput =
 
 export const getTripExportForUser = async (userId: string, tripId: string): Promise<TripExportResult | null> => {
   const trip = await prisma.trip.findFirst({
-    where: { id: tripId, userId },
+    // The flat-on-`Trip` writer clause (`updateTripWithDays` above uses the same shape). Story 5.13
+    // widened this from `where: { id: tripId, userId }`: every `include` below hangs off this one root,
+    // so this single line moves the entire archive to owner-or-contributor. It exposes nothing new - a
+    // contributor can already read every stay, activity, photo and document the ZIP contains; the export
+    // changes the container, not the exposure.
+    where: {
+      id: tripId,
+      OR: [{ userId }, { members: { some: { userId, role: "CONTRIBUTOR" } } }],
+    },
     include: {
       // Trip-scoped, so it hangs off `Trip` and not off a day. Ordering is identical to
       // `listBucketListItemsForTrip` so the backup matches what the UI shows.

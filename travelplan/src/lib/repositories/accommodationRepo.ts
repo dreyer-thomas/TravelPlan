@@ -140,7 +140,14 @@ const findScopedAccommodation = async ({ userId, tripId, tripDayId, accommodatio
       tripDay: {
         id: tripDayId,
         tripId,
-        trip: { userId },
+        // The writer clause, identical to `findTripDayForTripWriter` above. Story 5.13 widened it from
+        // `trip: { userId }`: a contributor may create and delete the stay itself, so refusing her the
+        // photos and documents hanging off it was chronology (Story 2.16 predates the role), not a rule.
+        // The explicit `role: "CONTRIBUTOR"` is load-bearing - the role-agnostic spelling twenty lines
+        // below is the *participant read* scope and admits viewers.
+        trip: {
+          OR: [{ userId }, { members: { some: { userId, role: "CONTRIBUTOR" } } }],
+        },
       },
     },
     select: { id: true },

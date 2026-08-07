@@ -84,6 +84,11 @@ describe("PATCH /api/trips/[id]/days/[dayId]/image", () => {
   const uploadsRoot = getTripsUploadRoot();
 
   beforeEach(async () => {
+    // Explicit, though `TripMember` cascades from both `Trip` and `User` below. Story 5.13 gave this
+    // suite membership rows and a non-participant-still-gets-404 assertion in the same commit, and
+    // those two facts are only compatible while the cascade holds. Naming the table costs one line
+    // and makes the guarantee local, matching the five sibling suites the same story touched.
+    await prisma.tripMember.deleteMany();
     await prisma.dayPlanItem.deleteMany();
     await prisma.accommodation.deleteMany();
     await prisma.tripDay.deleteMany();
@@ -135,6 +140,13 @@ describe("PATCH /api/trips/[id]/days/[dayId]/image", () => {
     expect(payload.error?.code).toBe("csrf_invalid");
   });
 
+  /**
+   * The trip and day are real, and that is not decoration. Story 5.13 moved `refuseUnlessTripWriter`
+   * ahead of the body parse in this handler (deliberately: a viewer must not be able to map the payload
+   * schema by guessing at a route she may not call), so a request naming a trip that does not exist is
+   * answered `404` before zod ever runs. Pointing this case at a literal `"trip-id"` would therefore
+   * assert the auth gate rather than the validation it is named for.
+   */
   it("rejects invalid payload", async () => {
     const user = await prisma.user.create({
       data: {
@@ -145,16 +157,24 @@ describe("PATCH /api/trips/[id]/days/[dayId]/image", () => {
     });
     const token = await createSessionJwt({ sub: user.id, role: user.role });
 
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Invalid Payload Trip",
+      startDate: "2026-08-01T00:00:00.000Z",
+      endDate: "2026-08-01T00:00:00.000Z",
+    });
+    const day = await prisma.tripDay.findFirstOrThrow({ where: { tripId: trip.id } });
+
     const request = buildJsonRequest({
-      tripId: "trip-id",
-      dayId: "day-id",
+      tripId: trip.id,
+      dayId: day.id,
       session: token,
       csrf: "csrf-token",
       body: { imageUrl: "not-a-url", note: "Flight from FRA to SIN" },
     });
 
     const response = await PATCH(request, {
-      params: Promise.resolve({ id: "trip-id", dayId: "day-id" }),
+      params: Promise.resolve({ id: trip.id, dayId: day.id }),
     });
     const payload = (await response.json()) as ApiEnvelope<null>;
 
@@ -204,7 +224,13 @@ describe("PATCH /api/trips/[id]/days/[dayId]/image", () => {
     expect(payload.error?.code).toBe("not_found");
   });
 
-  it("returns 404 when a viewer tries to upload a day image", async () => {
+  /**
+   * Story 5.13 changed this case from 404 to 403. The viewer is still refused - AC4 - but she holds a
+   * membership on this trip and can see the day on her screen, so answering "it is not there" was a
+   * false statement that the client could not tell apart from a broken app. The 404 above, for someone
+   * with no membership at all, is unchanged.
+   */
+  it("returns 403 forbidden and names the reason when a viewer tries to upload a day image", async () => {
     const owner = await prisma.user.create({
       data: {
         email: "day-image-viewer-owner@example.com",
@@ -249,9 +275,87 @@ describe("PATCH /api/trips/[id]/days/[dayId]/image", () => {
     });
     const payload = (await response.json()) as ApiEnvelope<null>;
 
-    expect(response.status).toBe(404);
-    expect(payload.error?.code).toBe("not_found");
+    expect(response.status).toBe(403);
+    expect(payload.error?.code).toBe("forbidden");
     await expect(fs.access(path.join(uploadsRoot, trip.id, "days", day.id, "day.webp"))).rejects.toBeDefined();
+  });
+
+  /**
+   * Story 5.13, AC2/AC4/AC6. A day image is content of a day, and a contributor already fills that day
+   * with stays and activities, so both verbs move together with the repository scope behind them.
+   *
+   * The contributor's account row is `role: "VIEWER"` on purpose: the route must decide on
+   * `TripMember.role` and never on `User.role`.
+   */
+  it("lets a contributor upload and clear a day image, and still answers 404 to a non-participant", async () => {
+    const owner = await prisma.user.create({
+      data: { email: "day-image-contributor-owner@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const contributor = await prisma.user.create({
+      data: { email: "day-image-contributor@example.com", passwordHash: "hashed", role: "VIEWER" },
+    });
+    const contributorToken = await createSessionJwt({ sub: contributor.id, role: contributor.role });
+    const stranger = await prisma.user.create({
+      data: { email: "day-image-contributor-stranger@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const strangerToken = await createSessionJwt({ sub: stranger.id, role: stranger.role });
+
+    const { trip } = await createTripWithDays({
+      userId: owner.id,
+      name: "Contributor Day Image Trip",
+      startDate: "2026-08-01T00:00:00.000Z",
+      endDate: "2026-08-01T00:00:00.000Z",
+    });
+    const day = await prisma.tripDay.findFirstOrThrow({ where: { tripId: trip.id } });
+    await prisma.tripMember.create({ data: { tripId: trip.id, userId: contributor.id, role: "CONTRIBUTOR" } });
+
+    const uploadResponse = await POST(
+      await buildUploadRequest({
+        tripId: trip.id,
+        dayId: day.id,
+        session: contributorToken,
+        csrf: "csrf-token",
+        file: new File([Buffer.from("fake-image")], "day.webp", { type: "image/webp" }),
+      }),
+      { params: Promise.resolve({ id: trip.id, dayId: day.id }) },
+    );
+    const uploadPayload = (await uploadResponse.json()) as ApiEnvelope<{ day: { imageUrl: string | null } }>;
+    expect(uploadResponse.status).toBe(200);
+    expect(uploadPayload.error).toBeNull();
+    expect(uploadPayload.data?.day.imageUrl).toBe(`/uploads/trips/${trip.id}/days/${day.id}/day.webp`);
+    // Both layers: `updateTripDayImageForUser`'s own day lookup had to move with the route gate, or this
+    // would have come back as the same 404 as before.
+    expect(await prisma.tripDay.findUniqueOrThrow({ where: { id: day.id } })).toMatchObject({
+      imageUrl: `/uploads/trips/${trip.id}/days/${day.id}/day.webp`,
+    });
+
+    const clearResponse = await PATCH(
+      buildJsonRequest({
+        tripId: trip.id,
+        dayId: day.id,
+        session: contributorToken,
+        csrf: "csrf-token",
+        body: { imageUrl: null, note: null },
+      }),
+      { params: Promise.resolve({ id: trip.id, dayId: day.id }) },
+    );
+    const clearPayload = (await clearResponse.json()) as ApiEnvelope<{ day: { imageUrl: string | null } }>;
+    expect(clearResponse.status).toBe(200);
+    expect(clearPayload.data?.day.imageUrl).toBeNull();
+
+    // No membership at all: the existence of this trip is still not confirmed to her.
+    const strangerResponse = await POST(
+      await buildUploadRequest({
+        tripId: trip.id,
+        dayId: day.id,
+        session: strangerToken,
+        csrf: "csrf-token",
+        file: new File([Buffer.from("fake-image")], "day.webp", { type: "image/webp" }),
+      }),
+      { params: Promise.resolve({ id: trip.id, dayId: day.id }) },
+    );
+    expect(strangerResponse.status).toBe(404);
+    expect(((await strangerResponse.json()) as ApiEnvelope<null>).error?.code).toBe("not_found");
   });
 
   it("sets and removes day image", async () => {

@@ -44,6 +44,8 @@ const uploadsRoot = getTripsUploadRoot();
 describe("POST /api/trips/[id]/hero-image", () => {
   beforeEach(async () => {
     await prisma.tripDay.deleteMany();
+    // Added by Story 5.13, which gave this suite its first membership.
+    await prisma.tripMember.deleteMany();
     await prisma.trip.deleteMany();
     await prisma.user.deleteMany();
     await fs.rm(uploadsRoot, { recursive: true, force: true });
@@ -237,5 +239,47 @@ describe("POST /api/trips/[id]/hero-image", () => {
     expect(payload.error).toBeNull();
     expect(payload.data?.trip.id).toBe(trip.id);
     expect(payload.data?.trip.heroImageUrl).toBe(`/uploads/trips/${trip.id}/hero.webp`);
+  });
+  /**
+   * Story 5.13, AC3 - a negative. The story widened the four media routes, the day image, the bucket
+   * list and the export to owner-or-contributor and considered this route with them, then declined it:
+   * the hero image is the trip's identity on someone else's dashboard card, not content of a day.
+   *
+   * The refusal stays `404`, not the `403` the widened routes now answer - AC6 is scoped to the routes
+   * this story moved. `TripEditDialog` hides the field for a contributor, so nobody reaches this from
+   * the UI; the assertion is here because the rule has to hold at the route regardless.
+   */
+  it("refuses a contributor and leaves the trip's hero image unset", async () => {
+    const owner = await prisma.user.create({
+      data: { email: "hero-contributor-owner@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const contributor = await prisma.user.create({
+      data: { email: "hero-contributor@example.com", passwordHash: "hashed", role: "VIEWER" },
+    });
+    const token = await createSessionJwt({ sub: contributor.id, role: contributor.role });
+
+    const { trip } = await createTripWithDays({
+      userId: owner.id,
+      name: "Contributor Hero Trip",
+      startDate: "2026-09-01T00:00:00.000Z",
+      endDate: "2026-09-02T00:00:00.000Z",
+    });
+    await prisma.tripMember.create({ data: { tripId: trip.id, userId: contributor.id, role: "CONTRIBUTOR" } });
+
+    const response = await POST(
+      await buildRequest(trip.id, {
+        session: token,
+        csrf: "csrf-token",
+        file: new File([Buffer.from("fake")], "hero.webp", { type: "image/webp" }),
+      }),
+      { params: Promise.resolve({ id: trip.id }) },
+    );
+    const payload = (await response.json()) as ApiEnvelope<null>;
+
+    expect(response.status).toBe(404);
+    expect(payload.error?.code).toBe("not_found");
+    expect(await prisma.trip.findUniqueOrThrow({ where: { id: trip.id } })).toMatchObject({ heroImageUrl: null });
+    // Nothing refused may have reached the disk either.
+    await expect(fs.access(path.join(uploadsRoot, trip.id, "hero.webp"))).rejects.toBeDefined();
   });
 });

@@ -417,7 +417,7 @@ describe("TripDayView layout", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows contributor planning controls while keeping owner-only bucket list hidden", async () => {
+  it("shows contributor planning controls and the bucket list, which Story 5.13 moved to her", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
     const fetchMock = withBucketList(async (input) => {
@@ -505,7 +505,10 @@ describe("TripDayView layout", () => {
     // Story 6.9: a contributor edits by clicking the card, so the gate shows up as the stretched edit
     // overlay. canEditPlanning, not isOwner - a contributor keeps this.
     expect(screen.getByTestId("day-plan-item-edit-overlay")).toBeInTheDocument();
-    expect(screen.queryByText("Bucket list")).not.toBeInTheDocument();
+    // Story 5.13 AC2, flipping what this case asserted before: all four bucket-list verbs and the
+    // "add to this day" conversion behind this panel moved to owner-or-contributor, so the panel
+    // mirrors its route again. A viewer still gets nothing.
+    expect(screen.getByText("Bucket list")).toBeInTheDocument();
 
     vi.unstubAllGlobals();
   });
@@ -3826,6 +3829,118 @@ describe("TripDayView layout", () => {
     vi.unstubAllGlobals();
   });
 
+  /**
+   * Story 5.13 / AC7, for the day image specifically. The plan dialog's photo upload has its own
+   * `forbidden` render case (`tripDayPlanDialog.test.tsx`), but the day-image writes live here in
+   * `TripDayView` and were the *first* surface the story named. Adding `case "forbidden"` to a
+   * switch is pinned by nothing: `i18nDictionaries.test.ts` proves the key exists in both
+   * dictionaries and the `case` label proves only that someone typed it. Neither notices if the
+   * three day-image blocks stop calling `resolveApiError` and go back to composing the key plus the
+   * server's own English text - which is what they did before this story, and is exactly the
+   * regression that would ship green.
+   */
+  it("renders the permission sentence when a day-image write is refused for the caller's role", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+
+    const fetchMock = withBucketList(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+
+      if (url.includes("/api/auth/csrf")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
+        };
+      }
+
+      // What the widened route now answers a participant in the wrong role - `403 forbidden`, with
+      // the route's own English message in the envelope. The message is deliberately present: the
+      // fallback would splice it into the alert, so its absence below is what proves the code branch
+      // ran rather than the fallback.
+      if (url.includes("/days/day-1/image") && method === "POST") {
+        return {
+          ok: false,
+          status: 403,
+          json: async () => ({
+            data: null,
+            error: { code: "forbidden", message: "Trip write access required" },
+          }),
+        };
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-02T00:00:00.000Z",
+              dayCount: 2,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+              accessRole: "contributor",
+            },
+            days: [
+              {
+                id: "day-0",
+                date: "2026-11-30T00:00:00.000Z",
+                dayIndex: 0,
+                imageUrl: null,
+                note: null,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: true,
+                accommodation: null,
+                dayPlanItems: [],
+              },
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                imageUrl: null,
+                note: null,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: true,
+                accommodation: null,
+                dayPlanItems: [],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByTestId("day-hero");
+    await activateDayOverflowItem("Edit day details");
+
+    const fileInput = await screen.findByLabelText("Day image");
+    const file = new File([new Uint8Array([1, 2, 3])], "day.webp", { type: "image/webp" });
+    fireEvent.change(fileInput, { target: { files: [file] } });
+    fireEvent.click(screen.getByRole("button", { name: "Save day details" }));
+
+    expect(await screen.findByText("Your role on this trip does not allow this action.")).toBeInTheDocument();
+
+    // Not the surface fallback, which is what rendered before the block read the code at all...
+    expect(screen.queryByText(/Day image upload failed/)).toBeNull();
+    // ...and not the route's internal English message, which the fallback would have bracketed onto it.
+    expect(screen.queryByText(/Trip write access required/)).toBeNull();
+    // Nor the generic server text, so a switch that folded `forbidden` into `server_error` fails here too.
+    expect(screen.queryByText("Something went wrong. Please try again.")).toBeNull();
+
+    vi.unstubAllGlobals();
+  });
+
   it("renders routed polyline from day route API for two-point days", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
@@ -5853,9 +5968,10 @@ describe("TripDayView layout", () => {
 
     await screen.findByRole("heading", { name: "Day 1", level: 5 });
 
-    // "Edit day details" is the day-image action's actual accessible name (`trips.dayImage.editAction`)
-    // and it is `isOwner`-gated, so a contributor does not get it. Naming anything else here asserts
-    // the absence of an element that never existed.
+    // "Edit day details" is the day-image action's accessible name (`trips.dayImage.editAction`).
+    // Story 6.15 moved it into the hero overflow, so it is a `menuitem` and never a page-level button
+    // for any role - which is what this asserts. Story 5.13 gave a contributor the menu item itself;
+    // the list is pinned in the overflow cases below.
     expect(screen.queryByRole("button", { name: "Edit day details" })).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByTestId("day-hero-overflow"));
@@ -6296,7 +6412,7 @@ describe("TripDayView layout", () => {
     vi.unstubAllGlobals();
   });
 
-  it("gives a contributor three overflow items and no day-image edit (AC3)", async () => {
+  it("gives a contributor the same overflow an owner gets, day-image edit included (AC3, Story 5.13)", async () => {
     navigationMockState.search = "";
     vi.stubGlobal("fetch", buildDayResponse({}, { accessRole: "contributor" }));
 
@@ -6304,10 +6420,12 @@ describe("TripDayView layout", () => {
 
     await screen.findByRole("heading", { name: "Day 1", level: 5 });
 
-    // Still one planning group above print, so the divider still separates two kinds of thing - and
-    // it is still below the pair, not floating at the top of a shorter list.
+    // Story 5.13 added "Edit day details" here: the day-image route and its repository scope both moved
+    // to owner-or-contributor, and `dayMenuItemsVisible.dayImage` mirrors that gate. The divider still
+    // sits below the whole day-changing group rather than inside it, which is what this list checks.
     expect(await dayOverflowItemNames()).toEqual([
       "Back to trip",
+      "Edit day details",
       "Move activities",
       "Swap activities",
       "---",
@@ -6798,12 +6916,13 @@ describe("TripDayView layout", () => {
       );
       expect(screen.getByRole("menuitem", { name: "Print day" })).toBeInTheDocument();
 
-      // And the 6.15 gates are still gates: only the two roles that can edit planning see move/swap,
-      // only the owner sees the day-image edit.
+      // And the 6.15 gates are still gates: only the two roles that can edit planning see move/swap -
+      // and, since Story 5.13 moved the day-image route and its repository scope to owner-or-contributor,
+      // the day-image edit is on that same `canEditPlanning` gate rather than on `isOwner`.
       const gatedVisible = screen.queryAllByRole("menuitem", { name: /Move activities|Swap activities/ });
       expect(gatedVisible).toHaveLength(accessRole === "viewer" ? 0 : 2);
       expect(screen.queryAllByRole("menuitem", { name: "Edit day details" })).toHaveLength(
-        accessRole === "owner" ? 1 : 0,
+        accessRole === "viewer" ? 0 : 1,
       );
 
       vi.unstubAllGlobals();

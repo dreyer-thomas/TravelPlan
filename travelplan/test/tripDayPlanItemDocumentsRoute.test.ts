@@ -455,4 +455,90 @@ describe("/api/trips/[id]/day-plan-items/documents", () => {
     expect(missing.status).toBe(404);
     expect(((await missing.json()) as ApiEnvelope<null>).error?.message).toBe("Document not found");
   });
+
+  /**
+   * Story 5.13, AC1/AC4/AC6 - the activity twin of the stay case. The contributor's account row is
+   * `role: "VIEWER"` on purpose, so a regression reading `User.role` instead of `TripMember.role`
+   * fails here.
+   */
+  it("lets a contributor upload and delete, refuses a viewer 403 forbidden and a stranger 404", async () => {
+    const { trip, day, item } = await seed("roles");
+
+    const contributor = await prisma.user.create({
+      data: { email: "item-documents-roles-contributor@example.com", passwordHash: "hashed", role: "VIEWER" },
+    });
+    const contributorToken = await createSessionJwt({ sub: contributor.id, role: contributor.role });
+    const viewer = await prisma.user.create({
+      data: { email: "item-documents-roles-viewer@example.com", passwordHash: "hashed", role: "VIEWER" },
+    });
+    const viewerToken = await createSessionJwt({ sub: viewer.id, role: viewer.role });
+    const stranger = await prisma.user.create({
+      data: { email: "item-documents-roles-stranger@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const strangerToken = await createSessionJwt({ sub: stranger.id, role: stranger.role });
+    await prisma.tripMember.create({ data: { tripId: trip.id, userId: contributor.id, role: "CONTRIBUTOR" } });
+    await prisma.tripMember.create({ data: { tripId: trip.id, userId: viewer.id, role: "VIEWER" } });
+
+    const remove = (sessionToken: string, documentId: string) =>
+      DELETE(
+        new NextRequest(`http://localhost/api/trips/${trip.id}/day-plan-items/documents`, {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+            cookie: `session=${sessionToken}; csrf_token=csrf-token`,
+            "x-csrf-token": "csrf-token",
+          },
+          body: JSON.stringify({ tripDayId: day.id, dayPlanItemId: item.id, documentId }),
+        }),
+        { params: Promise.resolve({ id: trip.id }) },
+      );
+
+    const contributorUpload = await upload(
+      trip.id,
+      { tripDayId: day.id, dayPlanItemId: item.id },
+      pdfFile("Contributor ticket.pdf"),
+      { token: contributorToken },
+    );
+    const contributorPayload = (await contributorUpload.json()) as ApiEnvelope<{ document: DocumentPayload }>;
+    expect(contributorUpload.status).toBe(200);
+    expect(contributorPayload.error).toBeNull();
+    const documentId = contributorPayload.data!.document.id;
+    // Both layers: the route admitted her and the repository scope wrote the row.
+    expect(await prisma.dayPlanItemDocument.findUnique({ where: { id: documentId } })).not.toBeNull();
+
+    // The viewer keeps her read - AC4 takes nothing away - but loses both writes with a stated reason.
+    const viewerRead = await read(trip.id, `tripDayId=${day.id}&dayPlanItemId=${item.id}`, viewerToken);
+    expect(viewerRead.status).toBe(200);
+
+    const viewerUpload = await upload(
+      trip.id,
+      { tripDayId: day.id, dayPlanItemId: item.id },
+      pdfFile("Viewer ticket.pdf"),
+      { token: viewerToken },
+    );
+    expect(viewerUpload.status).toBe(403);
+    expect(((await viewerUpload.json()) as ApiEnvelope<null>).error?.code).toBe("forbidden");
+
+    const viewerDelete = await remove(viewerToken, documentId);
+    expect(viewerDelete.status).toBe(403);
+    expect(((await viewerDelete.json()) as ApiEnvelope<null>).error?.code).toBe("forbidden");
+    expect(await prisma.dayPlanItemDocument.findUnique({ where: { id: documentId } })).not.toBeNull();
+
+    // The stranger keeps 404: AC6 moves the *role* refusal only, never the existence question.
+    const strangerUpload = await upload(
+      trip.id,
+      { tripDayId: day.id, dayPlanItemId: item.id },
+      pdfFile("Stranger ticket.pdf"),
+      { token: strangerToken },
+    );
+    expect(strangerUpload.status).toBe(404);
+    expect(((await strangerUpload.json()) as ApiEnvelope<null>).error?.code).toBe("not_found");
+
+    const strangerDelete = await remove(strangerToken, documentId);
+    expect(strangerDelete.status).toBe(404);
+
+    const contributorDelete = await remove(contributorToken, documentId);
+    expect(contributorDelete.status).toBe(200);
+    expect(await prisma.dayPlanItemDocument.findUnique({ where: { id: documentId } })).toBeNull();
+  });
 });

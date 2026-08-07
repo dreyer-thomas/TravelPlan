@@ -4,7 +4,7 @@ import path from "node:path";
 import { apiError } from "@/lib/errors/apiError";
 import { fail, ok } from "@/lib/http/response";
 import { declaredBodyExceedsFileLimit } from "@/lib/http/bodyLimit";
-import { hasTripOwnerAccess } from "@/lib/auth/tripAccess";
+import { refuseUnlessTripWriter } from "@/lib/auth/tripAccess";
 import {
   createAccommodationDocument,
   deleteAccommodationDocument,
@@ -157,8 +157,9 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
   if (!tripId) {
     return fail(apiError("not_found", "Trip not found"), 404);
   }
-  if (!(await hasTripOwnerAccess(userId, tripId))) {
-    return fail(apiError("not_found", "Accommodation not found"), 404);
+  const refusal = await refuseUnlessTripWriter(userId, tripId, "Accommodation not found");
+  if (refusal) {
+    return refusal;
   }
 
   // Before `formData()` below - not before the buffering, which the middleware already did. Over
@@ -258,8 +259,9 @@ export const DELETE = async (request: NextRequest, context: RouteContext) => {
   if (!tripId) {
     return fail(apiError("not_found", "Trip not found"), 404);
   }
-  if (!(await hasTripOwnerAccess(userId, tripId))) {
-    return fail(apiError("not_found", "Accommodation not found"), 404);
+  const refusal = await refuseUnlessTripWriter(userId, tripId, "Accommodation not found");
+  if (refusal) {
+    return refusal;
   }
 
   const rawPayload = await parseJson(request);

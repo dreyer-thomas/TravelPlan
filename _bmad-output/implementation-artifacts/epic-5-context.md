@@ -4,59 +4,61 @@
 
 ## Goal
 
-A trip owner can grant other people access to a trip without the plan ever leaving their control: a viewer sees everything and can change nothing, a contributor edits like the owner. Because there is no email delivery, access is provisioned in-app — the owner enters an address, picks a role, and hands over a temporary password the invitee must replace on first login. Around that core sit the operational surfaces a single-installation, self-hosted app needs: seeing who already has an account, an administrator view for reassigning and removing accounts, and the invited person's own dashboard actually listing the trips shared with them. The epic also carries the removal of the discontinued comments/voting feature, which originally lived here.
+A trip owner can bring other people into a trip without giving away control of it. The owner provisions an account by email with a temporary password, assigns it a role on the trip — VIEWER (reads the plan, changes nothing) or CONTRIBUTOR (plans alongside the owner) — and the same person can be attached to several trips without duplicate-account errors. The epic also carries the administrative surface for the installation: an ADMIN account can see every registered account, what it owns and what it is shared into, and can attach, re-role, detach and delete accounts. The through-line is that a role must mean the same thing everywhere it applies: every trip surface has to agree on who may read, who may write, and which trips a signed-in account can even reach.
 
 ## Stories
 
-- Story 5.1: Invite Viewer or Contributor by Email With Temp Password
-- Story 5.2: Enforce First-Login Password Change
-- Story 5.3: Viewer Read-Only Access
-- Story 5.4: Contributor Full Edit Permissions
-- Story 5.5: Edit Own Comments — REMOVED 2026-07-30 (comments/voting discontinued; retained for history only)
-- Story 5.6: Add Existing Contributor to Another Trip
-- Story 5.7: Limit Voting to Day Items — REMOVED 2026-07-30 (comments/voting discontinued; retained for history only)
-- Story 5.8: View All Registered System Users
-- Story 5.9: Remove Comments & Voting Feature
-- Story 5.10: User Administration for Admins
-- Story 5.11: The Administration Row, Rearranged
-- Story 5.12: Shared Trips on the Collaborator's Dashboard
+- Story 5.1: Invite viewer or contributor by email with temp password
+- Story 5.2: Enforce first-login password change
+- Story 5.3: Viewer read-only access
+- Story 5.4: Contributor full edit permissions
+- Story 5.5: Edit own comments — REMOVED 2026-07-30 (comments/voting discontinued; retained for history only)
+- Story 5.6: Add existing contributor to another trip
+- Story 5.7: Limit voting to day items — REMOVED 2026-07-30 (comments/voting discontinued; retained for history only)
+- Story 5.8: View all registered system users
+- Story 5.9: Remove comments & voting feature
+- Story 5.10: User administration for admins
+- Story 5.11: The administration row, rearranged
+- Story 5.12: Shared trips on the collaborator's dashboard
+- Story 5.13: What a contributor may do, made consistent
 
 ## Requirements & Constraints
 
-- Two collaboration roles only: **viewer** (sees the full trip plan, blocked from editing core details) and **contributor** (edits trip details, accommodations, and day plans exactly as the owner does). Ownership is a third, distinct thing and must never be presented as a membership.
-- No email is sent. Access is provisioned by the owner entering an address plus a temporary password; the invitee is forced to set a new password before reaching any app surface.
-- An address that already has an account must be linkable to a further trip rather than rejected as a duplicate. Duplication is only an error when that account already holds a membership *on this trip*, and the message must say so specifically.
-- Every read of trip data is authenticated, and authorization is per-trip: an account sees a trip only if it owns it or holds a membership on it. A route-level test proving no leakage across accounts is expected wherever the access query is widened.
-- The registered-users overview is not scoped to a trip — it lists every account in the installation — and is therefore gated: owners (later, admins) only; a signed-in account that is merely a viewer/contributor somewhere is blocked. The list must reflect accounts registered since it was last opened.
-- Administration must be able to create, re-assign, and remove accounts. Deleting an account that owns trips is refused outright, naming the trips, because the owner relation cascades and would destroy an entire travel history.
-- Admin capability cannot be inferred from ownership, since every self-registration produces an owner. It is an explicit role on the account, bootstrapped by making the very first registered account an admin in the same transaction as its insert, plus a CLI grant for installations that already have accounts.
-- Comments, suggestions, and voting are discontinued product scope: no data model, API route, UI affordance, or translation string for them may remain, and nothing new may be built against them. Removing them must not regress the adjacent sharing, day-view, or budget surfaces.
-- Destructive or consequential actions confirm first, and the safe answer names what it preserves rather than the mechanism. Re-selecting a value that is already current must not issue a write.
+- **Sharing and roles.** An owner can share a trip with a viewer, and can grant a contributor role carrying full edit permissions on trip content. A viewer sees the plan — days, stays, activities, travel segments, photos and documents — and can change none of it. "Sees the plan" is not "sees everything": the bucket list and the backup export require write-level role, so a viewer reaches neither. **Recorded 2026-08-07, and it is a discrepancy rather than a decision.** This file previously said a viewer "sees everything"; the code has never matched that, because both surfaces were owner-only at the route long before Story 5.13 and that story widened them to owner-or-contributor rather than to every participant. The sentence was corrected to describe the system that exists, but nobody has ever ruled on whether a viewer *should* read the bucket list and be able to export — see the ledger entry opened alongside this note. Do not read the corrected wording as the answer. Invitation is provisioning-by-owner with a temporary password — there is no email-invitation flow — and the invited account must be forced to set a real password before it can use the app.
+- **Membership is many-to-many.** An account may be a member of several trips and may own trips of its own at the same time. Attaching an existing account to a new trip must succeed; attaching it twice to the same trip must fail with a trip-specific message and create nothing.
+- **Registered-users visibility.** Trip owners can see the accounts registered in the system, identified by email, so they know whether someone already has an account. This list is system-wide, not trip-scoped, and reflects current state on reload. An account that owns no trip is refused access to it.
+- **Administration.** Exactly one privilege tier above owner exists (ADMIN), reachable only from the admin's own navigation. Self-registration always produces a plain owner, so the owner population cannot be used as a gate. The first account in an empty installation becomes ADMIN in the same transaction as its insert; an already-populated installation is bootstrapped by a CLI script rather than through the UI.
+- **Destructive-action guards.** Deleting an account that owns trips must be refused, naming the trips, because trip ownership cascades and an unguarded delete destroys travel history. Removing a share is confirmed before it happens.
+- **Discontinued scope.** Comments, suggestions and voting were removed from the product. Do not reintroduce feedback/comment/vote models, routes, UI or strings; the viewer/contributor *access* model is what survives.
+- Authenticated access is required for all trip data, including uploaded media and documents.
 
 ## Technical Decisions
 
-- Access control is role-based and enforced server-side in the API layer; the UI hiding a control is never the enforcement. Rejected writes return the standard error envelope with a stable error code.
-- The trip-access predicate is "owner OR member" and is applied uniformly across every trip-scoped read. Any list query must return each trip exactly once for an account that both owns and is a member of trips.
-- Trip payloads that can contain shared trips must state, per entry, whether the account owns it and — if not — which membership role it holds. Without that, the client cannot suppress role-forbidden affordances, and deletion in particular must never be offered on a trip the account does not own.
-- Passwords are bcrypt-hashed; sessions are JWTs in HTTP-only cookies. State-changing requests carry CSRF protection and auth endpoints are rate-limited. The temporary-password state is a property of the account that gates the app until cleared.
-- Schema changes go through Prisma Migrate against SQLite; DB identifiers are snake_case, API JSON is camelCase, timestamps are ISO 8601 UTC. Data access stays behind the repository layer, validation is Zod at the API boundary.
-- Role-changing endpoints behave as upserts, so the client is responsible for not re-sending an unchanged role.
-- All user-facing text ships in both English and German translation files; removals must take orphaned keys with them.
+- **Two independent gates per write.** A trip-scoped write is guarded twice: by its route-level access helper and by the repository's trip-ownership/membership scope on the query. Widening one without the other yields a request that passes the gate and is then silently refused by the query — a green-looking half-implementation. Widen both, and test both. Note that the second gate is the load-bearing one and a handful of routes deliberately rely on it alone: `DELETE /api/trips/[id]` carries no route gate because `deleteTripForUser` scopes the `deleteMany` itself. Enforcement is server-side in every case; a UI that hides a control is never the enforcement, only a mirror of it — and when the two disagree the user gets either a control that always errors or a capability they cannot reach.
+- **Test the role, not just the path.** A repository scope that admits members must name the role explicitly (`role: "CONTRIBUTOR"`); the role-agnostic membership predicate is the *read* scope and admits viewers. Because a route-level gate refuses the wrong role before the query runs, no route test can prove the repository clause — those nets have to call the repository directly or the story's most dangerous single-word mistake ships green.
+- **Authorisation shape.** Reads that admit members use an ownership-or-membership predicate (`userId` OR a membership row for that user); owner-only reads filter on `userId` alone. When widening a query to admit members, guarantee each trip is returned exactly once for an account that both owns and is a member, and prove by test that no trip leaks to an account with neither relationship.
+- **The permission line.** Content is contributor-writable; the trip as a possession is owner-only. Contributors may create, edit and delete trip content and attachments (stay/activity photos and documents, day images, bucket-list items) and may export a backup, since they can already read every byte it contains. Member management, trip deletion and the trip hero image stay with the owner. A viewer gains no write anywhere.
+- **404 vs 403.** A caller who does not participate in a trip keeps getting 404 — the trip's existence is not disclosed. A caller who *does* participate but whose role forbids the action gets `403 forbidden`; returning 404 to someone looking at the object on screen reads as a broken app.
+- **List payloads must carry access role.** A trip summary returned to a dashboard has to state whether the account owns the trip or holds a membership, and with which role, before the UI can render owned and shared trips side by side without offering forbidden actions.
+- **Conventions.** REST routes with Zod validation; `{ data, error }` success and `{ data: null, error: { code, message, details } }` error envelopes — a rejected write always answers the envelope with a stable error code the client can branch on, never a bare status. Authorisation is checked before the body is parsed, so a caller who may not call a route cannot enumerate its schema from validation errors. DB `snake_case`, API JSON `camelCase`, dates ISO 8601 UTC; schema changes go through Prisma Migrate against SQLite. Auth is a JWT in an HTTP-only cookie with bcrypt password hashing; CSRF protection on state-changing requests and rate limiting on auth endpoints. Data access lives in repositories, not in route handlers.
+- **i18n.** All user-facing strings exist in both dictionaries, in agreement — key parity is enforced by test. Removing a feature includes removing its now-orphaned strings.
 
 ## UX & Interaction Patterns
 
-- The share surface is a modal opened from the trip overview: a single-line invite row (email input + role select + submit), with existing collaborators listed below carrying a role badge and a remove action. Owner, contributor, and viewer badges are visually distinct.
-- Invalid input is reported inline on the offending field with concrete wording ("this address isn't valid"), never a generic failure; problems not attributable to a field render as a warn-toned banner at the top of the dialog.
-- Form dialogs have exactly one committing action and no cancel button — dismissal is a close glyph in the title row. Two equally weighted buttons appear only on destructive confirmations.
-- Every interactive element — buttons, inputs, selects, icon buttons — has a 44×44px minimum hit area. Icon-only controls carry a mandatory, specific accessible name; in a list, per-row triggers must be named per row so they can be told apart.
-- On an administration row, the account's actions belong in a single overflow menu at the right of the address line; its memberships belong in a labelled table (trip name, role as a select, remove), with owned trips shown separately outside that table and an explicit message when there are no memberships.
-- A viewer's trip overview and day detail are the same screens with edit affordances suppressed; that reduced-permission state was never mocked, so it needs deliberate treatment rather than assumption.
-- The design system's tokens are the source of truth for the rendered result; no fifth semantic color family exists, and destructive filled buttons use the darker warn tone for contrast.
+- **Shared trips are visibly not owned trips.** On the trip list, a shared trip is distinguishable at a glance from an owned one, and a viewer is offered no affordance their role forbids — deletion in particular never appears on a trip the account does not own. The empty state stays exactly as it is when an account has neither owned trips nor memberships.
+- **One trigger per row.** In the administration list, an account's actions (attach to trip, grant/revoke admin, delete) collapse into a single vertical-dots overflow menu at the right of the address line, and that menu is labelled per account — a list of identically-named "more actions" triggers cannot be told apart by anyone navigating by label.
+- **Memberships are a table, ownership is not.** An account's shares render as a table under their own heading: trip name, role as a select that applies the change, and a remove control. Owned trips stay outside that table under their own label — ownership and membership must never read as the same relationship. An account with no memberships says so rather than rendering an empty table.
+- **Idempotent controls send nothing.** Re-selecting the role a membership already has issues no request; the endpoint is an upsert, so a redundant write plus a list reload would cost a round-trip to arrive where it started.
+- **Form dialogs have exactly one committing action and no cancel button** — dismissal is a close glyph in the title row. Two equally weighted buttons appear only on destructive confirmations, and the safe answer names what it preserves rather than the mechanism.
+- **Invalid input is reported inline on the offending field** with concrete wording, never a generic failure; problems not attributable to a field render as a warn-toned banner at the top of the dialog. A refusal states its reason — a permission refusal says so rather than reporting the object as missing or asking the user to try again.
+- Material UI is the component baseline; keep strong contrast, visible focus, full keyboard navigation, and touch targets of at least 44×44 px. Dialogs trap focus and carry `role="dialog"`. The design system's tokens are the source of truth for the rendered result; no fifth semantic colour family exists, warn is reserved for actionable gaps, and destructive filled buttons use the darker warn tone for contrast.
 
 ## Cross-Story Dependencies
 
-- Stories 5.2, 5.3, 5.4, and 5.6 all build on the provisioning and membership model established by Story 5.1.
-- Story 5.10 extends the registered-users list from Story 5.8 and introduces the admin role that later gates it; Story 5.11 is purely a re-layout of Story 5.10's surface and adds no new capability.
-- Story 5.9 is a removal that reaches into Epic 4 (bucket-list dialog comments) and Epic 6 (feedback UX refinements), all of which were withdrawn by the same decision. Sharing and roles are explicitly out of its blast radius.
-- Story 5.12 depends on nothing new — the memberships it reads already exist from 5.1/5.4/5.6 — but it fixes a production defect where the dashboard query was the only trip read still filtering on ownership alone, and it requires the trip-list payload to gain per-entry access-role information.
-- The account-deletion guard in Story 5.10 depends on the owner relation's cascade behaviour in the trip schema; verify the actual relation before implementing.
+- Stories 5.1, 5.4 and 5.6 create the memberships that every later story in this epic reads. Nothing else in the epic blocks 5.12 or 5.13.
+- Story 5.2 (forced password change) is the gate that makes 5.1's temporary-password provisioning safe; they are two halves of one flow.
+- Story 5.10 introduces the ADMIN tier and the administration surface; 5.11 relays out that same surface and changes no capability.
+- Story 5.8's registered-users list is the ancestor of 5.10's administration list — 5.10 extends it rather than replacing the requirement.
+- Story 5.9 removes the comments/votes feature that Epic 4 (bucket-list dialog) and Epic 6 (feedback-UX refinements) also touched; those epics' corresponding stories were withdrawn in the same decision.
+- Story 5.13 widens permissions on routes originally written owner-only in Epic 2 (media) and Epic 9 (documents), plus the Epic 4 bucket list and the Epic 2 backup export. Changes there and here must stay in agreement.
+- Story 5.12 corrects a dashboard query that Epic 7's redesign stories (7.4, 7.5) rendered but explicitly left out of scope.

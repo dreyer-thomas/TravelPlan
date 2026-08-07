@@ -98,6 +98,7 @@ const en: Dictionary = {
   "errors.server": "Something went wrong. Please try again.",
   "errors.invalidJson": "Request could not be processed. Please try again.",
   "errors.unauthorized": "Authentication required. Please sign in.",
+  "errors.forbidden": "Your role on this trip does not allow this action.",
   "demo.title": "Plan with calm clarity",
   "home.kicker": "Plan with calm clarity",
   "home.title": "A trip planner that keeps the whole journey in view.",

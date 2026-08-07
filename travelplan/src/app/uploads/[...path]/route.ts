@@ -275,8 +275,9 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
 
   // 404 and not 403, this repo's settled convention (`travel-segments/route.ts` is the exemplar):
   // distinguishing "exists but hidden" from "does not exist" leaks which trips exist. Note this is
-  // `hasTripReadAccess` - owner, viewer *and* contributor - and not the `hasTripOwnerAccess` the four
-  // image upload routes gate on. A viewer who can see the day must be able to see its photos.
+  // `hasTripReadAccess` - owner, viewer *and* contributor - and not the write-level gate the four media
+  // upload routes carry (`hasTripOwnerAccess` until Story 5.13, `refuseUnlessTripWriter` since). A viewer
+  // who can see the day must be able to see its photos.
   //
   // No `requireCsrf`: it guards mutating verbs, and a browser never attaches `x-csrf-token` to an
   // `<img>` request, so requiring one here would break every image on every page.

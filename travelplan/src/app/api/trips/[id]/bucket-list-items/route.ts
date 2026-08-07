@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { apiError } from "@/lib/errors/apiError";
 import { fail, ok } from "@/lib/http/response";
-import { hasTripOwnerAccess } from "@/lib/auth/tripAccess";
+import { refuseUnlessTripWriter } from "@/lib/auth/tripAccess";
 import { CSRF_COOKIE_NAME, validateCsrf } from "@/lib/security/csrf";
 import {
   createBucketListItemForTrip,
@@ -56,8 +56,9 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
   if (!tripId) {
     return fail(apiError("not_found", "Trip not found"), 404);
   }
-  if (!(await hasTripOwnerAccess(userId, tripId))) {
-    return fail(apiError("not_found", "Trip not found"), 404);
+  const refusal = await refuseUnlessTripWriter(userId, tripId, "Trip not found");
+  if (refusal) {
+    return refusal;
   }
 
   try {
@@ -98,8 +99,9 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
   if (!tripId) {
     return fail(apiError("not_found", "Trip not found"), 404);
   }
-  if (!(await hasTripOwnerAccess(userId, tripId))) {
-    return fail(apiError("not_found", "Trip not found"), 404);
+  const refusal = await refuseUnlessTripWriter(userId, tripId, "Trip not found");
+  if (refusal) {
+    return refusal;
   }
 
   const rawPayload = await parseJson(request);
@@ -158,8 +160,9 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
   if (!tripId) {
     return fail(apiError("not_found", "Trip not found"), 404);
   }
-  if (!(await hasTripOwnerAccess(userId, tripId))) {
-    return fail(apiError("not_found", "Trip not found"), 404);
+  const refusal = await refuseUnlessTripWriter(userId, tripId, "Trip not found");
+  if (refusal) {
+    return refusal;
   }
 
   const rawPayload = await parseJson(request);
@@ -222,6 +225,14 @@ export const DELETE = async (request: NextRequest, context: RouteContext) => {
   const { id: tripId } = await context.params;
   if (!tripId) {
     return fail(apiError("not_found", "Trip not found"), 404);
+  }
+  // `DELETE` alone carried no route gate before Story 5.13; it was safe only because
+  // `deleteBucketListItemForTrip` resolved through an owner-only trip lookup. That lookup is now the
+  // writer clause, so without a gate here a viewer's refusal would come back from the repository as a
+  // 404 while the sibling verbs answer 403.
+  const refusal = await refuseUnlessTripWriter(userId, tripId, "Trip not found");
+  if (refusal) {
+    return refusal;
   }
 
   const rawPayload = await parseJson(request);

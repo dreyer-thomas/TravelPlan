@@ -800,4 +800,66 @@ describe("/api/trips/[id]/members", () => {
       expect(await prisma.tripMember.findUnique({ where: { id: membership.id } })).not.toBeNull();
     });
   });
+  /**
+   * Story 5.13, AC3 - a negative, and one of the three that make the story safe to change later. It
+   * widened the media, day-image, bucket-list and export routes to owner-or-contributor and stopped
+   * here deliberately: who else gets access is the trip as a possession, and a contributor must not be
+   * able to add someone or - above all - remove the owner.
+   *
+   * The refusal is `404`, not the `403` the widened routes now answer. AC6 is scoped to the routes this
+   * story moved; converting this one would be a behaviour change on a gate it deliberately left alone.
+   */
+  it("refuses a contributor on GET, POST and DELETE and leaves the membership list unchanged", async () => {
+    const owner = await prisma.user.create({
+      data: { email: "members-contributor-owner@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const contributor = await prisma.user.create({
+      data: { email: "members-contributor@example.com", passwordHash: "hashed", role: "VIEWER" },
+    });
+    const trip = await prisma.trip.create({
+      data: {
+        userId: owner.id,
+        name: "Contributor Members Trip",
+        startDate: new Date("2026-07-01T00:00:00.000Z"),
+        endDate: new Date("2026-07-02T00:00:00.000Z"),
+      },
+    });
+    const membership = await prisma.tripMember.create({
+      data: { tripId: trip.id, userId: contributor.id, role: "CONTRIBUTOR" },
+    });
+    const session = await createSessionJwt({ sub: contributor.id, role: contributor.role });
+
+    const list = await GET(buildRequest(trip.id, { session }), { params: Promise.resolve({ id: trip.id }) });
+    expect(list.status).toBe(404);
+    expect(((await list.json()) as ApiEnvelope<null>).error?.code).toBe("not_found");
+
+    const invite = await POST(
+      buildRequest(trip.id, {
+        method: "POST",
+        session,
+        csrf: "csrf-token",
+        body: { email: "members-contributor-invitee@example.com", role: "VIEWER" },
+      }),
+      { params: Promise.resolve({ id: trip.id }) },
+    );
+    expect(invite.status).toBe(404);
+    expect(((await invite.json()) as ApiEnvelope<null>).error?.code).toBe("not_found");
+
+    // The one that matters most: a contributor must not be able to remove herself out of the way of a
+    // check, nor anyone else.
+    const removal = await DELETE(
+      buildRequest(trip.id, {
+        method: "DELETE",
+        session,
+        csrf: "csrf-token",
+        body: { memberId: membership.id },
+      }),
+      { params: Promise.resolve({ id: trip.id }) },
+    );
+    expect(removal.status).toBe(404);
+    expect(((await removal.json()) as ApiEnvelope<null>).error?.code).toBe("not_found");
+
+    expect(await prisma.tripMember.count({ where: { tripId: trip.id } })).toBe(1);
+    expect(await prisma.user.findUnique({ where: { email: "members-contributor-invitee@example.com" } })).toBeNull();
+  });
 });

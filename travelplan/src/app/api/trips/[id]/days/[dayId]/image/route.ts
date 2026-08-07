@@ -4,7 +4,7 @@ import path from "node:path";
 import { apiError } from "@/lib/errors/apiError";
 import { fail, ok } from "@/lib/http/response";
 import { declaredBodyExceedsFileLimit } from "@/lib/http/bodyLimit";
-import { hasTripOwnerAccess } from "@/lib/auth/tripAccess";
+import { refuseUnlessTripWriter } from "@/lib/auth/tripAccess";
 import { getTripDayByIdForUser, updateTripDayImageForUser } from "@/lib/repositories/tripRepo";
 import { CSRF_COOKIE_NAME, validateCsrf } from "@/lib/security/csrf";
 import { dayImageUpdateSchema } from "@/lib/validation/dayImageSchemas";
@@ -83,8 +83,9 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
   if (!tripId || !dayId) {
     return fail(apiError("not_found", "Trip day not found"), 404);
   }
-  if (!(await hasTripOwnerAccess(userId, tripId))) {
-    return fail(apiError("not_found", "Trip day not found"), 404);
+  const refusal = await refuseUnlessTripWriter(userId, tripId, "Trip day not found");
+  if (refusal) {
+    return refusal;
   }
 
   const day = await getTripDayByIdForUser({ userId, tripId, dayId });
@@ -185,6 +186,16 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
     return fail(apiError("not_found", "Trip day not found"), 404);
   }
 
+  // Ahead of the body, matching `POST` above and every other handler this story widened. It used to
+  // sit below the zod parse, which was harmless while the answer was a flat 404 but is not once the
+  // answer distinguishes roles: a viewer would collect `invalid_json` and a flattened `validation_error`
+  // - the payload schema, field by field - from a route she is not allowed to call, and only learn she
+  // was forbidden once she had guessed a well-formed body. Authorisation before parsing, not after.
+  const refusal = await refuseUnlessTripWriter(userId, tripId, "Trip day not found");
+  if (refusal) {
+    return refusal;
+  }
+
   let rawPayload: unknown;
   try {
     rawPayload = await request.json();
@@ -195,10 +206,6 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
   const parsed = dayImageUpdateSchema.safeParse(rawPayload);
   if (!parsed.success) {
     return fail(apiError("validation_error", "Invalid day image payload", parsed.error.flatten()), 400);
-  }
-
-  if (!(await hasTripOwnerAccess(userId, tripId))) {
-    return fail(apiError("not_found", "Trip day not found"), 404);
   }
 
   try {
