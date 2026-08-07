@@ -24,6 +24,7 @@ import { deriveCoverageSummary, type TripDayGanttSegment } from "@/components/fe
 import TripOverviewMapPanel from "@/components/features/trips/TripOverviewMapPanel";
 import TripBucketListPanel from "@/components/features/trips/TripBucketListPanel";
 import { buildTripOverviewMapData } from "@/components/features/trips/TripOverviewMapData";
+import { isSafeLink } from "@/components/features/trips/TripDayPlanItemContent";
 import {
   ChevronRightIcon,
   HERO_SCRIM,
@@ -729,6 +730,15 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                     unplanned: unplannedSummary,
                   });
                   const isGap = day.missingAccommodation;
+                  // One derivation drives `component`, `href`, `target` and `rel` together, so an unsafe
+                  // stored value takes the `<span>` path the no-link case already produces rather than
+                  // becoming a third state to style. Rows written before the write schema gained its
+                  // scheme check still hold `javascript:` and `data:` values, and this row was the one site
+                  // that put the stored string straight into `href` - the day view's activity link has
+                  // always run the same predicate, so this closes the disagreement rather than adding a
+                  // rule.
+                  const stayLink =
+                    day.accommodation?.link && isSafeLink(day.accommodation.link) ? day.accommodation.link : null;
                   const subLabel = resolveStayLocationLabel(day);
                   const titleText =
                     day.note && day.note.trim().length > 0
@@ -851,10 +861,10 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                           </Box>
                         ) : day.accommodation ? (
                           <Box
-                            component={day.accommodation.link ? "a" : "span"}
-                            href={day.accommodation.link ?? undefined}
-                            target={day.accommodation.link ? "_blank" : undefined}
-                            rel={day.accommodation.link ? "noreferrer noopener" : undefined}
+                            component={stayLink ? "a" : "span"}
+                            href={stayLink ?? undefined}
+                            target={stayLink ? "_blank" : undefined}
+                            rel={stayLink ? "noreferrer noopener" : undefined}
                             data-testid="day-row-stay"
                             sx={{
                               display: "inline-flex",

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { isValidDateOnly } from "@/lib/validation/dateOnly";
 import { locationInputSchema } from "@/lib/validation/locationSchemas";
+import { isSafeExternalUrl } from "@/lib/validation/safeExternalUrl";
 
 const notesSchema = z.string().trim().max(1000, "Notes must be at most 1000 characters");
 const statusSchema = z.enum(["planned", "booked"], "Status must be planned or booked");
@@ -18,7 +19,16 @@ const paymentSchema = z.object({
   dueDate: dateOnlySchema,
 });
 const paymentsSchema = z.array(paymentSchema);
-const linkSchema = z.string().trim().url("Link must be a valid URL").max(2000, "Link must be at most 2000 characters");
+// `.url()` alone accepted `javascript:`, `data:` and `ftp:` - it only asks whether `new URL()` parses.
+// The scheme check is added alongside it rather than replacing it, and it is the same predicate and the
+// same message the day-plan-item and travel-segment link schemas use, so the three columns that hold a
+// user-supplied link answer to one rule.
+const linkSchema = z
+  .string()
+  .trim()
+  .url("Link must be a valid URL")
+  .refine((value) => isSafeExternalUrl(value), "Link must use http or https")
+  .max(2000, "Link must be at most 2000 characters");
 const normalizeTime = (raw: string): string | null => {
   const value = raw.trim();
   const match = value.match(/^(\d{1,2}):(\d{2})(?::\d{2}(?:\.\d{1,3})?)?$/);

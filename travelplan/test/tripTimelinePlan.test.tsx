@@ -512,6 +512,84 @@ describe("TripTimeline plan action", () => {
     vi.unstubAllGlobals();
   });
 
+  /**
+   * Story 6.29, AC4. This row put the stored value straight into `href`, and the write schema accepted
+   * `javascript:` until the same story tightened it, so rows holding one exist and are not migrated. The
+   * unsafe value has to take the `<span>` path the no-link case already produces - a third state would be
+   * a new empty state to design, and the stay name still has to be readable either way.
+   */
+  it("renders the overview stay as an anchor only for an http(s) link", async () => {
+    const buildResponse = (link: string | null) => ({
+      data: {
+        trip: {
+          id: "trip-1",
+          name: "Trip",
+          startDate: "2026-12-01T00:00:00.000Z",
+          endDate: "2026-12-01T00:00:00.000Z",
+          dayCount: 1,
+          plannedCostTotal: 0,
+          accommodationCostTotalCents: null,
+          heroImageUrl: null,
+        },
+        days: [
+          {
+            id: "day-1",
+            date: "2026-12-01T00:00:00.000Z",
+            dayIndex: 1,
+            imageUrl: null,
+            note: null,
+            missingAccommodation: false,
+            missingPlan: false,
+            accommodation: {
+              id: "stay-1",
+              name: "Hotel One",
+              notes: null,
+              status: "booked",
+              costCents: null,
+              link,
+              location: null,
+            },
+            dayPlanItems: [],
+          },
+        ],
+      },
+      error: null,
+    });
+
+    const renderWithLink = async (link: string | null) => {
+      const fetchMock = vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => buildResponse(link),
+      })) as unknown as typeof fetch;
+      vi.stubGlobal("fetch", fetchMock);
+      const view = renderWithProviders(<TripTimeline tripId="trip-1" />);
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      return view;
+    };
+
+    const safe = await renderWithLink("https://booking.example/stay-1");
+    const safeRow = screen.getByTestId("day-row-stay");
+    expect(safeRow.tagName.toLowerCase()).toBe("a");
+    expect(safeRow).toHaveAttribute("href", "https://booking.example/stay-1");
+    expect(safeRow).toHaveAttribute("target", "_blank");
+    expect(safeRow).toHaveAttribute("rel", "noreferrer noopener");
+    expect(safeRow).toHaveTextContent("Hotel One");
+    safe.unmount();
+    vi.unstubAllGlobals();
+
+    await renderWithLink("javascript:alert(1)");
+    const unsafeRow = screen.getByTestId("day-row-stay");
+    expect(unsafeRow.tagName.toLowerCase()).toBe("span");
+    expect(unsafeRow).not.toHaveAttribute("href");
+    // The name is the whole content of this row; guarding the scheme must not cost the stay its label.
+    expect(unsafeRow).toHaveTextContent("Hotel One");
+    // Not merely a non-anchor: nothing anywhere on the page may carry the value in an `href`.
+    expect(document.querySelector('[href="javascript:alert(1)"]')).toBeNull();
+
+    vi.unstubAllGlobals();
+  });
+
   it("renders the stat strip, cost breakdown and gap-alert card from trip data", async () => {
     const tripDetailResponse = {
       data: {

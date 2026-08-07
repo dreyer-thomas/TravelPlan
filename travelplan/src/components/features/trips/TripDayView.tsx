@@ -3281,6 +3281,39 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                           variant="outlined"
                         />
                       </Box>
+                      {/* Between the status row and the media row, because the media row is the card's
+                          last child by DESIGN.md and the link is content, not media. The stay *name*
+                          above stays plain text: the card is the edit target (Story 6.13 stretched a
+                          <button> across it), so an anchor on the name would take the most obvious edit
+                          click - the overview row can make the name the link because a click there
+                          already means "open the day".
+
+                          A direct child of the container carrying `overlaidContentSx`, which is what
+                          makes this work without `stopPropagation`: that style hands `& a` its pointer
+                          events back and raises it above the edit overlay, so the click lands here and
+                          the overlay never fires - on pointer and on keyboard alike. Placed outside such
+                          a container it would render, look right, and open the edit dialog instead.
+
+                          `isSafeLink` is the render guard, and it has no else branch on purpose: a stay
+                          with no link, or with a legacy `javascript:` value stored before the write
+                          schema was tightened, shows nothing extra rather than an empty state. The
+                          render guard differs from the schema's `isSafeExternalUrl` deliberately - this
+                          one is a prefix test cheap enough to run on every render, the schema's parses
+                          and rejects, which is what a write gate is for. */}
+                      {previousStay.link && isSafeLink(previousStay.link) ? (
+                        <Button
+                          component="a"
+                          href={previousStay.link}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          variant="text"
+                          size="small"
+                          data-testid="timeline-previous-stay-link"
+                          sx={{ p: 0, minWidth: "auto", alignSelf: "flex-start" }}
+                        >
+                          {t("trips.stay.linkOpen")}
+                        </Button>
+                      ) : null}
                       {/* Last child: DESIGN.md's media row runs along the bottom of the card - the
                           photo-strip leading, the doc-chips trailing. Both halves and their
                           pointer-events wrappers live in `renderMediaRow`. */}
@@ -3579,6 +3612,32 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                           <Typography sx={tlCostSx}>{formatCost(currentStay.costCents)}</Typography>
                         ) : null}
                       </Box>
+                      {/* The previous-night card's twin. A copy rather than a shared helper only because
+                          these two cards are duplicated wholesale in this file - their overlays, status
+                          rows and media rows are each written twice as well, and one extracted helper
+                          among them would read as the odd one out. (A `renderStayLink(link, testId)`
+                          would in fact make crossing the two stays' wires impossible, which is worth
+                          doing when the pair is extracted together rather than one member at a time.)
+                          Until then: this one reads `currentStay.link`, the one above `previousStay.link`,
+                          and crossing them would show last night's booking on tonight's card with nothing
+                          visually wrong. Note the containers gate on different flags too - this one on
+                          `canEditPlanning` via a bare `overlaidContentSx`, the previous-night one on
+                          `canEditPreviousStay`; the link only needs the container it sits in to carry the
+                          style, whichever flag put it there. */}
+                      {currentStay.link && isSafeLink(currentStay.link) ? (
+                        <Button
+                          component="a"
+                          href={currentStay.link}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          variant="text"
+                          size="small"
+                          data-testid="timeline-current-stay-link"
+                          sx={{ p: 0, minWidth: "auto", alignSelf: "flex-start" }}
+                        >
+                          {t("trips.stay.linkOpen")}
+                        </Button>
+                      ) : null}
                       {/* Last child: DESIGN.md's media row runs along the bottom of the card - the
                           photo-strip leading, the doc-chips trailing. Both halves and their
                           pointer-events wrappers live in `renderMediaRow`. */}

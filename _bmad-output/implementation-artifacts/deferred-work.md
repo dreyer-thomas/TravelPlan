@@ -2080,3 +2080,71 @@ source_spec: `spec-6-28-coordinates-by-hand-and-a-choice-of-places.md`
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260807-065558-0b87; this entry preserves the lingering recommendation for a deliberate later review.
 status: open
+
+### DW-203: The accommodation link on the import path is now looser than the write schema, while the travel-segment column beside it already made the opposite choice
+origin: 6-29-the-stays-link-on-the-day-page, 2026-08-07
+location: `travelplan/src/lib/validation/tripImportSchemas.ts` — `link: urlOrNull` on the accommodation import row (~`:365`), against `externalLinkOrNull` on the travel-segment row in the same file
+source_spec: `spec-6-29-the-stays-link-on-the-day-page.md`
+severity: low
+reason: Story 6.29 gave `accommodationSchemas.ts`'s `linkSchema` the `isSafeExternalUrl` scheme check, so `POST/PATCH /api/trips/[id]/accommodations` now rejects `javascript:`, `data:` and `ftp:`. The import path still validates that column with `urlOrNull`, which is `.url()` alone and accepts all three — so import is the one remaining writer that can put an unsafe scheme into `Accommodation.link`, which is the exact situation `externalLinkOrNull`'s own docblock describes ("a column with one trusted writer and one untrusted one is a column with an untrusted writer") and which the travel-segment row in the same file already closed. Deliberately left for a decision rather than patched: tightening it makes a whole archive fail on one bad row, which is a product call about backup compatibility, not a link-safety fix, and every such row is already unrenderable after 6.29's render guard reached all three surfaces. The choices are (a) reject the archive, (b) coerce the offending link to `null` and add an import warning, or (c) accept the asymmetry explicitly and say so at `urlOrNull`.
+status: open
+
+### DW-204: `DayPlanItem.linkUrl` has the same import/mutation asymmetry as DW-203, three lines from a row that already closed it
+
+origin: 6-29-the-stays-link-on-the-day-page review, 2026-08-07
+location: `travelplan/src/lib/validation/tripImportSchemas.ts` — `linkUrl: urlOrNull` on the day-plan-item import row (~`:404`), against `linkUrl: externalLinkOrNull` on the travel-segment row (~`:296`) in the same file
+source_spec: `spec-6-29-the-stays-link-on-the-day-page.md`
+severity: low
+summary: The activity link column is gated on the mutation side (`dayPlanItemSchemas.ts`) and ungated on the import side, exactly like the accommodation column in DW-203 — and unlike the travel-segment column a few lines above it, which is gated on both.
+evidence: `dayPlanItemSchemas.ts`'s `linkSchema` has paired `.url()` with the scheme check since before Story 6.29, so `POST/PATCH /api/trips/[id]/day-plan-items` rejects `javascript:alert(1)`, `data:text/html,<h1>x` and `ftp://x.example/a`; `urlOrNull` at `:404` accepts all three into the same column. Pre-existing — Story 6.29 neither created nor widened it — but the story edited this exact file to consolidate `isSafeExternalUrl` and walked past it, and DW-203 records only the accommodation half. Decide both rows together: whichever of DW-203's three options is chosen should apply here too, or the file ends up with three columns and three different answers.
+status: open
+
+### DW-205: Copy-previous-night is a writer that bypasses the accommodation link's scheme gate
+
+origin: 6-29-the-stays-link-on-the-day-page review, 2026-08-07
+location: `travelplan/src/lib/repositories/accommodationRepo.ts` — the copy path (~`:453`), reached from `travelplan/src/app/api/trips/[id]/accommodations/copy/route.ts`
+source_spec: `spec-6-29-the-stays-link-on-the-day-page.md`
+severity: medium
+summary: Story 6.29 made `accommodationMutationSchema` reject non-`http(s)` link schemes, but the copy-previous-night route validates with `accommodationCopySchema` and copies the source row's `link` column straight through, so a legacy unsafe value keeps being propagated into new rows after the gate was tightened.
+evidence: `accommodationCopySchema` carries no link field — the value is read from the previous night's row inside the repository and written verbatim. A trip holding a `javascript:` link stored before 6.29 therefore grows one more such row on every copy, and the tightened gate never sees it. Consequence is bounded, not nil: all three render surfaces guard the scheme, so nothing renders it as an anchor, and the value can no longer be *introduced* by a user — but "can no longer be stored" is not literally true while this path exists, and each copy widens the set of rows a future migration would have to clean. Deferred rather than patched because Story 6.29's spec put a repository change behind an explicit Block If, and the right fix is a decision about the copy path in general (drop the link, or validate and refuse) rather than a one-line guard bolted on from a rendering story.
+status: open
+
+### DW-206: The three external-link controls in the day timeline are ~22px tall, under DESIGN.md's 44px floor
+
+origin: 6-29-the-stays-link-on-the-day-page review, 2026-08-07
+location: `travelplan/src/components/features/trips/TripDayView.tsx` — the activity link (~`:3463`) and the two stay links Story 6.29 added (~`:3312`, ~`:3632`), all three `size="small"` text `Button`s with `sx={{ p: 0, minWidth: "auto", alignSelf: "flex-start" }}`
+source_spec: `spec-6-29-the-stays-link-on-the-day-page.md`
+severity: medium
+summary: `p: 0` on a small text button yields roughly a 22px tap target, against DESIGN.md's 44px minimum for interactive elements, which explicitly names a "bare, unpadded text link" as the pattern it supersedes.
+evidence: Story 6.29 copied the activity link's `sx` verbatim to both stay cards, as its spec instructed, so the deviation now exists at three sites rather than one. It is not a regression the story introduced — the activity link shipped this way — but it is now the dominant instance of the pattern and the epic's accessibility floor is explicit about the number. Fix it at all three at once (a `minHeight: 44` with negative inline margins, or a shared `stayAndPlanLinkSx`), because raising only the two new ones makes the stay cards inconsistent with the activity cards directly between them. Note the same fix pass should settle the accessible-name question in DW-207, since both land on the same three elements.
+status: open
+
+### DW-207: Every external-link control on a day page is named "Open link", with nothing saying which entry it belongs to
+
+origin: 6-29-the-stays-link-on-the-day-page review, 2026-08-07
+location: `travelplan/src/components/features/trips/TripDayView.tsx` — `trips.stay.linkOpen` at ~`:3314` and ~`:3634`, `trips.plan.linkOpen` at ~`:3465`; both strings are "Open link" / "Link öffnen"
+source_spec: `spec-6-29-the-stays-link-on-the-day-page.md`
+severity: low
+summary: A day with two stays and three linked activities presents five links whose accessible names are identical, and none announces that it opens a new tab.
+evidence: Link purpose is recoverable from the surrounding card visually and by WCAG 2.4.4's "in context" allowance, so this is a quality gap rather than a violation — but the same file argues the opposite case 150 lines away for photo buttons ("nine buttons sharing three names … a name that says which photo it opens"), and a screen-reader user listing links on the page gets five undifferentiated entries. Deferred rather than patched because the fix needs a new interpolated key (`trips.stay.linkOpenAria` / `trips.plan.linkOpenAria`, "Open the booking link for {name}") and Story 6.29's AC7 forbade adding any i18n key. Bundle with DW-206: same three elements, one pass.
+status: open
+
+### DW-208: `isSafeLink`, a render-time security predicate used across features, lives inside a `"use client"` feature component
+
+origin: 6-29-the-stays-link-on-the-day-page review, 2026-08-07
+location: `travelplan/src/components/features/trips/TripDayPlanItemContent.tsx:22` — imported by `TripDayView.tsx`, now also by `TripTimeline.tsx:27`, and by the rich-text image guard in the same file
+source_spec: `spec-6-29-the-stays-link-on-the-day-page.md`
+severity: low
+summary: The write-side rule got its own `src/lib/validation/` module in Story 6.29 while the render-side rule stays in a client component, so no server surface can reuse it and a feature component is the canonical home of a security predicate.
+evidence: That file's own docblock at `:26-32` documents both the problem and the remedy: `parsePlanText` was moved to `@/lib/trips/planText` and re-exported from here precisely because Story 9.2's packet route could not reach into a client module. `isSafeLink` is the same shape and has the same need the moment any print/packet surface renders a stored link — today none does, which is why this is low and not medium. The move is mechanical (`src/lib/trips/safeLink.ts` plus a re-export line, exactly as `parsePlanText` did) and Story 6.29's spec deliberately kept it out of scope.
+status: open
+
+### DW-209: The stay dialog's client-side link rule checks the scheme but not the 2000-character cap
+
+origin: 6-29-the-stays-link-on-the-day-page review, 2026-08-07
+location: `travelplan/src/components/features/trips/TripAccommodationDialog.tsx` — `linkRules.validate` (~`:844`), against `linkSchema`'s `.max(2000)` in `travelplan/src/lib/validation/accommodationSchemas.ts`
+source_spec: `spec-6-29-the-stays-link-on-the-day-page.md`
+severity: low
+summary: A well-formed `https://` link longer than 2000 characters passes the dialog, is rejected by the route, and surfaces as the generic "Stay update failed" banner with no field marked — the same failure shape Story 6.29 fixed for the scheme half and left in place for the length half.
+evidence: Story 6.29 changed this function to add the scheme check and its Design Notes name the generic-banner outcome as "technically AC5, visibly a bug", so the reasoning covers the length case identically; it was left because a correct message needs a new key ("Link is too long", there is no `trips.stay.linkTooLong`) and AC7 forbade adding one — reusing `linkInvalid` ("Enter a valid http(s) link") would describe the wrong problem. Rare in practice: a 2000-character booking URL is unusual. Worth doing with the next key-adding story that touches this dialog.
+status: open

@@ -4,13 +4,13 @@
 
 ## Goal
 
-Epic 6 sharpens screens that already work. It carries no new product capability: every story fixes a defect, relocates a control, or makes an existing interaction consistent with one already established elsewhere in the app. Its source of truth is production use — Tommy planning a real trip, mostly on a phone — rather than a mockup comparison, so the recurring themes are phone ergonomics (fewer wrapping toolbars, operable inputs, one long form split into tabs), one interaction rule per card kind instead of three, and correctness in the places where the visible number turned out to be wrong. The bar for a story here is that everything else on the screen keeps behaving exactly as before.
+Epic 6 is the epic where the product gets fixed by the person actually using it. It does not add capability — it repairs and simplifies the screens that already exist, mostly the day detail and trip overview, mostly as they behave on a phone. Its stories come from three places: earlier planning refinements, the first real production trip, and defects reported from a real German-language phone. The rule that binds them is that the core product model does not change: no new entities, no new endpoints unless a defect requires one, no new gating. What changes is where a control lives, how many controls there are, whether a click target is the whole card or a small corner of it, and whether a typed value survives being saved. Because these refinements touch the most-used surfaces, consistency across them matters more than any individual story's cleverness — a pattern introduced by one story is expected to be adopted by every sibling surface rather than living in one component.
 
 ## Stories
 
-- Story 6.1: Remove Trip Overview Header Feedback — REMOVED/SUPERSEDED (feedback system discontinued)
-- Story 6.2: Feedback as Chat — REMOVED (feedback system discontinued)
-- Story 6.3: Optimize Comments — REMOVED (feedback system discontinued)
+- Story 6.1: Remove Trip Overview Header Feedback — REMOVED/SUPERSEDED (historical only)
+- Story 6.2: Feedback as Chat — REMOVED (historical only)
+- Story 6.3: Optimize Comments — REMOVED (historical only)
 - Story 6.4: Fix Day View Accommodation Cost Duplication
 - Story 6.5: Auto-Fill Travel Segments From Google Maps
 - Story 6.6: Match Day Item Photo UX to Accommodations
@@ -34,53 +34,50 @@ Epic 6 sharpens screens that already work. It carries no new product capability:
 - Story 6.24: A Calmer Activity Dialog
 - Story 6.25: Close Is a Cross, and Keeping Is Named
 - Story 6.26: The Accommodation Dialog in Tabs
-- Story 6.27: A Comma Is a Decimal Point — story spec exists, but the epics file has no entry for it
+- Story 6.27: A Comma Is a Decimal Point
 - Story 6.28: Coordinates by Hand, and a Choice of Places
 - Story 6.29: The Stay's Link on the Day Page
+- Story 6.30: One Decimal for a Distance, a Comma in the Box
 
 ## Requirements & Constraints
 
-- **Presentation-only is the default contract.** Most stories declare that they relocate, relabel, or restyle and change nothing else. Every acceptance set ends with a "none of it changes" clause covering the timeline, coverage bar, travel segments, stays, bucket list, map panel, cost roll-up and print export. Treat any behavioural side effect as a regression.
-- **The comments/voting feature is discontinued.** No comment or vote UI may be reintroduced on any surface. Stories 6.1–6.3 are historical record only.
-- **Role gating is never widened by a refinement.** Editing affordances follow the existing planning-rights check; a non-editable surface must not look actionable (no cursor, hover, glyph or overlay). Read actions such as print stay available to every role that can open the day.
-- **Bilingual parity is enforced.** Every user-facing string exists in both dictionaries, and key parity is asserted by test. When a story removes a label, the key is deleted from both dictionaries and any assertion pinning it is updated — orphaned keys are a defect.
-- **Phone-first success criteria.** Several stories name 390px as the width where the problem is real: no wrapping control rows, no horizontal scrollbar, no label wrapping mid-word, no control rendered over title text.
-- **Keyboard and touch floor.** Every interactive element is reachable and operable by keyboard with a visible focus state and an accessible name; touch targets are ≥44×44px. Color is never the sole signal.
-- **Layout numbers are measured, not derived.** This project's history is explicit that guessed layout arithmetic does not survive a browser; heights and thresholds are established by a browser pass and recorded.
-- **Additive schema changes only.** Where a story touches the data model, existing rows keep their current values, the stored/validated format is unchanged where possible, and backup export/import must round-trip the new values.
+- **Scope discipline.** These are presentation, placement, interaction and defect stories. Several explicitly cover no functional requirement at all. Do not introduce data-model fields, new capability, or new permission behaviour to satisfy a layout story.
+- **Comments and voting are discontinued.** The whole feedback feature was removed by product decision. Never reintroduce comment or vote UI, data, or endpoints on any surface this epic touches.
+- **Backup/export and restore remain capabilities** but have no trip-overview entry point after the redesign; they are reachable by API only until a new entry point is decided. Do not re-add UI for them here.
+- **German is the working UI language**, with English as the second dictionary. Both must stay complete. Copy names the concrete thing (the day, the place, the number) and names outcomes rather than mechanisms — a confirmation's safe answer says what it preserves ("Eintrag behalten"), never "Abbrechen".
+- **Phone-first verification.** 390px is the reference narrow width; a story that fixes a phone problem is not done until it is checked at that width. Support target is Chrome (desktop and mobile) and Safari (desktop and iOS). Responsive across desktop, tablet and phone.
+- **Accessibility floor** (no formal WCAG level is claimed, and none should be): every interactive element keyboard-reachable and operable with a visible focus state; 44×44px minimum touch target for buttons, inputs, selects, tabs and chips; colour is never the sole signal (pair with icon and short text); every icon-only control carries an accessible name written like the copy around it; decorative icons are `aria-hidden`; photos that carry meaning get real alt text, redundant ones get empty alt; maps are always paired with a text summary.
+- **Performance ceiling** is a ~15s p95 trip load — ample headroom, so do not add caching or indirection on suspicion.
+- Localised numeric entry is a correctness requirement, not a nicety: a typed value must be saved as the value shown, and an unparseable value must produce a visible, blocking error rather than silently becoming "empty".
 
 ## Technical Decisions
 
-- **Design authority.** The visual system is the Light Cockpit spine (`DESIGN.md` / `EXPERIENCE.md` under `_bmad-output/planning-artifacts/ux-designs/ux-TravelPlan-2026-07-27/`), which supersedes the older `ux-design-specification.md` palette and typography for anything Epic 6 touches. Light mode only; flat and bordered rather than shadowed; photography sharp-cornered, UI chrome rounded; a single accent family with warn reserved exclusively for gaps and open items. When a story establishes a new variant (a filled pill, an icon-button, a close control), `DESIGN.md` is updated with it rather than the variant living only in code.
-- **Hover, focus, active and pressed states are unspecified by the mockups on purpose.** Implementation authors them from existing tokens, following the precedent already set by whole-row click targets in the app.
-- **Whole-card click targets use a stretched `<button>` overlay, not `role="button"` on the card.** ARIA's *Children Presentational: True* would collapse a card's title, notes and pills into one announced label. Content is `pointerEvents: none` with links and buttons lifted above the overlay so nested actions keep their own behaviour.
-- **Page-local overflow menus, not the global header menu.** The global auth menu is built from auth state alone and knows nothing about a trip or a day, so day-scoped actions (print, move, swap, day-image edit) live in the day page's own `⋯` menu built from the same menu treatment. A menu that would render no items must not render its trigger.
-- **Shared primitives over inlined copies.** Where a behaviour is duplicated across components (the fullscreen photo viewer, place/coordinate parsing, time input), consolidate into one owner and delete the copies; parsing logic lives in exactly one module, never re-implemented in a component.
-- **Tabbed dialogs must not weaken validation.** React Hook Form skips rules for fields whose panel is unmounted while keeping their values, so a tabbed dialog validates every field regardless of the active tab, switches to the first tab carrying an error, focuses it, and marks every erroring tab in colour, glyph and accessible name. The error-key-to-tab map is exhaustive at compile time so a later field fails the build rather than silently losing its marker.
-- **Dialog frames are stabilised with a minimum height, never a fixed one** — MUI centres the dialog, so a panel height swing moves the tab bar under the user's cursor.
-- **Input controls model what they hold.** A time of day uses the native time control; a duration does not, because a clock control would reinterpret `01:30` as half past one. Numeric entry accepts the German comma rather than silently discarding it — ambiguity is refused with a message naming the accepted spelling, never resolved by guessing.
-- **Link rendering is scheme-guarded.** URL-syntax validation alone accepts `javascript:` and `data:`; only `http:`/`https:` may render as a link, guarded at render on every surface, with external links opening in a new tab with `rel="noopener noreferrer"`.
-- **Deleting or moving an item cleans up what referenced it.** Travel segments that reference a removed or relocated activity are removed and the user is told; no segment is ever invented on arrival, because transport mode and duration are the user's knowledge.
+- **Stack:** Next.js App Router + TypeScript, SQLite via Prisma, REST route handlers with Zod validation, Redux Toolkit for client state, React Hook Form for forms, TipTap for rich text, Leaflet 1.9.4 for maps, MUI as the component baseline under the project's own light design tokens.
+- **Conventions:** DB identifiers `snake_case`, API JSON `camelCase`, dates ISO 8601 UTC, responses always in the `{ data, error }` envelope with stable error codes. Data access goes through the repository layer; the Prisma client is instantiated in exactly one place.
+- **One implementation per rule.** This epic's recurring failure mode is a fix that lived in one component and was never propagated. Shared behaviour — decimal parsing, coordinate/place parsing, link safety, time entry, the dialog close control — belongs in one module that every surface calls, with local copies deleted in the same story.
+- **Numeric input:** money and distance fields are text inputs with a decimal input mode and a shared comma-aware parser, never `type="number"` — a browser discards a comma before any code can see it. The parser accepts both dot and comma spellings including grouped forms, refuses genuinely ambiguous input rather than guessing, and never rounds or scales a non-money value like kilometres. Field-specific rules (such as a distance's decimal cap) are expressed at the field, not hard-coded into the shared helper. Input rules govern input only; values stored before a rule existed are left alone.
+- **Dialogs:** one shared dialog shell owns the title row and its single `✕` close control; form dialogs carry no cancel button, destructive confirmations keep two equally weighted buttons. A dirty form confirms once before discarding; an untouched form closes silently. Tabbed dialogs hold the frame still with a *minimum* (never fixed) height, keep unmounted panels' values and validate their fields anyway, and on a failed save jump to and focus the first tab carrying an error, marking every erroring tab in colour, glyph and accessible name. Saving must never fail silently. A field-to-tab map should fail the build when a new field is added without one.
+- **Links:** stored URLs are only rendered as links when the scheme is `http:` or `https:`, on every surface without exception, and external links open in a new tab with `rel="noreferrer noopener"`. Syntax-only URL validation does not establish scheme safety.
+- **Uploaded media sits behind authentication** (not under the public static root). Any new media surface inherits that.
+- **i18n hygiene:** when a story removes the last reader of a translation key, delete the key from both dictionaries.
+- When a story deliberately reverses a rule recorded in the design or experience spine, it updates those documents in the same story rather than leaving the drift behind.
 
 ## UX & Interaction Patterns
 
-- **One interaction rule for timeline cards.** Activity, previous-night stay and current-night stay cards all open their editor by clicking the card. No card in the timeline carries a visible edit button; the section header keeps only the action that creates what the section lists.
-- **Editability must be visible without a button.** A pointer device gets a hover treatment plus an edit glyph that fades in at the card's top-right; under `@media (hover: none)` the same glyph is permanently visible at low emphasis. The glyph is decoration (`aria-hidden`), never a nested control.
-- **The day hero carries controls in its corners** — previous/next chevrons and the page-local `⋯` — using the on-photo chrome treatment so they stay legible over arbitrary user photography. An unavailable chevron is not rendered at all rather than rendered disabled, so nothing focusable remains in its place.
-- **Dismissal is a close glyph in the dialog title row, not a footer cancel button.** Form dialogs carry no secondary cancel; destructive confirmations keep two buttons and name the safe answer by its outcome ("keep this trip") rather than by its mechanism. A dirty form confirms once before discarding; an untouched form closes silently.
-- **The fullscreen photo viewer is one darkened surface** covering the viewport (not `100vw`, which includes the scrollbar), pages through the whole collection with the position stated, closes only on Escape, keeps focus trapped while open and returns it to the thumbnail that opened it.
-- **Place selection presents alternatives.** A search that matches several candidates offers a choice rather than adopting the first result silently.
-- **Labels are short and concrete.** Helper prose that explains a field is removed rather than shortened where the field explains itself; error text names what went wrong in concrete terms.
+- **One interaction rule per timeline.** A card is clicked anywhere to edit it — stays and activities alike. An interactive element inside a card (a booking link) must act alone without triggering the card's edit, by pointer and by keyboard, and must still work for a viewer who has no edit overlay at all.
+- **Day hero** carries navigation and actions as corner glyph controls on the photo rather than a toolbar row; secondary day actions (print, move, swap) live behind the `⋯` overflow menu; app-level navigation such as the trips link lives in the header menu. Rarely-used trip controls sort to the very bottom on a phone.
+- **Timeline vocabulary is fixed:** stay nodes carry a house icon, travel segments a transport icon and no card, and every generic activity gets one uniform neutral marker. There is no activity-type field and none may be invented to support per-type iconography.
+- **Photo strips** are uniform, fixed-size, left-aligned, square, centre-cropped and sharp-cornered regardless of the containing card's radius; overflow uses a `+N` control. The fullscreen viewer genuinely fills the screen, pages through that entity's photos, and is keyboard-operable. Document attachments are labelled chips — the name is the content — and open in a new tab rather than the photo viewer.
+- **Place lookup** never adopts a result silently: multiple candidates are offered as a ruled list of full display names inside a named group with a live-region count heading, a single candidate may be adopted directly, and activating a row resolves and dismisses in one gesture. All four place-resolving surfaces (trip create start/destination, activity dialog, accommodation dialog, bucket list) behave identically.
+- **Stat strips** appear once per screen with short labels; before adding any number, check whether it is already visible on that screen. Warn styling is reserved for gap/open states.
+- **Not permitted:** dark mode or a second token set, per-activity-type icons or emoji, comment/voting UI.
 
 ## Cross-Story Dependencies
 
-- **6.9 → 6.13 → 6.15.** 6.9 builds the click-to-edit card pattern (overlay, hover treatment, capped accessible name) for activities; 6.13 reuses it for both stay cards and removes their buttons; 6.15 then finds the timeline header reduced enough to move the remaining move/swap actions into the menu.
-- **6.9 and 6.11 both restructure the day hero header** — sequence them, do not run them in parallel.
-- **6.11 → 6.15 → 6.19.** 6.11 creates the day page's `⋯` overflow; 6.15 extends it with move, swap and the day-image edit; 6.19 adds the back-to-trip action as its first item and settles the hero's three-corner layout.
-- **6.10 → 6.14.** 6.10 moves the trip-controls card into the grid's left column for desktop alignment; 6.14 then fixes the single-column order that change produced. 6.10's test asserting the card's position must be updated deliberately, not deleted.
-- **6.22 → 6.24 → 6.26.** The activity dialog is tabbed, then stabilised and its footer reduced; the accommodation dialog follows the same pattern and inherits the frame-height and validation decisions.
-- **6.25 is a precondition for the dialog work** — it establishes the close-glyph pattern and the dirty-form confirmation that 6.24 and 6.26 rely on, and it updates `DESIGN.md`/`EXPERIENCE.md` to match.
-- **6.27 → 6.28.** 6.28 prefers to land after 6.27, which establishes the decimal-comma parsing rule it reuses for coordinates. Note 6.27 has a story spec but no entry in the epics file.
-- **6.13 → 6.29.** 6.29 adds stay booking links to cards whose whole surface became the edit target in 6.13, so the link must escape the overlay for both pointer and keyboard.
-- **6.16 depends on the backup format** established by the trip export/import stories, whose schema is bound to the transport-type enum.
-- **6.12 closes two deferred-work entries by name** (the keyboard-inoperable thumbnails in the mini image strip and in the shared photo upload field), so both components are in scope, not one.
+- Story 6.30 depends on Story 6.27, which established the shared decimal parser; Story 6.28 is best sequenced after 6.27 for the same reason.
+- Stories 6.24, 6.25 and 6.26 form a dialog-consistency chain: 6.22 tabbed the activity dialog, 6.24 stabilised and thinned it, 6.25 made the close control and the named-safe-answer rule app-wide, and 6.26 applies all of it to the accommodation dialog.
+- Story 6.29 relies on the whole-card edit target introduced by Story 6.13, and its link-safety guard must cover the pre-existing unguarded trip-overview render site, not just the new ones.
+- Story 6.15 places move/swap into the overflow menu introduced by Story 6.11.
+- Story 6.5 depends on the routing/maps integration from the route-and-map epic; Story 6.8's day PDF depends on the day map and travel-segment work from the same epic and must still succeed when map or routing data is unavailable.
+- Stories 6.9 onward refine the surfaces produced by the visual-redesign epic and must stay inside its token system rather than reintroducing bespoke styling.
+- Contributors can now write to trips they do not own, which raises the stakes on any render-time safety guard or permission assumption these stories touch.

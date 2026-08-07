@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TripDayView from "@/components/features/trips/TripDayView";
@@ -6365,6 +6365,224 @@ describe("TripDayView layout", () => {
     expect(screen.queryByTestId("timeline-previous-stay-edit-overlay")).not.toBeInTheDocument();
     expect(screen.queryByTestId("timeline-previous-stay-edit-glyph")).not.toBeInTheDocument();
     expect(screen.getByTestId("timeline-current-stay-edit-overlay")).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  // --- Story 6.29: the stay's booking link on both day-view stay cards -------------------------
+
+  it("renders each stay card's own link with target and rel (AC1, AC2)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal(
+      "fetch",
+      buildTwoDayResponse({
+        previousAccommodation: { ...stayFixture("stay-prev", "Airport Hotel"), link: "https://booking.example/prev" },
+        accommodation: { ...stayFixture("stay-current", "City Hotel"), link: "https://booking.example/current" },
+      }),
+    );
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    // Each link asserted against its *own* stay's href. The two cards look alike and edit different
+    // days, so a link reading the wrong stay is exactly the kind of crossed wire no visual check catches
+    // - which is why both hrefs are pinned rather than just "an anchor exists on each card".
+    const previousLink = screen.getByTestId("timeline-previous-stay-link");
+    expect(previousLink.tagName.toLowerCase()).toBe("a");
+    expect(previousLink).toHaveAttribute("href", "https://booking.example/prev");
+    expect(previousLink).toHaveAttribute("target", "_blank");
+    expect(previousLink).toHaveAttribute("rel", "noreferrer noopener");
+    expect(previousLink).toHaveTextContent("Open link");
+
+    const currentLink = screen.getByTestId("timeline-current-stay-link");
+    expect(currentLink.tagName.toLowerCase()).toBe("a");
+    expect(currentLink).toHaveAttribute("href", "https://booking.example/current");
+    expect(currentLink).toHaveAttribute("target", "_blank");
+    expect(currentLink).toHaveAttribute("rel", "noreferrer noopener");
+
+    // Below the status chip, which is the other half of "between the status row and the media row". The
+    // media row returns `null` with no photos and no documents and this fixture supplies neither, so the
+    // lower bound is pinned by the document-chip suite instead; what is pinned here is that the link
+    // directly follows the status row inside the one container that carries `overlaidContentSx`, which
+    // is what the pointer-events test below depends on.
+    //
+    // Asserted through `previousElementSibling` rather than by walking up from the chip with
+    // `closest("div")`: the chip's own wrapper depth is MUI's business, and a query that depends on it
+    // breaks on a Chip markup change instead of on the regression it is meant to catch.
+    for (const [testId, link] of [
+      ["timeline-previous-stay", previousLink],
+      ["timeline-current-stay", currentLink],
+    ] as const) {
+      const card = screen.getByTestId(testId);
+      const statusRow = link.previousElementSibling as HTMLElement;
+      expect(statusRow).not.toBeNull();
+      expect(within(statusRow).getByText("Planned")).toBeInTheDocument();
+      expect(card.contains(link)).toBe(true);
+    }
+
+    vi.unstubAllGlobals();
+  });
+
+  it("renders nothing extra on a stay with no link, on either card (AC1, AC2)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal(
+      "fetch",
+      buildTwoDayResponse({
+        previousAccommodation: stayFixture("stay-prev", "Airport Hotel"),
+        accommodation: stayFixture("stay-current", "City Hotel"),
+      }),
+    );
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    // `stayFixture` returns `link: null`. No link control and no "no link" placeholder either: the
+    // activity card has one because an activity's link is part of what a plan item is, whereas a stay
+    // without a booking link is the ordinary case and does not need a line saying so.
+    expect(screen.queryByTestId("timeline-previous-stay-link")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("timeline-current-stay-link")).not.toBeInTheDocument();
+    expect(within(screen.getByTestId("timeline-previous-stay")).queryByText("Open link")).toBeNull();
+    expect(within(screen.getByTestId("timeline-current-stay")).queryByText("Open link")).toBeNull();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("renders no link for a stored javascript: scheme on either card (AC4)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal(
+      "fetch",
+      buildTwoDayResponse({
+        previousAccommodation: { ...stayFixture("stay-prev", "Airport Hotel"), link: "javascript:alert(1)" },
+        accommodation: { ...stayFixture("stay-current", "City Hotel"), link: "data:text/html,<h1>x" },
+      }),
+    );
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    // The write schema now rejects both of these, but rows written before it did are not migrated, so the
+    // render guard is what protects them - and it has to hold on a payload the API would no longer accept.
+    expect(screen.queryByTestId("timeline-previous-stay-link")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("timeline-current-stay-link")).not.toBeInTheDocument();
+    expect(document.querySelector('[href^="javascript:"]')).toBeNull();
+    expect(document.querySelector('[href^="data:"]')).toBeNull();
+    // The stay itself still renders; guarding the link must not cost the card its content.
+    expect(within(screen.getByTestId("timeline-previous-stay")).getByText("Airport Hotel")).toBeInTheDocument();
+    expect(within(screen.getByTestId("timeline-current-stay")).getByText("City Hotel")).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("gives a viewer both links and still no overlay on either stay card (AC6)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal(
+      "fetch",
+      buildTwoDayResponse({
+        previousAccommodation: { ...stayFixture("stay-prev", "Airport Hotel"), link: "https://booking.example/prev" },
+        accommodation: { ...stayFixture("stay-current", "City Hotel"), link: "https://booking.example/current" },
+        trip: { accessRole: "viewer" },
+      }),
+    );
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    // The branch no one thinks to check: a viewer has no overlay and `overlaidContentSx` is `{}`, so the
+    // pointer-events opt-in that carries the link on an editable day is simply absent here. The link has
+    // to work because nothing is in its way, not because something restored it.
+    const previousLink = screen.getByTestId("timeline-previous-stay-link");
+    const currentLink = screen.getByTestId("timeline-current-stay-link");
+    expect(previousLink).toHaveAttribute("href", "https://booking.example/prev");
+    expect(currentLink).toHaveAttribute("href", "https://booking.example/current");
+    expect(screen.queryByTestId("timeline-previous-stay-edit-overlay")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("timeline-current-stay-edit-overlay")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("timeline-previous-stay-edit-glyph")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("timeline-current-stay-edit-glyph")).not.toBeInTheDocument();
+    expect(getComputedStyle(previousLink).pointerEvents).not.toBe("none");
+    expect(getComputedStyle(currentLink).pointerEvents).not.toBe("none");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("opens only the link, not the stay dialog, on pointer and on Enter (AC3)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal(
+      "fetch",
+      buildTwoDayResponse({
+        previousAccommodation: { ...stayFixture("stay-prev", "Airport Hotel"), link: "https://booking.example/prev" },
+        accommodation: { ...stayFixture("stay-current", "City Hotel"), link: "https://booking.example/current" },
+      }),
+    );
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    /**
+     * What this pins and what it does not, stated plainly so the next reader does not over-trust it.
+     * The edit overlay is a *sibling* of the link's container, not an ancestor, so no click on the link
+     * can ever reach the overlay's `onClick` by bubbling — in jsdom or in a browser. That is exactly the
+     * guarantee worth having, and this test is what would catch it being lost: putting the link inside
+     * the overlay, or giving the card wrapper its own `onClick`, both make it fail. What it cannot catch
+     * is the overlay *covering* the link, which is a hit-testing question jsdom does not answer — the
+     * pointer-events test below is the one with teeth on that, and the operator's 390px tap is the last
+     * word. Keyboard is asserted for the same structural reason as pointer, not for a different one.
+     */
+    for (const testId of ["timeline-previous-stay-link", "timeline-current-stay-link"]) {
+      const link = screen.getByTestId(testId);
+
+      fireEvent.click(link);
+      expect(stayDialogMockState.previous).toBe(false);
+      expect(stayDialogMockState.current).toBe(false);
+
+      // `act`-wrapped: focusing a MUI ButtonBase sets its focus-visible state, and a bare `.focus()`
+      // leaves that update outside React's batch and prints an act(...) warning to the suite's stderr.
+      act(() => link.focus());
+      await userEvent.keyboard("{Enter}");
+      expect(stayDialogMockState.previous).toBe(false);
+      expect(stayDialogMockState.current).toBe(false);
+    }
+
+    // Neither dialog rendered at any point in the loop.
+    expect(screen.queryByTestId("stay-dialog-previous")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("stay-dialog-current")).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps each link's pointer events inside its overlaid container (AC3)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal(
+      "fetch",
+      buildTwoDayResponse({
+        previousAccommodation: { ...stayFixture("stay-prev", "Airport Hotel"), link: "https://booking.example/prev" },
+        accommodation: { ...stayFixture("stay-current", "City Hotel"), link: "https://booking.example/current" },
+      }),
+    );
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    /**
+     * The assertion a reviewer cannot get by reading, and the one the click test above cannot make:
+     * jsdom does not hit-test, so a click dispatched on the link reaches the link whether or not the
+     * overlay covers it - a link placed *outside* an overlaid container would pass that test and open
+     * the edit dialog in a real browser. What jsdom does resolve is emotion's `& a` descendant selector
+     * through `getComputedStyle`, so the pair parent-`none` / link-`auto` is what actually pins the link
+     * inside a container carrying `overlaidContentSx`. Editable fixture only: for a viewer that style is
+     * `{}` and the parent computes `auto`, which is correct and different.
+     */
+    for (const testId of ["timeline-previous-stay-link", "timeline-current-stay-link"]) {
+      const link = screen.getByTestId(testId);
+      const container = link.parentElement as HTMLElement;
+      expect(getComputedStyle(container).pointerEvents).toBe("none");
+      expect(getComputedStyle(link).pointerEvents).toBe("auto");
+    }
 
     vi.unstubAllGlobals();
   });

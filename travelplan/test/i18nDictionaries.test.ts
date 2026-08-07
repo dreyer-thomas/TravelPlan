@@ -633,4 +633,44 @@ describe("i18n dictionaries", () => {
       expect((language === "en" ? en : de)["trips.location.resultsLabel"]).toContain("{count}");
     });
   });
+
+  /**
+   * Story 6.29 put `trips.stay.linkOpen` to work on the two day-view stay cards, which left
+   * `trips.stay.costSummary` ("Cost: {amount}") as the block's last orphan — zero consumers in `src/`,
+   * and `tripCostOverview.test.tsx` already records in a comment that the wrapper it once produced is
+   * gone from that screen. The same rule Story 6.28 applied one block over: a key that survives a
+   * feature without a reader will survive the next one too, so it goes rather than waiting for a third.
+   */
+  describe("story 6.29 key changes", () => {
+    const has = (dictionary: Record<string, string>, key: string) =>
+      Object.prototype.hasOwnProperty.call(dictionary, key);
+
+    it("no longer defines trips.stay.costSummary in either language", () => {
+      expect(has(en, "trips.stay.costSummary")).toBe(false);
+      expect(has(de, "trips.stay.costSummary")).toBe(false);
+    });
+
+    // No key was added: the story's whole i18n task was to find the existing string rather than write a
+    // new one. Asserted as "defined and non-empty in both", not as a literal — a test that restates the
+    // dictionary passes iff someone copied it across and catches no regression anyone cares about. The
+    // string the traveller reads is pinned where it is read, by the day-view render tests.
+    it.each(["en", "de"] as const)("still defines the link control's label in %s", (language) => {
+      const dictionary = language === "en" ? en : de;
+      expect(has(dictionary, "trips.stay.linkOpen")).toBe(true);
+      expect(dictionary["trips.stay.linkOpen"].trim().length).toBeGreaterThan(0);
+    });
+
+    /**
+     * The write schema now rejects any scheme other than `http:`/`https:`, so the field error a traveller
+     * sees has to say which links are accepted — "Enter a valid URL" describes a rule that no longer
+     * exists. `trips.travelSegment.linkInvalid` was the house wording to copy, but the two are asserted
+     * *independently*: they describe the same rule on two unrelated surfaces, and pinning them equal
+     * would fail this stay-dialog test on a legitimate reword of travel-segment copy.
+     */
+    it.each(["en", "de"] as const)("says http(s) in both link errors in %s", (language) => {
+      const dictionary = language === "en" ? en : de;
+      expect(dictionary["trips.stay.linkInvalid"]).toContain("http(s)");
+      expect(dictionary["trips.travelSegment.linkInvalid"]).toContain("http(s)");
+    });
+  });
 });

@@ -10,6 +10,7 @@ import {
   MAX_SUPPORTED_FORMAT_VERSION,
 } from "@/lib/trips/importLimits";
 import { isValidDateOnly } from "@/lib/validation/dateOnly";
+import { isSafeExternalUrl } from "@/lib/validation/safeExternalUrl";
 
 const ISO_UTC_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
 const DATE_ONLY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
@@ -78,14 +79,7 @@ const externalLinkOrNull = z
       .string()
       .trim()
       .url("Link must be a valid URL")
-      .refine((value) => {
-        try {
-          const protocol = new URL(value).protocol;
-          return protocol === "http:" || protocol === "https:";
-        } catch {
-          return false;
-        }
-      }, "Link must use http or https")
+      .refine((value) => isSafeExternalUrl(value), "Link must use http or https")
       .max(2000, "Link must be at most 2000 characters"),
     z.null(),
   ])

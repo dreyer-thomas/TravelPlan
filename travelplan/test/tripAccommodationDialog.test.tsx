@@ -875,6 +875,44 @@ describe("TripAccommodationDialog", () => {
     });
 
     /**
+     * Story 6.29, AC5's user-visible half. The write schema rejecting an unsupported scheme is only
+     * half the promise: without the same check in this dialog's own rule the value passes the client
+     * pass, the route answers 400, and the user reads the generic "Stay update failed" with no field
+     * marked — technically stored-nothing, visibly a bug. `new URL("javascript:alert(1)")` parses, so
+     * the old rule waved all three of these through. Nothing else in the suite submits them.
+     */
+    it.each(["javascript:alert(1)", "data:text/html,<h1>x", "ftp://x.example/a", "https:booking.example/x"])(
+      "reports %s on the link field instead of failing the save (AC5)",
+      async (link) => {
+        csrfOnly();
+        renderStay();
+
+        fireEvent.change(await screen.findByLabelText("Stay name"), { target: { value: "Harbor Hotel" } });
+        selectTab("Media & links");
+        fireEvent.change(screen.getByLabelText("Link"), { target: { value: link } });
+        fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+
+        expect(await screen.findByText("Enter a valid http(s) link")).toBeInTheDocument();
+        expect(screen.getByRole("tab", { name: "Media & links (contains errors)" })).toBeInTheDocument();
+        // Not the generic banner: the point of the change is that the error lands on the field.
+        expect(screen.queryByText("Stay update failed. Please try again.")).toBeNull();
+      },
+    );
+
+    it("still accepts an ordinary booking link on the same field (AC5)", async () => {
+      csrfOnly();
+      renderStay();
+
+      fireEvent.change(await screen.findByLabelText("Stay name"), { target: { value: "Harbor Hotel" } });
+      selectTab("Media & links");
+      fireEvent.change(screen.getByLabelText("Link"), { target: { value: "https://booking.example/x" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+
+      await waitFor(() => expect(screen.queryByText("Enter a valid http(s) link")).toBeNull());
+      expect(screen.queryByRole("tab", { name: "Media & links (contains errors)" })).toBeNull();
+    });
+
+    /**
      * AC3's "the marker clears as soon as the field is fixed rather than standing until the next save",
      * for `payments` — the one key with no registered input behind it, so nothing revalidated it.
      */

@@ -1,15 +1,7 @@
 import { z } from "zod";
 import { isValidDateOnly } from "@/lib/validation/dateOnly";
 import { locationInputSchema } from "@/lib/validation/locationSchemas";
-
-const isSafeExternalUrl = (value: string): boolean => {
-  try {
-    const parsed = new URL(value);
-    return parsed.protocol === "http:" || parsed.protocol === "https:";
-  } catch {
-    return false;
-  }
-};
+import { isSafeExternalUrl } from "@/lib/validation/safeExternalUrl";
 
 const hasRenderableContent = (node: unknown): boolean => {
   if (!node || typeof node !== "object") return false;

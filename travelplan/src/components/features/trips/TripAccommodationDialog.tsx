@@ -39,6 +39,7 @@ import {
 import { IMAGE_UPLOAD_ACCEPT, isSupportedImageUpload } from "@/lib/trips/imageUploads";
 import { formatCentsAsAmount, parseAmountToCents } from "@/lib/trips/parseAmount";
 import { formatCoordinateLabel, parseLocationInput } from "@/lib/trips/parseLocationInput";
+import { isSafeExternalUrl } from "@/lib/validation/safeExternalUrl";
 
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 type ApiEnvelope<T> = {
@@ -845,12 +846,11 @@ export default function TripAccommodationDialog({
       validate: (value: string) => {
         const trimmed = value.trim();
         if (!trimmed) return true;
-        try {
-          new URL(trimmed);
-          return true;
-        } catch {
-          return t("trips.stay.linkInvalid");
-        }
+        // The same predicate `accommodationSchemas.ts` now refines with, for the same reason
+        // `TripDayTravelSegmentDialog.tsx` pairs its client rule with it: parsing alone accepts
+        // `javascript:` and `data:`, so without the scheme check the server would reject and the user
+        // would see the generic `trips.stay.error` instead of the field error on the field they typed in.
+        return isSafeExternalUrl(trimmed) ? true : t("trips.stay.linkInvalid");
       },
     }),
     [t],

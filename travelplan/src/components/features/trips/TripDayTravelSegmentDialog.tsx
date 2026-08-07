@@ -23,6 +23,7 @@ import {
   type TransportType,
 } from "@/lib/trips/transportTypes";
 import { parseDecimal } from "@/lib/trips/parseAmount";
+import { isSafeExternalUrl } from "@/lib/validation/safeExternalUrl";
 import { DialogTitleWithClose } from "@/components/ui/DialogCloseButton";
 import DiscardChangesDialog, { useDiscardGuard } from "@/components/ui/DiscardChangesDialog";
 
@@ -150,15 +151,6 @@ const combineDurationToMinutes = ({ hours, minutes }: DurationInput): number | n
   if (parsedHours > 999 || parsedMinutes > 59) return null;
   const total = parsedHours * 60 + parsedMinutes;
   return total > 0 ? total : null;
-};
-
-const isSafeExternalUrl = (value: string) => {
-  try {
-    const parsed = new URL(value);
-    return parsed.protocol === "http:" || parsed.protocol === "https:";
-  } catch {
-    return false;
-  }
 };
 
 const buildLocationParam = (location: SegmentItem["location"]) => {

@@ -5,15 +5,7 @@ import {
   transportTypeAllowsDistance,
   transportTypeRequiresDistance,
 } from "@/lib/trips/transportTypes";
-
-const isSafeExternalUrl = (value: string): boolean => {
-  try {
-    const parsed = new URL(value);
-    return parsed.protocol === "http:" || parsed.protocol === "https:";
-  } catch {
-    return false;
-  }
-};
+import { isSafeExternalUrl } from "@/lib/validation/safeExternalUrl";
 
 const linkSchema = z
   .string()
