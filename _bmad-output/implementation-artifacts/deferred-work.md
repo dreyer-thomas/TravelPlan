@@ -551,8 +551,6 @@ severity: low
 reason: DW-44 looked like a missing clip and was actually a unit: in MUI's `sx`, a bare `width`/`height` between 0 and 1 is a *percentage*, so `width: 1, height: 1` compiles to `width: 100%; height: 100%`. `clip` still hides the text, so nothing is visible — but `clip` does not shrink the layout box, and on Day Detail that span alone gave the page 25px of horizontal overflow at 390px. Story 6.9 fixed both occurrences in `TripDayView.tsx` behind one `VISUALLY_HIDDEN` constant. This third copy has the identical defect and was left alone as out of scope: it is a different screen owned by a different story (7.6), and it may well measure 0 overflow today because its container is narrow and the auth screens are simple. **Not verified either way** — nobody has measured `scrollWidth - clientWidth` on `/auth/login` at 390px. Fix is to promote `VISUALLY_HIDDEN` out of `TripDayView.tsx` into a shared module and use it here, which also removes the third hand-rolled copy DW-44 already complained about. Measure before and after, since the point of the entry is a number.
 status: open
 
-## Deferred from: code review of 6-9-day-detail-refinements (2026-08-01)
-
 ### DW-73: The coverage block has no heading and no outline entry after AC9 removed its label
 
 origin: code review of Story 6.9, 2026-08-01
@@ -576,8 +574,6 @@ location: `travelplan/src/components/features/trips/TripDayView.tsx` — `costPi
 severity: low
 reason: Story 6.9 AC1 turned the activity card's cost into a filled accent pill in the card head. The accommodation card immediately below it on the same timeline keeps the old plain-bold `tlCostSx`. Newly created by this change rather than pre-existing, but out of scope by design: AC1 is written about the activity card specifically, the two cards have different head structures, and Tommy settled the filled-pill decision on 2026-08-01 for activities only. Worth a deliberate judgement rather than a drive-by: either the accommodation cost becomes a pill too, or the divergence is confirmed as intentional (the accommodation cost is a nightly rate, not a slot cost, so a different treatment may be right). Note the code Story 6.9 deleted carried the opposite rationale — "the mockup puts tl-cost on every card that has one". Related: DW-27, `formatCost` diverges across screens.
 status: open
-
-## Deferred from: 2-31-complete-trip-backup-export-with-photos-travel-segments-and-bucket-list (2026-08-02)
 
 ### DW-76: The v2 trip backup export has no user-facing entry point
 
@@ -618,8 +614,6 @@ severity: medium
 reason: `TravelSegment.fromItemId` / `toItemId` are plain `String` columns with no foreign key — only `tripDayId` cascades (`prisma/schema.prisma`, `model TravelSegment`). `deleteDayPlanItemForTripDay` compensates by calling `tx.travelSegment.deleteMany(...)` (`dayPlanItemRepo.ts:532`, `:578`), but `deleteAccommodationForTripDay` deletes the accommodation row without any equivalent cleanup, so a segment whose endpoint was that accommodation survives pointing at an id that no longer exists. Pre-existing and not caused by this story — but Story 2.31 is the first code to *export* those endpoint ids, so a backup taken after such a delete carries a dangling `fromItemId`/`toItemId` that Story 2.32's id-remapping cannot resolve. Two candidate fixes, and the choice is a real one: clean up on delete in `accommodationRepo` (fixes the data, matches what `dayPlanItemRepo` already does), or have the export filter segments whose endpoints are absent from the same day's exported records and warn. The first is the root-cause fix; the second alone would leave the orphan rows in the database. Note the `@@unique([tripDayId, fromItemType, fromItemId, toItemType, toItemId])` constraint, which 2.32 will hit if a remap ever collapses two distinct old ids onto one new one.
 status: open
 
-## Deferred from: 2-31-complete-trip-backup-export-with-photos-travel-segments-and-bucket-list — follow-up review (2026-08-02)
-
 ### DW-80: The exporter can pool a photo whose `contentType` Story 2.32's importer is specified to reject
 
 origin: 2-31-complete-trip-backup-export-with-photos-travel-segments-and-bucket-list, follow-up code review, 2026-08-02
@@ -643,8 +637,6 @@ location: `travelplan/src/lib/trips/zipArchive.ts` — the `fs.readFile` inside 
 severity: low
 reason: The design deliberately stats every pooled photo during payload assembly so AC4's pool/member set equality holds before the first byte goes out, and the code comment says so. But the bytes are read much later, inside the stream's `pull`. If the file is deleted, replaced or made unreadable in between — a concurrent image delete, an operator pruning uploads — `fs.readFile` rejects, the stream errors after the `200` and the `Content-Disposition` are on the wire, and there is no way to retract them. Chunked transfer means a well-behaved client sees a network error rather than silently saving a corrupt file, which is why this is low rather than medium, but a client that saves what it got keeps a ZIP with no end-of-central-directory record. No test covers the path and `pull` has no `try`/`catch` that could skip the member instead. Not patched here: the honest fixes are structural (hold an open file descriptor from assembly through to the read, or capture `stats.size` — already in hand at the stat and currently discarded — and fail deterministically when it changes), and neither is a drive-by. The same window is what makes a post-check symlink swap theoretically exploitable, though that already requires write access to the upload directory.
 status: open
-
-## Deferred from: 2-32-complete-trip-backup-import-with-photos-travel-segments-and-bucket-list (backend half, 2026-08-02)
 
 ### DW-83: One `application/octet-stream` photo makes a whole v2 backup unrestorable
 
@@ -672,8 +664,6 @@ severity: medium
 reason: AC5 requires an overwrite to replace "previously uploaded files on disk" with no orphans left, and Task 3 spells out the mechanism: rename `getTripUploadDir(targetTripId)` aside before writing, delete it on success. That is what shipped, and it is unconditional. A **v1** backup carries no photo pool — only verbatim `heroImageUrl` / `imageUrl` strings — so overwriting a trip with its own pre-2.31 export deletes the very files those strings name, leaving rows pointing at 404s. Before this story the overwrite path never touched the disk, so this is a behaviour change for that one combination. Not special-cased because every alternative trades one AC against the other: skipping the cleanup when the payload has no pooled photos satisfies the v1 case but lets a photo-free v2 backup leave orphans behind, and detecting "this v1 URL names the target trip's own directory" is a heuristic on a free-text column. A v2 backup, which is what the export produces today, restores its photos correctly and is covered by `tripBackupRoundTrip.test.ts`. Candidate fix if it bites: keep any file whose path is still referenced verbatim by a restored row, and delete only the rest.
 status: done 2026-08-02
 resolution: Superseded rather than deferred, and neither AC had to give. The filesystem replacement stays unconditional — AC5's "no orphaned files" is untouched — but the *rows* no longer keep a string naming a file the same operation just deleted, which is the other half of AC5 ("no orphaned rows"). `tripRepo.ts`'s `dropReplacedUploadUrl` stores `null` in place of a v1 `heroImageUrl` / `imageUrl` when, and only when, three things hold at once: the mode is **overwrite**, the reference has no pooled replacement, and the URL points into the *target trip's own* upload directory (`/uploads/trips/<targetId>/`). That last condition is what the original entry dismissed as "a heuristic on a free-text column", and it is not one — the prefix is the exact directory being deleted, so containment is decidable rather than guessed. Create-new is deliberately untouched: it deletes nothing, the URL names some other trip's directory, and AC2 plus the seven original v1 tests require it back verbatim. A null renders as "no image" instead of as a broken one. Pinned by `test/tripRepo.test.ts` ("clears v1 image urls that name files the overwrite just deleted" and its create-new counterpart, "keeps a v1 url pointing at another trip's directory").
-
-## Deferred from: 2-32-complete-trip-backup-import-with-photos-travel-segments-and-bucket-list (review pass, 2026-08-02)
 
 ### DW-86: Two concurrent overwrite imports of the same trip can destroy each other's photo files
 
@@ -863,8 +853,6 @@ evidence: `{isTwoColumnLayout ? tripControlsCard : null}` and `{isTwoColumnLayou
 operator_measurement (2026-08-02, Chromium, `dcfb859`): **Confirmed, in both directions.** With "Reise bearbeiten" focused at 1400px, resizing to 820px moves `document.activeElement` to `<body>`; resizing back to 1400px leaves it on `<body>`. The reviewer called the trigger narrow, and for a mouse user it is — but **tablet rotation crosses 900px** (1024x768 landscape to 768x1024 portrait), so it is reachable without anyone deliberately resizing a window. Consequence is bounded: focus is lost, nothing else, and one Tab recovers. Judged **non-blocking** for story 6.14 on that basis; the entry stays open because the fix (one mount point, or restoring focus after the swap) is still worth doing.
 status: open
 
-## Deferred from: 6-15-move-swap-into-overflow (review pass, 2026-08-02)
-
 ### DW-108: The import size-cap suite still asserts the old 100 MB ceiling and fails on `main`
 
 source_spec: `_bmad-output/implementation-artifacts/6-15-move-swap-into-overflow.md`
@@ -874,8 +862,6 @@ severity: medium
 summary: `MAX_IMPORT_PACKAGE_BYTES` was raised from 100 MB to 300 MB, but five tests still spell out `101 * 1024 * 1024` and the string "Backup file is larger than 100 MB."; the fixture is now comfortably *under* the cap, so the route accepts it and fails downstream with `invalid_json`, and `npm test` has been red on `main` since.
 evidence: Not a product defect — the cap enforces correctly at its new value; the assertions are stale. `importLimits.ts` documents the raise ("Raised from 100 MB on 2026-08-02 because it made real backups unrestorable"), and the failures read exactly as a fixture that no longer trips the guard: `expected 'invalid_json' to be 'file_too_large'`. Confirmed pre-existing at `dcfb859` — both files are unmodified by this story and fail identically with story 6-15's changes reverted. A fix was in the working tree at the start of this run (deriving `OVER_LIMIT_BYTES` and the message from `MAX_IMPORT_PACKAGE_BYTES` rather than hard-coding either) and was reverted before it landed; that derive-don't-duplicate shape is the right one, since the same duplication is what `importLimits.ts` exists to prevent. Left to the import story rather than patched here: a red suite on `main` masks real regressions, but it is a different feature and this story must not carry an unrelated fix into its commit.
 status: open
-
-## Deferred from: code review of 6-16-walking-and-cycling-travel-modes (2026-08-02)
 
 ### DW-109: The print sheet shows a distance for ship and flight while the day view hides it
 
@@ -1037,21 +1023,6 @@ summary: After a failed save, editing the distance leaves the field red under th
 evidence: Pre-existing. Surfaced because story 6.18's review added exactly this clearing to the two new duration boxes — one message painting two boxes made a stale error twice as loud — which leaves the distance field the odd one out inside the same dialog. `handleTransportTypeChange` already clears `distanceKm`, so the pattern is half there; the fix is the same two lines used on the duration boxes.
 status: open
 
-
-## Note: story 6.16 review decision (2026-08-02)
-
-The one `decision-needed` finding from the 6.16 code review - walking and cycling route import
-returning car numbers - was resolved in the same session and is **not** deferred. The public
-`router.project-osrm.org` demo host serves a single car graph and ignores the `{profile}` path
-segment; each mode now has its own FOSSGIS endpoint (`routed-car` / `routed-bike` / `routed-foot`),
-overridable via `OSRM_BASE_URL`. Verified live: 29.6 / 9.9 / 4.5 km/h over the same 2.9 km. Full
-detail in the story file under "Decision resolved".
-
-Standing hazard worth carrying forward: the routing backend is a community service under fair use.
-It is fine at one request per explicit user action. Anything that routes automatically or in bulk -
-a background prefill, a per-day batch, a map that re-routes on pan - needs a self-hosted OSRM behind
-`OSRM_BASE_URL` first.
-
 ### DW-125: The day-hero overflow menu can outlive its trigger and anchor to a detached node
 
 source_spec: `_bmad-output/implementation-artifacts/6-19-day-hero-three-surfaces.md`
@@ -1152,16 +1123,6 @@ severity: low
 summary: `npm run lint` ends at "2 errors, 83 warnings" on a clean tree — both errors are `Do not pass children as props` in `theme.ts`, in component slots that pass `children` inside a props object. Lint is the repo's only static gate (see DW-95: there is no `typecheck` script), and it exits non-zero regardless of what a story changed.
 evidence: Confirmed pre-existing: the same two errors and the same 83 warnings appear before and after story 6-20's changes, and neither line is in any file this story touched. The consequence is that "is lint clean?" cannot be used as a signal — every story has to diff the output by hand to tell its own findings from the baseline, which is precisely the trap DW-95 describes for `tsc`. Fix is small and local (pass the children as an argument rather than a prop in both slots), and it is worth doing at the same time as wiring the typecheck gate.
 status: open
-
-### Note: story 6.20 partially reduces DW-126 (2026-08-02)
-
-DW-126 argues that a non-404 failure on the *day* screen leaves no in-app route out, and cites
-`getAuthMenuItems` returning only `logout` for an authenticated user as part of its evidence. That
-clause is no longer true as of story 6.20: the global header menu now carries an "All trips" row on
-every page, so the day error screen does have one route out. DW-126's substance stands — its target
-is back to the *parent trip* (`/trips/{id}`), which the global menu still does not and should not
-offer — but its severity is lower than when it was written. Story 6.20 applied the analogous fix to
-`TripTimeline`'s own error branch, which is the model DW-126 asks for.
 
 ### DW-135: The stat strip's row-growth defect survives in cell 4's *value*, on every day without a stay
 
@@ -1304,7 +1265,7 @@ summary: A day with A →(car, 40 min)→ B gains an activity M whose time falls
 evidence: Both reviewers found this independently. It is the same invisible-and-permanent over-count Story 6.23's AC6 closed for *removal*, reached instead by *insertion*, and it is pre-existing rather than introduced here: `grep -n "travelSegment" dayPlanItemRepo.ts` shows neither `createDayPlanItemForTripDay` nor `updateDayPlanItemForTripDay` touches segments at all, so creating an activity in the middle of a day, or retiming one so it reorders, already does this today. Story 6.23's move is a third trigger of the same cause. It is not patchable inside this story: the fix is a "reconcile this day's segments against its current timeline" routine — needing `buildSegmentTimeline`'s adjacency rules and the accommodation endpoints, and a decision about whether a stranded segment is deleted or shown for the user to resolve — applied to create, update and move alike. `createTravelSegmentForTripDay` already refuses to re-create a non-adjacent pair, so a day in this state cannot be repaired through the UI either.
 status: open
 
-### DW-149: Deleting an accommodation leaves its travel segments behind — the other half of the enum Story 6.23 fixed
+### DW-215: Deleting an accommodation leaves its travel segments behind — the other half of the enum Story 6.23 fixed
 
 source_spec: `_bmad-output/implementation-artifacts/6-23-move-a-single-activity-to-another-day.md`
 origin: 6-23-move-a-single-activity-to-another-day, code review, 2026-08-03
@@ -1314,7 +1275,7 @@ summary: `TravelSegmentItemType` has exactly two members. Story 6.23 gave `DAY_P
 evidence: `TravelSegment` has no foreign key to `Accommodation` either — only `tripDayId` cascades (`prisma/schema.prisma`) — so a deleted stay leaves every segment that pointed at it on the day, counted by `totalTravelMinutes` and drawn by nothing. The repo test Story 6.23 added for the activity path (`dayPlanItemRepo.test.ts`, "removes the travel segments referencing a deleted activity so the day stops counting them") would fail the same way if written against the stay path. Deferred rather than patched because it is outside this story's files and its ACs, and because the fix should decide once whether `removeTravelSegmentsReferencing` becomes type-agnostic (`itemType` + `itemId`) rather than growing a second near-identical helper.
 status: open
 
-### DW-150: One day-plan-item ordering comparator, copied verbatim into three repositories
+### DW-216: One day-plan-item ordering comparator, copied verbatim into three repositories
 
 source_spec: `_bmad-output/implementation-artifacts/6-23-move-a-single-activity-to-another-day.md`
 origin: 6-23-move-a-single-activity-to-another-day, code review, 2026-08-03
@@ -1324,7 +1285,7 @@ summary: `DayPlanItem` has no `sortOrder` column; its order is `fromTime` → `c
 evidence: All three copies read during this review. Pre-existing duplication; recorded now because Story 6.23 made a *correctness claim* depend on it rather than just a display detail. The fix is one exported comparator plus a test that pins the rendering path's ordering, not just the repository's.
 status: open
 
-### DW-151: Every `formatCost` copy hardcodes EUR, and no trip carries a currency
+### DW-217: Every `formatCost` copy hardcodes EUR, and no trip carries a currency
 
 origin: Deferred from: 7-13-cost-overview-redesign (2026-08-03)
 location: `travelplan/src/lib/trips/formatCost.ts`, `travelplan/src/components/features/trips/TripTimeline.tsx:220`, `travelplan/src/components/features/trips/TripDayView.tsx:539`
@@ -1333,7 +1294,7 @@ reason: All three surviving copies of the formatter pass `style: "currency", cur
 operator_decision (2026-08-03): **Non-blocking, stays open.** This is the same family as the defect Story 6.23 fixed for activities, one level up: 6.23 removes the segments that reference a deleted *activity*, but a segment on day N pointing at day N−1's accommodation is orphaned when that *day* is deleted, and `TravelSegment` cascades on `tripDayId` alone. Story 2.35 is right to restore such rows rather than drop them — the archive is a faithful record and the gap is on the UI side, which counts what it will not draw and offers no way to remove it. The fix belongs with 6.23's helper, extended to the cross-day case.
 status: open
 
-### DW-152: `trips.stay.costSummary` is now a dead key in both locales
+### DW-218: `trips.stay.costSummary` is now a dead key in both locales
 
 source_spec: `_bmad-output/implementation-artifacts/7-13-cost-overview-redesign.md`
 origin: 7-13-cost-overview-redesign, implementation verification, 2026-08-03
@@ -1343,26 +1304,6 @@ summary: Story 7.13's AC6 dropped the `"Cost: {amount}"` wrapper from the cost o
 evidence: The story's Project Structure Notes justified keeping the key with "it has other readers", and that premise was false at the time it was written — verified by grep after the change. The key was left in place deliberately rather than removed, because the same note scopes i18n changes out of a visual-only story. Fix is two deleted lines plus a check that no dynamic key construction reaches it; small enough to ride along with the next story that touches `src/i18n`.
 operator_decision (2026-08-03): **Left to Tommy.** The new line is English in a German UI, which is a visible inconsistency — but it is consistent with every other string in that channel, so translating one means translating the channel, and that means sending a structured warning shape rather than sentences. Worth doing; not worth blocking a restored backup for.
 status: open
-
-- source_spec: `_bmad-output/implementation-artifacts/7-13-cost-overview-redesign.md`
-  summary: The hardcoded-colour guard helper (`HARDCODED_COLOUR` + `stripComments`) is now copy-pasted into four test files, and the two older copies carry a weaker regex than the two this story wrote.
-  evidence: Byte-identical in `tripOverviewMapFullPage.test.tsx:36-37` and `tripDayMapFullPage.test.tsx:46-47`; Story 7.13's copies additionally match named colours, `oklch()`/`lab()`/`color-mix()` and use `resolve(__dirname, "..")` instead of the cwd-dependent `resolve(process.cwd(), ...)`. The four should be one exported test helper so a guard improvement reaches every screen instead of only the newest two. Sanctioned at the time by Task 7's "matching the one Stories 7.9 and 7.11 use".
-
-- source_spec: `_bmad-output/implementation-artifacts/7-13-cost-overview-redesign.md`
-  summary: When the cost overview's fetch fails with a non-404 error, the card renders its label, divider and two working tabs above nothing at all — there is no error-state body, only the alert above the card.
-  evidence: Pre-existing and untouched by 7.13 (AC9 makes it visual-only), but newly pinned by the error-branch test that story added: every content block is gated on `detail`, which stays null on error, so the tabs remain clickable and switch between two empty views. Fix is either an in-card error body with a retry, or collapsing the card to the alert alone.
-
-- source_spec: `_bmad-output/implementation-artifacts/7-13-cost-overview-redesign.md`
-  summary: The per-month view's totals need not sum to the trip total printed directly beneath them, because `buildMonthlyGroups` filters out every entry with `amountCents <= 0` or a due date shorter than 10 characters while the trip total counts everything.
-  evidence: `TripCostOverview.tsx`'s `buildMonthlyGroups` filter is `entry.amountCents > 0 && entry.date.length >= 10`; the trip total comes from the API's `plannedCostTotal`. A trip with an undated or zero-amount cost therefore shows month rows that visibly do not add up to the figure below them, with nothing naming the residual. Pre-existing; 7.13 was forbidden from touching the grouping logic. Fix is a residual row ("not yet scheduled: X") rather than a filter change.
-
-- source_spec: `_bmad-output/implementation-artifacts/7-13-cost-overview-redesign.md`
-  summary: `formatCost` constructs a fresh `Intl.NumberFormat` on every call, and converging the cost overview onto it made that screen the hot path — a 30-day trip formats once per entry, per day row, per month row and per total, on every render and every tab toggle.
-  evidence: `travelplan/src/lib/trips/formatCost.ts:17` builds the formatter inside the exported function; the two surviving local copies in `TripTimeline.tsx` and `TripDayView.tsx` memoize only the enclosing closure, not the formatter. Pre-existing, and not a regression — but a module-level `Map` keyed by language is two lines and the natural companion to whichever story folds the last two copies in.
-
-- source_spec: `_bmad-output/implementation-artifacts/7-13-cost-overview-redesign.md`
-  summary: The cost overview's trip total now renders at the same rank as each month group's heading (`cardTitle`, 14.5px/700) while the trip overview figure the user clicked to get there is `metricLg` 30px/900, so the screen's headline number is its least prominent element.
-  evidence: `TripCostOverview.tsx`'s trip-total row versus `TripTimeline.tsx:956`, and the accented 21px/900 cost figure at `TripTimeline.tsx:665` that is the entry point to this screen. Rank is unchanged from before the redesign (it was `subtitle1`), so this is pre-existing rather than caused by 7.13, and no AC or mockup covers it — which is why it was not changed on a visual-only story's own judgement. Worth a deliberate decision, and it is on 7.13's operator checklist to look at in a browser.
 
 ### DW-149: The Kosten tab is unbounded, so AC9's fixed 1341px figure stops holding at four payment rows
 
@@ -1466,8 +1407,6 @@ summary: On a day with travel segments, the buttons that add or edit a *leg betw
 evidence: Enumerated in Chromium at 390px on day 3 of a real trip: `["Menü öffnen", "Weitere Aktionen", "+ Aktivität", "Unterkunft der vorherigen Nacht bearbeiten: …", "", "Reise hinzufügen", "Planpunkt bearbeiten: Ankunft in Auckland", "Reise hinzufügen", "Planpunkt bearbeiten: Mietwagen abholen", "Reise bearbeiten", …]` — "Reise bearbeiten" appears twice on the page (once trip-level, once per segment) and "Reise hinzufügen" three times. `EXPERIENCE.md`'s `icon-button` row requires an accessible name "written per Voice and Tone ('Planpunkt löschen', not 'Löschen')" — naming the object, which these do not: the object is a leg, not the trip. The neighbouring plan-item buttons get it right ("Planpunkt bearbeiten: {title}"). Outside Story 6.25's scope: it is a wording change to keys that story does not touch, on controls that carry no close affordance. Fix is a dictionary change plus the `{from} → {to}` interpolation the plan-item labels already model.
 status: open
 
-## Deferred from: code review of 6-25-close-is-a-cross-keeping-is-named (2026-08-04)
-
 ### DW-159: The `✕` is disabled during an in-flight write but Escape and the backdrop are not, on the eleven dialogs that build their own `<Dialog>`
 
 source_spec: `_bmad-output/implementation-artifacts/6-25-close-is-a-cross-keeping-is-named.md`
@@ -1507,8 +1446,6 @@ severity: low
 summary: Story 6.25 made the one-button form footer the rule and the two-button destructive confirmation the carve-out. The mockup now draws the rule correctly, but the carve-out is not drawn anywhere in it — so after this story the two-button footer is the only footer shape in the app that its own binding reference does not contain. The `btn-secondary` specimen was relabelled "Reise behalten" and given a usage constraint ("nur als sichere Hälfte einer zerstörenden Bestätigung"), which is a rule with no drawn instance to check against.
 evidence: Recorded by the implementation itself rather than found afterwards — the file's rationale block says so, and the reasoning given is that drawing one from the code would be a transcription rather than a design decision. That is the right call for a chrome story and it is why this is deferred rather than patched. The gap is real all the same: `DESIGN.md` cites this file as binding for dialog footers, and the pair that AC3 exists to protect — "Reise behalten" beside a red contained "Reise löschen", at deliberately near-equal width (measured 139px against 137px) — is the one arrangement a future editor cannot check against a picture. Closing it needs a UX pass that decides the destructive confirmation's layout rather than copying the implementation's.
 status: open
-
-## Deferred from: code review of story 5-10 (2026-08-04)
 
 ### DW-163: Deleting an account does not invalidate its seven-day session
 
@@ -1600,8 +1537,6 @@ summary: The extracted helper is `async` and hashes internally, so the trip-shar
 evidence: The contrast is inside this same story: `register/route.ts:70-72` documents keeping `hashPassword` *outside* its new transaction, because "bcrypt takes ~100ms and holding a SQLite write transaction open across it would serialise every concurrent registration behind it". That reasoning applies verbatim to the trip-share path, which does the opposite — and after the extraction a reader of `tripRepo.ts:2591` sees only a function call with no indication that a 100 ms CPU-bound hash happens inside their transaction. One step from Prisma's 5 s `P2028` interactive-transaction timeout under concurrent invites. Deferred because it is genuinely pre-existing and fixing it means restructuring the caller to hash before opening its transaction, which is a change to Story 5.1's path rather than to this story's.
 status: open
 
-## Deferred from: code review of 6-26-accommodation-dialog-in-tabs (2026-08-04)
-
 ### DW-172: `STAY_PANEL_MIN_HEIGHT = 300` is unmeasured, and the same diff that introduced it invalidated its arithmetic
 
 source_spec: `_bmad-output/implementation-artifacts/6-26-accommodation-dialog-in-tabs.md`
@@ -1656,8 +1591,6 @@ evidence: Introduced by Story 6.22 and copied verbatim into Story 6.26, where th
 resolution: **Applied 2026-08-04, same session as the review**, on Tommy's call after the stay half was patched. Both dialogs now carry `{ color: warning.main, "&.Mui-selected": { color: warning.main } }`, so the chrome is identical again and AC7 holds. Pinned in both suites, with the two assertions doing deliberately different jobs: `tripAccommodationDialog.test.tsx` renders real MUI and asserts the **computed** colour — verified to fail with `expected 'rgb(75, 99, 88)' to be 'rgb(138, 90, 43)'` against the single-class version, which is the defect reproduced exactly — while `tripDayPlanDialog.test.tsx` stubs `@mui/material` and re-exposes `sx` as `data-sx`, so it can only assert the override is *present* and says so in its own comment. A computed-colour assertion was attempted there first and returned `rgb(0, 0, 0)` for every element, which is worth knowing before anyone tries again: that suite has no cascade to measure.
 status: resolved
 
-## Deferred from: Task 7 browser session for 6-26 (2026-08-04)
-
 ### DW-177: every auth form falls back to a native GET submit if JS has not hydrated, putting the password in the URL
 
 source_spec: found during the Story 6.26 Task 7 browser session, not attributable to any story
@@ -1678,8 +1611,6 @@ severity: low
 summary: Every day-view load logs `[tiptap warn]: Duplicate extension names found: ['link']. This can lead to issues.` The link extension is registered twice — almost certainly once via a `StarterKit`-style bundle that already includes it and once explicitly, to configure it.
 evidence: Reproduced on every single page load during the browser pass, on two different days, with a full stack through `resolveExtensions` → `ExtensionManager` → `createEditor`. tiptap's own wording ("can lead to issues") is the reason to record it rather than ignore it: with two registrations the effective configuration is whichever wins, so a deliberate link option can be silently overridden by the bundle's default. Nothing misbehaved visibly during the pass. Unrelated to Story 6.26 — it is the activity dialog's description editor, and the warning predates this story. Fix is to drop the duplicate registration, keeping the configured one, and to check that whatever options were intended are actually in effect afterwards.
 status: open
-
-## Deferred from: code review of 5-11-administration-row-rearranged (2026-08-04)
 
 ### DW-179: the role select snaps back to the old role while the request is in flight
 
@@ -1713,85 +1644,6 @@ evidence: Found while taking Story 8.3's call-site inventory: a plain `grep -rn 
   **Diagnosis corrected by Story 8.3's code review, 2026-08-05.** This entry originally guessed the cause was "a mangled character inside a comment or a German string" and recommended locating it with `grep -an '[^\x00-\x7F]'` or `iconv -f utf-8 -t utf-8`. All three were wrong: the character class `[^\x00-\x7F]` **excludes** `\x00` and so cannot match the cause; `iconv` passes cleanly because a NUL *is* valid UTF-8; and the file holds only 6 non-ASCII bytes, none of them the problem. What finds it is a byte scan for `\x00` (`python3 -c "print(open(f,'rb').read().find(b'\x00'))"`), which reports offset 46830.
   Fix is **one character** — escape the separator as `\0` — and is behaviour-preserving, since the runtime value of the key is identical either way. Pre-existing at `3a42ec7`; a source edit was outside Story 8.3's scope, so it is carried here rather than applied.
 status: open
-
-## Deferred from: code review of 8-3-uploaded-media-behind-the-login (2026-08-05)
-
-- **`APP_BASE_URL` silently defaults to `http://localhost:3000`.** `src/app/api/auth/password-reset/request/route.ts:53`
-  reads it with `?? "http://localhost:3000"`, so on a production host where the variable is unset every
-  password-reset email links to localhost and the reset flow is unusable — with no error anywhere, because
-  the fallback is a valid URL. Surfaced by Story 8.3's review while auditing the new deployment docs, which
-  claimed a closed set of three production variables; the tree reads five (`DATABASE_URL`, `JWT_SECRET`,
-  `MEDIA_STORAGE_ROOT`, `APP_BASE_URL`, `OSRM_BASE_URL` — the last has a sane public default and is genuinely
-  optional). Pre-existing, not caused by 8.3. The fix is a decision, not a patch: either fail fast in
-  production the way `MEDIA_STORAGE_ROOT` now does, or derive the origin from the request. Wants its own story
-  alongside Story 8.1's deployment discovery.
-  status: open
-
-- **The `/uploads` serve route derives its ETag and `Content-Length` from a `stat` taken before the read
-  stream is opened.** `src/app/uploads/[...path]/route.ts:191-199,257,316`. A file replaced or removed between
-  the `stat` and the end of the read yields a truncated 200 with a `Content-Length` that lies, surfacing to the
-  client as a protocol-level truncation rather than a clean status. Reachable without an attacker: trip import's
-  `stashTripUploadDir` renames an entire trip directory aside while a day view is loading twenty images out of
-  it, and trip delete `fs.rm`s it. The cheap guards (a `stream.on("error")` handler and an
-  `if (request.signal.aborted)` check for the already-aborted case) were patched in 8.3's review; closing the
-  race properly means restructuring to `fs.open` → `fstat` → stream from the same descriptor so every derived
-  value comes from one open file, which is more than 8.3 should carry.
-  status: open
-
-- **`src/lib/repositories/tripRepo.ts:1435` contains a raw NUL byte.** It is used as a composite map-key
-  separator — `` `${sortOrder}<NUL>${imageUrl}` `` — written as a literal NUL rather than the `\0` escape, at
-  byte offset 46830. Consequence: `grep` applies its binary heuristic and silently reports **zero matches** in
-  the repo's single largest consumer of `uploadPaths.ts`, so a rename sweep that greps rather than relying on
-  `tsc` will quietly miss this file. `grep -a` works. This is the corrected diagnosis for DW-181, whose original
-  entry blamed "a mangled character or a German string" and recommended `grep -an '[^\x00-\x7F]'` — a character
-  class that *excludes* `\x00` and therefore cannot match the cause. The file holds only 6 non-ASCII bytes, none
-  of them the problem. Fix is one character and behaviour-preserving; pre-existing at `3a42ec7`.
-  status: open
-
-## Deferred from: 8-3 production rollout (2026-08-05)
-
-- **Story 9.1 prerequisite: verify the reverse proxy does not bypass `/uploads/` before documents
-  exist.** On the 2026-08-05 rollout, nginx carried
-  `location ^~ /uploads/ { alias …/public/uploads/; try_files $uri =404; expires 7d; add_header Cache-Control "public"; }`
-  and served every trip photo off disk with no session check, a 7-day `public` cache and no access log.
-  Story 8.3's route handler never received those requests. Fixed by deleting the block, and written up
-  as a hard requirement in `docs/deployment-configuration.md` with the check
-  `curl -s -o /dev/null -w '%{http_code}\n' https://<host>/uploads/trips/x/y.png` — which must answer
-  `401`, not `404`, and must be run **through the public hostname** (a check against `127.0.0.1:3001`
-  bypasses the proxy and passes while the public URL is open). **Why this is 9.1's problem and not
-  closed:** 9.1 puts ticket PDFs carrying names, addresses and booking codes behind the same
-  `/uploads/trips/<tripId>/…` scheme, so the rule has to hold at that point too — on this host and on
-  any environment added later. 9.1 should assert it in its own browser pass rather than assume it.
-  status: open
-
-- **The production SQLite database lives inside the application tree.**
-  `DATABASE_URL=file:/home/app/apps/TravelPlan/travelplan/prisma/prod.db` on the deployment host. This
-  is the same construction fault Story 8.3 just fixed for media, with worse consequences: a deploy that
-  replaces the directory rather than updating it in place takes the database with it. Not acute today —
-  the host deploys with `git pull --ff-only`, so the tree is updated in place — but two ordinary events
-  break it: a `git clean -fdx` during troubleshooting, or a switch to a deploy that checks out a fresh
-  directory. The only backup found is `/home/app/backups/travelplan/2026-08-01T101441/prod.db`, i.e. a
-  point-in-time copy, not a schedule that was verified. Belongs with Story 8.1's deployment work: move
-  it beside the media root (`/var/lib/travelplan/`), point `DATABASE_URL` at the new path, and record a
-  backup schedule. **Related trap found at the same time and already removed:** a zero-byte
-  `prisma/dev.db` sat next to it, which any Prisma command run without an explicit `DATABASE_URL` would
-  have targeted — `prisma migrate` would have silently created and migrated it while appearing to work
-  on production.
-  status: open
-
-- **Six image rows on the production database point at files that no longer exist.** Three
-  `accommodation_images` under
-  `trips/cmlzhtbni0038gsu8che5t89c/days/cmlzhtbnq003jgsu8t38a5kxu/accommodations/cmm0ylham000dthu8f6i2w156/`
-  and three `day_plan_item_images` under
-  `trips/cmlzhtbni0038gsu8che5t89c/days/cmlzhtbnp003fgsu84okrusnd/day-plan-items/cmmtn7f6n0002y0u86d9f3gr4/`.
-  The filename timestamps are February and March 2026, so they predate the media migration by months —
-  and the migration moved 214 files and delivered 214, so it neither caused nor can heal them. They
-  render as broken images in exactly one accommodation and one activity. This is the data-quality half
-  of `DW-88`, whose disclosure half Story 8.3 closed. Found by cross-checking every stored URL against
-  the filesystem; the same check reported zero misses for all 32 day heroes, both trip heroes and the
-  remaining 210 gallery images. Fix is a product decision — drop the rows, or surface a placeholder —
-  not a technical one.
-  status: open
 
 ### DW-182: Gallery and document writes are owner-only, which contradicts Story 5.4's "contributor full edit"
 
@@ -1932,18 +1784,6 @@ summary: A day whose documents are absent prints as **two** pages with the secon
 evidence: Not Story 9.2's, and proven rather than argued: a documents-free day was printed through `Page.printToPDF` with `preferCSSPageSize` on two production builds served side by side — HEAD and a worktree at baseline `7e78c3e` — against the same database. Both produced **2 pages, both 61,420 bytes, with identical body text and an empty page 2**, so the printed output for a documents-free day is byte-identical across the change and AC3 holds literally. Worth recording because Story 9.2's AC1 forbids a trailing blank page after its own document pages and that half *is* clean: a day with four image documents printed 5 pages with content on the last, so the pre-existing blank page is the only one left and it belongs to the base layout. The likely fix is trimming the wrapper's vertical padding or giving the footer `page-break-before: avoid`, verified by measuring page count rather than by reading the CSS — the same method that found this.
 status: open
 
-- source_spec: `_bmad-output/implementation-artifacts/spec-9-2-documents-in-print-and-an-offline-packet.md`
-  summary: WebP is a first-class document upload format that can never enter the offline packet, so a traveller who attaches an Android screenshot gets a "could not be included" page for a file the app accepted without complaint.
-  evidence: `documentUploads.ts` offers `image/webp` in `DOCUMENT_UPLOAD_ACCEPT` and both upload routes map it to a stored `.webp`, while `pdf-lib` has only `embedJpg` and `embedPng` - so `packetPdf.ts` refuses the extension outright and Story 9.2's AC5 degradation path becomes the *normal* path for a supported format. Confirmed end to end in the 2026-08-06 browser pass: a real WebP document printed correctly as an image page on the HTML sheet and produced a label page in the packet. Story 9.2 chose this deliberately (its spec forbids a second dependency and forbids using `sharp`, which is only an `overrides` pin), so it is not a deviation - but the resolution needs a decision the story could not make: drop WebP from Story 9.1's accept list, convert it server-side, or warn at upload time that a WebP will not be packageable.
-  
-- source_spec: `_bmad-output/implementation-artifacts/spec-9-2-documents-in-print-and-an-offline-packet.md`
-  summary: The packet PDF is entirely English even for a user on the German dictionary, who reaches it through a fully localised menu item.
-  evidence: `trips.documents.packetAction` and its siblings exist in both dictionaries, but every string inside the artefact those keys produce is a hardcoded literal: `packetPdf.ts`'s "DOCUMENT", "DOCUMENT NOT INCLUDED" and "This document could not be included in this packet. Open it from the app to view it.", plus `TripDayPrintDocument.tsx`'s appendix heading and sentence. The print sheet half is a pre-existing gap the story explicitly refused to half-close (it is 100% English literals including `Intl.DateTimeFormat("en-US")`), but the packet is a brand-new artefact and the route has the request in hand, so nothing blocked plumbing a locale through. Deferred rather than patched because doing the packet alone would leave the two offline artefacts in different languages, and doing both is the localisation pass the story's own boundaries rule out.
-
-- source_spec: `_bmad-output/implementation-artifacts/spec-9-2-documents-in-print-and-an-offline-packet.md`
-  summary: Nothing limits how many expensive in-memory binary builds the app will run at once, so two members of one trip clicking "download" together can peak at several times what either request's own budget allows.
-  evidence: The packet route holds its sources, `pdf-lib`'s document and the saved `Uint8Array` in memory and hands the whole thing to `new Response`; Story 9.2's own budgets (`MAX_PACKET_DOCUMENTS`, `MAX_PACKET_INPUT_BYTES`, `MAX_PACKET_DECODED_PIXELS`) bound *one* request and are all that stands between the process and an OOM. The shape is pre-existing rather than new: `src/app/api/trips/[id]/export/route.ts` builds a whole trip archive - photos included - in memory the same way and pre-dates this story, and there is no rate limiting, queue or admission control anywhere in the app for either. A single trip has one owner and any number of members, so concurrent requests are ordinary rather than adversarial. The fix is one mechanism serving both routes (a semaphore that queues rather than rejects, or streaming the response so peak is bounded by chunk size instead of by total), which is why it does not belong to either story alone.
-
 ### DW-199: Two stories identified the empty-dashboard-for-collaborators gap and neither opened a ledger entry, so a real user found it instead
 
 source_spec: `_bmad-output/implementation-artifacts/spec-5-12-shared-trips-on-the-collaborators-dashboard.md`
@@ -1953,42 +1793,6 @@ severity: medium
 summary: Both stories that touched this surface named the defect precisely and both sent it to "the backlog", which is not a place. `7-4-trips-list-redesign.md:171` describes it in full under "Two things not to 'fix' while you are in this function" and says "If it bothers you, note it for the backlog in Dev Agent Record"; `:282` duly notes it in the Dev Agent Record — a story-local file nothing sweeps. `7-5-share-dialog-redesign.md:202` lists it under out-of-scope as "a real product gap, recorded by 7.4 for the backlog, and firmly not this story", inheriting a record that was never made. This ledger existed at the time and neither story wrote to it, so the gap was invisible to every later planning pass and surfaced on 2026-08-06 as a production report: an invited collaborator signed in, the only surface offered after sign-in was empty, and the invitation looked broken although the trip opened fine by direct URL.
 evidence: The scope decisions themselves were correct — 7.4 was a visual redesign and widening the query changes what data leaves the API, 7.5 was the share dialog — so the failure is entirely one of recording. Confirmed by reading both story files at HEAD and by grepping this ledger: no entry mentioned `listTripsForUser` before this one. Worth preserving because the deferral reasoning is reusable and the routing is not: "note it in Dev Agent Record" and "recorded by an earlier story" both terminate in files that only that story's own reader opens. A deferral is only deferred if it lands here.
 status: **closed 2026-08-06** - fixed by Story 5.12, which widened the `where` to `{ OR: [{ userId }, { members: { some: { userId } } }] }`, carried an `accessRole` per entry through `TripSummary`, the GET field map and the dashboard's local type, and marks a shared row with a role pill. Pinned by the payload key-set assertion and the owner/viewer/contributor/duplication cases in `test/tripsListRoute.test.ts` and the "shared trips" block in `test/tripsDashboard.test.tsx`. Closed in the same edit it was opened: the defect ships fixed here, so what this entry preserves is the process failure, not open work.
-
-- source_spec: `_bmad-output/implementation-artifacts/spec-5-12-shared-trips-on-the-collaborators-dashboard.md`
-  summary: The dashboard list has no `take` and no pagination, and since Story 5.12 the size of what it loads is decided by other accounts rather than by the signed-in one.
-  evidence: `listTripsForUser` loads every day, accommodation and plan item of every returned trip in order to compute the row aggregates. That was bounded by what the account created; the widened `OR: [{ userId }, { members: { some: { userId } } }]` makes it bounded by how many trips anyone else chooses to add the account to, with no cap anywhere in the chain. The unbounded shape is pre-existing — the query never had a `take` — but the population is now externally driven, which is the part that is new. A `take` alone would silently hide trips, so the fix is pagination or a documented cap with a "showing N of M" line, which is a story rather than a patch.
-
-- source_spec: `_bmad-output/implementation-artifacts/spec-5-12-shared-trips-on-the-collaborators-dashboard.md`
-  summary: `Costs so far (all trips)` and `Active trips` now sum money and count trips the account neither owns nor pays for, with no way to separate its own.
-  evidence: Story 5.12's AC6 deliberately requires the strip to describe the list as rendered, and it does — the figures reduce over `trips`, so widening the query moved them for free and a count that excluded visible rows would be worse. But the labels (`trips.dashboard.costSoFar` / `.statActiveTrips`, both dictionaries) were written for a list that only ever held the account's own trips, and a collaborator on three expensive trips now reads a headline total that is mostly somebody else's spend. Not a defect in the arithmetic; a question about what the strip is for once the list is mixed. Resolving it means either splitting the figures by ownership or renaming them, both of which need a product decision.
-
-- source_spec: `_bmad-output/implementation-artifacts/spec-5-12-shared-trips-on-the-collaborators-dashboard.md`
-  summary: A shared trip in `gap` state repaints the whole row warn and counts in `Open items`, nagging a VIEWER about accommodation their role forbids them to add.
-  evidence: The spec reasoned that scoping `openItems` to `gap` trips "keeps a shared trip from turning the cell warn-orange merely for existing", which holds for `upcoming` shared trips and not for `gap` ones: `deriveTripStatus` is ownership-blind, so a shared trip missing accommodation swaps the row's border, background and status pill to the warn treatment and adds its open days to the strip. For a CONTRIBUTOR that is correct and actionable. For a VIEWER it is an open-item prompt for the one thing their role rules out, on the surface DESIGN.md reserves warn for actionable gaps specifically. The fix is a role-aware gap treatment, which needs a decision about whether a viewer sees the gap state at all.
-
-- source_spec: `_bmad-output/implementation-artifacts/spec-5-12-shared-trips-on-the-collaborators-dashboard.md`
-  summary: `listTripsForUser`'s `orderBy: { startDate: "asc" }` has no tiebreaker, and merging two accounts' trips into one list makes same-day ties common enough to notice.
-  evidence: Pre-existing — the single-key sort predates this story and Story 5.12's boundaries explicitly forbade touching it — but the consequence changed: with only the account's own trips a same-day tie was rare, and `test/tripsListRoute.test.ts`'s "returns an owned trip and a shared one as two separately labelled entries" now has to match its two fixtures by name rather than by position, which documents the non-determinism in the suite itself. Row order can differ between refetches for tied trips. A secondary key (`id`, or `name`) is a one-line fix, and `buildTripComparator`'s client-side pass would need the same tiebreaker to stay in agreement.
-
-- source_spec: `_bmad-output/implementation-artifacts/spec-5-12-shared-trips-on-the-collaborators-dashboard.md`
-  summary: There is no way for a collaborator to leave a trip, so a shared row is permanent on the one surface the account is offered after sign-in.
-  evidence: `DELETE /api/trips/[id]/members` is gated by `hasTripOwnerAccess` (`:139`), so only the owner can remove a membership, and there is no acceptance step on the invite side either — Story 5.1 provisions access directly. Before Story 5.12 that was invisible, because a membership the collaborator did not want simply never appeared anywhere. Now it is a row on their dashboard that only the other party can remove. The fix is a self-service branch on the DELETE (a member removing their own row) plus a per-row leave control, which is a story of its own — note that this surface currently has no per-row controls at all, by design.
-
-- source_spec: `_bmad-output/implementation-artifacts/spec-5-12-shared-trips-on-the-collaborators-dashboard.md`
-  summary: Both copies of `mapTripMemberRole` map anything that is not `VIEWER` to `contributor`, so a third `TripMemberRole` would be reported as the more privileged of the two roles.
-  evidence: `tripRepo.ts:570` and the module-private copy in `tripAccess.ts:18` are both `role === "VIEWER" ? "viewer" : "contributor"`. The parameter type is the closed `"VIEWER" | "CONTRIBUTOR"` union, so today this is unreachable and TypeScript would flag a widened enum at the call site — but `schema.prisma:50` records that `TripMemberRole` is additive and existing rows keep their values, so a third role is anticipated. Inverting the test (`role === "CONTRIBUTOR" ? "contributor" : "viewer"`) makes the default the least-privileged reading, matching the rule `TripShareDialog.tsx:399-401` states and the one Story 5.12 applied to the dashboard's own fallback. Pre-existing in both copies and touched by neither this story nor its predecessors; worth doing to both at once.
-
-- source_spec: `_bmad-output/implementation-artifacts/spec-5-12-shared-trips-on-the-collaborators-dashboard.md`
-  summary: `test/i18nDictionaries.test.ts` holds the two dictionaries in agreement on key sets and non-emptiness only, never on placeholders, so any German value can silently lose a `{slot}` and stay green.
-  evidence: The suite compares `Object.keys(en).sort()` against `Object.keys(de).sort()` and asserts each value is a non-empty string; nothing extracts `{...}` tokens or compares the two sides' sets of them. Story 5.12's AC7 leans on this test by name for `trips.dashboard.openSharedTripAria`, whose German value carries `{trip}` and `{role}` — edit it to `"Reise {trip} öffnen, freigegeben"` and the key set is unchanged, the value non-empty, and every suite passes while German screen-reader users stop being told the role, which is the whole reason the string exists. This story pinned its own key with a rendered German aria-label case, but that is one key: the gap is generic and covers roughly 750 entries, including every `{count}`/`{name}`/`{tripCount}` slot already in the file. The fix is a few lines in the parity test (extract `/\{(\w+)\}/g` from both sides and compare the sets per key), which would also retro-check every existing entry — a small change with an unknown-sized first run, so it does not belong inside another story's diff.
-
-- source_spec: `_bmad-output/implementation-artifacts/spec-5-12-shared-trips-on-the-collaborators-dashboard.md`
-  summary: `getTripWithDaysForUser` still downgrades the revoked-membership race to `viewer` and serves the whole trip, which is the state Story 5.12 taught the list to drop — so the two reads now disagree about the same moment.
-  evidence: Both functions have the identical non-atomic shape: an outer `OR: [{ userId }, { members: { some: { userId } } }]` compiled to an `EXISTS`, then a to-many `members` include that Prisma issues as its own statement (`tripRepo.ts:836-852` and `:664-680`). If the owner deletes the membership between the two, the row matches and `members` comes back `[]`. Story 5.12 added `trips.filter((trip) => trip.userId === userId || trip.members.length > 0)` at `:682-688` so the list drops that row; the detail read at `:922-923` still evaluates `mapTripMemberRole(trip.members[0]?.role ?? "VIEWER")` against it and returns the full `TripWithDays` — every day, accommodation, plan item, payment, note and travel segment of somebody else's trip — to an account `getTripAccessForUser` answers `null` for. Pre-existing and untouched by this story, which is why it was not fixed here; the list-side fix is what makes the divergence visible. The two derivations are deliberately byte-identical expressions (`tripRepo.ts:704-708` says so), so the guard belongs on both or the "same expression on both surfaces" invariant is only half true. Not patchable inside this story's diff: the detail read has no equivalent of the list's "drop the row" — it would have to return `null`, which is a behaviour change on a route with its own 404 semantics and its own suites.
-
-- source_spec: `_bmad-output/implementation-artifacts/spec-5-12-shared-trips-on-the-collaborators-dashboard.md`
-  summary: `GET /api/trips/[id]` sets no `Cache-Control` although it returns strictly more of the third-party data that just earned the list route a `no-store`.
-  evidence: Story 5.12 added `no-store` to the list because the body became other people's trip names, routes, date ranges and cost totals. The per-trip GET (`src/app/api/trips/[id]/route.ts:42`) returns all of that plus every day, accommodation, plan item, payment, note and travel segment, and sets no cache directive — `grep -rn "Cache-Control" src/app/api` lists only `users`, `admin/users`, `auth/csrf`, `trips/route.ts` and the day-print route. A shared trip's detail response is now reachable by an account that is not its owner, so a shared proxy that stores it can serve it onward. Pre-existing rather than introduced here — the route has always been able to serve a member's trip — but the list route's new header makes the omission next door inconsistent as well as wrong. Deferred rather than patched because the honest fix is a policy applied across the authenticated GETs at once (there are several unheadered ones) rather than a second one-off, and each has its own suite to extend.
 
 ### DW-200: A participant refused for her role still gets `404 not_found` on most trip write routes, and `403 unauthorized` - the wrong code entirely - on two
 
@@ -2008,70 +1812,6 @@ location: `travelplan/src/components/features/trips/` — the `isOwner` / `canEd
 severity: medium
 summary: A control's visibility and its route's gate are two independent expressions in two files, related only by a comment where anyone thought to write one. When they disagree the user gets one of two failures: a control that always errors (DW-182, and the hero-image field Story 5.13 found still on screen for a contributor), or a capability that exists at the route and is unreachable from the UI (the export button and the bucket-list panel, both of which Story 5.13 had to move by hand *after* moving their routes). Nothing catches either direction. The comments that do exist are load-bearing and go stale silently: `TripTimeline.tsx:465` asserted "the route gates on `hasTripOwnerAccess` and answers 404" for two stories after that stopped being the interesting question, and `TripDayView.tsx`'s `dayMenuItemsVisible` record states in prose that "each field mirrors the gate on the item it names", which is a convention with no enforcement.
 evidence: Story 5.13 changed five UI conditionals purely to keep them level with routes it had just widened (`TripTimeline` export button and bucket-list mount, `TripDayView` day-image menu item, bucket-list fetch short-circuit and bucket-list panel) and added a `canEditHeroImage` prop to `TripEditDialog`, which had no role conditional at all despite being opened by a `canEditPlanning`-gated button and containing an owner-only upload. Every one of those was found by reading, not by a failing test - the suites were green with the mismatch in place, because a render test asserts what renders and a route test asserts what the route answers, and no test spans the two. Candidate fixes are all bigger than a patch: a single exported predicate per capability that both layers import; or a test that walks the routes' gates and the components' conditionals and compares them; or, most cheaply, a convention that a route's gate change is not complete until its `grep` for the matching conditional comes back empty. Worth recording because this is the *class* DW-182 belongs to, and closing DW-182 does not close it.
-
-- source_spec: `_bmad-output/implementation-artifacts/spec-5-13-what-a-contributor-may-do-made-consistent.md`
-  summary: Widening the backup export to contributors lets one keep a full, permanently owned copy of somebody else's trip that survives the owner revoking her membership, which is a different question from the read-exposure one the decision was argued on.
-  evidence: Story 5.13 moved `GET /api/trips/[id]/export` to owner-or-contributor on the reasoning — stated in the story, the spec and `tripRepo.ts` — that "a contributor can already read every byte this archive contains, so the archive changes the container, not the exposure". That is true and it is not the whole consequence. `POST /api/trips/import` (`travelplan/src/app/api/trips/import/route.ts:297`) is gated on session alone, so a contributor can pull the archive — every photo and document on disk included — and import it as a trip she owns. Revoking her membership then removes her access to the original and nothing else; the copy is hers. Every other boundary the story defends is about the trip as a possession (`members`, deletion, the hero image), and this is the one route by which a contributor acquires one. Not a defect in the widening — the ability to save a copy of something you can already read in full is arguably the point of an export — but the decision was made against the exposure argument and this consequence was never put. Resolving it is a product call (accept it; or gate import against archives whose manifest names a trip the caller never owned; or record export provenance), not a patch.
-
-- source_spec: `_bmad-output/implementation-artifacts/spec-5-13-what-a-contributor-may-do-made-consistent.md`
-  summary: A multi-file gallery upload in `TripAccommodationDialog` that fails partway discards the photos already stored on the server, so the dialog shows fewer photos than exist and a retry re-uploads them as duplicates.
-  evidence: `uploadGalleryImages` (`travelplan/src/components/features/trips/TripAccommodationDialog.tsx`) `return`s from inside the per-file loop on a non-ok response, so `setGalleryImages` — which appends the `uploaded[]` accumulated so far — never runs. The files already written to disk and to the database stay there, invisible to the dialog until it is reopened, and pressing upload again sends the whole selection a second time. `TripDayPlanDialog`'s equivalent handles this correctly with a `failedAtIndex` marker, a `break`, and a slice of the remaining files, so the correct shape already exists one file over. Pre-existing since Story 2.16 and untouched by Story 5.13, which only changed which message the failure renders — but the change made it materially easier to hit: before, a contributor could not upload at all, and now she can upload several files at once on a route whose refusal is per-request.
-
-- source_spec: `_bmad-output/implementation-artifacts/spec-5-13-what-a-contributor-may-do-made-consistent.md`
-  summary: `isOwner` and `canEditPlanning` fail **open** when `accessRole` is absent from the trip payload, so during a deploy skew or before the detail request resolves a contributor is briefly offered owner-only controls — including the hero-image field Story 5.13 just hid from her.
-  evidence: `TripTimeline.tsx:144-145` and `TripDayView.tsx` both read `detail?.trip.accessRole ? … : true`, a deliberate accommodation from the era before the field existed so a cached older payload kept working for the trip's own owner. Story 5.12 already established the opposite rule for the dashboard, quoting `TripShareDialog.tsx:399-401`: "an unrecognised role must not be presented as the more privileged one." Story 5.13 built three new gates on top of the fail-open expression (`canEditHeroImage={isOwner}`, the export button, the day-image menu item), so the blast radius of the skew window grew from "a viewer sees an edit button that 404s" to "a contributor sees the exact control this story exists to take away from her". The same fallback also lets `TripDayView`'s bucket-list fetch fire once for a viewer before `detail` resolves, which now returns 403 and can flash a permission error on a surface she is not meant to see at all. Inverting the default is one character per site but changes what an owner sees on a stale payload, so it needs its own story and its own regression pass across every `accessRole` consumer.
-
-- source_spec: `_bmad-output/implementation-artifacts/spec-5-13-what-a-contributor-may-do-made-consistent.md`
-  summary: Both gallery reorder `PATCH` handlers are unreachable from the UI for every role, so the "reorders a photo" half of Story 5.13's AC1 is satisfied at the route and by tests but by no user.
-  evidence: `grep -rn 'method: "PATCH"' travelplan/src/` returns exactly four hits — `HeaderMenu.tsx:107`, `TripDayView.tsx:2345` and `:2390` (both day-image), `TripEditDialog.tsx:232` (trip PATCH). Nothing anywhere in `src/` issues a reorder request to `PATCH /api/trips/[id]/accommodations/images` or `.../day-plan-items/images`. Both handlers exist, both were ungated until Story 5.13 added `refuseUnlessTripWriter` to them, both now carry route tests asserting a contributor may reorder and a viewer may not — for a verb no screen offers. Pre-existing: the handlers and the missing affordance both predate 5.13, which only gated them. Worth recording for two reasons. First, Story 5.13's own boundary says "a route a role may use is reachable from the UI", and this is the one route it widened where that is false in the other direction; the acceptance audit passed it because the route-level tests are green. Second, it is a concrete instance of DW-201's class caught by the diff rather than by a user, and DW-201 names only the export button and the bucket-list panel. Resolving it is a product call — either build the reorder affordance the handlers were written for, or delete two handlers, two gates and four test blocks.
-
-- source_spec: `_bmad-output/implementation-artifacts/spec-5-13-what-a-contributor-may-do-made-consistent.md`
-  summary: `POST /api/trips/[id]/days/[dayId]/image` deletes the day's existing image file before the repository confirms the write, so a write that loses its race arrives as a day whose `image_url` points at a file that is gone.
-  evidence: `travelplan/src/app/api/trips/[id]/days/[dayId]/image/route.ts` calls `removeExistingDayImageFiles(uploadDir)` and then writes the new file, and only afterwards calls `updateTripDayImageForUser`. On `!updated` it answers 404 and runs `fs.rm(uploadDir, { recursive: true, force: true })` — which removes the new file *and* the directory the old one lived in, while `trip_days.image_url` still holds the old URL. Reaching it needs the day or the caller's membership to disappear between the route gate (which passed) and the update (which returns `null`), so the window is narrow. Pre-existing — Story 5.13 changed neither the ordering nor the rollback, only which callers get through the gate — but the widening enlarges the window from "ownership changed mid-request", which effectively never happens, to "membership revoked mid-request", which is a thing an owner does deliberately. Same family as DW-196 (directories created before the row is confirmed) and DW-194, and best fixed the same way: stage to a temp name and swap only after the repository returns non-null.
-
-- source_spec: `_bmad-output/implementation-artifacts/spec-5-13-what-a-contributor-may-do-made-consistent.md`
-  summary: Epic 5's stated contract is that a viewer sees the whole plan, but the bucket list and the backup export have always required write-level role, and nobody has ever ruled on whether that is intended.
-  evidence: Story 5.3 is titled "Viewer read-only access" and `epic-5-context.md` described a viewer as seeing everything and changing nothing. The code has never matched: `GET /api/trips/[id]/bucket-list-items` and `GET /api/trips/[id]/export` were both gated `hasTripOwnerAccess` before Story 5.13, and 5.13 widened them to owner-or-contributor — a deliberate scope it argued on write-role grounds, never on whether a viewer should read them. So a viewer still reaches neither, and the epic requirement stating otherwise was silently corrected to match the code during 5.13's review rather than raised. Both are reads, and the read case is not obviously the same as the write case: the bucket list is trip content a viewer arguably ought to see beside the days it feeds, while the export is the possession question DW-200's sibling entry already raises. Recorded as a product decision with a note left at the corrected sentence in `epic-5-context.md` pointing here, so a later story does not read that wording as a ruling that was never made.
-
-- source_spec: `_bmad-output/implementation-artifacts/spec-6-27-a-comma-is-a-decimal-point.md`
-  summary: `parseDecimal` resolves a lone three-digit group as a decimal, so an en-locale user typing `1,000` km for a long car leg saves a 1 km segment silently — and no rule can separate that from `12,555`, which the story's own I/O matrix requires to parse as 12.555.
-  evidence: Verified at runtime: `parseDecimal("1,000") === 1`, `parseDecimal("1.234") === 1.234`. The money path escapes it because `^\d+(\.\d{1,2})?$` rejects a three-digit tail, so `parseAmountToCents("1,000")` returns `null` and the user sees an error; `parseDecimal`'s `^\d+(\.\d+)?$` accepts it. Newly reachable: while the field was `type="number"` a comma arrived as `""` and produced `distanceRequired`. The value is at least visible on the segment card afterwards, and a day-scoped segment of 1000+ km is unusual, which is why this was not patched blind. `1,000` (thousands) and `12,555` (decimal) are the same shape — integer part, comma, exactly three digits — so distinguishing them needs the decision Story 6.27's own open question 3 left unanswered: cap `distanceKm` at one decimal, which makes both rejectable, or keep it uncapped and accept the guess. That is Tommy's call, not a patch.
-
-- source_spec: `_bmad-output/implementation-artifacts/spec-6-27-a-comma-is-a-decimal-point.md`
-  summary: The two cost fields now show a locale-aware placeholder (`0,00` under `de`) but seed and re-render their value as dot-decimal, so a German user saves `12,50`, reopens the stay, and reads `12.50` in a box that promised a comma.
-  evidence: `formatCentsAsAmount` (`travelplan/src/lib/trips/parseAmount.ts`) is unconditionally `(value / 100).toFixed(2)`, and it is what seeds `costCents` and every payment row in both dialogs. AC5a asked for the placeholder and got it; the round-tripped value was never in scope. Not data loss — both forms parse — but the two halves of one field disagree about which separator the app prefers, and the value is the one users imitate. Fixing it means a language argument on `formatCentsAsAmount` plus a decision about whether an unedited round trip should change what the box says, which touches the cost→payment mirror in both dialogs and the assertions that pin `"50.00"`.
-
-- source_spec: `_bmad-output/implementation-artifacts/spec-6-27-a-comma-is-a-decimal-point.md`
-  summary: Neither the activity cost field nor any payment row has an upper bound, so `parseAmountToCents` will hand the API cent values past a 32-bit `Int` and the user meets an opaque server error instead of a field message.
-  evidence: `TripAccommodationDialog` caps the stay cost at `maxCostCents = 100000000`; `TripDayPlanDialog`'s cost has no ceiling, neither dialog bounds a payment row, and the schemas are `z.number().int().nonnegative()` with no maximum (`dayPlanItemSchemas.ts:101`, `accommodationSchemas.ts:52`). Verified: `parseAmountToCents("999999999999,99")` returns `99999999999999`, well past `Int`. Pre-existing — the activity cost field has been `type="text"` with this parser since before Story 6.27, which explicitly put "adding a maximum to the activity cost field" out of scope — but the story rewrote every one of these validation blocks and harmonised the empty-versus-invalid split across them while leaving the bound asymmetric. Fix is a shared ceiling constant plus the matching `costTooHigh` key for the plan surface, which does not exist today.
-
-- source_spec: `_bmad-output/implementation-artifacts/spec-6-27-a-comma-is-a-decimal-point.md`
-  summary: `TripAccommodationDialog`'s submit-time cost re-parse is unreachable, so the dialog carries a third gate for a state react-hook-form has already refused.
-  evidence: `useForm` is created with no `mode`, so it defaults to `onSubmit` and runs `costRules` through `register` before `handleSubmit` calls the body; `collectRuleFailures` then runs `costRules.validate` a second time for unmounted tabs and returns early on failure. By the time the `costValue && parsedCostCents === null` branch runs, the value has passed the same parser twice. Pre-existing — the branch predates Story 6.27, which only swapped what it calls — and harmless, but it is dead code sitting directly under a docblock that argues there should be one gate.
-
-- source_spec: `_bmad-output/implementation-artifacts/spec-6-27-a-comma-is-a-decimal-point.md`
-  summary: A split payment row with both an unusable amount and a missing due date reports only the amount, because the accommodation dialog returns early — the day-plan dialog reports both, so the same row answers differently on the two surfaces.
-  evidence: `TripAccommodationDialog`'s per-row loop does `setError(...amount); hasError = true; return;` before the `dueDate` branch, so the user fixes the amount, saves again, and only then learns the date is missing. `TripDayPlanDialog` builds a `nextError` object and sets both keys in one pass. Pre-existing control flow that Story 6.27 did not introduce, but the story's own premise is that these two dialogs are one control on two surfaces, and this is a case where they are not.
-
-- source_spec: `_bmad-output/implementation-artifacts/spec-6-28-coordinates-by-hand-and-a-choice-of-places.md`
-  summary: The five copies of `handleLookupLocation` each grew a candidate-list state slot and a selection handler, so the duplication the story deliberately refused to consolidate is now five copies of roughly twice as much logic — and this pass had to fix the same defect five times in five places.
-  evidence: Story 6.28's Dev Notes explicitly ruled the five-into-one refactor out of scope ("that is a larger change than the problem warrants and would collide with four in-flight dialog stories"), and that call was right for the story. But the review pass then found three defects — the list surviving a dialog reopen, the list surviving an edit of the query text, and the list needing clearing on select/Clear/Find — each of which had to be patched separately at every site, and two of the five (`TripDayPlanDialog`, `TripAccommodationDialog`) had missed the open-effect reset that `TripBucketListPanel` already had. `locationCandidates` + `selectLocationCandidate` + the drift invalidation now sit five times over four files, alongside the pre-existing five copies of the fetch handler. The dialog stories that blocked the refactor (6.22, 6.24, 6.26) have all landed, so the collision argument has expired: one `<LocationSearchField>` owning query, resolved pin, candidates and their invalidation would make the next defect a one-place fix. `TripBucketListPanel` is the awkward member — its field is RHF-registered and doubles as a saved note column — so the extraction needs a props shape that tolerates both, not a copy-paste.
-
-- source_spec: `_bmad-output/implementation-artifacts/spec-6-28-coordinates-by-hand-and-a-choice-of-places.md`
-  summary: None of the five geocode lookups sequences its in-flight request, so a response that arrives after the place field has been edited still pins — or now re-populates a candidate list for text that is no longer on screen.
-  evidence: Every `handleLookupLocation` awaits `fetch("/api/geocode?…")` and then writes `setResolvedLocation` / `setLocationCandidates` unconditionally; nothing captures the query it asked about and compares it against the field's current value, and there is no `AbortController` or request counter at any of the five sites. The `resolvedLocation` half is pre-existing — the pre-6.28 code did the same thing with `body[0]` — which is why this is not a patch on this story. What 6.28 adds is a second observable symptom: the review pass fixed "a candidate list must not outlive an edit of its query" with an `onChange` reset at four sites and a drift effect on the bucket list, and an in-flight response landing after that edit walks straight through both, so the list the user was told would disappear comes back describing the old text. `TripBucketListPanel` self-heals on the next render (its two drift effects re-run and null the pin), the two dialogs and `TripCreateForm` do not. Narrow window — the user has to type between *Find* and the response — but it is exactly the window a slow mobile connection widens. Fix is one shared pattern, not five: a per-site request nonce compared on arrival, which is what the extraction in the entry above would make a one-place change.
-
-- source_spec: `_bmad-output/implementation-artifacts/spec-6-28-coordinates-by-hand-and-a-choice-of-places.md`
-  summary: `/api/geocode` proxies Nominatim with no rate limiting of its own and no contact parameter, although the repo already has a rate-limit facility wired into five auth routes and the route's own comments lean on Nominatim's usage policy to justify what it does.
-  evidence: `travelplan/src/app/api/geocode/route.ts` checks the session, caps the query at 200 characters and sets a `User-Agent`, but never calls into `travelplan/src/lib/security/rateLimit.ts` — which `auth/login`, `auth/register`, `auth/first-login-password` and both `auth/password-reset` routes do use. Any signed-in account can therefore drive one upstream request per *Find* with no ceiling, and `TripCreateForm` has two independent *Find* buttons that can fire in the same instant. Nominatim's usage policy also asks for a contact address (`email=`), which is absent. Pre-existing: the route has looked like this since it was added, and Story 6.28 explicitly froze its guard set ("Every guard in `api/geocode/route.ts` survives unchanged") and did not raise the per-*Find* count. Worth a decision rather than a blind patch, because the sensible ceiling is a product question (per user? per trip? per minute?) and adding an `email=` value means choosing an address the project is willing to publish in outbound requests.
-
-- source_spec: `_bmad-output/implementation-artifacts/spec-6-28-coordinates-by-hand-and-a-choice-of-places.md`
-  summary: `TripAccommodationDialog.onSubmit` issues its CSRF request before the cost, payment and location checks, so a save that was never going to proceed makes a network call first and can answer `errors.csrfMissing` instead of naming the field that is actually wrong — which is the exact defect the docblock directly above that fetch says was fixed.
-  evidence: The docblock at `onSubmit` states the rule and its history ("The re-run happens **before** the CSRF fetch (review of Story 6.26). It used to sit after it, which meant a Save pressed with an empty name issued a network request first — and if that request failed the user was told `errors.csrfMissing` instead of being shown the field that was actually wrong"), but only `collectRuleFailures` is ahead of `ensureCsrfToken()`. The cost parse, the payment-mode rules, the per-row amount/date checks and Story 6.28's new `selectRequired` candidate-list guard all sit after it. `TripDayPlanDialog` has its location guard ahead of its own handshake, so the two dialogs differ. Mostly pre-existing — 6.28 added one more validation to a block that was already on the wrong side of the fetch — and the window is narrow because the dialog also fetches CSRF in its open effect (a failure there sets `initError`, and `csrfToken` is normally populated by submit time). Not patched in this pass because moving only the location guard across the fetch would demote the cost and payment errors below it in the combined-failure case; the correct fix is to move the whole imperative validation block ahead of `ensureCsrfToken`, which touches the 6.26 and 6.27 assertions and deserves its own change.
-
-- source_spec: `_bmad-output/implementation-artifacts/spec-6-28-coordinates-by-hand-and-a-choice-of-places.md`
-  summary: The geocode route caps a candidate label with `.slice(0, 200)`, which counts UTF-16 code units, so a `display_name` with an astral character straddling that boundary yields a label ending in a lone surrogate — and the save that stores it fails server-side on a value the user never typed.
-  evidence: `travelplan/src/app/api/geocode/route.ts` builds each candidate as `{ lat, lng, label: (row.display_name?.trim() || q).slice(0, 200) }`, and `locationSchemas.ts` caps `label` at 200, so the slice cannot simply be dropped. `String.prototype.slice` splits surrogate pairs, and an unpaired surrogate is not valid UTF-8: it survives `JSON.stringify` as `\udXXX` and is rejected on the write, so the user meets a `validation_error` about a place name they picked from a list. Pre-existing — the same slice guarded the old singular `result` — but 6.28 now applies it to as many as five rows per response instead of one, so the exposure is five times what it was. Fix is a code-point-aware truncation (`[...value].slice(0, 200).join("")`) applied wherever the 200-cap is enforced, which is worth doing once across the label paths rather than only here.
 
 ### DW-202: Follow-up review still recommended for 6-28-coordinates-by-hand-and-a-choice-of-places after the damping cap was spent
 origin: review-budget-followup
@@ -2198,3 +1938,320 @@ severity: low
 summary: `Math.round((distanceMeters / 1000) * 10) / 10` rounds anything under 50 m to `0`, which the app writes into the field itself and then refuses on save with a message about decimals.
 evidence: Pre-existing on both halves — the rounding and the `<= 0` rejection both predate Story 6.30 — and reachable on the everyday case DW-116 already describes: two points pinned metres apart, a hotel and the restaurant inside it. Story 6.30 only made the message worse, because the reworded string leads with the decimal rule and a `0` has no decimals to fix, so the user is told to correct something they did not do to a value they did not type. Same family as DW-116 (a zero-length route reported as an import failure) and best decided with it: either clamp a non-zero route to `0.1`, or refuse to prefill a sub-50 m route and say why, rather than writing a value the next gate rejects.
 status: open
+
+### DW-219: The hardcoded-colour test guard is copy-pasted into four test files, and the two older copies carry a weaker regex than the two Story 7.13 wrote
+
+source_spec: `_bmad-output/implementation-artifacts/7-13-cost-overview-redesign.md`
+origin: migrated from legacy ledger ("Note: story 6.20 partially reduces DW-126 (2026-08-02)"), 2026-08-08
+location: `travelplan/test/tripOverviewMapFullPage.test.tsx:36-37` and `travelplan/test/tripDayMapFullPage.test.tsx:46-47`, against Story 7.13's two copies
+reason: `HARDCODED_COLOUR` + `stripComments` are byte-identical in the two older files, while Story 7.13's copies additionally match named colours, `oklch()`/`lab()`/`color-mix()` and use `resolve(__dirname, "..")` instead of the cwd-dependent `resolve(process.cwd(), ...)`. The four should be one exported test helper so a guard improvement reaches every screen instead of only the newest two. Sanctioned at the time by Story 7.13's Task 7 ("matching the one Stories 7.9 and 7.11 use"), which is why it was recorded rather than fixed.
+status: open
+
+### DW-220: A non-404 failure of the cost overview's fetch renders the card's label, divider and two working tabs above nothing at all
+
+source_spec: `_bmad-output/implementation-artifacts/7-13-cost-overview-redesign.md`
+origin: migrated from legacy ledger ("Note: story 6.20 partially reduces DW-126 (2026-08-02)"), 2026-08-08
+location: `travelplan/src/components/features/trips/TripCostOverview.tsx` — the error branch, where every content block is gated on `detail`
+reason: Pre-existing and untouched by Story 7.13 (its AC9 makes the story visual-only), but newly pinned by the error-branch test that story added: `detail` stays null on error, so the tabs remain clickable and switch between two empty views while the only error surface is the alert above the card. Fix is either an in-card error body with a retry, or collapsing the card to the alert alone.
+status: open
+
+### DW-221: The per-month view's totals need not sum to the trip total printed directly beneath them
+
+source_spec: `_bmad-output/implementation-artifacts/7-13-cost-overview-redesign.md`
+origin: migrated from legacy ledger ("Note: story 6.20 partially reduces DW-126 (2026-08-02)"), 2026-08-08
+location: `travelplan/src/components/features/trips/TripCostOverview.tsx` — `buildMonthlyGroups`
+reason: `buildMonthlyGroups` filters on `entry.amountCents > 0 && entry.date.length >= 10` while the trip total comes from the API's `plannedCostTotal`, which counts everything. A trip with an undated or zero-amount cost therefore shows month rows that visibly do not add up to the figure below them, with nothing naming the residual. Pre-existing; Story 7.13 was forbidden from touching the grouping logic. Fix is a residual row ("not yet scheduled: X") rather than a filter change.
+status: open
+
+### DW-222: `formatCost` constructs a fresh `Intl.NumberFormat` on every call, and the cost overview is now the hot path
+
+source_spec: `_bmad-output/implementation-artifacts/7-13-cost-overview-redesign.md`
+origin: migrated from legacy ledger ("Note: story 6.20 partially reduces DW-126 (2026-08-02)"), 2026-08-08
+location: `travelplan/src/lib/trips/formatCost.ts:17`, against the local copies in `TripTimeline.tsx` and `TripDayView.tsx`
+reason: The formatter is built inside the exported function, and the two surviving local copies memoize only the enclosing closure rather than the formatter. Converging the cost overview onto the shared helper made that screen format once per entry, per day row, per month row and per total, on every render and every tab toggle — a 30-day trip pays for all of it. Pre-existing and not a regression, but a module-level `Map` keyed by language is two lines and the natural companion to whichever story folds the last two copies in.
+status: open
+
+### DW-223: The cost overview's trip total renders at the same rank as each month group's heading, so the screen's headline number is its least prominent element
+
+source_spec: `_bmad-output/implementation-artifacts/7-13-cost-overview-redesign.md`
+origin: migrated from legacy ledger ("Note: story 6.20 partially reduces DW-126 (2026-08-02)"), 2026-08-08
+location: `travelplan/src/components/features/trips/TripCostOverview.tsx` — the trip-total row, against `TripTimeline.tsx:956` and the accented cost figure at `TripTimeline.tsx:665`
+reason: The total renders as `cardTitle` (14.5px/700) while the trip overview figure the user clicked to get there is `metricLg` (30px/900). Rank is unchanged from before the redesign (it was `subtitle1`), so this is pre-existing rather than caused by Story 7.13, and no AC or mockup covers it — which is why it was not changed on a visual-only story's own judgement. Worth a deliberate decision, and it is on Story 7.13's operator checklist to look at in a browser.
+status: open
+
+### DW-224: `APP_BASE_URL` silently defaults to `http://localhost:3000`, so an unset variable makes every password-reset email unusable
+
+origin: migrated from legacy ledger ("Deferred from: code review of 8-3-uploaded-media-behind-the-login (2026-08-05)"), 2026-08-08
+location: `travelplan/src/app/api/auth/password-reset/request/route.ts:53`
+reason: The route reads the variable with `?? "http://localhost:3000"`, so on a production host where it is unset every password-reset email links to localhost and the flow is unusable — with no error anywhere, because the fallback is a valid URL. Surfaced by Story 8.3's review while auditing the new deployment docs, which claimed a closed set of three production variables while the tree reads five (`DATABASE_URL`, `JWT_SECRET`, `MEDIA_STORAGE_ROOT`, `APP_BASE_URL`, `OSRM_BASE_URL` — the last has a sane public default and is genuinely optional). Pre-existing, not caused by Story 8.3. The fix is a decision, not a patch: either fail fast in production the way `MEDIA_STORAGE_ROOT` now does, or derive the origin from the request. Wants its own story alongside Story 8.1's deployment discovery.
+status: open
+
+### DW-225: The `/uploads` serve route derives its ETag and `Content-Length` from a `stat` taken before the read stream is opened
+
+origin: migrated from legacy ledger ("Deferred from: code review of 8-3-uploaded-media-behind-the-login (2026-08-05)"), 2026-08-08
+location: `travelplan/src/app/uploads/[...path]/route.ts:191-199`, `:257`, `:316`
+reason: A file replaced or removed between the `stat` and the end of the read yields a truncated 200 with a `Content-Length` that lies, surfacing to the client as a protocol-level truncation rather than a clean status. Reachable without an attacker: trip import's `stashTripUploadDir` renames an entire trip directory aside while a day view is loading twenty images out of it, and trip delete `fs.rm`s it. The cheap guards (a `stream.on("error")` handler and an `if (request.signal.aborted)` check for the already-aborted case) were patched in Story 8.3's review; closing the race properly means restructuring to `fs.open` → `fstat` → stream from the same descriptor so every derived value comes from one open file, which is more than 8.3 should carry.
+status: open
+
+### DW-226: Story 9.1 prerequisite: verify the reverse proxy does not bypass `/uploads/` before ticket documents exist
+
+origin: migrated from legacy ledger ("Deferred from: 8-3 production rollout (2026-08-05)"), 2026-08-08
+location: `docs/deployment-configuration.md`, against the nginx configuration on the deployment host
+reason: On the 2026-08-05 rollout nginx carried `location ^~ /uploads/ { alias …/public/uploads/; try_files $uri =404; expires 7d; add_header Cache-Control "public"; }` and served every trip photo off disk with no session check, a 7-day `public` cache and no access log, so Story 8.3's route handler never received those requests. Fixed by deleting the block and written up as a hard requirement in `docs/deployment-configuration.md` with the check `curl -s -o /dev/null -w '%{http_code}\n' https://<host>/uploads/trips/x/y.png`, which must answer `401`, not `404`, and must be run through the public hostname — a check against `127.0.0.1:3001` bypasses the proxy and passes while the public URL is open. Still open because Story 9.1 puts ticket PDFs carrying names, addresses and booking codes behind the same `/uploads/trips/<tripId>/…` scheme, so the rule has to hold at that point too, on this host and on any environment added later; 9.1 should assert it in its own browser pass rather than assume it.
+status: open
+
+### DW-227: The production SQLite database lives inside the application tree
+
+origin: migrated from legacy ledger ("Deferred from: 8-3 production rollout (2026-08-05)"), 2026-08-08
+location: deployment host: `DATABASE_URL=file:/home/app/apps/TravelPlan/travelplan/prisma/prod.db`
+reason: This is the same construction fault Story 8.3 fixed for media, with worse consequences: a deploy that replaces the directory rather than updating it in place takes the database with it. Not acute today — the host deploys with `git pull --ff-only`, so the tree is updated in place — but two ordinary events break it: a `git clean -fdx` during troubleshooting, or a switch to a deploy that checks out a fresh directory. The only backup found is `/home/app/backups/travelplan/2026-08-01T101441/prod.db`, a point-in-time copy rather than a verified schedule. Belongs with Story 8.1's deployment work: move it beside the media root (`/var/lib/travelplan/`), point `DATABASE_URL` at the new path, and record a backup schedule.
+status: open
+Related trap found at the same time and already removed: a zero-byte `prisma/dev.db` sat next to it, which any Prisma command run without an explicit `DATABASE_URL` would have targeted — `prisma migrate` would have silently created and migrated it while appearing to work on production.
+
+### DW-228: Six image rows on the production database point at files that no longer exist
+
+origin: migrated from legacy ledger ("Deferred from: 8-3 production rollout (2026-08-05)"), 2026-08-08
+location: production database: three `accommodation_images` under `trips/cmlzhtbni0038gsu8che5t89c/days/cmlzhtbnq003jgsu8t38a5kxu/accommodations/cmm0ylham000dthu8f6i2w156/` and three `day_plan_item_images` under `trips/cmlzhtbni0038gsu8che5t89c/days/cmlzhtbnp003fgsu84okrusnd/day-plan-items/cmmtn7f6n0002y0u86d9f3gr4/`
+reason: The filename timestamps are February and March 2026, so they predate the media migration by months — and that migration moved 214 files and delivered 214, so it neither caused nor can heal them. They render as broken images in exactly one accommodation and one activity. This is the data-quality half of DW-88, whose disclosure half Story 8.3 closed. Found by cross-checking every stored URL against the filesystem; the same check reported zero misses for all 32 day heroes, both trip heroes and the remaining 210 gallery images. Fix is a product decision — drop the rows, or surface a placeholder — not a technical one.
+status: open
+
+### DW-229: WebP is a first-class document upload format that can never enter the offline packet
+
+source_spec: `_bmad-output/implementation-artifacts/spec-9-2-documents-in-print-and-an-offline-packet.md`
+origin: migrated from legacy ledger ("Deferred from: 8-3 production rollout (2026-08-05)"), 2026-08-08
+location: `travelplan/src/lib/trips/documentUploads.ts` (`DOCUMENT_UPLOAD_ACCEPT`) against `travelplan/src/lib/trips/packetPdf.ts`
+reason: `documentUploads.ts` offers `image/webp` and both upload routes map it to a stored `.webp`, while `pdf-lib` has only `embedJpg` and `embedPng` — so `packetPdf.ts` refuses the extension outright and Story 9.2's AC5 degradation path becomes the normal path for a supported format. A traveller who attaches an Android screenshot gets a "could not be included" page for a file the app accepted without complaint. Confirmed end to end in the 2026-08-06 browser pass: a real WebP document printed correctly as an image page on the HTML sheet and produced a label page in the packet. Story 9.2 chose this deliberately (its spec forbids a second dependency and forbids `sharp`, which is only an `overrides` pin), so it is not a deviation — but the resolution needs a decision the story could not make: drop WebP from Story 9.1's accept list, convert it server-side, or warn at upload time that a WebP will not be packageable.
+status: open
+
+### DW-230: The packet PDF is entirely English even for a user on the German dictionary, who reaches it through a fully localised menu item
+
+source_spec: `_bmad-output/implementation-artifacts/spec-9-2-documents-in-print-and-an-offline-packet.md`
+origin: migrated from legacy ledger ("Deferred from: 8-3 production rollout (2026-08-05)"), 2026-08-08
+location: `travelplan/src/lib/trips/packetPdf.ts` and `travelplan/src/components/features/trips/TripDayPrintDocument.tsx`
+reason: `trips.documents.packetAction` and its siblings exist in both dictionaries, but every string inside the artefact those keys produce is a hardcoded literal: "DOCUMENT", "DOCUMENT NOT INCLUDED" and "This document could not be included in this packet. Open it from the app to view it.", plus the print sheet's appendix heading and sentence. The print-sheet half is a pre-existing gap the story explicitly refused to half-close (it is 100% English literals including `Intl.DateTimeFormat("en-US")`), but the packet is a brand-new artefact and the route has the request in hand, so nothing blocked plumbing a locale through. Deferred rather than patched because doing the packet alone would leave the two offline artefacts in different languages, and doing both is the localisation pass the story's own boundaries rule out.
+status: open
+
+### DW-231: Nothing limits how many expensive in-memory binary builds the app will run at once
+
+source_spec: `_bmad-output/implementation-artifacts/spec-9-2-documents-in-print-and-an-offline-packet.md`
+origin: migrated from legacy ledger ("Deferred from: 8-3 production rollout (2026-08-05)"), 2026-08-08
+location: `travelplan/src/app/api/trips/[id]/days/[dayId]/documents/packet/route.ts` and `travelplan/src/app/api/trips/[id]/export/route.ts`
+reason: The packet route holds its sources, `pdf-lib`'s document and the saved `Uint8Array` in memory and hands the whole thing to `new Response`; Story 9.2's own budgets (`MAX_PACKET_DOCUMENTS`, `MAX_PACKET_INPUT_BYTES`, `MAX_PACKET_DECODED_PIXELS`) bound one request and are all that stands between the process and an OOM, so two members of one trip clicking "download" together can peak at several times what either request's own budget allows. The shape is pre-existing rather than new: the trip export route builds a whole archive — photos included — in memory the same way and pre-dates this story, and there is no rate limiting, queue or admission control anywhere in the app for either. A single trip has one owner and any number of members, so concurrent requests are ordinary rather than adversarial. The fix is one mechanism serving both routes (a semaphore that queues rather than rejects, or streaming the response so peak is bounded by chunk size instead of by total), which is why it does not belong to either story alone.
+status: open
+
+### DW-232: The dashboard list has no `take` and no pagination, and its size is now decided by other accounts rather than by the signed-in one
+
+source_spec: `_bmad-output/implementation-artifacts/spec-5-12-shared-trips-on-the-collaborators-dashboard.md`
+origin: migrated from legacy ledger ("Deferred from: 8-3 production rollout (2026-08-05)"), 2026-08-08
+location: `travelplan/src/lib/repositories/tripRepo.ts` — `listTripsForUser`
+reason: `listTripsForUser` loads every day, accommodation and plan item of every returned trip in order to compute the row aggregates. That was bounded by what the account created; the widened `OR: [{ userId }, { members: { some: { userId } } }]` makes it bounded by how many trips anyone else chooses to add the account to, with no cap anywhere in the chain. The unbounded shape is pre-existing — the query never had a `take` — but the population is now externally driven, which is the part that is new. A `take` alone would silently hide trips, so the fix is pagination or a documented cap with a "showing N of M" line, which is a story rather than a patch.
+status: open
+
+### DW-233: `Costs so far (all trips)` and `Active trips` now sum money and count trips the account neither owns nor pays for
+
+source_spec: `_bmad-output/implementation-artifacts/spec-5-12-shared-trips-on-the-collaborators-dashboard.md`
+origin: migrated from legacy ledger ("Deferred from: 8-3 production rollout (2026-08-05)"), 2026-08-08
+location: the dashboard stat strip, `trips.dashboard.costSoFar` and `trips.dashboard.statActiveTrips` in both dictionaries
+reason: Story 5.12's AC6 deliberately requires the strip to describe the list as rendered, and it does — the figures reduce over `trips`, so widening the query moved them for free and a count that excluded visible rows would be worse. But the labels were written for a list that only ever held the account's own trips, and a collaborator on three expensive trips now reads a headline total that is mostly somebody else's spend, with no way to separate their own. Not a defect in the arithmetic; a question about what the strip is for once the list is mixed. Resolving it means either splitting the figures by ownership or renaming them, both of which need a product decision.
+status: open
+
+### DW-234: A shared trip in `gap` state repaints the whole row warn and counts in `Open items`, nagging a VIEWER about accommodation their role forbids them to add
+
+source_spec: `_bmad-output/implementation-artifacts/spec-5-12-shared-trips-on-the-collaborators-dashboard.md`
+origin: migrated from legacy ledger ("Deferred from: 8-3 production rollout (2026-08-05)"), 2026-08-08
+location: `travelplan/src/lib/trips/deriveTripStatus` and the dashboard row treatment
+reason: The spec reasoned that scoping `openItems` to `gap` trips "keeps a shared trip from turning the cell warn-orange merely for existing", which holds for `upcoming` shared trips and not for `gap` ones: `deriveTripStatus` is ownership-blind, so a shared trip missing accommodation swaps the row's border, background and status pill to the warn treatment and adds its open days to the strip. For a CONTRIBUTOR that is correct and actionable; for a VIEWER it is an open-item prompt for the one thing their role rules out, on the surface DESIGN.md reserves warn for actionable gaps specifically. The fix is a role-aware gap treatment, which needs a decision about whether a viewer sees the gap state at all.
+status: open
+
+### DW-235: `listTripsForUser`'s `orderBy: { startDate: "asc" }` has no tiebreaker, and merging two accounts' trips makes same-day ties common
+
+source_spec: `_bmad-output/implementation-artifacts/spec-5-12-shared-trips-on-the-collaborators-dashboard.md`
+origin: migrated from legacy ledger ("Deferred from: 8-3 production rollout (2026-08-05)"), 2026-08-08
+location: `travelplan/src/lib/repositories/tripRepo.ts` — `listTripsForUser`'s `orderBy`, and the client-side `buildTripComparator`
+reason: Pre-existing — the single-key sort predates Story 5.12 and that story's boundaries explicitly forbade touching it — but the consequence changed: with only the account's own trips a same-day tie was rare, and `test/tripsListRoute.test.ts`'s "returns an owned trip and a shared one as two separately labelled entries" now has to match its two fixtures by name rather than by position, which documents the non-determinism in the suite itself. Row order can differ between refetches for tied trips. A secondary key (`id`, or `name`) is a one-line fix, and `buildTripComparator`'s client-side pass would need the same tiebreaker to stay in agreement.
+status: open
+
+### DW-236: There is no way for a collaborator to leave a trip, so a shared row is permanent on the one surface the account is offered after sign-in
+
+source_spec: `_bmad-output/implementation-artifacts/spec-5-12-shared-trips-on-the-collaborators-dashboard.md`
+origin: migrated from legacy ledger ("Deferred from: 8-3 production rollout (2026-08-05)"), 2026-08-08
+location: `travelplan/src/app/api/trips/[id]/members/route.ts:139` — the `DELETE` handler's `hasTripOwnerAccess` gate
+reason: Only the owner can remove a membership, and there is no acceptance step on the invite side either — Story 5.1 provisions access directly. Before Story 5.12 that was invisible, because a membership the collaborator did not want simply never appeared anywhere; now it is a row on their dashboard that only the other party can remove. The fix is a self-service branch on the DELETE (a member removing their own row) plus a per-row leave control, which is a story of its own — note that this surface currently has no per-row controls at all, by design.
+status: open
+
+### DW-237: Both copies of `mapTripMemberRole` map anything that is not `VIEWER` to `contributor`, so a third role would be reported as the more privileged one
+
+source_spec: `_bmad-output/implementation-artifacts/spec-5-12-shared-trips-on-the-collaborators-dashboard.md`
+origin: migrated from legacy ledger ("Deferred from: 8-3 production rollout (2026-08-05)"), 2026-08-08
+location: `travelplan/src/lib/repositories/tripRepo.ts:570` and the module-private copy in `travelplan/src/lib/trips/tripAccess.ts:18`
+reason: Both are `role === "VIEWER" ? "viewer" : "contributor"`. The parameter type is the closed `"VIEWER" | "CONTRIBUTOR"` union, so today this is unreachable and TypeScript would flag a widened enum at the call site — but `schema.prisma:50` records that `TripMemberRole` is additive and existing rows keep their values, so a third role is anticipated. Inverting the test (`role === "CONTRIBUTOR" ? "contributor" : "viewer"`) makes the default the least-privileged reading, matching the rule `TripShareDialog.tsx:399-401` states and the one Story 5.12 applied to the dashboard's own fallback. Pre-existing in both copies and touched by neither Story 5.12 nor its predecessors; worth doing to both at once.
+status: open
+
+### DW-238: `i18nDictionaries.test.ts` holds the two dictionaries in agreement on key sets and non-emptiness only, never on placeholders
+
+source_spec: `_bmad-output/implementation-artifacts/spec-5-12-shared-trips-on-the-collaborators-dashboard.md`
+origin: migrated from legacy ledger ("Deferred from: 8-3 production rollout (2026-08-05)"), 2026-08-08
+location: `travelplan/test/i18nDictionaries.test.ts`
+reason: The suite compares `Object.keys(en).sort()` against `Object.keys(de).sort()` and asserts each value is a non-empty string; nothing extracts `{...}` tokens or compares the two sides' sets of them, so any German value can silently lose a `{slot}` and stay green. Story 5.12's AC7 leans on this test by name for `trips.dashboard.openSharedTripAria`, whose German value carries `{trip}` and `{role}` — edit it to "Reise {trip} öffnen, freigegeben" and every suite passes while German screen-reader users stop being told the role, which is the whole reason the string exists. That story pinned its own key with a rendered German aria-label case, but the gap is generic and covers roughly 750 entries. The fix is a few lines in the parity test (extract `/\{(\w+)\}/g` from both sides and compare the sets per key), which would also retro-check every existing entry — a small change with an unknown-sized first run, so it does not belong inside another story's diff.
+status: open
+
+### DW-239: `getTripWithDaysForUser` still downgrades the revoked-membership race to `viewer` and serves the whole trip, which the list read now drops
+
+source_spec: `_bmad-output/implementation-artifacts/spec-5-12-shared-trips-on-the-collaborators-dashboard.md`
+origin: migrated from legacy ledger ("Deferred from: 8-3 production rollout (2026-08-05)"), 2026-08-08
+location: `travelplan/src/lib/repositories/tripRepo.ts:836-852` and `:922-923`, against the list-side guard at `:682-688`
+reason: Both functions have the identical non-atomic shape: an outer `OR: [{ userId }, { members: { some: { userId } } }]` compiled to an `EXISTS`, then a to-many `members` include Prisma issues as its own statement. If the owner deletes the membership between the two, the row matches and `members` comes back `[]`. Story 5.12 added `trips.filter((trip) => trip.userId === userId || trip.members.length > 0)` so the list drops that row; the detail read still evaluates `mapTripMemberRole(trip.members[0]?.role ?? "VIEWER")` against it and returns the full `TripWithDays` — every day, accommodation, plan item, payment, note and travel segment of somebody else's trip — to an account `getTripAccessForUser` answers `null` for. Pre-existing and untouched by that story, which is why it was not fixed there; the list-side fix is what makes the divergence visible. The two derivations are deliberately byte-identical expressions (`tripRepo.ts:704-708` says so), so the guard belongs on both or that invariant is only half true. Not patchable inside a story's diff: the detail read has no equivalent of the list's "drop the row" — it would have to return `null`, a behaviour change on a route with its own 404 semantics and its own suites.
+status: open
+
+### DW-240: `GET /api/trips/[id]` sets no `Cache-Control` although it returns strictly more of the third-party data that just earned the list route a `no-store`
+
+source_spec: `_bmad-output/implementation-artifacts/spec-5-12-shared-trips-on-the-collaborators-dashboard.md`
+origin: migrated from legacy ledger ("Deferred from: 8-3 production rollout (2026-08-05)"), 2026-08-08
+location: `travelplan/src/app/api/trips/[id]/route.ts:42`
+reason: Story 5.12 added `no-store` to the list because the body became other people's trip names, routes, date ranges and cost totals. The per-trip GET returns all of that plus every day, accommodation, plan item, payment, note and travel segment, and sets no cache directive — `grep -rn "Cache-Control" src/app/api` lists only `users`, `admin/users`, `auth/csrf`, `trips/route.ts` and the day-print route. A shared trip's detail response is now reachable by an account that is not its owner, so a shared proxy that stores it can serve it onward. Pre-existing rather than introduced there — the route has always been able to serve a member's trip — but the list route's new header makes the omission next door inconsistent as well as wrong. Deferred rather than patched because the honest fix is a policy applied across the authenticated GETs at once (there are several unheadered ones) rather than a second one-off, and each has its own suite to extend.
+status: open
+
+### DW-241: Widening the backup export to contributors lets one keep a permanently owned copy of somebody else's trip that survives revocation
+
+source_spec: `_bmad-output/implementation-artifacts/spec-5-13-what-a-contributor-may-do-made-consistent.md`
+origin: migrated from legacy ledger ("Deferred from: 8-3 production rollout (2026-08-05)"), 2026-08-08
+location: `travelplan/src/app/api/trips/[id]/export/route.ts` against `travelplan/src/app/api/trips/import/route.ts:297`
+reason: Story 5.13 moved the export to owner-or-contributor on the reasoning — stated in the story, the spec and `tripRepo.ts` — that "a contributor can already read every byte this archive contains, so the archive changes the container, not the exposure". That is true and it is not the whole consequence: the import route is gated on session alone, so a contributor can pull the archive — every photo and document on disk included — and import it as a trip she owns. Revoking her membership then removes her access to the original and nothing else; the copy is hers. Every other boundary the story defends is about the trip as a possession (`members`, deletion, the hero image), and this is the one route by which a contributor acquires one. Not a defect in the widening — the ability to save a copy of something you can already read in full is arguably the point of an export — but the decision was made against the exposure argument and this consequence was never put. Resolving it is a product call (accept it; gate import against archives whose manifest names a trip the caller never owned; or record export provenance), not a patch.
+status: open
+
+### DW-242: A multi-file gallery upload in `TripAccommodationDialog` that fails partway discards the photos already stored on the server
+
+source_spec: `_bmad-output/implementation-artifacts/spec-5-13-what-a-contributor-may-do-made-consistent.md`
+origin: migrated from legacy ledger ("Deferred from: 8-3 production rollout (2026-08-05)"), 2026-08-08
+location: `travelplan/src/components/features/trips/TripAccommodationDialog.tsx` — `uploadGalleryImages`
+reason: The function `return`s from inside the per-file loop on a non-ok response, so `setGalleryImages` — which appends the `uploaded[]` accumulated so far — never runs. The files already written to disk and to the database stay there, invisible to the dialog until it is reopened, and pressing upload again sends the whole selection a second time as duplicates. `TripDayPlanDialog`'s equivalent handles this correctly with a `failedAtIndex` marker, a `break`, and a slice of the remaining files, so the correct shape already exists one file over. Pre-existing since Story 2.16 and untouched by Story 5.13, which only changed which message the failure renders — but the change made it materially easier to hit: before, a contributor could not upload at all, and now she can upload several files at once on a route whose refusal is per-request.
+status: open
+
+### DW-243: `isOwner` and `canEditPlanning` fail open when `accessRole` is absent, so a contributor is briefly offered owner-only controls
+
+source_spec: `_bmad-output/implementation-artifacts/spec-5-13-what-a-contributor-may-do-made-consistent.md`
+origin: migrated from legacy ledger ("Deferred from: 8-3 production rollout (2026-08-05)"), 2026-08-08
+location: `travelplan/src/components/features/trips/TripTimeline.tsx:144-145` and the same expression in `TripDayView.tsx`
+reason: Both read `detail?.trip.accessRole ? … : true`, a deliberate accommodation from the era before the field existed so a cached older payload kept working for the trip's own owner. Story 5.12 already established the opposite rule for the dashboard, quoting `TripShareDialog.tsx:399-401`: "an unrecognised role must not be presented as the more privileged one." Story 5.13 built three new gates on top of the fail-open expression (`canEditHeroImage={isOwner}`, the export button, the day-image menu item), so the blast radius of a deploy skew or an unresolved detail request grew from "a viewer sees an edit button that 404s" to "a contributor sees the exact control this story exists to take away from her". The same fallback also lets `TripDayView`'s bucket-list fetch fire once for a viewer before `detail` resolves, which now returns 403 and can flash a permission error on a surface she is not meant to see at all. Inverting the default is one character per site but changes what an owner sees on a stale payload, so it needs its own story and its own regression pass across every `accessRole` consumer.
+status: open
+
+### DW-244: Both gallery reorder `PATCH` handlers are unreachable from the UI for every role
+
+source_spec: `_bmad-output/implementation-artifacts/spec-5-13-what-a-contributor-may-do-made-consistent.md`
+origin: migrated from legacy ledger ("Deferred from: 8-3 production rollout (2026-08-05)"), 2026-08-08
+location: `travelplan/src/app/api/trips/[id]/accommodations/images/route.ts` and `.../day-plan-items/images/route.ts` — the `PATCH` handlers
+reason: `grep -rn 'method: "PATCH"' travelplan/src/` returns exactly four hits — `HeaderMenu.tsx:107`, `TripDayView.tsx:2345` and `:2390` (both day-image), `TripEditDialog.tsx:232` (trip PATCH). Nothing in `src/` issues a reorder request to either media route, so the "reorders a photo" half of Story 5.13's AC1 is satisfied at the route and by tests but by no user. Both handlers were ungated until 5.13 added `refuseUnlessTripWriter`, and both now carry route tests asserting a contributor may reorder and a viewer may not — for a verb no screen offers. Pre-existing: the handlers and the missing affordance both predate 5.13, which only gated them. Worth recording because that story's own boundary says "a route a role may use is reachable from the UI", and because it is a concrete instance of DW-201's class caught by the diff rather than by a user. Resolving it is a product call — either build the reorder affordance the handlers were written for, or delete two handlers, two gates and four test blocks.
+status: open
+
+### DW-245: `POST /api/trips/[id]/days/[dayId]/image` deletes the day's existing image file before the repository confirms the write
+
+source_spec: `_bmad-output/implementation-artifacts/spec-5-13-what-a-contributor-may-do-made-consistent.md`
+origin: migrated from legacy ledger ("Deferred from: 8-3 production rollout (2026-08-05)"), 2026-08-08
+location: `travelplan/src/app/api/trips/[id]/days/[dayId]/image/route.ts` — `removeExistingDayImageFiles(uploadDir)` ahead of `updateTripDayImageForUser`
+reason: The route removes the old files and writes the new one, and only afterwards asks the repository to update the row. On `!updated` it answers 404 and runs `fs.rm(uploadDir, { recursive: true, force: true })` — which removes the new file and the directory the old one lived in, while `trip_days.image_url` still holds the old URL, so a write that loses its race arrives as a day whose image points at a file that is gone. Reaching it needs the day or the caller's membership to disappear between the route gate (which passed) and the update (which returns `null`), so the window is narrow. Pre-existing — Story 5.13 changed neither the ordering nor the rollback, only which callers get through the gate — but the widening enlarges the window from "ownership changed mid-request", which effectively never happens, to "membership revoked mid-request", which is a thing an owner does deliberately. Same family as DW-196 and DW-194, and best fixed the same way: stage to a temp name and swap only after the repository returns non-null.
+status: open
+
+### DW-246: Epic 5 says a viewer sees the whole plan, but the bucket list and the backup export have always required write-level role
+
+source_spec: `_bmad-output/implementation-artifacts/spec-5-13-what-a-contributor-may-do-made-consistent.md`
+origin: migrated from legacy ledger ("Deferred from: 8-3 production rollout (2026-08-05)"), 2026-08-08
+location: `_bmad-output/planning-artifacts/epic-5-context.md`, against `GET /api/trips/[id]/bucket-list-items` and `GET /api/trips/[id]/export`
+reason: Story 5.3 is titled "Viewer read-only access" and the epic context described a viewer as seeing everything and changing nothing. The code has never matched: both routes were gated `hasTripOwnerAccess` before Story 5.13, and 5.13 widened them to owner-or-contributor — a deliberate scope it argued on write-role grounds, never on whether a viewer should read them. So a viewer still reaches neither, and the epic requirement stating otherwise was silently corrected to match the code during 5.13's review rather than raised. Both are reads, and the read case is not obviously the same as the write case: the bucket list is trip content a viewer arguably ought to see beside the days it feeds, while the export is the possession question DW-241 raises. Recorded as a product decision, with a note left at the corrected sentence in `epic-5-context.md` pointing at this ledger so a later story does not read that wording as a ruling that was never made.
+status: open
+
+### DW-247: `parseDecimal` resolves a lone three-digit group as a decimal, so `1,000` km saves as a 1 km segment silently
+
+source_spec: `_bmad-output/implementation-artifacts/spec-6-27-a-comma-is-a-decimal-point.md`
+origin: migrated from legacy ledger ("Deferred from: 8-3 production rollout (2026-08-05)"), 2026-08-08
+location: `travelplan/src/lib/trips/parseAmount.ts:109` — `parseDecimal`, against `parseAmountToCents` in the same file
+reason: Verified at runtime: `parseDecimal("1,000") === 1` and `parseDecimal("1.234") === 1.234`. The money path escapes it because `^\d+(\.\d{1,2})?$` rejects a three-digit tail, so `parseAmountToCents("1,000")` returns `null` and the user sees an error; `parseDecimal`'s `^\d+(\.\d+)?$` accepts it. Newly reachable: while the distance field was `type="number"` a comma arrived as `""` and produced `distanceRequired`. The value is at least visible on the segment card afterwards, and a day-scoped segment of 1000+ km is unusual, which is why this was not patched blind. `1,000` (thousands) and `12,555` (decimal) are the same shape — integer part, comma, exactly three digits — so distinguishing them needs the decision Story 6.27's own open question 3 left unanswered: cap `distanceKm` at one decimal, which makes both rejectable, or keep it uncapped and accept the guess.
+status: open
+
+### DW-248: The two cost fields show a locale-aware placeholder but seed and re-render their value as dot-decimal
+
+source_spec: `_bmad-output/implementation-artifacts/spec-6-27-a-comma-is-a-decimal-point.md`
+origin: migrated from legacy ledger ("Deferred from: 8-3 production rollout (2026-08-05)"), 2026-08-08
+location: `travelplan/src/lib/trips/parseAmount.ts` — `formatCentsAsAmount`, which seeds `costCents` and every payment row in both dialogs
+reason: `formatCentsAsAmount` is unconditionally `(value / 100).toFixed(2)`, so a German user saves `12,50`, reopens the stay, and reads `12.50` in a box whose placeholder promised a comma. Story 6.27's AC5a asked for the placeholder and got it; the round-tripped value was never in scope. Not data loss — both forms parse — but the two halves of one field disagree about which separator the app prefers, and the value is the one users imitate. Fixing it means a language argument on `formatCentsAsAmount` plus a decision about whether an unedited round trip should change what the box says, which touches the cost→payment mirror in both dialogs and the assertions that pin `"50.00"`.
+status: open
+
+### DW-249: Neither the activity cost field nor any payment row has an upper bound, so cent values can pass a 32-bit `Int`
+
+source_spec: `_bmad-output/implementation-artifacts/spec-6-27-a-comma-is-a-decimal-point.md`
+origin: migrated from legacy ledger ("Deferred from: 8-3 production rollout (2026-08-05)"), 2026-08-08
+location: `travelplan/src/lib/validation/dayPlanItemSchemas.ts:101` and `accommodationSchemas.ts:52`, against `maxCostCents` in `TripAccommodationDialog`
+reason: The stay cost is capped at `maxCostCents = 100000000`; `TripDayPlanDialog`'s cost has no ceiling, neither dialog bounds a payment row, and both schemas are `z.number().int().nonnegative()` with no maximum. Verified: `parseAmountToCents("999999999999,99")` returns `99999999999999`, well past `Int`, so the user meets an opaque server error instead of a field message. Pre-existing — the activity cost field has been `type="text"` with this parser since before Story 6.27, which explicitly put "adding a maximum to the activity cost field" out of scope — but that story rewrote every one of these validation blocks and harmonised the empty-versus-invalid split across them while leaving the bound asymmetric. Fix is a shared ceiling constant plus the matching `costTooHigh` key for the plan surface, which does not exist today.
+status: open
+
+### DW-250: `TripAccommodationDialog`'s submit-time cost re-parse is unreachable, so the dialog carries a third gate for a state RHF has already refused
+
+source_spec: `_bmad-output/implementation-artifacts/spec-6-27-a-comma-is-a-decimal-point.md`
+origin: migrated from legacy ledger ("Deferred from: 8-3 production rollout (2026-08-05)"), 2026-08-08
+location: `travelplan/src/components/features/trips/TripAccommodationDialog.tsx` — the `costValue && parsedCostCents === null` branch in `onSubmit`
+reason: `useForm` is created with no `mode`, so it defaults to `onSubmit` and runs `costRules` through `register` before `handleSubmit` calls the body; `collectRuleFailures` then runs `costRules.validate` a second time for unmounted tabs and returns early on failure. By the time the third branch runs, the value has passed the same parser twice. Pre-existing — the branch predates Story 6.27, which only swapped what it calls — and harmless, but it is dead code sitting directly under a docblock that argues there should be one gate.
+status: open
+
+### DW-251: A split payment row with both an unusable amount and a missing due date reports only the amount on the stay dialog
+
+source_spec: `_bmad-output/implementation-artifacts/spec-6-27-a-comma-is-a-decimal-point.md`
+origin: migrated from legacy ledger ("Deferred from: 8-3 production rollout (2026-08-05)"), 2026-08-08
+location: `travelplan/src/components/features/trips/TripAccommodationDialog.tsx` — the per-row validation loop, against `TripDayPlanDialog.tsx`'s `nextError` pass
+reason: The stay dialog does `setError(...amount); hasError = true; return;` before the `dueDate` branch, so the user fixes the amount, saves again, and only then learns the date is missing; the day-plan dialog builds a `nextError` object and sets both keys in one pass, so the same row answers differently on the two surfaces. Pre-existing control flow that Story 6.27 did not introduce, but that story's own premise is that these two dialogs are one control on two surfaces, and this is a case where they are not.
+status: open
+
+### DW-252: The five copies of `handleLookupLocation` each grew a candidate list and a selection handler, so one defect had to be fixed five times
+
+source_spec: `_bmad-output/implementation-artifacts/spec-6-28-coordinates-by-hand-and-a-choice-of-places.md`
+origin: migrated from legacy ledger ("Deferred from: 8-3 production rollout (2026-08-05)"), 2026-08-08
+location: `TripDayPlanDialog.tsx`, `TripAccommodationDialog.tsx`, `TripBucketListPanel.tsx` and `TripCreateForm.tsx` (five lookup sites) under `travelplan/src/components/features/trips/`
+reason: Story 6.28's Dev Notes ruled the five-into-one refactor out of scope ("a larger change than the problem warrants" that "would collide with four in-flight dialog stories"), and that call was right for the story. But the review pass then found three defects — the list surviving a dialog reopen, the list surviving an edit of the query text, and the list needing clearing on select/Clear/Find — each of which had to be patched separately at every site, and two of the five had missed the open-effect reset `TripBucketListPanel` already had. `locationCandidates` + `selectLocationCandidate` + the drift invalidation now sit five times over four files, alongside the pre-existing five copies of the fetch handler. The dialog stories that blocked the refactor (6.22, 6.24, 6.26) have all landed, so the collision argument has expired: one `<LocationSearchField>` owning query, resolved pin, candidates and their invalidation would make the next defect a one-place fix. `TripBucketListPanel` is the awkward member — its field is RHF-registered and doubles as a saved note column — so the extraction needs a props shape that tolerates both, not a copy-paste.
+status: open
+
+### DW-253: None of the five geocode lookups sequences its in-flight request, so a late response still pins or re-populates a stale candidate list
+
+source_spec: `_bmad-output/implementation-artifacts/spec-6-28-coordinates-by-hand-and-a-choice-of-places.md`
+origin: migrated from legacy ledger ("Deferred from: 8-3 production rollout (2026-08-05)"), 2026-08-08
+location: the five `handleLookupLocation` sites under `travelplan/src/components/features/trips/` (both dialogs, `TripBucketListPanel.tsx`, `TripCreateForm.tsx`)
+reason: Every copy awaits `fetch("/api/geocode?…")` and then writes `setResolvedLocation` / `setLocationCandidates` unconditionally; nothing captures the query it asked about and compares it against the field's current value, and there is no `AbortController` or request counter at any of the five sites. The `resolvedLocation` half is pre-existing — the pre-6.28 code did the same thing with `body[0]`. What Story 6.28 adds is a second observable symptom: the review pass fixed "a candidate list must not outlive an edit of its query" with an `onChange` reset at four sites and a drift effect on the bucket list, and an in-flight response landing after that edit walks straight through both, so the list the user was told would disappear comes back describing the old text. `TripBucketListPanel` self-heals on the next render; the two dialogs and `TripCreateForm` do not. Narrow window — the user has to type between Find and the response — but it is exactly the window a slow mobile connection widens. Fix is one shared pattern, not five: a per-site request nonce compared on arrival, which the extraction in DW-252 would make a one-place change.
+status: open
+
+### DW-254: `/api/geocode` proxies Nominatim with no rate limiting of its own and no contact parameter
+
+source_spec: `_bmad-output/implementation-artifacts/spec-6-28-coordinates-by-hand-and-a-choice-of-places.md`
+origin: migrated from legacy ledger ("Deferred from: 8-3 production rollout (2026-08-05)"), 2026-08-08
+location: `travelplan/src/app/api/geocode/route.ts`, against `travelplan/src/lib/security/rateLimit.ts`
+reason: The route checks the session, caps the query at 200 characters and sets a `User-Agent`, but never calls into the rate-limit facility that `auth/login`, `auth/register`, `auth/first-login-password` and both `auth/password-reset` routes already use. Any signed-in account can therefore drive one upstream request per Find with no ceiling, and `TripCreateForm` has two independent Find buttons that can fire in the same instant. Nominatim's usage policy also asks for a contact address (`email=`), which is absent, while the route's own comments lean on that policy to justify what it does. Pre-existing: the route has looked like this since it was added, and Story 6.28 explicitly froze its guard set ("Every guard in `api/geocode/route.ts` survives unchanged") and did not raise the per-Find count. Worth a decision rather than a blind patch, because the sensible ceiling is a product question (per user? per trip? per minute?) and adding an `email=` value means choosing an address the project is willing to publish in outbound requests.
+status: open
+
+### DW-255: `TripAccommodationDialog.onSubmit` issues its CSRF request before the cost, payment and location checks
+
+source_spec: `_bmad-output/implementation-artifacts/spec-6-28-coordinates-by-hand-and-a-choice-of-places.md`
+origin: migrated from legacy ledger ("Deferred from: 8-3 production rollout (2026-08-05)"), 2026-08-08
+location: `travelplan/src/components/features/trips/TripAccommodationDialog.tsx` — `onSubmit`, the imperative validation block around `ensureCsrfToken()`
+reason: The docblock directly above that fetch states the rule and its history ("The re-run happens before the CSRF fetch (review of Story 6.26). It used to sit after it, which meant a Save pressed with an empty name issued a network request first — and if that request failed the user was told `errors.csrfMissing` instead of being shown the field that was actually wrong"), but only `collectRuleFailures` is ahead of `ensureCsrfToken()`. The cost parse, the payment-mode rules, the per-row amount/date checks and Story 6.28's new `selectRequired` candidate-list guard all sit after it, so a save that was never going to proceed makes a network call first and can answer `errors.csrfMissing` instead of naming the field that is wrong. `TripDayPlanDialog` has its location guard ahead of its own handshake, so the two dialogs differ. Mostly pre-existing — 6.28 added one more validation to a block already on the wrong side of the fetch — and the window is narrow because the dialog also fetches CSRF in its open effect. Not patched in that pass because moving only the location guard across the fetch would demote the cost and payment errors below it in the combined-failure case; the correct fix is to move the whole imperative validation block ahead of `ensureCsrfToken`, which touches the 6.26 and 6.27 assertions and deserves its own change.
+status: open
+
+### DW-256: The geocode route caps a candidate label with `.slice(0, 200)`, which splits surrogate pairs and can store a lone surrogate
+
+source_spec: `_bmad-output/implementation-artifacts/spec-6-28-coordinates-by-hand-and-a-choice-of-places.md`
+origin: migrated from legacy ledger ("Deferred from: 8-3 production rollout (2026-08-05)"), 2026-08-08
+location: `travelplan/src/app/api/geocode/route.ts` — `label: (row.display_name?.trim() || q).slice(0, 200)`, against the 200-cap in `travelplan/src/lib/validation/locationSchemas.ts`
+reason: `String.prototype.slice` counts UTF-16 code units, so a `display_name` with an astral character straddling that boundary yields a label ending in a lone surrogate — not valid UTF-8, surviving `JSON.stringify` as `\udXXX` and rejected on the write, so the user meets a `validation_error` about a place name they picked from a list and never typed. The schema also caps `label` at 200, so the slice cannot simply be dropped. Pre-existing — the same slice guarded the old singular `result` — but Story 6.28 now applies it to as many as five rows per response instead of one, so the exposure is five times what it was. Fix is a code-point-aware truncation (`[...value].slice(0, 200).join("")`) applied wherever the 200-cap is enforced, which is worth doing once across the label paths rather than only here.
+status: open
+
+### DW-257: Story 6.16's routing decision, and the standing fair-use hazard on the shared OSRM backend
+
+origin: migrated from legacy ledger ("Note: story 6.16 review decision (2026-08-02)"), 2026-08-08
+location: `travelplan/src/lib/routing/dayRouteService.ts` and the `OSRM_BASE_URL` environment variable
+reason: The one `decision-needed` finding from the 6.16 code review — walking and cycling route import returning car numbers — was resolved in the same session and was never deferred: the public `router.project-osrm.org` demo host serves a single car graph and ignores the `{profile}` path segment, so each mode now has its own FOSSGIS endpoint (`routed-car` / `routed-bike` / `routed-foot`), overridable via `OSRM_BASE_URL`. Verified live at 29.6 / 9.9 / 4.5 km/h over the same 2.9 km; full detail in the story file under "Decision resolved". Migrated as a closed record so the standing hazard below is not lost with the note that carried it.
+status: done 2026-08-02
+resolution: Resolved inside the Story 6.16 review session — per-mode FOSSGIS endpoints behind `OSRM_BASE_URL`, verified live.
+Standing hazard worth carrying forward: the routing backend is a community service under fair use. It is fine at one request per explicit user action. Anything that routes automatically or in bulk — a background prefill, a per-day batch, a map that re-routes on pan — needs a self-hosted OSRM behind `OSRM_BASE_URL` first.
+
+### DW-258: Story 6.20 partially reduces DW-126: the day error screen now has one in-app route out, but not to its parent trip
+
+origin: migrated from legacy ledger ("Note: story 6.20 partially reduces DW-126 (2026-08-02)"), 2026-08-08
+location: `travelplan/src/components/HeaderMenu.tsx` and `travelplan/src/lib/navigation/authMenu.ts`, against DW-126's evidence
+reason: DW-126 argues that a non-404 failure on the day screen leaves no in-app route out, and cites `getAuthMenuItems` returning only `logout` for an authenticated user as part of its evidence. That clause stopped being true with story 6.20: the global header menu now carries an "All trips" row on every page, so the day error screen does have one route out. DW-126's substance stands — its target is back to the parent trip (`/trips/{id}`), which the global menu still does not and should not offer — but its severity is lower than when it was written, and story 6.20 applied the analogous fix to `TripTimeline`'s own error branch, which is the model DW-126 asks for.
+status: done 2026-08-02
+resolution: Recorded as an annotation on DW-126 rather than as work of its own; the open half stays with DW-126.
