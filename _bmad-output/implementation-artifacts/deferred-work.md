@@ -65,7 +65,8 @@ decision: 2026-08-01 Validate at the import boundary only — Reject or strip an
 origin: migrated from legacy ledger ("Deferred from: code review of 6-8-export-day-itinerary-pdf-for-offline-use (2026-05-03)"), 2026-08-01
 location: `tripRepo.ts:344`
 reason: The duplication exists because of the server/client boundary split; consolidating the two copies requires establishing a shared pure-function package boundary that does not exist yet.
-status: open
+status: done 2026-08-08
+resolution: already resolved: `parsePrintablePlanText` no longer exists anywhere in src; the single definition now lives at travelplan/src/lib/trips/planText.ts:16 and is imported by both the server path (src/lib/trips/printDocuments.ts:24) and the client (re-exported at TripDayPlanItemContent.tsx:33) — the shared pure-function module this entry asked for, created by Story 9.2 (commit f990054).
 
 ### DW-10: `day.date.toISOString()` throws on a corrupted DB Date value
 
@@ -457,7 +458,8 @@ status: open
 origin: migrated from legacy ledger ("Deferred from: code review of 7-9-full-page-map-screens-redesign (2026-08-01)"), 2026-08-01
 location: `travelplan/test/i18nDictionaries.test.ts`, `travelplan/src/i18n/index.ts:4,20`
 reason: The only dictionary test asserts `typeof en === "object"`; `Dictionary` is `Record<string, string>` so a key present in `en.ts` and missing from `de.ts` is not a type error; and `translate()` falls back to `dictionary[key] ?? key`, so the miss ships as the raw key string (`trips.dayView.mapBack`) rendered as visible German UI. Story 7.9 added one key and removed one from both files correctly, but by hand and unguarded — as has every i18n-touching story in Epic 7. Fix is a three-line test asserting `Object.keys(en).sort()` equals `Object.keys(de).sort()`, which would also have caught the orphaned-key cleanups that 7.2's review found left behind.
-status: open
+status: done 2026-08-08
+resolution: already resolved: travelplan/test/i18nDictionaries.test.ts:25 now asserts `expect(Object.keys(de).sort()).toEqual(Object.keys(en).sort())`, added by Story 6.17 per the docblock at :14-20, and :28-31 additionally pins non-empty values.
 
 ### DW-61: `inkMuted` clears the 4.5:1 target on `card` only, and the app's smallest text does not sit on `card`
 
@@ -526,7 +528,8 @@ status: open
 origin: code review of 7-12-bucket-list-sidebar-card, 2026-08-01
 location: `travelplan/test/tripTimelineRoles.test.tsx` — no `afterEach`; per-test `vi.unstubAllGlobals()` calls as the last statement of most test bodies, and absent entirely from two (`:250`, `:279`)
 reason: The file stubs `fetch` per test and tears it down as the final statement of the body. Any assertion that throws before that line leaves the stub installed, so the *next* test in the file runs against the previous test's canned response and fails for reasons unrelated to its own subject — the classic cascading-failure pattern that makes a single real regression look like five. Two tests omit the call entirely, so the leak already exists on the happy path there. Pre-existing; Story 7.12's new case copied the surrounding convention rather than introducing it. Fix is a file-level `afterEach(() => vi.unstubAllGlobals())` and deleting the per-test calls — mechanical, but it touches every test in the file, which is why it was not folded into 7.12. `tripBucketListPanel.test.tsx` already does it the right way and is the model.
-status: open
+status: done 2026-08-08
+resolution: already resolved: travelplan/test/tripTimelineRoles.test.tsx:172-176 now has a file-level `afterEach(() => { vi.unstubAllGlobals(); })` (commit 607ddc6, Story 6.10, 2026-08-02), so a failing assertion can no longer leak the stub; only redundant per-test calls remain.
 
 ### DW-70: Day Detail's bucket-list card is still unbounded, so Tommy's "optisch übermächtig" concern is only half addressed
 
@@ -596,7 +599,8 @@ reason: 2.32 is already `ready-for-dev` and was authored against a single `.json
 - Its base64 decode-and-round-trip validation is replaced by ZIP member extraction plus CRC verification; its 5 MB per-photo cap and `contentType` allow-list still apply, to the extracted bytes.
 - Its Open Item #1 is closed: the format is a ZIP and no dependency was added.
 
-status: open
+status: done 2026-08-08
+resolution: already resolved: The spec was rewritten to the shipped ZIP container on 2026-08-02: _bmad-output/implementation-artifacts/2-32-...md:36-50 records the correction, :44-45 and :106 use `archivePath`, :199-201 describe zipReader/importPackage with CRC and magic-byte validation, and the change-log entry at :528 states Open Question 1 answered with no zip dependency added.
 
 ### DW-78: A v2 manifest POSTed to the v1 import API is silently accepted and stripped
 
@@ -604,7 +608,8 @@ origin: 2-31-complete-trip-backup-export-with-photos-travel-segments-and-bucket-
 location: `travelplan/src/lib/validation/tripImportSchemas.ts` — `tripImportPayloadSchema`, the `formatVersion` field
 severity: medium
 reason: `tripImportPayloadSchema` validates `formatVersion` only as `z.number().int().positive()`, and its objects are non-strict, so zod's default strip silently discards every field v2 added. A user who extracts `trip.json` from a v2 archive and POSTs it to `/api/trips/import` gets a `200` and a restored trip that has lost all travel segments, all bucket-list items, all gallery photos and every pool reference — reported as success. Not caused by this story's code (the v1 importer was already permissive), but this story is what makes a v2 manifest exist, so the hazard is newly reachable. Deliberately not fixed here: Story 2.31's Dev Notes forbid touching the import side or relaxing `tripImportSchemas.ts` in anticipation, and Story 2.32 owns the v2 importer. 2.32 should either gate on `formatVersion` explicitly or reject an unknown version rather than degrading, and note that today's failure mode is silent data loss rather than an error. See also DW-77 (the container delta 2.32 must read first) and DW-76 (neither export nor import is reachable from the UI today, which is why this is not yet user-visible).
-status: open
+status: done 2026-08-08
+resolution: already resolved: travelplan/src/lib/validation/tripImportSchemas.ts:506-510 now bounds `formatVersion` by MAX_SUPPORTED_FORMAT_VERSION and answers 'Backup was written by a newer version of this app', and the payload schema models every v2 field (photos/documents/travelSegments/bucketListItems) rather than stripping them.
 
 ### DW-79: Deleting an accommodation leaves orphan travel segments with dangling endpoint ids
 
@@ -620,7 +625,8 @@ origin: 2-31-complete-trip-backup-export-with-photos-travel-segments-and-bucket-
 location: `travelplan/src/lib/repositories/tripRepo.ts` — `toExportPhotoExtension`, `EXPORT_PHOTO_FALLBACK_CONTENT_TYPE`
 severity: medium
 reason: An `imageUrl` whose extension is outside `jpg|jpeg|png|webp` is still archived, with `archivePath` `photos/pN.bin` and `contentType` `application/octet-stream`, and **no `meta.warnings` line** — `tripRepo.test.ts` "falls back to a binary content type for an extension outside the upload allow-list" pins exactly that, asserting `warnings: []`. Story 2.32's `photoSchema` pins `contentType` to `z.enum(["image/jpeg", "image/png", "image/webp"])` with an explicit "do not widen it", so such a package fails import wholesale — and the export gave no hint at the time it was produced. The `bin` fallback is what Story 2.31's Task 2 mandates, so this is not a deviation and was not patched here; the decision belongs to the importer's story. Only reachable today via a legacy or hand-written DB row (the upload routes accept the three types only), which is why this is low-frequency rather than low-consequence. Three candidate resolutions for 2.32's dev session: widen the allow-list to accept and pass through `application/octet-stream`, have the exporter warn when it uses the fallback, or have the exporter drop the row like any other unarchivable image. Note DW-77 records four 2.31→2.32 deltas and this is not among them.
-status: open
+status: done 2026-08-08
+resolution: already resolved: travelplan/src/lib/validation/tripImportSchemas.ts:117-131 now types `photoSchema.contentType` as a non-empty trimmed string with an explicit comment that the exporter's application/octet-stream fallback must pass, with the bytes sniffed instead; pinned by test/tripImportPackage.test.ts:891 and test/tripImportSchemas.test.ts:392-399.
 
 ### DW-81: Nothing enforces the Node floor that `zlib.crc32` needs
 
@@ -727,7 +733,8 @@ origin: retroactive operator verification of story 2-32, 2026-08-02
 location: `travelplan/next.config.ts` (empty), `travelplan/src/lib/trips/importLimits.ts:14`, `travelplan/src/middleware.ts:66`
 severity: critical
 reason: `MAX_IMPORT_PACKAGE_BYTES` is 100 MB, but `middleware.ts:66`'s matcher includes `/api/trips/:path*`, so Next buffers the import request for the middleware and caps that buffer at **10 MB** by default. A 13.4 MB export (one trip, four photos) is truncated mid-body; `request.formData()` then throws and the route answers `400 invalid_form_data` — "this backup could not be read, it may be incomplete or damaged" — for a backup that is perfectly intact. Next logs the real cause server-side ("Request body exceeded 10MB for /api/trips/import"), which no user sees. `importLimits.ts:14` states the wrong premise: "The App Router has no bodyParser.sizeLimit equivalent, so nothing caps a request body unless the handler does." That is false for Next 16 whenever the route is in the middleware matcher. **Verified empirically 2026-08-02**: the same import returns 400 with the stock config and 200 with `experimental: { proxyClientMaxBodySize: "110mb" }` in `next.config.ts` (note the key moved — `middlewareClientMaxBodySize`, which Next's own error message still names, is deprecated in this version). Raising nginx's `client_max_body_size` is necessary but not sufficient; the app's own cap sits behind it. This blocks story 2-32's core purpose.
-status: open
+status: done 2026-08-08
+resolution: already resolved: Story 2.34 fixed the premise: travelplan/src/middleware.ts:121 excludes the import route from the matcher, next.config.ts:50 sets `experimental.proxyClientMaxBodySize`, the body is streamed to a temp file, and importLimits.ts's docblock now records the corrected reasoning.
 
 ### DW-94: A skipped photo's URL is carried into the imported trip, pointing back at the source trip's directory
 
@@ -830,7 +837,8 @@ location: `travelplan/src/components/features/trips/TripDayView.tsx` — the `<B
 severity: low
 summary: The wrapper that restores pointer events for the photo strip is block-level, so it claims the full card width; clicking the empty band to the right of the last thumbnail hits a dead zone instead of opening the editor.
 evidence: The wrapper exists to stop a near-miss between two thumbnails falling through to the overlay, and for that it is correct. But a `Box` in a column flex container stretches to the card's width, and the strip itself is only as wide as its thumbnails, so on a card with one or two photos most of that row is wrapper and nothing else — an inert strip across the bottom of an otherwise fully clickable card. Introduced for stay cards by 6.13, pre-existing on activity cards since 6.9. `width: "fit-content"` on all three closes it, but it is a one-line change to a pattern 6.9 verified in a browser, and this repo has no way to re-verify it there; folded into the next browser pass rather than patched blind.
-status: open
+status: done 2026-08-08
+resolution: already resolved: travelplan/src/components/features/trips/TripDayView.tsx:1956-1999 — the media-row refactor made the photo-strip wrapper a flex item inside the shared `renderMediaRow` container (`display: flex`, `flexWrap: wrap`, `justifyContent: space-between` at :1968-1991), so it shrink-wraps to the strip instead of stretching across the card as it did in the old column layout.
 
 ### DW-106: `useMediaQuery` now decides DOM structure, not just a `data-` attribute — DW-14 escalated
 
@@ -861,7 +869,8 @@ location: `travelplan/test/tripImportDialog.test.tsx` (four cases) and `travelpl
 severity: medium
 summary: `MAX_IMPORT_PACKAGE_BYTES` was raised from 100 MB to 300 MB, but five tests still spell out `101 * 1024 * 1024` and the string "Backup file is larger than 100 MB."; the fixture is now comfortably *under* the cap, so the route accepts it and fails downstream with `invalid_json`, and `npm test` has been red on `main` since.
 evidence: Not a product defect — the cap enforces correctly at its new value; the assertions are stale. `importLimits.ts` documents the raise ("Raised from 100 MB on 2026-08-02 because it made real backups unrestorable"), and the failures read exactly as a fixture that no longer trips the guard: `expected 'invalid_json' to be 'file_too_large'`. Confirmed pre-existing at `dcfb859` — both files are unmodified by this story and fail identically with story 6-15's changes reverted. A fix was in the working tree at the start of this run (deriving `OVER_LIMIT_BYTES` and the message from `MAX_IMPORT_PACKAGE_BYTES` rather than hard-coding either) and was reverted before it landed; that derive-don't-duplicate shape is the right one, since the same duplication is what `importLimits.ts` exists to prevent. Left to the import story rather than patched here: a red suite on `main` masks real regressions, but it is a different feature and this story must not carry an unrelated fix into its commit.
-status: open
+status: done 2026-08-08
+resolution: already resolved: travelplan/test/tripImportDialog.test.tsx:7-16 now derives OVER_LIMIT_BYTES and TOO_LARGE_MESSAGE from MAX_IMPORT_PACKAGE_BYTES, and test/tripImportRoute.test.ts:12,289,593,615,630 derive from the same constant; no asserted 100 MB literal remains in test/.
 
 ### DW-109: The print sheet shows a distance for ship and flight while the day view hides it
 
@@ -1303,7 +1312,8 @@ severity: low
 summary: Story 7.13's AC6 dropped the `"Cost: {amount}"` wrapper from the cost overview's four amount call sites, which were the key's last readers — `grep -rn "stay.costSummary" src/` now returns only the two definitions. The key remains defined in both locales with nothing reading it.
 evidence: The story's Project Structure Notes justified keeping the key with "it has other readers", and that premise was false at the time it was written — verified by grep after the change. The key was left in place deliberately rather than removed, because the same note scopes i18n changes out of a visual-only story. Fix is two deleted lines plus a check that no dynamic key construction reaches it; small enough to ride along with the next story that touches `src/i18n`.
 operator_decision (2026-08-03): **Left to Tommy.** The new line is English in a German UI, which is a visible inconsistency — but it is consistent with every other string in that channel, so translating one means translating the channel, and that means sending a structured warning shape rather than sentences. Worth doing; not worth blocking a restored backup for.
-status: open
+status: done 2026-08-08
+resolution: already resolved: Both definitions are gone — `grep 'stay.costSummary' src/` returns nothing — and travelplan/test/i18nDictionaries.test.ts:648-650 now asserts the key's absence from both dictionaries.
 
 ### DW-149: The Kosten tab is unbounded, so AC9's fixed 1341px figure stops holding at four payment rows
 
@@ -1323,7 +1333,8 @@ location: `travelplan/src/i18n/de.ts` (`trips.plan.costInvalid`)
 severity: low
 summary: The invalid-amount message on the activity dialog reads "Bitte einen gueltigen nicht-negativen Betrag …" — an ASCII fallback where its two nearest neighbours both write the umlaut.
 evidence: Seen on screen during the 6-22 error-path check, then confirmed in the dictionary: `trips.travelSegment.linkInvalid` reads "Bitte einen gültigen http(s)-Link eingeben" and `trips.stay.costInvalid` reads "Bitte einen gültigen Betrag eingeben". Only `trips.plan.costInvalid` diverges. Pre-existing, one character, and the sort of thing a sweep should pick up rather than a story.
-status: open
+status: done 2026-08-08
+resolution: already resolved: travelplan/src/i18n/de.ts:500 now reads 'Bitte einen Betrag wie 10,00 oder 10.00 eingeben — höchstens 2 Nachkommastellen'; Story 6.27 (commit 8d06abb, 2026-08-07) rewrote both cost-invalid messages and `grep -n gueltig src/` returns nothing.
 
 
 ### DW-151: A day's travel-time total counts segments its timeline refuses to draw, and the UI offers no way to delete them
@@ -1475,7 +1486,8 @@ location: `travelplan/src/components/features/admin/AdminUsersList.tsx:88` (the 
 severity: low
 summary: `busy` is computed per row by comparing against a single `busyUserId`, so a click on row B is not disabled while row A's mutation is still in flight. Whichever request returns first calls `setBusyUserId(null)`, re-enabling the other row's buttons and hiding its spinner while its request is still outstanding; the two `load()` calls then resolve in arbitrary order.
 evidence: All four mutation helpers (`setAdminRole`, `changeMembershipRole`, `detach`, and the delete path's own flag) write the same single slot. The consequence is cosmetic and self-healing — both mutations still complete server-side and the final `load()` reconciles — which is why it is deferred. It is worth recording because the same structure is what makes DW-163's sibling finding (the unguarded `fetch` in `mutate`, patched under this story) able to strand the flag permanently: a set of per-row flags, or a `Set` of in-flight ids, removes both classes at once.
-status: open
+status: done 2026-08-08
+resolution: already resolved: travelplan/src/components/features/admin/AdminUsersList.tsx:137 is now `useState<ReadonlySet<string>>(() => new Set())` with markBusy/clearBusy at :138-145 and per-row `busyUserIds.has(user.id)` at :747; the docstring at :130-136 names this exact fix from the Story 5.11 review.
 
 ### DW-166: The admin payload is the whole account-and-trip graph, unpaginated, refetched after every mutation
 
@@ -2165,7 +2177,8 @@ source_spec: `_bmad-output/implementation-artifacts/spec-6-27-a-comma-is-a-decim
 origin: migrated from legacy ledger ("Deferred from: 8-3 production rollout (2026-08-05)"), 2026-08-08
 location: `travelplan/src/lib/trips/parseAmount.ts:109` — `parseDecimal`, against `parseAmountToCents` in the same file
 reason: Verified at runtime: `parseDecimal("1,000") === 1` and `parseDecimal("1.234") === 1.234`. The money path escapes it because `^\d+(\.\d{1,2})?$` rejects a three-digit tail, so `parseAmountToCents("1,000")` returns `null` and the user sees an error; `parseDecimal`'s `^\d+(\.\d+)?$` accepts it. Newly reachable: while the distance field was `type="number"` a comma arrived as `""` and produced `distanceRequired`. The value is at least visible on the segment card afterwards, and a day-scoped segment of 1000+ km is unusual, which is why this was not patched blind. `1,000` (thousands) and `12,555` (decimal) are the same shape — integer part, comma, exactly three digits — so distinguishing them needs the decision Story 6.27's own open question 3 left unanswered: cap `distanceKm` at one decimal, which makes both rejectable, or keep it uncapped and accept the guess.
-status: open
+status: done 2026-08-08
+resolution: already resolved: Story 6.30 added the opt-in decimal cap this entry's open question needed: travelplan/src/lib/trips/parseAmount.ts:109-127 (`maxDecimals`) with the distance call site passing it at TripDayTravelSegmentDialog.tsx:321, pinned by test/parseAmount.test.ts:125-126 where `parseDecimal("1,000", {maxDecimals:1})` is null instead of 1.
 
 ### DW-248: The two cost fields show a locale-aware placeholder but seed and re-render their value as dot-decimal
 
@@ -2173,7 +2186,8 @@ source_spec: `_bmad-output/implementation-artifacts/spec-6-27-a-comma-is-a-decim
 origin: migrated from legacy ledger ("Deferred from: 8-3 production rollout (2026-08-05)"), 2026-08-08
 location: `travelplan/src/lib/trips/parseAmount.ts` — `formatCentsAsAmount`, which seeds `costCents` and every payment row in both dialogs
 reason: `formatCentsAsAmount` is unconditionally `(value / 100).toFixed(2)`, so a German user saves `12,50`, reopens the stay, and reads `12.50` in a box whose placeholder promised a comma. Story 6.27's AC5a asked for the placeholder and got it; the round-tripped value was never in scope. Not data loss — both forms parse — but the two halves of one field disagree about which separator the app prefers, and the value is the one users imitate. Fixing it means a language argument on `formatCentsAsAmount` plus a decision about whether an unedited round trip should change what the box says, which touches the cost→payment mirror in both dialogs and the assertions that pin `"50.00"`.
-status: open
+status: done 2026-08-08
+resolution: already resolved: travelplan/src/lib/trips/parseAmount.ts:167-170 — `formatCentsAsAmount(value, language)` now returns a comma under `de` and every call site passes `language` (TripAccommodationDialog.tsx:359/364/454/624, TripDayPlanDialog.tsx:557/562/857), pinned by test/parseAmount.test.ts:222.
 
 ### DW-249: Neither the activity cost field nor any payment row has an upper bound, so cent values can pass a 32-bit `Int`
 
