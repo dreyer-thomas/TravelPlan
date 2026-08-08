@@ -148,3 +148,38 @@ No new files, no new dependency, no migration, no route change. Two render sites
 ### File List
 
 ### Change Log
+
+## Operator Pass — 2026-08-07
+
+Run by Tommy against a clean archive of `6d23741` (HEAD; the story's park point `0fbdac9f` is its
+direct ancestor, with only Story 6.30 between them) on an isolated port, with a throwaway copy of the
+database and an empty `MEDIA_STORAGE_ROOT`. The real database and media tree were never opened. A
+`VIEWER` account was seeded into the scratch database for AC6.
+
+| # | Check | Result |
+|---|---|---|
+| 1 | Both stay links tapped in Chrome at 390px | **Pass** — booking opens in a new tab, the stay edit dialog does not open |
+| 2 | The same two taps on real iOS Safari, portrait | **Pass** |
+| 3 | Tap-target measurement | **71.12 × 44** — see below |
+| 4 | Both stay links tapped as a `VIEWER` | **Pass** — the no-overlay branch works |
+| 5 | `javascript:alert(1)` submitted in the stay Link field | **Pass** — inline field error, no generic failure banner |
+
+Checks 1, 2 and 4 are the ones jsdom cannot answer: it does not hit-test, so the whole question of
+whether the link or the stretched edit overlay receives the tap only exists in a real engine. Both
+engines were exercised deliberately — Chrome's pointer emulation and Safari's touch hit-testing are
+different mechanisms, and the overlay and the link genuinely overlap.
+
+### DW-206 is closed by check 3, and the entry was wrong
+
+The review recorded the three link controls as *"roughly a 22px tap target"* against DESIGN.md's 44px
+floor, reasoning from `sx={{ p: 0, minWidth: "auto", alignSelf: "flex-start" }}` on a `size="small"`
+text `Button`. The measurement says **71.12 × 44** — exactly on the floor.
+
+`p: 0` removes the *padding*. It does not touch `minHeight`, and `src/theme.ts:355-358` sets
+`MuiButton.styleOverrides.root.minHeight = 44` for every button in the application. All three sites
+are MUI `Button`s and inherit it, so the floor holds structurally rather than by luck at one of them.
+
+The finding was derived from a component's own `sx` without resolving it against the theme cascade —
+a claim only a measurement could settle, which is what this pass is for. DW-206 is closed as not
+reproducible; no work is owed. DW-207 (all five links accessibly named "Open link") survives on its
+own merits, and its "bundle with DW-206" routing has been corrected.
