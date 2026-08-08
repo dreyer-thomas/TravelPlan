@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import { DELETE, GET, PATCH, POST } from "@/app/api/trips/[id]/travel-segments/route";
 import { prisma } from "@/lib/db/prisma";
 import { createSessionJwt } from "@/lib/auth/jwt";
+import { routeContext } from "./helpers/routeContext";
 
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 type ApiEnvelope<T> = {
@@ -101,7 +102,7 @@ describe("/api/trips/[id]/travel-segments", () => {
       method: "GET",
     });
 
-    const response = await GET(request, { params: { id: trip.id } });
+    const response = await GET(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<{ segments: { id: string; transportType: string }[] }>;
 
     expect(response.status).toBe(200);
@@ -165,7 +166,7 @@ describe("/api/trips/[id]/travel-segments", () => {
       }),
     });
 
-    const createResponse = await POST(createRequest, { params: { id: trip.id } });
+    const createResponse = await POST(createRequest, routeContext(trip.id));
     const createPayload = (await createResponse.json()) as ApiEnvelope<{ segment: { id: string } }>;
 
     expect(createResponse.status).toBe(200);
@@ -192,7 +193,7 @@ describe("/api/trips/[id]/travel-segments", () => {
       }),
     });
 
-    const updateResponse = await PATCH(updateRequest, { params: { id: trip.id } });
+    const updateResponse = await PATCH(updateRequest, routeContext(trip.id));
     const updatePayload = (await updateResponse.json()) as ApiEnvelope<{ segment: { transportType: string } }>;
 
     expect(updateResponse.status).toBe(200);
@@ -208,7 +209,7 @@ describe("/api/trips/[id]/travel-segments", () => {
       }),
     });
 
-    const deleteResponse = await DELETE(deleteRequest, { params: { id: trip.id } });
+    const deleteResponse = await DELETE(deleteRequest, routeContext(trip.id));
     const deletePayload = (await deleteResponse.json()) as ApiEnvelope<{ deleted: boolean }>;
 
     expect(deleteResponse.status).toBe(200);
@@ -276,7 +277,7 @@ describe("/api/trips/[id]/travel-segments", () => {
         session: token,
         method: "GET",
       }),
-      { params: { id: trip.id } },
+      routeContext(trip.id),
     );
     const payload = (await response.json()) as ApiEnvelope<{ segments: { transportType: string }[] }>;
 
@@ -347,7 +348,7 @@ describe("/api/trips/[id]/travel-segments", () => {
         session: token,
         method: "GET",
       }),
-      { params: { id: trip.id } },
+      routeContext(trip.id),
     );
     const payload = (await response.json()) as ApiEnvelope<{ segments: { transportType: string }[] }>;
 
@@ -419,7 +420,7 @@ describe("/api/trips/[id]/travel-segments", () => {
       }),
     });
 
-    const response = await POST(request, { params: { id: trip.id } });
+    const response = await POST(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(404);
@@ -489,7 +490,7 @@ describe("/api/trips/[id]/travel-segments", () => {
           linkUrl: "https://maps.example.com",
         }),
       }),
-      { params: { id: trip.id } },
+      routeContext(trip.id),
     );
     const createPayload = (await createResponse.json()) as ApiEnvelope<{ segment: { id: string } }>;
 
@@ -516,7 +517,7 @@ describe("/api/trips/[id]/travel-segments", () => {
           linkUrl: null,
         }),
       }),
-      { params: { id: trip.id } },
+      routeContext(trip.id),
     );
     const updatePayload = (await updateResponse.json()) as ApiEnvelope<{ segment: { transportType: string } }>;
 
@@ -533,7 +534,7 @@ describe("/api/trips/[id]/travel-segments", () => {
           segmentId,
         }),
       }),
-      { params: { id: trip.id } },
+      routeContext(trip.id),
     );
     const deletePayload = (await deleteResponse.json()) as ApiEnvelope<{ deleted: boolean }>;
 
@@ -612,7 +613,7 @@ describe("/api/trips/[id]/travel-segments", () => {
       }),
     });
 
-    const response = await POST(request, { params: { id: trip.id } });
+    const response = await POST(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<unknown>;
 
     expect(response.status).toBe(400);

@@ -5,7 +5,29 @@ import { prisma } from "@/lib/db/prisma";
 import {
   createTripCollaboratorForOwner,
   deleteTripCollaboratorForOwner,
+  type CreateTripCollaboratorResult,
 } from "@/lib/repositories/tripRepo";
+
+/**
+ * Narrows a create-collaborator result to its `"created"` arm so `collaborator`/`collaborators` can
+ * be read.
+ *
+ * It throws rather than returning early, but not for the reason that reads naturally: both call sites
+ * are preceded by `expect(result.outcome).toBe("created")`, so an early `return` would not actually
+ * let a `conflict` or `validation_error` regression pass here today. The point is that throwing does
+ * not *rely* on that neighbouring assertion staying put - a case pasted in without it, or an `expect`
+ * reworded away, leaves an early-return guard silently asserting nothing. See the fuller note on
+ * `expectImportedResult` in `tripRepo.test.ts`.
+ */
+const expectCreatedCollaborator = (
+  result: CreateTripCollaboratorResult,
+): Extract<CreateTripCollaboratorResult, { outcome: "created" }> => {
+  if (result.outcome !== "created") {
+    throw new Error(`Expected a "created" collaborator outcome, received "${result.outcome}".`);
+  }
+
+  return result;
+};
 
 describe("trip collaboration repository", () => {
   beforeEach(async () => {
@@ -41,13 +63,14 @@ describe("trip collaboration repository", () => {
     });
 
     expect(result.outcome).toBe("created");
-    expect(result.collaborator).toEqual(
+    const created = expectCreatedCollaborator(result);
+    expect(created.collaborator).toEqual(
       expect.objectContaining({
         email: "viewer@example.com",
         role: "viewer",
       }),
     );
-    expect(result.collaborator.id).toBe(result.collaborators[0]?.id);
+    expect(created.collaborator.id).toBe(created.collaborators[0]?.id);
 
     const user = await prisma.user.findUnique({
       where: { email: "viewer@example.com" },
@@ -117,7 +140,8 @@ describe("trip collaboration repository", () => {
     });
 
     expect(result.outcome).toBe("created");
-    expect(result.collaborator).toEqual(
+    const created = expectCreatedCollaborator(result);
+    expect(created.collaborator).toEqual(
       expect.objectContaining({
         email: "existing@example.com",
         role: "contributor",

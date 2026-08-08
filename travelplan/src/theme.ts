@@ -117,12 +117,15 @@ const shadows: Shadows = [
   modalShadow,
 ];
 
-const checkboxIcon = createElement("svg", {
-  width: 20,
-  height: 20,
-  viewBox: "0 0 20 20",
-  "aria-hidden": true,
-  children: createElement("rect", {
+const checkboxIcon = createElement(
+  "svg",
+  {
+    width: 20,
+    height: 20,
+    viewBox: "0 0 20 20",
+    "aria-hidden": true,
+  },
+  createElement("rect", {
     x: 1,
     y: 1,
     width: 18,
@@ -132,34 +135,35 @@ const checkboxIcon = createElement("svg", {
     stroke: colors.borderStrong,
     strokeWidth: 1.5,
   }),
-});
+);
 
-const checkboxCheckedIcon = createElement("svg", {
-  width: 20,
-  height: 20,
-  viewBox: "0 0 20 20",
-  "aria-hidden": true,
-  children: [
-    createElement("rect", {
-      key: "box",
-      x: 1,
-      y: 1,
-      width: 18,
-      height: 18,
-      rx: 4,
-      fill: colors.accent,
-    }),
-    createElement("path", {
-      key: "check",
-      d: "M5.5 10.5l3 3 6-6.5",
-      fill: "none",
-      stroke: "#FFFFFF",
-      strokeWidth: 2,
-      strokeLinecap: "round",
-      strokeLinejoin: "round",
-    }),
-  ],
-});
+const checkboxCheckedIcon = createElement(
+  "svg",
+  {
+    width: 20,
+    height: 20,
+    viewBox: "0 0 20 20",
+    "aria-hidden": true,
+  },
+  createElement("rect", {
+    key: "box",
+    x: 1,
+    y: 1,
+    width: 18,
+    height: 18,
+    rx: 4,
+    fill: colors.accent,
+  }),
+  createElement("path", {
+    key: "check",
+    d: "M5.5 10.5l3 3 6-6.5",
+    fill: "none",
+    stroke: "#FFFFFF",
+    strokeWidth: 2,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+  }),
+);
 
 /**
  * The one rule that keeps iOS Safari from zooming the page in when a control takes focus.

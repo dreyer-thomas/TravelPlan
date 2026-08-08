@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import { POST } from "@/app/api/trips/[id]/day-activity-transfer/route";
 import { prisma } from "@/lib/db/prisma";
 import { createSessionJwt } from "@/lib/auth/jwt";
+import { routeContext } from "./helpers/routeContext";
 
 type ApiEnvelope<T> = {
   data: T | null;
@@ -110,7 +111,7 @@ describe("/api/trips/[id]/day-activity-transfer", () => {
           confirmOverwrite: true,
         }),
       }),
-      { params: { id: trip.id } },
+      routeContext(trip.id),
     );
     const payload = (await response.json()) as ApiEnvelope<{
       operation: "move" | "swap";
@@ -188,7 +189,7 @@ describe("/api/trips/[id]/day-activity-transfer", () => {
           targetTripDayId: secondDay.id,
         }),
       }),
-      { params: { id: trip.id } },
+      routeContext(trip.id),
     );
     const payload = (await response.json()) as ApiEnvelope<{
       operation: "move" | "swap";
@@ -237,7 +238,7 @@ describe("/api/trips/[id]/day-activity-transfer", () => {
           targetTripDayId: day.id,
         }),
       }),
-      { params: { id: trip.id } },
+      routeContext(trip.id),
     );
     const payload = (await response.json()) as ApiEnvelope<null>;
 
@@ -302,7 +303,7 @@ describe("/api/trips/[id]/day-activity-transfer", () => {
           targetTripDayId: targetDay.id,
         }),
       }),
-      { params: { id: trip.id } },
+      routeContext(trip.id),
     );
     const payload = (await response.json()) as ApiEnvelope<null>;
 
@@ -361,7 +362,7 @@ describe("/api/trips/[id]/day-activity-transfer", () => {
           confirmOverwrite: true,
         }),
       }),
-      { params: { id: trip.id } },
+      routeContext(trip.id),
     );
     const payload = (await response.json()) as ApiEnvelope<null>;
 

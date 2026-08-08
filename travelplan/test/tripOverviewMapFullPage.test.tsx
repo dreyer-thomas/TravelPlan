@@ -5,8 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import TripOverviewMapFullPage from "@/components/features/trips/TripOverviewMapFullPage";
 import { renderWithProviders } from "./helpers/renderWithProviders";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { expectNoHardcodedColour } from "./helpers/hardcodedColour";
 
 vi.mock("next/dynamic", () => ({
   default: () =>
@@ -28,18 +27,12 @@ vi.mock("next/dynamic", () => ({
     ),
 }));
 
-// The page shell is an async RSC, so vitest cannot render it. A source-text guard is the only
-// mechanical check available for "no hardcoded hex value remains in either page component"; the
-// shell previously painted itself #2f343d, inverting the app's value scheme on the way in.
-// Comments are stripped first so an issue reference like `// see #1234` cannot fail the guard, and
-// rgb()/hsl() are matched too so the literal cannot simply come back in another notation.
-const HARDCODED_COLOUR = /#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(/;
-const stripComments = (source: string) => source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
-
+// This trip-overview shell previously painted itself #2f343d, inverting the app's value scheme on the
+// way in. The day-map shell made the same mistake and is guarded separately in
+// `tripDayMapFullPage.test.tsx`; each call reads exactly the one file named.
 describe("trip map page shell", () => {
   it("carries no hardcoded colour", () => {
-    const source = readFileSync(resolve(process.cwd(), "src/app/(routes)/trips/[id]/map/page.tsx"), "utf8");
-    expect(stripComments(source)).not.toMatch(HARDCODED_COLOUR);
+    expectNoHardcodedColour("src/app/(routes)/trips/[id]/map/page.tsx");
   });
 });
 

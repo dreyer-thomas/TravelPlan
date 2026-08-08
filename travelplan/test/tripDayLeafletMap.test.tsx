@@ -4,8 +4,11 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import TripDayLeafletMap from "@/components/features/trips/TripDayLeafletMap";
 import type { ReactNode } from "react";
+import type { TripDayMapPoint } from "@/lib/trips/dayMapData";
 
-const TEST_POINTS = [
+// Annotated rather than `as const`: the annotation keeps `kind` and `position` from widening to
+// `string`/`number[]` *and* fails here if the point type gains a required field.
+const TEST_POINTS: TripDayMapPoint[] = [
   { id: "point-1", label: "Point 1", kind: "planItem", position: [40.7, -73.9], order: 0 },
   { id: "point-2", label: "Point 2", kind: "planItem", position: [40.71, -73.98], order: 1 },
 ];

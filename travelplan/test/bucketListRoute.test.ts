@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import { DELETE, GET, PATCH, POST } from "@/app/api/trips/[id]/bucket-list-items/route";
 import { prisma } from "@/lib/db/prisma";
 import { createSessionJwt } from "@/lib/auth/jwt";
+import { routeContext } from "./helpers/routeContext";
 
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 type ApiEnvelope<T> = {
@@ -33,13 +34,6 @@ const buildRequest = (
     body: options?.body,
   });
 };
-
-/**
- * The handlers take `{ params: Promise<{ id?: string }> }`. The cases added by Story 5.13 build it
- * through this helper rather than the bare object literal the older cases pass, which does not
- * type-check.
- */
-const routeContext = (tripId: string) => ({ params: Promise.resolve({ id: tripId }) });
 
 describe("/api/trips/[id]/bucket-list-items", () => {
   beforeEach(async () => {
@@ -92,7 +86,7 @@ describe("/api/trips/[id]/bucket-list-items", () => {
       method: "GET",
     });
 
-    const response = await GET(request, { params: { id: trip.id } });
+    const response = await GET(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<{
       items: {
         id: string;
@@ -132,7 +126,7 @@ describe("/api/trips/[id]/bucket-list-items", () => {
       method: "GET",
     });
 
-    const response = await GET(request, { params: { id: trip.id } });
+    const response = await GET(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(404);
@@ -165,7 +159,7 @@ describe("/api/trips/[id]/bucket-list-items", () => {
       method: "GET",
     });
 
-    const response = await GET(request, { params: { id: trip.id } });
+    const response = await GET(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(403);
@@ -200,7 +194,7 @@ describe("/api/trips/[id]/bucket-list-items", () => {
       }),
     });
 
-    const response = await POST(request, { params: { id: trip.id } });
+    const response = await POST(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<{
       item: {
         id: string;
@@ -247,7 +241,7 @@ describe("/api/trips/[id]/bucket-list-items", () => {
       }),
     });
 
-    const response = await POST(request, { params: { id: trip.id } });
+    const response = await POST(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(400);
@@ -280,7 +274,7 @@ describe("/api/trips/[id]/bucket-list-items", () => {
       }),
     });
 
-    const response = await POST(request, { params: { id: trip.id } });
+    const response = await POST(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(403);
@@ -317,7 +311,7 @@ describe("/api/trips/[id]/bucket-list-items", () => {
       }),
     });
 
-    const response = await POST(request, { params: { id: trip.id } });
+    const response = await POST(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(404);
@@ -352,7 +346,7 @@ describe("/api/trips/[id]/bucket-list-items", () => {
       }),
     });
 
-    const response = await POST(request, { params: { id: trip.id } });
+    const response = await POST(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(400);
@@ -396,7 +390,7 @@ describe("/api/trips/[id]/bucket-list-items", () => {
       }),
     });
 
-    const response = await PATCH(request, { params: { id: trip.id } });
+    const response = await PATCH(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<{
       item: {
         id: string;
@@ -448,7 +442,7 @@ describe("/api/trips/[id]/bucket-list-items", () => {
       }),
     });
 
-    const response = await PATCH(request, { params: { id: trip.id } });
+    const response = await PATCH(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(403);
@@ -493,7 +487,7 @@ describe("/api/trips/[id]/bucket-list-items", () => {
       }),
     });
 
-    const response = await PATCH(request, { params: { id: trip.id } });
+    const response = await PATCH(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(404);
@@ -530,7 +524,7 @@ describe("/api/trips/[id]/bucket-list-items", () => {
       body: JSON.stringify({ itemId: item.id }),
     });
 
-    const response = await DELETE(request, { params: { id: trip.id } });
+    const response = await DELETE(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<{ deleted: boolean }>;
 
     expect(response.status).toBe(200);
@@ -566,7 +560,7 @@ describe("/api/trips/[id]/bucket-list-items", () => {
       body: JSON.stringify({ itemId: item.id }),
     });
 
-    const response = await DELETE(request, { params: { id: trip.id } });
+    const response = await DELETE(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(403);
@@ -606,7 +600,7 @@ describe("/api/trips/[id]/bucket-list-items", () => {
       body: JSON.stringify({ itemId: item.id }),
     });
 
-    const response = await DELETE(request, { params: { id: trip.id } });
+    const response = await DELETE(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(404);

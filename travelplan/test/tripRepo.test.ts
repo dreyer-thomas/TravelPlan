@@ -18,9 +18,34 @@ import {
   importTripFromExportForUser,
   updateTripDayImageForUser,
   updateTripWithDays,
+  type ImportTripResult,
 } from "@/lib/repositories/tripRepo";
 import type { TripImportPayloadInput } from "@/lib/validation/tripImportSchemas";
 import { jpegBytes, pngBytes, webpBytes, writeUploadFile } from "./helpers/uploadFixtures";
+
+/**
+ * Narrows an import result to its `"imported"` arm so the success-only fields can be read.
+ *
+ * Be accurate about what this buys, because the obvious argument for it is wrong here. The
+ * `if (result.outcome !== "imported") return;` form used at the five sites further down *would* skip
+ * every assertion after it and pass - but at all five, and at the two converted to this helper, the
+ * line immediately above is `expect(result.outcome).toBe("imported")`, which fails first. No site in
+ * this file is currently vacuous, so the five were left alone rather than swept on a premise that does
+ * not apply to them.
+ *
+ * What the helper does buy is that the narrowing no longer *depends* on that neighbouring `expect`.
+ * The early-return form is only non-vacuous for as long as somebody keeps the two lines together;
+ * delete or reword the `expect` - or paste the guard into a new case without it - and the test silently
+ * asserts nothing. Throwing carries its own failure, so it is correct in isolation, and it names the
+ * outcome actually received instead of reporting a skipped test as a pass.
+ */
+const expectImportedResult = (result: ImportTripResult): Extract<ImportTripResult, { outcome: "imported" }> => {
+  if (result.outcome !== "imported") {
+    throw new Error(`Expected an "imported" import outcome, received "${result.outcome}".`);
+  }
+
+  return result;
+};
 
 const VALID_RANGE = {
   startDate: "2026-04-01T00:00:00.000Z",
@@ -1944,10 +1969,11 @@ describe("tripRepo", () => {
     });
 
     expect(result.outcome).toBe("imported");
-    expect(result.mode).toBe("createNew");
-    expect(result.dayCount).toBe(2);
+    const imported = expectImportedResult(result);
+    expect(imported.mode).toBe("createNew");
+    expect(imported.dayCount).toBe(2);
 
-    const detail = await getTripWithDaysForUser(user.id, result.trip.id);
+    const detail = await getTripWithDaysForUser(user.id, imported.trip.id);
     expect(detail).not.toBeNull();
     expect(detail?.days.map((day) => `${day.dayIndex}-${day.date.toISOString()}`)).toEqual([
       "1-2026-11-01T00:00:00.000Z",
@@ -2002,8 +2028,9 @@ describe("tripRepo", () => {
     });
 
     expect(result.outcome).toBe("imported");
-    expect(result.mode).toBe("overwrite");
-    expect(result.trip.id).toBe(target.trip.id);
+    const imported = expectImportedResult(result);
+    expect(imported.mode).toBe("overwrite");
+    expect(imported.trip.id).toBe(target.trip.id);
 
     const detail = await getTripWithDaysForUser(user.id, target.trip.id);
     expect(detail?.name).toBe("Imported Trip");

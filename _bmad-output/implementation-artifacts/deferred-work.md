@@ -763,7 +763,8 @@ origin: incidental to story 6-10 review, 2026-08-02
 location: `travelplan/package.json` (scripts), `travelplan/test/**`
 severity: low
 reason: `npx tsc --noEmit` reports **143 errors**, identical on the 6-10 branch and on its baseline `e990d3f` — none introduced by this story, and none in application source. They are concentrated in test files, overwhelmingly one shape: hand-rolled `fetch` stubs typed as `{ ok, status, json }` object literals assigned where `Promise<Response>` is expected ("missing the following properties from type 'Response': headers, redirected, statusText, type, and 9 more"). `package.json` has no `typecheck` script — `lint` is the only static gate — so nothing in CI or the dev loop ever surfaces these, and the count is free to grow. The consequence today is nil at runtime (Vitest transpiles without typechecking, and `next build` only checks the app graph), but it means TypeScript cannot be trusted as a signal in the test suite: a genuine type error in a new test is indistinguishable from the 143 already there. Fix is a shared typed `mockFetchResponse` helper in `test/helpers/` plus a `typecheck` script wired into the same gate as `lint`.
-status: open
+status: done 2026-08-08
+resolution: resolved by sweep bundle dw-lint-typecheck-and-test-helpers
 
 ### DW-96: DESIGN.md's "hero shows one navigation or action button only" rule is now contradicted by the day hero it governs
 
@@ -1151,7 +1152,8 @@ location: `travelplan/src/theme.ts:120` and `:137`
 severity: low
 summary: `npm run lint` ends at "2 errors, 83 warnings" on a clean tree — both errors are `Do not pass children as props` in `theme.ts`, in component slots that pass `children` inside a props object. Lint is the repo's only static gate (see DW-95: there is no `typecheck` script), and it exits non-zero regardless of what a story changed.
 evidence: Confirmed pre-existing: the same two errors and the same 83 warnings appear before and after story 6-20's changes, and neither line is in any file this story touched. The consequence is that "is lint clean?" cannot be used as a signal — every story has to diff the output by hand to tell its own findings from the baseline, which is precisely the trap DW-95 describes for `tsc`. Fix is small and local (pass the children as an argument rather than a prop in both slots), and it is worth doing at the same time as wiring the typecheck gate.
-status: open
+status: done 2026-08-08
+resolution: resolved by sweep bundle dw-lint-typecheck-and-test-helpers
 
 ### DW-135: The stat strip's row-growth defect survives in cell 4's *value*, on every day without a stay
 
@@ -2000,7 +2002,8 @@ source_spec: `_bmad-output/implementation-artifacts/7-13-cost-overview-redesign.
 origin: migrated from legacy ledger ("Note: story 6.20 partially reduces DW-126 (2026-08-02)"), 2026-08-08
 location: `travelplan/test/tripOverviewMapFullPage.test.tsx:36-37` and `travelplan/test/tripDayMapFullPage.test.tsx:46-47`, against Story 7.13's two copies
 reason: `HARDCODED_COLOUR` + `stripComments` are byte-identical in the two older files, while Story 7.13's copies additionally match named colours, `oklch()`/`lab()`/`color-mix()` and use `resolve(__dirname, "..")` instead of the cwd-dependent `resolve(process.cwd(), ...)`. The four should be one exported test helper so a guard improvement reaches every screen instead of only the newest two. Sanctioned at the time by Story 7.13's Task 7 ("matching the one Stories 7.9 and 7.11 use"), which is why it was recorded rather than fixed.
-status: open
+status: done 2026-08-08
+resolution: resolved by sweep bundle dw-lint-typecheck-and-test-helpers
 
 ### DW-220: A non-404 failure of the cost overview's fetch renders the card's label, divider and two working tabs above nothing at all
 
@@ -2407,4 +2410,67 @@ origin: deferred from spec-react-hooks-effect-hygiene follow-up review, 2026-08-
 severity: low
 location: `travelplan/src/components/features/trips/TripDayTravelSegmentDialog.tsx:90` (prop), `:246` (default `false`), `:530-537` (the auto-prefill effect it gates)
 reason: A `grep` across `src/` and `test/` finds the prop only at its own declaration, its default and the effect that reads it — no production call site, no test. So the auto-import-the-route-on-open effect and the `autoPrefillTriggeredRef` guard beside it are unreachable code with a live dependency on `handleGoogleMapsRoute` and `routeLoading`, and they are dead weight in exactly the file where the reader is trying to work out what runs per open. Pre-existing; surfaced while rewriting the comments above that effect for the mount-per-open change. Deciding between "delete it" and "wire it up" needs whoever knows whether the feature was intended — `TripDayView` never passes it, so if it was meant to fire from the map's route affordance, that wiring was never done.
+status: open
+
+### DW-269: The new `typecheck` script has no ratchet behind it, so the 164 → 0 result can regrow with every automated check green
+
+source_spec: `_bmad-output/implementation-artifacts/spec-lint-typecheck-and-test-helpers.md`
+origin: deferred from spec-lint-typecheck-and-test-helpers follow-up review, 2026-08-08
+severity: medium
+location: `travelplan/package.json:10` (`"typecheck": "tsc --noEmit"`), `.github/workflows/` (`migration-guard.yml`, `security-audit.yml`)
+reason: `npm run typecheck` now exits 0 on a clean tree, but nothing runs it. `grep -rn "npm run" .github/workflows/` yields only `audit:check` and `check:migrations`; there is no lint or typecheck job, and `lint` has never had one either. The stated problem DW-95 and DW-134 both describe is about *enforcement* — "unmeasured and free to grow", "a genuine new type error is indistinguishable from the baseline" — and a script a developer has to remember to run measures nothing the day they forget. The zero is therefore a snapshot, not a floor: the next 20 test files can reintroduce the same 164 errors with every automated check still green, and the person who then wires up the gate faces the same undifferentiated pile this sweep just cleared. Explicitly out of scope for the sweep by its own Never list ("do not add a lint/typecheck GitHub workflow"), which is why it is recorded rather than fixed. The work is one job running `npm run lint && npm run typecheck` on pull requests, and the decision it needs is whether the 79 surviving lint *warnings* stay non-blocking (they should — DW-95's sibling concern) so the job fails only on errors.
+status: open
+
+### DW-270: `npm run typecheck` is not hermetic — `tsconfig.json` pulls in `.next` generated types, so the gate checks a different file set depending on whether `next build` has run
+
+source_spec: `_bmad-output/implementation-artifacts/spec-lint-typecheck-and-test-helpers.md`
+origin: deferred from spec-lint-typecheck-and-test-helpers follow-up review, 2026-08-08
+severity: medium
+location: `travelplan/tsconfig.json:26-31` (`include` lists `.next/types/**/*.ts` and `.next/dev/types/**/*.ts`), against `travelplan/package.json:10`
+reason: `.next/types/validator.ts` exists in a built tree and not in a fresh clone, so `tsc --noEmit` compiles a strictly larger program after `next build` than before it. That was harmless while nothing invoked `tsc`; now that the gate exists it means the answer depends on the machine's build state in both directions — a Next-generated route-type mismatch can fail the gate on a diff that contains no such change, and a real error inside generated types is invisible on a clean checkout. It also makes the new acceptance criterion ("given a clean tree, `npm run typecheck` exits 0") a claim about one machine rather than about the repository, and it is the kind of difference that shows up first as "green locally, red in CI" once DW-269 is done. Pre-existing: the `include` entries are Next's own scaffolding and were there before this sweep. The fix is a decision, not a patch — either exclude the generated directories from the checked program and let `next build` own them, or make the gate depend on a build so the file set is defined; whoever wires up the CI job should settle it then, because that is where the divergence first costs something.
+status: open
+
+### DW-271: `stubFetch`'s generic accepts any `Mock` at all, so a stub whose signature is narrower than `fetch`'s installs without complaint
+
+source_spec: `_bmad-output/implementation-artifacts/spec-lint-typecheck-and-test-helpers.md`
+origin: deferred from spec-lint-typecheck-and-test-helpers follow-up review, 2026-08-08
+severity: low
+location: `travelplan/test/helpers/mockFetch.ts` (`stubFetch = <T extends Mock>(mock: T): T`), against the ~160 install sites it now serves
+reason: `T extends Mock` constrains nothing about arguments or return type: `stubFetch(vi.fn(() => 42))` compiles and installs a non-fetch as the global. The concrete gap this leaves open is argument width — `test/tripDayPlanDialog.test.tsx` types 18 stubs as `(input: RequestInfo, init?: RequestInit)`, narrower than the real `RequestInfo | URL`, and the compiler has nothing to say when the boundary widens under them. `<T extends Mock<Parameters<typeof fetch>, Promise<Response>>>` is the constraint that would notice, and it is deferred rather than applied for a concrete reason: it would immediately error at every install site whose stub is typed narrowly or returns the partial `mockFetchResponse` shape, i.e. it fails the zero-error gate this sweep just established, and the fix is to normalise those ~160 signatures first. Latent today, not live: nothing under `src/` hands a `URL` to `fetch` in a path any of those suites drive (`requestUrl` now covers the `Request` member for the suites that branch on the URL — see DW-272).
+status: open
+
+### DW-272: ~50 route-aware `fetch` stubs across 18 suites resolve their URL with `String(input)`, which mis-reads a `Request` argument
+
+source_spec: `_bmad-output/implementation-artifacts/spec-lint-typecheck-and-test-helpers.md`
+origin: deferred from spec-lint-typecheck-and-test-helpers follow-up review, 2026-08-08
+severity: low
+location: `travelplan/test/{tripDayViewLayout,tripAccommodationDialog,tripDayPlanDialog,tripTimelineSharing,tripsDashboard,travelSegmentDialog,tripHeroImage,tripShareDialog,tripCreateForm,tripBucketListPanel,dialogCloseAffordance,tripTimelineRoles,tripTimelineShareInstanceKey,authScreens,tripDayMapFullPage,dayRouteService}.test.*` — every `const url = String(input)` outside the four sites this sweep converted
+reason: `String(new Request(url))` is `"[object Request]"`, so a stub that branches on `url.includes("/api/…")` falls through to its catch-all and the suite asserts the wrong response with nothing naming the cause. This sweep added `requestUrl` (`test/helpers/mockFetch.ts`) — `input instanceof Request ? input.url : String(input)`, pinned by `test/mockFetch.test.ts` — and applied it at the four sites it touched, but `String(input)` is a pre-existing idiom with ~50 further instances, 33 of them in `tripDayViewLayout.test.tsx` alone. Not reachable today: `grep -rn "new Request(" src/` is empty, so no component under test constructs one. It is worth recording because the day one does — a retry wrapper, a middleware-shaped helper, anything that reshapes a call into a `Request` before dispatch — the whole class of suites goes quietly wrong at once rather than failing at the boundary. The sweep is mechanical: replace `String(input)` with `requestUrl(input)` and add the import.
+status: open
+
+### DW-273: `hardcodedColour.test.ts`'s passing case is pinned to a live page shell, so the guard's own unit test can fail for reasons that have nothing to do with the guard
+
+source_spec: `_bmad-output/implementation-artifacts/spec-lint-typecheck-and-test-helpers.md`
+origin: deferred from spec-lint-typecheck-and-test-helpers follow-up review, 2026-08-08
+severity: low
+location: `travelplan/test/hardcodedColour.test.ts` (the `expectNoHardcodedColour` passing case), against `travelplan/test/tripOverviewMapFullPage.test.tsx`
+reason: The case asserting that `expectNoHardcodedColour` passes on a clean file reads `src/app/(routes)/trips/[id]/map/page.tsx` — the same file, and the same assertion, that `tripOverviewMapFullPage.test.tsx` already makes. If that shell ever legitimately gains a colour (an inline SVG, a gradient, a themed background written as a literal on purpose), two suites fail, and one of them is nominally testing a regex, so the failure points at the wrong thing. The negative case does not share the problem and should be left alone: it is pinned to `src/theme.ts`, which cannot become colour-free. The fix is a fixture the test writes itself, and it is not a one-liner because `expectNoHardcodedColour` takes a package-relative path by design (the `__dirname` resolution DW-219 introduced), so a `mkdtemp` outside the package is unaddressable — the helper would need to accept an absolute path, or the fixture would have to be written inside the package tree and cleaned up. Both are small; which one is right depends on whether the path being package-relative is a constraint worth keeping, which is why it is recorded rather than guessed.
+status: open
+
+### DW-274: `RouteContext` is declared privately in 22 route handlers and exported by none, so the test helper is a 23rd copy the compiler cannot tie to any of them
+
+source_spec: `_bmad-output/implementation-artifacts/spec-lint-typecheck-and-test-helpers.md`
+origin: deferred from spec-lint-typecheck-and-test-helpers third review pass, 2026-08-09
+severity: medium
+location: `travelplan/src/app/api/**/route.ts` — `grep -rn "type RouteContext" src/app/api/` returns 22 hits, `grep -rn "export type RouteContext"` returns 0; against `travelplan/test/helpers/routeContext.ts`
+reason: Every handler that takes a dynamic segment re-declares the same `{ params: Promise<{ … }> }` shape locally, and none exports it, so a test can only ever assert a *structurally* compatible hand-written copy — which is what `test/helpers/routeContext.ts` now is. The consequence is already documented inside that helper as a warning it cannot enforce: because the segment keys are optional, `Promise<{ id?: string }>` is assignable to `Promise<{ id?: string; dayId?: string }>`, so handing a trip-level context to one of the four `days/[dayId]/` handlers type-checks and then fails the handler's params schema at runtime, answering 400 from the wrong branch. The helper's docblock tells the reader not to rely on the compiler here; the reason it has to is this duplication. The copies are not even one shape — the two `admin/users/[userId]` handlers carry `userId`, so a "share the type" sweep has to decide per handler rather than mechanically. Pre-existing and out of scope for the sweep, which was constrained to types-only/test-only changes with `src/theme.ts` as the single exception. The work is to export each handler's `RouteContext` (or derive one shared generic over the segment names) and have the test builders take their type from the handler they serve, at which point the mismatch becomes a compile error instead of a documented hazard.
+status: open
+
+### DW-275: `scripts/audit-check.d.mts` shadows the implementation for type resolution, so a *signature* change in `audit-check.mjs` cannot be detected
+
+source_spec: `_bmad-output/implementation-artifacts/spec-lint-typecheck-and-test-helpers.md`
+origin: deferred from spec-lint-typecheck-and-test-helpers third review pass, 2026-08-09
+severity: low
+location: `travelplan/scripts/audit-check.d.mts` (all 7 declared exports), against `travelplan/scripts/audit-check.mjs` and `travelplan/tsconfig.json` (`checkJs` off)
+reason: The declaration file wins module resolution over the `.mjs`, and `checkJs` is off, so nothing compares the two. Be precise about the size of the hole, because the obvious framing overstates it: a *renamed or deleted* export is caught, because `auditCheckScript.test.ts` imports these names from the `.mjs` at runtime and ESM throws `SyntaxError: The requested module does not provide an export named …`, failing the suite. What is not caught is signature drift — an option renamed inside a bag, a return field's type changed, an argument becoming required. The declaration keeps asserting the old shape, fixtures keep compiling against it, and the tests keep passing while type-checking a contract the script no longer has. This matters more here than it would elsewhere because the file it describes is the security gate whose stated design goal is that it "must not be able to fail because of its own supply chain", and the declaration was added precisely so the gate's runtime code could stay untouched. Not urgent: the script is stable and its tests exercise the real functions, so drift shows up as a behavioural failure eventually. The cheap mitigation is a runtime check in `auditCheckScript.test.ts` asserting arity and the shape of one returned finding against the declared types, which would turn silent drift into a named failure without importing the declaration into the runtime path.
 status: open

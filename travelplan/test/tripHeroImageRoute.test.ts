@@ -7,6 +7,7 @@ import { prisma } from "@/lib/db/prisma";
 import { createSessionJwt } from "@/lib/auth/jwt";
 import { createTripWithDays } from "@/lib/repositories/tripRepo";
 import { getTripsUploadRoot } from "@/lib/trips/uploadPaths";
+import { routeContext } from "./helpers/routeContext";
 
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 type ApiEnvelope<T> = {
@@ -56,7 +57,7 @@ describe("POST /api/trips/[id]/hero-image", () => {
       csrf: "csrf-token",
       file: new File([Buffer.from("fake")], "hero.png", { type: "image/png" }),
     });
-    const response = await POST(request, { params: { id: "missing-trip" } });
+    const response = await POST(request, routeContext("missing-trip"));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(401);
@@ -86,7 +87,7 @@ describe("POST /api/trips/[id]/hero-image", () => {
       csrf: "csrf-token",
       file: new File([Buffer.from("not-an-image")], "hero.txt", { type: "text/plain" }),
     });
-    const response = await POST(request, { params: { id: trip.id } });
+    const response = await POST(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(400);
@@ -126,7 +127,7 @@ describe("POST /api/trips/[id]/hero-image", () => {
     // `Promise.resolve` and not the bare object the older tests in this file pass: Next 16 types
     // `params` as a promise, and matching the type keeps this from adding to the known baseline of
     // `tsc` errors in the suites.
-    const response = await POST(request, { params: Promise.resolve({ id: trip.id }) });
+    const response = await POST(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(400);
@@ -168,7 +169,7 @@ describe("POST /api/trips/[id]/hero-image", () => {
       csrf: "csrf-token",
       file: new File([Buffer.from("malicious")], "hero.png", { type: "image/png" }),
     });
-    const response = await POST(request, { params: { id: trip.id } });
+    const response = await POST(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(404);
@@ -200,7 +201,7 @@ describe("POST /api/trips/[id]/hero-image", () => {
       csrf: "csrf-token",
       file: new File([oversized], "hero.png", { type: "image/png" }),
     });
-    const response = await POST(request, { params: { id: trip.id } });
+    const response = await POST(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(400);
@@ -230,7 +231,7 @@ describe("POST /api/trips/[id]/hero-image", () => {
       csrf: "csrf-token",
       file: new File([Buffer.from("fake-image")], "hero.webp", { type: "image/webp" }),
     });
-    const response = await POST(request, { params: { id: trip.id } });
+    const response = await POST(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<{
       trip: { id: string; name: string; startDate: string; endDate: string; dayCount: number; heroImageUrl: string | null };
     }>;
@@ -272,7 +273,7 @@ describe("POST /api/trips/[id]/hero-image", () => {
         csrf: "csrf-token",
         file: new File([Buffer.from("fake")], "hero.webp", { type: "image/webp" }),
       }),
-      { params: Promise.resolve({ id: trip.id }) },
+      routeContext(trip.id),
     );
     const payload = (await response.json()) as ApiEnvelope<null>;
 

@@ -10,6 +10,7 @@ import TripAccommodationDialog, {
 } from "@/components/features/trips/TripAccommodationDialog";
 import { useI18n } from "@/i18n/provider";
 import { DOCUMENT_UPLOAD_ACCEPT } from "@/lib/trips/documentUploads";
+import { mockFetchResponse, stubFetch } from "./helpers/mockFetch";
 import { Providers } from "./helpers/renderWithProviders";
 
 /**
@@ -54,13 +55,9 @@ describe("TripAccommodationDialog", () => {
   });
 
   it("renders place lookup with read-only coordinates text", async () => {
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
-    })) as unknown as typeof fetch;
+    const fetchMock = vi.fn(async () => mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null }));
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     render(
       <Providers language="en">
@@ -131,32 +128,23 @@ describe("TripAccommodationDialog", () => {
           });
         }
 
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { csrfToken: "csrf-fallback" }, error: null }),
-        };
+        return mockFetchResponse({ data: { csrfToken: "csrf-fallback" }, error: null });
       }
 
       if (url.includes("/api/trips/trip-1/accommodations")) {
         expect(init?.method).toBe("PATCH");
         expect((init?.headers as Record<string, string>)["x-csrf-token"]).toBe("csrf-fallback");
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { accommodation: { id: "stay-1" } }, error: null }),
-        };
+        return mockFetchResponse({ data: { accommodation: { id: "stay-1" } }, error: null });
       }
 
-      return {
-        ok: false,
-        status: 404,
-        json: async () => ({ data: null, error: { code: "not_found", message: "Not found" } }),
-      };
-    }) as unknown as typeof fetch;
+      return mockFetchResponse(
+        { data: null, error: { code: "not_found", message: "Not found" } },
+        { status: 404 },
+      );
+    });
 
     const onSaved = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     render(
       <Providers language="en">
@@ -193,13 +181,9 @@ describe("TripAccommodationDialog", () => {
   });
 
   it("defaults check-in time for current-night stays", async () => {
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
-    })) as unknown as typeof fetch;
+    const fetchMock = vi.fn(async () => mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null }));
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     render(
       <Providers language="en">
@@ -262,21 +246,13 @@ describe("TripAccommodationDialog", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.includes("/api/auth/csrf")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
-        };
+        return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
       }
       if (init?.body) sentBodies.push(String(init.body));
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ data: { accommodation: { id: "stay-1" } }, error: null }),
-      };
-    }) as unknown as typeof fetch;
+      return mockFetchResponse({ data: { accommodation: { id: "stay-1" } }, error: null });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     render(
       <Providers language="en">
@@ -323,13 +299,9 @@ describe("TripAccommodationDialog", () => {
   });
 
   it("defaults check-out time for previous-night stays", async () => {
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
-    })) as unknown as typeof fetch;
+    const fetchMock = vi.fn(async () => mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null }));
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     render(
       <Providers language="en">
@@ -370,20 +342,15 @@ describe("TripAccommodationDialog", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/api/auth/csrf")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
-        };
+        return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
       }
-      return {
-        ok: false,
-        status: 404,
-        json: async () => ({ data: null, error: { code: "not_found", message: "Not found" } }),
-      };
-    }) as unknown as typeof fetch;
+      return mockFetchResponse(
+        { data: null, error: { code: "not_found", message: "Not found" } },
+        { status: 404 },
+      );
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     render(
       <Providers language="en">
@@ -424,13 +391,9 @@ describe("TripAccommodationDialog", () => {
   });
 
   it("loads payment schedule when editing an accommodation cost", async () => {
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
-    })) as unknown as typeof fetch;
+    const fetchMock = vi.fn(async () => mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null }));
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     render(
       <Providers language="en">
@@ -490,13 +453,9 @@ describe("TripAccommodationDialog", () => {
    * a stay, which is why the link moved there from the basics column.
    */
   it("splits the form into four named sections, none of them a single field", async () => {
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
-    })) as unknown as typeof fetch;
+    const fetchMock = vi.fn(async () => mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null }));
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     render(
       <Providers language="en">
@@ -565,13 +524,9 @@ describe("TripAccommodationDialog", () => {
    * on a saved stay, so without the link that tab would be empty while adding one.
    */
   it("keeps the media tab non-empty while adding a stay, and says why the gallery is absent", async () => {
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
-    })) as unknown as typeof fetch;
+    const fetchMock = vi.fn(async () => mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null }));
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     render(
       <Providers language="en">
@@ -611,13 +566,9 @@ describe("TripAccommodationDialog", () => {
    * `Basics`, is the one that exercises react-hook-form's own pass.
    */
   it("selects, marks and focuses the tab that owns a validation error", async () => {
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
-    })) as unknown as typeof fetch;
+    const fetchMock = vi.fn(async () => mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null }));
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     render(
       <Providers language="en">
@@ -650,13 +601,9 @@ describe("TripAccommodationDialog", () => {
 
   /** The same path for a payment error, which lives two tabs away from where the save is pressed. */
   it("switches to the payment tab when the split payments do not add up", async () => {
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
-    })) as unknown as typeof fetch;
+    const fetchMock = vi.fn(async () => mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null }));
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     render(
       <Providers language="en">
@@ -700,13 +647,9 @@ describe("TripAccommodationDialog", () => {
    * component state the geocode lookup writes.
    */
   it("keeps typed values across a tab round trip", async () => {
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
-    })) as unknown as typeof fetch;
+    const fetchMock = vi.fn(async () => mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null }));
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     render(
       <Providers language="en">
@@ -755,13 +698,9 @@ describe("TripAccommodationDialog", () => {
    * browser check, recorded in the story.
    */
   it("puts a minimum height under the tab panels, not a fixed one", async () => {
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
-    })) as unknown as typeof fetch;
+    const fetchMock = vi.fn(async () => mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null }));
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     render(
       <Providers language="en">
@@ -802,13 +741,8 @@ describe("TripAccommodationDialog", () => {
    */
   describe("review of Story 6.26", () => {
     const csrfOnly = () =>
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(async () => ({
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
-        })) as unknown as typeof fetch,
+      stubFetch(
+        vi.fn(async () => mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null })),
       );
 
     type StayDay = NonNullable<Parameters<typeof TripAccommodationDialog>[0]["day"]>;
@@ -985,25 +919,23 @@ describe("TripAccommodationDialog", () => {
      * AC2's third reveal path, which Task 2 names and no case covered: the server's field errors.
      */
     it("reveals, marks and focuses the tab a server field error names", async () => {
-      vi.stubGlobal(
-        "fetch",
+      stubFetch(
         vi.fn(async (input: RequestInfo | URL) => {
           if (String(input).includes("/api/auth/csrf")) {
-            return { ok: true, status: 200, json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }) };
+            return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
           }
-          return {
-            ok: false,
-            status: 422,
-            json: async () => ({
+          return mockFetchResponse(
+            {
               data: null,
               error: {
                 code: "validation_error",
                 message: "Invalid",
                 details: { fieldErrors: { notes: ["Notes are too long"] } },
               },
-            }),
-          };
-        }) as unknown as typeof fetch,
+            },
+            { status: 422 },
+          );
+        }),
       );
       renderStay();
 
@@ -1033,30 +965,28 @@ describe("TripAccommodationDialog", () => {
      */
     it("still saves after a server error naming a field the form does not surface", async () => {
       let saveAttempts = 0;
-      vi.stubGlobal(
-        "fetch",
+      stubFetch(
         vi.fn(async (input: RequestInfo | URL) => {
           const url = String(input);
           if (url.includes("/api/auth/csrf")) {
-            return { ok: true, status: 200, json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }) };
+            return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
           }
           saveAttempts += 1;
           if (saveAttempts === 1) {
-            return {
-              ok: false,
-              status: 422,
-              json: async () => ({
+            return mockFetchResponse(
+              {
                 data: null,
                 error: {
                   code: "validation_error",
                   message: "Invalid",
                   details: { fieldErrors: { tripDayId: ["Trip day is required"] } },
                 },
-              }),
-            };
+              },
+              { status: 422 },
+            );
           }
-          return { ok: true, status: 200, json: async () => ({ data: { accommodation: { id: "stay-1" } }, error: null }) };
-        }) as unknown as typeof fetch,
+          return mockFetchResponse({ data: { accommodation: { id: "stay-1" } }, error: null });
+        }),
       );
       renderStay();
 
@@ -1078,25 +1008,23 @@ describe("TripAccommodationDialog", () => {
      * goes in untruncated, so this is an ordinary search result rather than a freak input.
      */
     it("selects the place tab for a server error on the location, which is not a form field", async () => {
-      vi.stubGlobal(
-        "fetch",
+      stubFetch(
         vi.fn(async (input: RequestInfo | URL) => {
           if (String(input).includes("/api/auth/csrf")) {
-            return { ok: true, status: 200, json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }) };
+            return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
           }
-          return {
-            ok: false,
-            status: 422,
-            json: async () => ({
+          return mockFetchResponse(
+            {
               data: null,
               error: {
                 code: "validation_error",
                 message: "Invalid",
                 details: { fieldErrors: { "location.label": ["Location label must be at most 200 characters"] } },
               },
-            }),
-          };
-        }) as unknown as typeof fetch,
+            },
+            { status: 422 },
+          );
+        }),
       );
       renderStay();
 
@@ -1149,14 +1077,13 @@ describe("TripAccommodationDialog", () => {
         against the unfixed code. What the ordering actually decides is which message the user gets
         when the token cannot be had, so that is what is asserted.
       */
-      vi.stubGlobal(
-        "fetch",
+      stubFetch(
         vi.fn(async (input: RequestInfo | URL) => {
           if (String(input).includes("/api/auth/csrf")) {
-            return { ok: false, status: 500, json: async () => ({ data: null, error: { code: "server_error", message: "nope" } }) };
+            return mockFetchResponse({ data: null, error: { code: "server_error", message: "nope" } }, { status: 500 });
           }
           throw new Error("the save must never be attempted with an empty name");
-        }) as unknown as typeof fetch,
+        }),
       );
       renderStay();
 
@@ -1176,14 +1103,13 @@ describe("TripAccommodationDialog", () => {
      * tab switch losing it would both drop the upload and quietly release the guard.
      */
     it("keeps a staged upload across a tab round trip, and asks to discard exactly once", async () => {
-      vi.stubGlobal(
-        "fetch",
+      stubFetch(
         vi.fn(async (input: RequestInfo | URL) => {
           if (String(input).includes("/api/auth/csrf")) {
-            return { ok: true, status: 200, json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }) };
+            return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
           }
-          return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
-        }) as unknown as typeof fetch,
+          return mockFetchResponse({ data: { images: [] }, error: null });
+        }),
       );
       const onClose = vi.fn();
       render(
@@ -1299,18 +1225,17 @@ describe("TripAccommodationDialog", () => {
      * sequence — a positional mock would answer the wrong one the day their timing changes.
      */
     const mediaFetch = (documents: Array<{ id: string; documentUrl: string; fileName: string; sortOrder: number }> = []) =>
-      vi.stubGlobal(
-        "fetch",
+      stubFetch(
         vi.fn(async (input: RequestInfo | URL) => {
           const url = String(input);
           if (url.includes("/api/auth/csrf")) {
-            return { ok: true, status: 200, json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }) };
+            return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
           }
           if (url.includes("/accommodations/documents")) {
-            return { ok: true, status: 200, json: async () => ({ data: { documents }, error: null }) };
+            return mockFetchResponse({ data: { documents }, error: null });
           }
-          return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
-        }) as unknown as typeof fetch,
+          return mockFetchResponse({ data: { images: [] }, error: null });
+        }),
       );
 
     const renderStay = (accommodation: StayDay["accommodation"], onClose = () => undefined) =>
@@ -1569,20 +1494,12 @@ describe("TripAccommodationDialog", () => {
       const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
         if (url.includes("/api/auth/csrf")) {
-          return {
-            ok: true,
-            status: 200,
-            json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
-          };
+          return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
         }
         if (init?.body) sentBodies.push(String(init.body));
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { accommodation: { id: "stay-1" } }, error: null }),
-        };
-      }) as unknown as typeof fetch;
-      vi.stubGlobal("fetch", fetchMock);
+        return mockFetchResponse({ data: { accommodation: { id: "stay-1" } }, error: null });
+      });
+      stubFetch(fetchMock);
       return fetchMock;
     };
 
@@ -1943,24 +1860,22 @@ describe("TripAccommodationDialog", () => {
       const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
         if (url.includes("/api/auth/csrf")) {
-          return { ok: true, status: 200, json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }) };
+          return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
         }
         if (url.includes("/api/geocode")) {
-          return { ok: true, status: 200, json: async () => ({ data: { results }, error: null }) };
+          return mockFetchResponse({ data: { results }, error: null });
         }
         if (init?.body) sentBodies.push(String(init.body));
-        return { ok: true, status: 200, json: async () => ({ data: { accommodation: { id: "stay-1" } }, error: null }) };
-      }) as unknown as typeof fetch;
-      vi.stubGlobal("fetch", fetchMock);
+        return mockFetchResponse({ data: { accommodation: { id: "stay-1" } }, error: null });
+      });
+      stubFetch(fetchMock);
       return fetchMock;
     };
 
     // The CSRF fetch fires on mount, so "no request reached the geocoder" can only honestly be a
     // filtered call list — Trap 2.
-    const geocodeCalls = (fetchMock: typeof fetch) =>
-      (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls.filter((call) =>
-        String(call[0]).includes("/api/geocode"),
-      );
+    const geocodeCalls = (fetchMock: ReturnType<typeof geocodeFetch>) =>
+      fetchMock.mock.calls.filter((call) => String(call[0]).includes("/api/geocode"));
 
     const renderPlace = async (
       results: Array<{ lat: number; lng: number; label: string }> = [],

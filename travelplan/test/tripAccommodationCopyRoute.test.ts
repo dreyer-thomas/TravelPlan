@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import { POST } from "@/app/api/trips/[id]/accommodations/copy/route";
 import { prisma } from "@/lib/db/prisma";
 import { createSessionJwt } from "@/lib/auth/jwt";
+import { routeContext } from "./helpers/routeContext";
 
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 type ApiEnvelope<T> = {
@@ -100,7 +101,7 @@ describe("/api/trips/[id]/accommodations/copy", () => {
       body: JSON.stringify({ tripDayId: currentDay.id }),
     });
 
-    const response = await POST(request, { params: { id: trip.id } });
+    const response = await POST(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<{
       accommodation: {
         id: string;
@@ -193,7 +194,7 @@ describe("/api/trips/[id]/accommodations/copy", () => {
         method: "POST",
         body: JSON.stringify({ tripDayId: currentDay.id }),
       }),
-      { params: { id: trip.id } },
+      routeContext(trip.id),
     );
     const payload = (await response.json()) as ApiEnvelope<{ accommodation: { tripDayId: string; name: string } }>;
 
@@ -244,7 +245,7 @@ describe("/api/trips/[id]/accommodations/copy", () => {
       body: JSON.stringify({ tripDayId: currentDay.id }),
     });
 
-    const response = await POST(request, { params: { id: trip.id } });
+    const response = await POST(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(404);
@@ -259,7 +260,7 @@ describe("/api/trips/[id]/accommodations/copy", () => {
       body: JSON.stringify({ tripDayId: "day-1" }),
     });
 
-    const response = await POST(request, { params: { id: "trip-1" } });
+    const response = await POST(request, routeContext("trip-1"));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(401);
@@ -283,7 +284,7 @@ describe("/api/trips/[id]/accommodations/copy", () => {
       body: JSON.stringify({ tripDayId: "day-1" }),
     });
 
-    const response = await POST(request, { params: { id: "trip-1" } });
+    const response = await POST(request, routeContext("trip-1"));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(403);
@@ -349,7 +350,7 @@ describe("/api/trips/[id]/accommodations/copy", () => {
       body: JSON.stringify({ tripDayId: currentDay.id }),
     });
 
-    const response = await POST(request, { params: { id: trip.id } });
+    const response = await POST(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(404);

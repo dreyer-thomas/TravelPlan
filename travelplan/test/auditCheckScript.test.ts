@@ -916,8 +916,8 @@ describe("main() — the exit codes CI actually reads", () => {
         { mode: 0o755 },
       );
 
-      const environment: Record<string, string> = {
-        ...(process.env as Record<string, string>),
+      const environment: NodeJS.ProcessEnv = {
+        ...process.env,
         PATH: `${binDirectory}${path.delimiter}${process.env.PATH ?? ""}`,
       };
       delete environment.GITHUB_ACTIONS;

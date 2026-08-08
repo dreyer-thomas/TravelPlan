@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import TripDayView from "@/components/features/trips/TripDayView";
 import { useEffect, type ReactNode } from "react";
 import theme from "@/theme";
+import { mockFetchResponse, requestUrl, stubFetch } from "./helpers/mockFetch";
 import { Providers, renderWithProviders } from "./helpers/renderWithProviders";
 
 // jsdom reports computed colours as `rgb(r, g, b)`; the palette stores hex. Converting here lets colour
@@ -129,6 +130,9 @@ vi.mock("@/components/features/trips/TripDayPlanDialog", () => ({
     }, []);
     planDialogMockState.lastProps = props;
     if (!props.open) return null;
+    // Hoisted out of the JSX: the `props.item &&` guards below cannot narrow `props.item` inside the
+    // `onClick` closures, because a property read is re-checked on every call. A local const can be.
+    const item = props.item;
     return (
       <div data-testid="plan-dialog">
         <span data-testid="plan-dialog-mode">{props.mode}</span>
@@ -136,8 +140,8 @@ vi.mock("@/components/features/trips/TripDayPlanDialog", () => ({
         <span data-testid="plan-dialog-item-link">{props.item?.linkUrl ?? "none"}</span>
         <span data-testid="plan-dialog-prefill-title">{props.prefill?.title ?? "none"}</span>
         <span data-testid="plan-dialog-prefill-bucket">{props.prefill?.bucketListItemId ?? "none"}</span>
-        {props.mode === "edit" && props.item ? (
-          <button type="button" onClick={() => void props.onDelete?.(props.item.id)}>
+        {props.mode === "edit" && item ? (
+          <button type="button" onClick={() => void props.onDelete?.(item.id)}>
             Delete plan item
           </button>
         ) : null}
@@ -147,11 +151,11 @@ vi.mock("@/components/features/trips/TripDayPlanDialog", () => ({
           under test here is the *screen's* half of the contract — the request, the reload and the
           sentence naming what was removed.
         */}
-        {props.mode === "edit" && props.item && props.onMove && props.moveTargetDays?.length ? (
+        {props.mode === "edit" && item && props.onMove && props.moveTargetDays?.length ? (
           <button
             type="button"
             onClick={() =>
-              void props.onMove?.(props.item!.id, props.moveTargetDays![0].id).then((outcome) => {
+              void props.onMove?.(item.id, props.moveTargetDays![0].id).then((outcome) => {
                 planDialogMockState.lastMoveMoved = outcome.moved;
                 planDialogMockState.lastMoveMessage = outcome.moved ? null : outcome.message;
               })
@@ -165,16 +169,12 @@ vi.mock("@/components/features/trips/TripDayPlanDialog", () => ({
   },
 }));
 
-const buildBucketListResponse = (items: unknown[] = []) => ({
-  ok: true,
-  status: 200,
-  json: async () => ({ data: { items }, error: null }),
-});
+const buildBucketListResponse = (items: unknown[] = []) => mockFetchResponse({ data: { items }, error: null });
 
 let bucketListItemsOverride: unknown[] | null = null;
 
 const maybeHandleBucketListRequest = (input: RequestInfo | URL, items: unknown[] = []) => {
-  const url = typeof input === "string" ? input : input.url;
+  const url = requestUrl(input);
   if (url.includes("/bucket-list-items")) {
     const resolvedItems = bucketListItemsOverride ?? items;
     return buildBucketListResponse(resolvedItems);
@@ -345,39 +345,35 @@ describe("TripDayView layout", () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
     const fetchMock = withBucketList(async () => {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-01T00:00:00.000Z",
-              dayCount: 1,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: null,
-                dayPlanItems: [],
-              },
-            ],
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-01T00:00:00.000Z",
+            dayCount: 1,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
           },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: null,
+              dayPlanItems: [],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
@@ -392,77 +388,65 @@ describe("TripDayView layout", () => {
     const fetchMock = withBucketList(async (input) => {
       const url = String(input);
       if (url.includes("/accommodations/images") || url.includes("/day-plan-items/images")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { images: [] }, error: null }),
-        };
+        return mockFetchResponse({ data: { images: [] }, error: null });
       }
       if (url.includes("/days/day-1/route")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { points: [], route: { polyline: [], distanceMeters: null, durationSeconds: null } }, error: null }),
-        };
+        return mockFetchResponse({ data: { points: [], route: { polyline: [], distanceMeters: null, durationSeconds: null } }, error: null });
       }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              accessRole: "viewer",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-01T00:00:00.000Z",
-              dayCount: 1,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: {
-                  id: "stay-1",
-                  name: "Viewer Hotel",
-                  notes: null,
-                  status: "booked",
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            accessRole: "viewer",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-01T00:00:00.000Z",
+            dayCount: 1,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
+          },
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: {
+                id: "stay-1",
+                name: "Viewer Hotel",
+                notes: null,
+                status: "booked",
+                costCents: null,
+                payments: [],
+                link: null,
+                checkInTime: null,
+                checkOutTime: null,
+                location: null,
+              },
+              dayPlanItems: [
+                {
+                  id: "item-1",
+                  title: "Museum",
+                  fromTime: "09:00",
+                  toTime: "10:00",
+                  contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Visit" }] }] }),
                   costCents: null,
                   payments: [],
-                  link: null,
-                  checkInTime: null,
-                  checkOutTime: null,
+                  linkUrl: null,
                   location: null,
                 },
-                dayPlanItems: [
-                  {
-                    id: "item-1",
-                    title: "Museum",
-                    fromTime: "09:00",
-                    toTime: "10:00",
-                    contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Visit" }] }] }),
-                    costCents: null,
-                    payments: [],
-                    linkUrl: null,
-                    location: null,
-                  },
-                ],
-                travelSegments: [],
-              },
-            ],
-          },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+              ],
+              travelSegments: [],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
@@ -485,77 +469,65 @@ describe("TripDayView layout", () => {
     const fetchMock = withBucketList(async (input) => {
       const url = String(input);
       if (url.includes("/accommodations/images") || url.includes("/day-plan-items/images")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { images: [] }, error: null }),
-        };
+        return mockFetchResponse({ data: { images: [] }, error: null });
       }
       if (url.includes("/days/day-1/route")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { points: [], route: { polyline: [], distanceMeters: null, durationSeconds: null } }, error: null }),
-        };
+        return mockFetchResponse({ data: { points: [], route: { polyline: [], distanceMeters: null, durationSeconds: null } }, error: null });
       }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              accessRole: "contributor",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-01T00:00:00.000Z",
-              dayCount: 1,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: {
-                  id: "stay-1",
-                  name: "Contributor Hotel",
-                  notes: null,
-                  status: "booked",
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            accessRole: "contributor",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-01T00:00:00.000Z",
+            dayCount: 1,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
+          },
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: {
+                id: "stay-1",
+                name: "Contributor Hotel",
+                notes: null,
+                status: "booked",
+                costCents: null,
+                payments: [],
+                link: null,
+                checkInTime: null,
+                checkOutTime: null,
+                location: null,
+              },
+              dayPlanItems: [
+                {
+                  id: "item-1",
+                  title: "Museum",
+                  fromTime: "09:00",
+                  toTime: "10:00",
+                  contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Visit" }] }] }),
                   costCents: null,
                   payments: [],
-                  link: null,
-                  checkInTime: null,
-                  checkOutTime: null,
+                  linkUrl: null,
                   location: null,
                 },
-                dayPlanItems: [
-                  {
-                    id: "item-1",
-                    title: "Museum",
-                    fromTime: "09:00",
-                    toTime: "10:00",
-                    contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Visit" }] }] }),
-                    costCents: null,
-                    payments: [],
-                    linkUrl: null,
-                    location: null,
-                  },
-                ],
-                travelSegments: [],
-              },
-            ],
-          },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+              ],
+              travelSegments: [],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
@@ -591,39 +563,35 @@ describe("TripDayView layout", () => {
       },
     ];
     const fetchMock = withBucketList(async () => {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-01T00:00:00.000Z",
-              dayCount: 1,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: null,
-                dayPlanItems: [],
-              },
-            ],
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-01T00:00:00.000Z",
+            dayCount: 1,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
           },
-          error: null,
-        }),
-      };
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: null,
+              dayPlanItems: [],
+            },
+          ],
+        },
+        error: null,
+      });
     });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
@@ -678,39 +646,35 @@ describe("TripDayView layout", () => {
       },
     ];
     const fetchMock = withBucketList(async () => {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-01T00:00:00.000Z",
-              dayCount: 1,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: null,
-                dayPlanItems: [],
-              },
-            ],
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-01T00:00:00.000Z",
+            dayCount: 1,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
           },
-          error: null,
-        }),
-      };
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: null,
+              dayPlanItems: [],
+            },
+          ],
+        },
+        error: null,
+      });
     });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
@@ -744,39 +708,35 @@ describe("TripDayView layout", () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
     const fetchMock = withBucketList(async () => {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-01T00:00:00.000Z",
-              dayCount: 1,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: true,
-                missingPlan: true,
-                accommodation: null,
-                dayPlanItems: [],
-              },
-            ],
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-01T00:00:00.000Z",
+            dayCount: 1,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
           },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: true,
+              missingPlan: true,
+              accommodation: null,
+              dayPlanItems: [],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
@@ -789,69 +749,65 @@ describe("TripDayView layout", () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
     const fetchMock = withBucketList(async () => {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-02T00:00:00.000Z",
-              dayCount: 2,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: true,
-                accommodation: {
-                  id: "stay-prev",
-                  name: "Previous Hotel",
-                  notes: null,
-                  status: "booked",
-                  costCents: null,
-                  link: null,
-                  checkInTime: null,
-                  checkOutTime: "10:00",
-                  location: null,
-                },
-                dayPlanItems: [],
-              },
-              {
-                id: "day-2",
-                date: "2026-12-02T00:00:00.000Z",
-                dayIndex: 2,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: true,
-                accommodation: {
-                  id: "stay-current",
-                  name: "Current Hotel",
-                  notes: null,
-                  status: "booked",
-                  costCents: null,
-                  link: null,
-                  checkInTime: "10:00",
-                  checkOutTime: null,
-                  location: null,
-                },
-                dayPlanItems: [],
-              },
-            ],
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-02T00:00:00.000Z",
+            dayCount: 2,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
           },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: {
+                id: "stay-prev",
+                name: "Previous Hotel",
+                notes: null,
+                status: "booked",
+                costCents: null,
+                link: null,
+                checkInTime: null,
+                checkOutTime: "10:00",
+                location: null,
+              },
+              dayPlanItems: [],
+            },
+            {
+              id: "day-2",
+              date: "2026-12-02T00:00:00.000Z",
+              dayIndex: 2,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: {
+                id: "stay-current",
+                name: "Current Hotel",
+                notes: null,
+                status: "booked",
+                costCents: null,
+                link: null,
+                checkInTime: "10:00",
+                checkOutTime: null,
+                location: null,
+              },
+              dayPlanItems: [],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-2" />);
 
@@ -864,64 +820,60 @@ describe("TripDayView layout", () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
     const fetchMock = withBucketList(async () => {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-01T00:00:00.000Z",
-              dayCount: 1,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: {
-                  id: "stay-prev",
-                  name: "Previous Hotel",
-                  notes: null,
-                  status: "booked",
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-01T00:00:00.000Z",
+            dayCount: 1,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
+          },
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: {
+                id: "stay-prev",
+                name: "Previous Hotel",
+                notes: null,
+                status: "booked",
+                costCents: null,
+                link: null,
+                checkInTime: null,
+                checkOutTime: "08:00",
+                location: null,
+              },
+              dayPlanItems: [
+                {
+                  id: "item-1",
+                  title: "Museum",
+                  fromTime: "09:00",
+                  toTime: "10:00",
+                  contentJson: JSON.stringify({
+                    type: "doc",
+                    content: [{ type: "paragraph", content: [{ type: "text", text: "Visit" }] }],
+                  }),
                   costCents: null,
-                  link: null,
-                  checkInTime: null,
-                  checkOutTime: "08:00",
+                  linkUrl: null,
                   location: null,
                 },
-                dayPlanItems: [
-                  {
-                    id: "item-1",
-                    title: "Museum",
-                    fromTime: "09:00",
-                    toTime: "10:00",
-                    contentJson: JSON.stringify({
-                      type: "doc",
-                      content: [{ type: "paragraph", content: [{ type: "text", text: "Visit" }] }],
-                    }),
-                    costCents: null,
-                    linkUrl: null,
-                    location: null,
-                  },
-                ],
-                travelSegments: [],
-              },
-            ],
-          },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+              ],
+              travelSegments: [],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
@@ -960,64 +912,60 @@ describe("TripDayView layout", () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
     const fetchMock = withBucketList(async () => {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-01T00:00:00.000Z",
-              dayCount: 1,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: {
-                  id: "stay-prev",
-                  name: "Previous Hotel",
-                  notes: null,
-                  status: "booked",
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-01T00:00:00.000Z",
+            dayCount: 1,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
+          },
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: {
+                id: "stay-prev",
+                name: "Previous Hotel",
+                notes: null,
+                status: "booked",
+                costCents: null,
+                link: null,
+                checkInTime: null,
+                checkOutTime: "08:00",
+                location: null,
+              },
+              dayPlanItems: [
+                {
+                  id: "item-1",
+                  title: "Museum",
+                  fromTime: "09:00",
+                  toTime: "10:00",
+                  contentJson: JSON.stringify({
+                    type: "doc",
+                    content: [{ type: "paragraph", content: [{ type: "text", text: "Visit" }] }],
+                  }),
                   costCents: null,
-                  link: null,
-                  checkInTime: null,
-                  checkOutTime: "08:00",
+                  linkUrl: null,
                   location: null,
                 },
-                dayPlanItems: [
-                  {
-                    id: "item-1",
-                    title: "Museum",
-                    fromTime: "09:00",
-                    toTime: "10:00",
-                    contentJson: JSON.stringify({
-                      type: "doc",
-                      content: [{ type: "paragraph", content: [{ type: "text", text: "Visit" }] }],
-                    }),
-                    costCents: null,
-                    linkUrl: null,
-                    location: null,
-                  },
-                ],
-                travelSegments: [],
-              },
-            ],
-          },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+              ],
+              travelSegments: [],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
@@ -1051,73 +999,69 @@ describe("TripDayView layout", () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
     const fetchMock = withBucketList(async () => {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-02T00:00:00.000Z",
-              dayCount: 2,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-02T00:00:00.000Z",
+            dayCount: 2,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
+          },
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: {
+                id: "stay-prev",
+                name: "Previous Hotel",
+                notes: null,
+                status: "booked",
+                costCents: null,
+                link: null,
+                checkInTime: null,
+                checkOutTime: "10:00",
+                location: null,
+              },
+              dayPlanItems: [],
             },
-            days: [
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: true,
-                accommodation: {
-                  id: "stay-prev",
-                  name: "Previous Hotel",
-                  notes: null,
-                  status: "booked",
+            {
+              id: "day-2",
+              date: "2026-12-02T00:00:00.000Z",
+              dayIndex: 2,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: null,
+              dayPlanItems: [
+                {
+                  id: "item-1",
+                  title: "Museum",
+                  fromTime: "09:00",
+                  toTime: "11:00",
+                  contentJson: JSON.stringify({
+                    type: "doc",
+                    content: [{ type: "paragraph", content: [{ type: "text", text: "Visit" }] }],
+                  }),
                   costCents: null,
-                  link: null,
-                  checkInTime: null,
-                  checkOutTime: "10:00",
+                  linkUrl: null,
                   location: null,
                 },
-                dayPlanItems: [],
-              },
-              {
-                id: "day-2",
-                date: "2026-12-02T00:00:00.000Z",
-                dayIndex: 2,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: null,
-                dayPlanItems: [
-                  {
-                    id: "item-1",
-                    title: "Museum",
-                    fromTime: "09:00",
-                    toTime: "11:00",
-                    contentJson: JSON.stringify({
-                      type: "doc",
-                      content: [{ type: "paragraph", content: [{ type: "text", text: "Visit" }] }],
-                    }),
-                    costCents: null,
-                    linkUrl: null,
-                    location: null,
-                  },
-                ],
-              },
-            ],
-          },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+              ],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-2" />);
 
@@ -1132,76 +1076,72 @@ describe("TripDayView layout", () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
     const fetchMock = withBucketList(async () => {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-01T00:00:00.000Z",
-              dayCount: 1,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-2",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: {
-                  id: "stay-prev",
-                  name: "Previous Hotel",
-                  notes: null,
-                  status: "booked",
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-01T00:00:00.000Z",
+            dayCount: 1,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
+          },
+          days: [
+            {
+              id: "day-2",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: {
+                id: "stay-prev",
+                name: "Previous Hotel",
+                notes: null,
+                status: "booked",
+                costCents: null,
+                link: null,
+                checkInTime: null,
+                checkOutTime: "08:00",
+                location: null,
+              },
+              dayPlanItems: [
+                {
+                  id: "item-1",
+                  title: "Museum",
+                  fromTime: "09:00",
+                  toTime: "11:00",
+                  contentJson: JSON.stringify({
+                    type: "doc",
+                    content: [{ type: "paragraph", content: [{ type: "text", text: "Visit" }] }],
+                  }),
                   costCents: null,
-                  link: null,
-                  checkInTime: null,
-                  checkOutTime: "08:00",
+                  linkUrl: null,
                   location: null,
                 },
-                dayPlanItems: [
-                  {
-                    id: "item-1",
-                    title: "Museum",
-                    fromTime: "09:00",
-                    toTime: "11:00",
-                    contentJson: JSON.stringify({
-                      type: "doc",
-                      content: [{ type: "paragraph", content: [{ type: "text", text: "Visit" }] }],
-                    }),
-                    costCents: null,
-                    linkUrl: null,
-                    location: null,
-                  },
-                ],
-                travelSegments: [
-                  {
-                    id: "segment-1",
-                    fromItemType: "dayPlanItem",
-                    fromItemId: "item-1",
-                    toItemType: "accommodation",
-                    toItemId: "stay-prev",
-                    transportType: "car",
-                    durationMinutes: 60,
-                    distanceKm: null,
-                    linkUrl: null,
-                  },
-                ],
-              },
-            ],
-          },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+              ],
+              travelSegments: [
+                {
+                  id: "segment-1",
+                  fromItemType: "dayPlanItem",
+                  fromItemId: "item-1",
+                  toItemType: "accommodation",
+                  toItemId: "stay-prev",
+                  transportType: "car",
+                  durationMinutes: 60,
+                  distanceKm: null,
+                  linkUrl: null,
+                },
+              ],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-2" />);
 
@@ -1215,53 +1155,49 @@ describe("TripDayView layout", () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
     const fetchMock = withBucketList(async () => {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-01T00:00:00.000Z",
-              dayCount: 1,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: null,
-                dayPlanItems: [
-                  {
-                    id: "item-1",
-                    title: "Morning walk",
-                    fromTime: "09:00",
-                    toTime: "10:15",
-                    contentJson: JSON.stringify({
-                      type: "doc",
-                      content: [{ type: "paragraph", content: [{ type: "text", text: "Plan details" }] }],
-                    }),
-                    costCents: null,
-                    linkUrl: null,
-                    location: null,
-                  },
-                ],
-              },
-            ],
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-01T00:00:00.000Z",
+            dayCount: 1,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
           },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: null,
+              dayPlanItems: [
+                {
+                  id: "item-1",
+                  title: "Morning walk",
+                  fromTime: "09:00",
+                  toTime: "10:15",
+                  contentJson: JSON.stringify({
+                    type: "doc",
+                    content: [{ type: "paragraph", content: [{ type: "text", text: "Plan details" }] }],
+                  }),
+                  costCents: null,
+                  linkUrl: null,
+                  location: null,
+                },
+              ],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
@@ -1274,53 +1210,49 @@ describe("TripDayView layout", () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
     const fetchMock = withBucketList(async () => {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-01T00:00:00.000Z",
-              dayCount: 1,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: null,
-                dayPlanItems: [
-                  {
-                    id: "item-legacy",
-                    title: "Legacy walk",
-                    fromTime: null,
-                    toTime: null,
-                    contentJson: JSON.stringify({
-                      type: "doc",
-                      content: [{ type: "paragraph", content: [{ type: "text", text: "Legacy details" }] }],
-                    }),
-                    costCents: null,
-                    linkUrl: null,
-                    location: null,
-                  },
-                ],
-              },
-            ],
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-01T00:00:00.000Z",
+            dayCount: 1,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
           },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: null,
+              dayPlanItems: [
+                {
+                  id: "item-legacy",
+                  title: "Legacy walk",
+                  fromTime: null,
+                  toTime: null,
+                  contentJson: JSON.stringify({
+                    type: "doc",
+                    content: [{ type: "paragraph", content: [{ type: "text", text: "Legacy details" }] }],
+                  }),
+                  costCents: null,
+                  linkUrl: null,
+                  location: null,
+                },
+              ],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
@@ -1334,69 +1266,65 @@ describe("TripDayView layout", () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
     const fetchMock = withBucketList(async () => {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-02T00:00:00.000Z",
-              dayCount: 2,
-              accommodationCostTotalCents: 20000,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 10000,
-                missingAccommodation: false,
-                missingPlan: true,
-                accommodation: {
-                  id: "stay-prev",
-                  name: "Previous Hotel",
-                  notes: null,
-                  status: "booked",
-                  costCents: 10000,
-                  link: null,
-                  checkInTime: null,
-                  checkOutTime: "09:30",
-                  location: null,
-                },
-                dayPlanItems: [],
-              },
-              {
-                id: "day-2",
-                date: "2026-12-02T00:00:00.000Z",
-                dayIndex: 2,
-                plannedCostSubtotal: 10000,
-                missingAccommodation: false,
-                missingPlan: true,
-                accommodation: {
-                  id: "stay-current",
-                  name: "Current Hotel",
-                  notes: null,
-                  status: "booked",
-                  costCents: 10000,
-                  link: null,
-                  checkInTime: "16:30",
-                  checkOutTime: null,
-                  location: null,
-                },
-                dayPlanItems: [],
-              },
-            ],
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-02T00:00:00.000Z",
+            dayCount: 2,
+            accommodationCostTotalCents: 20000,
+            heroImageUrl: null,
           },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 10000,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: {
+                id: "stay-prev",
+                name: "Previous Hotel",
+                notes: null,
+                status: "booked",
+                costCents: 10000,
+                link: null,
+                checkInTime: null,
+                checkOutTime: "09:30",
+                location: null,
+              },
+              dayPlanItems: [],
+            },
+            {
+              id: "day-2",
+              date: "2026-12-02T00:00:00.000Z",
+              dayIndex: 2,
+              plannedCostSubtotal: 10000,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: {
+                id: "stay-current",
+                name: "Current Hotel",
+                notes: null,
+                status: "booked",
+                costCents: 10000,
+                link: null,
+                checkInTime: "16:30",
+                checkOutTime: null,
+                location: null,
+              },
+              dayPlanItems: [],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-2" />);
 
@@ -1410,59 +1338,55 @@ describe("TripDayView layout", () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
     const fetchMock = withBucketList(async () => {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-03T00:00:00.000Z",
-              dayCount: 3,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-next",
-                date: "2026-12-03T00:00:00.000Z",
-                dayIndex: 3,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: true,
-                accommodation: null,
-                dayPlanItems: [],
-              },
-              {
-                id: "day-middle",
-                date: "2026-12-02T00:00:00.000Z",
-                dayIndex: 2,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: true,
-                accommodation: null,
-                dayPlanItems: [],
-              },
-              {
-                id: "day-prev",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: true,
-                accommodation: null,
-                dayPlanItems: [],
-              },
-            ],
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-03T00:00:00.000Z",
+            dayCount: 3,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
           },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+          days: [
+            {
+              id: "day-next",
+              date: "2026-12-03T00:00:00.000Z",
+              dayIndex: 3,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: null,
+              dayPlanItems: [],
+            },
+            {
+              id: "day-middle",
+              date: "2026-12-02T00:00:00.000Z",
+              dayIndex: 2,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: null,
+              dayPlanItems: [],
+            },
+            {
+              id: "day-prev",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: null,
+              dayPlanItems: [],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-middle" />);
 
@@ -1493,59 +1417,55 @@ describe("TripDayView layout", () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
     const fetchMock = withBucketList(async () => {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-03T00:00:00.000Z",
-              dayCount: 3,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-next",
-                date: "2026-12-03T00:00:00.000Z",
-                dayIndex: 3,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: true,
-                accommodation: null,
-                dayPlanItems: [],
-              },
-              {
-                id: "day-middle",
-                date: "2026-12-02T00:00:00.000Z",
-                dayIndex: 2,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: true,
-                accommodation: null,
-                dayPlanItems: [],
-              },
-              {
-                id: "day-prev",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: true,
-                accommodation: null,
-                dayPlanItems: [],
-              },
-            ],
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-03T00:00:00.000Z",
+            dayCount: 3,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
           },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+          days: [
+            {
+              id: "day-next",
+              date: "2026-12-03T00:00:00.000Z",
+              dayIndex: 3,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: null,
+              dayPlanItems: [],
+            },
+            {
+              id: "day-middle",
+              date: "2026-12-02T00:00:00.000Z",
+              dayIndex: 2,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: null,
+              dayPlanItems: [],
+            },
+            {
+              id: "day-prev",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: null,
+              dayPlanItems: [],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-middle" />, { language: "de" });
 
@@ -1569,59 +1489,55 @@ describe("TripDayView layout", () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
     const fetchMock = withBucketList(async () => {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-03T00:00:00.000Z",
-              dayCount: 3,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-prev",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: true,
-                accommodation: null,
-                dayPlanItems: [],
-              },
-              {
-                id: "day-middle",
-                date: "2026-12-02T00:00:00.000Z",
-                dayIndex: 2,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: true,
-                accommodation: null,
-                dayPlanItems: [],
-              },
-              {
-                id: "day-next",
-                date: "2026-12-03T00:00:00.000Z",
-                dayIndex: 3,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: true,
-                accommodation: null,
-                dayPlanItems: [],
-              },
-            ],
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-03T00:00:00.000Z",
+            dayCount: 3,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
           },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+          days: [
+            {
+              id: "day-prev",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: null,
+              dayPlanItems: [],
+            },
+            {
+              id: "day-middle",
+              date: "2026-12-02T00:00:00.000Z",
+              dayIndex: 2,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: null,
+              dayPlanItems: [],
+            },
+            {
+              id: "day-next",
+              date: "2026-12-03T00:00:00.000Z",
+              dayIndex: 3,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: null,
+              dayPlanItems: [],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     const { rerender } = renderWithProviders(<TripDayView tripId="trip-1" dayId="day-prev" />);
 
@@ -1650,79 +1566,75 @@ describe("TripDayView layout", () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
     const fetchMock = withBucketList(async () => {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-03T00:00:00.000Z",
-              dayCount: 3,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-prev",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: null,
-                dayPlanItems: [],
-              },
-              {
-                id: "day-middle",
-                date: "2026-12-02T00:00:00.000Z",
-                dayIndex: 2,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: null,
-                dayPlanItems: [
-                  {
-                    id: "plan-mid",
-                    contentJson: JSON.stringify({
-                      type: "doc",
-                      content: [{ type: "paragraph", content: [{ type: "text", text: "Middle day activity" }] }],
-                    }),
-                    linkUrl: null,
-                    location: null,
-                  },
-                ],
-              },
-              {
-                id: "day-next",
-                date: "2026-12-03T00:00:00.000Z",
-                dayIndex: 3,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: null,
-                dayPlanItems: [
-                  {
-                    id: "plan-next",
-                    contentJson: JSON.stringify({
-                      type: "doc",
-                      content: [{ type: "paragraph", content: [{ type: "text", text: "Next day activity" }] }],
-                    }),
-                    linkUrl: null,
-                    location: null,
-                  },
-                ],
-              },
-            ],
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-03T00:00:00.000Z",
+            dayCount: 3,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
           },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+          days: [
+            {
+              id: "day-prev",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: null,
+              dayPlanItems: [],
+            },
+            {
+              id: "day-middle",
+              date: "2026-12-02T00:00:00.000Z",
+              dayIndex: 2,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: null,
+              dayPlanItems: [
+                {
+                  id: "plan-mid",
+                  contentJson: JSON.stringify({
+                    type: "doc",
+                    content: [{ type: "paragraph", content: [{ type: "text", text: "Middle day activity" }] }],
+                  }),
+                  linkUrl: null,
+                  location: null,
+                },
+              ],
+            },
+            {
+              id: "day-next",
+              date: "2026-12-03T00:00:00.000Z",
+              dayIndex: 3,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: null,
+              dayPlanItems: [
+                {
+                  id: "plan-next",
+                  contentJson: JSON.stringify({
+                    type: "doc",
+                    content: [{ type: "paragraph", content: [{ type: "text", text: "Next day activity" }] }],
+                  }),
+                  linkUrl: null,
+                  location: null,
+                },
+              ],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     const { rerender } = renderWithProviders(<TripDayView tripId="trip-1" dayId="day-middle" />);
 
@@ -1741,71 +1653,59 @@ describe("TripDayView layout", () => {
     const fetchMock = withBucketList(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/day-plan-items/images")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { images: [] }, error: null }),
-        };
+        return mockFetchResponse({ data: { images: [] }, error: null });
       }
       if (url.includes("/accommodations/images")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { images: [] }, error: null }),
-        };
+        return mockFetchResponse({ data: { images: [] }, error: null });
       }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-01T00:00:00.000Z",
-              dayCount: 1,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: null,
-                dayPlanItems: [
-                  {
-                    id: "plan-1",
-                    contentJson: JSON.stringify({
-                      type: "doc",
-                      content: [
-                        {
-                          type: "paragraph",
-                          content: [{ type: "text", text: "Italic activity", marks: [{ type: "italic" }] }],
-                        },
-                        {
-                          type: "image",
-                          attrs: { src: "https://images.example.com/day-1.webp", alt: "Plan image" },
-                        },
-                      ],
-                    }),
-                    linkUrl: null,
-                    location: null,
-                  },
-                ],
-              },
-            ],
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-01T00:00:00.000Z",
+            dayCount: 1,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
           },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: null,
+              dayPlanItems: [
+                {
+                  id: "plan-1",
+                  contentJson: JSON.stringify({
+                    type: "doc",
+                    content: [
+                      {
+                        type: "paragraph",
+                        content: [{ type: "text", text: "Italic activity", marks: [{ type: "italic" }] }],
+                      },
+                      {
+                        type: "image",
+                        attrs: { src: "https://images.example.com/day-1.webp", alt: "Plan image" },
+                      },
+                    ],
+                  }),
+                  linkUrl: null,
+                  location: null,
+                },
+              ],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
@@ -1822,62 +1722,50 @@ describe("TripDayView layout", () => {
     const fetchMock = withBucketList(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/day-plan-items/images")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { images: [] }, error: null }),
-        };
+        return mockFetchResponse({ data: { images: [] }, error: null });
       }
       if (url.includes("/accommodations/images")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { images: [] }, error: null }),
-        };
+        return mockFetchResponse({ data: { images: [] }, error: null });
       }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-01T00:00:00.000Z",
-              dayCount: 1,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: null,
-                dayPlanItems: [
-                  {
-                    id: "plan-1",
-                    contentJson: JSON.stringify({
-                      type: "doc",
-                      content: [{ type: "paragraph", content: [{ type: "text", text: "Unsafe link item" }] }],
-                    }),
-                    linkUrl: "javascript:alert(1)",
-                    location: null,
-                  },
-                ],
-              },
-            ],
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-01T00:00:00.000Z",
+            dayCount: 1,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
           },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: null,
+              dayPlanItems: [
+                {
+                  id: "plan-1",
+                  contentJson: JSON.stringify({
+                    type: "doc",
+                    content: [{ type: "paragraph", content: [{ type: "text", text: "Unsafe link item" }] }],
+                  }),
+                  linkUrl: "javascript:alert(1)",
+                  location: null,
+                },
+              ],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
@@ -1892,76 +1780,72 @@ describe("TripDayView layout", () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
     const fetchMock = withBucketList(async () => {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-02T00:00:00.000Z",
-              dayCount: 2,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-0",
-                date: "2026-11-30T00:00:00.000Z",
-                dayIndex: 0,
-                plannedCostSubtotal: 12000,
-                missingAccommodation: false,
-                missingPlan: true,
-                accommodation: {
-                  id: "stay-prev",
-                  name: "Airport Hotel",
-                  notes: null,
-                  status: "booked",
-                  costCents: 12000,
-                  link: null,
-                  location: { lat: 48.3538, lng: 11.7861 },
-                },
-                dayPlanItems: [],
-              },
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 16000,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: {
-                  id: "stay-current",
-                  name: "City Hotel",
-                  notes: null,
-                  status: "planned",
-                  costCents: 16000,
-                  link: null,
-                  location: { lat: 48.145, lng: 11.582 },
-                },
-                dayPlanItems: [
-                  {
-                    id: "plan-1",
-                    title: "Museum title",
-                    contentJson: JSON.stringify({
-                      type: "doc",
-                      content: [{ type: "paragraph", content: [{ type: "text", text: "Body details" }] }],
-                    }),
-                    linkUrl: "https://example.com/museum",
-                    location: { lat: 48.1372, lng: 11.5756 },
-                  },
-                ],
-              },
-            ],
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-02T00:00:00.000Z",
+            dayCount: 2,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
           },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+          days: [
+            {
+              id: "day-0",
+              date: "2026-11-30T00:00:00.000Z",
+              dayIndex: 0,
+              plannedCostSubtotal: 12000,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: {
+                id: "stay-prev",
+                name: "Airport Hotel",
+                notes: null,
+                status: "booked",
+                costCents: 12000,
+                link: null,
+                location: { lat: 48.3538, lng: 11.7861 },
+              },
+              dayPlanItems: [],
+            },
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 16000,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: {
+                id: "stay-current",
+                name: "City Hotel",
+                notes: null,
+                status: "planned",
+                costCents: 16000,
+                link: null,
+                location: { lat: 48.145, lng: 11.582 },
+              },
+              dayPlanItems: [
+                {
+                  id: "plan-1",
+                  title: "Museum title",
+                  contentJson: JSON.stringify({
+                    type: "doc",
+                    content: [{ type: "paragraph", content: [{ type: "text", text: "Body details" }] }],
+                  }),
+                  linkUrl: "https://example.com/museum",
+                  location: { lat: 48.1372, lng: 11.5756 },
+                },
+              ],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
@@ -2017,79 +1901,75 @@ describe("TripDayView layout", () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
     const fetchMock = withBucketList(async () => {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-02T00:00:00.000Z",
-              dayCount: 2,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-0",
-                date: "2026-11-30T00:00:00.000Z",
-                dayIndex: 0,
-                plannedCostSubtotal: 12000,
-                missingAccommodation: false,
-                missingPlan: true,
-                accommodation: {
-                  id: "stay-prev",
-                  name: "Airport Hotel",
-                  notes: null,
-                  status: "booked",
-                  costCents: 12000,
-                  link: null,
-                  checkOutTime: "09:00",
-                  location: { lat: 48.3538, lng: 11.7861 },
-                },
-                dayPlanItems: [],
-              },
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 20500,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: {
-                  id: "stay-current",
-                  name: "City Hotel",
-                  notes: null,
-                  status: "planned",
-                  costCents: 16000,
-                  link: null,
-                  checkInTime: "16:00",
-                  location: { lat: 48.145, lng: 11.582 },
-                },
-                dayPlanItems: [
-                  {
-                    id: "plan-1",
-                    title: "Museum title",
-                    contentJson: JSON.stringify({
-                      type: "doc",
-                      content: [{ type: "paragraph", content: [{ type: "text", text: "Body details" }] }],
-                    }),
-                    costCents: 4500,
-                    linkUrl: "https://example.com/museum",
-                    location: { lat: 48.1372, lng: 11.5756 },
-                  },
-                ],
-              },
-            ],
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-02T00:00:00.000Z",
+            dayCount: 2,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
           },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+          days: [
+            {
+              id: "day-0",
+              date: "2026-11-30T00:00:00.000Z",
+              dayIndex: 0,
+              plannedCostSubtotal: 12000,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: {
+                id: "stay-prev",
+                name: "Airport Hotel",
+                notes: null,
+                status: "booked",
+                costCents: 12000,
+                link: null,
+                checkOutTime: "09:00",
+                location: { lat: 48.3538, lng: 11.7861 },
+              },
+              dayPlanItems: [],
+            },
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 20500,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: {
+                id: "stay-current",
+                name: "City Hotel",
+                notes: null,
+                status: "planned",
+                costCents: 16000,
+                link: null,
+                checkInTime: "16:00",
+                location: { lat: 48.145, lng: 11.582 },
+              },
+              dayPlanItems: [
+                {
+                  id: "plan-1",
+                  title: "Museum title",
+                  contentJson: JSON.stringify({
+                    type: "doc",
+                    content: [{ type: "paragraph", content: [{ type: "text", text: "Body details" }] }],
+                  }),
+                  costCents: 4500,
+                  linkUrl: "https://example.com/museum",
+                  location: { lat: 48.1372, lng: 11.5756 },
+                },
+              ],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
@@ -2110,59 +1990,55 @@ describe("TripDayView layout", () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
     const fetchMock = withBucketList(async () => {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-02T00:00:00.000Z",
-              dayCount: 2,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-prev",
-                date: "2026-11-30T00:00:00.000Z",
-                dayIndex: 0,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: {
-                  id: "stay-prev",
-                  name: "Airport Hotel",
-                  notes: null,
-                  status: "planned",
-                  costCents: 12000,
-                  link: null,
-                  checkInTime: null,
-                  checkOutTime: null,
-                  location: null,
-                },
-                dayPlanItems: [],
-              },
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: true,
-                accommodation: null,
-                dayPlanItems: [],
-              },
-            ],
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-02T00:00:00.000Z",
+            dayCount: 2,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
           },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+          days: [
+            {
+              id: "day-prev",
+              date: "2026-11-30T00:00:00.000Z",
+              dayIndex: 0,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: {
+                id: "stay-prev",
+                name: "Airport Hotel",
+                notes: null,
+                status: "planned",
+                costCents: 12000,
+                link: null,
+                checkInTime: null,
+                checkOutTime: null,
+                location: null,
+              },
+              dayPlanItems: [],
+            },
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: null,
+              dayPlanItems: [],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
@@ -2263,33 +2139,33 @@ describe("TripDayView layout", () => {
     };
 
     const fetchMock = withBucketList(async (input, init) => {
-      const url = typeof input === "string" ? input : input.url;
+      const url = requestUrl(input);
       if (url === "/api/auth/csrf") {
-        return { ok: true, status: 200, json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }) };
+        return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
       }
       if (url === "/api/trips/trip-1") {
-        return { ok: true, status: 200, json: async () => ({ data: tripState, error: null }) };
+        return mockFetchResponse({ data: tripState, error: null });
       }
       if (url === "/api/trips/trip-1/day-plan-items/images?tripDayId=day-1") {
-        return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
+        return mockFetchResponse({ data: { images: [] }, error: null });
       }
       if (url.includes("/accommodations/images?tripDayId=day-1")) {
-        return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
+        return mockFetchResponse({ data: { images: [] }, error: null });
       }
       if (url.includes("/accommodations/images?tripDayId=day-2")) {
-        return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
+        return mockFetchResponse({ data: { images: [] }, error: null });
       }
       if (url === "/api/trips/trip-1/days/day-1/route") {
-        return { ok: true, status: 200, json: async () => ({ data: { route: { polyline: [[48.145, 11.582], [48.1372, 11.5756]] } }, error: null }) };
+        return mockFetchResponse({ data: { route: { polyline: [[48.145, 11.582], [48.1372, 11.5756]] } }, error: null });
       }
       if (url === "/api/trips/trip-1/day-activity-transfer" && init?.method === "POST") {
         transferBodies.push(JSON.parse(String(init.body)) as { operation: string; confirmOverwrite?: boolean });
-        return { ok: true, status: 200, json: async () => ({ data: { operation: "move" }, error: null }) };
+        return mockFetchResponse({ data: { operation: "move" }, error: null });
       }
       throw new Error(`Unexpected fetch ${url}`);
-    }) as unknown as typeof fetch;
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
@@ -2366,30 +2242,30 @@ describe("TripDayView layout", () => {
     };
 
     const fetchMock = withBucketList(async (input, init) => {
-      const url = typeof input === "string" ? input : input.url;
+      const url = requestUrl(input);
       if (url === "/api/auth/csrf") {
-        return { ok: true, status: 200, json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }) };
+        return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
       }
       if (url === "/api/trips/trip-1") {
-        return { ok: true, status: 200, json: async () => ({ data: tripState, error: null }) };
+        return mockFetchResponse({ data: tripState, error: null });
       }
       if (url === "/api/trips/trip-1/day-plan-items/images?tripDayId=day-1") {
-        return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
+        return mockFetchResponse({ data: { images: [] }, error: null });
       }
       if (url.includes("/accommodations/images?tripDayId=day-1")) {
-        return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
+        return mockFetchResponse({ data: { images: [] }, error: null });
       }
       if (url === "/api/trips/trip-1/days/day-1/route") {
-        return { ok: true, status: 200, json: async () => ({ data: { route: { polyline: [] } }, error: null }) };
+        return mockFetchResponse({ data: { route: { polyline: [] } }, error: null });
       }
       if (url === "/api/trips/trip-1/day-activity-transfer" && init?.method === "POST") {
         transferBodies.push(JSON.parse(String(init.body)) as { operation: string; confirmOverwrite?: boolean });
-        return { ok: true, status: 200, json: async () => ({ data: { operation: "move" }, error: null }) };
+        return mockFetchResponse({ data: { operation: "move" }, error: null });
       }
       throw new Error(`Unexpected fetch ${url}`);
-    }) as unknown as typeof fetch;
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
@@ -2495,24 +2371,24 @@ describe("TripDayView layout", () => {
     };
 
     const fetchMock = withBucketList(async (input, init) => {
-      const url = typeof input === "string" ? input : input.url;
+      const url = requestUrl(input);
       if (url === "/api/auth/csrf") {
-        return { ok: true, status: 200, json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }) };
+        return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
       }
       if (url === "/api/trips/trip-1") {
-        return { ok: true, status: 200, json: async () => ({ data: tripState, error: null }) };
+        return mockFetchResponse({ data: tripState, error: null });
       }
       if (url === "/api/trips/trip-1/day-plan-items/images?tripDayId=day-1") {
-        return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
+        return mockFetchResponse({ data: { images: [] }, error: null });
       }
       if (url.includes("/accommodations/images?tripDayId=day-1")) {
-        return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
+        return mockFetchResponse({ data: { images: [] }, error: null });
       }
       if (url.includes("/accommodations/images?tripDayId=day-2")) {
-        return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
+        return mockFetchResponse({ data: { images: [] }, error: null });
       }
       if (url === "/api/trips/trip-1/days/day-1/route") {
-        return { ok: true, status: 200, json: async () => ({ data: { route: { polyline: [[48.145, 11.582], [48.1372, 11.5756]] } }, error: null }) };
+        return mockFetchResponse({ data: { route: { polyline: [[48.145, 11.582], [48.1372, 11.5756]] } }, error: null });
       }
       if (url === "/api/trips/trip-1/day-activity-transfer" && init?.method === "POST") {
         tripState = {
@@ -2522,23 +2398,19 @@ describe("TripDayView layout", () => {
             { ...dayTwo, dayPlanItems: [dayOne.dayPlanItems[0]] },
           ],
         };
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            data: {
-              operation: "swap",
-              firstDayItemIds: ["plan-2"],
-              secondDayItemIds: ["plan-1"],
-            },
-            error: null,
-          }),
-        };
+        return mockFetchResponse({
+          data: {
+            operation: "swap",
+            firstDayItemIds: ["plan-2"],
+            secondDayItemIds: ["plan-1"],
+          },
+          error: null,
+        });
       }
       throw new Error(`Unexpected fetch ${url}`);
-    }) as unknown as typeof fetch;
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
@@ -2561,10 +2433,158 @@ describe("TripDayView layout", () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
     const fetchMock = withBucketList(async () => {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-02T00:00:00.000Z",
+            dayCount: 2,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
+          },
+          days: [
+            {
+              id: "day-prev",
+              date: "2026-11-30T00:00:00.000Z",
+              dayIndex: 0,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: {
+                id: "stay-prev",
+                name: "Airport Hotel",
+                notes: null,
+                status: "planned",
+                costCents: 12000,
+                link: null,
+                checkInTime: null,
+                checkOutTime: null,
+                location: null,
+              },
+              dayPlanItems: [],
+            },
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: {
+                id: "stay-current",
+                name: "City Hotel",
+                notes: null,
+                status: "planned",
+                costCents: 15000,
+                link: null,
+                checkInTime: null,
+                checkOutTime: null,
+                location: null,
+              },
+              dayPlanItems: [],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
+
+    stubFetch(fetchMock);
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+    expect(screen.queryByRole("button", { name: "Copy previous night" })).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("hides copy previous night action when there is no previous-night accommodation", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const fetchMock = withBucketList(async () => {
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-02T00:00:00.000Z",
+            dayCount: 2,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
+          },
+          days: [
+            {
+              id: "day-prev",
+              date: "2026-11-30T00:00:00.000Z",
+              dayIndex: 0,
+              plannedCostSubtotal: 0,
+              missingAccommodation: true,
+              missingPlan: false,
+              accommodation: null,
+              dayPlanItems: [],
+            },
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: null,
+              dayPlanItems: [],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
+
+    stubFetch(fetchMock);
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+    expect(screen.queryByRole("button", { name: "Copy previous night" })).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("updates the current-night accommodation after copying the previous night", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const fetchMock = withBucketList(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/api/auth/csrf")) {
+        return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
+      }
+      if (url.includes("/accommodations/copy")) {
+        return mockFetchResponse({
+          data: {
+            accommodation: {
+              id: "stay-current",
+              tripDayId: "day-1",
+              name: "Copied Stay",
+              notes: "Same notes",
+              status: "planned",
+              costCents: null,
+              link: "https://example.com/copy",
+              checkInTime: "15:00",
+              checkOutTime: "11:00",
+              location: { lat: 48.1372, lng: 11.5756, label: "Old Town" },
+            },
+          },
+          error: null,
+        });
+      }
+      if (url.includes("/accommodations/images") || url.includes("/day-plan-items/images")) {
+        return mockFetchResponse({ data: { images: [] }, error: null });
+      }
+      if (url.includes("/api/trips/trip-1")) {
+        return mockFetchResponse({
           data: {
             trip: {
               id: "trip-1",
@@ -2585,9 +2605,9 @@ describe("TripDayView layout", () => {
                 missingPlan: false,
                 accommodation: {
                   id: "stay-prev",
-                  name: "Airport Hotel",
+                  name: "Previous Stay",
                   notes: null,
-                  status: "planned",
+                  status: "booked",
                   costCents: 12000,
                   link: null,
                   checkInTime: null,
@@ -2602,196 +2622,20 @@ describe("TripDayView layout", () => {
                 dayIndex: 1,
                 plannedCostSubtotal: 0,
                 missingAccommodation: false,
-                missingPlan: true,
-                accommodation: {
-                  id: "stay-current",
-                  name: "City Hotel",
-                  notes: null,
-                  status: "planned",
-                  costCents: 15000,
-                  link: null,
-                  checkInTime: null,
-                  checkOutTime: null,
-                  location: null,
-                },
-                dayPlanItems: [],
-              },
-            ],
-          },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
-
-    vi.stubGlobal("fetch", fetchMock);
-
-    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
-
-    await screen.findByRole("heading", { name: "Day 1", level: 5 });
-    expect(screen.queryByRole("button", { name: "Copy previous night" })).not.toBeInTheDocument();
-
-    vi.unstubAllGlobals();
-  });
-
-  it("hides copy previous night action when there is no previous-night accommodation", async () => {
-    planDialogMockState.lastProps = null;
-    navigationMockState.search = "";
-    const fetchMock = withBucketList(async () => {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-02T00:00:00.000Z",
-              dayCount: 2,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-prev",
-                date: "2026-11-30T00:00:00.000Z",
-                dayIndex: 0,
-                plannedCostSubtotal: 0,
-                missingAccommodation: true,
                 missingPlan: false,
-                accommodation: null,
-                dayPlanItems: [],
-              },
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: true,
-                accommodation: null,
+              accommodation: null,
                 dayPlanItems: [],
               },
             ],
           },
           error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
-
-    vi.stubGlobal("fetch", fetchMock);
-
-    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
-
-    await screen.findByRole("heading", { name: "Day 1", level: 5 });
-    expect(screen.queryByRole("button", { name: "Copy previous night" })).not.toBeInTheDocument();
-
-    vi.unstubAllGlobals();
-  });
-
-  it("updates the current-night accommodation after copying the previous night", async () => {
-    planDialogMockState.lastProps = null;
-    navigationMockState.search = "";
-    const fetchMock = withBucketList(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url.includes("/api/auth/csrf")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
-        };
-      }
-      if (url.includes("/accommodations/copy")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            data: {
-              accommodation: {
-                id: "stay-current",
-                tripDayId: "day-1",
-                name: "Copied Stay",
-                notes: "Same notes",
-                status: "planned",
-                costCents: null,
-                link: "https://example.com/copy",
-                checkInTime: "15:00",
-                checkOutTime: "11:00",
-                location: { lat: 48.1372, lng: 11.5756, label: "Old Town" },
-              },
-            },
-            error: null,
-          }),
-        };
-      }
-      if (url.includes("/accommodations/images") || url.includes("/day-plan-items/images")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { images: [] }, error: null }),
-        };
-      }
-      if (url.includes("/api/trips/trip-1")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            data: {
-              trip: {
-                id: "trip-1",
-                name: "Trip",
-                startDate: "2026-12-01T00:00:00.000Z",
-                endDate: "2026-12-02T00:00:00.000Z",
-                dayCount: 2,
-                accommodationCostTotalCents: null,
-                heroImageUrl: null,
-              },
-              days: [
-                {
-                  id: "day-prev",
-                  date: "2026-11-30T00:00:00.000Z",
-                  dayIndex: 0,
-                  plannedCostSubtotal: 0,
-                  missingAccommodation: false,
-                  missingPlan: false,
-                  accommodation: {
-                    id: "stay-prev",
-                    name: "Previous Stay",
-                    notes: null,
-                    status: "booked",
-                    costCents: 12000,
-                    link: null,
-                    checkInTime: null,
-                    checkOutTime: null,
-                    location: null,
-                  },
-                  dayPlanItems: [],
-                },
-                {
-                  id: "day-1",
-                  date: "2026-12-01T00:00:00.000Z",
-                  dayIndex: 1,
-                  plannedCostSubtotal: 0,
-                  missingAccommodation: false,
-                  missingPlan: false,
-                accommodation: null,
-                  dayPlanItems: [],
-                },
-              ],
-            },
-            error: null,
-          }),
-        };
+        });
       }
 
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ data: null, error: null }),
-      };
-    }) as unknown as typeof fetch;
+      return mockFetchResponse({ data: null, error: null });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
@@ -2816,85 +2660,73 @@ describe("TripDayView layout", () => {
     const fetchMock = withBucketList(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/accommodations/images")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            data: {
-              images: [{ id: "acc-img-1", imageUrl: "/uploads/a1.webp", sortOrder: 1 }],
-            },
-            error: null,
-          }),
-        };
+        return mockFetchResponse({
+          data: {
+            images: [{ id: "acc-img-1", imageUrl: "/uploads/a1.webp", sortOrder: 1 }],
+          },
+          error: null,
+        });
       }
       if (url.includes("/day-plan-items/images")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            data: {
-              images: [
-                { id: "plan-img-1", dayPlanItemId: "item-1", imageUrl: "/uploads/p1.webp", sortOrder: 1 },
-                { id: "plan-img-2", dayPlanItemId: "item-1", imageUrl: "/uploads/p2.webp", sortOrder: 2 },
-                { id: "plan-img-3", dayPlanItemId: "item-1", imageUrl: "/uploads/p3.webp", sortOrder: 3 },
-                { id: "plan-img-4", dayPlanItemId: "item-1", imageUrl: "/uploads/p4.webp", sortOrder: 4 },
-              ],
-            },
-            error: null,
-          }),
-        };
-      }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
+        return mockFetchResponse({
           data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-01T00:00:00.000Z",
-              dayCount: 1,
-              accommodationCostTotalCents: 10000,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 10000,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: {
-                  id: "stay-1",
-                  name: "Hotel",
-                  notes: null,
-                  status: "booked",
-                  costCents: 10000,
-                  link: null,
-                  location: null,
-                },
-                dayPlanItems: [
-                  {
-                    id: "item-1",
-                    contentJson: JSON.stringify({
-                      type: "doc",
-                      content: [{ type: "paragraph", content: [{ type: "text", text: "Museum" }] }],
-                    }),
-                    linkUrl: null,
-                    location: null,
-                  },
-                ],
-              },
+            images: [
+              { id: "plan-img-1", dayPlanItemId: "item-1", imageUrl: "/uploads/p1.webp", sortOrder: 1 },
+              { id: "plan-img-2", dayPlanItemId: "item-1", imageUrl: "/uploads/p2.webp", sortOrder: 2 },
+              { id: "plan-img-3", dayPlanItemId: "item-1", imageUrl: "/uploads/p3.webp", sortOrder: 3 },
+              { id: "plan-img-4", dayPlanItemId: "item-1", imageUrl: "/uploads/p4.webp", sortOrder: 4 },
             ],
           },
           error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+        });
+      }
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-01T00:00:00.000Z",
+            dayCount: 1,
+            accommodationCostTotalCents: 10000,
+            heroImageUrl: null,
+          },
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 10000,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: {
+                id: "stay-1",
+                name: "Hotel",
+                notes: null,
+                status: "booked",
+                costCents: 10000,
+                link: null,
+                location: null,
+              },
+              dayPlanItems: [
+                {
+                  id: "item-1",
+                  contentJson: JSON.stringify({
+                    type: "doc",
+                    content: [{ type: "paragraph", content: [{ type: "text", text: "Museum" }] }],
+                  }),
+                  linkUrl: null,
+                  location: null,
+                },
+              ],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
@@ -2913,100 +2745,84 @@ describe("TripDayView layout", () => {
     const fetchMock = withBucketList(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/accommodations/images") && url.includes("accommodationId=stay-prev")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            data: {
-              images: [{ id: "prev-img-1", imageUrl: "/uploads/prev.webp", sortOrder: 1 }],
-            },
-            error: null,
-          }),
-        };
-      }
-      if (url.includes("/accommodations/images") && url.includes("accommodationId=stay-current")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            data: {
-              images: [],
-            },
-            error: null,
-          }),
-        };
-      }
-      if (url.includes("/day-plan-items/images")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            data: {
-              images: [],
-            },
-            error: null,
-          }),
-        };
-      }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
+        return mockFetchResponse({
           data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-02T00:00:00.000Z",
-              dayCount: 2,
-              accommodationCostTotalCents: 20000,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 10000,
-                missingAccommodation: false,
-                missingPlan: true,
-                accommodation: {
-                  id: "stay-prev",
-                  name: "Previous Hotel",
-                  notes: null,
-                  status: "booked",
-                  costCents: 10000,
-                  link: null,
-                  location: null,
-                },
-                dayPlanItems: [],
-              },
-              {
-                id: "day-2",
-                date: "2026-12-02T00:00:00.000Z",
-                dayIndex: 2,
-                plannedCostSubtotal: 10000,
-                missingAccommodation: false,
-                missingPlan: true,
-                accommodation: {
-                  id: "stay-current",
-                  name: "Current Hotel",
-                  notes: null,
-                  status: "booked",
-                  costCents: 10000,
-                  link: null,
-                  location: null,
-                },
-                dayPlanItems: [],
-              },
-            ],
+            images: [{ id: "prev-img-1", imageUrl: "/uploads/prev.webp", sortOrder: 1 }],
           },
           error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+        });
+      }
+      if (url.includes("/accommodations/images") && url.includes("accommodationId=stay-current")) {
+        return mockFetchResponse({
+          data: {
+            images: [],
+          },
+          error: null,
+        });
+      }
+      if (url.includes("/day-plan-items/images")) {
+        return mockFetchResponse({
+          data: {
+            images: [],
+          },
+          error: null,
+        });
+      }
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-02T00:00:00.000Z",
+            dayCount: 2,
+            accommodationCostTotalCents: 20000,
+            heroImageUrl: null,
+          },
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 10000,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: {
+                id: "stay-prev",
+                name: "Previous Hotel",
+                notes: null,
+                status: "booked",
+                costCents: 10000,
+                link: null,
+                location: null,
+              },
+              dayPlanItems: [],
+            },
+            {
+              id: "day-2",
+              date: "2026-12-02T00:00:00.000Z",
+              dayIndex: 2,
+              plannedCostSubtotal: 10000,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: {
+                id: "stay-current",
+                name: "Current Hotel",
+                notes: null,
+                status: "booked",
+                costCents: 10000,
+                link: null,
+                location: null,
+              },
+              dayPlanItems: [],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-2" />);
 
@@ -3040,70 +2856,58 @@ describe("TripDayView layout", () => {
       const method = init?.method ?? "GET";
 
       if (url.includes("/api/auth/csrf")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
-        };
+        return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
       }
 
       if (url.includes("/day-plan-items") && method === "DELETE") {
         items.splice(0, items.length);
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { deleted: true }, error: null }),
-        };
+        return mockFetchResponse({ data: { deleted: true }, error: null });
       }
 
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-02T00:00:00.000Z",
-              dayCount: 2,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-0",
-                date: "2026-11-30T00:00:00.000Z",
-                dayIndex: 0,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: true,
-                accommodation: null,
-                dayPlanItems: [],
-              },
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: null,
-                dayPlanItems: items.map((item) => ({
-                  id: item.id,
-                  contentJson: item.contentJson,
-                  linkUrl: item.linkUrl,
-                  location: item.location,
-                })),
-              },
-            ],
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-02T00:00:00.000Z",
+            dayCount: 2,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
           },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+          days: [
+            {
+              id: "day-0",
+              date: "2026-11-30T00:00:00.000Z",
+              dayIndex: 0,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: null,
+              dayPlanItems: [],
+            },
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: null,
+              dayPlanItems: items.map((item) => ({
+                id: item.id,
+                contentJson: item.contentJson,
+                linkUrl: item.linkUrl,
+                location: item.location,
+              })),
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
     vi.stubGlobal("confirm", vi.fn(() => true));
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
@@ -3154,73 +2958,61 @@ describe("TripDayView layout", () => {
       const method = init?.method ?? "GET";
 
       if (url.includes("/api/auth/csrf")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
-        };
+        return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
       }
 
       if (url.includes("/day-plan-items/move") && method === "POST") {
         items.splice(0, items.length);
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            data: {
-              itemId: "plan-1",
-              sourceTripDayId: "day-1",
-              targetTripDayId: "day-0",
-              removedTravelSegmentIds: ["segment-1", "segment-2"],
-            },
-            error: null,
-          }),
-        };
-      }
-
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
+        return mockFetchResponse({
           data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-02T00:00:00.000Z",
-              dayCount: 2,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-0",
-                date: "2026-11-30T00:00:00.000Z",
-                dayIndex: 0,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: true,
-                accommodation: null,
-                dayPlanItems: [],
-              },
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: null,
-                dayPlanItems: items,
-              },
-            ],
+            itemId: "plan-1",
+            sourceTripDayId: "day-1",
+            targetTripDayId: "day-0",
+            removedTravelSegmentIds: ["segment-1", "segment-2"],
           },
           error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+        });
+      }
 
-    vi.stubGlobal("fetch", fetchMock);
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-02T00:00:00.000Z",
+            dayCount: 2,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
+          },
+          days: [
+            {
+              id: "day-0",
+              date: "2026-11-30T00:00:00.000Z",
+              dayIndex: 0,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: null,
+              dayPlanItems: [],
+            },
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: null,
+              dayPlanItems: items,
+            },
+          ],
+        },
+        error: null,
+      });
+    });
+
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
@@ -3279,73 +3071,61 @@ describe("TripDayView layout", () => {
       const method = init?.method ?? "GET";
 
       if (url.includes("/api/auth/csrf")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
-        };
+        return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
       }
 
       if (url.includes("/day-plan-items/move") && method === "POST") {
         items.splice(0, items.length);
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            data: {
-              itemId: "plan-1",
-              sourceTripDayId: "day-1",
-              targetTripDayId: "day-0",
-              removedTravelSegmentIds: [],
-            },
-            error: null,
-          }),
-        };
-      }
-
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
+        return mockFetchResponse({
           data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-02T00:00:00.000Z",
-              dayCount: 2,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-0",
-                date: "2026-11-30T00:00:00.000Z",
-                dayIndex: 0,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: true,
-                accommodation: null,
-                dayPlanItems: [],
-              },
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: null,
-                dayPlanItems: items,
-              },
-            ],
+            itemId: "plan-1",
+            sourceTripDayId: "day-1",
+            targetTripDayId: "day-0",
+            removedTravelSegmentIds: [],
           },
           error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+        });
+      }
 
-    vi.stubGlobal("fetch", fetchMock);
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-02T00:00:00.000Z",
+            dayCount: 2,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
+          },
+          days: [
+            {
+              id: "day-0",
+              date: "2026-11-30T00:00:00.000Z",
+              dayIndex: 0,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: null,
+              dayPlanItems: [],
+            },
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: null,
+              dayPlanItems: items,
+            },
+          ],
+        },
+        error: null,
+      });
+    });
+
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
@@ -3385,73 +3165,61 @@ describe("TripDayView layout", () => {
       const method = init?.method ?? "GET";
 
       if (url.includes("/api/auth/csrf")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
-        };
+        return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
       }
 
       if (url.includes("/day-plan-items/move") && method === "POST") {
         items.splice(0, items.length);
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            data: {
-              itemId: "plan-1",
-              sourceTripDayId: "day-1",
-              targetTripDayId: "day-0",
-              removedTravelSegmentIds: ["segment-1"],
-            },
-            error: null,
-          }),
-        };
-      }
-
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
+        return mockFetchResponse({
           data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-02T00:00:00.000Z",
-              dayCount: 2,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-0",
-                date: "2026-11-30T00:00:00.000Z",
-                dayIndex: 0,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: true,
-                accommodation: null,
-                dayPlanItems: [],
-              },
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: null,
-                dayPlanItems: items,
-              },
-            ],
+            itemId: "plan-1",
+            sourceTripDayId: "day-1",
+            targetTripDayId: "day-0",
+            removedTravelSegmentIds: ["segment-1"],
           },
           error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+        });
+      }
 
-    vi.stubGlobal("fetch", fetchMock);
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-02T00:00:00.000Z",
+            dayCount: 2,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
+          },
+          days: [
+            {
+              id: "day-0",
+              date: "2026-11-30T00:00:00.000Z",
+              dayIndex: 0,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: null,
+              dayPlanItems: [],
+            },
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: null,
+              dayPlanItems: items,
+            },
+          ],
+        },
+        error: null,
+      });
+    });
+
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
@@ -3483,74 +3251,65 @@ describe("TripDayView layout", () => {
       const method = init?.method ?? "GET";
 
       if (url.includes("/api/auth/csrf")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
-        };
+        return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
       }
 
       if (url.includes("/day-plan-items/move") && method === "POST") {
-        return {
-          ok: false,
-          status: 403,
-          json: async () => ({ data: null, error: { code: "unauthorized", message: "no" } }),
-        };
+        return mockFetchResponse(
+          { data: null, error: { code: "unauthorized", message: "no" } },
+          { status: 403 },
+        );
       }
 
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-02T00:00:00.000Z",
-              dayCount: 2,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-0",
-                date: "2026-11-30T00:00:00.000Z",
-                dayIndex: 0,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: true,
-                accommodation: null,
-                dayPlanItems: [],
-              },
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: null,
-                dayPlanItems: [
-                  {
-                    id: "plan-1",
-                    contentJson: JSON.stringify({
-                      type: "doc",
-                      content: [{ type: "paragraph", content: [{ type: "text", text: "Museum visit" }] }],
-                    }),
-                    linkUrl: null,
-                    location: null,
-                  },
-                ],
-              },
-            ],
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-02T00:00:00.000Z",
+            dayCount: 2,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
           },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+          days: [
+            {
+              id: "day-0",
+              date: "2026-11-30T00:00:00.000Z",
+              dayIndex: 0,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: null,
+              dayPlanItems: [],
+            },
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: null,
+              dayPlanItems: [
+                {
+                  id: "plan-1",
+                  contentJson: JSON.stringify({
+                    type: "doc",
+                    content: [{ type: "paragraph", content: [{ type: "text", text: "Museum visit" }] }],
+                  }),
+                  linkUrl: null,
+                  location: null,
+                },
+              ],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
@@ -3601,81 +3360,69 @@ describe("TripDayView layout", () => {
       const method = init?.method ?? "GET";
 
       if (url.includes("/api/auth/csrf")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
-        };
+        return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
       }
 
       if (url.includes("/day-plan-items") && method === "DELETE") {
         deleteCalls += 1;
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            data: { deleted: true, removedTravelSegmentIds: ["segment-1"] },
-            error: null,
-          }),
-        };
+        return mockFetchResponse({
+          data: { deleted: true, removedTravelSegmentIds: ["segment-1"] },
+          error: null,
+        });
       }
 
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-01T00:00:00.000Z",
-              dayCount: 1,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: {
-                  id: "stay-1",
-                  name: "Quinta",
-                  notes: null,
-                  status: "booked",
-                  costCents: null,
-                  link: null,
-                  checkInTime: "16:00",
-                  checkOutTime: null,
-                  location: null,
-                },
-                dayPlanItems,
-                travelSegments: [
-                  {
-                    id: "segment-1",
-                    fromItemType: "dayPlanItem",
-                    fromItemId: "plan-1",
-                    toItemType: "accommodation",
-                    toItemId: "stay-1",
-                    transportType: "car",
-                    durationMinutes: 130,
-                    distanceKm: null,
-                    linkUrl: null,
-                  },
-                ],
-              },
-            ],
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-01T00:00:00.000Z",
+            dayCount: 1,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
           },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: {
+                id: "stay-1",
+                name: "Quinta",
+                notes: null,
+                status: "booked",
+                costCents: null,
+                link: null,
+                checkInTime: "16:00",
+                checkOutTime: null,
+                location: null,
+              },
+              dayPlanItems,
+              travelSegments: [
+                {
+                  id: "segment-1",
+                  fromItemType: "dayPlanItem",
+                  fromItemId: "plan-1",
+                  toItemType: "accommodation",
+                  toItemId: "stay-1",
+                  transportType: "car",
+                  durationMinutes: 130,
+                  distanceKm: null,
+                  linkUrl: null,
+                },
+              ],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
@@ -3716,67 +3463,55 @@ describe("TripDayView layout", () => {
       const method = init?.method ?? "GET";
 
       if (url.includes("/api/auth/csrf")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
-        };
+        return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
       }
 
       if (url.includes("/day-plan-items") && method === "DELETE") {
         deleteCalls += 1;
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { deleted: true, removedTravelSegmentIds: [] }, error: null }),
-        };
+        return mockFetchResponse({ data: { deleted: true, removedTravelSegmentIds: [] }, error: null });
       }
 
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-01T00:00:00.000Z",
-              dayCount: 1,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: null,
-                dayPlanItems: [
-                  {
-                    id: "plan-1",
-                    title: "Museum visit",
-                    fromTime: "09:00",
-                    toTime: "10:00",
-                    contentJson: JSON.stringify({ type: "doc", content: [] }),
-                    costCents: null,
-                    linkUrl: null,
-                    location: null,
-                  },
-                ],
-                travelSegments: [],
-              },
-            ],
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-01T00:00:00.000Z",
+            dayCount: 1,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
           },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: null,
+              dayPlanItems: [
+                {
+                  id: "plan-1",
+                  title: "Museum visit",
+                  fromTime: "09:00",
+                  toTime: "10:00",
+                  contentJson: JSON.stringify({ type: "doc", content: [] }),
+                  costCents: null,
+                  linkUrl: null,
+                  location: null,
+                },
+              ],
+              travelSegments: [],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
@@ -3803,59 +3538,55 @@ describe("TripDayView layout", () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "open=plan&itemId=plan-1";
 
-    const fetchMock = withBucketList(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        data: {
-          trip: {
-            id: "trip-1",
-            name: "Trip",
-            accessRole: "viewer",
-            startDate: "2026-12-01T00:00:00.000Z",
-            endDate: "2026-12-02T00:00:00.000Z",
-            dayCount: 2,
-            accommodationCostTotalCents: null,
-            heroImageUrl: null,
-          },
-          days: [
-            {
-              id: "day-0",
-              date: "2026-11-30T00:00:00.000Z",
-              dayIndex: 0,
-              plannedCostSubtotal: 0,
-              missingAccommodation: false,
-              missingPlan: true,
-              accommodation: null,
-              dayPlanItems: [],
-            },
-            {
-              id: "day-1",
-              date: "2026-12-01T00:00:00.000Z",
-              dayIndex: 1,
-              plannedCostSubtotal: 0,
-              missingAccommodation: false,
-              missingPlan: false,
-              accommodation: null,
-              dayPlanItems: [
-                {
-                  id: "plan-1",
-                  contentJson: JSON.stringify({
-                    type: "doc",
-                    content: [{ type: "paragraph", content: [{ type: "text", text: "Museum visit" }] }],
-                  }),
-                  linkUrl: null,
-                  location: null,
-                },
-              ],
-            },
-          ],
+    const fetchMock = withBucketList(async () => mockFetchResponse({
+      data: {
+        trip: {
+          id: "trip-1",
+          name: "Trip",
+          accessRole: "viewer",
+          startDate: "2026-12-01T00:00:00.000Z",
+          endDate: "2026-12-02T00:00:00.000Z",
+          dayCount: 2,
+          accommodationCostTotalCents: null,
+          heroImageUrl: null,
         },
-        error: null,
-      }),
-    })) as unknown as typeof fetch;
+        days: [
+          {
+            id: "day-0",
+            date: "2026-11-30T00:00:00.000Z",
+            dayIndex: 0,
+            plannedCostSubtotal: 0,
+            missingAccommodation: false,
+            missingPlan: true,
+            accommodation: null,
+            dayPlanItems: [],
+          },
+          {
+            id: "day-1",
+            date: "2026-12-01T00:00:00.000Z",
+            dayIndex: 1,
+            plannedCostSubtotal: 0,
+            missingAccommodation: false,
+            missingPlan: false,
+            accommodation: null,
+            dayPlanItems: [
+              {
+                id: "plan-1",
+                contentJson: JSON.stringify({
+                  type: "doc",
+                  content: [{ type: "paragraph", content: [{ type: "text", text: "Museum visit" }] }],
+                }),
+                linkUrl: null,
+                location: null,
+              },
+            ],
+          },
+        ],
+      },
+      error: null,
+    }));
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
@@ -3870,62 +3601,63 @@ describe("TripDayView layout", () => {
   });
 
   it("opens the plan edit dialog from query params", async () => {
-    planDialogMockState.lastProps = null;
+    // Restating the declared type, rather than a bare `= null`: assigning the literal narrows the
+    // property to exactly `null` for the rest of this function, so the `?.mode` and `?.item` reads
+    // below become property reads on `never`. The other resets in this file get away with the bare
+    // literal only because every later read of theirs sits inside a `waitFor` closure, which starts
+    // its own flow analysis - see the reads at the end of this test for the case that does not.
+    planDialogMockState.lastProps = null as typeof planDialogMockState.lastProps;
     navigationMockState.search = "open=plan&itemId=plan-1";
     const fetchMock = withBucketList(async () => {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-02T00:00:00.000Z",
-              dayCount: 2,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-0",
-                date: "2026-11-30T00:00:00.000Z",
-                dayIndex: 0,
-                plannedCostSubtotal: 12000,
-                missingAccommodation: false,
-                missingPlan: true,
-                accommodation: null,
-                dayPlanItems: [],
-              },
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 16000,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: null,
-                dayPlanItems: [
-                  {
-                    id: "plan-1",
-                    contentJson: JSON.stringify({
-                      type: "doc",
-                      content: [{ type: "paragraph", content: [{ type: "text", text: "Museum visit" }] }],
-                    }),
-                    linkUrl: "https://example.com/museum",
-                    location: null,
-                  },
-                ],
-              },
-            ],
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-02T00:00:00.000Z",
+            dayCount: 2,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
           },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+          days: [
+            {
+              id: "day-0",
+              date: "2026-11-30T00:00:00.000Z",
+              dayIndex: 0,
+              plannedCostSubtotal: 12000,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: null,
+              dayPlanItems: [],
+            },
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 16000,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: null,
+              dayPlanItems: [
+                {
+                  id: "plan-1",
+                  contentJson: JSON.stringify({
+                    type: "doc",
+                    content: [{ type: "paragraph", content: [{ type: "text", text: "Museum visit" }] }],
+                  }),
+                  linkUrl: "https://example.com/museum",
+                  location: null,
+                },
+              ],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
@@ -3951,11 +3683,7 @@ describe("TripDayView layout", () => {
       const method = init?.method ?? "GET";
 
       if (url.includes("/api/auth/csrf")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
-        };
+        return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
       }
 
       if (url.includes("/days/day-1/image") && method === "POST") {
@@ -3963,81 +3691,69 @@ describe("TripDayView layout", () => {
         const noteValue = formData?.get("note");
         state.note = typeof noteValue === "string" && noteValue.trim().length > 0 ? noteValue : null;
         state.imageUrl = "/uploads/trips/trip-1/days/day-1/day.webp";
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            data: {
-              day: { id: "day-1", imageUrl: state.imageUrl, note: state.note, updatedAt: "2026-12-01T00:00:00.000Z" },
-            },
-            error: null,
-          }),
-        };
+        return mockFetchResponse({
+          data: {
+            day: { id: "day-1", imageUrl: state.imageUrl, note: state.note, updatedAt: "2026-12-01T00:00:00.000Z" },
+          },
+          error: null,
+        });
       }
 
       if (url.includes("/days/day-1/image") && method === "PATCH") {
         const parsed = JSON.parse(String(init?.body ?? "{}")) as { imageUrl: string | null; note: string | null };
         state.imageUrl = parsed.imageUrl;
         state.note = parsed.note;
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            data: {
-              day: { id: "day-1", imageUrl: state.imageUrl, note: state.note, updatedAt: "2026-12-01T00:00:00.000Z" },
-            },
-            error: null,
-          }),
-        };
-      }
-
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
+        return mockFetchResponse({
           data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-02T00:00:00.000Z",
-              dayCount: 2,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-0",
-                date: "2026-11-30T00:00:00.000Z",
-                dayIndex: 0,
-                imageUrl: null,
-                note: null,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: true,
-                accommodation: null,
-                dayPlanItems: [],
-              },
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                imageUrl: state.imageUrl,
-                note: state.note,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: true,
-                accommodation: null,
-                dayPlanItems: [],
-              },
-            ],
+            day: { id: "day-1", imageUrl: state.imageUrl, note: state.note, updatedAt: "2026-12-01T00:00:00.000Z" },
           },
           error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+        });
+      }
 
-    vi.stubGlobal("fetch", fetchMock);
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-02T00:00:00.000Z",
+            dayCount: 2,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
+          },
+          days: [
+            {
+              id: "day-0",
+              date: "2026-11-30T00:00:00.000Z",
+              dayIndex: 0,
+              imageUrl: null,
+              note: null,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: null,
+              dayPlanItems: [],
+            },
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              imageUrl: state.imageUrl,
+              note: state.note,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: null,
+              dayPlanItems: [],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
+
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
@@ -4110,11 +3826,7 @@ describe("TripDayView layout", () => {
       const method = init?.method ?? "GET";
 
       if (url.includes("/api/auth/csrf")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
-        };
+        return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
       }
 
       // What the widened route now answers a participant in the wrong role - `403 forbidden`, with
@@ -4122,64 +3834,59 @@ describe("TripDayView layout", () => {
       // fallback would splice it into the alert, so its absence below is what proves the code branch
       // ran rather than the fallback.
       if (url.includes("/days/day-1/image") && method === "POST") {
-        return {
-          ok: false,
-          status: 403,
-          json: async () => ({
+        return mockFetchResponse(
+          {
             data: null,
             error: { code: "forbidden", message: "Trip write access required" },
-          }),
-        };
+          },
+          { status: 403 },
+        );
       }
 
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-02T00:00:00.000Z",
-              dayCount: 2,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-              accessRole: "contributor",
-            },
-            days: [
-              {
-                id: "day-0",
-                date: "2026-11-30T00:00:00.000Z",
-                dayIndex: 0,
-                imageUrl: null,
-                note: null,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: true,
-                accommodation: null,
-                dayPlanItems: [],
-              },
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                imageUrl: null,
-                note: null,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: true,
-                accommodation: null,
-                dayPlanItems: [],
-              },
-            ],
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-02T00:00:00.000Z",
+            dayCount: 2,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
+            accessRole: "contributor",
           },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+          days: [
+            {
+              id: "day-0",
+              date: "2026-11-30T00:00:00.000Z",
+              dayIndex: 0,
+              imageUrl: null,
+              note: null,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: null,
+              dayPlanItems: [],
+            },
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              imageUrl: null,
+              note: null,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: null,
+              dayPlanItems: [],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
@@ -4211,89 +3918,81 @@ describe("TripDayView layout", () => {
       const url = String(input);
 
       if (url.includes("/api/trips/trip-1/days/day-1/route")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            data: {
-              points: [
-                { id: "prev", kind: "previousStay", lat: 48.3538, lng: 11.7861 },
-                { id: "curr", kind: "currentStay", lat: 48.145, lng: 11.582 },
-              ],
-              route: {
-                polyline: [
-                  [48.3538, 11.7861],
-                  [48.24, 11.67],
-                  [48.145, 11.582],
-                ],
-                distanceMeters: 12000,
-                durationSeconds: 1600,
-              },
-            },
-            error: null,
-          }),
-        };
-      }
-
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
+        return mockFetchResponse({
           data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-02T00:00:00.000Z",
-              dayCount: 2,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-0",
-                date: "2026-11-30T00:00:00.000Z",
-                dayIndex: 0,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: true,
-                accommodation: {
-                  id: "stay-prev",
-                  name: "Airport Hotel",
-                  notes: null,
-                  status: "booked",
-                  costCents: 0,
-                  link: null,
-                  location: { lat: 48.3538, lng: 11.7861 },
-                },
-                dayPlanItems: [],
-              },
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: true,
-                accommodation: {
-                  id: "stay-current",
-                  name: "City Hotel",
-                  notes: null,
-                  status: "planned",
-                  costCents: 0,
-                  link: null,
-                  location: { lat: 48.145, lng: 11.582 },
-                },
-                dayPlanItems: [],
-              },
+            points: [
+              { id: "prev", kind: "previousStay", lat: 48.3538, lng: 11.7861 },
+              { id: "curr", kind: "currentStay", lat: 48.145, lng: 11.582 },
             ],
+            route: {
+              polyline: [
+                [48.3538, 11.7861],
+                [48.24, 11.67],
+                [48.145, 11.582],
+              ],
+              distanceMeters: 12000,
+              durationSeconds: 1600,
+            },
           },
           error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+        });
+      }
 
-    vi.stubGlobal("fetch", fetchMock);
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-02T00:00:00.000Z",
+            dayCount: 2,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
+          },
+          days: [
+            {
+              id: "day-0",
+              date: "2026-11-30T00:00:00.000Z",
+              dayIndex: 0,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: {
+                id: "stay-prev",
+                name: "Airport Hotel",
+                notes: null,
+                status: "booked",
+                costCents: 0,
+                link: null,
+                location: { lat: 48.3538, lng: 11.7861 },
+              },
+              dayPlanItems: [],
+            },
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: {
+                id: "stay-current",
+                name: "City Hotel",
+                notes: null,
+                status: "planned",
+                costCents: 0,
+                link: null,
+                location: { lat: 48.145, lng: 11.582 },
+              },
+              dayPlanItems: [],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
+
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
@@ -4322,10 +4021,8 @@ describe("TripDayView layout", () => {
     const fetchMock = withBucketList(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/api/trips/trip-1/days/day-1/route")) {
-        return {
-          ok: false,
-          status: 502,
-          json: async () => ({
+        return mockFetchResponse(
+          {
             data: null,
             error: {
               code: "routing_unavailable",
@@ -4337,69 +4034,66 @@ describe("TripDayView layout", () => {
                 ],
               },
             },
-          }),
-        };
+          },
+          { status: 502 },
+        );
       }
 
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-02T00:00:00.000Z",
-              dayCount: 2,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-0",
-                date: "2026-11-30T00:00:00.000Z",
-                dayIndex: 0,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: true,
-                accommodation: {
-                  id: "stay-prev",
-                  name: "Airport Hotel",
-                  notes: null,
-                  status: "booked",
-                  costCents: 0,
-                  link: null,
-                  location: { lat: 48.3538, lng: 11.7861 },
-                },
-                dayPlanItems: [],
-              },
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: true,
-                accommodation: {
-                  id: "stay-current",
-                  name: "City Hotel",
-                  notes: null,
-                  status: "planned",
-                  costCents: 0,
-                  link: null,
-                  location: { lat: 48.145, lng: 11.582 },
-                },
-                dayPlanItems: [],
-              },
-            ],
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-02T00:00:00.000Z",
+            dayCount: 2,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
           },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+          days: [
+            {
+              id: "day-0",
+              date: "2026-11-30T00:00:00.000Z",
+              dayIndex: 0,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: {
+                id: "stay-prev",
+                name: "Airport Hotel",
+                notes: null,
+                status: "booked",
+                costCents: 0,
+                link: null,
+                location: { lat: 48.3538, lng: 11.7861 },
+              },
+              dayPlanItems: [],
+            },
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: {
+                id: "stay-current",
+                name: "City Hotel",
+                notes: null,
+                status: "planned",
+                costCents: 0,
+                link: null,
+                location: { lat: 48.145, lng: 11.582 },
+              },
+              dayPlanItems: [],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
@@ -4424,76 +4118,60 @@ describe("TripDayView layout", () => {
     const fetchMock = withBucketList(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/day-plan-items/images")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            data: { images: [{ id: "img-1", dayPlanItemId: "plan-1", imageUrl: "/plan-1.jpg", sortOrder: 0 }] },
-            error: null,
-          }),
-        };
+        return mockFetchResponse({
+          data: { images: [{ id: "img-1", dayPlanItemId: "plan-1", imageUrl: "/plan-1.jpg", sortOrder: 0 }] },
+          error: null,
+        });
       }
       if (url.includes("/accommodations/images")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { images: [] }, error: null }),
-        };
+        return mockFetchResponse({ data: { images: [] }, error: null });
       }
       if (url.includes("/route")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { route: { polyline: [[48.1, 11.5], [48.2, 11.6]] } }, error: null }),
-        };
+        return mockFetchResponse({ data: { route: { polyline: [[48.1, 11.5], [48.2, 11.6]] } }, error: null });
       }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-02T00:00:00.000Z",
-              dayCount: 1,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: null,
-                dayPlanItems: [
-                  {
-                    id: "plan-1",
-                    title: "Museum visit",
-                    fromTime: null,
-                    toTime: null,
-                    contentJson: JSON.stringify({
-                      type: "doc",
-                      content: [{ type: "paragraph", content: [{ type: "text", text: "Plan details" }] }],
-                    }),
-                    costCents: null,
-                    linkUrl: null,
-                    location: { lat: 48.1, lng: 11.5 },
-                  },
-                ],
-              },
-            ],
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-02T00:00:00.000Z",
+            dayCount: 1,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
           },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: null,
+              dayPlanItems: [
+                {
+                  id: "plan-1",
+                  title: "Museum visit",
+                  fromTime: null,
+                  toTime: null,
+                  contentJson: JSON.stringify({
+                    type: "doc",
+                    content: [{ type: "paragraph", content: [{ type: "text", text: "Plan details" }] }],
+                  }),
+                  costCents: null,
+                  linkUrl: null,
+                  location: { lat: 48.1, lng: 11.5 },
+                },
+              ],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
@@ -4512,144 +4190,132 @@ describe("TripDayView layout", () => {
     const fetchMock = withBucketList(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/day-plan-items/images")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { images: [] }, error: null }),
-        };
+        return mockFetchResponse({ data: { images: [] }, error: null });
       }
       if (url.includes("/accommodations/images")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { images: [] }, error: null }),
-        };
+        return mockFetchResponse({ data: { images: [] }, error: null });
       }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-02T00:00:00.000Z",
-              dayCount: 2,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: true,
-                accommodation: {
-                  id: "stay-prev",
-                  name: "Prev Stay",
-                  notes: null,
-                  status: "planned",
-                  costCents: null,
-                  link: null,
-                  checkInTime: null,
-                  checkOutTime: null,
-                  location: null,
-                },
-                dayPlanItems: [],
-              },
-              {
-                id: "day-2",
-                date: "2026-12-02T00:00:00.000Z",
-                dayIndex: 2,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: {
-                  id: "stay-current",
-                  name: "Current Stay",
-                  notes: null,
-                  status: "planned",
-                  costCents: null,
-                  link: null,
-                  checkInTime: "16:00",
-                  checkOutTime: "09:30",
-                  location: null,
-                },
-                dayPlanItems: [
-                  {
-                    id: "item-1",
-                    title: "Morning",
-                    fromTime: "09:00",
-                    toTime: "10:00",
-                    contentJson: JSON.stringify({
-                      type: "doc",
-                      content: [{ type: "paragraph", content: [{ type: "text", text: "Plan" }] }],
-                    }),
-                    costCents: null,
-                    linkUrl: null,
-                    location: null,
-                  },
-                  {
-                    id: "item-2",
-                    title: "Noon",
-                    fromTime: "12:00",
-                    toTime: "23:30",
-                    contentJson: JSON.stringify({
-                      type: "doc",
-                      content: [{ type: "paragraph", content: [{ type: "text", text: "Plan 2" }] }],
-                    }),
-                    costCents: null,
-                    linkUrl: null,
-                    location: null,
-                  },
-                ],
-                travelSegments: [
-                  {
-                    id: "segment-1",
-                    fromItemType: "accommodation",
-                    fromItemId: "stay-prev",
-                    toItemType: "dayPlanItem",
-                    toItemId: "item-1",
-                    transportType: "car",
-                    durationMinutes: 45,
-                    distanceKm: null,
-                    linkUrl: null,
-                  },
-                  {
-                    id: "segment-2",
-                    fromItemType: "dayPlanItem",
-                    fromItemId: "item-1",
-                    toItemType: "dayPlanItem",
-                    toItemId: "item-2",
-                    transportType: "car",
-                    durationMinutes: 30,
-                    distanceKm: null,
-                    linkUrl: null,
-                  },
-                  {
-                    id: "segment-3",
-                    fromItemType: "dayPlanItem",
-                    fromItemId: "item-2",
-                    toItemType: "accommodation",
-                    toItemId: "stay-current",
-                    transportType: "car",
-                    durationMinutes: 90,
-                    distanceKm: null,
-                    linkUrl: null,
-                  },
-                ],
-              },
-            ],
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-02T00:00:00.000Z",
+            dayCount: 2,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
           },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: {
+                id: "stay-prev",
+                name: "Prev Stay",
+                notes: null,
+                status: "planned",
+                costCents: null,
+                link: null,
+                checkInTime: null,
+                checkOutTime: null,
+                location: null,
+              },
+              dayPlanItems: [],
+            },
+            {
+              id: "day-2",
+              date: "2026-12-02T00:00:00.000Z",
+              dayIndex: 2,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: {
+                id: "stay-current",
+                name: "Current Stay",
+                notes: null,
+                status: "planned",
+                costCents: null,
+                link: null,
+                checkInTime: "16:00",
+                checkOutTime: "09:30",
+                location: null,
+              },
+              dayPlanItems: [
+                {
+                  id: "item-1",
+                  title: "Morning",
+                  fromTime: "09:00",
+                  toTime: "10:00",
+                  contentJson: JSON.stringify({
+                    type: "doc",
+                    content: [{ type: "paragraph", content: [{ type: "text", text: "Plan" }] }],
+                  }),
+                  costCents: null,
+                  linkUrl: null,
+                  location: null,
+                },
+                {
+                  id: "item-2",
+                  title: "Noon",
+                  fromTime: "12:00",
+                  toTime: "23:30",
+                  contentJson: JSON.stringify({
+                    type: "doc",
+                    content: [{ type: "paragraph", content: [{ type: "text", text: "Plan 2" }] }],
+                  }),
+                  costCents: null,
+                  linkUrl: null,
+                  location: null,
+                },
+              ],
+              travelSegments: [
+                {
+                  id: "segment-1",
+                  fromItemType: "accommodation",
+                  fromItemId: "stay-prev",
+                  toItemType: "dayPlanItem",
+                  toItemId: "item-1",
+                  transportType: "car",
+                  durationMinutes: 45,
+                  distanceKm: null,
+                  linkUrl: null,
+                },
+                {
+                  id: "segment-2",
+                  fromItemType: "dayPlanItem",
+                  fromItemId: "item-1",
+                  toItemType: "dayPlanItem",
+                  toItemId: "item-2",
+                  transportType: "car",
+                  durationMinutes: 30,
+                  distanceKm: null,
+                  linkUrl: null,
+                },
+                {
+                  id: "segment-3",
+                  fromItemType: "dayPlanItem",
+                  fromItemId: "item-2",
+                  toItemType: "accommodation",
+                  toItemId: "stay-current",
+                  transportType: "car",
+                  durationMinutes: 90,
+                  distanceKm: null,
+                  linkUrl: null,
+                },
+              ],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-2" />);
 
@@ -4669,133 +4335,121 @@ describe("TripDayView layout", () => {
     const fetchMock = withBucketList(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/day-plan-items/images")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { images: [] }, error: null }),
-        };
+        return mockFetchResponse({ data: { images: [] }, error: null });
       }
       if (url.includes("/accommodations/images")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { images: [] }, error: null }),
-        };
+        return mockFetchResponse({ data: { images: [] }, error: null });
       }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-02T00:00:00.000Z",
-              dayCount: 2,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: true,
-                accommodation: {
-                  id: "stay-prev",
-                  name: "Prev Stay",
-                  notes: null,
-                  status: "planned",
-                  costCents: null,
-                  link: null,
-                  checkInTime: null,
-                  checkOutTime: null,
-                  location: null,
-                },
-                dayPlanItems: [],
-              },
-              {
-                id: "day-2",
-                date: "2026-12-02T00:00:00.000Z",
-                dayIndex: 2,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: {
-                  id: "stay-current",
-                  name: "Current Stay",
-                  notes: null,
-                  status: "planned",
-                  costCents: null,
-                  link: null,
-                  checkInTime: "16:00",
-                  checkOutTime: "09:30",
-                  location: null,
-                },
-                dayPlanItems: [
-                  {
-                    id: "item-1",
-                    title: "Morning",
-                    fromTime: "09:00",
-                    toTime: "10:00",
-                    contentJson: JSON.stringify({
-                      type: "doc",
-                      content: [{ type: "paragraph", content: [{ type: "text", text: "Plan" }] }],
-                    }),
-                    costCents: null,
-                    linkUrl: null,
-                    location: null,
-                  },
-                  {
-                    id: "item-2",
-                    title: "Noon",
-                    fromTime: "12:00",
-                    toTime: "23:30",
-                    contentJson: JSON.stringify({
-                      type: "doc",
-                      content: [{ type: "paragraph", content: [{ type: "text", text: "Plan 2" }] }],
-                    }),
-                    costCents: null,
-                    linkUrl: null,
-                    location: null,
-                  },
-                ],
-                travelSegments: [
-                  {
-                    id: "segment-1",
-                    fromItemType: "accommodation",
-                    fromItemId: "stay-prev",
-                    toItemType: "dayPlanItem",
-                    toItemId: "item-1",
-                    transportType: "car",
-                    durationMinutes: 45,
-                    distanceKm: null,
-                    linkUrl: null,
-                  },
-                  {
-                    id: "segment-2",
-                    fromItemType: "dayPlanItem",
-                    fromItemId: "item-1",
-                    toItemType: "dayPlanItem",
-                    toItemId: "item-2",
-                    transportType: "car",
-                    durationMinutes: 30,
-                    distanceKm: null,
-                    linkUrl: null,
-                  },
-                ],
-              },
-            ],
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-02T00:00:00.000Z",
+            dayCount: 2,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
           },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: {
+                id: "stay-prev",
+                name: "Prev Stay",
+                notes: null,
+                status: "planned",
+                costCents: null,
+                link: null,
+                checkInTime: null,
+                checkOutTime: null,
+                location: null,
+              },
+              dayPlanItems: [],
+            },
+            {
+              id: "day-2",
+              date: "2026-12-02T00:00:00.000Z",
+              dayIndex: 2,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: {
+                id: "stay-current",
+                name: "Current Stay",
+                notes: null,
+                status: "planned",
+                costCents: null,
+                link: null,
+                checkInTime: "16:00",
+                checkOutTime: "09:30",
+                location: null,
+              },
+              dayPlanItems: [
+                {
+                  id: "item-1",
+                  title: "Morning",
+                  fromTime: "09:00",
+                  toTime: "10:00",
+                  contentJson: JSON.stringify({
+                    type: "doc",
+                    content: [{ type: "paragraph", content: [{ type: "text", text: "Plan" }] }],
+                  }),
+                  costCents: null,
+                  linkUrl: null,
+                  location: null,
+                },
+                {
+                  id: "item-2",
+                  title: "Noon",
+                  fromTime: "12:00",
+                  toTime: "23:30",
+                  contentJson: JSON.stringify({
+                    type: "doc",
+                    content: [{ type: "paragraph", content: [{ type: "text", text: "Plan 2" }] }],
+                  }),
+                  costCents: null,
+                  linkUrl: null,
+                  location: null,
+                },
+              ],
+              travelSegments: [
+                {
+                  id: "segment-1",
+                  fromItemType: "accommodation",
+                  fromItemId: "stay-prev",
+                  toItemType: "dayPlanItem",
+                  toItemId: "item-1",
+                  transportType: "car",
+                  durationMinutes: 45,
+                  distanceKm: null,
+                  linkUrl: null,
+                },
+                {
+                  id: "segment-2",
+                  fromItemType: "dayPlanItem",
+                  fromItemId: "item-1",
+                  toItemType: "dayPlanItem",
+                  toItemId: "item-2",
+                  transportType: "car",
+                  durationMinutes: 30,
+                  distanceKm: null,
+                  linkUrl: null,
+                },
+              ],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-2" />);
 
@@ -4829,112 +4483,108 @@ describe("TripDayView layout", () => {
     const fetchMock = withBucketList(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/day-plan-items/images") || url.includes("/accommodations/images")) {
-        return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
+        return mockFetchResponse({ data: { images: [] }, error: null });
       }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-02T00:00:00.000Z",
-              dayCount: 2,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-02T00:00:00.000Z",
+            dayCount: 2,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
+          },
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: {
+                id: "stay-prev",
+                name: "Prev Stay",
+                notes: null,
+                status: "planned",
+                costCents: null,
+                link: null,
+                checkInTime: null,
+                checkOutTime: "09:00",
+                location: null,
+              },
+              dayPlanItems: [],
             },
-            days: [
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: true,
-                accommodation: {
-                  id: "stay-prev",
-                  name: "Prev Stay",
-                  notes: null,
-                  status: "planned",
+            {
+              id: "day-2",
+              date: "2026-12-02T00:00:00.000Z",
+              dayIndex: 2,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: null,
+              dayPlanItems: [
+                {
+                  id: "item-1",
+                  title: "Morning",
+                  fromTime: "10:00",
+                  toTime: "11:00",
+                  contentJson: JSON.stringify({
+                    type: "doc",
+                    content: [{ type: "paragraph", content: [{ type: "text", text: "Plan" }] }],
+                  }),
                   costCents: null,
-                  link: null,
-                  checkInTime: null,
-                  checkOutTime: "09:00",
+                  linkUrl: null,
                   location: null,
                 },
-                dayPlanItems: [],
-              },
-              {
-                id: "day-2",
-                date: "2026-12-02T00:00:00.000Z",
-                dayIndex: 2,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: null,
-                dayPlanItems: [
-                  {
-                    id: "item-1",
-                    title: "Morning",
-                    fromTime: "10:00",
-                    toTime: "11:00",
-                    contentJson: JSON.stringify({
-                      type: "doc",
-                      content: [{ type: "paragraph", content: [{ type: "text", text: "Plan" }] }],
-                    }),
-                    costCents: null,
-                    linkUrl: null,
-                    location: null,
-                  },
-                  {
-                    id: "item-2",
-                    title: "Noon",
-                    fromTime: "13:00",
-                    toTime: "14:00",
-                    contentJson: JSON.stringify({
-                      type: "doc",
-                      content: [{ type: "paragraph", content: [{ type: "text", text: "Plan 2" }] }],
-                    }),
-                    costCents: null,
-                    linkUrl: null,
-                    location: null,
-                  },
-                ],
-                travelSegments: [
-                  {
-                    id: "segment-walk",
-                    fromItemType: "accommodation",
-                    fromItemId: "stay-prev",
-                    toItemType: "dayPlanItem",
-                    toItemId: "item-1",
-                    transportType: "walking",
-                    durationMinutes: 20,
-                    distanceKm: 1.5,
-                    linkUrl: null,
-                  },
-                  {
-                    id: "segment-bike",
-                    fromItemType: "dayPlanItem",
-                    fromItemId: "item-1",
-                    toItemType: "dayPlanItem",
-                    toItemId: "item-2",
-                    transportType: "cycling",
-                    durationMinutes: 40,
-                    distanceKm: 12,
-                    linkUrl: null,
-                  },
-                ],
-              },
-            ],
-          },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+                {
+                  id: "item-2",
+                  title: "Noon",
+                  fromTime: "13:00",
+                  toTime: "14:00",
+                  contentJson: JSON.stringify({
+                    type: "doc",
+                    content: [{ type: "paragraph", content: [{ type: "text", text: "Plan 2" }] }],
+                  }),
+                  costCents: null,
+                  linkUrl: null,
+                  location: null,
+                },
+              ],
+              travelSegments: [
+                {
+                  id: "segment-walk",
+                  fromItemType: "accommodation",
+                  fromItemId: "stay-prev",
+                  toItemType: "dayPlanItem",
+                  toItemId: "item-1",
+                  transportType: "walking",
+                  durationMinutes: 20,
+                  distanceKm: 1.5,
+                  linkUrl: null,
+                },
+                {
+                  id: "segment-bike",
+                  fromItemType: "dayPlanItem",
+                  fromItemId: "item-1",
+                  toItemType: "dayPlanItem",
+                  toItemId: "item-2",
+                  transportType: "cycling",
+                  durationMinutes: 40,
+                  distanceKm: 12,
+                  linkUrl: null,
+                },
+              ],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-2" />);
 
@@ -4975,89 +4625,77 @@ describe("TripDayView layout", () => {
     const fetchMock = withBucketList(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/day-plan-items/images")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { images: [] }, error: null }),
-        };
+        return mockFetchResponse({ data: { images: [] }, error: null });
       }
       if (url.includes("/accommodations/images")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { images: [] }, error: null }),
-        };
+        return mockFetchResponse({ data: { images: [] }, error: null });
       }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-01T00:00:00.000Z",
-              dayCount: 1,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: {
-                  id: "stay-current",
-                  name: "Current Stay",
-                  notes: null,
-                  status: "planned",
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-01T00:00:00.000Z",
+            dayCount: 1,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
+          },
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: {
+                id: "stay-current",
+                name: "Current Stay",
+                notes: null,
+                status: "planned",
+                costCents: null,
+                link: null,
+                checkInTime: "16:00",
+                checkOutTime: "09:30",
+                location: null,
+              },
+              dayPlanItems: [
+                {
+                  id: "item-1",
+                  title: "Open Slot",
+                  fromTime: "10:00",
+                  toTime: null,
+                  contentJson: JSON.stringify({
+                    type: "doc",
+                    content: [{ type: "paragraph", content: [{ type: "text", text: "Plan" }] }],
+                  }),
                   costCents: null,
-                  link: null,
-                  checkInTime: "16:00",
-                  checkOutTime: "09:30",
+                  linkUrl: null,
                   location: null,
                 },
-                dayPlanItems: [
-                  {
-                    id: "item-1",
-                    title: "Open Slot",
-                    fromTime: "10:00",
-                    toTime: null,
-                    contentJson: JSON.stringify({
-                      type: "doc",
-                      content: [{ type: "paragraph", content: [{ type: "text", text: "Plan" }] }],
-                    }),
-                    costCents: null,
-                    linkUrl: null,
-                    location: null,
-                  },
-                ],
-                travelSegments: [
-                  {
-                    id: "segment-1",
-                    fromItemType: "dayPlanItem",
-                    fromItemId: "item-1",
-                    toItemType: "accommodation",
-                    toItemId: "stay-current",
-                    transportType: "car",
-                    durationMinutes: 45,
-                    distanceKm: null,
-                    linkUrl: null,
-                  },
-                ],
-              },
-            ],
-          },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+              ],
+              travelSegments: [
+                {
+                  id: "segment-1",
+                  fromItemType: "dayPlanItem",
+                  fromItemId: "item-1",
+                  toItemType: "accommodation",
+                  toItemId: "stay-current",
+                  transportType: "car",
+                  durationMinutes: 45,
+                  distanceKm: null,
+                  linkUrl: null,
+                },
+              ],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
@@ -5073,50 +4711,42 @@ describe("TripDayView layout", () => {
     const fetchMock = withBucketList(async (input) => {
       const url = String(input);
       if (url.includes("/accommodations/images") || url.includes("/day-plan-items/images")) {
-        return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
+        return mockFetchResponse({ data: { images: [] }, error: null });
       }
       if (url.includes("/days/day-1/route")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ data: { points: [], route: { polyline: [], distanceMeters: null, durationSeconds: null } }, error: null }),
-        };
+        return mockFetchResponse({ data: { points: [], route: { polyline: [], distanceMeters: null, durationSeconds: null } }, error: null });
       }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              accessRole: "owner",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-01T00:00:00.000Z",
-              dayCount: 1,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: null,
-                dayPlanItems: [],
-                travelSegments: [],
-              },
-            ],
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            accessRole: "owner",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-01T00:00:00.000Z",
+            dayCount: 1,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
           },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: null,
+              dayPlanItems: [],
+              travelSegments: [],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
@@ -5164,42 +4794,38 @@ describe("TripDayView layout", () => {
     withBucketList(async (input) => {
       const url = String(input);
       if (url.includes("/accommodations/images") || url.includes("/day-plan-items/images")) {
-        return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
+        return mockFetchResponse({ data: { images: [] }, error: null });
       }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-04T00:00:00.000Z",
-              dayCount: 4,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-              ...trip,
-            },
-            days: [
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: null,
-                dayPlanItems: [],
-                travelSegments: [],
-                ...day,
-              },
-            ],
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-04T00:00:00.000Z",
+            dayCount: 4,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
+            ...trip,
           },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: null,
+              dayPlanItems: [],
+              travelSegments: [],
+              ...day,
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
   it("renders the four coverage legend entries and a 24-hour axis", async () => {
     navigationMockState.search = "";
@@ -5728,66 +5354,58 @@ describe("TripDayView layout", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/bucket-list-items")) {
-        return { ok: true, status: 200, json: async () => ({ data: { items: [] }, error: null }) };
+        return mockFetchResponse({ data: { items: [] }, error: null });
       }
       if (url.includes("/day-plan-items/images")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            data: { images: [{ id: "img-1", dayPlanItemId: "item-1", imageUrl: "/uploads/a.webp", sortOrder: 0 }] },
-            error: null,
-          }),
-        };
+        return mockFetchResponse({
+          data: { images: [{ id: "img-1", dayPlanItemId: "item-1", imageUrl: "/uploads/a.webp", sortOrder: 0 }] },
+          error: null,
+        });
       }
       if (url.includes("/accommodations/images")) {
-        return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
+        return mockFetchResponse({ data: { images: [] }, error: null });
       }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-01T00:00:00.000Z",
-              dayCount: 1,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: null,
-                dayPlanItems: [
-                  {
-                    id: "item-1",
-                    title: "Museum visit",
-                    fromTime: "09:00",
-                    toTime: "10:00",
-                    contentJson: JSON.stringify({ type: "doc", content: [] }),
-                    costCents: null,
-                    linkUrl: null,
-                    location: null,
-                  },
-                ],
-                travelSegments: [],
-              },
-            ],
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-01T00:00:00.000Z",
+            dayCount: 1,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
           },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: null,
+              dayPlanItems: [
+                {
+                  id: "item-1",
+                  title: "Museum visit",
+                  fromTime: "09:00",
+                  toTime: "10:00",
+                  contentJson: JSON.stringify({ type: "doc", content: [] }),
+                  costCents: null,
+                  linkUrl: null,
+                  location: null,
+                },
+              ],
+              travelSegments: [],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
@@ -5984,53 +5602,45 @@ describe("TripDayView layout", () => {
     const fetchMock = withBucketList(async (input) => {
       const url = String(input);
       if (url.includes("/day-plan-items/images")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            data: {
-              images: [{ id: "img-1", dayPlanItemId: "item-1", imageUrl: "/uploads/plan.webp", sortOrder: 1 }],
-            },
-            error: null,
-          }),
-        };
-      }
-      if (url.includes("/accommodations/images")) {
-        return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
-      }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
+        return mockFetchResponse({
           data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-01T00:00:00.000Z",
-              dayCount: 1,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-            },
-            days: [
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: null,
-                dayPlanItems: [{ ...activityWithCost, linkUrl: "https://example.com/museum" }],
-                travelSegments: [],
-              },
-            ],
+            images: [{ id: "img-1", dayPlanItemId: "item-1", imageUrl: "/uploads/plan.webp", sortOrder: 1 }],
           },
           error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
-    vi.stubGlobal("fetch", fetchMock);
+        });
+      }
+      if (url.includes("/accommodations/images")) {
+        return mockFetchResponse({ data: { images: [] }, error: null });
+      }
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-01T00:00:00.000Z",
+            dayCount: 1,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
+          },
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: null,
+              dayPlanItems: [{ ...activityWithCost, linkUrl: "https://example.com/museum" }],
+              travelSegments: [],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
@@ -6341,52 +5951,48 @@ describe("TripDayView layout", () => {
     withBucketList(async (input) => {
       const url = String(input);
       if (url.includes("/accommodations/images") || url.includes("/day-plan-items/images")) {
-        return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
+        return mockFetchResponse({ data: { images: [] }, error: null });
       }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-11-30T00:00:00.000Z",
-              endDate: "2026-12-01T00:00:00.000Z",
-              dayCount: 2,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-              ...options.trip,
-            },
-            days: [
-              {
-                id: "day-prev",
-                date: "2026-11-30T00:00:00.000Z",
-                dayIndex: 0,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: options.previousAccommodation ?? null,
-                dayPlanItems: [],
-                travelSegments: [],
-              },
-              {
-                id: "day-1",
-                date: "2026-12-01T00:00:00.000Z",
-                dayIndex: 1,
-                plannedCostSubtotal: 0,
-                missingAccommodation: false,
-                missingPlan: false,
-                accommodation: options.accommodation ?? null,
-                dayPlanItems: [],
-                travelSegments: [],
-              },
-            ],
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-11-30T00:00:00.000Z",
+            endDate: "2026-12-01T00:00:00.000Z",
+            dayCount: 2,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
+            ...options.trip,
           },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+          days: [
+            {
+              id: "day-prev",
+              date: "2026-11-30T00:00:00.000Z",
+              dayIndex: 0,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: options.previousAccommodation ?? null,
+              dayPlanItems: [],
+              travelSegments: [],
+            },
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: options.accommodation ?? null,
+              dayPlanItems: [],
+              travelSegments: [],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
 
   it("opens the previous-night dialog - not the current-night one - from the previous-night card (AC1, AC2)", async () => {
     navigationMockState.search = "";
@@ -7187,44 +6793,40 @@ describe("TripDayView layout", () => {
     withBucketList(async (input) => {
       const url = String(input);
       if (url.includes("/accommodations/images") || url.includes("/day-plan-items/images")) {
-        return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
+        return mockFetchResponse({ data: { images: [] }, error: null });
       }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          data: {
-            trip: {
-              id: "trip-1",
-              name: "Trip",
-              startDate: "2026-12-01T00:00:00.000Z",
-              endDate: "2026-12-03T00:00:00.000Z",
-              dayCount: 3,
-              accommodationCostTotalCents: null,
-              heroImageUrl: null,
-              ...trip,
-            },
-            days: [1, 2, 3].map((index) => ({
-              plannedCostSubtotal: 0,
-              missingAccommodation: false,
-              missingPlan: true,
-              accommodation: null,
-              dayPlanItems: [],
-              travelSegments: [],
-              ...day,
-              // Identity last, after the spread: `day` carries per-day *content* such as a note, and
-              // every one of the three is meant to receive it, but an `id` arriving that way would
-              // collapse all three onto one - and a fixture whose days share an id has no neighbours,
-              // which is the single thing this builder exists to provide.
-              id: `day-${index}`,
-              date: `2026-12-0${index}T00:00:00.000Z`,
-              dayIndex: index,
-            })),
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-03T00:00:00.000Z",
+            dayCount: 3,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
+            ...trip,
           },
-          error: null,
-        }),
-      };
-    }) as unknown as typeof fetch;
+          days: [1, 2, 3].map((index) => ({
+            plannedCostSubtotal: 0,
+            missingAccommodation: false,
+            missingPlan: true,
+            accommodation: null,
+            dayPlanItems: [],
+            travelSegments: [],
+            ...day,
+            // Identity last, after the spread: `day` carries per-day *content* such as a note, and
+            // every one of the three is meant to receive it, but an `id` arriving that way would
+            // collapse all three onto one - and a fixture whose days share an id has no neighbours,
+            // which is the single thing this builder exists to provide.
+            id: `day-${index}`,
+            date: `2026-12-0${index}T00:00:00.000Z`,
+            dayIndex: index,
+          })),
+        },
+        error: null,
+      });
+    });
 
   // Every anchor and every button the hero paints, in DOM order. Both roles matter: the chevrons are
   // `IconButton component={Link}`, so they are links, and the `⋯` is a real button - counting only one
@@ -7519,7 +7121,7 @@ describe("TripDayView document chips", () => {
   }) =>
     withBucketList(async (input: RequestInfo | URL) => {
       const url = String(input);
-      const payload = (data: unknown) => ({ ok: true, status: 200, json: async () => ({ data, error: null }) });
+      const payload = (data: unknown) => mockFetchResponse({ data, error: null });
 
       if (url.includes("/accommodations/documents")) {
         return payload({
@@ -7591,7 +7193,7 @@ describe("TripDayView document chips", () => {
           },
         ],
       });
-    }) as unknown as typeof fetch;
+    });
 
   const renderDayTwo = async () => {
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-2" />);
@@ -7888,14 +7490,14 @@ describe("TripDayView document chips", () => {
       error: null,
     });
 
-    const mockPacketFetch = (packetResponse: () => unknown) =>
+    const mockPacketFetch = (packetResponse: () => Response) =>
       withBucketList(async (input) => {
         const url = String(input);
         if (url.includes("/documents/packet")) {
-          return packetResponse() as { ok: boolean; status: number; json: () => Promise<unknown> };
+          return packetResponse();
         }
-        return { ok: true, status: 200, json: async () => dayPayload("viewer") };
-      }) as unknown as typeof fetch;
+        return mockFetchResponse(dayPayload("viewer"));
+      });
 
     it("saves the packet as a .pdf file and never the response envelope", async () => {
       planDialogMockState.lastProps = null;
@@ -7918,17 +7520,17 @@ describe("TripDayView document chips", () => {
       const blob = vi.fn(async () => new Blob([new Uint8Array([0x25, 0x50, 0x44, 0x46])], { type: "application/pdf" }));
       vi.stubGlobal(
         "fetch",
-        mockPacketFetch(() => ({
-          ok: true,
-          status: 200,
-          headers: new Headers({ "content-disposition": 'attachment; filename="trip-day-1-documents.pdf"' }),
-          blob,
-          // Present but must never be called on the success path: reading the envelope instead of the body
-          // is the mistake, and this is what makes it visible rather than merely unlikely.
-          json: async () => {
-            throw new Error("json() must not be read on a successful packet response");
-          },
-        })),
+        mockPacketFetch(() =>
+          mockFetchResponse(undefined, {
+            headers: { "content-disposition": 'attachment; filename="trip-day-1-documents.pdf"' },
+            blob,
+            // Present but must never be called on the success path: reading the envelope instead of the body
+            // is the mistake, and this is what makes it visible rather than merely unlikely.
+            json: async () => {
+              throw new Error("json() must not be read on a successful packet response");
+            },
+          }),
+        ),
       );
 
       try {
@@ -7964,11 +7566,12 @@ describe("TripDayView document chips", () => {
 
       vi.stubGlobal(
         "fetch",
-        mockPacketFetch(() => ({
-          ok: false,
-          status: 404,
-          json: async () => ({ data: null, error: { code: "no_documents", message: "This day has no documents" } }),
-        })),
+        mockPacketFetch(() =>
+          mockFetchResponse(
+            { data: null, error: { code: "no_documents", message: "This day has no documents" } },
+            { status: 404 },
+          ),
+        ),
       );
 
       try {
@@ -8006,14 +7609,15 @@ describe("TripDayView document chips", () => {
 
       vi.stubGlobal(
         "fetch",
-        mockPacketFetch(() => ({
-          ok: false,
-          status: 413,
-          json: async () => ({
-            data: null,
-            error: { code: "too_many_documents", message: "This day has more than 60 documents to package" },
-          }),
-        })),
+        mockPacketFetch(() =>
+          mockFetchResponse(
+            {
+              data: null,
+              error: { code: "too_many_documents", message: "This day has more than 60 documents to package" },
+            },
+            { status: 413 },
+          ),
+        ),
       );
 
       try {
@@ -8060,25 +7664,22 @@ describe("TripDayView document chips", () => {
       });
       let packetRequests = 0;
 
-      vi.stubGlobal(
-        "fetch",
+      stubFetch(
         withBucketList(async (input) => {
           const url = String(input);
           if (url.includes("/documents/packet")) {
             packetRequests += 1;
             await inFlight;
-            return {
-              ok: true,
-              status: 200,
-              headers: new Headers({ "content-disposition": 'attachment; filename="trip-day-1-documents.pdf"' }),
+            return mockFetchResponse(undefined, {
+              headers: { "content-disposition": 'attachment; filename="trip-day-1-documents.pdf"' },
               blob: async () => new Blob([new Uint8Array([0x25, 0x50, 0x44, 0x46])], { type: "application/pdf" }),
               json: async () => {
                 throw new Error("json() must not be read on a successful packet response");
               },
-            } as unknown as Response;
+            });
           }
-          return { ok: true, status: 200, json: async () => dayPayload("viewer") } as unknown as Response;
-        }) as unknown as typeof fetch,
+          return mockFetchResponse(dayPayload("viewer"));
+        }),
       );
 
       try {
@@ -8153,20 +7754,18 @@ describe("TripDayView document chips", () => {
         release = resolve;
       });
 
-      vi.stubGlobal(
-        "fetch",
+      stubFetch(
         withBucketList(async (input) => {
           const url = String(input);
           if (url.includes("/documents/packet")) {
             await inFlight;
-            return {
-              ok: false,
-              status: 404,
-              json: async () => ({ data: null, error: { code: "no_documents", message: "no documents" } }),
-            } as unknown as Response;
+            return mockFetchResponse(
+              { data: null, error: { code: "no_documents", message: "no documents" } },
+              { status: 404 },
+            );
           }
-          return { ok: true, status: 200, json: async () => twoDayPayload } as unknown as Response;
-        }) as unknown as typeof fetch,
+          return mockFetchResponse(twoDayPayload);
+        }),
       );
 
       try {
@@ -8209,14 +7808,12 @@ describe("TripDayView document chips", () => {
 
       vi.stubGlobal(
         "fetch",
-        mockPacketFetch(() => ({
-          ok: false,
-          status: 403,
-          json: async () => ({
-            data: null,
-            error: { code: "password_change_required", message: "Password change required" },
-          }),
-        })),
+        mockPacketFetch(() =>
+          mockFetchResponse(
+            { data: null, error: { code: "password_change_required", message: "Password change required" } },
+            { status: 403 },
+          ),
+        ),
       );
 
       try {

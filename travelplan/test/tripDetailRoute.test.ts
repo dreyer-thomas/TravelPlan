@@ -7,6 +7,7 @@ import { prisma } from "@/lib/db/prisma";
 import { createSessionJwt } from "@/lib/auth/jwt";
 import { createTripWithDays } from "@/lib/repositories/tripRepo";
 import { getTripsUploadRoot } from "@/lib/trips/uploadPaths";
+import { absentSegmentContext, routeContext } from "./helpers/routeContext";
 
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 type ApiEnvelope<T> = {
@@ -114,7 +115,7 @@ describe("GET /api/trips/[id]", () => {
     });
 
     const request = buildRequest(trip.id, { session: token });
-    const response = await GET(request, { params: { id: trip.id } });
+    const response = await GET(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<{
       trip: {
         id: string;
@@ -226,9 +227,7 @@ describe("GET /api/trips/[id]", () => {
       },
     });
 
-    const response = await GET(buildRequest(trip.id, { session: token }), {
-      params: Promise.resolve({ id: trip.id }),
-    });
+    const response = await GET(buildRequest(trip.id, { session: token }), routeContext(trip.id));
     expect(response.status).toBe(200);
 
     const payload = (await response.json()) as ApiEnvelope<{
@@ -346,7 +345,7 @@ describe("GET /api/trips/[id]", () => {
     });
 
     const request = buildRequest(trip.id, { session: token });
-    const response = await GET(request, { params: { id: trip.id } });
+    const response = await GET(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<{
       trip: { id: string; name: string };
       days: Array<{ dayIndex: number }>;
@@ -365,7 +364,7 @@ describe("GET /api/trips/[id]", () => {
 
   it("rejects unauthenticated requests", async () => {
     const request = buildRequest("missing-trip");
-    const response = await GET(request, { params: { id: "missing-trip" } });
+    const response = await GET(request, routeContext("missing-trip"));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(401);
@@ -392,7 +391,7 @@ describe("GET /api/trips/[id]", () => {
     });
 
     const request = buildRequest(trip.id, { session: token });
-    const response = await GET(request, { params: { id: trip.id } });
+    const response = await GET(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(403);
@@ -411,11 +410,33 @@ describe("GET /api/trips/[id]", () => {
     const token = await createSessionJwt({ sub: user.id, role: user.role });
 
     const request = buildRequest("missing-trip", { session: token });
-    const response = await GET(request, { params: { id: "missing-trip" } });
+    const response = await GET(request, routeContext("missing-trip"));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(404);
     expect(payload.data).toBeNull();
+    expect(payload.error?.code).toBe("not_found");
+  });
+
+  it("returns 404 when the dynamic segment is absent, not a crash on the awaited params", async () => {
+    // The reason `absentSegmentContext` exists as its own export: the handler's `if (!tripId)` guard at
+    // `src/app/api/trips/[id]/route.ts:31` is reachable only through params that resolve to `{}`, and
+    // nothing exercised it. Folding the case into an optional `routeContext` argument instead would let
+    // `routeContext(possiblyUndefined)` compile and answer from this same branch, so a status-only
+    // assertion elsewhere would pass for this reason without saying so.
+    const user = await prisma.user.create({
+      data: {
+        email: "trip-absent-segment@example.com",
+        passwordHash: "hashed",
+        role: "OWNER",
+      },
+    });
+    const token = await createSessionJwt({ sub: user.id, role: user.role });
+
+    const response = await GET(buildRequest("unused", { session: token }), absentSegmentContext());
+    const payload = (await response.json()) as ApiEnvelope<null>;
+
+    expect(response.status).toBe(404);
     expect(payload.error?.code).toBe("not_found");
   });
 
@@ -444,7 +465,7 @@ describe("GET /api/trips/[id]", () => {
     });
 
     const request = buildRequest(trip.id, { session: token });
-    const response = await GET(request, { params: { id: trip.id } });
+    const response = await GET(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(404);
@@ -504,7 +525,7 @@ describe("PATCH /api/trips/[id]", () => {
       }),
     });
 
-    const response = await PATCH(request, { params: { id: trip.id } });
+    const response = await PATCH(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<{
       trip: { name: string; accessRole: "owner" | "viewer" | "contributor"; dayCount: number };
       days: Array<{ dayIndex: number }>;
@@ -556,7 +577,7 @@ describe("PATCH /api/trips/[id]", () => {
       method: "DELETE",
     });
 
-    const response = await DELETE(request, { params: { id: trip.id } });
+    const response = await DELETE(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(404);
@@ -599,7 +620,7 @@ describe("PATCH /api/trips/[id]", () => {
       }),
     });
 
-    const response = await PATCH(request, { params: { id: trip.id } });
+    const response = await PATCH(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<{
       trip: {
         id: string;
@@ -610,7 +631,7 @@ describe("PATCH /api/trips/[id]", () => {
         plannedCostTotal: number;
         accommodationCostTotalCents: number | null;
       };
-      days: { id: string; date: string; dayIndex: number }[];
+      days: { id: string; date: string; dayIndex: number; missingAccommodation: boolean; missingPlan: boolean }[];
     }>;
 
     expect(response.status).toBe(200);
@@ -642,7 +663,7 @@ describe("PATCH /api/trips/[id]", () => {
       }),
     });
 
-    const response = await PATCH(request, { params: { id: "missing-trip" } });
+    const response = await PATCH(request, routeContext("missing-trip"));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(401);
@@ -685,7 +706,7 @@ describe("PATCH /api/trips/[id]", () => {
           endDate: "2026-09-11T00:00:00.000Z",
         }),
       }),
-      { params: Promise.resolve({ id: trip.id }) },
+      routeContext(trip.id),
     );
 
     expect(response.status).toBe(404);
@@ -728,7 +749,7 @@ describe("DELETE /api/trips/[id]", () => {
       method: "DELETE",
     });
 
-    const response = await DELETE(request, { params: { id: trip.id } });
+    const response = await DELETE(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<{ deleted: boolean }>;
 
     expect(response.status).toBe(200);
@@ -763,7 +784,7 @@ describe("DELETE /api/trips/[id]", () => {
       method: "DELETE",
     });
 
-    const response = await DELETE(request, { params: { id: trip.id } });
+    const response = await DELETE(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<{ deleted: boolean }>;
 
     expect(response.status).toBe(200);
@@ -773,7 +794,7 @@ describe("DELETE /api/trips/[id]", () => {
 
   it("rejects unauthenticated delete requests", async () => {
     const request = buildRequest("missing-trip", { csrf: "csrf-token", method: "DELETE" });
-    const response = await DELETE(request, { params: { id: "missing-trip" } });
+    const response = await DELETE(request, routeContext("missing-trip"));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(401);
@@ -806,7 +827,7 @@ describe("DELETE /api/trips/[id]", () => {
 
     const response = await DELETE(
       buildRequest(trip.id, { session: token, csrf: "csrf-token", method: "DELETE" }),
-      { params: Promise.resolve({ id: trip.id }) },
+      routeContext(trip.id),
     );
     const payload = (await response.json()) as ApiEnvelope<null>;
 

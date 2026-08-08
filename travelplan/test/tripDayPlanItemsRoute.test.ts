@@ -6,6 +6,7 @@ import { DELETE, GET, PATCH, POST } from "@/app/api/trips/[id]/day-plan-items/ro
 import { POST as MOVE_POST } from "@/app/api/trips/[id]/day-plan-items/move/route";
 import { prisma } from "@/lib/db/prisma";
 import { createSessionJwt } from "@/lib/auth/jwt";
+import { routeContext } from "./helpers/routeContext";
 
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 type ApiEnvelope<T> = {
@@ -117,7 +118,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
       },
     );
 
-    const response = await GET(request, { params: { id: trip.id } });
+    const response = await GET(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<{
       items: {
         id: string;
@@ -177,7 +178,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
       },
     );
 
-    const response = await GET(request, { params: { id: trip.id } });
+    const response = await GET(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(404);
@@ -231,7 +232,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
         session: token,
         method: "GET",
       }),
-      { params: { id: trip.id } },
+      routeContext(trip.id),
     );
     const payload = (await response.json()) as ApiEnvelope<{ items: { title: string | null }[] }>;
 
@@ -286,7 +287,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
         session: token,
         method: "GET",
       }),
-      { params: { id: trip.id } },
+      routeContext(trip.id),
     );
     const payload = (await response.json()) as ApiEnvelope<{ items: { title: string | null }[] }>;
 
@@ -335,7 +336,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
       }),
     });
 
-    const response = await POST(request, { params: { id: trip.id } });
+    const response = await POST(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<{
       dayPlanItem: {
         id: string;
@@ -409,7 +410,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
       }),
     });
 
-    const response = await POST(request, { params: { id: trip.id } });
+    const response = await POST(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(404);
@@ -463,7 +464,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
           linkUrl: null,
         }),
       }),
-      { params: { id: trip.id } },
+      routeContext(trip.id),
     );
     const createPayload = (await createResponse.json()) as ApiEnvelope<{ dayPlanItem: { id: string; title: string | null } }>;
 
@@ -487,7 +488,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
           linkUrl: null,
         }),
       }),
-      { params: { id: trip.id } },
+      routeContext(trip.id),
     );
     const updatePayload = (await updateResponse.json()) as ApiEnvelope<{ dayPlanItem: { title: string | null } }>;
 
@@ -504,7 +505,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
           itemId,
         }),
       }),
-      { params: { id: trip.id } },
+      routeContext(trip.id),
     );
     const deletePayload = (await deleteResponse.json()) as ApiEnvelope<{ deleted: boolean }>;
 
@@ -564,7 +565,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
       }),
     });
 
-    const response = await POST(request, { params: { id: trip.id } });
+    const response = await POST(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<{
       dayPlanItem: { id: string; tripDayId: string; title: string | null };
     }>;
@@ -630,7 +631,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
           location: null,
         }),
       }),
-      { params: Promise.resolve({ id: trip.id }) },
+      routeContext(trip.id),
     );
     const payload = (await response.json()) as ApiEnvelope<{
       dayPlanItem: { id: string; tripDayId: string; title: string | null };
@@ -697,7 +698,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
       }),
     });
 
-    const response = await POST(request, { params: { id: trip.id } });
+    const response = await POST(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<{
       dayPlanItem: {
         id: string;
@@ -748,7 +749,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
       }),
     });
 
-    const response = await POST(request, { params: { id: trip.id } });
+    const response = await POST(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(400);
@@ -793,7 +794,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
       }),
     });
 
-    const response = await POST(request, { params: { id: trip.id } });
+    const response = await POST(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(400);
@@ -843,7 +844,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
       }),
     });
 
-    const response = await POST(request, { params: { id: trip.id } });
+    const response = await POST(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(400);
@@ -888,7 +889,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
       }),
     });
 
-    const response = await POST(request, { params: { id: trip.id } });
+    const response = await POST(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(400);
@@ -934,7 +935,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
       }),
     });
 
-    const response = await POST(request, { params: { id: trip.id } });
+    const response = await POST(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(400);
@@ -994,7 +995,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
       }),
     });
 
-    const response = await PATCH(request, { params: { id: trip.id } });
+    const response = await PATCH(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<{
       dayPlanItem: {
         id: string;
@@ -1060,7 +1061,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
       body: JSON.stringify({ tripDayId: day.id, itemId: item.id }),
     });
 
-    const response = await DELETE(request, { params: { id: trip.id } });
+    const response = await DELETE(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<{ deleted: boolean }>;
 
     expect(response.status).toBe(200);
@@ -1117,7 +1118,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
       body: JSON.stringify({ tripDayId: day.id, itemId: item.id }),
     });
 
-    const response = await DELETE(request, { params: { id: trip.id } });
+    const response = await DELETE(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(404);
@@ -1159,7 +1160,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
       }),
     });
 
-    const response = await POST(request, { params: { id: trip.id } });
+    const response = await POST(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(400);
@@ -1203,7 +1204,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
       }),
     });
 
-    const response = await POST(request, { params: { id: trip.id } });
+    const response = await POST(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(400);
@@ -1255,7 +1256,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
       }),
     });
 
-    const response = await POST(request, { params: { id: trip.id } });
+    const response = await POST(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(400);
@@ -1311,7 +1312,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
       }),
     });
 
-    const response = await PATCH(request, { params: { id: trip.id } });
+    const response = await PATCH(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(400);
@@ -1367,7 +1368,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
       }),
     });
 
-    const response = await PATCH(request, { params: { id: trip.id } });
+    const response = await PATCH(request, routeContext(trip.id));
     const payload = (await response.json()) as ApiEnvelope<null>;
 
     expect(response.status).toBe(400);
@@ -1459,7 +1460,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
           csrf: "csrf-token",
           body: JSON.stringify({ tripDayId: sourceDay.id, itemId: moved.id, targetTripDayId: targetDay.id }),
         }),
-        { params: { id: trip.id } } as unknown as { params: Promise<{ id?: string }> },
+        routeContext(trip.id),
       );
       const payload = (await response.json()) as ApiEnvelope<{
         itemId: string;
@@ -1503,7 +1504,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
           session: token,
           body: JSON.stringify({ tripDayId: sourceDay.id, itemId: item.id, targetTripDayId: targetDay.id }),
         }),
-        { params: { id: trip.id } } as unknown as { params: Promise<{ id?: string }> },
+        routeContext(trip.id),
       );
       const payload = (await response.json()) as ApiEnvelope<null>;
 
@@ -1531,7 +1532,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
           csrf: "csrf-token",
           body: JSON.stringify({ tripDayId: sourceDay.id, itemId: item.id, targetTripDayId: targetDay.id }),
         }),
-        { params: { id: trip.id } } as unknown as { params: Promise<{ id?: string }> },
+        routeContext(trip.id),
       );
       const payload = (await response.json()) as ApiEnvelope<null>;
 
@@ -1563,7 +1564,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
           csrf: "csrf-token",
           body: JSON.stringify({ tripDayId: sourceDay.id, itemId: item.id, targetTripDayId: targetDay.id }),
         }),
-        { params: { id: trip.id } } as unknown as { params: Promise<{ id?: string }> },
+        routeContext(trip.id),
       );
       const payload = (await response.json()) as ApiEnvelope<null>;
 
@@ -1593,7 +1594,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
           csrf: "csrf-token",
           body: JSON.stringify({ tripDayId: sourceDay.id, itemId: item.id, targetTripDayId: sourceDay.id }),
         }),
-        { params: { id: trip.id } } as unknown as { params: Promise<{ id?: string }> },
+        routeContext(trip.id),
       );
       const payload = (await response.json()) as ApiEnvelope<null>;
 
@@ -1611,7 +1612,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
           csrf: "csrf-token",
           body: JSON.stringify({ tripDayId: sourceDay.id, targetTripDayId: targetDay.id }),
         }),
-        { params: { id: trip.id } } as unknown as { params: Promise<{ id?: string }> },
+        routeContext(trip.id),
       );
       const payload = (await response.json()) as ApiEnvelope<null>;
 
@@ -1629,7 +1630,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
           csrf: "csrf-token",
           body: JSON.stringify({ tripDayId: sourceDay.id, itemId: "not-a-real-item", targetTripDayId: targetDay.id }),
         }),
-        { params: { id: trip.id } } as unknown as { params: Promise<{ id?: string }> },
+        routeContext(trip.id),
       );
       const payload = (await response.json()) as ApiEnvelope<null>;
 

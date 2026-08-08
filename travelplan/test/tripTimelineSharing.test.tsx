@@ -4,6 +4,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import TripTimeline from "@/components/features/trips/TripTimeline";
+import { mockFetchResponse, stubFetch } from "./helpers/mockFetch";
 import { renderWithProviders } from "./helpers/renderWithProviders";
 
 vi.mock("@/components/features/trips/TripAccommodationDialog", () => ({
@@ -62,81 +63,65 @@ describe("TripTimeline sharing", () => {
       const method = init?.method ?? "GET";
 
       if (url.endsWith("/api/trips/trip-1") && method === "GET") {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            data: {
-              trip: {
-                id: "trip-1",
-                name: "Trip",
-                startDate: "2026-12-01T00:00:00.000Z",
-                endDate: "2026-12-02T00:00:00.000Z",
-                dayCount: 2,
-                plannedCostTotal: 0,
-                accommodationCostTotalCents: null,
-                heroImageUrl: null,
-              },
-              days: [],
+        return mockFetchResponse({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-02T00:00:00.000Z",
+              dayCount: 2,
+              plannedCostTotal: 0,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
             },
-            error: null,
-          }),
-        };
+            days: [],
+          },
+          error: null,
+        });
       }
 
       if (url.endsWith("/api/auth/csrf") && method === "GET") {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            data: { csrfToken: "test-csrf-token" },
-            error: null,
-          }),
-        };
+        return mockFetchResponse({
+          data: { csrfToken: "test-csrf-token" },
+          error: null,
+        });
       }
 
       if (url.endsWith("/api/trips/trip-1/members") && method === "GET") {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            data: {
-              owner: { email: "owner@example.com" },
-              collaborators: [],
-            },
-            error: null,
-          }),
-        };
+        return mockFetchResponse({
+          data: {
+            owner: { email: "owner@example.com" },
+            collaborators: [],
+          },
+          error: null,
+        });
       }
 
       if (url.endsWith("/api/trips/trip-1/members") && method === "POST") {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            data: {
-              collaborator: {
+        return mockFetchResponse({
+          data: {
+            collaborator: {
+              id: "member-1",
+              email: "viewer@example.com",
+              role: "viewer",
+            },
+            collaborators: [
+              {
                 id: "member-1",
                 email: "viewer@example.com",
                 role: "viewer",
               },
-              collaborators: [
-                {
-                  id: "member-1",
-                  email: "viewer@example.com",
-                  role: "viewer",
-                },
-              ],
-            },
-            error: null,
-          }),
-        };
+            ],
+          },
+          error: null,
+        });
       }
 
       throw new Error(`Unhandled fetch: ${method} ${url}`);
-    }) as typeof fetch;
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripTimeline tripId="trip-1" />);
 
@@ -167,97 +152,80 @@ describe("TripTimeline sharing", () => {
       const method = init?.method ?? "GET";
 
       if (url.endsWith("/api/trips/trip-1") && method === "GET") {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            data: {
-              trip: {
-                id: "trip-1",
-                name: "Trip",
-                startDate: "2026-12-01T00:00:00.000Z",
-                endDate: "2026-12-02T00:00:00.000Z",
-                dayCount: 2,
-                plannedCostTotal: 0,
-                accommodationCostTotalCents: null,
-                heroImageUrl: null,
-              },
-              days: [],
+        return mockFetchResponse({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-02T00:00:00.000Z",
+              dayCount: 2,
+              plannedCostTotal: 0,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
             },
-            error: null,
-          }),
-        };
+            days: [],
+          },
+          error: null,
+        });
       }
 
       if (url.endsWith("/api/auth/csrf") && method === "GET") {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            data: { csrfToken: "test-csrf-token" },
-            error: null,
-          }),
-        };
+        return mockFetchResponse({
+          data: { csrfToken: "test-csrf-token" },
+          error: null,
+        });
       }
 
       if (url.endsWith("/api/trips/trip-1/members") && method === "GET") {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            data: {
-              owner: { email: "owner@example.com" },
-              collaborators: [],
-            },
-            error: null,
-          }),
-        };
+        return mockFetchResponse({
+          data: {
+            owner: { email: "owner@example.com" },
+            collaborators: [],
+          },
+          error: null,
+        });
       }
 
       if (url.endsWith("/api/trips/trip-1/members") && method === "POST") {
         memberPostCount += 1;
         if (memberPostCount === 1) {
-          return {
-            ok: true,
-            status: 200,
-            json: async () => ({
-              data: {
-                accountAction: "linked_existing_account",
-                collaborator: {
+          return mockFetchResponse({
+            data: {
+              accountAction: "linked_existing_account",
+              collaborator: {
+                id: "member-2",
+                email: "existing@example.com",
+                role: "contributor",
+              },
+              collaborators: [
+                {
                   id: "member-2",
                   email: "existing@example.com",
                   role: "contributor",
                 },
-                collaborators: [
-                  {
-                    id: "member-2",
-                    email: "existing@example.com",
-                    role: "contributor",
-                  },
-                ],
-              },
-              error: null,
-            }),
-          };
+              ],
+            },
+            error: null,
+          });
         }
 
-        return {
-          ok: false,
-          status: 409,
-          json: async () => ({
+        return mockFetchResponse(
+          {
             data: null,
             error: {
               code: "trip_member_exists",
               message: "Collaborator is already linked to this trip",
             },
-          }),
-        };
+          },
+          { status: 409 },
+        );
       }
 
       throw new Error(`Unhandled fetch: ${method} ${url}`);
-    }) as typeof fetch;
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripTimeline tripId="trip-1" />);
 
@@ -296,76 +264,63 @@ describe("TripTimeline sharing", () => {
       const method = init?.method ?? "GET";
 
       if (url.endsWith("/api/trips/trip-1") && method === "GET") {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            data: {
-              trip: {
-                id: "trip-1",
-                name: "Trip",
-                startDate: "2026-12-01T00:00:00.000Z",
-                endDate: "2026-12-02T00:00:00.000Z",
-                dayCount: 2,
-                plannedCostTotal: 0,
-                accommodationCostTotalCents: null,
-                heroImageUrl: null,
-              },
-              days: [],
+        return mockFetchResponse({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-02T00:00:00.000Z",
+              dayCount: 2,
+              plannedCostTotal: 0,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
             },
-            error: null,
-          }),
-        };
+            days: [],
+          },
+          error: null,
+        });
       }
 
       if (url.endsWith("/api/auth/csrf") && method === "GET") {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            data: { csrfToken: "test-csrf-token" },
-            error: null,
-          }),
-        };
+        return mockFetchResponse({
+          data: { csrfToken: "test-csrf-token" },
+          error: null,
+        });
       }
 
       if (url.endsWith("/api/trips/trip-1/members") && method === "GET") {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            data: {
-              owner: { email: "owner@example.com" },
-              collaborators: [],
-            },
-            error: null,
-          }),
-        };
+        return mockFetchResponse({
+          data: {
+            owner: { email: "owner@example.com" },
+            collaborators: [],
+          },
+          error: null,
+        });
       }
 
       if (url.endsWith("/api/trips/trip-1/members") && method === "POST") {
         memberPostCount += 1;
         if (memberPostCount === 1) {
-          return {
-            ok: false,
-            status: 409,
-            json: async () => ({
+          return mockFetchResponse(
+            {
               data: null,
               error: {
                 code: "trip_owner_email",
                 message: "Trip owner is already linked to this trip",
               },
-            }),
-          };
+            },
+            { status: 409 },
+          );
         }
 
         throw new Error("Network failure");
       }
 
       throw new Error(`Unhandled fetch: ${method} ${url}`);
-    }) as typeof fetch;
+    });
 
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     renderWithProviders(<TripTimeline tripId="trip-1" />);
 

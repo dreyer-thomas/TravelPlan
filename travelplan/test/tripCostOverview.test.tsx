@@ -5,8 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import TripCostOverview from "@/components/features/trips/TripCostOverview";
 import { renderWithProviders } from "./helpers/renderWithProviders";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { expectNoHardcodedColour } from "./helpers/hardcodedColour";
 
 type TripDetailResponse = {
   trip: {
@@ -71,23 +70,12 @@ const toRgb = (hex: string) => {
 
 // All three card wrappers here previously painted themselves `#ffffff`, and the page shell around
 // them `#2f343d` (guarded separately in `tripCostOverviewPage.test.tsx`), so opening the cost
-// overview inverted the app's value scheme on the way in. This source-text guard is a *negative*
-// check and deliberately paired with the positive style assertions below it: on its own it would pass
-// just as happily if a surface lost its `backgroundColor` altogether, or took the wrong token.
-// Comments are stripped first so an issue reference like `// see #1234` cannot fail the guard, and
-// named colours plus every colour function notation are matched so the literal cannot come back in
-// another spelling. What it cannot see: a colour lifted into a constant in another file, and a hex
-// sitting after a `//` inside a string literal on the same line (`stripComments` truncates there).
-// `__dirname`, not `process.cwd()`, so the path holds however vitest was invoked.
-const HARDCODED_COLOUR =
-  /#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix)\(|["'](?:white|black|whitesmoke|gainsboro|silver|gr[ae]y|ivory|snow)["']/;
-const stripComments = (source: string) => source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
-const repoRoot = resolve(__dirname, "..");
-
+// overview inverted the app's value scheme on the way in. This guard is a *negative* check and
+// deliberately paired with the positive style assertions below it: on its own it would pass just as
+// happily if a surface lost its `backgroundColor` altogether, or took the wrong token.
 describe("trip cost overview colours", () => {
   it("carries no hardcoded colour in the component", () => {
-    const source = readFileSync(resolve(repoRoot, "src/components/features/trips/TripCostOverview.tsx"), "utf8");
-    expect(stripComments(source)).not.toMatch(HARDCODED_COLOUR);
+    expectNoHardcodedColour("src/components/features/trips/TripCostOverview.tsx");
   });
 });
 

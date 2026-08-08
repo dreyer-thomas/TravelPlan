@@ -299,6 +299,11 @@ describe("dayRouteService", () => {
       throw new Error("network down");
     }) as unknown as typeof fetch;
 
+    // Hoisted and annotated rather than passed as `toMatchObject<Partial<DayRouteError>>({...})`:
+    // vitest's `rejects` proxy drops the matcher's type parameter, so the inline generic was a type
+    // error and the expected shape would otherwise go unchecked.
+    const expected: Partial<DayRouteError> = { code: "routing_unavailable" };
+
     await expect(
       getDayRouteFromOsrm({
         points: [
@@ -307,9 +312,7 @@ describe("dayRouteService", () => {
         ],
         fetchImpl: fetchMock,
       }),
-    ).rejects.toMatchObject<Partial<DayRouteError>>({
-      code: "routing_unavailable",
-    });
+    ).rejects.toMatchObject(expected);
   });
 
   it("maps timeout aborts to routing_unavailable", async () => {
@@ -318,6 +321,8 @@ describe("dayRouteService", () => {
         init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
       });
     }) as unknown as typeof fetch;
+
+    const expected: Partial<DayRouteError> = { code: "routing_unavailable" };
 
     await expect(
       getDayRouteFromOsrm({
@@ -328,9 +333,7 @@ describe("dayRouteService", () => {
         fetchImpl: fetchMock,
         timeoutMs: 5,
       }),
-    ).rejects.toMatchObject<Partial<DayRouteError>>({
-      code: "routing_unavailable",
-    });
+    ).rejects.toMatchObject(expected);
   });
 
   it("throws routing_invalid_response for invalid OSRM payload", async () => {
@@ -342,6 +345,8 @@ describe("dayRouteService", () => {
       }),
     })) as unknown as typeof fetch;
 
+    const expected: Partial<DayRouteError> = { code: "routing_invalid_response" };
+
     await expect(
       getDayRouteFromOsrm({
         points: [
@@ -350,8 +355,6 @@ describe("dayRouteService", () => {
         ],
         fetchImpl: fetchMock,
       }),
-    ).rejects.toMatchObject<Partial<DayRouteError>>({
-      code: "routing_invalid_response",
-    });
+    ).rejects.toMatchObject(expected);
   });
 });

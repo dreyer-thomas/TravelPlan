@@ -17,6 +17,7 @@ import {
 } from "@/lib/trips/uploadPaths";
 import { readZipArchive, readZipEntryMap, readZipEntryNames } from "./helpers/zipReader";
 import { pdfBytes, writeUploadFile } from "./helpers/uploadFixtures";
+import { routeContext } from "./helpers/routeContext";
 import { toDosDateTime } from "@/lib/trips/zipArchive";
 
 type ApiEnvelope<T> = {
@@ -84,8 +85,6 @@ const buildRequest = (tripId: string, options?: { session?: string }) => {
     headers,
   });
 };
-
-const routeContext = (id: string) => ({ params: Promise.resolve({ id }) });
 
 const readArchive = async (response: Response) => Buffer.from(await response.arrayBuffer());
 

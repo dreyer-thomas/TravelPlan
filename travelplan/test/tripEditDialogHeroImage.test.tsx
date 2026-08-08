@@ -4,10 +4,12 @@ import { render as baseRender, screen, waitFor, within } from "@testing-library/
 import { ThemeProvider } from "@mui/material/styles";
 import type { ReactElement } from "react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Mock } from "vitest";
 import TripEditDialog from "@/components/features/trips/TripEditDialog";
 import { I18nProvider } from "@/i18n/provider";
 import theme from "@/theme";
+import { mockFetchResponse, requestUrl, stubFetch } from "./helpers/mockFetch";
 
 /**
  * Story 6.25. The dialog's title row now carries `icon-button.close`, whose colour and focus ring come
@@ -47,37 +49,43 @@ const mockHeroUploadResponse = {
 };
 
 describe("TripEditDialog hero image", () => {
+  // `stubFetch`, not `global.fetch = …`: a bare assignment is invisible to `vi.unstubAllGlobals()`, so
+  // the stub outlives the file and the cast the helper exists to centralise comes back at the call site.
+  //
+  // The return is *held* rather than discarded, which is the other half of the point. Recovering the
+  // mock afterwards as `global.fetch as ReturnType<typeof vi.fn>` reaches for a second cast, and that
+  // one resolves to `Mock<(...args: any[]) => any>` - so `.mock.calls` destructures to `any` and every
+  // assertion reading it is unchecked, which is the exact defect `stubFetch` exists to prevent.
+  let fetchMock: Mock<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>;
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   beforeEach(() => {
-    global.fetch = vi.fn(async (input, init) => {
-      const url = typeof input === "string" ? input : input.toString();
-      const method = init?.method ?? "GET";
+    fetchMock = stubFetch(
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = requestUrl(input);
+        const method = init?.method ?? "GET";
 
-      if (url.includes("/api/auth/csrf")) {
-        return {
-          ok: true,
-          json: async () => mockCsrfResponse,
-        } as Response;
-      }
+        if (url.includes("/api/auth/csrf")) {
+          return mockFetchResponse(mockCsrfResponse);
+        }
 
-      if (url.includes("/api/trips/trip-edit-hero") && method === "PATCH") {
-        return {
-          ok: true,
-          json: async () => mockEditResponse,
-        } as Response;
-      }
+        if (url.includes("/api/trips/trip-edit-hero") && method === "PATCH") {
+          return mockFetchResponse(mockEditResponse);
+        }
 
-      if (url.includes("/api/trips/trip-edit-hero/hero-image") && method === "POST") {
-        return {
-          ok: true,
-          json: async () => mockHeroUploadResponse,
-        } as Response;
-      }
+        if (url.includes("/api/trips/trip-edit-hero/hero-image") && method === "POST") {
+          return mockFetchResponse(mockHeroUploadResponse);
+        }
 
-      return {
-        ok: false,
-        json: async () => ({ data: null, error: { code: "unknown", message: "Unexpected request" } }),
-      } as Response;
-    }) as unknown as typeof fetch;
+        return mockFetchResponse(
+          { data: null, error: { code: "unknown", message: "Unexpected request" } },
+          { status: 500 },
+        );
+      }),
+    );
   });
 
   it("uploads hero image after saving trip edits", async () => {
@@ -114,8 +122,8 @@ describe("TripEditDialog hero image", () => {
       expect(handleUpdated).toHaveBeenCalled();
     });
 
-    const heroCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.find(([input, init]) => {
-      const url = typeof input === "string" ? input : input.toString();
+    const heroCall = fetchMock.mock.calls.find(([input, init]) => {
+      const url = requestUrl(input);
       return url.includes("/api/trips/trip-edit-hero/hero-image") && init?.method === "POST";
     });
 
@@ -127,27 +135,29 @@ describe("TripEditDialog hero image", () => {
     const handleUpdated = vi.fn();
     const handleClose = vi.fn();
 
-    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(async (input, init) => {
-      const url = typeof input === "string" ? input : input.toString();
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = requestUrl(input);
       const method = init?.method ?? "GET";
       if (url.includes("/api/auth/csrf")) {
-        return { ok: true, json: async () => mockCsrfResponse } as Response;
+        return mockFetchResponse(mockCsrfResponse);
       }
       if (url.includes("/api/trips/trip-edit-hero") && method === "PATCH") {
-        return { ok: true, json: async () => mockEditResponse } as Response;
+        return mockFetchResponse(mockEditResponse);
       }
       if (url.includes("/api/trips/trip-edit-hero/hero-image") && method === "POST") {
-        return {
-          ok: false,
+        // `json` throws rather than resolving: this is the non-JSON body the test's name is about, and
+        // a resolving stub would not exercise the dialog's parse failure at all.
+        return mockFetchResponse(undefined, {
+          status: 500,
           json: async () => {
             throw new SyntaxError("Unexpected token < in JSON");
           },
-        } as Response;
+        });
       }
-      return {
-        ok: false,
-        json: async () => ({ data: null, error: { code: "unknown", message: "Unexpected request" } }),
-      } as Response;
+      return mockFetchResponse(
+        { data: null, error: { code: "unknown", message: "Unexpected request" } },
+        { status: 500 },
+      );
     });
 
     render(
@@ -218,8 +228,8 @@ describe("TripEditDialog hero image", () => {
     await user.click(scope.getByRole("button", { name: /save changes/i }));
     await waitFor(() => expect(handleUpdated).toHaveBeenCalled());
 
-    const heroCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.find(([input, init]) => {
-      const url = typeof input === "string" ? input : String(input);
+    const heroCall = fetchMock.mock.calls.find(([input, init]) => {
+      const url = requestUrl(input);
       return url.includes("/api/trips/trip-edit-hero/hero-image") && init?.method === "POST";
     });
     expect(heroCall).toBeUndefined();

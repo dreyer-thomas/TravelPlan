@@ -41,12 +41,22 @@ vi.mock("next/dynamic", () => ({
 vi.mock("react-leaflet", () => ({
   MapContainer: ({ children }: { children: ReactNode }) => <div data-testid="day-map-container">{children}</div>,
   TileLayer: () => <div data-testid="day-map-tile" />,
-  Marker: ({ position, children, ...rest }: { position: [number, number]; children?: React.ReactNode }) => (
+  Marker: ({
+    position,
+    children,
+    ...rest
+  }: {
+    position: [number, number];
+    children?: React.ReactNode;
+    // The component forwards a per-marker `data-testid`, which the assertions below read back; without
+    // it declared here `rest` is `{}` and the index access is an implicit any.
+    "data-testid"?: string;
+  }) => (
     <div data-testid={rest["data-testid"] ?? "day-map-marker"} data-position={position.join(",")}>
       {children}
     </div>
   ),
-  Polyline: ({ positions, ...rest }: { positions: [number, number][] }) => (
+  Polyline: ({ positions, ...rest }: { positions: [number, number][]; "data-testid"?: string }) => (
     <div data-testid={rest["data-testid"] ?? "day-map-polyline"} data-positions={JSON.stringify(positions)} />
   ),
   useMap: () => ({ fitBounds: vi.fn(), invalidateSize: vi.fn(), getContainer: vi.fn(() => document.createElement("div")) }),
