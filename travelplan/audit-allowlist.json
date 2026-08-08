@@ -1,0 +1,42 @@
+{
+  "$comment": [
+    "Advisories knowingly accepted in the PRODUCTION dependency tree, read by scripts/audit-check.mjs.",
+    "Ships empty on purpose: an entry here is a vulnerability we are shipping. Add one only when there",
+    "is no fixed version and no way to drop the dependency.",
+    "",
+    "Fields:",
+    "  advisory      REQUIRED. The GHSA id from the advisory URL npm prints (GHSA-xxxx-xxxx-xxxx, from",
+    "                https://github.com/advisories/...), or the npm-advisory-<number> fallback the",
+    "                script prints for an advisory that has no GitHub advisory URL.",
+    "  justification REQUIRED. Why it is acceptable to ship, in a sentence the next person can act on.",
+    "  expires       REQUIRED. YYYY-MM-DD, the LAST day the suppression applies. After it, the finding",
+    "                blocks again and the entry must be fixed or renewed.",
+    "  package       OPTIONAL, and documentation only - see the matching rule below.",
+    "",
+    "Rules the script enforces:",
+    "  - Only those four field names. An unrecognised key (`expiry`, `packages`) is an error, because",
+    "    an entry with a field the script ignores does not do what its diff looks like it does.",
+    "  - expires at most 180 days out. An exception nobody has to re-argue is a policy change.",
+    "  - One entry per advisory. Renew by editing the date, so the diff shows what actually changed.",
+    "  - Anything malformed disables the WHOLE file - nothing is suppressed - so keep it valid JSON.",
+    "",
+    "Matching is by advisory id alone. `package` is never part of it, because a package name is what",
+    "moves when a transitive dependency is re-parented, and a suppression that silently lapses on an",
+    "unrelated tree change is worse than none. The cost is real and worth knowing before you write an",
+    "entry: if this advisory later also lands on a SECOND package, this entry suppresses it there too,",
+    "carrying a justification written about the first. There is no way to scope an entry more narrowly -",
+    "so a justification that only holds for one package should say so, and be revisited if the advisory",
+    "spreads.",
+    "",
+    "A finding printed as npm-advisory-unnamed-<n> cannot be listed here at all: that id is a position",
+    "in npm's report rather than an identity, so an entry holding one would drift onto a different",
+    "advisory."
+  ],
+  "$example": {
+    "advisory": "GHSA-7p8r-x3mc-p8w7",
+    "package": "fast-uri",
+    "justification": "No fixed release upstream; the parser is only reached by prisma's CLI, which does not run in production.",
+    "expires": "YYYY-MM-DD (at most 180 days out; a real date here would be a date somebody copied rather than chose)"
+  },
+  "advisories": []
+}

@@ -35,21 +35,24 @@ status: open
 origin: migrated from legacy ledger ("Deferred from: npm-audit-zero-vuln-gate (2026-07-27)"), 2026-08-01
 location: `travelplan/package-lock.json`
 reason: `npm audit signatures` and general supply-chain provenance checking (compromised transitive deps, dependency confusion) were out of scope for a change that targeted known-CVE remediation, but adversarial review surfaced it as a real gap for anything calling itself a "security hardening" effort. Worth scoping as its own initiative.
-status: open
+status: done 2026-08-08
+resolution: resolved by sweep bundle dw-deps-security-audit-gate
 
 ### DW-6: No scheduled re-audit for already-merged dependencies
 
 origin: migrated from legacy ledger ("Deferred from: npm-audit-zero-vuln-gate (2026-07-27)"), 2026-08-01
 location: `.github/workflows/security-audit.yml`
 reason: The new gate only runs on `push`/`pull_request`, so a dependency that is already merged and untouched will not be re-checked when a new CVE is disclosed against it tomorrow. Before building a custom cron workflow, check whether GitHub Dependabot security alerts are already enabled for this repo — that would cover it for free.
-status: open
+status: done 2026-08-08
+resolution: resolved by sweep bundle dw-deps-security-audit-gate
 
 ### DW-7: No override/allowlist mechanism if a future production-dependency CVE has no upstream fix
 
 origin: migrated from legacy ledger ("Deferred from: npm-audit-zero-vuln-gate (2026-07-27)"), 2026-08-01
 location: `travelplan/package.json` — the `audit:check` script
 reason: Today's unfixable finding (`brace-expansion`, DW-4) happens to be dev-only, so `--omit=dev` sidesteps it cleanly. If a production dependency ever lands in the same situation, the gate as designed would hard-block `main` indefinitely with no escape hatch. Not needed now (production audit is 0), but worth designing before it is urgently needed.
-status: open
+status: done 2026-08-08
+resolution: resolved by sweep bundle dw-deps-security-audit-gate
 
 ### DW-8: Image URLs rendered without domain allowlist validation
 
@@ -1699,7 +1702,8 @@ status: **closed 2026-08-07** - fixed by Story 5.13, which withdrew that confirm
 origin: Story 9.1 (`9-1-documents-on-stays-and-activities`), 2026-08-05
 location: `travelplan/package-lock.json` — `prisma@7.9.1 → @prisma/dev → @prisma/streams-local → ajv@8.20.0 → fast-uri@3.1.4`
 reason: GHSA-7p8r-x3mc-p8w7 (high, host confusion via a backslash authority introducer). This is a **production** dependency path, so unlike `DW-4` it is not excluded by `--omit=dev`, and it makes `npm run audit:check` exit non-zero for the first time since the zero-vuln gate was established. It is entirely pre-existing with respect to Story 9.1: `package.json` and `package-lock.json` are byte-identical to that story's baseline commit `7d9f661`, so the advisory was simply published between the baseline and the run. `npm audit fix` claims a fix is available, but it moves a transitive under `prisma` and belongs in its own change with the full suite as evidence, not inside a feature story that added no dependency. Note that `DW-4`'s reason still asserts "`npm audit --omit=dev` is 0 and this is the sole remaining finding" — that sentence is now stale and should be corrected when either entry is actioned.
-status: open
+status: done 2026-08-08
+resolution: resolved by sweep bundle dw-deps-security-audit-gate
 
 ### DW-184: Four components each declare their own copy of the gallery row type, and now a fifth thing to keep in step
 
@@ -2317,3 +2321,43 @@ location: `travelplan/src/components/HeaderMenu.tsx` and `travelplan/src/lib/nav
 reason: DW-126 argues that a non-404 failure on the day screen leaves no in-app route out, and cites `getAuthMenuItems` returning only `logout` for an authenticated user as part of its evidence. That clause stopped being true with story 6.20: the global header menu now carries an "All trips" row on every page, so the day error screen does have one route out. DW-126's substance stands — its target is back to the parent trip (`/trips/{id}`), which the global menu still does not and should not offer — but its severity is lower than when it was written, and story 6.20 applied the analogous fix to `TripTimeline`'s own error branch, which is the model DW-126 asks for.
 status: done 2026-08-02
 resolution: Recorded as an annotation on DW-126 rather than as work of its own; the open half stays with DW-126.
+
+### DW-259: Nothing in-repo requires `audit-allowlist.json` to be reviewed, and no floor on what a justification has to say
+
+source_spec: `_bmad-output/implementation-artifacts/spec-deps-security-audit-gate.md`
+origin: deferred from spec-deps-security-audit-gate review, 2026-08-08
+location: `travelplan/audit-allowlist.json` and the absent `.github/CODEOWNERS` (`.github/` currently holds only `workflows/`)
+reason: The whole security value of the new audit gate's escape hatch rests on an entry being argued by somebody and read by somebody else, and neither is enforced anywhere. `parseAllowlist` accepts `"justification": "x"` with zero errors — it only checks the field is a non-empty string — and with no CODEOWNERS entry the file can be added to under whatever review the repo's branch protection happens to require, which for a solo repo may be none. The script cannot fix this alone: a minimum length is trivially defeated by lorem ipsum, so the real control is a review requirement on that one path. Worth deciding as a pair: a CODEOWNERS rule (or a required-reviewer branch rule) covering `travelplan/audit-allowlist.json`, plus a decision on whether justifications must carry a tracking reference (`DW-\d+` would fit this repo's ledger convention) that `parseAllowlist` can then check for. Not done in the audit-gate change because CODEOWNERS and branch protection are repo-settings work outside that spec's boundaries, and a length floor alone would be security theatre.
+status: open
+
+### DW-260: `npm audit signatures` is a blocking live-network step with no retry, which is the pressure that gets gates weakened
+
+source_spec: `_bmad-output/implementation-artifacts/spec-deps-security-audit-gate.md`
+origin: deferred from spec-deps-security-audit-gate review, 2026-08-08
+location: `.github/workflows/security-audit.yml` — the `Verify package provenance` step
+reason: The provenance step is a live call to the npm registry plus a TUF metadata fetch, and a transient failure of either fails the step and therefore the job, with no retry and nothing distinguishing "the registry was unreachable" from "a tarball does not match what was published". The workflow already reasons about this hazard one step later — the `if: ${{ !cancelled() && ... }}` on the audit step exists precisely so a flaky provenance run cannot skip the vulnerability gate — but nothing reduces the flakiness itself, and a check that reds the build for reasons unrelated to the repo is the kind that eventually gets deleted or made non-blocking by whoever is unblocking a release at the time. Options worth weighing: a bounded retry around the step, or `continue-on-error: true` plus surfacing provenance as its own non-required status check so a supply-chain failure stays visible without gating merges. Left alone in the audit-gate change because that spec deliberately made the step blocking and verified it green (766/766 packages), so changing its failure policy is a judgement call for a human rather than a review fix.
+status: open
+
+### DW-261: CI workflows pin third-party actions to mutable tags, in a repo whose gate is a supply-chain argument
+
+source_spec: `_bmad-output/implementation-artifacts/spec-deps-security-audit-gate.md`
+origin: deferred from spec-deps-security-audit-gate follow-up review, 2026-08-08
+location: `.github/workflows/security-audit.yml` (`actions/checkout@v5`, `actions/setup-node@v5`) and `.github/workflows/migration-guard.yml` (the same two)
+reason: `scripts/audit-check.mjs` takes zero npm dependencies on the explicit reasoning that "a gate that exists to be trustworthy in CI must not be able to fail because of its own supply chain" — and then the runner it executes on is assembled by two third-party actions resolved through mutable refs. `v5` is a tag, not a commit: whoever controls it controls what runs before `npm ci`, and a compromised `setup-node` could put an `npm` shim earlier on `PATH` that prints a clean report, producing a green gate with a plausible-looking log. This is not caused by the audit-gate change — both tags predate it and the same pattern is in `migration-guard.yml` — but the change is what makes the inconsistency matter. Fix is mechanical (pin each `uses:` to a full commit SHA with the tag in a trailing comment) and is worth doing across all workflows at once rather than in the one file this review happened to read. Left out of the audit-gate change because its spec scoped workflow edits to the trigger block and the provenance step.
+status: open
+
+### DW-262: `test/auditCheckScript.test.ts` contributes ~20 errors to an already-red `tsc --noEmit`, because it imports an untyped `.mjs`
+
+source_spec: `_bmad-output/implementation-artifacts/spec-deps-security-audit-gate.md`
+origin: deferred from spec-deps-security-audit-gate follow-up review, 2026-08-08
+location: `travelplan/test/auditCheckScript.test.ts` against `travelplan/scripts/audit-check.mjs`
+reason: `npx tsc --noEmit` exits 1 with ~155 errors across 21 files — a pre-existing repo condition, and nothing in CI runs it, so nothing goes red. About 20 of those errors are in the new test file: the exports come from an untyped `.mjs`, so TypeScript infers `evaluate(...)`'s parameter as `{blocking?: never[]; …}` and every `evaluate(...)` → `formatReport(...)` hand-off and `result.suppressed[0].entry.justification` access is a `TS2345`/`TS2339`. The practical consequence is narrow but pointed: the assertions guarding the security gate are among the ones the type system is not checking, so a shape drift between script and test would only ever be caught at runtime. A small `scripts/audit-check.d.mts` declaring the seven exports would clear all of them. Deferred rather than patched because the tsc baseline is broken repo-wide and unenforced, so fixing one file's share of it is a decision about whether the repo intends to get `tsc` green at all — which is the larger question this entry really raises.
+status: open
+
+### DW-263: Follow-up review still recommended for dw-deps-security-audit-gate after the damping cap was spent
+origin: review-budget-followup
+location: n/a
+source_spec: `spec-deps-security-audit-gate.md`
+severity: low
+reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260808-140849-451b; this entry preserves the lingering recommendation for a deliberate later review.
+status: open

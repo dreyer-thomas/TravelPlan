@@ -11,6 +11,18 @@ on:
     branches:
       - main
       - master
+  schedule:
+    # Weekly, Monday 06:17 UTC. push/pull_request only ever audit dependencies at the
+    # moment they change; an advisory published against a dependency nobody has touched
+    # since would otherwise never be seen here. This is the trigger that catches those.
+    # An off-the-hour minute on purpose: GitHub queues (and under load drops) schedules
+    # that land on the hour, when everybody else's cron fires.
+    # Note: scheduled runs only ever check out the DEFAULT branch, never a feature branch,
+    # and GitHub disables schedules on a repo with 60 days of no activity.
+    - cron: "17 6 * * 1"
+  # So the audit can be re-run on demand — after an allowlist entry is added or expires,
+  # or to confirm a fix — without pushing an empty commit to provoke it.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -18,6 +30,12 @@ permissions:
 jobs:
   npm-audit:
     runs-on: ubuntu-latest
+    # audit-check.mjs bounds its own `npm audit` to 5 minutes precisely because a registry that accepts
+    # the connection and never answers otherwise hangs until GitHub's 6-hour default kills the job. The
+    # two steps *around* it — `npm ci` and `npm audit signatures` — talk to that same registry, so
+    # without a job-level bound the scenario that constant was written against is still available one
+    # step earlier. 15 minutes is several times the ~2 minutes this job actually takes.
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -32,12 +50,29 @@ jobs:
           cache-dependency-path: travelplan/package-lock.json
 
       - name: Install dependencies
+        id: install
         # --ignore-scripts: the audit only needs the resolved dependency tree,
         # not a generated Prisma client. It also keeps the postinstall hook
         # (prisma generate, which requires DATABASE_URL) out of CI.
         run: npm ci --ignore-scripts
         working-directory: travelplan
 
+      - name: Verify package provenance
+        # npm audit answers "is anything installed known to be vulnerable"; this answers
+        # the different question of whether what was installed is what the registry
+        # actually published — the tampered-tarball / compromised-publisher case, which a
+        # vulnerability database cannot see. It needs a populated node_modules, so it has
+        # to run after `npm ci` and before the gate it protects.
+        run: npm audit signatures
+        working-directory: travelplan
+
       - name: Audit production dependencies
+        # Runs even when the provenance step above failed. The two answer different questions and a
+        # flaky TUF fetch must not be able to skip the vulnerability gate — otherwise the predictable
+        # response to a recurring false red on provenance is to weaken the step that follows it.
+        # Still skipped when the install failed, though: npm audit reads the lockfile and would happily
+        # print an all-clear for a job where nothing was installed, leaving a red run whose last word
+        # is a green verdict on a tree that was never built.
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npm run audit:check
         working-directory: travelplan
