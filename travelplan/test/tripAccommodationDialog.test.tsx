@@ -1470,10 +1470,15 @@ describe("TripAccommodationDialog", () => {
     });
 
     /**
-     * AC7's reopen half. `documentFiles` is otherwise cleared only by a successful upload, and this
-     * dialog is never unmounted — so without the open effect's reset a document staged and then
-     * discarded comes back selected on the next open, with the guard held dirty behind it for the rest
-     * of the session. The gallery carries the scar tissue for exactly this.
+     * AC7's reopen half. `documentFiles` is otherwise cleared only by a successful upload — so a
+     * document staged and then discarded must not come back selected on the next open, with the guard
+     * held dirty behind it for the rest of the session. The gallery carries the scar tissue for this.
+     *
+     * **Where the contract moved.** The open effect's `setDocumentFiles([])` used to be what made it
+     * true; the state now simply starts empty, because `TripDayView` gives this dialog a fresh `key` on
+     * every open edge (`useOpenInstanceKey` in `src/components/ui/DialogShell.tsx`). The reopen below
+     * drives that key the way the parent does: held across the close, so the instance survives to play
+     * its exit transition, and bumped on the reopen. Assertions unchanged.
      */
     it("forgets a document that was staged and then discarded", async () => {
       mediaFetch();
@@ -1481,6 +1486,7 @@ describe("TripAccommodationDialog", () => {
       const view = render(
         <Providers language="en">
           <TripAccommodationDialog
+            key={0}
             open
             tripId="trip-1"
             stayType="current"
@@ -1501,16 +1507,22 @@ describe("TripAccommodationDialog", () => {
       expect(onClose).toHaveBeenCalledTimes(1);
 
       const day = { id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1, accommodation: SAVED_STAY };
-      view.rerender(
-        <Providers language="en">
-          <TripAccommodationDialog open={false} tripId="trip-1" stayType="current" day={day} onClose={onClose} onSaved={() => undefined} />
-        </Providers>,
-      );
-      view.rerender(
-        <Providers language="en">
-          <TripAccommodationDialog open tripId="trip-1" stayType="current" day={day} onClose={onClose} onSaved={() => undefined} />
-        </Providers>,
-      );
+      // `act` around the reopen because the fresh instance fires its own CSRF and media requests, whose
+      // resolutions would otherwise land outside it.
+      await act(async () => {
+        view.rerender(
+          <Providers language="en">
+            <TripAccommodationDialog key={0} open={false} tripId="trip-1" stayType="current" day={day} onClose={onClose} onSaved={() => undefined} />
+          </Providers>,
+        );
+      });
+      await act(async () => {
+        view.rerender(
+          <Providers language="en">
+            <TripAccommodationDialog key={1} open tripId="trip-1" stayType="current" day={day} onClose={onClose} onSaved={() => undefined} />
+          </Providers>,
+        );
+      });
       await screen.findByRole("button", { name: "Save stay" });
 
       selectTab("Media & links");
@@ -2082,19 +2094,26 @@ describe("TripAccommodationDialog", () => {
     });
 
     /**
-     * Story 6.28 review, P1. This dialog is never unmounted — the open effect resets `activeTab`,
-     * `galleryFiles` and `documentFiles` for exactly that reason, each with a comment saying so — and an
-     * unanswered candidate list is otherwise cleared only by a select, a *Clear* or a new *Find*. So stay
-     * A's offer stood over stay B's empty field, and activating a row pinned A's place on B.
+     * Story 6.28 review, P1. An unanswered candidate list is cleared only by a select, a *Clear* or a new
+     * *Find*. So stay A's offer stood over stay B's empty field, and activating a row pinned A's place on B.
+     *
+     * **Where the contract moved.** This used to hold because the open effect cleared `locationCandidates`
+     * by name, next to `activeTab`, `galleryFiles` and `documentFiles`. It now holds because the dialog is
+     * given one *mount* per open: `TripDayView` derives a `key` with `useOpenInstanceKey`
+     * (`src/components/ui/DialogShell.tsx`) that increments on the `false → true` edge, so every state
+     * starts from its `useState` initial value and none of them depends on being remembered. The
+     * `instance` argument below is that key, driven by hand the way the parent drives it — unchanged
+     * across the close, bumped on the reopen. The assertions are untouched.
      */
     it("does not carry an unanswered candidate list into the next stay's dialog", async () => {
       const fetchMock = geocodeFetch([
         { lat: 38.7223, lng: -9.1393, label: "Harbor Hotel, Lisbon" },
         { lat: 41.1579, lng: -8.6291, label: "Harbor Hotel, Porto" },
       ]);
-      const dialog = (open: boolean, dayId: string) => (
+      const dialog = (open: boolean, dayId: string, instance: number) => (
         <Providers language="en">
           <TripAccommodationDialog
+            key={instance}
             open={open}
             tripId="trip-1"
             stayType="current"
@@ -2105,18 +2124,19 @@ describe("TripAccommodationDialog", () => {
         </Providers>
       );
 
-      const { rerender } = render(dialog(true, "day-1"));
+      const { rerender } = render(dialog(true, "day-1", 0));
       await waitFor(() => expect(fetchMock).toHaveBeenCalled());
       selectTab("Place & notes");
 
       find("Harbor Hotel");
       expect(await screen.findByRole("button", { name: "Harbor Hotel, Porto" })).toBeInTheDocument();
 
+      // The key is unchanged across the close: the instance must survive it so the exit transition plays.
       await act(async () => {
-        rerender(dialog(false, "day-1"));
+        rerender(dialog(false, "day-1", 0));
       });
       await act(async () => {
-        rerender(dialog(true, "day-2"));
+        rerender(dialog(true, "day-2", 1));
       });
       selectTab("Place & notes");
 

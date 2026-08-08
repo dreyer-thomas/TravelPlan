@@ -4,7 +4,7 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TripDayView from "@/components/features/trips/TripDayView";
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import theme from "@/theme";
 import { Providers, renderWithProviders } from "./helpers/renderWithProviders";
 
@@ -46,6 +46,14 @@ const navigationMockState = vi.hoisted(() => ({
   search: "",
 }));
 
+// How many times the plan-dialog stub has been *mounted*, as opposed to re-rendered. This is the only
+// handle a mock has on the `key` this screen passes its dialogs: React consumes `key` before props are
+// built, so no stub can read it — but a changed key forces a fresh mount, and a mount is countable.
+// See "gives the plan dialog a fresh mount per open" below for what depends on it.
+const planDialogMountState = vi.hoisted(() => ({
+  mounts: 0,
+}));
+
 // Story 6.13: both stay cards are now edit targets, and they open *different* dialogs - previous
 // night edits yesterday's accommodation from today's screen. The mock therefore has to record which
 // instance was opened; a single shared `stay-dialog` testid could not tell the two apart, and wiring
@@ -53,14 +61,42 @@ const navigationMockState = vi.hoisted(() => ({
 const stayDialogMockState = vi.hoisted(() => ({
   current: false,
   previous: false,
+  // Mounts and the close callback, per instance, for the same reason as `planDialogMountState` below:
+  // the `key` this screen passes is invisible to props, so the only observable is whether a second
+  // open produced a second mount. Two counters because the two stay dialogs are separate call sites
+  // with separate keys, and a single one could not tell which of them had lost its key.
+  currentMounts: 0,
+  previousMounts: 0,
+  currentClose: null as null | (() => void),
+  previousClose: null as null | (() => void),
 }));
 
 vi.mock("@/components/features/trips/TripAccommodationDialog", () => ({
-  default: (props: { open: boolean; stayType: "current" | "previous" }) => {
-    if (props.stayType === "previous") {
+  // Named, so the mount counter below is a hook inside something `react-hooks/rules-of-hooks`
+  // recognises as a component.
+  default: function TripAccommodationDialogStub(props: {
+    open: boolean;
+    stayType: "current" | "previous";
+    onClose: () => void;
+  }) {
+    const previous = props.stayType === "previous";
+    // Unconditional and ahead of the `!open` early return, so the hook order is the same on every
+    // pass. Counts mounts only - a re-render with new props does not run it again.
+    useEffect(() => {
+      if (previous) {
+        stayDialogMockState.previousMounts += 1;
+      } else {
+        stayDialogMockState.currentMounts += 1;
+      }
+      // `previous` is derived from a prop this stub is never re-typed with, so the effect is a
+      // mount effect either way; listing it keeps the rule live rather than suppressed.
+    }, [previous]);
+    if (previous) {
       stayDialogMockState.previous = props.open;
+      stayDialogMockState.previousClose = props.onClose;
     } else {
       stayDialogMockState.current = props.open;
+      stayDialogMockState.currentClose = props.onClose;
     }
     if (!props.open) return null;
     return <div data-testid={`stay-dialog-${props.stayType}`} />;
@@ -68,7 +104,9 @@ vi.mock("@/components/features/trips/TripAccommodationDialog", () => ({
 }));
 
 vi.mock("@/components/features/trips/TripDayPlanDialog", () => ({
-  default: (props: {
+  // A named function rather than an arrow so the mount counter below is a hook inside something
+  // `react-hooks/rules-of-hooks` recognises as a component. Nothing else about the stub changed.
+  default: function TripDayPlanDialogStub(props: {
     open: boolean;
     mode: "add" | "edit";
     item: { id: string; linkUrl: string | null } | null;
@@ -83,7 +121,12 @@ vi.mock("@/components/features/trips/TripDayPlanDialog", () => ({
     onMove?: (itemId: string, targetTripDayId: string) => Promise<{ moved: true } | { moved: false; message: string }>;
     onClose: () => void;
     onSaved: () => void;
-  }) => {
+  }) {
+    // Unconditional and first, ahead of the `!open` early return, so the hook order is the same on
+    // every pass. Counts mounts only - a re-render with new props does not run it again.
+    useEffect(() => {
+      planDialogMountState.mounts += 1;
+    }, []);
     planDialogMockState.lastProps = props;
     if (!props.open) return null;
     return (
@@ -152,9 +195,16 @@ const withBucketList = (
     return handler(input, init);
   });
 
+// The segment dialog's half of the same contract - see `stayDialogMockState` above.
+const segmentDialogMockState = vi.hoisted(() => ({
+  mounts: 0,
+  close: null as null | (() => void),
+}));
+
 vi.mock("@/components/features/trips/TripDayTravelSegmentDialog", () => ({
-  default: (props: {
+  default: function TripDayTravelSegmentDialogStub(props: {
     open: boolean;
+    onClose: () => void;
     segment: {
       id: string;
       fromItemType: "accommodation" | "dayPlanItem";
@@ -179,7 +229,12 @@ vi.mock("@/components/features/trips/TripDayTravelSegmentDialog", () => ({
       distanceKm: number | null;
       linkUrl: string | null;
     }) => void;
-  }) => {
+  }) {
+    // Ahead of the `!open` early return, as in the other two stubs, so the hook order never varies.
+    useEffect(() => {
+      segmentDialogMockState.mounts += 1;
+    }, []);
+    segmentDialogMockState.close = props.onClose;
     if (!props.open) return null;
     const baseSegment =
       props.segment ??
@@ -278,6 +333,13 @@ describe("TripDayView layout", () => {
     bucketListItemsOverride = null;
     stayDialogMockState.current = false;
     stayDialogMockState.previous = false;
+    stayDialogMockState.currentMounts = 0;
+    stayDialogMockState.previousMounts = 0;
+    stayDialogMockState.currentClose = null;
+    stayDialogMockState.previousClose = null;
+    segmentDialogMockState.mounts = 0;
+    segmentDialogMockState.close = null;
+    planDialogMountState.mounts = 0;
   });
   it("renders the day gantt bar in the header overview area", async () => {
     planDialogMockState.lastProps = null;
@@ -579,6 +641,105 @@ describe("TripDayView layout", () => {
     vi.unstubAllGlobals();
   });
 
+  /**
+   * The tests standing between this screen and the silent return of three already-shipped defects -
+   * this one for the plan dialog, and one per remaining call site further down (both stay dialogs,
+   * the segment dialog; `TripShareDialog`'s lives in `tripTimelineSharing.test.tsx`, its own parent).
+   *
+   * `TripDayView` gives each of its four dialogs one React mount per open: it derives a key with
+   * `useOpenInstanceKey` and hands it over as `key={`plan-${planDialogKey}`}` - plus the stay,
+   * previous-stay and segment equivalents - at the call sites at the bottom of that file. That key is
+   * what resets a dialog between two opens, and it *replaced* the hand-written reset-on-open effects
+   * the dialogs used to carry: those effects were deleted, so the key is now the only thing doing the
+   * reset. Delete `key={...}` from a call site and three defects come back at once, each of them found
+   * and fixed before: a place-candidate list left unanswered from the previous entity, staged photos
+   * leaking out of one entity's dialog into the next one's, and staged documents doing the same.
+   *
+   * It counts mounts because a `key` is not observable from props - React consumes it while building
+   * the element, so the stub above can never see it, and every other test in this file would still
+   * pass with the prop deleted. What a stub *can* see is the consequence: a second open after a close
+   * must produce a fresh mount rather than a re-render of the instance the first open left behind. The
+   * dialogs' own suites cover what a fresh mount resets; only this test covers whether this screen
+   * asks for one.
+   */
+  it("gives the plan dialog a fresh mount per open, which is what resets it between entities", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    bucketListItemsOverride = [
+      {
+        id: "bucket-1",
+        tripId: "trip-1",
+        title: "Bucket stop",
+        description: "Bucket notes",
+        positionText: "Central Station",
+        location: { lat: 48.1372, lng: 11.5756, label: "Munich" },
+        createdAt: "2026-12-01T00:00:00.000Z",
+        updatedAt: "2026-12-01T00:00:00.000Z",
+      },
+    ];
+    const fetchMock = withBucketList(async () => {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-01T00:00:00.000Z",
+              dayCount: 1,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: null,
+                dayPlanItems: [],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    expect(await screen.findByText("Bucket list")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Add to day" }));
+    expect(await screen.findByTestId("plan-dialog")).toBeInTheDocument();
+    const mountsAfterFirstOpen = planDialogMountState.mounts;
+
+    // The stub renders nothing while closed, so the close has to arrive through the prop this screen
+    // owns - the same callback the real dialog's Cancel and ✕ invoke.
+    await act(async () => {
+      planDialogMockState.lastProps?.onClose();
+    });
+    await waitFor(() => {
+      expect(screen.queryByTestId("plan-dialog")).not.toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Add to day" }));
+    expect(await screen.findByTestId("plan-dialog")).toBeInTheDocument();
+
+    // Two opens, two mounts. With the key gone the second open re-renders the instance the first one
+    // left behind, this stays at `mountsAfterFirstOpen`, and that stale instance is precisely where
+    // the three defects live.
+    expect(planDialogMountState.mounts).toBe(mountsAfterFirstOpen + 1);
+
+    vi.unstubAllGlobals();
+  });
+
   it("renders a textual planned vs unplanned summary for the gantt bar", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
@@ -781,6 +942,107 @@ describe("TripDayView layout", () => {
         screen.getByText("Planned 10h, Unplanned unknown until a check-in time is set"),
       ).toBeInTheDocument();
     });
+
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * The segment dialog's half of the mount-per-open contract - see the plan-dialog test above for what
+   * the mechanism is and why a mount count is the only thing a stub can observe about a `key`.
+   *
+   * This call site needs its own test rather than riding on the plan dialog's: the four keys are four
+   * separate expressions at four separate call sites, and deleting any one of them leaves every other
+   * test in this file green. `TripDayTravelSegmentDialog` in particular has no close-and-reopen test of
+   * its own either (its suite never re-renders with `open={false}`), so before this the whole path from
+   * "the reset effect was deleted" to "something resets it instead" was unasserted for that dialog.
+   */
+  it("gives the travel segment dialog a fresh mount per open", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const fetchMock = withBucketList(async () => {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-01T00:00:00.000Z",
+              dayCount: 1,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-1",
+                date: "2026-12-01T00:00:00.000Z",
+                dayIndex: 1,
+                plannedCostSubtotal: 0,
+                missingAccommodation: false,
+                missingPlan: false,
+                accommodation: {
+                  id: "stay-prev",
+                  name: "Previous Hotel",
+                  notes: null,
+                  status: "booked",
+                  costCents: null,
+                  link: null,
+                  checkInTime: null,
+                  checkOutTime: "08:00",
+                  location: null,
+                },
+                dayPlanItems: [
+                  {
+                    id: "item-1",
+                    title: "Museum",
+                    fromTime: "09:00",
+                    toTime: "10:00",
+                    contentJson: JSON.stringify({
+                      type: "doc",
+                      content: [{ type: "paragraph", content: [{ type: "text", text: "Visit" }] }],
+                    }),
+                    costCents: null,
+                    linkUrl: null,
+                    location: null,
+                  },
+                ],
+                travelSegments: [],
+              },
+            ],
+          },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    fireEvent.click(screen.getByRole("button", { name: "Add travel" }));
+    expect(await screen.findByTestId("segment-save")).toBeInTheDocument();
+    const mountsAfterFirstOpen = segmentDialogMockState.mounts;
+
+    // The close arrives through the prop this screen owns, as it does from the real dialog's ✕ - the
+    // stub renders nothing while closed, so there is no control on screen to click.
+    await act(async () => {
+      segmentDialogMockState.close?.();
+    });
+    await waitFor(() => {
+      expect(screen.queryByTestId("segment-save")).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Add travel" }));
+    expect(await screen.findByTestId("segment-save")).toBeInTheDocument();
+
+    // With `key={`segment-${segmentDialogKey}`}` gone this stays at `mountsAfterFirstOpen`: the second
+    // open re-renders the instance the first one left behind, holding its nine seeded field states and
+    // the dirty baseline they were measured against.
+    expect(segmentDialogMockState.mounts).toBe(mountsAfterFirstOpen + 1);
 
     vi.unstubAllGlobals();
   });
@@ -6193,6 +6455,81 @@ describe("TripDayView layout", () => {
     expect(stayDialogMockState.previous).toBe(false);
     expect(screen.getByTestId("stay-dialog-current")).toBeInTheDocument();
     expect(screen.queryByTestId("stay-dialog-previous")).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * Both stay call sites' half of the mount-per-open contract - see the plan-dialog test earlier in
+   * this file for the mechanism and for why a mount count is the only handle a stub has on a `key`.
+   *
+   * Asserted for the two of them in one test because they are the pair most worth checking together:
+   * they are two elements of the same component type, adjacent in the same children array, and their
+   * keys are two separate expressions (`stay-…` and `previous-stay-…`). Both counters are read after
+   * every step, so this fails whichever of the two keys is deleted - and it would also fail if the two
+   * were ever given the same namespace, because then the reconciler would match one card's dialog to
+   * the other's instance and only one of the two would mount.
+   *
+   * `TripAccommodationDialog` no longer has a reset-on-open effect at all: its twelve setters became
+   * `useState` initials and its `reset()` became `useForm`'s `defaultValues`, both of which run once
+   * per mount. So for this dialog the key is not one of two mechanisms, it is the only one.
+   */
+  it("gives each stay dialog a fresh mount per open, independently of the other (AC1, AC2)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal(
+      "fetch",
+      buildTwoDayResponse({
+        previousAccommodation: stayFixture("stay-prev", "Airport Hotel"),
+        accommodation: stayFixture("stay-current", "City Hotel"),
+      }),
+    );
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    const openCurrent = () =>
+      fireEvent.click(
+        within(screen.getByTestId("timeline-current-stay")).getByTestId("timeline-current-stay-edit-overlay"),
+      );
+    const openPrevious = () =>
+      fireEvent.click(
+        within(screen.getByTestId("timeline-previous-stay")).getByTestId("timeline-previous-stay-edit-overlay"),
+      );
+
+    openCurrent();
+    await screen.findByTestId("stay-dialog-current");
+    const currentAfterFirstOpen = stayDialogMockState.currentMounts;
+    const previousAfterCurrentOpen = stayDialogMockState.previousMounts;
+
+    await act(async () => {
+      stayDialogMockState.currentClose?.();
+    });
+    await waitFor(() => expect(screen.queryByTestId("stay-dialog-current")).not.toBeInTheDocument());
+
+    openCurrent();
+    await screen.findByTestId("stay-dialog-current");
+    expect(stayDialogMockState.currentMounts).toBe(currentAfterFirstOpen + 1);
+    // The other card's dialog was not disturbed by any of that - two call sites, two independent keys.
+    expect(stayDialogMockState.previousMounts).toBe(previousAfterCurrentOpen);
+
+    await act(async () => {
+      stayDialogMockState.currentClose?.();
+    });
+    await waitFor(() => expect(screen.queryByTestId("stay-dialog-current")).not.toBeInTheDocument());
+
+    openPrevious();
+    await screen.findByTestId("stay-dialog-previous");
+    const previousAfterFirstOpen = stayDialogMockState.previousMounts;
+
+    await act(async () => {
+      stayDialogMockState.previousClose?.();
+    });
+    await waitFor(() => expect(screen.queryByTestId("stay-dialog-previous")).not.toBeInTheDocument());
+
+    openPrevious();
+    await screen.findByTestId("stay-dialog-previous");
+    expect(stayDialogMockState.previousMounts).toBe(previousAfterFirstOpen + 1);
 
     vi.unstubAllGlobals();
   });

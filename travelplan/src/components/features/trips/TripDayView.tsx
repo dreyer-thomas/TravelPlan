@@ -23,7 +23,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import FormField from "@/components/forms/FormField";
 import PhotoUploadField from "@/components/forms/PhotoUploadField";
-import DialogShell from "@/components/ui/DialogShell";
+import DialogShell, { useOpenInstanceKey } from "@/components/ui/DialogShell";
 import { DialogTitleWithClose } from "@/components/ui/DialogCloseButton";
 import DiscardChangesDialog, { useDiscardGuard } from "@/components/ui/DiscardChangesDialog";
 import DocChip from "@/components/ui/DocChip";
@@ -528,6 +528,43 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const [activeSegment, setActiveSegment] = useState<TravelSegment | null>(null);
   const [activeSegmentFrom, setActiveSegmentFrom] = useState<SegmentItem | null>(null);
   const [activeSegmentTo, setActiveSegmentTo] = useState<SegmentItem | null>(null);
+  /**
+   * One mount per open for each of the four dialogs below — see `useOpenInstanceKey`.
+   *
+   * They are rendered unconditionally (visibility is the `open` prop, so MUI's exit transition
+   * survives a close), and each of them used to answer that with a reset-everything effect at the
+   * top of its body. Those effects are gone: a fresh instance per open means every state simply
+   * starts at its `useState` initial value. Derived here rather than at the ~9 call sites that open
+   * these dialogs, because the rule is about the *dialog*, not about any one opener.
+   *
+   * Each counter is namespaced into its `key` (`stay-0`, `plan-0`, …) rather than passed as the bare
+   * number. All four dialogs are siblings in one children array and every counter starts at `0`, so
+   * the bare form hands the same key to four children at once — React warns, and the collision is
+   * only survivable while the array's length never changes. Make one of them conditional and the
+   * reconciler matches by key instead of by index, which is enough to hand one stay dialog the other
+   * one's entire state.
+   */
+  const stayDialogKey = useOpenInstanceKey(stayOpen);
+  const previousStayDialogKey = useOpenInstanceKey(previousStayOpen);
+  const segmentDialogKey = useOpenInstanceKey(segmentDialogOpen);
+  // The activity is passed as the plan dialog's identity because the deep-link effect below can point
+  // it at a different one *without* closing it first: a client-side navigation to another
+  // `?open=plan&itemId=` while the dialog is up calls `setSelectedPlanItem` on an open dialog. The
+  // seed effect re-seeds the form on that change, but nothing else would — so activity A's staged
+  // documents and its tab would stand over activity B's form, holding B's fingerprint off its
+  // baseline. `handlePlanDialogClose` clears the selection in the same commit as the mode, and the
+  // hook ignores `identity` when closed, so this costs no remount on the way out.
+  //
+  // The bucket-list item is part of that identity for the same reason and not only for symmetry:
+  // `handleAddBucketToDay` sets a *new* prefill with `selectedPlanItem` at `null` and the mode at
+  // `"add"`, so on the item id alone two different bucket ideas both name themselves `"add"` and the
+  // second one inherits the first one's tab and staged files. That path cannot be reached from the
+  // screen today — the dialog is modal and covers the bucket panel — which is exactly why it is
+  // worth closing here rather than relying on a layout fact to keep holding.
+  const planDialogKey = useOpenInstanceKey(
+    planDialogMode !== null,
+    selectedPlanItem?.id ?? planDialogPrefill?.bucketListItemId ?? "add",
+  );
   const [copyingStay, setCopyingStay] = useState(false);
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
   const [dayMetaOpen, setDayMetaOpen] = useState(false);
@@ -3747,6 +3784,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
           </Box>
 
           <TripAccommodationDialog
+            key={`stay-${stayDialogKey}`}
             open={stayOpen}
             tripId={tripId}
             stayType="current"
@@ -3758,6 +3796,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
             }}
           />
           <TripAccommodationDialog
+            key={`previous-stay-${previousStayDialogKey}`}
             open={previousStayOpen}
             tripId={tripId}
             stayType="previous"
@@ -3769,6 +3808,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
             }}
           />
           <TripDayTravelSegmentDialog
+            key={`segment-${segmentDialogKey}`}
             open={segmentDialogOpen}
             tripId={tripId}
             tripDayId={day?.id ?? null}
@@ -3789,6 +3829,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
             }}
           />
           <TripDayPlanDialog
+            key={`plan-${planDialogKey}`}
             open={planDialogMode !== null}
             mode={planDialogMode ?? "add"}
             tripId={tripId}

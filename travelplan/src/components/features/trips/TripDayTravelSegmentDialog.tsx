@@ -248,25 +248,11 @@ export default function TripDayTravelSegmentDialog({
   onSaved,
 }: TripDayTravelSegmentDialogProps) {
   const { t } = useI18n();
-  const [csrfToken, setCsrfToken] = useState<string | null>(null);
-  const [serverError, setServerError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [routeLoading, setRouteLoading] = useState(false);
-  const [transportType, setTransportType] = useState<TransportType>("car");
-  const [durationInput, setDurationInput] = useState<DurationInput>(DEFAULT_DURATION);
-  const [distanceKm, setDistanceKm] = useState<string>("");
-  const [linkUrl, setLinkUrl] = useState<string>("");
-  const [routeHelper, setRouteHelper] = useState<string | null>(null);
-  const [fieldErrors, setFieldErrors] = useState<{ durationMinutes?: string; distanceKm?: string; linkUrl?: string }>({});
   const isEditing = Boolean(segment?.id);
   /** One error line serves both duration boxes, so both have to point `aria-describedby` at it. */
   const durationErrorId = `${useId()}-duration-error`;
   const mapsLink = useMemo(() => buildGoogleMapsLink(fromItem, toItem), [fromItem, toItem]);
   const autoPrefillTriggeredRef = useRef(false);
-  /** The last link this component wrote into the field, so a link the user typed is never stomped. */
-  const seededLinkRef = useRef<string>("");
-  /** True while the form holds the output of a route import, which belongs to one mode only. */
-  const routePrefilledRef = useRef(false);
   /**
    * What the form holds when it opens.
    *
@@ -274,8 +260,13 @@ export default function TripDayTravelSegmentDialog({
    * second reader — the dirty comparison that decides whether the `✕` asks before discarding — and that
    * one runs during render. A ref read during render is both an eslint error (`react-hooks/refs`) and a
    * real correctness hazard: nothing re-renders when a ref changes, so the comparison could sit on a
-   * stale baseline. Derived instead, from exactly the inputs the open effect keys on, so seeding and
-   * comparing cannot drift apart.
+   * stale baseline. Derived instead, from exactly the inputs the seed reads, so seeding and comparing
+   * cannot drift apart.
+   *
+   * It now also *is* the seed. The open effect that used to copy it into the four field states is gone:
+   * the parent gives this dialog a fresh mount per open (`useOpenInstanceKey`), so the lazy `useState`
+   * initializers below run exactly once per open and there is nothing left to reset. Declared above the
+   * states rather than below them for that reason alone.
    *
    * `transport` joined for the dirty comparison only; `handleTransportTypeChange` reads the other three
    * by name, to restore a stale route import.
@@ -293,6 +284,26 @@ export default function TripDayTravelSegmentDialog({
         : { duration: DEFAULT_DURATION, distance: "", link: mapsLink ?? "", transport: "car" as TransportType },
     [segment, mapsLink],
   );
+  const [csrfToken, setCsrfToken] = useState<string | null>(null);
+  const [serverError, setServerError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [transportType, setTransportType] = useState<TransportType>(() => openedValues.transport);
+  const [durationInput, setDurationInput] = useState<DurationInput>(() => openedValues.duration);
+  const [distanceKm, setDistanceKm] = useState<string>(() => openedValues.distance);
+  const [linkUrl, setLinkUrl] = useState<string>(() => openedValues.link);
+  const [routeHelper, setRouteHelper] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<{ durationMinutes?: string; distanceKm?: string; linkUrl?: string }>({});
+  /**
+   * The last link this component wrote into the field, so a link the user typed is never stomped.
+   *
+   * Empty when editing a saved segment: the stored link is the *user's*, so re-pointing it at another
+   * travel mode would rewrite something they chose. On an add it starts as the link this dialog seeded,
+   * which `handleTransportTypeChange` is then free to re-point.
+   */
+  const seededLinkRef = useRef<string>(segment ? "" : openedValues.link);
+  /** True while the form holds the output of a route import, which belongs to one mode only. */
+  const routePrefilledRef = useRef(false);
 
   /**
    * The distance field's own parse - one function for all three sites (`validate()`'s required branch,
@@ -319,21 +330,6 @@ export default function TripDayTravelSegmentDialog({
    */
   const parseDistanceInput = (raw: string) =>
     raw === openedValues.distance ? parseDecimal(raw) : parseDecimal(raw, { maxDecimals: 1 });
-
-  useEffect(() => {
-    if (!open) return;
-    setServerError(null);
-    setFieldErrors({});
-    setCsrfToken(null);
-    setRouteHelper(null);
-    routePrefilledRef.current = false;
-
-    setTransportType(openedValues.transport);
-    setDurationInput(openedValues.duration);
-    setDistanceKm(openedValues.distance);
-    setLinkUrl(openedValues.link);
-    seededLinkRef.current = segment ? "" : openedValues.link;
-  }, [open, segment, openedValues]);
 
   /**
    * Changing the mode discards a route imported for the *previous* one. Without this, picking
@@ -527,13 +523,12 @@ export default function TripDayTravelSegmentDialog({
     }
   }, [fromItem, isEditing, mapsLink, t, toItem, transportType, tripId]);
 
-  useEffect(() => {
-    if (!open) {
-      autoPrefillTriggeredRef.current = false;
-      return;
-    }
-  }, [open]);
-
+  /**
+   * The auto-import fires once per open, never again — a second run would stomp a duration the user
+   * has since corrected. The ref used to be cleared by a close-only effect, because the dialog stayed
+   * mounted forever; it is now `false` by construction, since the parent mounts a fresh instance for
+   * every open (`useOpenInstanceKey`).
+   */
   useEffect(() => {
     if (!open || !prefillRouteOnOpen || routeLoading) return;
     if (autoPrefillTriggeredRef.current) return;

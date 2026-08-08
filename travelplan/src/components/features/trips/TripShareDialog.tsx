@@ -190,17 +190,23 @@ export default function TripShareDialog({ open, tripId, tripName, onClose }: Tri
 
   useEffect(() => {
     if (!open) {
+      // Ref cleanup only. The eight `setX` calls that used to stand here are gone: the parent mounts a
+      // fresh instance of this dialog for every open (`useOpenInstanceKey` in `DialogShell.tsx`), so
+      // each of those states already starts at its `useState` initial value and clearing them here
+      // would only be re-clearing them on the instance that is playing its exit transition.
+      //
+      // These two are not state and are not covered by that. They guard the *in-flight* responses of
+      // requests this instance started before the user dismissed it — `onRemove` reads both after its
+      // `await` — so they still have to be bumped on the close edge, on the very instance that issued
+      // them.
+      //
+      // `reset(defaultValues)` deliberately does *not* stay. It would be the only visible mutation
+      // left on this edge, and it would blank the invite fields while the collaborator list, the owner
+      // row and any banner beside them stayed populated — a half-cleared dialog fading out, which is
+      // worse than the old behaviour and worse than doing nothing. The invite form is re-seeded by
+      // `useForm`'s own `defaultValues` on the next open, which is a fresh instance.
       generationRef.current += 1;
       removedIdsRef.current = new Set();
-      reset(defaultValues);
-      setCsrfToken(null);
-      setOwnerEmail(null);
-      setCollaborators([]);
-      setLoadError(null);
-      setServerError(null);
-      setSuccess(null);
-      setLoading(false);
-      setRemovingMemberIds([]);
       return;
     }
 
@@ -262,7 +268,11 @@ export default function TripShareDialog({ open, tripId, tripName, onClose }: Tri
     return () => {
       active = false;
     };
-  }, [open, reset, resolveApiError, t, tripId]);
+    // `reset` is deliberately absent: it left the dependency list with the `reset(defaultValues)`
+    // call that used to stand in the `!open` branch above. Keeping a dependency nothing in the
+    // effect reads would tell the next reader this effect still re-seeds the invite form, which is
+    // now `useForm`'s job on the fresh instance the next open mounts.
+  }, [open, resolveApiError, t, tripId]);
 
   /** Server snapshots are only authoritative about members we have not already removed. */
   const applyRemovals = (list: unknown) =>

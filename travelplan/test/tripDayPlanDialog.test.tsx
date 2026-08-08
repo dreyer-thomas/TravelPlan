@@ -2785,6 +2785,12 @@ describe("TripDayPlanDialog", () => {
         return { ok: true, status: 200, json: async () => ({ data: { images: [] }, error: null }) };
       }) as unknown as typeof fetch;
 
+    /**
+     * `key={0}` is not decoration: the parent identifies this dialog by an instance key that changes on
+     * every open edge (`useOpenInstanceKey`), and a test that reopens it has to drive that key too. The
+     * initial render carries it so a reopen can go on carrying it — swapping an *unkeyed* element for a
+     * keyed one is itself a remount, which would hide the close edge the reopen test is about.
+     */
     const renderPlan = async ({
       mode = "edit" as "add" | "edit",
       onClose = () => undefined,
@@ -2796,6 +2802,7 @@ describe("TripDayPlanDialog", () => {
       const view = render(
         <Providers language="en">
           <TripDayPlanDialog
+            key={0}
             open
             mode={mode}
             tripId="trip-1"
@@ -2904,9 +2911,14 @@ describe("TripDayPlanDialog", () => {
     });
 
     /**
-     * AC7's reopen half. Without the open effect's `setDocumentFiles([])` a discarded staged document
-     * comes back selected on the next open, holding the fingerprint away from its baseline for the
-     * rest of the session — this dialog is never unmounted.
+     * AC7's reopen half. A discarded staged document must not come back selected on the next open,
+     * holding the fingerprint away from its baseline for the rest of the session.
+     *
+     * **Where the contract moved.** The open effect's `setDocumentFiles([])` used to be what made this
+     * true; `documentFiles` now simply starts empty on a fresh mount, because `TripDayView` gives the
+     * dialog a new `key` on every open edge (`useOpenInstanceKey` in `src/components/ui/DialogShell.tsx`).
+     * The reopen below therefore drives that key the way the parent does — held across the close so the
+     * exit transition plays, bumped on the reopen. Assertions unchanged.
      */
     it("forgets a document that was staged and then discarded", async () => {
       const onClose = vi.fn();
@@ -2928,16 +2940,22 @@ describe("TripDayPlanDialog", () => {
         onClose,
         onSaved: () => undefined,
       };
-      view.rerender(
-        <Providers language="en">
-          <TripDayPlanDialog open={false} {...props} />
-        </Providers>,
-      );
-      view.rerender(
-        <Providers language="en">
-          <TripDayPlanDialog open {...props} />
-        </Providers>,
-      );
+      // `act` around the reopen because the fresh instance fires its own CSRF request, whose resolution
+      // would otherwise land outside it.
+      await act(async () => {
+        view.rerender(
+          <Providers language="en">
+            <TripDayPlanDialog key={0} open={false} {...props} />
+          </Providers>,
+        );
+      });
+      await act(async () => {
+        view.rerender(
+          <Providers language="en">
+            <TripDayPlanDialog key={1} open {...props} />
+          </Providers>,
+        );
+      });
 
       selectTab("media");
       expect(screen.queryByText("1 file(s) selected")).toBeNull();
@@ -3452,10 +3470,17 @@ describe("TripDayPlanDialog", () => {
     });
 
     /**
-     * Story 6.28 review, P1. This dialog is permanently mounted with `open` toggled — the same hazard
-     * `activeTab`, `galleryFiles` and `documentFiles` are each reset for by name in the open effect. An
-     * unanswered list is cleared only by a select, a *Clear* or a new *Find*, so activity A's offer was
-     * still standing over activity B's empty field, and activating one of its rows pinned A's place on B.
+     * Story 6.28 review, P1. An unanswered list is cleared only by a select, a *Clear* or a new *Find*,
+     * so activity A's offer was still standing over activity B's empty field, and activating one of its
+     * rows pinned A's place on B.
+     *
+     * **Where the contract moved.** This used to hold because the open effect cleared `locationCandidates`
+     * by name, alongside `activeTab`, `galleryFiles` and `documentFiles`. It now holds because the dialog
+     * gets one *mount* per open: `TripDayView` derives a `key` with `useOpenInstanceKey`
+     * (`src/components/ui/DialogShell.tsx`) that increments on the `false → true` edge, so every state
+     * starts from its `useState` initial value and none of them can be forgotten. The `instance` argument
+     * below is that key, driven by hand exactly the way the parent drives it — unchanged across the close,
+     * bumped on the reopen. The assertions are untouched; only how the reset is achieved has changed.
      */
     it("does not carry an unanswered candidate list into the next activity's dialog", async () => {
       const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
@@ -3476,9 +3501,10 @@ describe("TripDayPlanDialog", () => {
         location: null,
         createdAt: "2026-11-01T09:00:00.000Z",
       });
-      const dialog = (open: boolean, id: string, title: string) => (
+      const dialog = (open: boolean, id: string, title: string, instance: number) => (
         <Providers language="en">
           <TripDayPlanDialog
+            key={instance}
             open={open}
             mode="edit"
             tripId="trip-1"
@@ -3490,7 +3516,7 @@ describe("TripDayPlanDialog", () => {
         </Providers>
       );
 
-      const { rerender } = render(dialog(true, "item-a", "Activity A"));
+      const { rerender } = render(dialog(true, "item-a", "Activity A", 0));
       await waitFor(() => expect(fetchMock).toHaveBeenCalled());
       selectTab("whenWhere");
 
@@ -3498,13 +3524,14 @@ describe("TripDayPlanDialog", () => {
       expect(await screen.findByRole("button", { name: "Paris, Texas" })).toBeInTheDocument();
 
       // Dismissed without resolving anything — no discard prompt is involved, because nothing was pinned.
-      // `act` around the reopen because the open effect fires a fresh CSRF request whose resolution would
-      // otherwise land outside it.
+      // The key does **not** change here: the instance has to survive the close so MUI's exit transition
+      // still plays. `act` around the reopen because the seed effect fires a fresh CSRF request whose
+      // resolution would otherwise land outside it.
       await act(async () => {
-        rerender(dialog(false, "item-a", "Activity A"));
+        rerender(dialog(false, "item-a", "Activity A", 0));
       });
       await act(async () => {
-        rerender(dialog(true, "item-b", "Activity B"));
+        rerender(dialog(true, "item-b", "Activity B", 1));
       });
       selectTab("whenWhere");
 

@@ -397,15 +397,54 @@ export default function TripAccommodationDialog({
   const [serverError, setServerError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isGeocoding, setIsGeocoding] = useState(false);
-  const [locationQuery, setLocationQuery] = useState("");
-  const [resolvedLocation, setResolvedLocation] = useState<{ lat: number; lng: number; label: string | null } | null>(
-    null,
+  /**
+   * The search box and the pin it resolved to, seeded from the stay this dialog opened on.
+   *
+   * Lazy initializers, not an open effect. Until this story the pair was written by a reset-and-seed
+   * effect at the top of the body, because the dialog was mounted once and shown by its `open` prop;
+   * the parent now hands it a fresh `key` on every open edge (`useOpenInstanceKey` in
+   * `DialogShell.tsx`), so these run exactly once per open and the effect had nothing left to do.
+   *
+   * `openLocationKey` further down derives the discard guard's baseline from the same stay — but from
+   * the *live* `day` prop on every render, where this pair is frozen at mount. The two therefore agree
+   * for as long as `day` does, which is the whole time the dialog is on screen today: `TripDayView`
+   * only ever replaces `day` through `loadDay()`, and `loadDay()` re-enters the loading skeleton that
+   * unmounts this dialog outright. They would diverge — untouched form, discard prompt on the way out
+   * — the moment that stops being true, so it is recorded in deferred-work rather than asserted away
+   * here. The deleted effect listed `day` in its dependencies and re-seeded on exactly that change.
+   */
+  const [locationQuery, setLocationQuery] = useState(
+    () => day?.accommodation?.location?.label ?? day?.accommodation?.name ?? "",
   );
-  // Story 6.28 AC5. The places a search came back with while more than one is still on offer; empty
-  // otherwise, and never part of the dirty comparison — an unanswered question is not a value.
+  const [resolvedLocation, setResolvedLocation] = useState<{ lat: number; lng: number; label: string | null } | null>(
+    () =>
+      day?.accommodation?.location
+        ? {
+            lat: day.accommodation.location.lat,
+            lng: day.accommodation.location.lng,
+            label: day.accommodation.location.label ?? null,
+          }
+        : null,
+  );
+  /**
+   * Story 6.28 AC5. The places a search came back with while more than one is still on offer; empty
+   * otherwise, and never part of the dirty comparison — an unanswered question is not a value.
+   *
+   * Story 6.28 review: an unanswered list is cleared only by a select, a *Clear* or a new *Find*, and
+   * the dialog used to survive every close — so stay A's "Select a place (2)" was still on offer over
+   * stay B's empty field, and picking a row pinned A's place on B. The open effect that cleared it by
+   * hand is gone; a fresh instance per open means `[]` here *is* that clearing, for this state and for
+   * every other one nobody would have remembered to add to that list.
+   */
   const [locationCandidates, setLocationCandidates] = useState<{ lat: number; lng: number; label: string }[]>([]);
   const [initError, setInitError] = useState<string | null>(null);
   const [galleryImages, setGalleryImages] = useState<GalleryImage[]>([]);
+  /**
+   * Story 6.25 review. `galleryFiles` is otherwise emptied only by a *successful upload*, and the
+   * dialog used to outlive its own close — so photos staged and then discarded came back selected on
+   * the next open, with Upload live for them and `galleryFiles.length > 0` holding the discard guard
+   * dirty for the rest of the session. One mount per open is what now makes that unreachable.
+   */
   const [galleryFiles, setGalleryFiles] = useState<File[]>([]);
   const [galleryBusy, setGalleryBusy] = useState(false);
   // Story 9.1. The document half of the `Medien & Links` tab, split exactly as the gallery's three
@@ -414,10 +453,25 @@ export default function TripAccommodationDialog({
   // because AC2's "a file placed in one bucket never appears in the other" is first of all a
   // statement about these variables.
   const [documents, setDocuments] = useState<AccommodationDocument[]>([]);
+  /**
+   * Story 9.1, and the identical hazard `galleryFiles` records above: `documentFiles` is cleared only
+   * by a successful upload too, and it is a term of the discard guard at the bottom of this file. A
+   * document staged and then discarded used to come back selected on the next open and hold the guard
+   * dirty for the rest of the session.
+   */
   const [documentFiles, setDocumentFiles] = useState<File[]>([]);
   const [documentBusy, setDocumentBusy] = useState(false);
-  // The index into `galleryPreviews`, not a URL — the shared viewer pages through the collection.
+  /**
+   * The index into `galleryPreviews`, not a URL — the shared viewer pages through the collection.
+   * `null` on arrival, or a stale index left behind by a programmatic close would spring the viewer
+   * open on top of the dialog the next time it is shown.
+   */
   const [fullscreenIndex, setFullscreenIndex] = useState<number | null>(null);
+  /**
+   * Every open starts on `Basisdaten`. Tabs are random access, but the tab a *previous* edit finished
+   * on is not a state the next stay's dialog should inherit — and before this dialog gained a fresh
+   * mount per open, it did.
+   */
   const [activeTab, setActiveTab] = useState<StayTabId>("basics");
   /**
    * The control AC2 owes the caret, as a DOM id, plus a counter — and the counter is the point.
@@ -442,9 +496,27 @@ export default function TripAccommodationDialog({
     getValues,
     setError,
     clearErrors,
-    reset,
     setValue,
   } = useForm<AccommodationFormValues>({
+    /**
+     * The whole seed, and the dirty baseline with it — `isDirty` is measured against exactly this
+     * object.
+     *
+     * These values used to be written twice: once here, and once more, verbatim, by a `reset({…})`
+     * inside an open effect that existed only because the dialog was mounted for the life of the day
+     * view and shown by its `open` prop. The parent now remounts it on every open edge
+     * (`useOpenInstanceKey` in `DialogShell.tsx`), so `useForm` runs once per open and the second copy
+     * — a hand-maintained duplicate that would have drifted on the first field a later story added —
+     * is gone.
+     *
+     * Story 6.30 AC7 survives the deletion by construction. `language` is read here to seed `costCents`
+     * and the payment rows with the right decimal separator, and it is captured **at open time**: a
+     * language switch while the dialog is open no longer has anything to re-run, so it cannot rewrite
+     * fields the user has already edited. The dirty comparison sits on this same baseline, so an
+     * untouched form stays untouched across a switch and the `✕` asks nothing on the way out. That is
+     * what the effect's blanket `eslint-disable-next-line react-hooks/exhaustive-deps` was buying, at
+     * the price of switching the rule off for every other value those ~65 lines read (DW-211).
+     */
     defaultValues: {
       name: day?.accommodation?.name ?? "",
       notes: day?.accommodation?.notes ?? "",
@@ -586,73 +658,6 @@ export default function TripAccommodationDialog({
   useEffect(() => {
     clearErrors("payments");
   }, [clearErrors, paymentsErrorSignature]);
-
-  useEffect(() => {
-    if (!open) return;
-    setServerError(null);
-    setInitError(null);
-    setCsrfToken(null);
-    setIsDeleting(false);
-    setIsGeocoding(false);
-    // Matches `TripDayPlanDialog`'s reset: a stale index left behind by a programmatic close would
-    // otherwise spring the viewer open on top of the dialog the next time it is shown.
-    setFullscreenIndex(null);
-    // Every open starts on `Basisdaten`. Tabs are random access, but the tab a *previous* edit
-    // finished on is not a state the next stay's dialog should inherit — and this dialog is never
-    // unmounted, so without this it would.
-    setActiveTab("basics");
-    // Story 6.25 review, and the same reset `TripDayPlanDialog` already does. `setGalleryFiles([])`
-    // otherwise runs only after a *successful upload*, and this dialog is never unmounted — so photos
-    // staged and then discarded came back selected on the next open, with Upload live for them and
-    // `galleryFiles.length > 0` holding the discard guard dirty for the rest of the session.
-    setGalleryFiles([]);
-    // Story 9.1, and the identical hazard one line down: `documentFiles` is cleared only on a
-    // successful upload too, and it is a term of the discard guard below. Without this line a
-    // document staged and then discarded comes back selected on the next open and holds the guard
-    // dirty for the rest of the session — the defect the line above is the scar tissue for.
-    setDocumentFiles([]);
-    // Story 6.28 review, the same hazard once more: an unanswered candidate list is cleared only by a
-    // select, a *Clear* or a new *Find*, and this dialog is never unmounted — so stay A's "Select a place
-    // (2)" was still on offer over stay B's empty field, and picking a row pinned A's place on B.
-    setLocationCandidates([]);
-    reset({
-      name: day?.accommodation?.name ?? "",
-      notes: day?.accommodation?.notes ?? "",
-      status: day?.accommodation?.status ?? "planned",
-      costCents:
-        day?.accommodation?.costCents !== null && day?.accommodation?.costCents !== undefined
-          ? formatCentsAsAmount(day.accommodation.costCents, language)
-          : "",
-      link: day?.accommodation?.link ?? "",
-      checkInTime: day?.accommodation?.checkInTime ?? DEFAULT_CHECK_IN,
-      checkOutTime: day?.accommodation?.checkOutTime ?? DEFAULT_CHECK_OUT,
-      paymentMode: day?.accommodation?.payments && day.accommodation.payments.length > 1 ? "split" : "single",
-      payments: buildDefaultPayments({
-        payments: day?.accommodation?.payments,
-        costCents: day?.accommodation?.costCents,
-        fallbackDate: defaultDueDate,
-        language,
-      }),
-    });
-    setResolvedLocation(
-      day?.accommodation?.location
-        ? {
-            lat: day.accommodation.location.lat,
-            lng: day.accommodation.location.lng,
-            label: day.accommodation.location.label ?? null,
-          }
-        : null,
-    );
-    setLocationQuery(day?.accommodation?.location?.label ?? day?.accommodation?.name ?? "");
-    // Story 6.30 AC7, and `language` is left out of the deps **on purpose**. It is read above to seed
-    // `costCents` and the payment rows with the right decimal separator, which is exactly what makes
-    // adding it here look correct and be wrong: `reset()` rewrites every field, so a language switch
-    // while the dialog is open would silently throw away edits the user had already made. Seeding with
-    // whatever the language was at open time is the behaviour we want. Nothing goes stale as a result —
-    // the guard below compares against the `reset()` baseline, so an unchanged form stays unchanged and
-    // no discard prompt appears on close.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [day, defaultDueDate, open, reset]);
 
   useEffect(() => {
     if (!open) return;
@@ -1672,8 +1677,9 @@ export default function TripAccommodationDialog({
   /**
    * Story 6.25 AC7 / EXPERIENCE.md.State Patterns → "Dismissing a dialog with unsaved input".
    *
-   * `isDirty` is measured against the open effect's `reset()`, so it means "differs from the stay this
-   * dialog opened on". Two things live outside the form and are added by hand:
+   * `isDirty` is measured against `useForm`'s `defaultValues`, which — because the parent remounts this
+   * dialog on every open edge — are the values *this* open seeded. So it still means exactly "differs
+   * from the stay this dialog opened on". Two things live outside the form and are added by hand:
    *
    * - `resolvedLocation`, written by the geocode lookup, which no `onChange` sees. Compared against the
    *   coordinate the stay already had rather than against `null`, so an untouched saved location does

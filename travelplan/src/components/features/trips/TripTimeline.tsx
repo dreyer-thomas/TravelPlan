@@ -25,6 +25,7 @@ import TripOverviewMapPanel from "@/components/features/trips/TripOverviewMapPan
 import TripBucketListPanel from "@/components/features/trips/TripBucketListPanel";
 import { buildTripOverviewMapData } from "@/components/features/trips/TripOverviewMapData";
 import { isSafeLink } from "@/components/features/trips/TripDayPlanItemContent";
+import { useOpenInstanceKey } from "@/components/ui/DialogShell";
 import {
   ChevronRightIcon,
   HERO_SCRIM,
@@ -125,6 +126,19 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  /**
+   * One mount of the share dialog per open — see `useOpenInstanceKey`. The dialog is rendered
+   * unconditionally so its exit transition still plays on close, which is why it used to clear its
+   * own state in a `!open` branch; a fresh instance per open makes every `useState` initial value
+   * the reset.
+   *
+   * Namespaced into `share-…` at the call site even though this is currently the only keyed dialog
+   * on this screen. Its two siblings — the edit and delete dialogs — are unkeyed today, and every
+   * counter this hook hands out starts at `0`: the first one of them to be given a bare key would
+   * collide with this one on the first render, which is the failure `TripDayView` already had to
+   * fix once. The namespace costs nothing and does not depend on remembering this.
+   */
+  const shareDialogKey = useOpenInstanceKey(shareOpen);
   // Export gets its own error slot rather than reusing `error` above. `error` is the load-failure
   // slot: it renders at the very top of the page and drives the `error && !detail` branch that
   // replaces the whole trip with a "Back to trips" button. A failed export leaves a perfectly good
@@ -1044,6 +1058,7 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
             onDeleted={handleDeleted}
           />
           <TripShareDialog
+            key={`share-${shareDialogKey}`}
             open={shareOpen}
             tripId={detail.trip.id}
             tripName={detail.trip.name}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { Box, Dialog, DialogActions, DialogContent, DialogTitle } from "@mui/material";
 import { useTheme, type SxProps, type Theme } from "@mui/material/styles";
 import { DialogCloseButton } from "@/components/ui/DialogCloseButton";
@@ -16,6 +16,52 @@ import { DialogCloseButton } from "@/components/ui/DialogCloseButton";
  * `TripShareDialog` still carries its own copy: it is in review, and converting it is a follow-up
  * sweep rather than this story's diff.
  */
+
+/**
+ * One key per *open*, so the parent can hand a dialog a fresh mount every time it is shown.
+ *
+ * The trip dialogs are rendered unconditionally by their parents and shown by an `open` prop alone,
+ * which is deliberate — unmounting on close kills MUI's exit transition. The price was a
+ * hand-maintained "reset everything" effect at the top of each of them, and three shipped defects
+ * where a state nobody remembered to add to that list leaked from one entity's dialog into the
+ * next's: an unanswered place-candidate list, staged photos, staged documents. Keying on the open
+ * edge removes the cause instead of enumerating the symptoms — a state that only ever gets its
+ * `useState` initial value cannot leak, and nothing has to be kept in sync by hand.
+ *
+ * The key changes in the same render as `open` flipping true, so the new instance mounts with
+ * `open` already true and the *enter* transition plays. Closing leaves the key alone, so the exit
+ * transition plays on the instance that is already there. Both edges, one rule.
+ *
+ * Render-phase state adjustment (React's documented "adjusting state when a prop changes"), not an
+ * effect and not a ref:
+ *  - an effect would be one more `react-hooks/set-state-in-effect` site, and would remount a frame
+ *    late — after the dialog had already painted with the previous instance's state;
+ *  - a ref written during render is `react-hooks/refs`, and a ref *read* during render is a real
+ *    staleness hazard, because nothing re-renders when it changes.
+ * React re-runs this component immediately with the new state, before committing anything, so the
+ * caller never sees the intermediate key.
+ *
+ * `identity` is for the dialogs that can be pointed at a *different* entity without closing first —
+ * pass whatever names the thing being edited (`item.id`, `"add"`). Changing it while open counts as a
+ * new instance, because it is one: the previous entity's tab, staged photos, staged documents and
+ * unanswered candidate list have no business surviving into the next one, which is the whole reason
+ * the reset clusters existed. Deliberately consulted **only while `open`** — the parents clear their
+ * selection in the same commit that closes the dialog, and a remount there would take the closing
+ * instance out from under its own exit transition.
+ *
+ * **Namespace the result if the parent renders more than one keyed dialog as a sibling.** Every
+ * counter starts at `0`, so `key={a}` and `key={b}` collide on the first render and again every time
+ * two of them have been opened the same number of times. `TripDayView` passes `` `stay-${key}` ``,
+ * `` `plan-${key}` `` and so on for that reason.
+ */
+export function useOpenInstanceKey(open: boolean, identity: string = ""): number {
+  const [instance, setInstance] = useState({ open, identity, key: 0 });
+  if (open !== instance.open || (open && identity !== instance.identity)) {
+    const isNewInstance = open && (!instance.open || identity !== instance.identity);
+    setInstance({ open, identity, key: isNewInstance ? instance.key + 1 : instance.key });
+  }
+  return instance.key;
+}
 
 export type DialogShellProps = {
   open: boolean;

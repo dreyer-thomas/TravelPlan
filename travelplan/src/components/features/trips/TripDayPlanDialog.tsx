@@ -578,6 +578,24 @@ export default function TripDayPlanDialog({
   onSaved,
 }: TripDayPlanDialogProps) {
   const { t, language } = useI18n();
+  /**
+   * The UI language as it was when this dialog opened, for the seed effect below and for nothing else.
+   *
+   * Story 6.30 AC7. The seed reads it to format `cost` and every `payment.amount` with the right
+   * decimal separator, and both of those are literal terms of `planFormFingerprint` — so re-seeding on
+   * a language switch would overwrite the form *and* re-take `openFingerprint.current` from it,
+   * discarding whatever the user had typed. Reading the live `language` from the effect's closure while
+   * keeping it out of the deps was the previous shape, and it cost a blanket
+   * `eslint-disable-next-line react-hooks/exhaustive-deps` that switched the rule off for the other
+   * five values that ~100-line effect depends on (DW-211). A ref buys the same capture with no
+   * suppression: it is initialised once per mount, and since the parent now gives this dialog a fresh
+   * mount per open (`useOpenInstanceKey` in `DialogShell.tsx`), mount time *is* open time.
+   *
+   * Deliberately not `useState`, and deliberately never written: the seed effect must be able to re-run
+   * when the TipTap instance appears without picking up a language switched in between. The cost-field
+   * *placeholders* stay live-reactive — they read `language` directly and are not seeded values.
+   */
+  const languageAtOpen = useRef(language);
   // Unique `htmlFor`/`id` prefix for the above-field labels this restyle introduces.
   const fieldIdPrefix = useId();
   const { tokens, warning } = useTheme().palette;
@@ -586,7 +604,9 @@ export default function TripDayPlanDialog({
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   // Story 6.23. The picker is a second dialog rather than a field, because the action belongs to the
-  // activity as a whole and not to any one of the four tabs.
+  // activity as a whole and not to any one of the four tabs. Closed on arrival, and — like
+  // `moveTargetDayId` — a target day chosen for the *previous* activity is not a state the next one's
+  // dialog should inherit; before this dialog was remounted per open, it did.
   const [moveOpen, setMoveOpen] = useState(false);
   const [moveTargetDayId, setMoveTargetDayId] = useState("");
   const [moving, setMoving] = useState(false);
@@ -598,7 +618,14 @@ export default function TripDayPlanDialog({
    * then, which is what keeps a dismissal during the first render from being read as an edit.
    */
   const openFingerprint = useRef<string | null>(null);
-  const [loadingInit, setLoadingInit] = useState(false);
+  /**
+   * True until the seed effect below has run for this open.
+   *
+   * `true` as the initial value, not `false`: this is the state the reset cluster used to set on the
+   * open edge, and with one mount per open the initial value *is* the open edge. Starting `false`
+   * would render one frame of an empty, interactive form before the seed lands.
+   */
+  const [loadingInit, setLoadingInit] = useState(true);
   const [contentJson, setContentJson] = useState<string>(toDocString(emptyDoc));
   const [titleInput, setTitleInput] = useState<string>("");
   const [costCentsInput, setCostCentsInput] = useState<string>("");
@@ -621,9 +648,17 @@ export default function TripDayPlanDialog({
    * the normal state — it is filled only between a multi-result *Find* and the choice that resolves it —
    * and it is deliberately **not** in the dirty fingerprint: an unanswered list of candidates is a
    * question, not a value a save would keep.
+   *
+   * Story 6.28 review: it is cleared only by a select, a *Clear* or a new *Find*, and this dialog used
+   * to survive every close — so activity A's "Select a place (2)" was still standing over activity B's
+   * empty field on the next open, and activating one of A's rows pinned A's place on B. The open
+   * effect's hand-written `setLocationCandidates([])` is gone; one mount per open makes `[]` here the
+   * clearing, for this state and for the ones a later story would have forgotten to add to that list.
    */
   const [locationCandidates, setLocationCandidates] = useState<{ lat: number; lng: number; label: string }[]>([]);
   const [fieldErrors, setFieldErrors] = useState<PlanFieldErrors>({});
+  // Every open starts on `Was`. Tabs are random access (Trap 1), but the tab a *previous* edit finished
+  // on is not a state the next activity's dialog should inherit.
   const [activeTab, setActiveTab] = useState<PlanTabId>("what");
   /**
    * Bumped once per rejected save. The focus effect below cannot key off `activeTab`: pressing
@@ -634,6 +669,12 @@ export default function TripDayPlanDialog({
   const pendingErrorFocus = useRef<{ key: PlanErrorKey; elementId: string | null } | null>(null);
   const contentBlockRef = useRef<HTMLDivElement | null>(null);
   const [galleryImages, setGalleryImages] = useState<GalleryImage[]>([]);
+  /**
+   * Photos staged in the picker but not yet uploaded, and a term of `planFormFingerprint` through
+   * `pendingPhotoCount`. Emptied by a successful upload and by nothing else — so while this dialog
+   * outlived its own close, photos staged and then discarded came back selected on the next open and
+   * held the fingerprint away from its baseline for the rest of the session.
+   */
   const [galleryFiles, setGalleryFiles] = useState<File[]>([]);
   const [galleryBusy, setGalleryBusy] = useState(false);
   // Story 9.1. The document half of the `Medien & Links` tab, in the gallery's three states: rows on
@@ -641,9 +682,13 @@ export default function TripDayPlanDialog({
   // gallery's, because AC2's "a file placed in one bucket never appears in the other" is first of all
   // a statement about these variables.
   const [documents, setDocuments] = useState<PlanDocument[]>([]);
+  // Story 9.1, and the same hazard `galleryFiles` records above: cleared only by a successful upload,
+  // and `pendingDocumentCount` is a term of the fingerprint too.
   const [documentFiles, setDocumentFiles] = useState<File[]>([]);
   const [documentBusy, setDocumentBusy] = useState(false);
   // The index into `galleryPreviews`, not a URL — the shared viewer pages through the collection.
+  // `null` on arrival: a stale index left behind by a programmatic close would otherwise spring the
+  // viewer open on top of the dialog the next time it is shown.
   const [fullscreenIndex, setFullscreenIndex] = useState<number | null>(null);
   const deleteTouchGuard = useRef(false);
   const editingItemId = mode === "edit" ? (item?.id ?? null) : null;
@@ -818,33 +863,31 @@ export default function TripDayPlanDialog({
     [setEditorContent],
   );
 
+  /**
+   * The seed, and only the seed.
+   *
+   * Twelve `setX` calls used to stand at the top of this effect, clearing everything the previous open
+   * had left behind — `serverError`, `csrfToken`, `fieldErrors`, `activeTab`, `galleryFiles`,
+   * `documentFiles`, `locationCandidates`, `fullscreenIndex`, `moveOpen`, `moveTargetDayId`,
+   * `discardOpen`, `loadingInit`. They existed because the day view mounted this dialog once and showed
+   * it with the `open` prop; the parent now changes its `key` on the open edge (`useOpenInstanceKey` in
+   * `DialogShell.tsx`), so each of those states starts from its `useState` initial value instead.
+   * Three of the twelve — `galleryFiles`, `documentFiles`, `locationCandidates` — recorded shipped
+   * defects in the comments beside them, and those reasons moved onto the declarations rather than
+   * being deleted with the setters. The rest cleared error, loading and picker state that is
+   * self-evidently per-open.
+   *
+   * What could **not** move is below: the seed has to run as an effect because it may need to run
+   * *twice*. `immediatelyRender: false` means `editor` is `null` on the first render, so the first pass
+   * stores the raw description string; the effect re-runs when the instance appears (through
+   * `applyPlanFormValues` → `setEditorContent`) and re-seeds it canonically, re-taking
+   * `openFingerprint.current` from what was actually applied. See `setEditorContent`.
+   */
   useEffect(() => {
     if (!open) return;
-    setServerError(null);
-    setCsrfToken(null);
-    setFieldErrors({});
-    // Every open starts on `Was`. Tabs are random access (Trap 1), but the tab a *previous* edit
-    // finished on is not a state the next activity's dialog should inherit.
-    setActiveTab("what");
-    setGalleryFiles([]);
-    // Story 9.1, and the same hazard the line above answers: `documentFiles` is otherwise cleared
-    // only by a successful upload, and this dialog is never unmounted — so a document staged and then
-    // discarded would come back selected on the next open, and `pendingDocumentCount` would hold the
-    // fingerprint away from its baseline for the rest of the session.
-    setDocumentFiles([]);
-    // Story 6.28 review, and the third instance of the hazard the two lines above answer: this dialog is
-    // never unmounted, and an unanswered candidate list is cleared only by a select, a *Clear* or a new
-    // *Find*. Without this, activity A's "Select a place (2)" was still standing over activity B's empty
-    // field on the next open — and activating one of A's rows pinned A's place on B.
-    setLocationCandidates([]);
-    setFullscreenIndex(null);
-    // Same reasoning as `activeTab`: a target day chosen for the *previous* activity is not a state
-    // the next one's dialog should inherit.
-    setMoveOpen(false);
-    setMoveTargetDayId("");
-    setDiscardOpen(false);
-    setLoadingInit(true);
-
+    // Captured at mount, which is now the same thing as at open — see `languageAtOpen`. Shadows the
+    // live `language` from `useI18n()` deliberately: nothing under this line may read the reactive one.
+    const language = languageAtOpen.current;
     let seed: PlanFormValues;
     // The location *search* box's seed. Outside `PlanFormValues` because it is not a saved value and
     // so must not reach the dirty fingerprint — see `planFormFingerprint`.
@@ -912,14 +955,11 @@ export default function TripDayPlanDialog({
     // edited are both values the user is looking at rather than values they entered.
     openFingerprint.current = planFormFingerprint(applyPlanFormValues(seed, locationQuerySeed));
     setLoadingInit(false);
-    // Story 6.30 AC7, and `language` is left out of the deps **on purpose**. It is read above to seed
-    // `cost` and every `payment.amount` with the right decimal separator, and both of those are literal
-    // terms of `planFormFingerprint` — so re-running this effect on a language switch would overwrite
-    // the form *and* re-take `openFingerprint.current` from it, discarding whatever the user had typed.
-    // Seeding with the language at open time is the behaviour we want: the values and the baseline are
-    // then taken in the same breath and stay matched, so an untouched form reports nothing dirty on
-    // close even if the language changed in between.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // The dependency list is now complete and `react-hooks/exhaustive-deps` is live on it again. It
+    // used to end in a blanket `eslint-disable-next-line` whose whole purpose was to keep `language`
+    // out — which also switched the rule off for the five values above that genuinely belong in it
+    // (DW-211). `languageAtOpen` is a ref, so the rule correctly ignores it and the capture is stated
+    // at the declaration instead of hidden in a suppression.
   }, [applyPlanFormValues, defaultDueDate, item, mode, open, prefill]);
 
   useEffect(() => {
@@ -1483,10 +1523,10 @@ export default function TripDayPlanDialog({
    * `handleMoveConfirm` closes it directly and never asks.
    *
    * Clearing the target here is what makes that first sentence true on *every* open rather than only
-   * the first per activity: the outer dialog's open effect resets `moveTargetDayId`, but reopening the
-   * picker within one activity does not re-run it. Without this, a day the user picked and then
-   * discarded came back pre-selected with the confirm button live, one click from moving the activity
-   * to a day it had just been taken away from.
+   * the first per activity: the outer dialog is remounted per open, so `moveTargetDayId` starts blank
+   * for a new activity, but reopening the picker within one activity remounts nothing. Without this, a
+   * day the user picked and then discarded came back pre-selected with the confirm button live, one
+   * click from moving the activity to a day it had just been taken away from.
    */
   const closeMovePicker = useCallback(() => {
     if (moving) return;

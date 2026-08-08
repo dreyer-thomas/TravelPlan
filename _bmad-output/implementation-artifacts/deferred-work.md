@@ -19,7 +19,8 @@ status: open
 origin: migrated from legacy ledger ("Deferred from: npm-audit-zero-vuln-gate (2026-07-27)"), 2026-08-01
 location: 12 files, concentrated in `TripDayView.tsx` — also `HeaderMenu.tsx`, `TripAccommodationDialog.tsx`, `TripDayMapFullPage.tsx`, `TripDayPlanDialog.tsx`, `TripDayPrintPage.tsx`, `TripDayTravelSegmentDialog.tsx`, `TripImportDialog.tsx`, `TripOverviewMapFullPage.tsx`, `TripShareDialog.tsx`, `TripTimeline.tsx`, `TripsDashboard.tsx`
 reason: Was 22 sites across 13 files; the 22nd went away with `TripFeedbackPanel.tsx` in Story 5.9. Most are already-guarded async-fetch patterns (`cancelled` flag) that the new rule flags regardless of the guard; a few (e.g. `TripDayPlanDialog.tsx:301`, ~15 setters resetting on dialog open) are genuine reset-on-open anti-patterns needing a `key`-based remount or render-time derivation. Downgraded to `"warn"` in `eslint.config.mjs` scoped to exactly these 12 files (not a blanket downgrade — new code elsewhere still fails at `error`), so it needs its own scoped story, particularly for `TripDayView.tsx` given its size and centrality. Note: a sibling finding, `react-hooks/immutability` at `TripDayView.tsx:682`, was originally grouped with these but turned out to be a real stale-closure bug rather than a false positive and was fixed directly as part of that change instead of deferred.
-status: open
+status: done 2026-08-08
+resolution: resolved by sweep bundle dw-react-hooks-effect-hygiene
 decision: 2026-08-01 Fix only the genuine reset-on-open sites, keep the scoped warn for the guarded fetches — Refactor only the sites where the rule is reporting a real bug: the reset-on-open cluster in `TripDayPlanDialog.tsx` (~15 setters around `:301`) and any sibling dialog with the same shape, using a `key`-based remount or render-time derivation rather than an effect. Leave the already-guarded async-fetch effects (`cancelled` flag) as they are and keep `eslint.config.mjs`'s scoped `"warn"` for the files that still hold them, narrowing the `files:` list to exactly those that remain. Record in the config comment that the remaining warnings are known false positives for a guarded-fetch pattern, so the next reader does not re-derive it.
 decision: 2026-08-01 Fix only the genuine reset-on-open sites, keep the scoped warn for the guarded fetches — Refactor only the sites where the rule is reporting a real bug: the reset-on-open cluster in `TripDayPlanDialog.tsx` (~15 setters around `:301`) and any sibling dialog with the same shape, using a `key`-based remount or render-time derivation rather than an effect. Leave the already-guarded async-fetch effects (`cancelled` flag) as they are and keep `eslint.config.mjs`'s scoped `"warn"` for the files that still hold them, narrowing the `files:` list to exactly those that remain. Record in the config comment that the remaining warnings are known false positives for a guarded-fetch pattern, so the next reader does not re-derive it.
 
@@ -1957,7 +1958,8 @@ source_spec: `spec-6-30-one-decimal-for-a-distance-a-comma-in-the-box.md`
 severity: low
 summary: Both seed effects read `language` and answer the resulting exhaustive-deps warning with a blanket `eslint-disable-next-line`, which switches the rule off for every other reactive value those effects read as well.
 evidence: The suppression is correct today and argued at length in place — adding `language` to the deps is the spec's own Block If, because `reset()` / re-taking `openFingerprint.current` mid-dialog would discard the user's edits — and a review confirmed every other dependency is stable across a language switch (`day`/`item`/`prefill` are `useState` values in `TripDayView.tsx`, `defaultDueDate` memoises on `day?.date`, `applyPlanFormValues` on `editor`). The cost is future: these effects are ~35 and ~100 lines and read `day`/`item`/`mode`/`prefill`/`defaultDueDate`/`applyPlanFormValues` besides, so the next story that adds a reactive value to either seed and forgets the dep gets no warning, seeds from a stale value, and drifts the guard baseline from what is on screen — the silent "✕ discards typing without asking" failure these dialogs' comments exist to prevent. The narrower shape is a ref holding the language captured at open, which needs no suppression and leaves the rule live for everything else; it was not done under a review because render-phase ref mutation in two large dialogs deserves its own change rather than a patch.
-status: open
+status: done 2026-08-08
+resolution: resolved by sweep bundle dw-react-hooks-effect-hygiene
 
 ### DW-212: A language switch with a cost dialog already open leaves the value dot-decimal beside a comma placeholder
 
@@ -2360,4 +2362,49 @@ location: n/a
 source_spec: `spec-deps-security-audit-gate.md`
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260808-140849-451b; this entry preserves the lingering recommendation for a deliberate later review.
+status: open
+
+### DW-264: Switching the UI language while a day dialog is open destroys the dialog and everything typed into it
+
+source_spec: `_bmad-output/implementation-artifacts/spec-react-hooks-effect-hygiene.md`
+origin: deferred from spec-react-hooks-effect-hygiene follow-up review, 2026-08-08
+severity: medium
+location: `travelplan/src/components/features/trips/TripDayView.tsx` — `loadDay` (`:788`, deps `[dayId, resolveApiError, t, tripId]`), the effect that calls it (`:1258`), and the `if (loading) return <Skeleton/>` early return (`:2681`)
+reason: `I18nProvider` rebuilds its context value on every language change (`src/i18n/provider.tsx:23-36`), so `t` is a new function, so `loadDay` is a new callback, so the effect that depends on it re-fires and calls `setLoading(true)`. The early return then replaces the entire screen with the cold-load skeleton — and all four dialogs are rendered *below* it, inside `{detail && day && (…)}`. A user who toggles the language with the activity dialog open loses the dialog, the text they had typed, their staged photos and documents, with no discard prompt: the exact silent-loss failure the `✕` guard exists to prevent, reached by a control that is not a dismissal. Pre-existing and not caused by the keying change — the reset-cluster version of these dialogs was unmounted by the same early return. It is recorded now because this story's I/O matrix has a "language switch mid-edit" row and both dialogs carry ~15 lines of comment plus a `languageAtOpen` ref defending it: that machinery is correct at the component level and is what the Story 6.30 AC7 suites exercise (they render the dialogs standalone), but nothing downstream of this early return can ever observe it. Fix is to stop `loadDay` from depending on `t` (the only use is the error sentence — read it through a ref, or resolve the message at render), or to keep the previous tree up during a refresh instead of dropping to the skeleton; the second also fixes DW-265 and the anchor-detach in DW-125.
+status: open
+
+### DW-265: `TripAccommodationDialog` seeds its form once per mount, but measures dirtiness against the live `day` prop
+
+source_spec: `_bmad-output/implementation-artifacts/spec-react-hooks-effect-hygiene.md`
+origin: deferred from spec-react-hooks-effect-hygiene follow-up review, 2026-08-08
+severity: low
+location: `travelplan/src/components/features/trips/TripAccommodationDialog.tsx` — `useForm({ defaultValues })` (`:437`), the `locationQuery`/`resolvedLocation` lazy initializers (`:410-422`), `openLocationKey` and `stayGuard` (`:1711-1720`)
+reason: The seed effect this story deleted listed `day` in its dependencies and re-`reset()` the form whenever the stay data changed underneath an open dialog. Its replacements — `useForm`'s `defaultValues` and two lazy `useState` initializers — run once per mount and never again, while `openLocationKey` still derives the discard guard's baseline from the live `day` prop on every render. A `day` that changes while the dialog is open therefore moves the baseline without moving the form: an untouched form reads dirty and asks to discard on the way out, and a save writes the pre-refresh values back over the newer ones. Not reachable today, and for a reason worth stating rather than assuming: `TripDayView` only replaces `day` through `loadDay()`, which re-enters the loading skeleton and unmounts the dialog outright (DW-264). So this is latent behind that, and fixing DW-264 by keeping the tree up during a refresh would make it live. The comment at `:400-409` was narrowed in this review to say so rather than claim the two cannot drift. Restoring the old effect is not the fix — it reintroduces the mid-edit stomping this story removed; the shape is either to re-key the instance on the stay's identity when it is genuinely a different stay, or to leave the open dialog on its own snapshot and reconcile at save time. That is a product decision about what a refresh should do to an open form, which is why it is here.
+status: open
+
+### DW-266: `TripImportDialog` still carries the reset-on-open cluster the four trip dialogs shed, and is rendered unkeyed
+
+source_spec: `_bmad-output/implementation-artifacts/spec-react-hooks-effect-hygiene.md`
+origin: deferred from spec-react-hooks-effect-hygiene follow-up review, 2026-08-08
+severity: low
+location: `travelplan/src/components/features/trips/TripImportDialog.tsx:117-127` (seven setters in an `if (!open)` branch), mounted at `travelplan/src/components/features/trips/TripsDashboard.tsx:768`
+reason: The last instance of the pattern in the codebase. Seven states — `serverError`, `serverIssues`, `conflicts`, `conflictTargetTripId`, `file`, `fileName`, `result` — are cleared by hand in the `!open` branch of the CSRF effect, which is the same hand-maintained list that produced three shipped leaks in the dialogs this story converted, and it is one `useOpenInstanceKey` call plus a `key` away from not existing. It is named in `eslint.config.mjs`'s inventory ("the same anti-pattern the four trip dialogs just shed, and the same fix would apply") but was left untracked, so the note had nowhere to point and nothing would ever close it. Out of scope for this story by its own Never list, which forbade touching the other eight files in the eslint block. The conversion is mechanical and its risk is the reverse of the others': this dialog stages a `File` that can be 100 MB, so a remount per open is the desirable direction, and the one thing to check is that the two-request conflict protocol (DW-91) does not depend on state surviving a close.
+status: open
+
+### DW-267: Neither `TripDayTravelSegmentDialog` nor `TripShareDialog` has a close-and-reopen test of its own
+
+source_spec: `_bmad-output/implementation-artifacts/spec-react-hooks-effect-hygiene.md`
+origin: deferred from spec-react-hooks-effect-hygiene follow-up review, 2026-08-08
+severity: low
+location: `travelplan/test/travelSegmentDialog.test.tsx`, `travelplan/test/tripShareDialog.test.tsx`
+reason: Both dialogs had their reset-on-open branch deleted outright in this story, so a fresh mount is now the only thing that clears them — and neither suite contains a single `rerender`, an `open={false}`, or a second open. What *is* asserted, as of this review, is that each parent asks for a fresh mount (`tripDayViewLayout.test.tsx` for the segment dialog, `tripTimelineShareInstanceKey.test.tsx` for the share dialog, both proven load-bearing by deleting the key and watching exactly that test fail). What is still unasserted is the other half: that a fresh mount actually produces a clean dialog. For the four dialogs that had shipped leaks the dialog-level halves exist (`tripDayPlanDialog.test.tsx`, `tripAccommodationDialog.test.tsx`); these two never had one because their reset effects were never the subject of a defect. Cheap to add — drive the same `key`-changing rerender those two suites already use, and assert the nine segment field states and the share dialog's collaborator list, banners and invite draft come back empty.
+status: open
+
+### DW-268: `prefillRouteOnOpen` has no caller anywhere in the repo, tests included
+
+source_spec: `_bmad-output/implementation-artifacts/spec-react-hooks-effect-hygiene.md`
+origin: deferred from spec-react-hooks-effect-hygiene follow-up review, 2026-08-08
+severity: low
+location: `travelplan/src/components/features/trips/TripDayTravelSegmentDialog.tsx:90` (prop), `:246` (default `false`), `:530-537` (the auto-prefill effect it gates)
+reason: A `grep` across `src/` and `test/` finds the prop only at its own declaration, its default and the effect that reads it — no production call site, no test. So the auto-import-the-route-on-open effect and the `autoPrefillTriggeredRef` guard beside it are unreachable code with a live dependency on `handleGoogleMapsRoute` and `routeLoading`, and they are dead weight in exactly the file where the reader is trying to work out what runs per open. Pre-existing; surfaced while rewriting the comments above that effect for the mount-per-open change. Deciding between "delete it" and "wire it up" needs whoever knows whether the feature was intended — `TripDayView` never passes it, so if it was meant to fire from the map's route affordance, that wiring was never done.
 status: open
