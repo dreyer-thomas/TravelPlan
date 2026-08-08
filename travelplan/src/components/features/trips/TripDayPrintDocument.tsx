@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef } from "react";
 import type { TripDayPrintPayload, TripDayPrintTimelineEntry } from "@/lib/repositories/tripRepo";
 import { parsePlanText } from "@/lib/trips/planText";
 import { collectTimelineDocuments, getPrintEntryLabel, truncateText } from "@/lib/trips/printDocuments";
+import { transportTypeAllowsDistance } from "@/lib/trips/transportTypes";
 import type { TripDayMapPoint } from "@/lib/trips/dayMapData";
 
 /**
@@ -169,7 +170,13 @@ export default function TripDayPrintDocument({ payload, onReady }: TripDayPrintD
           margin: 16mm 14mm 16mm 14mm;
         }
         @media print {
-          body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          /* White, not the app's cream --color-paper. The print-color-adjust: exact beside it means
+             whatever body is painted actually reaches the paper once the reader turns background graphics
+             on, and DW-198's min-height: auto stopped the shell's white Box from covering the whole first
+             page - without this the cream would show as a band below the last line of a short day. Paint
+             only: no layout effect, so the measured page counts stand. Backticks omitted deliberately -
+             see the note further down; this block is a template literal. */
+          body { background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
           .print-no-break { page-break-inside: avoid; break-inside: avoid; }
           .print-map { page-break-inside: avoid; break-inside: avoid; }
           .print-hide { display: none !important; }
@@ -190,7 +197,16 @@ export default function TripDayPrintDocument({ payload, onReady }: TripDayPrintD
 
              Pinning the block rather than the image is what makes it hold for *any* caption: a long
              entry label wraps to more lines, and with a definite height that eats into the image's share
-             instead of pushing the footer off the page. */
+             instead of pushing the footer off the page.
+
+             Known incomplete, measured later (DW-198's pass): the arithmetic above counts this container's
+             6.3mm bottom padding but not the print shell's own 24px at each end (TripDayPrintPage.tsx's
+             py: 3), which is another 6.3mm. 245 + 11.6 + 12.6 comes to 269.2mm against a 265mm printable
+             box, and a day carrying image documents does still emit one trailing blank sheet after its last
+             document page - printed and counted, not deduced. Dropping the sheet wrapper's 24px 0 padding
+             removes it. Left alone here because it needs its own measurement pass across document counts and
+             image aspect ratios, and because DW-198's fix must not move this fixture's page count.
+             Written without backticks, for the reason the next comment gives. */
           .print-document-page {
             page-break-before: always;
             break-before: page;
@@ -275,6 +291,34 @@ export default function TripDayPrintDocument({ payload, onReady }: TripDayPrintD
                 Navigate in Google Maps ↗
               </a>
             </div>
+            {/* A route drawn past stops that have no coordinates reads as complete, and on paper there is
+                nothing to click to find out otherwise: `buildGoogleMapsUrl` joins the points it *has*, so a
+                museum with no location is silently skipped and the line runs straight past it.
+
+                Scoped to *that* omission and no other. `buildGoogleMapsUrl` also samples the route down past
+                `GOOGLE_MAPS_MAX_STOPS`, which drops placed stops as well - a different failure with a much
+                milder consequence, since a dropped intermediate stop still sits between two kept ones and the
+                drawn line runs through its corridor rather than shortcutting past it. Folding both into one
+                count would put two unlike things behind one number; the sampling gap is tracked separately.
+
+                The wording names the route rather than the sheet: nothing is "shown" on a printed page that
+                carries a URL and no map, so a reader holding the paper needs to be told what the count is
+                about. A count, not a list: the day view already names each offending stop on screen
+                (`TripDayMapPanel.tsx:156-170` - a warning Chip and the item label, no control on the row
+                itself), and repeating those names here would be a second list nobody can act on from a
+                sheet of paper while holding no more information. Rendered inside the map block on purpose, so
+                the note cannot appear without the link it is qualifying - with fewer than two points there
+                is no route drawn and therefore nothing to be misread. */}
+            {map.missingLocations.length > 0 && (
+              <div
+                data-testid="print-map-missing"
+                style={{ fontSize: "10px", color: "#888", marginTop: "2px" }}
+              >
+                {map.missingLocations.length === 1
+                  ? "Route omits 1 stop with no saved location"
+                  : `Route omits ${map.missingLocations.length} stops with no saved location`}
+              </div>
+            )}
           </div>
         )}
 
@@ -302,7 +346,22 @@ export default function TripDayPrintDocument({ payload, onReady }: TripDayPrintD
               const seg = entry.segment;
               const transport = TRANSPORT_LABELS[seg.transportType] ?? seg.transportType;
               const duration = formatDuration(seg.durationMinutes);
-              const distance = seg.distanceKm != null && seg.distanceKm > 0 ? `${seg.distanceKm} km` : null;
+              // Ship and flight cannot carry a distance (Story 6.16 / AC6) but an imported backup can still
+              // restore one — tripImportSchemas.ts does not enforce the coupling. Gate on the shared rule so
+              // this sheet and the day view agree about *which modes* may show a distance at all, which is
+              // where they used to disagree: the same flight row read `Flight · 5h` on screen and
+              // `Flight · 5h · 800 km` on paper.
+              //
+              // Agreement on the mode axis only. The `!= null && > 0` half is untouched and the day view has
+              // no equivalent (`TripDayView.tsx` gates on `typeof distanceKm === "number"`), so a legacy car
+              // row storing `0` still prints "0 km" on screen and nothing here. The two guards answer
+              // different questions - "may this mode have a distance at all" and "is the distance it has
+              // worth printing" - and only the first is shared today; the second divergence is tracked
+              // separately rather than papered over by loosening this one.
+              const distance =
+                transportTypeAllowsDistance(seg.transportType) && seg.distanceKm != null && seg.distanceKm > 0
+                  ? `${seg.distanceKm} km`
+                  : null;
               const label = [transport, duration, distance].filter(Boolean).join(" · ");
               const fromName = getEntryDisplayName(timeline[index - 1]);
               const toName = getEntryDisplayName(timeline[index + 1]);

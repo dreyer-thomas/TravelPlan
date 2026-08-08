@@ -200,6 +200,88 @@ describe("TripDayPrintDocument", () => {
     expect(screen.getByText("Sightseeing")).toBeInTheDocument();
   });
 
+  /**
+   * DW-1. `buildGoogleMapsUrl` joins only the points it has, so a stop with no coordinates is silently
+   * skipped and the drawn route runs straight past it. On screen the day view lists those stops by name and
+   * the reader can go fix them; on paper the sheet is the end of the line, so the count is the only thing
+   * that stops the printed route from reading as the whole day.
+   *
+   * The copy names the *route*, not the sheet, and these assertions pin that: a printed page carrying a URL
+   * and no map "shows" nothing at all, so "not shown" alone would leave the reader guessing what the number
+   * refers to. Scoped to stops with no coordinates - `buildGoogleMapsUrl`'s own 9-stop sampling drops placed
+   * stops too, which is a separate and milder omission and deliberately not folded into this count.
+   */
+  describe("missing-location note", () => {
+    const twoPoints = [
+      { id: "stay-1", label: "Hotel", kind: "currentStay" as const, position: [48.1, 11.5] as [number, number], order: 0 },
+      { id: "item-1", label: "Museum", kind: "planItem" as const, position: [48.2, 11.6] as [number, number], order: 1 },
+    ];
+
+    it("renders no missing-location note when every stop has coordinates", () => {
+      const payload = basePayload({ map: { points: twoPoints, missingLocations: [] } });
+
+      render(<TripDayPrintDocument payload={payload} />);
+
+      expect(screen.getByTestId("print-map-section")).toBeInTheDocument();
+      expect(screen.queryByTestId("print-map-missing")).not.toBeInTheDocument();
+    });
+
+    it("states how many stops the drawn route skipped, pluralised, beside the navigation link", () => {
+      const payload = basePayload({
+        map: {
+          points: twoPoints,
+          missingLocations: [
+            { id: "item-2", label: "Market", kind: "planItem", location: null },
+            { id: "item-3", label: "Viewpoint", kind: "planItem", location: null },
+          ],
+        },
+      });
+
+      render(<TripDayPrintDocument payload={payload} />);
+
+      const note = screen.getByTestId("print-map-missing");
+      expect(note).toHaveTextContent("Route omits 2 stops with no saved location");
+      // Inside the map block, not loose on the sheet: the note only means anything next to the link whose
+      // route it is qualifying.
+      expect(screen.getByTestId("print-map-section")).toContainElement(note);
+    });
+
+    it("uses the singular when exactly one stop is missing coordinates", () => {
+      const payload = basePayload({
+        map: {
+          points: twoPoints,
+          missingLocations: [{ id: "item-2", label: "Market", kind: "planItem", location: null }],
+        },
+      });
+
+      render(<TripDayPrintDocument payload={payload} />);
+
+      expect(screen.getByTestId("print-map-missing")).toHaveTextContent(
+        "Route omits 1 stop with no saved location",
+      );
+    });
+
+    it("renders no note when there is no route to qualify, even with stops missing coordinates", () => {
+      // One point draws no line - `buildGoogleMapsUrl` returns null below two - so the whole map section is
+      // absent and nothing on the sheet claims a route at all. A note here would be a warning about a
+      // drawing that was never made.
+      const payload = basePayload({
+        map: {
+          points: [twoPoints[0]],
+          missingLocations: [
+            { id: "item-2", label: "Market", kind: "planItem", location: null },
+            { id: "item-3", label: "Viewpoint", kind: "planItem", location: null },
+          ],
+        },
+      });
+
+      render(<TripDayPrintDocument payload={payload} />);
+
+      expect(screen.queryByTestId("print-map-section")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("print-map-missing")).not.toBeInTheDocument();
+    });
+  });
+
   it("renders travel segment transport type and duration compactly", () => {
     const payload = basePayload({
       timeline: [
@@ -215,7 +297,9 @@ describe("TripDayPrintDocument", () => {
     const allEntries = screen.getAllByTestId("print-timeline-entry");
     const segEntry = allEntries.find((el) => el.getAttribute("data-kind") === "travelSegment");
     expect(segEntry).toBeInTheDocument();
-    expect(screen.getByText(/45/)).toBeInTheDocument();
+    // The whole composed label, not just `/45/`: car is the one mode a distance is expected on, and a
+    // duration-only assertion would still pass if `transportTypeAllowsDistance` ever stopped allowing it.
+    expect(segEntry).toHaveTextContent("Car · 45m · 30 km");
   });
 
   it("shows from and to location names derived from adjacent timeline entries", () => {
@@ -304,12 +388,23 @@ describe("TripDayPrintDocument", () => {
     expect(screen.queryByText(/0 km/)).not.toBeInTheDocument();
   });
 
-  it("shows distance for non-car transport types when distanceKm is populated", () => {
+  /**
+   * DW-109. `transportTypeAllowsDistance` is the single Story 6.16 / AC6 rule - car, walking, cycling -
+   * and the day view already labels its rows through it. The sheet used to print any stored `distanceKm`
+   * regardless of mode, so the same flight row read `Flight · 5h` on screen and `Flight · 5h · 800 km` on
+   * paper. The stored value is not hypothetical: `tripImportSchemas.ts` does not enforce the coupling, so
+   * an imported backup can restore a distance on a mode the form would never have accepted one for.
+   *
+   * These cases assert the *rendered label*, not the rule itself - the rule's own boundary is pinned by
+   * `travelSegmentSchemas.test.ts` ("still rejects a distance on ship and flight"). What is pinned here is
+   * that this sheet asks it at all.
+   */
+  it("shows distance for cycling, a mode the shared rule allows to carry one", () => {
     const payload = basePayload({
       timeline: [
         {
           kind: "travelSegment",
-          segment: { ...makeSegment(), transportType: "flight", durationMinutes: 90, distanceKm: 450 },
+          segment: { ...makeSegment(), transportType: "cycling", durationMinutes: 90, distanceKm: 450 },
         },
       ],
     });
@@ -317,6 +412,93 @@ describe("TripDayPrintDocument", () => {
     render(<TripDayPrintDocument payload={payload} />);
 
     expect(screen.getByText(/450 km/)).toBeInTheDocument();
+  });
+
+  it("shows distance for a short walking leg", () => {
+    const payload = basePayload({
+      timeline: [
+        {
+          kind: "travelSegment",
+          segment: { ...makeSegment(), transportType: "walking", durationMinutes: 25, distanceKm: 2 },
+        },
+      ],
+    });
+
+    render(<TripDayPrintDocument payload={payload} />);
+
+    expect(screen.getByText(/Walking · 25m · 2 km/)).toBeInTheDocument();
+  });
+
+  it("hides an imported flight's distance, which the day view already refuses to show", () => {
+    const payload = basePayload({
+      timeline: [
+        {
+          kind: "travelSegment",
+          segment: { ...makeSegment(), transportType: "flight", durationMinutes: 300, distanceKm: 800 },
+        },
+      ],
+    });
+
+    render(<TripDayPrintDocument payload={payload} />);
+
+    // Asserting on the composed label rather than on a bare /km/ query: the sheet's other copy is free to
+    // grow a "km" of its own, and `queryBy*` throws on more than one match rather than failing an
+    // assertion. `toHaveTextContent` on the segment's own label says exactly what is meant - this row
+    // carries a mode and a duration and nothing else.
+    const segment = screen
+      .getAllByTestId("print-timeline-entry")
+      .find((entry) => entry.dataset.kind === "travelSegment");
+    expect(segment).toHaveTextContent("Flight · 5h");
+    expect(segment).not.toHaveTextContent("800 km");
+    expect(segment).not.toHaveTextContent("km");
+  });
+
+  it("hides a ship leg's distance for the same reason", () => {
+    const payload = basePayload({
+      timeline: [
+        {
+          kind: "travelSegment",
+          segment: { ...makeSegment(), transportType: "ship", durationMinutes: 180, distanceKm: 120 },
+        },
+      ],
+    });
+
+    render(<TripDayPrintDocument payload={payload} />);
+
+    expect(screen.getByText(/Ship · 3h/)).toBeInTheDocument();
+    expect(screen.queryByText(/120 km/)).not.toBeInTheDocument();
+  });
+
+  /**
+   * DW-2. The two labellers on this sheet answer different questions and must keep disagreeing here.
+   *
+   * `getEntryDisplayName` (route label) takes the plan item's *title* and nothing else, so an untitled item
+   * yields null and the `from → to` line is dropped entirely rather than printed as `— → —`, which would
+   * claim a journey between two unnamed nowheres. `getPrintEntryLabel` (card and document page) falls back
+   * past the empty body text to a positional `Plan item N`, because a card with no heading at all is worse
+   * than a numbered one and a loose document page needs something to be matched back to.
+   *
+   * Nothing pins that today, so a well-meant "share the labeller" refactor would silently start printing
+   * `Plan item 1 → Plan item 3` as if those were places.
+   */
+  it("drops the route label between two untitled empty plan items while their cards keep the positional fallback", () => {
+    const payload = basePayload({
+      timeline: [
+        { kind: "planItem", item: makeItem({ id: "item-a", title: null, contentJson: '{"type":"doc","content":[]}' }) },
+        { kind: "travelSegment", segment: makeSegment() },
+        { kind: "planItem", item: makeItem({ id: "item-b", title: null, contentJson: '{"type":"doc","content":[]}' }) },
+      ],
+    });
+
+    render(<TripDayPrintDocument payload={payload} />);
+
+    expect(screen.queryByTestId("print-segment-route")).not.toBeInTheDocument();
+
+    const cards = screen.getAllByTestId("print-timeline-entry").filter((entry) => entry.dataset.kind === "planItem");
+    expect(cards).toHaveLength(2);
+    // Timeline indices 0 and 2, so "Plan item 1" and "Plan item 3" - the segment is counted.
+    expect(cards[0]).toHaveTextContent("Plan item 1");
+    expect(cards[1]).toHaveTextContent("Plan item 3");
   });
 
   /**

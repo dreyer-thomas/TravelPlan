@@ -5,14 +5,16 @@
 origin: migrated from legacy ledger ("Deferred from: fix-68-print-navigation (2026-05-03)"), 2026-08-01
 location: `TripDayPrintDocument.tsx`
 reason: Items without coordinates are simply omitted from the generated route, so the Google Maps link draws a direct line past them with no indication anything is missing. `map.missingLocations` is already available in the payload but is not surfaced near the link — consider adding a "(X locations not shown)" note when `missingLocations.length > 0`.
-status: open
+status: done 2026-08-09
+resolution: resolved by sweep bundle dw-print-day-sheet-fixes
 
 ### DW-2: Test coverage gap: travel segment route label suppression when adjacent planItem has no title and empty content
 
 origin: migrated from legacy ledger ("Deferred from: fix-68-print-navigation (2026-05-03)"), 2026-08-01
 location: `tripDayPrintDocument.test.tsx`
 reason: `getEntryDisplayName` correctly returns null for a plan item that has no title and empty content, which suppresses the travel-segment route label, but this exact case has no test pinning the behaviour.
-status: open
+status: done 2026-08-09
+resolution: resolved by sweep bundle dw-print-day-sheet-fixes
 
 ### DW-3: 21 `react-hooks/set-state-in-effect` sites newly enforced as errors by the `eslint-config-next` 16.2.x bump
 
@@ -898,7 +900,8 @@ location: `travelplan/src/components/features/trips/TripDayPrintDocument.tsx:180
 severity: medium
 summary: The same stored row renders "Flight · 5h" in the day view and "Flight · 5h · 800 km" on the printed day sheet, because the print document shows any non-null `distanceKm` regardless of mode while the day view now gates on a mode list.
 evidence: Reachable because `tripImportSchemas.ts:184-207` deliberately does *not* enforce the transport/distance coupling on import, so a backup carrying `{transportType: "flight", distanceKm: 800}` restores intact. The divergence predates story 6-16 — the day view previously gated on `=== "car"` and the print doc already did not gate at all — but 6-16 is what made the day view's rule explicit and list-driven (`TRANSPORT_TYPES_WITH_DISTANCE`) without bringing the fourth surface along. Natural fix is the same one DW-112's sibling finding wants: one shared mode list all four surfaces import, rather than a fourth copy. Left out of 6-16's patch set because the print document is not otherwise touched by the story and the mismatch is not new.
-status: open
+status: done 2026-08-09
+resolution: resolved by sweep bundle dw-print-day-sheet-fixes
 
 ### DW-110: A prefilled duration of 24 h or more is written by the form and then rejected by it
 
@@ -1833,7 +1836,8 @@ location: `travelplan/src/components/features/trips/TripDayPrintDocument.tsx` �
 severity: low
 summary: A day whose documents are absent prints as **two** pages with the second one empty. The itinerary and footer overflow the A4 printable box by a small amount, the browser opens a second sheet for the remainder, and nothing lands on it. On a real printer that is a wasted sheet on every day plan printed today.
 evidence: Not Story 9.2's, and proven rather than argued: a documents-free day was printed through `Page.printToPDF` with `preferCSSPageSize` on two production builds served side by side — HEAD and a worktree at baseline `7e78c3e` — against the same database. Both produced **2 pages, both 61,420 bytes, with identical body text and an empty page 2**, so the printed output for a documents-free day is byte-identical across the change and AC3 holds literally. Worth recording because Story 9.2's AC1 forbids a trailing blank page after its own document pages and that half *is* clean: a day with four image documents printed 5 pages with content on the last, so the pre-existing blank page is the only one left and it belongs to the base layout. The likely fix is trimming the wrapper's vertical padding or giving the footer `page-break-before: avoid`, verified by measuring page count rather than by reading the CSS — the same method that found this.
-status: open
+status: done 2026-08-09
+resolution: resolved by sweep bundle dw-print-day-sheet-fixes
 
 ### DW-199: Two stories identified the empty-dashboard-for-collaborators gap and neither opened a ledger entry, so a real user found it instead
 
@@ -2473,4 +2477,49 @@ origin: deferred from spec-lint-typecheck-and-test-helpers third review pass, 20
 severity: low
 location: `travelplan/scripts/audit-check.d.mts` (all 7 declared exports), against `travelplan/scripts/audit-check.mjs` and `travelplan/tsconfig.json` (`checkJs` off)
 reason: The declaration file wins module resolution over the `.mjs`, and `checkJs` is off, so nothing compares the two. Be precise about the size of the hole, because the obvious framing overstates it: a *renamed or deleted* export is caught, because `auditCheckScript.test.ts` imports these names from the `.mjs` at runtime and ESM throws `SyntaxError: The requested module does not provide an export named …`, failing the suite. What is not caught is signature drift — an option renamed inside a bag, a return field's type changed, an argument becoming required. The declaration keeps asserting the old shape, fixtures keep compiling against it, and the tests keep passing while type-checking a contract the script no longer has. This matters more here than it would elsewhere because the file it describes is the security gate whose stated design goal is that it "must not be able to fail because of its own supply chain", and the declaration was added precisely so the gate's runtime code could stay untouched. Not urgent: the script is stable and its tests exercise the real functions, so drift shows up as a behavioural failure eventually. The cheap mitigation is a runtime check in `auditCheckScript.test.ts` asserting arity and the shape of one returned finding against the declared types, which would turn silent drift into a named failure without importing the declaration into the runtime path.
+status: open
+
+### DW-276: The site navigation header prints on page 1 of every day sheet, and it is also what caused DW-198's trailing blank page
+
+source_spec: `_bmad-output/implementation-artifacts/spec-print-day-sheet-fixes.md`
+origin: deferred from spec-print-day-sheet-fixes second review pass, 2026-08-09
+severity: medium
+location: `travelplan/src/app/(routes)/layout.tsx:7` and `travelplan/src/components/AppHeader.tsx:53-73`, against `travelplan/src/components/features/trips/TripDayPrintDocument.tsx:176`
+reason: The print route has no layout of its own — `find src/app/(routes)/trips -name layout.tsx` returns nothing — so it inherits `RoutesLayout`, which renders `AppHeader` unconditionally. `AppHeader` carries no `print-hide` class and no `@media print` rule; the sheet's own `.print-hide { display: none !important }` is applied only to the back/print buttons in `TripDayPrintPage.tsx:55`. Every printed day sheet therefore opens with the brand bar and the header menu above the itinerary. The same element is the mechanism behind DW-198: `position="static"` puts its 72px Toolbar (`minHeight: 72` plus a 1px border) in normal flow above a Box whose `min-height: 100vh` resolves to one whole page in paginated media, so one page + 73px overflowed onto a blank second sheet. DW-198 was closed by neutralising the Box (`@media print { minHeight: auto }`), which is correct and measured, but it treats the symptom: hiding the header for print would remove the nav furniture *and* the height that caused the overflow. Pre-existing on both counts and out of scope for that spec, which was scoped to the print document and the print route shell. The work is a `print-hide` class (or an `@media print` display rule) on `AppHeader`, verified the same way DW-198 was — by measuring produced page count with `Page.printToPDF({ preferCSSPageSize: true })`, not by reading the CSS — because removing 73px of flow interacts with the `min-height: auto` fix that is now in place.
+status: open
+
+### DW-277: The Google Maps route silently drops *placed* stops above the 9-stop cap, so the new missing-location note can print a number smaller than the real omission
+
+source_spec: `_bmad-output/implementation-artifacts/spec-print-day-sheet-fixes.md`
+origin: deferred from spec-print-day-sheet-fixes second review pass, 2026-08-09
+severity: medium
+location: `travelplan/src/components/features/trips/TripDayPrintDocument.tsx` — `buildGoogleMapsUrl` (`GOOGLE_MAPS_MAX_STOPS`, the `step = Math.ceil(mid.length / (MAX - 2))` sampling), against the `print-map-missing` note
+reason: `buildGoogleMapsUrl` samples intermediate waypoints away once the ordered points exceed `GOOGLE_MAPS_MAX_STOPS` (9), dropping stops that *do* have coordinates. DW-1's note counts only `map.missingLocations`, so a day with 12 located stops and 2 unplaced ones prints "Route omits 2 stops with no saved location" while the drawn route actually omits roughly five. That is a definite factual claim on paper, wrong in exactly the situation the note exists to protect against, and the reader has nothing to click to find out. Compounding it, the sampling step overshoots: `Math.ceil(mid.length / (MAX - 2))` on 10 intermediate points yields 6 kept stops rather than the 9 the cap allows, so the route is thinned more than the cap requires. Both behaviours pre-date the DW-1 note, and DW-1's ledger text scoped the note to `missingLocations` explicitly, which is why the note was not widened to cover them — folding two unlike omissions behind one count would have made the number less meaningful, not more. The work is to decide what the sheet should say when the route is abbreviated (a second clause, or a widened count with different wording) and to fix the step arithmetic so the cap is used fully.
+status: open
+
+### DW-278: A day carrying image documents still emits a trailing blank sheet, and the one-line fix is measured and in hand
+
+source_spec: `_bmad-output/implementation-artifacts/spec-print-day-sheet-fixes.md`
+origin: deferred from spec-print-day-sheet-fixes second review pass, 2026-08-09
+severity: medium
+location: `travelplan/src/components/features/trips/TripDayPrintDocument.tsx` — the sheet wrapper's `padding: "24px 0"` and `.print-document-page`'s measured `height: 245mm`
+reason: Measured, not argued: a fixture with 3 image documents printed 5 pages with page 5 carrying zero text and zero drawing operators, identically before and after the DW-198 change — candidate 3 (`min-height: auto` on the print route shell) does not move it. Dropping the sheet wrapper's `padding: "24px 0"` takes the same fixture 5 → 4. It was left unapplied because DW-198's gate was "do not fix more than one candidate unless each removal independently changes the page count", and the padding moves a *different* fixture than the one DW-198 was about; applying both in one pass would have made neither measurement attributable. This is Story 9.2 AC1's territory (no trailing blank page after the document pages) and it interacts with the measured `245mm` constant, whose comment accounts for the container's own 6.3mm bottom padding but not the print shell's `py: 3` — 245 + 11.6 + 12.6 = 269.2mm against a 265mm printable box. Fixing it needs its own measurement pass across document counts and image aspect ratios rather than a padding edit taken on the arithmetic alone, which is why it is recorded rather than folded in.
+status: open
+
+### DW-279: An untitled plan item with body text names itself on its card but reads as `—` on the adjacent route line
+
+source_spec: `_bmad-output/implementation-artifacts/spec-print-day-sheet-fixes.md`
+origin: deferred from spec-print-day-sheet-fixes second review pass, 2026-08-09
+severity: low
+location: `travelplan/src/components/features/trips/TripDayPrintDocument.tsx` — `getEntryDisplayName`, against `getPrintEntryLabel` in `travelplan/src/lib/trips/printDocuments.ts:59-66`
+reason: `getEntryDisplayName` reads the plan item's *title* only (`entry.item.title?.trim() || null`), while `getPrintEntryLabel` falls through the title to the parsed body text and only then to the positional `Plan item N`. For an item with `title: null` and `contentJson` holding "Visit the market", the card prints "Visit the market" and the travel-segment line one row away prints `— → Hotel` — the sheet names the stop and then claims not to know it, a few millimetres apart. DW-2's new test pins the *empty*-content case, where both labellers legitimately have nothing and dropping the route line is right; the divergence-without-cause case is the one left unexercised. Pre-existing and not touched by that spec, which was explicitly the print surface for DW-1/DW-109/DW-198 plus the one missing test. The work is to decide whether the route line should fall back to body text like the card does (probably yes, truncated) or stay title-only, and to pin whichever is chosen — the three live combinations of `fromName`/`toName` currently have one asserted.
+status: open
+
+### DW-280: Day view and printed sheet still disagree about a zero-valued `distanceKm`
+
+source_spec: `_bmad-output/implementation-artifacts/spec-print-day-sheet-fixes.md`
+origin: deferred from spec-print-day-sheet-fixes second review pass, 2026-08-09
+severity: low
+location: `travelplan/src/components/features/trips/TripDayView.tsx:1718` against `travelplan/src/components/features/trips/TripDayPrintDocument.tsx` (the travel-segment distance gate)
+reason: DW-109 made the two surfaces agree about *which transport modes* may carry a distance, by putting both behind `transportTypeAllowsDistance`. It did not touch the value axis, where they still differ: the day view gates on `typeof distanceKm === "number"` with no magnitude check and would render "0 km", while the sheet keeps `!= null && > 0` and renders nothing. The same stored row therefore reads differently on screen and on paper for a zero-distance car leg. Not reachable through either writer today — `travelSegmentSchemas.ts:32` and `tripImportSchemas.ts:295` both require `.positive()` — so this is legacy rows or direct database writes only, which is why the severity is low. It was out of scope for the DW-109 pass twice over: that spec forbade touching the day view, and the sheet's `> 0` behaviour is pinned by the pre-existing test "does not render '0 km' for zero-distance car segments". The work is to pick one rule (almost certainly the sheet's) and move the day view onto it, updating whatever pins the day view's current behaviour.
 status: open
