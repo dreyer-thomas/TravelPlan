@@ -1259,6 +1259,89 @@ describe("TripDayTravelSegmentDialog", () => {
     vi.unstubAllGlobals();
   });
 
+  /**
+   * DW-114. The staticRouteHelper ternary used to test `mapsLink` before transport routability, so
+   * switching to Ship or Flight with an unplaced neighbour still rendered the "add a location" advice
+   * - correct for a routable mode, meaningless for one that never imports a route at all. Both
+   * neighbours here are unplaced (`baseProps`, no `placedItems`), which is the state that used to
+   * trip this. Both languages, matching this file's convention for helper-text assertions.
+   */
+  it.each([
+    ["Ship", "en", "Automatic route import covers car, walking and cycling. Ship and flight are entered manually.", "Add a location to both adjacent items."],
+    ["Flight", "en", "Automatic route import covers car, walking and cycling. Ship and flight are entered manually.", "Add a location to both adjacent items."],
+    ["Schiff", "de", "Der automatische Routenimport deckt Auto, zu Fuß und Fahrrad ab. Schiff und Flug trägst du manuell ein.", "Füge beiden Nachbareinträgen einen Ort hinzu."],
+    ["Flug", "de", "Der automatische Routenimport deckt Auto, zu Fuß und Fahrrad ab. Schiff und Flug trägst du manuell ein.", "Füge beiden Nachbareinträgen einen Ort hinzu."],
+  ] as const)(
+    "shows the manual-mode helper, not the unavailable one, for %s with an unplaced neighbour (%s)",
+    async (label, language, manualHelper, unavailableHelper) => {
+      stubCsrfOnlyFetch();
+
+      render(
+        <I18nProvider initialLanguage={language}>
+          <TripDayTravelSegmentDialog {...baseProps} />
+        </I18nProvider>,
+      );
+
+      await openTransportMenu();
+      fireEvent.click(await screen.findByRole("option", { name: label }));
+
+      await waitFor(() => {
+        expect(screen.getByText(manualHelper)).toBeInTheDocument();
+      });
+      expect(screen.queryByText(unavailableHelper)).not.toBeInTheDocument();
+
+      vi.unstubAllGlobals();
+    },
+  );
+
+  /**
+   * DW-115. `staticRouteHelper` was unconditionally `null` in edit mode, even though a neighbour can
+   * lose its location after the segment was created - the one case where the unavailable-locations
+   * helper is still actionable in the edit dialog, which otherwise gives no explanation for a
+   * disabled "Plan" button. `:1117-1147` already pins the placed-neighbours edit case staying silent;
+   * this pins the case that motivates the fix - only the destination has lost its location - staying
+   * silent no longer. Covers all three routable transports, since `isRoutableTransportType` treats
+   * them identically, and both languages, matching this file's convention for helper-text assertions.
+   */
+  it.each([
+    ["car", "en", "Add a location to both adjacent items."],
+    ["walking", "en", "Add a location to both adjacent items."],
+    ["cycling", "en", "Add a location to both adjacent items."],
+    ["car", "de", "Füge beiden Nachbareinträgen einen Ort hinzu."],
+  ] as const)(
+    "shows the unavailable-locations helper when editing a %s segment whose destination has lost its location (%s)",
+    async (transportType, language, unavailableHelper) => {
+      stubCsrfOnlyFetch();
+
+      render(
+        <I18nProvider initialLanguage={language}>
+          <TripDayTravelSegmentDialog
+            {...baseProps}
+            fromItem={placedItems(baseProps).fromItem}
+            segment={{
+              id: "segment-1",
+              fromItemType: "dayPlanItem",
+              fromItemId: "item-1",
+              toItemType: "accommodation",
+              toItemId: "stay-1",
+              transportType,
+              durationMinutes: 95,
+              distanceKm: 320.5,
+              linkUrl: "https://example.com/old-link",
+            }}
+          />
+        </I18nProvider>,
+      );
+
+      expect(await screen.findByText(unavailableHelper)).toBeInTheDocument();
+      // The scenario this fix exists for: the "Plan" button is disabled because `toItem` still has no
+      // location, and until this fix nothing on screen said why.
+      expect(screen.getByRole("button", { name: "Plan" })).toBeDisabled();
+
+      vi.unstubAllGlobals();
+    },
+  );
+
   // --- Story 6.18: one way to enter a time -------------------------------------------------------
 
   /**

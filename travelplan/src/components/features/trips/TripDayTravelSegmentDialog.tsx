@@ -606,13 +606,21 @@ export default function TripDayTravelSegmentDialog({
   /**
    * The standing helper under the form, as opposed to `routeHelper`, which is the Alert a route
    * attempt leaves behind. `null` for the whole common case — see the comment at its render site.
+   *
+   * DW-114/DW-115: routability is tested before `mapsLink`, not after — ship/flight can never import
+   * a route regardless of whether both neighbours have a location, so "add a location" is never the
+   * right advice for them. `isEditing` only gates the non-routable arm: there, `handleGoogleMapsRoute`
+   * (`:465`) sets the identical sentence as a `routeHelper` Alert once "Plan" is pressed, so this arm
+   * stays silent to avoid doubling it up — when `mapsLink` is also absent, "Plan" is disabled and
+   * that Alert can never fire either, which is a known, pre-existing gap (deferred, not part of this
+   * fix). The routable arm has no such Alert to defer to, so it renders in both add and edit mode.
    */
-  const staticRouteHelper = isEditing
-    ? null
+  const staticRouteHelper = !isRoutableTransportType(transportType)
+    ? isEditing
+      ? null
+      : t("trips.travelSegment.googleMapsManualModeHelper")
     : mapsLink
-      ? isRoutableTransportType(transportType)
-        ? null
-        : t("trips.travelSegment.googleMapsManualModeHelper")
+      ? null
       : t("trips.travelSegment.googleMapsUnavailableHelper");
 
   /**
