@@ -498,18 +498,33 @@ export default function TripDayTravelSegmentDialog({
         return;
       }
 
-      const durationSeconds = typeof route.durationSeconds === "number" && route.durationSeconds > 0 ? route.durationSeconds : null;
-      const distanceMeters = typeof route.distanceMeters === "number" && route.distanceMeters > 0 ? route.distanceMeters : null;
+      // `dayRouteService.ts` guarantees non-negative values here, so no `> 0` floor is needed.
+      const durationSeconds = typeof route.durationSeconds === "number" ? route.durationSeconds : null;
+      const distanceMeters = typeof route.distanceMeters === "number" ? route.distanceMeters : null;
       const hasDuration = durationSeconds !== null;
       const hasDistance = distanceMeters !== null;
-      if (!hasDuration || !hasDistance) {
+
+      // A `0` reaching here (whether alone or alongside the other field) is a real but degenerate
+      // OSRM answer - both requested points resolved to the same graph node. There is nothing worth
+      // importing from it: this dialog never accepts a zero duration or distance (see `validate`
+      // below), so a zero reads the same as no route at all rather than risk silently prefilling a
+      // value the user cannot save.
+      if ((hasDuration && durationSeconds === 0) || (hasDistance && distanceMeters === 0)) {
+        setRouteHelper(t("trips.travelSegment.googleMapsNoRouteForMode"));
+        return;
+      }
+      if (!hasDuration && !hasDistance) {
         setRouteHelper(t("trips.travelSegment.googleMapsFallbackActive"));
         return;
       }
 
       const routeLink = buildGoogleMapsRouteLink(fromItem, toItem, route.polyline, transportType) ?? modeAwareMapsLink;
-      setDurationInput(splitMinutesToDuration(Math.max(1, Math.round(durationSeconds / 60))));
-      setDistanceKm(formatDistanceKmInput(distanceMeters));
+      if (hasDuration) {
+        setDurationInput(splitMinutesToDuration(Math.max(1, Math.round(durationSeconds / 60))));
+      }
+      if (hasDistance) {
+        setDistanceKm(formatDistanceKmInput(distanceMeters));
+      }
       setLinkUrl(routeLink);
       seededLinkRef.current = routeLink;
       // These three values belong to `transportType` and to no other mode - see

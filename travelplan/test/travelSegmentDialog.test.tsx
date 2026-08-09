@@ -324,7 +324,12 @@ describe("TripDayTravelSegmentDialog", () => {
     vi.unstubAllGlobals();
   });
 
-  it("keeps manual values when route lookup returns only partial route details", async () => {
+  /**
+   * DW-116: a route with a valid duration but no distance used to discard the duration too and
+   * report the same generic failure as a total loss. It now fills in the field that did arrive and
+   * leaves the other one exactly as the user had it.
+   */
+  it("fills in the duration a partial route provides and keeps the manual distance", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/api/auth/csrf")) {
@@ -378,11 +383,122 @@ describe("TripDayTravelSegmentDialog", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText(ROUTE_IMPORT_FAILED),
+        screen.getByText("Route details were prefilled from Maps."),
       ).toBeInTheDocument();
     });
-    expectDuration("1", "35");
+    expect(screen.queryByText(ROUTE_IMPORT_FAILED)).not.toBeInTheDocument();
+    // 8100s = 135min = 2h15m, filled in from the response.
+    expectDuration("2", "15");
+    // No distance arrived, so the manual value the segment already had is untouched.
     expect(screen.getByDisplayValue("320.5")).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * DW-113 / DW-116: when no routable network exists near either point, OSRM snaps both to the same
+   * distant node and answers a zero-length "success" instead of a no-route error. The service now
+   * rejects that as `routing_no_route` for points that are actually far apart, and a zero/zero success
+   * response that does reach the dialog (a real same-location route) reads the same way rather than as
+   * a successful import of nothing.
+   */
+  it("reports a zero-length route as no route for this mode rather than a successful import", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/auth/csrf")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: { route: { durationSeconds: 0, distanceMeters: 0, polyline: [] } },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayTravelSegmentDialog
+          {...baseProps}
+          fromItem={{ ...baseProps.fromItem, location: { lat: 52.52, lng: 13.405, label: "Berlin" } }}
+          toItem={{ ...baseProps.toItem, location: { lat: 48.137, lng: 11.575, label: "Munich" } }}
+        />
+      </I18nProvider>,
+    );
+
+    const routeAction = await screen.findByRole("button", { name: "Plan" });
+    fireEvent.click(routeAction);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "No route is available for this travel mode between these two places. Enter the duration and distance manually.",
+        ),
+      ).toBeInTheDocument();
+    });
+    expect(screen.queryByText(ROUTE_IMPORT_FAILED)).not.toBeInTheDocument();
+    expect(screen.queryByText("Route details were prefilled from Maps.")).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * DW-113 / DW-116: a lone zero in exactly one field (the sibling field a real, present number) is
+   * the same degenerate same-location OSRM answer as a full zero/zero response - not a partial route
+   * to prefill from. Must route to the no-route-for-mode branch, not the partial-fill branch.
+   */
+  it("reports a lone zero distance with a valid duration as no route for this mode", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/auth/csrf")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: { route: { durationSeconds: 1800, distanceMeters: 0, polyline: [] } },
+          error: null,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayTravelSegmentDialog
+          {...baseProps}
+          fromItem={{ ...baseProps.fromItem, location: { lat: 52.52, lng: 13.405, label: "Berlin" } }}
+          toItem={{ ...baseProps.toItem, location: { lat: 48.137, lng: 11.575, label: "Munich" } }}
+        />
+      </I18nProvider>,
+    );
+
+    const routeAction = await screen.findByRole("button", { name: "Plan" });
+    fireEvent.click(routeAction);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "No route is available for this travel mode between these two places. Enter the duration and distance manually.",
+        ),
+      ).toBeInTheDocument();
+    });
+    expect(screen.queryByText(ROUTE_IMPORT_FAILED)).not.toBeInTheDocument();
+    expect(screen.queryByText("Route details were prefilled from Maps.")).not.toBeInTheDocument();
 
     vi.unstubAllGlobals();
   });

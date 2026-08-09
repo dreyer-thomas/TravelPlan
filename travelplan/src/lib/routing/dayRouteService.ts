@@ -75,6 +75,30 @@ const toOsrmCoordinatePath = (points: RoutingPoint[]) => points.map((point) => `
 
 const isFiniteCoordinate = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
 
+/**
+ * How close two *requested* points have to be for a zero-distance/zero-duration OSRM answer between
+ * them to be treated as a legitimate same-location route rather than a no-route signal. 50m
+ * comfortably covers "two pins in the same building or small plaza" (e.g. a hotel and a restaurant
+ * inside it, independently geocoded and therefore never bit-identical) while still catching a
+ * genuinely distant pair (tens of km apart) by a wide margin.
+ */
+const ZERO_ROUTE_PROXIMITY_METERS = 50;
+const EARTH_RADIUS_METERS = 6371000;
+const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
+
+// Wraps a longitude delta into (-180, 180] so two points a few metres apart on opposite sides of the
+// antimeridian (e.g. Fiji) don't compute as ~40000km apart.
+const wrapLongitudeDelta = (deltaDegrees: number) => ((deltaDegrees % 360) + 540) % 360 - 180;
+
+// Equirectangular approximation: accurate enough at the scale this threshold operates on (tens of
+// metres), far simpler than full haversine, and this codebase has no existing geo-distance helper.
+const metersBetween = (a: RoutingPoint, b: RoutingPoint) => {
+  const meanLat = toRadians((a.lat + b.lat) / 2);
+  const x = toRadians(wrapLongitudeDelta(b.lng - a.lng)) * Math.cos(meanLat);
+  const y = toRadians(b.lat - a.lat);
+  return EARTH_RADIUS_METERS * Math.sqrt(x * x + y * y);
+};
+
 const toPolyline = (coordinates: [number, number][]) =>
   coordinates
     .filter(
@@ -157,10 +181,20 @@ export const getDayRouteFromOsrm = async ({
       throw new DayRouteError("routing_invalid_response", "Invalid routing geometry");
     }
 
+    // When no routable network exists near either point, OSRM snaps both requested coordinates to
+    // the same distant node and answers `code: "Ok"` with `distance: 0, duration: 0` - a real answer,
+    // but the wrong one for points that were not actually requested at (near) the same location.
+    const allPointsNearFirst = points.every(
+      (point) => metersBetween(points[0], point) <= ZERO_ROUTE_PROXIMITY_METERS,
+    );
+    if (!allPointsNearFirst && route.distance === 0 && route.duration === 0) {
+      throw new DayRouteError("routing_no_route", "No route available for this travel mode");
+    }
+
     return {
       polyline,
-      distanceMeters: typeof route.distance === "number" ? route.distance : null,
-      durationSeconds: typeof route.duration === "number" ? route.duration : null,
+      distanceMeters: typeof route.distance === "number" && Number.isFinite(route.distance) && route.distance >= 0 ? route.distance : null,
+      durationSeconds: typeof route.duration === "number" && Number.isFinite(route.duration) && route.duration >= 0 ? route.duration : null,
     };
   } catch (error) {
     if (error instanceof DayRouteError) {

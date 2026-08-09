@@ -336,6 +336,257 @@ describe("dayRouteService", () => {
     ).rejects.toMatchObject(expected);
   });
 
+  // --- DW-113 / DW-116: zero-distance OSRM answers ----------------------------------------------
+
+  /**
+   * When no routable network exists near either point, OSRM snaps both requested coordinates to the
+   * same distant node and answers `code: "Ok"` with `distance: 0, duration: 0`. Between two points
+   * ~150km apart, that is not a real route and must be detected the same way `NoRoute`/`NoSegment`
+   * already are.
+   */
+  it("throws routing_no_route when OSRM answers zero/zero between distant points", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        code: "Ok",
+        routes: [
+          {
+            geometry: {
+              coordinates: [
+                [11.7861, 48.3538],
+                [11.5756, 48.1372],
+              ],
+            },
+            distance: 0,
+            duration: 0,
+          },
+        ],
+      }),
+    })) as unknown as typeof fetch;
+
+    await expect(
+      getDayRouteFromOsrm({
+        // Roughly 150km apart (Munich area to a point south of Salzburg).
+        points: [
+          { lat: 48.3538, lng: 11.7861 },
+          { lat: 47.0, lng: 12.5 },
+        ],
+        fetchImpl: fetchMock,
+      }),
+    ).rejects.toMatchObject({ code: "routing_no_route" });
+  });
+
+  /** A real zero-length route between bit-identical points (e.g. two day items pinned at the same spot) is a legitimate answer. */
+  it("resolves zero/zero between bit-identical points instead of throwing", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        code: "Ok",
+        routes: [
+          {
+            geometry: {
+              coordinates: [
+                [11.7861, 48.3538],
+                [11.7861, 48.3538],
+              ],
+            },
+            distance: 0,
+            duration: 0,
+          },
+        ],
+      }),
+    })) as unknown as typeof fetch;
+
+    const result = await getDayRouteFromOsrm({
+      points: [
+        { lat: 48.3538, lng: 11.7861 },
+        { lat: 48.3538, lng: 11.7861 },
+      ],
+      fetchImpl: fetchMock,
+    });
+
+    expect(result).toMatchObject({ distanceMeters: 0, durationSeconds: 0 });
+  });
+
+  /**
+   * DW-116's motivating case: two day items independently geocoded in the same building (a hotel and
+   * a restaurant inside it) are practically never bit-identical, only nearby. The proximity threshold
+   * exists precisely so this resolves rather than throws.
+   */
+  it("resolves zero/zero between points a few meters apart instead of throwing", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        code: "Ok",
+        routes: [
+          {
+            geometry: {
+              coordinates: [
+                [11.7861, 48.3538],
+                [11.78611, 48.35381],
+              ],
+            },
+            distance: 0,
+            duration: 0,
+          },
+        ],
+      }),
+    })) as unknown as typeof fetch;
+
+    const result = await getDayRouteFromOsrm({
+      points: [
+        { lat: 48.3538, lng: 11.7861 },
+        // ~1.2m away from the first point - same building, not bit-identical.
+        { lat: 48.35381, lng: 11.78611 },
+      ],
+      fetchImpl: fetchMock,
+    });
+
+    expect(result).toMatchObject({ distanceMeters: 0, durationSeconds: 0 });
+  });
+
+  /** A malformed negative upstream value must map to `null`, not flow through as a number. */
+  it.each([
+    ["distance", { distance: -5, duration: 60 }, { distanceMeters: null, durationSeconds: 60 }],
+    ["duration", { distance: 100, duration: -5 }, { distanceMeters: 100, durationSeconds: null }],
+  ] as const)("maps a negative %s to null", async (_field, routeOverrides, expected) => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        code: "Ok",
+        routes: [
+          {
+            geometry: {
+              coordinates: [
+                [11.7861, 48.3538],
+                [11.5756, 48.1372],
+              ],
+            },
+            ...routeOverrides,
+          },
+        ],
+      }),
+    })) as unknown as typeof fetch;
+
+    const result = await getDayRouteFromOsrm({
+      points: [
+        { lat: 48.3538, lng: 11.7861 },
+        { lat: 48.1372, lng: 11.5756 },
+      ],
+      fetchImpl: fetchMock,
+    });
+
+    expect(result).toMatchObject(expected);
+  });
+
+  /** Comfortable margins either side of `ZERO_ROUTE_PROXIMITY_METERS` (50m), not a razor's edge. */
+  it.each([
+    ["resolves", 0.0003, "toMatchObject", { distanceMeters: 0, durationSeconds: 0 }], // ~33m: inside the threshold
+    ["throws", 0.0006, "rejects", { code: "routing_no_route" }], // ~67m: outside the threshold
+  ] as const)("%s just %s the 50m proximity threshold", async (_label, deltaLat, matcher, expected) => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        code: "Ok",
+        routes: [
+          {
+            geometry: {
+              coordinates: [
+                [11.7861, 48.3538],
+                [11.7861, 48.3538 + deltaLat],
+              ],
+            },
+            distance: 0,
+            duration: 0,
+          },
+        ],
+      }),
+    })) as unknown as typeof fetch;
+
+    const promise = getDayRouteFromOsrm({
+      points: [
+        { lat: 48.3538, lng: 11.7861 },
+        { lat: 48.3538 + deltaLat, lng: 11.7861 },
+      ],
+      fetchImpl: fetchMock,
+    });
+
+    if (matcher === "rejects") {
+      await expect(promise).rejects.toMatchObject(expected);
+    } else {
+      await expect(promise).resolves.toMatchObject(expected);
+    }
+  });
+
+  /**
+   * Two points a few metres apart on opposite sides of the antimeridian (e.g. Fiji). A naive
+   * `lng` subtraction sees ~360° apart and wrongly throws; the real distance is a few metres.
+   */
+  it("resolves zero/zero between points that straddle the antimeridian", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        code: "Ok",
+        routes: [
+          {
+            geometry: {
+              coordinates: [
+                [179.9999, 0],
+                [-179.9999, 0],
+              ],
+            },
+            distance: 0,
+            duration: 0,
+          },
+        ],
+      }),
+    })) as unknown as typeof fetch;
+
+    const result = await getDayRouteFromOsrm({
+      points: [
+        { lat: 0, lng: 179.9999 },
+        { lat: 0, lng: -179.9999 },
+      ],
+      fetchImpl: fetchMock,
+    });
+
+    expect(result).toMatchObject({ distanceMeters: 0, durationSeconds: 0 });
+  });
+
+  /** `Infinity` satisfies `typeof === "number"` and `>= 0`; it must still map to `null`. */
+  it.each([
+    ["distance", { distance: Infinity, duration: 60 }, { distanceMeters: null, durationSeconds: 60 }],
+    ["duration", { distance: 100, duration: Infinity }, { distanceMeters: 100, durationSeconds: null }],
+  ] as const)("maps a non-finite %s to null", async (_field, routeOverrides, expected) => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        code: "Ok",
+        routes: [
+          {
+            geometry: {
+              coordinates: [
+                [11.7861, 48.3538],
+                [11.5756, 48.1372],
+              ],
+            },
+            ...routeOverrides,
+          },
+        ],
+      }),
+    })) as unknown as typeof fetch;
+
+    const result = await getDayRouteFromOsrm({
+      points: [
+        { lat: 48.3538, lng: 11.7861 },
+        { lat: 48.1372, lng: 11.5756 },
+      ],
+      fetchImpl: fetchMock,
+    });
+
+    expect(result).toMatchObject(expected);
+  });
+
   it("throws routing_invalid_response for invalid OSRM payload", async () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,
