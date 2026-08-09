@@ -31,7 +31,8 @@ decision: 2026-08-01 Fix only the genuine reset-on-open sites, keep the scoped w
 origin: migrated from legacy ledger ("Deferred from: npm-audit-zero-vuln-gate (2026-07-27)"), 2026-08-01
 location: `travelplan/package.json`
 reason: GHSA-mh99-v99m-4gvg (high, DoS) is required directly by ESLint 9 core (`@eslint/config-array`, `@eslint/eslintrc`) and by `eslint-config-next`'s bundled `eslint-plugin-react`/`-import`/`-jsx-a11y`, and no patched 1.x release of `brace-expansion` exists for this CVE. Three fixes were tried and all failed: ESLint 9 to 10 breaks (bundled `eslint-plugin-react` uses an API ESLint 10 removed), forcing `brace-expansion` to v5 crashes ESLint's glob matcher, and forcing `minimatch` to v9 does not crash but silently changes ignore-pattern matching and surfaces false-positive lint errors. devDependency-only, never ships, and requires attacker-controlled glob input to trigger, so it is unexploitable in this repo; `npm audit --omit=dev` is 0 and this is the sole remaining finding in the full audit. Blocked on Next.js shipping a newer `eslint-config-next` with an ESLint-10-compatible `eslint-plugin-react`.
-status: open
+status: done 2026-08-09
+resolution: already resolved: commit d30735bc9ac69969cb78978837b60c354a920bfd bumped brace-expansion from 1.1.16 to 1.1.18 (travelplan/package-lock.json) alongside adding the audit-allowlist gate infrastructure. `npm audit` and `npm audit --omit=dev` both currently report 'found 0 vulnerabilities' in travelplan/. `npm view brace-expansion@1.1.18` confirms 1.1.18 is a real published 1.x release, contradicting the entry's premise that 'no patched 1.x release of brace-expansion exists for this CVE'.
 
 ### DW-5: No lockfile provenance/signature verification in the security-hardening pass
 
@@ -696,7 +697,8 @@ origin: 2-32-complete-trip-backup-import-with-photos-travel-segments-and-bucket-
 location: `travelplan/src/lib/trips/importPhotos.ts` — `stashTripUploadDir`, `discardStashedTripUploadDir`
 severity: medium
 reason: The stash is `${tripDir}.import-<timestamp>-<random>`, a sibling of the trip's own upload directory and therefore under `public/uploads/trips/`, which Next serves statically with no auth check. `discardStashedTripUploadDir` is deliberately called with `.catch(() => undefined)` — correctly, since the import has already succeeded and a failed cleanup must not be reported as a 500 — and an existing test pins that behaviour. The consequence is that a cleanup failure (held handle, AV scanner, EBUSY) leaves a complete copy of every photo the overwrite replaced permanently readable at a guessable path and referenced by no row. The code comment calls this "untidy, not harmful", which understates it. Fix is to stash outside the public root, but the naive version risks `EXDEV` if the uploads root is its own mount, so it needs a deliberate choice of location plus a sweeper for whatever is left behind.
-status: open
+status: done 2026-08-09
+resolution: already resolved: travelplan/src/lib/trips/uploadPaths.ts:35-83 (getMediaRoot) and travelplan/src/app/uploads/[...path]/route.ts:252-286 - Story 8.3 (commit 3be7c37, 'story 8-3-uploaded-media-behind-the-login') moved the media root outside public/ via MEDIA_STORAGE_ROOT, with a runtime guard at uploadPaths.ts:53-64 that throws if MEDIA_STORAGE_ROOT is ever configured inside public/, and the only read path (src/app/uploads/[...path]/route.ts) now requires requireSession + hasTripReadAccess (route.ts:254, :284) before streaming any byte.
 
 ### DW-88: A create-new import restores a v1 image URL verbatim, cross-linking another trip's — possibly another user's — upload directory
 
@@ -2362,7 +2364,8 @@ source_spec: `_bmad-output/implementation-artifacts/spec-deps-security-audit-gat
 origin: deferred from spec-deps-security-audit-gate follow-up review, 2026-08-08
 location: `travelplan/test/auditCheckScript.test.ts` against `travelplan/scripts/audit-check.mjs`
 reason: `npx tsc --noEmit` exits 1 with ~155 errors across 21 files — a pre-existing repo condition, and nothing in CI runs it, so nothing goes red. About 20 of those errors are in the new test file: the exports come from an untyped `.mjs`, so TypeScript infers `evaluate(...)`'s parameter as `{blocking?: never[]; …}` and every `evaluate(...)` → `formatReport(...)` hand-off and `result.suppressed[0].entry.justification` access is a `TS2345`/`TS2339`. The practical consequence is narrow but pointed: the assertions guarding the security gate are among the ones the type system is not checking, so a shape drift between script and test would only ever be caught at runtime. A small `scripts/audit-check.d.mts` declaring the seven exports would clear all of them. Deferred rather than patched because the tsc baseline is broken repo-wide and unenforced, so fixing one file's share of it is a decision about whether the repo intends to get `tsc` green at all — which is the larger question this entry really raises.
-status: open
+status: done 2026-08-09
+resolution: already resolved: travelplan/scripts/audit-check.d.mts (added in commit bbdd224, its docblock lines 12-18 explicitly say 'recorded as DW-262, which proposes exactly this fix'); running `npx tsc --noEmit` in travelplan/ now exits with 0 errors repo-wide (previously ~155 errors across 21 files per the entry, including ~20 in test/auditCheckScript.test.ts).
 
 ### DW-263: Follow-up review still recommended for dw-deps-security-audit-gate after the damping cap was spent
 origin: review-budget-followup
