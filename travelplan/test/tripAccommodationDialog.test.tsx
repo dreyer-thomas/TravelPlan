@@ -1482,6 +1482,82 @@ describe("TripAccommodationDialog", () => {
   });
 
   /**
+   * DW-54 / DW-55. The subtitle used to be a template literal (`${dayLabel} · ${date}`) built from an
+   * inlined, unguarded `Intl.DateTimeFormat` call — a hardcoded separator baked into JS instead of the
+   * dictionary, and a `RangeError` waiting for a malformed `day.date` with no error boundary above this
+   * dialog to catch it. Both fixes are pinned here: the composed string now comes from
+   * `trips.stay.daySubtitle` via `formatMessage`, and an invalid date drops the subtitle instead of
+   * throwing.
+   */
+  describe("day subtitle (DW-54, DW-55)", () => {
+    const csrfFetch = () => {
+      const fetchMock = vi.fn(async () => mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null }));
+      stubFetch(fetchMock);
+      return fetchMock;
+    };
+
+    it("renders the day subtitle composed via formatMessage, in English", async () => {
+      const fetchMock = csrfFetch();
+      render(
+        <Providers language="en">
+          <TripAccommodationDialog
+            open
+            tripId="trip-1"
+            stayType="current"
+            day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1, accommodation: null }}
+            onClose={() => undefined}
+            onSaved={() => undefined}
+          />
+        </Providers>,
+      );
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+      expect(screen.getByText("Day 1 · 11/1")).toBeInTheDocument();
+    });
+
+    it("renders the day subtitle composed via formatMessage, in German", async () => {
+      const fetchMock = csrfFetch();
+      render(
+        <Providers language="de">
+          <TripAccommodationDialog
+            open
+            tripId="trip-1"
+            stayType="current"
+            day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1, accommodation: null }}
+            onClose={() => undefined}
+            onSaved={() => undefined}
+          />
+        </Providers>,
+      );
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+      expect(screen.getByText("Tag 1 · 1.11.")).toBeInTheDocument();
+    });
+
+    it("drops the subtitle without throwing when day.date is malformed", async () => {
+      const fetchMock = csrfFetch();
+      render(
+        <Providers language="en">
+          <TripAccommodationDialog
+            open
+            tripId="trip-1"
+            stayType="current"
+            day={{ id: "day-1", date: "", dayIndex: 1, accommodation: null }}
+            onClose={() => undefined}
+            onSaved={() => undefined}
+          />
+        </Providers>,
+      );
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+      // No `RangeError` white-screen: the dialog still renders its basics tab...
+      expect(screen.getByRole("button", { name: "Save stay" })).toBeInTheDocument();
+      // ...but with no subtitle line at all, rather than one built from an unparseable date.
+      expect(screen.queryByText(/Day 1/)).toBeNull();
+    });
+  });
+
+  /**
    * Story 6.27. Reported from a German phone on 2026-08-05: `12,50` in the cost field saved the stay
    * with no cost at all. With `type="number"` jsdom sanitises a comma-decimal to `""` exactly as a
    * browser does, so these cases fail against the pre-6.27 code by asserting the *saved* value —

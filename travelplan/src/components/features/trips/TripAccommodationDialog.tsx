@@ -36,6 +36,7 @@ import {
   MAX_DOCUMENTS_PER_ENTRY,
   isSupportedDocumentUpload,
 } from "@/lib/trips/documentUploads";
+import { formatShortDate } from "@/lib/trips/formatShortDate";
 import { IMAGE_UPLOAD_ACCEPT, isSupportedImageUpload } from "@/lib/trips/imageUploads";
 import { formatCentsAsAmount, parseAmountToCents } from "@/lib/trips/parseAmount";
 import { formatCoordinateLabel, parseLocationInput } from "@/lib/trips/parseLocationInput";
@@ -1602,19 +1603,15 @@ export default function TripAccommodationDialog({
 
   /**
    * Screen G's `.dialog-sub`: which day this stay belongs to. The `day` prop already carries both
-   * halves. The `Intl` call is inlined rather than shared because the only existing short-date
-   * formatter lives inside `TripTimeline.tsx`, which Story 7.8 owns and this story must not touch —
-   * extracting it is a follow-up once 7.8 lands.
+   * halves. `formatShortDate` returns `null` for a malformed `day.date` instead of throwing, so the
+   * subtitle is dropped rather than substituted with a wrong date or crashing the dialog.
    */
   const daySubtitle = useMemo(() => {
     if (!day) return null;
+    const date = formatShortDate(day.date, language);
+    if (date === null) return null;
     const dayLabel = formatMessage(t("trips.timeline.dayLabel"), { index: day.dayIndex });
-    const date = new Intl.DateTimeFormat(language === "de" ? "de-DE" : "en-US", {
-      month: "numeric",
-      day: "numeric",
-      timeZone: "UTC",
-    }).format(new Date(day.date));
-    return `${dayLabel} · ${date}`;
+    return formatMessage(t("trips.stay.daySubtitle"), { dayLabel, date });
   }, [day, language, t]);
 
   const sortedGalleryImages = useMemo(

@@ -119,6 +119,70 @@ describe("TripTimeline plan action", () => {
     vi.unstubAllGlobals();
   });
 
+  it("renders the day row's short date, and drops it without a dangling separator when the date is malformed", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-02T00:00:00.000Z",
+            dayCount: 2,
+            plannedCostTotal: 0,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
+          },
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              imageUrl: null,
+              note: null,
+              missingAccommodation: true,
+              missingPlan: true,
+              accommodation: null,
+              dayPlanItems: [],
+              travelSegments: [],
+            },
+            {
+              id: "day-2",
+              date: "not-a-date",
+              dayIndex: 2,
+              imageUrl: null,
+              note: null,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: null,
+              dayPlanItems: [],
+              travelSegments: [],
+            },
+          ],
+        },
+        error: null,
+      }),
+    })) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const [firstCard, secondCard] = screen.getAllByTestId("timeline-day-card");
+
+    // Valid date: the row shows "Day 1" plus the "· 12/1" short date.
+    expect(firstCard.textContent).toContain("· 12/1");
+    // Malformed date: `formatShortDate` returns null, so the row drops the date and, per the
+    // TripTimeline fix, drops the leading "·" with it rather than leaving "Day 2 · " dangling.
+    expect(secondCard.textContent).toContain("Day 2");
+    expect(secondCard.textContent).not.toContain("·");
+
+    vi.unstubAllGlobals();
+  });
+
   it("renders a planned vs unplanned summary for empty overview gantt bars", async () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,

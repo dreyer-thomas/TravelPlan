@@ -457,6 +457,7 @@ const en: Dictionary = {
   "trips.timeline.empty": "No days found for this trip yet.",
   "trips.timeline.missingPlan": "Missing plan",
   "trips.timeline.dayLabel": "Day {index}",
+  "trips.stay.daySubtitle": "{dayLabel} · {date}",
   "trips.timeline.openDay": "Open day view",
   "trips.timeline.openDayNamed": "Open day view: {day}",
   "trips.timeline.activeTripKicker": "Active trip",

@@ -426,14 +426,16 @@ status: open
 origin: migrated from legacy ledger ("Deferred from: code review of 7-7-trip-create-and-add-entry-dialog-redesign (2026-08-01)"), 2026-08-01
 location: `travelplan/src/components/features/trips/TripAccommodationDialog.tsx:707`
 reason: The sub-line is built as `` `${dayLabel} · ${date}` ``, but Task 7 says "interpolate with `formatMessage`, never template-literal concatenation", and the `·` and the ordering are hardcoded for both languages. Deviation #9 discloses the inlined `Intl.DateTimeFormat` but not this. Folds naturally into the follow-up the notes already record: once 7.8 lands, the short-date formatter moves out of `TripTimeline.tsx` and the sub-line can take a real key at the same time.
-status: open
+status: done 2026-08-09
+resolution: resolved by sweep bundle dw-trip-accommodation-dialog-daysubtitle-fi
 
 ### DW-55: `daySubtitle`'s `Intl.DateTimeFormat` has no invalid-date guard
 
 origin: migrated from legacy ledger ("Deferred from: code review of 7-7-trip-create-and-add-entry-dialog-redesign (2026-08-01)"), 2026-08-01
 location: `travelplan/src/components/features/trips/TripAccommodationDialog.tsx:700-707`
 reason: `format(new Date(day.date))` throws `RangeError: Invalid time value` on an empty or unparseable `day.date`, inside a `useMemo` with no error boundary above it, white-screening the day view rather than dropping the sub-line. `day.date` is typed `string` (`:37`) with no compile-time protection. Reachability is essentially nil given the API contract — recorded only because the sibling helper `toDateOnly` (`TripDayPlanDialog.tsx:168-173`) guards precisely this case for the same field, so the codebase already treats the input as untrusted in one place and not the other.
-status: open
+status: done 2026-08-09
+resolution: resolved by sweep bundle dw-trip-accommodation-dialog-daysubtitle-fi
 
 ### DW-56: Both full-page maps render "No mapped places yet" underneath their own error banner when the load fails
 

@@ -36,6 +36,7 @@ import {
   toCssUrl,
 } from "@/components/features/trips/TripIcons";
 import { extractAttachmentFilename, triggerBlobDownload } from "@/lib/browser/blobDownload";
+import { formatShortDate } from "@/lib/trips/formatShortDate";
 import { withImageCacheBuster } from "@/lib/trips/imageUploads";
 import type { TransportType } from "@/lib/trips/transportTypes";
 import { useI18n } from "@/i18n/provider";
@@ -172,15 +173,6 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
   const buildDateRange = useCallback(
     (trip: TripSummary) => `${formatDate(trip.startDate)} - ${formatDate(trip.endDate)}`,
     [formatDate],
-  );
-  const formatShortDate = useMemo(
-    () => (value: string) =>
-      new Intl.DateTimeFormat(language === "de" ? "de-DE" : "en-US", {
-        month: "numeric",
-        day: "numeric",
-        timeZone: "UTC",
-      }).format(new Date(value)),
-    [language],
   );
   // style: "currency" places the symbol per locale - German needs "1.234,50 €", not "€1.234,50".
   const formatCost = useMemo(
@@ -754,6 +746,7 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                   const stayLink =
                     day.accommodation?.link && isSafeLink(day.accommodation.link) ? day.accommodation.link : null;
                   const subLabel = resolveStayLocationLabel(day);
+                  const shortDate = formatShortDate(day.date, language);
                   const titleText =
                     day.note && day.note.trim().length > 0
                       ? `${formatMessage(t("trips.timeline.dayLabel"), { index: day.dayIndex })}: ${day.note.trim()}`
@@ -821,7 +814,7 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                           <Box component="span" sx={{ color: theme.palette.primary.main }}>
                             {formatMessage(t("trips.timeline.dayLabel"), { index: day.dayIndex })}
                           </Box>{" "}
-                          · {formatShortDate(day.date)}
+                          {shortDate ? `· ${shortDate}` : null}
                         </Typography>
                         <Typography variant="cardTitle" component="h6" sx={{ color: tokens.ink }}>
                           {titleText}
