@@ -379,7 +379,8 @@ resolution: already resolved: Story 2.32 AC6 (UI half) re-landed the entry point
 origin: migrated from legacy ledger ("Deferred from: code review of 7-8-trip-overview-lower-sections-redesign (2026-08-01)"), 2026-08-01
 location: `travelplan/src/components/features/trips/TripBucketListPanel.tsx:464-477`
 reason: `loadError`, `loading` and `emptyState` all live inside `<Collapse in={!isCollapsed} unmountOnExit>`. The panel is default-collapsed (Story 4.4 shipped that) and Story 7.8 hoisted the count line into the always-visible header, so on a load failure a user sees "0 entries" in the header — a lie — with no visible error until they click to expand. Not caused by 7.8 (the Collapse behavior pre-dates it) but exposed by the count-line hoist. Fix is either to render `loadError` outside `Collapse` or to gate the count line on `!loadError`. Natural home: the accessibility/error-surface pass that already owns the `data-layout` re-derivation deferred from 7-2 (DW-14).
-status: open
+status: done 2026-08-09
+resolution: resolved by sweep bundle dw-trip-bucket-list-panel-error-and-a11y-fi
 
 ### DW-49: Bucket-item delete-confirmation dialog uses off-palette `color="error"` red
 
@@ -394,7 +395,8 @@ resolution: already resolved: The off-palette red is gone at the theme level: `M
 origin: migrated from legacy ledger ("Deferred from: code review of 7-8-trip-overview-lower-sections-redesign (2026-08-01)"), 2026-08-01
 location: `travelplan/src/components/features/trips/TripBucketListPanel.tsx:534-551`
 reason: The two 44×44 hit areas sit `gap: 0.25` apart (2px) with no keyboard-focus signal beyond the browser default. WCAG 2.2 target-size guidance and the iOS HIG both call for spacing between adjacent touch targets, and a tab-through user has no signal which button is focused. Pre-existing at the shell level (Day Detail's bucket panel has the same 44px pattern from Story 7.3), so the fix belongs to the standing accessibility polish pass rather than that story. A wider gap (at least 8px) plus a `&:focus-visible` outline treatment on both `IconButton`s closes it; see DW-65 for the app-wide `MuiIconButton` focus gap.
-status: open
+status: done 2026-08-09
+resolution: resolved by sweep bundle dw-trip-bucket-list-panel-error-and-a11y-fi
 
 ### DW-51: Photo thumbnails are click-only — keyboard and AT cannot open the fullscreen viewer
 

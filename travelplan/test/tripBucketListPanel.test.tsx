@@ -4,7 +4,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import TripBucketListPanel, { BUCKET_LIST_MAX_HEIGHT_PX } from "@/components/features/trips/TripBucketListPanel";
-import { emotionDeclarations } from "./helpers/emotionStyles";
+import { emotionDeclarations, emotionPseudoClassStyle } from "./helpers/emotionStyles";
 import { renderWithProviders } from "./helpers/renderWithProviders";
 
 // MUI's default `md` breakpoint. The height cap is deliberately scoped to the same key the trip
@@ -40,6 +40,26 @@ const mockBucketListFetch = (items: unknown[]) => {
   return fetchMock;
 };
 
+// DW-48: the list-load request answers with an error envelope. `resolveApiError` falls through to
+// its `fallback` argument for any code it does not special-case, which `loadItems` supplies as
+// `t("trips.bucketList.loadError")` - so an unmapped code is the simplest way to land on that exact
+// copy without also asserting on `resolveApiError`'s internal switch.
+const mockBucketListFetchFailure = () => {
+  const fetchMock = vi.fn(async () => ({
+    ok: false,
+    status: 500,
+    json: async () => ({
+      data: null,
+      error: { code: "unmapped_error", message: "boom" },
+    }),
+  })) as unknown as typeof fetch;
+
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+};
+
+const LOAD_ERROR_TEXT = "Unable to load bucket list items.";
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -56,6 +76,46 @@ describe("TripBucketListPanel", () => {
     expect(screen.getByRole("button", { name: "Expand bucket list" })).toBeInTheDocument();
 
     expect(screen.queryByText("Hike spot")).not.toBeInTheDocument();
+    // DW-48 AC: a successful load shows the count line and no error `Alert`.
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  // DW-48.
+  describe("load error handling", () => {
+    it("shows the error alert instead of the count line while collapsed", async () => {
+      const fetchMock = mockBucketListFetchFailure();
+
+      renderWithProviders(<TripBucketListPanel tripId="trip-1" />);
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(LOAD_ERROR_TEXT);
+      // The panel never expanded, so a lying "0 entries" header would otherwise be the only
+      // feedback the user gets.
+      expect(screen.queryByText(/entries$/)).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Expand bucket list" })).toBeInTheDocument();
+    });
+
+    it("keeps the same error visible, with no stale empty-state text, once expanded", async () => {
+      const fetchMock = mockBucketListFetchFailure();
+      const user = userEvent.setup();
+
+      renderWithProviders(<TripBucketListPanel tripId="trip-1" />);
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      expect(await screen.findByRole("alert")).toHaveTextContent(LOAD_ERROR_TEXT);
+
+      await user.click(screen.getByRole("button", { name: "Expand bucket list" }));
+
+      // Still exactly one alert - the same instance, not a second copy revealed by expanding.
+      expect(screen.getAllByRole("alert")).toHaveLength(1);
+      expect(screen.getByRole("alert")).toHaveTextContent(LOAD_ERROR_TEXT);
+      // `loadItems` clears `items` to `[]` on failure, so without gating the empty-state copy on
+      // `!loadError` this would render underneath the alert and claim "no items" about a load that
+      // never actually completed.
+      expect(screen.queryByText("No bucket list items yet.")).not.toBeInTheDocument();
+      expect(screen.queryByRole("list")).not.toBeInTheDocument();
+    });
   });
 
   it("expands to reveal list content when toggled", async () => {
@@ -106,6 +166,47 @@ describe("TripBucketListPanel", () => {
     expect(style.color).not.toBe("rgb(138, 90, 43)");
     expect(style.borderColor).not.toBe("rgb(138, 90, 43)");
     expect(addButton.className).not.toMatch(/MuiIconButton-color(Warning|Error)/);
+  });
+
+  // DW-50.
+  describe("row action buttons", () => {
+    it("spaces the edit and delete buttons 8px apart", async () => {
+      const fetchMock = mockBucketListFetch([buildItem()]);
+      const user = userEvent.setup();
+
+      renderWithProviders(<TripBucketListPanel tripId="trip-1" />);
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      await user.click(screen.getByRole("button", { name: "Expand bucket list" }));
+
+      const editButton = screen.getByRole("button", { name: "Edit item" });
+      const actionsBox = editButton.parentElement as HTMLElement;
+      const style = window.getComputedStyle(actionsBox);
+
+      // theme spacing `1` = 8px (DW-50's widened target-size gap, up from the prior 2px). jsdom
+      // resolves the flex `gap` shorthand directly (unlike `grid-template-columns`, see
+      // `emotionStyles.ts`), so `style.gap` alone is the property to assert.
+      expect(style.gap).toBe("8px");
+    });
+
+    it("gives both the edit and delete buttons a focus-visible outline", async () => {
+      const fetchMock = mockBucketListFetch([buildItem()]);
+      const user = userEvent.setup();
+
+      renderWithProviders(<TripBucketListPanel tripId="trip-1" />);
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      await user.click(screen.getByRole("button", { name: "Expand bucket list" }));
+
+      const editButton = screen.getByRole("button", { name: "Edit item" });
+      const deleteButton = screen.getByRole("button", { name: "Delete item" });
+
+      for (const button of [editButton, deleteButton]) {
+        const style = emotionPseudoClassStyle(button, ":focus-visible");
+        expect(style.get("outline")).toBe("2px solid #2B2A26");
+        expect(style.get("outline-offset")).toBe("2px");
+      }
+    });
   });
 
   it("suppresses the last row's bottom border via :last-child and keeps prior rows' rule", async () => {

@@ -29,8 +29,9 @@ const selectorsFor = (element: Element) =>
 const visitRulesFor = (
   element: Element,
   onRule: (rule: CSSStyleRule, mediaCondition: string | null) => void,
+  selectorSuffix = "",
 ) => {
-  const selectors = selectorsFor(element);
+  const selectors = selectorsFor(element).map((selector) => `${selector}${selectorSuffix}`);
 
   const targetsElement = (selectorText: string) =>
     selectorText.split(",").some((part) => selectors.includes(part.trim()));
@@ -127,4 +128,27 @@ export const emotionDeclaredProperties = (element: Element) => {
   });
 
   return properties;
+};
+
+/**
+ * Every declaration Emotion emits under a pseudo-class (e.g. `:focus-visible`) for an element's own
+ * `sx` classes, merged into one lookup. jsdom applies no pseudo-class matching to `getComputedStyle`,
+ * so a `&:focus-visible` block written in `sx` - as `DocChip.tsx` / `PhotoUploadField.tsx` do - is
+ * invisible to `.focus()` + `getComputedStyle` and has to be read back out of the CSSOM instead, the
+ * same way `emotionDeclarations` reads an element's plain declarations.
+ */
+export const emotionPseudoClassStyle = (element: Element, pseudoClass: string) => {
+  const style = new Map<string, string>();
+
+  visitRulesFor(
+    element,
+    (styleRule) => {
+      Array.from(styleRule.style).forEach((property) => {
+        style.set(property, styleRule.style.getPropertyValue(property));
+      });
+    },
+    pseudoClass,
+  );
+
+  return style;
 };

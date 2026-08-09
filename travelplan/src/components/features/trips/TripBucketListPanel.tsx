@@ -628,7 +628,23 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
   const entryCountLabel = formatMessage(t("trips.bucketList.countLine"), { count: items.length });
   const toggleLabel = isCollapsed ? t("trips.bucketList.expandAction") : t("trips.bucketList.collapseAction");
 
-  const emptyState = useMemo(() => !loading && items.length === 0, [items.length, loading]);
+  // Gated on `!loadError` for the same reason `entryCountLabel` is: a failed load already clears
+  // `items` to `[]`, so without this the empty-state copy would render underneath the error `Alert`
+  // once the panel is expanded, claiming "no items" about a load that never actually completed.
+  const emptyState = useMemo(
+    () => !loading && !loadError && items.length === 0,
+    [items.length, loadError, loading],
+  );
+
+  // Shared by both row-action buttons so the 44px hit-area floor and the DW-50 `:focus-visible`
+  // outline cannot drift apart between them.
+  const rowActionButtonSx = {
+    width: 44,
+    height: 44,
+    padding: 0,
+    color: tokens.inkSoft,
+    "&:focus-visible": { outline: `2px solid ${tokens.ink}`, outlineOffset: "2px" },
+  };
 
   return (
     <>
@@ -654,9 +670,11 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
               >
                 {t("trips.bucketList.title")}
               </Typography>
-              <Typography sx={{ fontSize: "11.5px", fontWeight: 600, color: tokens.inkSoft }}>
-                {entryCountLabel}
-              </Typography>
+              {!loadError && (
+                <Typography sx={{ fontSize: "11.5px", fontWeight: 600, color: tokens.inkSoft }}>
+                  {entryCountLabel}
+                </Typography>
+              )}
             </Box>
             <Box display="flex" alignItems="center" gap={0.75}>
               <IconButton
@@ -698,9 +716,13 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
             </Box>
           </Box>
 
-          <Collapse in={!isCollapsed} timeout="auto" unmountOnExit>
-            {loadError && <Alert severity="error">{loadError}</Alert>}
+          {/* Rendered outside `Collapse` so a load failure is visible even while the panel is
+              collapsed (DW-48) - a collapsed panel that only shows "0 entries" with no error is
+              indistinguishable from an empty trip. The header's count line is gated on `!loadError`
+              above so the two never appear together. */}
+          {loadError && <Alert severity="error">{loadError}</Alert>}
 
+          <Collapse in={!isCollapsed} timeout="auto" unmountOnExit>
             {loading && (
               <Typography variant="body2" sx={{ color: tokens.inkSoft }}>
                 {t("trips.bucketList.loading")}
@@ -781,12 +803,16 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
                           : item.location?.label?.trim() ?? t("trips.bucketList.locationMissing")}
                       </Typography>
                     </Box>
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.25, flexShrink: 0 }}>
+                    {/* `gap: 1` (8px, DW-50) keeps the two 44px hit areas from reading as a single
+                        touch target; the `&:focus-visible` outline matches the local-sx pattern used
+                        in `DocChip.tsx` and `PhotoUploadField.tsx` rather than the app-wide
+                        `MuiIconButton` fix reserved for DW-65. */}
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexShrink: 0 }}>
                       <IconButton
                         aria-label={t("trips.bucketList.editAction")}
                         title={t("trips.bucketList.editAction")}
                         onClick={() => openEditDialog(item)}
-                        sx={{ width: 44, height: 44, padding: 0, color: tokens.inkSoft }}
+                        sx={rowActionButtonSx}
                       >
                         <PencilIcon />
                       </IconButton>
@@ -794,7 +820,7 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
                         aria-label={t("trips.bucketList.deleteAction")}
                         title={t("trips.bucketList.deleteAction")}
                         onClick={() => setDeleteTarget(item)}
-                        sx={{ width: 44, height: 44, padding: 0, color: tokens.inkSoft }}
+                        sx={rowActionButtonSx}
                       >
                         <TrashIcon />
                       </IconButton>
