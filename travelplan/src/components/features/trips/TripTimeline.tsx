@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Box,
@@ -156,9 +156,52 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
   // The overview grid's own key (`gridTemplateColumns: { xs: "1fr", md: "1.7fr 1fr" }`), not a new
   // value: this decides *where* the single trip-controls card is mounted, and any other breakpoint
   // would open a window where the layout is stacked but the ordering is not.
+  //
+  // This is the sanctioned exception to "pure sx breakpoints, never useMediaQuery" (see the same
+  // convention comment in DialogShell.tsx, AuthScreenShell.tsx and TripCreateForm.tsx): per the
+  // 2026-08-08 decision recorded against DW-106, useMediaQuery may decide *which subtree mounts* -
+  // never how a mounted subtree looks. `tripControlsCard` below is mounted at one of two JSX
+  // positions depending on this value, which is exactly that case; nothing here uses it to style
+  // an already-mounted element. See DW-107 for the focus-restore consequence of the resulting
+  // unmount/remount.
   const isTwoColumnLayout = useMediaQuery(theme.breakpoints.up("md"));
   const isOwner = detail?.trip.accessRole ? detail.trip.accessRole === "owner" : true;
   const canEditPlanning = detail?.trip.accessRole ? detail.trip.accessRole !== "viewer" : true;
+
+  // DW-107: `tripControlsCard` (below, after the `loading`/`notFound` early returns) is built once
+  // but mounted at one of two JSX positions gated by `isTwoColumnLayout` above - different React
+  // tree positions, so crossing `md` unmounts the card in one and mounts a fresh instance in the
+  // other. A keyboard user focused on one of its three buttons would otherwise lose focus to
+  // `<body>` at that instant. These refs track which button last held focus so the effect below can
+  // restore it on the new instance; declared here, ahead of every early return, because hooks must
+  // run unconditionally on every render.
+  const editButtonRef = useRef<HTMLButtonElement>(null);
+  const deleteButtonRef = useRef<HTMLButtonElement>(null);
+  const exportButtonRef = useRef<HTMLButtonElement>(null);
+  const lastFocusedControlRef = useRef<"edit" | "delete" | "export" | null>(null);
+
+  // `lastFocusedControlRef` is never cleared on blur - clearing it there would race the very unmount
+  // it needs to survive (the blur such a removal fires would clear it before this effect gets a
+  // chance to read it). The `document.activeElement === document.body` check is the guard against
+  // that staleness: it does not prove the transition below is *why* focus is on `<body>`, only that
+  // nothing else has claimed it since. A user who deliberately blurs to `<body>` (e.g. a stray click
+  // on blank page space) and then triggers an unrelated crossing while a stale control is still
+  // named could see focus land back on it - a false positive, not a crash, and no worse than the
+  // `<body>` dead end this effect exists to avoid; still narrower than the remount case itself,
+  // which is why it is accepted here rather than solved.
+  //
+  // Plain `useEffect`, not `useLayoutEffect`: this is a "use client" component, and a layout effect
+  // here would warn on the server render.
+  useEffect(() => {
+    if (!lastFocusedControlRef.current) return;
+    if (typeof document === "undefined" || document.activeElement !== document.body) return;
+    const refByControl = {
+      edit: editButtonRef,
+      delete: deleteButtonRef,
+      export: exportButtonRef,
+    } as const;
+    refByControl[lastFocusedControlRef.current].current?.focus();
+  }, [isTwoColumnLayout]);
 
   const formatDate = useMemo(
     () => (value: string) =>
@@ -453,6 +496,11 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
   // below); duplicating it and hiding one copy would double Edit/Delete in the accessibility tree.
   // The guard travels with it - viewers get neither button, and a bare 18px-padded bordered card is
   // the defect Story 7.8 Task 5 fixed.
+  //
+  // DW-107: because the two positions are different tree positions, the browser drops focus to
+  // `<body>` when the previously-focused button's instance is the one that unmounts. The refs and
+  // the restoring effect live earlier in this component, alongside `isTwoColumnLayout` - not here -
+  // because hooks cannot sit after the `loading`/`notFound` early returns above.
   const tripControlsCard =
     canEditPlanning || isOwner ? (
       <Box
@@ -467,12 +515,26 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
       >
         <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
           {canEditPlanning ? (
-            <Button variant="outlined" onClick={() => setEditOpen(true)}>
+            <Button
+              ref={editButtonRef}
+              variant="outlined"
+              onClick={() => setEditOpen(true)}
+              onFocus={() => {
+                lastFocusedControlRef.current = "edit";
+              }}
+            >
               {t("trips.edit.open")}
             </Button>
           ) : null}
           {isOwner ? (
-            <Button variant="outlined" onClick={() => setDeleteOpen(true)}>
+            <Button
+              ref={deleteButtonRef}
+              variant="outlined"
+              onClick={() => setDeleteOpen(true)}
+              onFocus={() => {
+                lastFocusedControlRef.current = "delete";
+              }}
+            >
               {t("trips.delete.open")}
             </Button>
           ) : null}
@@ -490,8 +552,12 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
               `theme.ts`, and anything declared here would make this button the odd one of three. */}
           {canEditPlanning ? (
             <Button
+              ref={exportButtonRef}
               variant="outlined"
               onClick={() => void handleExport()}
+              onFocus={() => {
+                lastFocusedControlRef.current = "export";
+              }}
               disabled={isExporting}
               // The spinner replaces the label, which would otherwise take the accessible name with
               // it: mid-flight the button would drop out of `getByRole("button", { name })` and go

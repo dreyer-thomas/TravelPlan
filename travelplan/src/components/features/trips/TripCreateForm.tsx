@@ -517,7 +517,9 @@ export default function TripCreateForm({
         />
         {/*
           Screen F's `.field-row` — the two dates read as one "Zeitraum" pair. Stacks at xs; pure sx
-          breakpoints, never useMediaQuery. `type="date"` stays: the tests type "2026-02-10" and
+          breakpoints here — useMediaQuery is sanctioned only when a breakpoint decides which subtree
+          mounts (see TripTimeline.tsx's `isTwoColumnLayout`, 2026-08-08 / DW-106), not for styling an
+          already-mounted element like this one. `type="date"` stays: the tests type "2026-02-10" and
           `handleDateBlur` normalizes DD.MM.YYYY. The native control draws its own calendar affordance,
           so the mockup's `.icon-suffix` glyph is not added on top of it.
         */}

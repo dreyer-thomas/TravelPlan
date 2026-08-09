@@ -230,7 +230,9 @@ export default function DialogShell({
             "& > :not(style) ~ :not(style)": { ml: 0 },
             // At xs the footer stacks and every button goes full width, primary first — a 520px
             // dialog on a 390px viewport otherwise crowds three controls onto one line. Pure sx
-            // breakpoints, never useMediaQuery (deferred finding from 7.2).
+            // breakpoints here: useMediaQuery is sanctioned only when a breakpoint decides which
+            // subtree mounts (see TripTimeline.tsx's `isTwoColumnLayout`, 2026-08-08 / DW-106), not
+            // for styling an already-mounted element like this one (deferred finding from 7.2).
             flexDirection: { xs: "column-reverse", sm: "row" },
             alignItems: { xs: "stretch", sm: "center" },
           },

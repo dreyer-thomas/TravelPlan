@@ -188,8 +188,10 @@ export default function AuthScreenShell({
           </Typography>
           {/*
             Hidden below md: EXPERIENCE.md:19 mocked desktop only, and on a 390px screen a hero tall
-            enough for the sub-line pushes the email field below the fold. Pure sx breakpoints — no
-            useMediaQuery (deferred finding from 7.2).
+            enough for the sub-line pushes the email field below the fold. Pure sx breakpoints here:
+            useMediaQuery is sanctioned only when a breakpoint decides which subtree mounts (see
+            TripTimeline.tsx's `isTwoColumnLayout`, 2026-08-08 / DW-106), not for styling an
+            already-mounted element like this one (deferred finding from 7.2).
           */}
           <Typography
             component="p"
