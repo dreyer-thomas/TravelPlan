@@ -528,7 +528,8 @@ decision: 2026-08-01 Make the frontmatter the only source in the local template 
 origin: code review of 7-12-bucket-list-sidebar-card, 2026-08-01
 location: `travelplan/src/components/features/trips/TripBucketListPanel.tsx:394` (`emptyState`), `:415-425` (`loadItems` error paths)
 reason: `emptyState` is `!loading && items.length === 0`, and both failure paths in `loadItems` call `setItems([])` alongside `setLoadError(...)`. So a failed `GET /api/trips/{id}/bucket-list-items` renders the error alert *and* "Noch keine Ideen gesammelt." / "No bucket list items yet." together, telling the user their bucket list is empty when the truth is that it could not be read — the one reading under which they might stop looking for data that exists. Pre-existing: the `emptyState` computation predates Story 7.12, which only relocated the panel and capped its height. Surfaced now because 7.12 made the empty-state treatment a confirmed spec decision (`EXPERIENCE.md:81`), so the branch is worth getting right. Fix is a one-line gate: `!loading && !loadError && items.length === 0`. `TripDayBucketListPanel.tsx` should be checked for the same shape.
-status: open
+status: done 2026-08-09
+resolution: already resolved: travelplan/src/components/features/trips/TripBucketListPanel.tsx:634-636 — emptyState is now useMemo(() => !loading && !loadError && items.length === 0, ...), gating on !loadError. Fixed by commit 0ebcaed ("sweep dw-trip-bucket-list-panel-error-and-a11y-fi: DW-48, DW-50 via bmad-loop", 2026-08-09).
 
 ### DW-68: `trips.bucketList.countLine` has no singular form, so a one-item list reads "1 entries" / "1 Einträge"
 
