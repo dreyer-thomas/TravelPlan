@@ -1,9 +1,12 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import TripDayPrintDocument from "@/components/features/trips/TripDayPrintDocument";
+import type { Language } from "@/i18n";
 import type { TripDayPrintPayload } from "@/lib/repositories/tripRepo";
+import { renderWithProviders } from "./helpers/renderWithProviders";
 
 const EMPTY_MAP = { points: [], missingLocations: [] };
 
@@ -84,9 +87,30 @@ const basePayload = (overrides: Partial<TripDayPrintPayload> = {}): TripDayPrint
   ...overrides,
 });
 
+/**
+ * DW-230. The sheet is a `useI18n` consumer now, so it needs a provider - `useI18n` throws without one.
+ *
+ * Every existing case goes through this at `language = "en"` and keeps its expectation exactly as it was
+ * written: the English rendered output has to stay byte-identical, and these thirty-three assertions are
+ * what says so. A failure here on an *expectation* rather than on provider plumbing means the English
+ * output moved, which is a bug in the code and never a reason to edit the assertion.
+ *
+ * The provider tree itself comes from `helpers/renderWithProviders`, which twenty-odd suites already share,
+ * rather than being written a second time here. Its own docblock is the reason: it wraps in `ThemeProvider`
+ * as well as `I18nProvider` and says the theme wrapper "is not optional", and keeping the tree in one place
+ * is what makes adding the next provider a one-line change instead of a sweep. A local copy that named only
+ * the provider this sheet happens to need today is precisely how a suite ends up rendering under a
+ * different tree from the app. This wrapper stays only because a positional `language` reads better than an
+ * options bag across ~40 call sites.
+ */
+const renderSheet = (
+  props: ComponentProps<typeof TripDayPrintDocument>,
+  language: Language = "en",
+) => renderWithProviders(<TripDayPrintDocument {...props} />, { language });
+
 describe("TripDayPrintDocument", () => {
   it("renders trip name and day heading", () => {
-    render(<TripDayPrintDocument payload={basePayload()} />);
+    renderSheet({ payload: basePayload() });
     expect(screen.getAllByText("Summer Road Trip").length).toBeGreaterThan(0);
     expect(screen.getByText(/Day 2/)).toBeInTheDocument();
   });
@@ -101,7 +125,7 @@ describe("TripDayPrintDocument", () => {
       ],
     });
 
-    render(<TripDayPrintDocument payload={payload} />);
+    renderSheet({ payload });
 
     const entries = screen.getAllByTestId("print-timeline-entry");
     expect(entries).toHaveLength(4);
@@ -129,7 +153,7 @@ describe("TripDayPrintDocument", () => {
       ],
     });
 
-    render(<TripDayPrintDocument payload={payload} />);
+    renderSheet({ payload });
 
     const thumbnails = screen.getAllByTestId("print-thumbnail");
     expect(thumbnails).toHaveLength(1);
@@ -143,7 +167,7 @@ describe("TripDayPrintDocument", () => {
       ],
     });
 
-    render(<TripDayPrintDocument payload={payload} />);
+    renderSheet({ payload });
 
     expect(screen.queryByTestId("print-thumbnail")).not.toBeInTheDocument();
     expect(screen.queryByTestId("print-image-strip")).not.toBeInTheDocument();
@@ -160,7 +184,7 @@ describe("TripDayPrintDocument", () => {
       },
     });
 
-    render(<TripDayPrintDocument payload={payload} />);
+    renderSheet({ payload });
 
     expect(screen.getByTestId("print-map-section")).toBeInTheDocument();
     expect(screen.queryByTestId("print-map-img")).not.toBeInTheDocument();
@@ -177,7 +201,7 @@ describe("TripDayPrintDocument", () => {
       },
     });
 
-    render(<TripDayPrintDocument payload={payload} />);
+    renderSheet({ payload });
 
     const mapLink = screen.getByTestId("print-map-link");
     expect(mapLink).toBeInTheDocument();
@@ -194,7 +218,7 @@ describe("TripDayPrintDocument", () => {
       map: EMPTY_MAP,
     });
 
-    render(<TripDayPrintDocument payload={payload} />);
+    renderSheet({ payload });
 
     expect(screen.queryByTestId("print-map-section")).not.toBeInTheDocument();
     expect(screen.getByText("Sightseeing")).toBeInTheDocument();
@@ -220,7 +244,7 @@ describe("TripDayPrintDocument", () => {
     it("renders no missing-location note when every stop has coordinates", () => {
       const payload = basePayload({ map: { points: twoPoints, missingLocations: [] } });
 
-      render(<TripDayPrintDocument payload={payload} />);
+      renderSheet({ payload });
 
       expect(screen.getByTestId("print-map-section")).toBeInTheDocument();
       expect(screen.queryByTestId("print-map-missing")).not.toBeInTheDocument();
@@ -237,7 +261,7 @@ describe("TripDayPrintDocument", () => {
         },
       });
 
-      render(<TripDayPrintDocument payload={payload} />);
+      renderSheet({ payload });
 
       const note = screen.getByTestId("print-map-missing");
       expect(note).toHaveTextContent("Route omits 2 stops with no saved location");
@@ -254,7 +278,7 @@ describe("TripDayPrintDocument", () => {
         },
       });
 
-      render(<TripDayPrintDocument payload={payload} />);
+      renderSheet({ payload });
 
       expect(screen.getByTestId("print-map-missing")).toHaveTextContent(
         "Route omits 1 stop with no saved location",
@@ -275,7 +299,7 @@ describe("TripDayPrintDocument", () => {
         },
       });
 
-      render(<TripDayPrintDocument payload={payload} />);
+      renderSheet({ payload });
 
       expect(screen.queryByTestId("print-map-section")).not.toBeInTheDocument();
       expect(screen.queryByTestId("print-map-missing")).not.toBeInTheDocument();
@@ -292,7 +316,7 @@ describe("TripDayPrintDocument", () => {
       ],
     });
 
-    render(<TripDayPrintDocument payload={payload} />);
+    renderSheet({ payload });
 
     const allEntries = screen.getAllByTestId("print-timeline-entry");
     const segEntry = allEntries.find((el) => el.getAttribute("data-kind") === "travelSegment");
@@ -311,7 +335,7 @@ describe("TripDayPrintDocument", () => {
       ],
     });
 
-    render(<TripDayPrintDocument payload={payload} />);
+    renderSheet({ payload });
 
     const routeLabel = screen.getByTestId("print-segment-route");
     expect(routeLabel).toBeInTheDocument();
@@ -327,7 +351,7 @@ describe("TripDayPrintDocument", () => {
       ],
     });
 
-    render(<TripDayPrintDocument payload={payload} />);
+    renderSheet({ payload });
 
     expect(screen.queryByTestId("print-segment-route")).not.toBeInTheDocument();
   });
@@ -342,7 +366,7 @@ describe("TripDayPrintDocument", () => {
       map: EMPTY_MAP,
     });
 
-    render(<TripDayPrintDocument payload={payload} />);
+    renderSheet({ payload });
 
     expect(screen.getByText("Simple Hotel")).toBeInTheDocument();
     expect(screen.getByText("Walk")).toBeInTheDocument();
@@ -356,7 +380,7 @@ describe("TripDayPrintDocument", () => {
       ],
     });
 
-    render(<TripDayPrintDocument payload={payload} />);
+    renderSheet({ payload });
 
     expect(screen.getByText("18:00")).toBeInTheDocument();
   });
@@ -368,7 +392,7 @@ describe("TripDayPrintDocument", () => {
       ],
     });
 
-    render(<TripDayPrintDocument payload={payload} />);
+    renderSheet({ payload });
 
     expect(screen.getByText(/Plan item/i)).toBeInTheDocument();
   });
@@ -383,7 +407,7 @@ describe("TripDayPrintDocument", () => {
       ],
     });
 
-    render(<TripDayPrintDocument payload={payload} />);
+    renderSheet({ payload });
 
     expect(screen.queryByText(/0 km/)).not.toBeInTheDocument();
   });
@@ -409,7 +433,7 @@ describe("TripDayPrintDocument", () => {
       ],
     });
 
-    render(<TripDayPrintDocument payload={payload} />);
+    renderSheet({ payload });
 
     expect(screen.getByText(/450 km/)).toBeInTheDocument();
   });
@@ -424,7 +448,7 @@ describe("TripDayPrintDocument", () => {
       ],
     });
 
-    render(<TripDayPrintDocument payload={payload} />);
+    renderSheet({ payload });
 
     expect(screen.getByText(/Walking · 25m · 2 km/)).toBeInTheDocument();
   });
@@ -439,7 +463,7 @@ describe("TripDayPrintDocument", () => {
       ],
     });
 
-    render(<TripDayPrintDocument payload={payload} />);
+    renderSheet({ payload });
 
     // Asserting on the composed label rather than on a bare /km/ query: the sheet's other copy is free to
     // grow a "km" of its own, and `queryBy*` throws on more than one match rather than failing an
@@ -463,7 +487,7 @@ describe("TripDayPrintDocument", () => {
       ],
     });
 
-    render(<TripDayPrintDocument payload={payload} />);
+    renderSheet({ payload });
 
     expect(screen.getByText(/Ship · 3h/)).toBeInTheDocument();
     expect(screen.queryByText(/120 km/)).not.toBeInTheDocument();
@@ -490,7 +514,7 @@ describe("TripDayPrintDocument", () => {
       ],
     });
 
-    render(<TripDayPrintDocument payload={payload} />);
+    renderSheet({ payload });
 
     expect(screen.queryByTestId("print-segment-route")).not.toBeInTheDocument();
 
@@ -547,7 +571,7 @@ describe("TripDayPrintDocument", () => {
         ],
       });
 
-      render(<TripDayPrintDocument payload={payload} />);
+      renderSheet({ payload });
 
       const pages = screen.getAllByTestId("print-document-page");
       expect(pages).toHaveLength(3);
@@ -602,7 +626,7 @@ describe("TripDayPrintDocument", () => {
         ],
       });
 
-      render(<TripDayPrintDocument payload={payload} />);
+      renderSheet({ payload });
 
       expect(screen.queryByTestId("print-document-page")).not.toBeInTheDocument();
 
@@ -641,7 +665,7 @@ describe("TripDayPrintDocument", () => {
         ],
       });
 
-      render(<TripDayPrintDocument payload={payload} />);
+      renderSheet({ payload });
 
       expect(screen.getAllByTestId("print-document-page")).toHaveLength(1);
       expect(screen.queryByTestId("print-document-appendix")).not.toBeInTheDocument();
@@ -657,7 +681,7 @@ describe("TripDayPrintDocument", () => {
         ],
       });
 
-      render(<TripDayPrintDocument payload={payload} />);
+      renderSheet({ payload });
 
       expect(screen.queryByTestId("print-document-page")).not.toBeInTheDocument();
       expect(screen.queryByTestId("print-document-image")).not.toBeInTheDocument();
@@ -681,7 +705,7 @@ describe("TripDayPrintDocument", () => {
         ],
       });
 
-      render(<TripDayPrintDocument payload={payload} />);
+      renderSheet({ payload });
 
       // Index 1 in the timeline, so "Plan item 2" - the card's own number, which is the whole point of
       // sharing `getPrintEntryLabel`: a loose printed page has to name the card it belongs to.
@@ -691,10 +715,233 @@ describe("TripDayPrintDocument", () => {
     });
   });
 
+  /**
+   * DW-230. The same sheet on the German dictionary.
+   *
+   * The complaint DW-230 records is that a user who reaches this page through a fully translated UI gets
+   * an English sheet, so what is pinned here is the *rendered* German - not that the keys exist, which
+   * `i18nDictionaries.test.ts` answers, and not that `t` was called, which any wiring satisfies.
+   *
+   * These are additional cases, never relaxations of the English ones above: every assertion in this file
+   * outside this block still asserts the exact English string it always did.
+   *
+   * Nothing here asserts a height, a page break or any computed layout value, for the reason the 9.2 block
+   * above gives - jsdom resolves `height` to `""` and applies no `@media print` rule, so such an assertion
+   * would pass whether the code were right, wrong or absent.
+   */
+  describe("DW-230 localisation", () => {
+    it("renders the day heading and the date in German", () => {
+      renderSheet({ payload: basePayload() }, "de");
+
+      expect(screen.getByText("Tag 2")).toBeInTheDocument();
+      // The same `2026-08-10` the English cases format as `August 10, 2026`. This is the whole of what
+      // `Intl.DateTimeFormat(INTL_LOCALES[language], …)` changed, and the reason a hardcoded `en-US`
+      // survived every other localisation pass: a date is still a date, so it never looks untranslated.
+      expect(screen.getAllByText("10. August 2026").length).toBeGreaterThan(0);
+    });
+
+    it("keeps the user's own day note beside the translated heading", () => {
+      // The note is appended after a colon rather than interpolated, so this pins that a German heading
+      // still carries the traveller's untranslated text and in the right order.
+      const payload = basePayload({
+        day: { id: "day-1", date: "2026-08-10T00:00:00.000Z", dayIndex: 2, note: "Anreise", imageUrl: null },
+      });
+
+      renderSheet({ payload }, "de");
+
+      expect(screen.getByText("Tag 2: Anreise")).toBeInTheDocument();
+    });
+
+    it("renders both section captions and the empty state in German", () => {
+      const payload = basePayload({
+        map: {
+          points: [
+            { id: "stay-1", label: "Hotel", kind: "currentStay", position: [48.1, 11.5], order: 0 },
+            { id: "item-1", label: "Museum", kind: "planItem", position: [48.2, 11.6], order: 1 },
+          ],
+          missingLocations: [{ id: "item-2", label: "Markt", kind: "planItem", location: null }],
+        },
+      });
+
+      renderSheet({ payload }, "de");
+
+      expect(screen.getByText("Tagesroute")).toBeInTheDocument();
+      expect(screen.getByText("Reiseverlauf")).toBeInTheDocument();
+      expect(screen.getByTestId("print-map-link")).toHaveTextContent("In Google Maps navigieren");
+      expect(screen.getByTestId("print-map-missing")).toHaveTextContent(
+        "Die Route lässt 1 Station ohne gespeicherten Ort aus",
+      );
+      expect(screen.getByText("Für diesen Tag sind keine Details erfasst.")).toBeInTheDocument();
+    });
+
+    it("uses the German plural for more than one stop with no saved location", () => {
+      // The singular and the plural are two keys, so one of them can be German while the other is not.
+      const payload = basePayload({
+        map: {
+          points: [
+            { id: "stay-1", label: "Hotel", kind: "currentStay", position: [48.1, 11.5], order: 0 },
+            { id: "item-1", label: "Museum", kind: "planItem", position: [48.2, 11.6], order: 1 },
+          ],
+          missingLocations: [
+            { id: "item-2", label: "Markt", kind: "planItem", location: null },
+            { id: "item-3", label: "Aussicht", kind: "planItem", location: null },
+          ],
+        },
+      });
+
+      renderSheet({ payload }, "de");
+
+      expect(screen.getByTestId("print-map-missing")).toHaveTextContent(
+        "Die Route lässt 2 Stationen ohne gespeicherten Ort aus",
+      );
+    });
+
+    it("names both stay kinds and both check times in German", () => {
+      const payload = basePayload({
+        timeline: [
+          { kind: "previousStay", stay: makeStay({ id: "prev", name: "Airport Inn", checkOutTime: "10:00" }) },
+          { kind: "currentStay", stay: makeStay({ id: "curr", name: "Beach Hotel", checkInTime: "15:00" }) },
+        ],
+      });
+
+      renderSheet({ payload }, "de");
+
+      expect(screen.getByText("Unterkunft der Vornacht")).toBeInTheDocument();
+      expect(screen.getByText("Unterkunft heute Nacht")).toBeInTheDocument();
+      // The two stay names are the user's own and stay exactly as entered.
+      expect(screen.getByText("Airport Inn")).toBeInTheDocument();
+      expect(screen.getByText("Beach Hotel")).toBeInTheDocument();
+      expect(screen.getByText("Check-out: 10:00")).toBeInTheDocument();
+      expect(screen.getByText("Check-in: 15:00")).toBeInTheDocument();
+    });
+
+    it("labels a travel segment with the German transport name and German duration units", () => {
+      const payload = basePayload({
+        timeline: [
+          {
+            kind: "travelSegment",
+            segment: { ...makeSegment(), transportType: "car", durationMinutes: 45, distanceKm: 30 },
+          },
+        ],
+      });
+
+      renderSheet({ payload }, "de");
+
+      const segment = screen
+        .getAllByTestId("print-timeline-entry")
+        .find((entry) => entry.dataset.kind === "travelSegment");
+      // The whole composed label. `km` is the same word in both dictionaries and is asserted through the
+      // shared `trips.travelSegment.kmSuffix` key rather than being left as a literal in the component.
+      expect(segment).toHaveTextContent("Auto · 45 Min. · 30 km");
+    });
+
+    it("composes both duration halves in German for a leg carrying hours and minutes", () => {
+      // `1h 30m` against `1 Std. 30 Min.`: the unit is a suffix in English and a separate word in German,
+      // which is why the two halves are two keys joined by a space rather than one interpolated string.
+      const payload = basePayload({
+        timeline: [
+          {
+            kind: "travelSegment",
+            segment: { ...makeSegment(), transportType: "flight", durationMinutes: 90, distanceKm: null },
+          },
+        ],
+      });
+
+      renderSheet({ payload }, "de");
+
+      const segment = screen
+        .getAllByTestId("print-timeline-entry")
+        .find((entry) => entry.dataset.kind === "travelSegment");
+      expect(segment).toHaveTextContent("Flug · 1 Std. 30 Min.");
+    });
+
+    it("prints an unknown transport type raw rather than a missing-key string", () => {
+      // `transportType` comes out of the database and `tripImportSchemas.ts` does not constrain it to the
+      // five known modes, so a restored backup can carry anything. `t()` returns the *key* for a miss,
+      // so without the membership check this row would read
+      // `trips.travelSegment.transport.hovercraft` on paper. Asserted in German because that is the
+      // configuration in which the lookup happens at all.
+      const payload = basePayload({
+        timeline: [
+          {
+            kind: "travelSegment",
+            segment: { ...makeSegment(), transportType: "hovercraft" as never, durationMinutes: 20, distanceKm: null },
+          },
+        ],
+      });
+
+      renderSheet({ payload }, "de");
+
+      const segment = screen
+        .getAllByTestId("print-timeline-entry")
+        .find((entry) => entry.dataset.kind === "travelSegment");
+      expect(segment).toHaveTextContent("hovercraft · 20 Min.");
+      expect(segment).not.toHaveTextContent("trips.travelSegment");
+    });
+
+    it("gives a titleless activity the German positional name, on its card and on its document page", () => {
+      const payload = basePayload({
+        timeline: [
+          { kind: "previousStay", stay: makeStay({ id: "prev", name: "Airport Inn" }) },
+          {
+            kind: "planItem",
+            item: makeItem({
+              id: "item-1",
+              title: null,
+              contentJson: '{"type":"doc","content":[]}',
+              documents: [makeDocument({ fileName: "Unnamed ticket.jpg" })],
+            }),
+          },
+        ],
+      });
+
+      renderSheet({ payload }, "de");
+
+      // Timeline index 1, so "Programmpunkt 2" in both places - the card and the loose document page have
+      // to agree on the wording *and* the number, which is what makes a printed sheet matchable.
+      const card = screen.getAllByTestId("print-timeline-entry").find((entry) => entry.dataset.kind === "planItem");
+      expect(card).toHaveTextContent("Programmpunkt 2");
+      expect(screen.getByTestId("print-document-page")).toHaveTextContent("Programmpunkt 2");
+    });
+
+    it("renders the PDF appendix heading and its explanation in German", () => {
+      const payload = basePayload({
+        timeline: [
+          {
+            kind: "planItem",
+            item: makeItem({
+              id: "item-1",
+              title: "Flug nach Rom",
+              documents: [
+                makeDocument({
+                  id: "doc-pdf",
+                  documentUrl: "/uploads/trips/trip-1/days/day-1/day-plan-items/item-1/documents/doc-1.pdf",
+                  fileName: "Bordkarte.pdf",
+                }),
+              ],
+            }),
+          },
+        ],
+      });
+
+      renderSheet({ payload }, "de");
+
+      const appendix = screen.getByTestId("print-document-appendix");
+      expect(appendix).toHaveTextContent("Nicht im Ausdruck enthaltene Dokumente");
+      // AC2's claim, in German: the sheet has to say in print that these files are not in it and where to
+      // get them. Matched on the claim rather than the whole sentence, so a reword stays free.
+      expect(appendix).toHaveTextContent(/nicht Teil dieses Ausdrucks/i);
+      expect(appendix).toHaveTextContent(/Dokumentenpaket/i);
+      expect(screen.getByTestId("print-document-appendix-item")).toHaveTextContent(
+        "Flug nach Rom — Bordkarte.pdf",
+      );
+    });
+  });
+
   describe("onReady callback", () => {
     it("calls onReady after mount when there are no map points", async () => {
       const onReady = vi.fn();
-      render(<TripDayPrintDocument payload={basePayload()} onReady={onReady} />);
+      renderSheet({ payload: basePayload(), onReady });
       await waitFor(() => expect(onReady).toHaveBeenCalledTimes(1));
     });
 
@@ -704,23 +951,21 @@ describe("TripDayPrintDocument", () => {
       // `<img>`, so a document image's bytes are always cold on the first print. Firing on mount therefore
       // prints AC1's full-page ticket blank. Without the wait, onReady is called before the load event.
       const onReady = vi.fn();
-      render(
-        <TripDayPrintDocument
-          payload={basePayload({
-            timeline: [
-              {
-                kind: "planItem",
-                item: makeItem({
-                  documents: [
-                    { id: "d1", documentUrl: "/uploads/trips/t/days/d/day-plan-items/i/documents/doc-1.jpg", fileName: "Ticket.jpg", sortOrder: 1 },
-                  ],
-                }),
-              },
-            ],
-          })}
-          onReady={onReady}
-        />,
-      );
+      renderSheet({
+        payload: basePayload({
+          timeline: [
+            {
+              kind: "planItem",
+              item: makeItem({
+                documents: [
+                  { id: "d1", documentUrl: "/uploads/trips/t/days/d/day-plan-items/i/documents/doc-1.jpg", fileName: "Ticket.jpg", sortOrder: 1 },
+                ],
+              }),
+            },
+          ],
+        }),
+        onReady,
+      });
 
       const image = screen.getByTestId("print-document-image");
       // jsdom never loads an `<img>`, so `complete` stays false and nothing has fired yet.
@@ -735,23 +980,21 @@ describe("TripDayPrintDocument", () => {
       // as `load` does. Asserting the negative matters here: an implementation that waited only for `load`
       // would leave the user on a page with no print dialog at all.
       const onReady = vi.fn();
-      render(
-        <TripDayPrintDocument
-          payload={basePayload({
-            timeline: [
-              {
-                kind: "planItem",
-                item: makeItem({
-                  documents: [
-                    { id: "d1", documentUrl: "/uploads/trips/t/days/d/day-plan-items/i/documents/doc-1.png", fileName: "Map.png", sortOrder: 1 },
-                  ],
-                }),
-              },
-            ],
-          })}
-          onReady={onReady}
-        />,
-      );
+      renderSheet({
+        payload: basePayload({
+          timeline: [
+            {
+              kind: "planItem",
+              item: makeItem({
+                documents: [
+                  { id: "d1", documentUrl: "/uploads/trips/t/days/d/day-plan-items/i/documents/doc-1.png", fileName: "Map.png", sortOrder: 1 },
+                ],
+              }),
+            },
+          ],
+        }),
+        onReady,
+      });
 
       expect(onReady).not.toHaveBeenCalled();
       fireEvent.error(screen.getByTestId("print-document-image"));
@@ -768,24 +1011,22 @@ describe("TripDayPrintDocument", () => {
       vi.useFakeTimers();
       try {
         const onReady = vi.fn();
-        render(
-          <TripDayPrintDocument
-            payload={basePayload({
-              timeline: [
-                {
-                  kind: "planItem",
-                  item: makeItem({
-                    documents: [
-                      makeDocument({ id: "d1", documentUrl: "/uploads/trips/t/days/d/day-plan-items/i/documents/a.jpg" }),
-                      makeDocument({ id: "d2", documentUrl: "/uploads/trips/t/days/d/day-plan-items/i/documents/b.jpg" }),
-                    ],
-                  }),
-                },
-              ],
-            })}
-            onReady={onReady}
-          />,
-        );
+        renderSheet({
+          payload: basePayload({
+            timeline: [
+              {
+                kind: "planItem",
+                item: makeItem({
+                  documents: [
+                    makeDocument({ id: "d1", documentUrl: "/uploads/trips/t/days/d/day-plan-items/i/documents/a.jpg" }),
+                    makeDocument({ id: "d2", documentUrl: "/uploads/trips/t/days/d/day-plan-items/i/documents/b.jpg" }),
+                  ],
+                }),
+              },
+            ],
+          }),
+          onReady,
+        });
 
         // jsdom loads no `<img>`, so both document images are outstanding and nothing else on this fixture
         // renders one: the budget is two images' worth.
@@ -816,7 +1057,7 @@ describe("TripDayPrintDocument", () => {
         },
       });
 
-      render(<TripDayPrintDocument payload={payload} onReady={onReady} />);
+      renderSheet({ payload, onReady });
       await waitFor(() => expect(onReady).toHaveBeenCalledTimes(1));
     });
   });

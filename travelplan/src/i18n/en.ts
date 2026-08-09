@@ -309,6 +309,49 @@ const en: Dictionary = {
   "trips.dayView.printAction": "Print day",
   "trips.dayPrint.back": "← Back to day",
   "trips.dayPrint.loadError": "Unable to load day for printing.",
+  // DW-230. Everything the day print sheet draws, which until now was English literals inside
+  // `TripDayPrintDocument.tsx` while every route to it was fully translated. Each value here is the
+  // literal it replaced, character for character — the printed English output is the regression gate, and
+  // the sheet's thirty-three existing assertions are what hold it.
+  //
+  // `metaTitle` is the browser tab title, which is also what the browser stamps into the printed page
+  // header, so it is printed text and not only chrome.
+  "trips.dayPrint.metaTitle": "Day itinerary",
+  // The note, when there is one, is appended after a colon by the component rather than being a second
+  // key: it is user text, and a placeholder for it would invite a translation that moves it somewhere the
+  // colon no longer fits.
+  "trips.dayPrint.dayHeading": "Day {index}",
+  "trips.dayPrint.routeSection": "Day route",
+  "trips.dayPrint.mapsLink": "Navigate in Google Maps ↗",
+  // The singular twin, for the same reason `trips.documents.showMoreDocumentsOne` has one: `formatMessage`
+  // substitutes `{count}` and has no plural support.
+  "trips.dayPrint.missingLocationsOne": "Route omits 1 stop with no saved location",
+  "trips.dayPrint.missingLocations": "Route omits {count} stops with no saved location",
+  "trips.dayPrint.itinerarySection": "Itinerary",
+  "trips.dayPrint.empty": "No details recorded for this day.",
+  "trips.dayPrint.previousStay": "Previous night accommodation",
+  "trips.dayPrint.currentStay": "Tonight's accommodation",
+  "trips.dayPrint.checkOut": "Check-out: {time}",
+  "trips.dayPrint.checkIn": "Check-in: {time}",
+  // The positional name a titleless, textless activity gets. Read by the sheet's itinerary card *and*,
+  // through `collectTimelineDocuments`, by the packet's label pages — the two must name the same activity
+  // with the same words and the same number, which is why one key serves both.
+  //
+  // **This is the one `trips.dayPrint.*` value that is also drawn into a PDF, so it must survive
+  // `toWinAnsiText` unchanged** — the same rule the `packetLabel*` block below carries, and
+  // `i18nDictionaries.test.ts` asserts it here for the same reason. Its neighbours are HTML only and may
+  // use any character (`mapsLink` carries a `↗`); this one becomes a packet label page's `entryLabel`,
+  // drawn with `StandardFonts.Helvetica`, which *throws at draw time* on anything outside WinAnsi. Plain
+  // ASCII punctuation only. Umlauts are fine — they are inside the sanitiser's Latin-1 range.
+  "trips.dayPrint.planItemFallback": "Plan item {position}",
+  // Deliberately not `trips.dayView.ganttHours`/`ganttMinutes`, which read the same in English. That pair
+  // labels a screen bar chart and this pair a printed travel segment; German splits them ("{hours}h"
+  // against "{hours} Std."), so sharing the key would force one surface to take the other's register.
+  "trips.dayPrint.durationHours": "{hours}h",
+  "trips.dayPrint.durationMinutes": "{minutes}m",
+  "trips.dayPrint.documentsAppendixHeading": "Documents not included in this printout",
+  "trips.dayPrint.documentsAppendixNote":
+    "These PDF files are not part of this printout. Download the day's document packet from the day screen to have them offline.",
   "trips.dayTransfer.moveAction": "Move activities",
   "trips.dayTransfer.swapAction": "Swap activities",
   "trips.dayTransfer.moveDescription": "Move all activities from this day to another day. Accommodation stays on its original date.",
@@ -696,6 +739,24 @@ const en: Dictionary = {
   // tickets on it, goes looking in the wrong place.
   "trips.documents.packetEmpty": "This day has no documents to package.",
   "trips.documents.packetError": "Document packet could not be created. Please try again.",
+  // DW-230. The five strings drawn *inside* the packet PDF, on the label page that precedes every
+  // document. They used to be literals in `packetPdf.ts`, so a German user reached a fully translated menu
+  // item and got an English packet — and the printed sheet beside it was English too, which is why the two
+  // halves are fixed together rather than one at a time.
+  //
+  // **Every value here must survive `toWinAnsiText` unchanged, and `i18nDictionaries.test.ts` asserts it.**
+  // The packet draws with `StandardFonts.Helvetica`, which *throws at draw time* on anything outside
+  // WinAnsi — so a typographic ellipsis or a curly quote written into one of these keys would take down
+  // the whole packet from the very page that exists to report a failure. German umlauts are inside the
+  // sanitiser's Latin-1 range and are fine; `…`, `—` and `„ “` are not. Use plain ASCII punctuation.
+  "trips.documents.packetLabelHeading": "DOCUMENT",
+  "trips.documents.packetLabelHeadingFailed": "DOCUMENT NOT INCLUDED",
+  "trips.documents.packetLabelUnavailable":
+    "This document could not be included in this packet. Open it from the app to view it.",
+  // The second line of defence: what a label page is named when drawing it with the document's own entry
+  // label and file name has itself thrown. A group named only by its position still beats a 500.
+  "trips.documents.packetLabelUnknownEntry": "Document",
+  "trips.documents.packetLabelUnknownFile": "unnamed file",
   "trips.location.latLabel": "Latitude",
   "trips.location.lngLabel": "Longitude",
   "trips.location.searchLabel": "Search place",

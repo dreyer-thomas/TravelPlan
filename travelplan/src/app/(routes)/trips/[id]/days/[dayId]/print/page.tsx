@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Box } from "@mui/material";
 import TripDayPrintPage from "@/components/features/trips/TripDayPrintPage";
+import { getServerT } from "@/i18n/server";
 
 type TripDayPrintPageProps = {
   params: Promise<{
@@ -9,9 +10,18 @@ type TripDayPrintPageProps = {
   }>;
 };
 
+/**
+ * DW-230. The tab title is not only chrome here: browsers print the document title into the page header,
+ * so an English title on a German sheet is English text on the paper. This is an async server component,
+ * so `getServerT()` - which reads the same `lang` cookie through `next/headers` - is the right reader.
+ *
+ * The `id / dayId` suffix stays. It is not a user-facing label but the thing that tells two printed sheets
+ * apart in a browser's print history, and translating the ids would be meaningless.
+ */
 export async function generateMetadata({ params }: TripDayPrintPageProps): Promise<Metadata> {
   const { id, dayId } = await params;
-  return { title: `Day itinerary — ${id} / ${dayId}` };
+  const t = await getServerT();
+  return { title: `${t("trips.dayPrint.metaTitle")} — ${id} / ${dayId}` };
 }
 
 export default async function TripDayPrintPageRoute({ params }: TripDayPrintPageProps) {

@@ -5,10 +5,12 @@ import {
   MAX_PACKET_INPUT_BYTES,
   MAX_PACKET_PAGES,
   buildDocumentPacket,
+  getPacketLabels,
   readJpegOrientation,
   toWinAnsiText,
   type PacketDocument,
 } from "@/lib/trips/packetPdf";
+import { dictionaries, type Dictionary, type Language } from "@/i18n";
 import { truncateText } from "@/lib/trips/printDocuments";
 import {
   encryptedPdfBytes,
@@ -18,6 +20,7 @@ import {
   realWebpBytes,
   truncatedPdfBytes,
 } from "./helpers/packetFixtures";
+import { extractPageTexts, extractPdfText } from "./helpers/pdfText";
 
 /**
  * Story 9.2 AC4/AC5, at unit level over `packetPdf.ts`.
@@ -559,6 +562,260 @@ describe("buildDocumentPacket", () => {
     expect(await pageSizes(packet)).toEqual([A4_PORTRAIT]);
     expect(degraded).toHaveLength(1);
     expect(degraded[0]).not.toMatch(/pixels/);
+  });
+
+  /**
+   * DW-230. The packet speaks the request's language.
+   *
+   * The first case is the helper's own proof and has to stay first: an extractor that silently returns
+   * `""` would make every "does not contain the English heading" assertion below pass for the wrong
+   * reason, which is the exact shape of test this project's reviews keep finding. So the extractor is
+   * pinned against a *positive* on the default-language packet before it is trusted for anything else.
+   */
+  describe("DW-230 label pages in the request's language", () => {
+    it("finds the English heading in a default-language packet, which is what makes the rest readable", async () => {
+      const document = pdfDocument();
+      const packet = await buildDocumentPacket(
+        [document],
+        readerFor({ [document.documentUrl]: await realPdfBytes(1, [400, 600]) }),
+      );
+
+      const text = extractPdfText(packet);
+      expect(text).toContain("DOCUMENT");
+      // And the document's own data reaches the page too, so this is reading the label page rather than
+      // some other string that happens to say DOCUMENT.
+      expect(text).toContain("Flight to Rome");
+      expect(text).toContain("Boarding pass.pdf");
+    });
+
+    /**
+     * The other half of that proof, and the one the helper's docblock used to make a *convention* of.
+     *
+     * "Assert a positive first" is only a rule while somebody remembers it, and this helper is written to
+     * be shared by suites nobody has written yet - so it now throws instead of returning `""` when it finds
+     * no drawn text at all. That is what makes every `not.toContain(...)` below a real assertion rather
+     * than one that would pass unchanged if the extractor silently stopped working. Pinned here because a
+     * guard nothing can fail is not a guard.
+     */
+    it("throws rather than returning an empty string for a PDF it finds no text in", async () => {
+      const blank = await PDFDocument.create();
+      blank.addPage([400, 600]);
+      const bytes = await blank.save();
+
+      expect(() => extractPdfText(bytes)).toThrowError(/extractPdfText/);
+    });
+
+    it("draws the German heading, and not the English one, for language: de", async () => {
+      const document = pdfDocument();
+      const packet = await buildDocumentPacket(
+        [document],
+        readerFor({ [document.documentUrl]: await realPdfBytes(1, [400, 600]) }),
+        { language: "de" },
+      );
+
+      const text = extractPdfText(packet);
+      expect(text).toContain("DOKUMENT");
+      expect(text).not.toContain("DOCUMENT");
+      // The traveller's own file name is not translated - it is what identifies the ticket.
+      expect(text).toContain("Boarding pass.pdf");
+    });
+
+    it("carries the German failure heading and the German sentence on a degraded document", async () => {
+      // Real bad bytes, like every other degradation case in this file: an encrypted PDF, not a thrown
+      // mock. This is the label page AC5 exists for, and it is the one a German traveller is most likely
+      // to have to read at a gate.
+      const document = pdfDocument({ documentUrl: "/uploads/trips/t/bad.pdf", fileName: "Verschlüsselt.pdf" });
+      const packet = await buildDocumentPacket(
+        [document],
+        readerFor({ [document.documentUrl]: await encryptedPdfBytes() }),
+        { language: "de" },
+      );
+
+      const text = extractPdfText(packet);
+      expect(text).toContain("DOKUMENT NICHT ENTHALTEN");
+      expect(text).not.toContain("DOCUMENT NOT INCLUDED");
+      expect(text).toContain("Dieses Dokument konnte nicht in dieses Paket aufgenommen werden.");
+      expect(text).not.toContain("This document could not be included");
+      // The umlaut, asserted rather than merely present in the fixture. It is the single premise
+      // `extractPdfText` rests on - `Helvetica` is WinAnsi-encoded and WinAnsi agrees with latin1 across
+      // exactly the range `toWinAnsiText` permits - and until this assertion existed every German
+      // expectation in the change was pure ASCII, so the premise was argued and never exercised. A `ü`
+      // arriving as `?` here would mean the packet cannot carry a German file name, which is the half of
+      // the artefact DW-230 explicitly does not translate and therefore has to reproduce exactly.
+      expect(text).toContain("Verschlüsselt.pdf");
+    });
+
+    it("falls back to the English packet for a language that was never passed", async () => {
+      // The default is `DEFAULT_LANGUAGE`, which is what keeps every pre-DW-230 call site - and the route
+      // serving a request with no `lang` cookie - producing exactly the bytes it did before.
+      const document = imageDocument();
+      const bytes = realJpegBytes({ width: 800, height: 1200 });
+      const withDefault = await buildDocumentPacket([document], readerFor({ [document.documentUrl]: bytes }));
+      const withEnglish = await buildDocumentPacket([document], readerFor({ [document.documentUrl]: bytes }), {
+        language: "en",
+      });
+
+      expect(extractPdfText(withDefault)).toContain("DOCUMENT");
+      expect(extractPdfText(withDefault)).toBe(extractPdfText(withEnglish));
+    });
+
+    it("changes only the words: page count, sizes and order are identical between en and de", async () => {
+      // AC2's other half, and the reason `language` touches nothing but `drawLabelPage`. A German packet
+      // that quietly gained or lost a page - or reordered one - would be a worse regression than an
+      // untranslated one, and no assertion about text could see it.
+      const pdfSource = await realPdfBytes(3, [400, 600]);
+      const first = pdfDocument({ documentUrl: "/uploads/trips/t/a.pdf" });
+      const second = imageDocument({ documentUrl: "/uploads/trips/t/b.jpg", fileName: "Karte.jpg" });
+      const third = imageDocument({ documentUrl: "/uploads/trips/t/bad.webp", fileName: "Screenshot.webp" });
+      const files = {
+        [first.documentUrl]: pdfSource,
+        [second.documentUrl]: realJpegBytes({ width: 1200, height: 800 }),
+        // One degradation in the set, so the comparison covers the failure path's label page as well.
+        [third.documentUrl]: realWebpBytes(),
+      };
+      const documents = [first, second, third];
+
+      const english = await pageSizes(await buildDocumentPacket(documents, readerFor(files), { language: "en" }));
+      const german = await pageSizes(await buildDocumentPacket(documents, readerFor(files), { language: "de" }));
+
+      expect(german).toEqual(english);
+      // Stated rather than left implicit, so a change that made *both* wrong in the same way still fails:
+      // label + 3 copied, label + 1 landscape image page, label only for the WebP.
+      expect(english).toEqual([
+        A4_PORTRAIT,
+        { width: 400, height: 600 },
+        { width: 400, height: 600 },
+        { width: 400, height: 600 },
+        A4_PORTRAIT,
+        { width: 841.89, height: 595.28 },
+        A4_PORTRAIT,
+      ]);
+    });
+  });
+
+  /**
+   * DW-230 review. A degraded document contributes exactly its one label page - and costs the documents
+   * after it nothing.
+   *
+   * `drawLabelPage` calls `addPage` before it draws, so every attempt that throws leaves a blank A4 sheet
+   * behind. The rollback that was added with the last-resort page was anchored *inside* the `catch`, after
+   * the success-path draw and after the first attempt had already left theirs, so it could only ever remove
+   * the third attempt's blank. Measured before the fix: one degraded document produced 2 pages where the
+   * degradation path promises 1, and 3 when the success-path draw was the one that threw.
+   *
+   * **What is *not* rolled back is the budget, and `packetPages` is the case worth stating.** A revision of
+   * this handler did refund it, on the reasoning that a document throwing between `copyPages` and the
+   * `addPage` loop had spent budget on pages that never reached the packet. Measured, they do reach it: a
+   * page belongs to the destination context from `copyPages` onward and `save()` serialises it whether or
+   * not it was ever added - which is what the last case here pins, through the bytes. `MAX_PACKET_PAGES`
+   * bounds exactly that copy-and-save cost, so refunding it lets a later document push the file past a
+   * ceiling whose job is keeping the process up.
+   *
+   * Reached here through a non-string `entryLabel`, which is the only input `toWinAnsiText` cannot absorb
+   * (its `for...of` throws before the sanitiser helps) and therefore the only way to make `drawLabelPage`
+   * throw on demand. Unreachable from the app's own types today, which is exactly why it needs a test: the
+   * whole catch chain is written for a day when it is not.
+   */
+  describe("DW-230 review: a failed label page leaves no blank sheet behind", () => {
+    const undrawable = { entryLabel: 7 as unknown as string };
+
+    it("costs one page, not two, when the first label-page attempt throws", async () => {
+      const document = pdfDocument(undrawable);
+      const packet = await buildDocumentPacket([document], readerFor({}));
+
+      const pdf = await PDFDocument.load(packet);
+      expect(pdf.getPageCount()).toBe(1);
+      // And it is the label page, not a blank: the rewind must not have taken the page it was making room
+      // for. Drawn from the dictionary placeholders, since the document's own label is the broken input.
+      //
+      // Read off the page tree, not the file. `extractPdfText` also returns the stream of the page the
+      // rewind detached - which carries this same heading, from the attempt that threw - so a whole-file
+      // `toContain` here passes whichever page survived and pins nothing.
+      const [pageText] = await extractPageTexts(packet);
+      expect(pageText).toContain("DOCUMENT NOT INCLUDED");
+      expect(pageText).toContain("Document");
+    });
+
+    it("costs one page when the success-path draw is the one that throws", async () => {
+      // The label page on the *success* path is outside the `catch` entirely, so its blank sheet was the
+      // one no anchor inside the handler could reach. The reader succeeds here - this document was going
+      // into the packet until the draw failed.
+      const document = pdfDocument(undrawable);
+      const packet = await buildDocumentPacket(
+        [document],
+        readerFor({ [document.documentUrl]: await realPdfBytes(2, [400, 600]) }),
+      );
+
+      const pdf = await PDFDocument.load(packet);
+      expect(pdf.getPageCount()).toBe(1);
+      expect((await pageSizes(packet))[0]).toEqual(A4_PORTRAIT);
+    });
+
+    it("keeps charging the page budget for pages it copied but could not add", async () => {
+      // Two 3-page tickets and a 5-page budget. The first is copied - charging 3 - and then fails to draw
+      // its label page, so none of its pages is in the packet the traveller sees. The budget stays spent
+      // anyway and the second ticket is refused, which is the deliberate reading: the pages are in the
+      // *file*, because `copyPages` put them in the context and `save()` writes them whether or not they
+      // were ever added. Both halves are asserted below, the second through the bytes. A refund here would
+      // put six pages of copied content into a packet bounded at five, past a ceiling `MAX_PACKET_PAGES`
+      // documents as the thing standing between `copyPages`/`save` and the process.
+      const source = await realPdfBytes(3, [400, 600]);
+      const first = pdfDocument({ ...undrawable, documentUrl: "/uploads/trips/t/a.pdf" });
+      const second = pdfDocument({ documentUrl: "/uploads/trips/t/b.pdf", fileName: "Second ticket.pdf" });
+      const degraded: string[] = [];
+
+      const packet = await buildDocumentPacket(
+        [first, second],
+        readerFor({ [first.documentUrl]: source, [second.documentUrl]: source }),
+        { maxPages: 5, onDegraded: (_document, error) => degraded.push(String(error)) },
+      );
+
+      expect(degraded).toHaveLength(2);
+      expect(degraded[1]).toMatch(/2 of its 5-page budget left/);
+      // One label page each, and nothing else in the tree: the first document's copied pages were never
+      // added, and the blank sheet its failed draw left was rewound.
+      expect(await pageSizes(packet)).toEqual([A4_PORTRAIT, A4_PORTRAIT]);
+      const pageTexts = await extractPageTexts(packet);
+      expect(pageTexts.join("\n")).not.toContain("source page 1");
+      expect(pageTexts.join("\n")).toContain("Second ticket.pdf");
+      // And the reason the budget is not handed back: those pages are in the saved file regardless.
+      expect(extractPdfText(packet)).toContain("source page 1");
+    });
+  });
+
+  describe("DW-230 getPacketLabels", () => {
+    // Two columns, not three: the first used to be a name bound to an unused `_name`, and `language`
+    // already renders as `%s` in the title. Driven off the registry rather than a hardcoded [en, de],
+    // matching the guards in `i18nDictionaries.test.ts` and for their reason - a third locale added to
+    // `src/i18n/index.ts` inherits this instead of quietly escaping it.
+    it.each(Object.entries(dictionaries) as [Language, Dictionary][])(
+      "resolves all five label strings from the %s dictionary",
+      (language, dictionary) => {
+        // Read against the dictionary rather than restated as literals: a test that copies the strings
+        // passes iff someone copied them across and catches no regression. What this pins is that each
+        // field reads the key it claims to - a transposed `heading`/`headingFailed` pair would put
+        // "DOCUMENT NOT INCLUDED" on every successful document and is otherwise invisible until someone
+        // opens a packet.
+        expect(getPacketLabels(language)).toEqual({
+          heading: dictionary["trips.documents.packetLabelHeading"],
+          headingFailed: dictionary["trips.documents.packetLabelHeadingFailed"],
+          unavailable: dictionary["trips.documents.packetLabelUnavailable"],
+          unknownEntry: dictionary["trips.documents.packetLabelUnknownEntry"],
+          unknownFile: dictionary["trips.documents.packetLabelUnknownFile"],
+        });
+      },
+    );
+
+    it("gives the two languages five genuinely different strings", () => {
+      // The guard against a half-done translation that leaves German pointing at English values - which
+      // the dictionary-parity test cannot see, because parity is about keys and not about values.
+      const english = getPacketLabels("en");
+      const german = getPacketLabels("de");
+      for (const field of ["heading", "headingFailed", "unavailable", "unknownEntry", "unknownFile"] as const) {
+        expect(german[field], field).not.toBe(english[field]);
+        expect(german[field].trim(), field).not.toBe("");
+      }
+    });
   });
 
   it("reports every degradation through onDegraded with the underlying error", async () => {

@@ -4,6 +4,8 @@ import type { NextRequest } from "next/server";
 import { apiError } from "@/lib/errors/apiError";
 import { fail } from "@/lib/http/response";
 import { hasTripReadAccess } from "@/lib/auth/tripAccess";
+import { formatMessage } from "@/i18n";
+import { getRequestI18n } from "@/i18n/request";
 import { getTripDayPrintPayloadForUser } from "@/lib/repositories/tripRepo";
 import { requireSession } from "@/lib/auth/sessionGuard";
 import { dayRouteParamsSchema } from "@/lib/validation/dayRouteSchemas";
@@ -38,6 +40,14 @@ type RouteContext = {
  * The guard chain is `requireSession` → params → `hasTripReadAccess`, and the middleware's session gate
  * (`middleware.ts`) sits in front of all of it. Both layers are required; every sibling route does both.
  * Read access, not ownership: a viewer who can open the day can take its documents offline.
+ *
+ * **The packet speaks the language the request arrived in (DW-230).** It comes off the `lang` cookie, which
+ * is the app's single runtime source of language and therefore the same value the day-menu item the user
+ * just clicked was rendered with - the whole of DW-230's complaint was that a fully localised route led to
+ * an English artefact. Read through `getRequestI18n` rather than `next/headers`, for the reason that
+ * module's docblock gives - and in one call rather than two, so the language handed to the builder and the
+ * dictionary behind `t` cannot drift apart. The error **codes** and `apiError` messages stay English:
+ * the code is the contract and the client translates it.
  */
 export const GET = async (request: NextRequest, context: RouteContext) => {
   const auth = await requireSession(request);
@@ -64,7 +74,20 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
       return fail(apiError("not_found", "Trip day not found"), 404);
     }
 
-    const documents = collectTimelineDocuments(payload.timeline);
+    // The same wording, from the same key, that the printed sheet gives a titleless activity's card - so a
+    // loose label page in the packet and the card it belongs to name that activity identically, in
+    // whichever language the packet is being built in.
+    //
+    // Both halves come out of *one* call, and that is the point: the `language` handed to
+    // `buildDocumentPacket` and the dictionary behind `t` are then the same resolution of the same cookie
+    // by construction. Two independent lookups would agree today and have nothing but coincidence keeping
+    // them in step - a packet whose label pages were German while its plan-item labels stayed English is
+    // exactly the split DW-230 exists to close.
+    const { language, t } = getRequestI18n(request);
+    const planItemFallback = (position: number) =>
+      formatMessage(t("trips.dayPrint.planItemFallback"), { position });
+
+    const documents = collectTimelineDocuments(payload.timeline, planItemFallback);
     if (documents.length === 0) {
       // Its own code, deliberately not `not_found`: the client maps that one to "trip not found"
       // (`TripTimeline.tsx`), and a traveller told the trip does not exist when the day simply has no
@@ -125,6 +148,7 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
     // Every per-document failure is handled *inside* the builder, as its own label page. Nothing a single
     // document can do reaches this function's catch, which is what makes AC5's "200 with ten groups" true.
     const packet = await buildDocumentPacket(documents, readDocument, {
+      language,
       onDegraded: (document, error) => {
         // Without this every degradation is indistinguishable to an operator: a WebP document, an
         // encrypted ticket, an unlinked file and a genuine bug in `embedJpg` all produce the same page and

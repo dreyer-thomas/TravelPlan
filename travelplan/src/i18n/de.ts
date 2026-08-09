@@ -292,6 +292,50 @@ const de: Dictionary = {
   "trips.dayView.printAction": "Tag drucken",
   "trips.dayPrint.back": "← Zurück zum Tag",
   "trips.dayPrint.loadError": "Tag konnte nicht zum Drucken geladen werden.",
+  // DW-230. Alles, was der Tagesausdruck druckt. Bisher standen diese Texte als englische Literale in
+  // `TripDayPrintDocument.tsx`, während jeder Weg dorthin übersetzt war — wer auf Deutsch arbeitete,
+  // bekam beide Offline-Artefakte des Tages auf Englisch.
+  //
+  // `metaTitle` ist der Titel des Browser-Tabs und damit zugleich das, was der Browser in die Kopfzeile
+  // der gedruckten Seite setzt: gedruckter Text, nicht bloß Rahmen.
+  "trips.dayPrint.metaTitle": "Tagesplan",
+  // Die Tagesnotiz hängt die Komponente nach einem Doppelpunkt an, statt sie hier zu interpolieren: Sie
+  // ist Nutzertext, und ein Platzhalter dafür lüde zu einer Übersetzung ein, in der der Doppelpunkt an
+  // der falschen Stelle steht.
+  "trips.dayPrint.dayHeading": "Tag {index}",
+  "trips.dayPrint.routeSection": "Tagesroute",
+  "trips.dayPrint.mapsLink": "In Google Maps navigieren ↗",
+  // Die Singular-Zwillingszeile, aus demselben Grund wie bei `trips.documents.showMoreDocumentsOne`:
+  // `formatMessage` setzt `{count}` ein und kennt keine Pluralformen.
+  "trips.dayPrint.missingLocationsOne": "Die Route lässt 1 Station ohne gespeicherten Ort aus",
+  "trips.dayPrint.missingLocations": "Die Route lässt {count} Stationen ohne gespeicherten Ort aus",
+  "trips.dayPrint.itinerarySection": "Reiseverlauf",
+  "trips.dayPrint.empty": "Für diesen Tag sind keine Details erfasst.",
+  "trips.dayPrint.previousStay": "Unterkunft der Vornacht",
+  "trips.dayPrint.currentStay": "Unterkunft heute Nacht",
+  "trips.dayPrint.checkOut": "Check-out: {time}",
+  "trips.dayPrint.checkIn": "Check-in: {time}",
+  // Der Positionsname eines Planpunkts ohne Titel und ohne Text. Gelesen von der Karte im Ausdruck *und*
+  // — über `collectTimelineDocuments` — von den Trennblättern des Dokumentenpakets. Beide müssen
+  // denselben Punkt mit denselben Worten und derselben Nummer benennen, deshalb ein Key für beide.
+  //
+  // **Der einzige `trips.dayPrint.*`-Wert, der auch in ein PDF gezeichnet wird — er muss `toWinAnsiText`
+  // unverändert überstehen.** Dieselbe Regel wie im `packetLabel*`-Block weiter unten, und
+  // `i18nDictionaries.test.ts` prüft sie auch hier. Die Nachbarwerte sind reines HTML und dürfen jedes
+  // Zeichen tragen (`mapsLink` enthält bewusst ein `↗`); dieser Wert wird zum `entryLabel` eines
+  // Trennblatts und mit `StandardFonts.Helvetica` gezeichnet, was bei allem außerhalb von WinAnsi *beim
+  // Zeichnen eine Exception wirft*. Also nur ASCII-Interpunktion — keine „typografischen“ Anführungszeichen
+  // und kein `…`. Umlaute sind unbedenklich, sie liegen im Latin-1-Bereich des Sanitizers.
+  "trips.dayPrint.planItemFallback": "Programmpunkt {position}",
+  // Bewusst nicht `trips.dayView.ganttHours`/`ganttMinutes`, die auf Englisch gleich lauten. Jenes Paar
+  // beschriftet ein Balkendiagramm am Bildschirm, dieses einen gedruckten Reiseabschnitt; im Deutschen
+  // gehen sie auseinander („{hours}h“ gegen „{hours} Std.“), ein geteilter Key zwänge also eine der
+  // beiden Oberflächen in die Sprachebene der anderen.
+  "trips.dayPrint.durationHours": "{hours} Std.",
+  "trips.dayPrint.durationMinutes": "{minutes} Min.",
+  "trips.dayPrint.documentsAppendixHeading": "Nicht im Ausdruck enthaltene Dokumente",
+  "trips.dayPrint.documentsAppendixNote":
+    "Diese PDF-Dateien sind nicht Teil dieses Ausdrucks. Das Dokumentenpaket des Tages im Tagesbildschirm herunterladen, um sie offline zu haben.",
   "trips.dayTransfer.moveAction": "Aktivitäten verschieben",
   "trips.dayTransfer.swapAction": "Aktivitäten tauschen",
   "trips.dayTransfer.moveDescription": "Verschiebe alle Aktivitäten dieses Tages auf einen anderen Tag. Die Unterkunft bleibt auf ihrem bisherigen Datum.",
@@ -651,6 +695,26 @@ const de: Dictionary = {
   // Tickets hat, sucht an der falschen Stelle.
   "trips.documents.packetEmpty": "Dieser Tag hat keine Dokumente für ein Paket.",
   "trips.documents.packetError": "Dokumentenpaket konnte nicht erstellt werden. Bitte erneut versuchen.",
+  // DW-230. Die fünf Texte, die *im* Paket-PDF stehen, auf dem Trennblatt vor jedem Dokument. Bisher
+  // Literale in `packetPdf.ts` — wer auf Deutsch arbeitete, klickte einen übersetzten Menüeintrag an und
+  // bekam ein englisches Paket, und der Ausdruck daneben war ebenfalls englisch. Deshalb werden beide
+  // Hälften gemeinsam übersetzt und nicht nacheinander.
+  //
+  // **Jeder Wert hier muss `toWinAnsiText` unverändert überstehen; `i18nDictionaries.test.ts` prüft das.**
+  // Das Paket zeichnet mit `StandardFonts.Helvetica`, und die Schrift *wirft beim Zeichnen*, sobald ein
+  // Zeichen außerhalb von WinAnsi steht — ein typografisches Auslassungszeichen oder ein typografisches
+  // Anführungszeichen in einem dieser Keys risse also das ganze Paket herunter, ausgerechnet über die
+  // Seite, die ein Scheitern melden soll. Umlaute liegen im Latin-1-Bereich des Filters und sind
+  // unbedenklich; „…“, „—“ und „ “ sind es nicht. Also einfache ASCII-Interpunktion.
+  "trips.documents.packetLabelHeading": "DOKUMENT",
+  "trips.documents.packetLabelHeadingFailed": "DOKUMENT NICHT ENTHALTEN",
+  "trips.documents.packetLabelUnavailable":
+    "Dieses Dokument konnte nicht in dieses Paket aufgenommen werden. Zum Ansehen in der App öffnen.",
+  // Die zweite Verteidigungslinie: Wie ein Trennblatt heißt, wenn schon das Zeichnen mit dem eigenen
+  // Eintragsnamen und Dateinamen geworfen hat. Eine nur über ihre Position benannte Gruppe ist immer
+  // noch besser als ein 500er.
+  "trips.documents.packetLabelUnknownEntry": "Dokument",
+  "trips.documents.packetLabelUnknownFile": "unbenannte Datei",
   "trips.location.latLabel": "Breitengrad",
   "trips.location.lngLabel": "Längengrad",
   "trips.location.searchLabel": "Ort suchen",

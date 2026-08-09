@@ -2094,7 +2094,8 @@ source_spec: `_bmad-output/implementation-artifacts/spec-9-2-documents-in-print-
 origin: migrated from legacy ledger ("Deferred from: 8-3 production rollout (2026-08-05)"), 2026-08-08
 location: `travelplan/src/lib/trips/packetPdf.ts` and `travelplan/src/components/features/trips/TripDayPrintDocument.tsx`
 reason: `trips.documents.packetAction` and its siblings exist in both dictionaries, but every string inside the artefact those keys produce is a hardcoded literal: "DOCUMENT", "DOCUMENT NOT INCLUDED" and "This document could not be included in this packet. Open it from the app to view it.", plus the print sheet's appendix heading and sentence. The print-sheet half is a pre-existing gap the story explicitly refused to half-close (it is 100% English literals including `Intl.DateTimeFormat("en-US")`), but the packet is a brand-new artefact and the route has the request in hand, so nothing blocked plumbing a locale through. Deferred rather than patched because doing the packet alone would leave the two offline artefacts in different languages, and doing both is the localisation pass the story's own boundaries rule out.
-status: open
+status: done 2026-08-09
+resolution: resolved by sweep bundle dw-packet-and-print-localization
 
 ### DW-231: Nothing limits how many expensive in-memory binary builds the app will run at once
 
@@ -2522,4 +2523,22 @@ origin: deferred from spec-print-day-sheet-fixes second review pass, 2026-08-09
 severity: low
 location: `travelplan/src/components/features/trips/TripDayView.tsx:1718` against `travelplan/src/components/features/trips/TripDayPrintDocument.tsx` (the travel-segment distance gate)
 reason: DW-109 made the two surfaces agree about *which transport modes* may carry a distance, by putting both behind `transportTypeAllowsDistance`. It did not touch the value axis, where they still differ: the day view gates on `typeof distanceKm === "number"` with no magnitude check and would render "0 km", while the sheet keeps `!= null && > 0` and renders nothing. The same stored row therefore reads differently on screen and on paper for a zero-distance car leg. Not reachable through either writer today — `travelSegmentSchemas.ts:32` and `tripImportSchemas.ts:295` both require `.positive()` — so this is legacy rows or direct database writes only, which is why the severity is low. It was out of scope for the DW-109 pass twice over: that spec forbade touching the day view, and the sheet's `> 0` behaviour is pinned by the pre-existing test "does not render '0 km' for zero-distance car segments". The work is to pick one rule (almost certainly the sheet's) and move the day view onto it, updating whatever pins the day view's current behaviour.
+status: open
+
+### DW-281: Ten hand-rolled `de-DE`/`en-US` ternaries survive `INTL_LOCALES`, so a third locale would format every date and cost in English
+
+source_spec: `_bmad-output/implementation-artifacts/spec-packet-and-print-localization.md`
+origin: deferred from spec-packet-and-print-localization follow-up review pass, 2026-08-09
+severity: low
+location: `travelplan/src/components/features/trips/TripsDashboard.tsx:149`, `TripTimeline.tsx:164,178,188`, `TripDayView.tsx:718,730`, `TripAccommodationDialog.tsx:1612`, `TripCostOverview.tsx:249,260`, and `travelplan/src/lib/trips/formatCost.ts:17` — against `travelplan/src/i18n/index.ts` `INTL_LOCALES`
+reason: DW-230 introduced `INTL_LOCALES` as *the* `Language` → BCP-47 map and then used it at exactly one of eleven sites; the other ten still spell the same rule inline as `language === "de" ? "de-DE" : "en-US"` (verified by grep, seven `Intl.DateTimeFormat` and three `Intl.NumberFormat`). Nothing is wrong on screen today, because the ternary and the map agree for the two languages that exist. The cost is the next locale: adding `fr` to `dictionaries` makes the day print sheet format its date correctly while every trip date, every day date, every accommodation date and every currency amount in the app silently falls back to `en-US`, in ten places no test names — and the ternary is a conditional, so nothing fails to compile or to run. It was correctly out of scope for DW-230, whose boundaries forbade touching formatting it did not own ("Do not reformat `distanceKm`, times, or costs"). The work is to replace the ten ternaries with `INTL_LOCALES[language]` and to add a guard that fails when a `Language` has no entry, so the map is one rule rather than the eleventh spelling of it.
+status: open
+
+### DW-282: The same travel segment prints `1 Std. 30 Min.` and displays `1h 30m`, because the day view's German duration keys were never translated
+
+source_spec: `_bmad-output/implementation-artifacts/spec-packet-and-print-localization.md`
+origin: deferred from spec-packet-and-print-localization follow-up review pass, 2026-08-09
+severity: low
+location: `travelplan/src/i18n/de.ts:288-290` (`trips.dayView.ganttHoursMinutes`, `ganttHours`, `ganttMinutes`), consumed at `travelplan/src/components/features/trips/TripDayView.tsx:1646-1651` and `TripTimeline.tsx:264-269`
+reason: All three German values are byte-identical to their English twins — `{hours}h {minutes}m`, `{hours}h`, `{minutes}m` — so a German user reading a 90-minute flight sees `1h 30m` in the day view and on the trip timeline. DW-230 translated the printed sheet's equivalent pair to `{hours} Std.` / `{minutes} Min.` and deliberately did not reuse these keys, on the stated ground that a screen bar chart and a printed segment can differ in register (`en.ts:347-349`). That reasoning holds for the two keys *being separate*; it does not describe the current state, which is that one surface is localised and the other is not, and DW-230 leaves the divergence visible on the same day's data. Recorded in that spec's Dev Notes as found-and-not-fixed. This is the same defect class as DW-230 itself, one screen over. The work is to translate the three `trips.dayView.gantt*` values and pin them, deciding at the same time whether the printed and on-screen registers are genuinely meant to differ or whether both should read `Std.`/`Min.`; note `i18nDictionaries.test.ts` has an `it.each` block for keys that are deliberately identical in both languages, so whichever way it goes should land there.
 status: open

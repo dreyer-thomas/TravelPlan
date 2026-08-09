@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import en from "@/i18n/en";
 import de from "@/i18n/de";
 import { dictionaries } from "@/i18n";
+import { toWinAnsiText } from "@/lib/trips/packetPdf";
 
 describe("i18n dictionaries", () => {
   it("exports dictionary objects for en and de", () => {
@@ -746,6 +747,208 @@ describe("i18n dictionaries", () => {
             .sort(),
         ).toEqual(expected);
       }
+    });
+  });
+
+  /**
+   * DW-230. The day's two offline artefacts - the printed sheet and the document packet - were the last
+   * fully-English surfaces behind a fully-translated UI. Both now read these keys.
+   *
+   * The parity assertion at the top of this file already says the two dictionaries hold the same key set,
+   * so what these cases add is the two things it cannot see: that the keys these two artefacts read exist
+   * *at all* (parity is equally satisfied by both dictionaries missing a key), and that the packet's own
+   * five values are safe to draw.
+   */
+  describe("DW-230 print sheet and packet label keys", () => {
+    const has = (dictionary: Record<string, string>, key: string) =>
+      Object.prototype.hasOwnProperty.call(dictionary, key);
+
+    /**
+     * Every key whose value can be **drawn into the packet PDF**, which is a slightly larger set than the
+     * five `getPacketLabels` resolves - and the difference is what this list got wrong when it was written.
+     *
+     * `trips.dayPrint.planItemFallback` is the sixth. It is not only sheet copy: the packet route builds its
+     * `planItemFallback` from this key, `collectTimelineDocuments` uses that function as a titleless plan
+     * item's `entryLabel`, and `drawLabelPage` draws `entryLabel` with `StandardFonts.Helvetica` like every
+     * other string on the page. So a `…` or a typographic quote written into it is drawn by the same font
+     * that throws on one, on a label page, in the packet - the failure the guard below exists to prevent,
+     * reached through a key that used to sit outside it.
+     */
+    const PACKET_LABEL_KEYS = [
+      "trips.documents.packetLabelHeading",
+      "trips.documents.packetLabelHeadingFailed",
+      "trips.documents.packetLabelUnavailable",
+      "trips.documents.packetLabelUnknownEntry",
+      "trips.documents.packetLabelUnknownFile",
+      "trips.dayPrint.planItemFallback",
+    ];
+
+    /**
+     * Every key the print sheet draws, including the tab title the browser prints into the page header.
+     *
+     * The `trips.travelSegment.*` six at the end are not `trips.dayPrint.*` and are listed anyway, because
+     * DW-230 is what made the sheet *read* them: the transport names and the distance unit used to be
+     * literals in `TripDayPrintDocument.tsx` and are now dictionary lookups, reusing the keys the travel
+     * segment dialog owns. Reuse was the right call - a second spelling of "Car" would drift against the
+     * one on screen for the same segment - but it hands the sheet a dependency it cannot see broken: `t()`
+     * returns the *key* on a miss, and the component's membership guard checks the `transportType`, not
+     * whether the dictionary still has an entry for it. Without this list, deleting
+     * `trips.travelSegment.transport.cycling` from either dictionary prints
+     * `trips.travelSegment.transport.cycling` on paper with the whole suite green, because the parity test
+     * is equally satisfied by *both* dictionaries dropping it and the render tests only cover three of the
+     * five modes per language.
+     */
+    const DAY_PRINT_KEYS = [
+      "trips.travelSegment.kmSuffix",
+      "trips.travelSegment.transport.car",
+      "trips.travelSegment.transport.ship",
+      "trips.travelSegment.transport.flight",
+      "trips.travelSegment.transport.walking",
+      "trips.travelSegment.transport.cycling",
+      "trips.dayPrint.metaTitle",
+      "trips.dayPrint.dayHeading",
+      "trips.dayPrint.routeSection",
+      "trips.dayPrint.mapsLink",
+      "trips.dayPrint.missingLocationsOne",
+      "trips.dayPrint.missingLocations",
+      "trips.dayPrint.itinerarySection",
+      "trips.dayPrint.empty",
+      "trips.dayPrint.previousStay",
+      "trips.dayPrint.currentStay",
+      "trips.dayPrint.checkOut",
+      "trips.dayPrint.checkIn",
+      "trips.dayPrint.planItemFallback",
+      "trips.dayPrint.durationHours",
+      "trips.dayPrint.durationMinutes",
+      "trips.dayPrint.documentsAppendixHeading",
+      "trips.dayPrint.documentsAppendixNote",
+    ];
+
+    // Iterated over the registry rather than a hardcoded [en, de], so a third locale added to
+    // `src/i18n/index.ts` inherits these guards instead of quietly escaping them. De-duplicated because
+    // `planItemFallback` is legitimately in both lists - it is drawn on the sheet *and* into the packet -
+    // and running its existence case twice would only make a failure read as two.
+    it.each([...new Set([...PACKET_LABEL_KEYS, ...DAY_PRINT_KEYS])])("defines %s in every language", (key) => {
+      for (const [language, dictionary] of Object.entries(dictionaries)) {
+        expect(has(dictionary, key), `${key} missing from ${language}`).toBe(true);
+        expect(dictionary[key].trim(), `${key} is empty in ${language}`).not.toBe("");
+      }
+    });
+
+    /**
+     * **The one that stops a runtime crash rather than a cosmetic miss.**
+     *
+     * The packet draws these five with `StandardFonts.Helvetica`, which **throws at draw time** on any code
+     * point outside WinAnsi. A `…`, an em dash or a typographic quote written into one of these values -
+     * all of which this dictionary uses freely elsewhere, and German copy in this file genuinely does -
+     * would take down the entire packet, and it would do it through the very label page that exists to
+     * report a document failure. `drawLabelPage` runs them through `toWinAnsiText` too, so the character
+     * would be silently replaced by a `?` rather than crashing; that belt is worth having, but a `?` in
+     * the middle of "DOKUMENT NICHT ENTHALTEN" is still a defect, and this is where it is caught - at the
+     * source, by name, instead of by someone opening a packet.
+     *
+     * The five `packetLabel*` values **and** `trips.dayPrint.planItemFallback`. Sixteen of the seventeen
+     * `trips.dayPrint.*` values really are drawn only as HTML by a browser, which has no such restriction -
+     * `mapsLink` deliberately carries a `↗` - but `planItemFallback` is the exception: the packet route
+     * interpolates it into the `entryLabel` of a titleless plan item, and that string is drawn onto a label
+     * page by the same Helvetica as everything else. It is in `PACKET_LABEL_KEYS` for that reason, and the
+     * comment used to claim the opposite about the whole namespace.
+     */
+    it.each(PACKET_LABEL_KEYS)("keeps %s WinAnsi-encodable in every language", (key) => {
+      for (const [language, dictionary] of Object.entries(dictionaries)) {
+        const value = dictionary[key];
+        expect(
+          toWinAnsiText(value),
+          `${language}: "${value}" contains a character Helvetica cannot draw`,
+        ).toBe(value);
+      }
+    });
+
+    /**
+     * **The other way a label page loses its text, and the one no page-shape assertion can see.**
+     *
+     * `drawLabelPage` lays out by subtracting from a fixed top and has no floor check: a block that runs
+     * past `y = 0` is still *drawn*, just below the paper. Nothing about the page changes - same count,
+     * same size - so the en/de page-shape equivalence test in `documentPacketPdf.test.ts` passes happily on
+     * a German failure page whose explanatory sentence is not on the sheet. `printDocuments.ts` truncates
+     * `entryLabel` at `PRINT_MAX_CHARS` for exactly this reason; the dictionary side had no equivalent.
+     *
+     * The ceiling is derived from the geometry rather than picked. A4 portrait is 595.28 x 841.89 and
+     * `LABEL_MARGIN` is 56, so `maxWidth` is 595.28 - 112 = 483.28pt and the first block starts at
+     * 841.89 - 112 = 729.89pt. Each block consumes `lines x lineHeight` plus its own leading gap, and the
+     * degradation sentence is last, so what it gets is whatever the heading (10pt/14), the entry label
+     * (20pt/26, itself capped at `PRINT_MAX_CHARS` = 300 characters, ~10 lines at the widest glyphs) and
+     * the file name (13pt/18, capped at 255 characters, ~5 lines) leave. Worst case that is
+     * 729.89 - 28 - 18 - 260 - 10 - 90 = 323.89pt, i.e. 20 further lines of 11pt/15 above the floor, and at
+     * 483.28pt of width even all-caps Helvetica fits ~60 characters per line: ~1,200 characters before
+     * anything is drawn off the page.
+     *
+     * 400 is where the bound sits - roughly a third of that floor, and roughly four times the longest value
+     * either dictionary holds today (the German sentence, 105). The headroom is deliberate in both
+     * directions: this must fail on someone pasting a paragraph into a label key, and never on an ordinary
+     * translation that runs long. A failure here is not "shorten this by ten characters", it is "this is no
+     * longer a label".
+     */
+    const MAX_PACKET_LABEL_CHARS = 400;
+
+    it.each(PACKET_LABEL_KEYS)("keeps %s short enough to stay on the label page in every language", (key) => {
+      for (const [language, dictionary] of Object.entries(dictionaries)) {
+        const value = dictionary[key];
+        expect(
+          value.length,
+          `${language}: "${value}" is long enough to be laid out below the bottom of the label page`,
+        ).toBeLessThanOrEqual(MAX_PACKET_LABEL_CHARS);
+      }
+    });
+
+    /**
+     * The placeholders the two artefacts interpolate. `formatMessage` leaves an unrecognised `{name}` in
+     * the output verbatim, so a translation that renamed `{position}` to `{nummer}` would print the braces
+     * on paper rather than failing anywhere a developer would notice.
+     */
+    it.each([
+      ["trips.dayPrint.dayHeading", "{index}"],
+      ["trips.dayPrint.missingLocations", "{count}"],
+      ["trips.dayPrint.checkOut", "{time}"],
+      ["trips.dayPrint.checkIn", "{time}"],
+      ["trips.dayPrint.planItemFallback", "{position}"],
+      ["trips.dayPrint.durationHours", "{hours}"],
+      ["trips.dayPrint.durationMinutes", "{minutes}"],
+    ])("keeps the %s placeholder %s in every language", (key, placeholder) => {
+      for (const [language, dictionary] of Object.entries(dictionaries)) {
+        expect(dictionary[key], `${key} in ${language}`).toContain(placeholder);
+      }
+    });
+
+    /**
+     * The singular twin has to stay placeholder-*free*, or it is not a singular: `formatMessage` has no
+     * plural support, which is the whole reason there are two keys.
+     */
+    it("keeps the singular missing-location note free of a count placeholder", () => {
+      for (const [language, dictionary] of Object.entries(dictionaries)) {
+        expect(dictionary["trips.dayPrint.missingLocationsOne"], language).not.toContain("{");
+      }
+    });
+
+    /**
+     * Two of DW-230's new German values are byte-identical to their English twins, which is the exact shape
+     * story 6.17's block above pins for its four short labels - and for the same reason: an untranslated
+     * leftover and a deliberate decision look identical in a dictionary file, and only one of them should
+     * survive a review.
+     *
+     * These are the deliberate kind. "Check-in" and "Check-out" are the words German hotels themselves use
+     * on their own signage and confirmations, and `trips.dayView.statCheckInGeneric` already ships as
+     * "Check-in" in both languages (pinned two blocks up, story 6.21) - so translating these to
+     * "Anreise"/"Abreise" here would make the printed sheet disagree with the day view about the same event.
+     * Pinned in their own case rather than added to 6.17's: they belong to DW-230, and a shared list would
+     * make either story's change read as the other's.
+     */
+    it.each([
+      ["trips.dayPrint.checkIn", "Check-in: {time}"],
+      ["trips.dayPrint.checkOut", "Check-out: {time}"],
+    ])("keeps %s the same in both languages, because it is the German word too", (key, value) => {
+      expect(en[key]).toBe(value);
+      expect(de[key]).toBe(value);
     });
   });
 });

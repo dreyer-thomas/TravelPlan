@@ -40,9 +40,22 @@ export const truncateText = (text: string) =>
  * What the printed sheet calls one timeline entry, and therefore what a document page is labelled with.
  *
  * This is the sheet's existing three-step expression, moved rather than rewritten: an explicit title,
- * else the item's own body text truncated, else a positional `Plan item N`. `index` is the index into
- * the **timeline** array - segments included - because that is what the sheet's card already counts, and
- * a packet label naming a different number than the card it belongs to would be worse than no number.
+ * else the item's own body text truncated, else a positional name the **caller** supplies. `index` is the
+ * index into the **timeline** array - segments included - because that is what the sheet's card already
+ * counts, and a packet label naming a different number than the card it belongs to would be worse than no
+ * number.
+ *
+ * **The positional wording is a required parameter, not a literal and not a default (DW-230).** A function
+ * rather than a string because the position is interpolated into it, and *required* rather than defaulted
+ * so the compiler names every call site: the sheet and the packet have to agree on the wording, and a
+ * default is precisely how one of them would silently keep the old one. Keeping the module itself free of
+ * `@/i18n` also keeps it a pure traversal that either caller - a `"use client"` component and a Node route
+ * handler - can import without inheriting a language.
+ *
+ * This paragraph used to add that handing the module a `t` or a `Language` would drag `@/i18n` and its two
+ * dictionaries into a client bundle. That cost does not exist and the claim is struck rather than quietly
+ * deleted: the `"use client"` component calling this imports `@/i18n` directly, and `src/i18n/provider.tsx`
+ * already pulls `dictionaries` into every client bundle in the app. The shape stands on the reasons above.
  *
  * A stay is named by `stay.name`, truncated to the same `PRINT_MAX_CHARS` the item branch already uses.
  * The truncation is load-bearing rather than tidy: `Accommodation.name` has no `.max()` in its schema and
@@ -55,13 +68,17 @@ export const truncateText = (text: string) =>
  * A travel segment has no name on this sheet and carries no documents, so it has no label to give: `""`
  * is returned rather than a placeholder nobody would ever see, and `collectTimelineDocuments` never asks.
  */
-export const getPrintEntryLabel = (entry: TripDayPrintTimelineEntry, index: number): string => {
+export const getPrintEntryLabel = (
+  entry: TripDayPrintTimelineEntry,
+  index: number,
+  planItemFallback: (position: number) => string,
+): string => {
   if (entry.kind === "previousStay" || entry.kind === "currentStay") {
     return truncateText(entry.stay.name);
   }
   if (entry.kind === "planItem") {
     const rawLabel = entry.item.title?.trim() || truncateText(parsePlanText(entry.item.contentJson));
-    return rawLabel || `Plan item ${index + 1}`;
+    return rawLabel || planItemFallback(index + 1);
   }
   return "";
 };
@@ -90,6 +107,7 @@ export type PrintTimelineDocument = {
  */
 export const collectTimelineDocuments = (
   timeline: readonly TripDayPrintTimelineEntry[],
+  planItemFallback: (position: number) => string,
 ): PrintTimelineDocument[] => {
   const collected: PrintTimelineDocument[] = [];
 
@@ -102,7 +120,7 @@ export const collectTimelineDocuments = (
           : null;
     if (!documents || documents.length === 0) return;
 
-    const entryLabel = getPrintEntryLabel(entry, index);
+    const entryLabel = getPrintEntryLabel(entry, index, planItemFallback);
     for (const document of documents) {
       collected.push({
         entryLabel,

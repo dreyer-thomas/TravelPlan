@@ -14,6 +14,7 @@ import {
   getTripsUploadRoot,
 } from "@/lib/trips/uploadPaths";
 import { encryptedPdfBytes, realJpegBytes, realPdfBytes } from "./helpers/packetFixtures";
+import { extractPdfText } from "./helpers/pdfText";
 import { writeUploadFile } from "./helpers/uploadFixtures";
 
 /**
@@ -31,10 +32,22 @@ type ApiEnvelope<T> = {
   error: { code: string; message: string; details?: unknown } | null;
 };
 
-const buildRequest = (tripId: string, dayId: string, session?: string) => {
+/**
+ * `language` carries DW-230's `lang` cookie. Omitted by every pre-existing case, which is the point: the
+ * route resolves an absent cookie through `resolveLanguage` to `DEFAULT_LANGUAGE`, so all of them still
+ * describe the English packet and their expectations are unchanged.
+ */
+const buildRequest = (tripId: string, dayId: string, session?: string, language?: string) => {
   const headers: Record<string, string> = {};
+  const cookies: string[] = [];
   if (session) {
-    headers.cookie = `session=${session}`;
+    cookies.push(`session=${session}`);
+  }
+  if (language) {
+    cookies.push(`lang=${language}`);
+  }
+  if (cookies.length > 0) {
+    headers.cookie = cookies.join("; ");
   }
   return new NextRequest(`http://localhost/api/trips/${tripId}/days/${dayId}/documents/packet`, {
     method: "GET",
@@ -42,8 +55,8 @@ const buildRequest = (tripId: string, dayId: string, session?: string) => {
   });
 };
 
-const call = (tripId: string, dayId: string, session?: string) =>
-  GET(buildRequest(tripId, dayId, session), { params: Promise.resolve({ id: tripId, dayId }) });
+const call = (tripId: string, dayId: string, session?: string, language?: string) =>
+  GET(buildRequest(tripId, dayId, session, language), { params: Promise.resolve({ id: tripId, dayId }) });
 
 const uploadsRoot = getTripsUploadRoot();
 
@@ -424,6 +437,117 @@ describe("GET /api/trips/[id]/days/[dayId]/documents/packet", () => {
       { width: 400, height: 600 },
       { width: 400, height: 600 },
     ]);
+  });
+
+  /**
+   * DW-230, end to end: the cookie the browser sends is what the label pages are drawn in.
+   *
+   * The unit-level cases in `documentPacketPdf.test.ts` prove the builder honours a `language` option.
+   * What only this level can show is that the *route* reads the request's `lang` cookie and hands it over -
+   * a route that resolved the language and then forgot to pass it would keep every one of those unit tests
+   * green while shipping DW-230's exact complaint.
+   *
+   * The same fixture is built twice and requested twice, once with the cookie and once without, so the two
+   * packets differ in nothing but the cookie. The English half is asserted as well as the German: it is the
+   * evidence that the extractor works on *this* packet, which is what makes the `not.toContain` below mean
+   * something.
+   */
+  it("draws the label pages in the language of the request's lang cookie", async () => {
+    const user = await prisma.user.create({
+      data: { email: "packet-german@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const session = await createSessionJwt({ sub: user.id, role: user.role });
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Rom & zurück!",
+      startDate: "2026-10-10T00:00:00.000Z",
+      endDate: "2026-10-10T00:00:00.000Z",
+    });
+    const day = await prisma.tripDay.findFirstOrThrow({ where: { tripId: trip.id } });
+    const stay = await prisma.accommodation.create({
+      data: { tripDayId: day.id, name: "Hotel Roma", status: "BOOKED" },
+    });
+    await prisma.accommodationDocument.create({
+      data: {
+        accommodationId: stay.id,
+        documentUrl: await writeAccommodationDocument(
+          { tripId: trip.id, dayId: day.id, accommodationId: stay.id, fileName: "doc-1.pdf" },
+          await realPdfBytes(2),
+        ),
+        fileName: "Hotelbuchung.pdf",
+        sortOrder: 0,
+      },
+    });
+
+    const english = await call(trip.id, day.id, session);
+    const germanResponse = await call(trip.id, day.id, session, "de");
+
+    expect(english.status).toBe(200);
+    expect(germanResponse.status).toBe(200);
+
+    const englishText = extractPdfText(new Uint8Array(await english.arrayBuffer()));
+    expect(englishText).toContain("DOCUMENT");
+
+    const germanBytes = new Uint8Array(await germanResponse.arrayBuffer());
+    expect(extractPdfText(germanBytes)).toContain("DOKUMENT");
+    expect(extractPdfText(germanBytes)).not.toContain("DOCUMENT");
+    // The traveller's own file name is untranslated - it is what identifies the ticket in the packet.
+    expect(extractPdfText(germanBytes)).toContain("Hotelbuchung.pdf");
+
+    // Everything outside the label text is unchanged. The file name in particular is deliberately *not*
+    // localised: `toSafeSlug`'s output is ASCII on purpose and translating it buys nothing while risking a
+    // header-safety regression.
+    //
+    // `zurück` slugs to `zur-ck`, not `zuruck`: `toSafeSlug` replaces any non-ASCII character rather than
+    // transliterating it, so the umlaut is dropped rather than folded to `u`. That is pre-existing
+    // behaviour of the shared slug helper and is asserted here as it is, not as it ought to be - this
+    // story's job is that the *language of the request* does not move this header, which is what the
+    // English case above and this one together say.
+    expect(germanResponse.headers.get("content-type")).toBe("application/pdf");
+    expect(germanResponse.headers.get("content-disposition")).toBe(
+      'attachment; filename="rom-zur-ck-day-1-documents.pdf"',
+    );
+    // The same header the English request produced, character for character.
+    expect(germanResponse.headers.get("content-disposition")).toBe(english.headers.get("content-disposition"));
+    expect(germanResponse.headers.get("cache-control")).toBe("no-store");
+    expect(await PDFDocument.load(germanBytes).then((pdf) => pdf.getPageCount())).toBe(3);
+  });
+
+  it("serves the English packet when the lang cookie carries a language the app does not have", async () => {
+    // `resolveLanguage` falls back to `DEFAULT_LANGUAGE` rather than indexing `dictionaries` with the raw
+    // value, so an unsupported code is an English packet and not a crash or a packet full of raw keys.
+    const user = await prisma.user.create({
+      data: { email: "packet-unknown-lang@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const session = await createSessionJwt({ sub: user.id, role: user.role });
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Fallback Trip",
+      startDate: "2026-10-12T00:00:00.000Z",
+      endDate: "2026-10-12T00:00:00.000Z",
+    });
+    const day = await prisma.tripDay.findFirstOrThrow({ where: { tripId: trip.id } });
+    const stay = await prisma.accommodation.create({
+      data: { tripDayId: day.id, name: "Hotel", status: "BOOKED" },
+    });
+    await prisma.accommodationDocument.create({
+      data: {
+        accommodationId: stay.id,
+        documentUrl: await writeAccommodationDocument(
+          { tripId: trip.id, dayId: day.id, accommodationId: stay.id, fileName: "doc-1.pdf" },
+          await realPdfBytes(1),
+        ),
+        fileName: "Voucher.pdf",
+        sortOrder: 0,
+      },
+    });
+
+    const response = await call(trip.id, day.id, session, "fr");
+
+    expect(response.status).toBe(200);
+    const text = extractPdfText(new Uint8Array(await response.arrayBuffer()));
+    expect(text).toContain("DOCUMENT");
+    expect(text).not.toContain("DOKUMENT");
   });
 
   it("returns 200 with every other document when one cannot be merged", async () => {

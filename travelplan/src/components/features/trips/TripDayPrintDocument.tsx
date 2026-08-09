@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { TripDayPrintPayload, TripDayPrintTimelineEntry } from "@/lib/repositories/tripRepo";
+import { formatMessage, INTL_LOCALES } from "@/i18n";
+import { useI18n } from "@/i18n/provider";
 import { parsePlanText } from "@/lib/trips/planText";
 import { collectTimelineDocuments, getPrintEntryLabel, truncateText } from "@/lib/trips/printDocuments";
-import { transportTypeAllowsDistance } from "@/lib/trips/transportTypes";
+import { isTransportType, transportTypeAllowsDistance, type TransportType } from "@/lib/trips/transportTypes";
 import type { TripDayMapPoint } from "@/lib/trips/dayMapData";
 
 /**
@@ -25,21 +27,33 @@ import type { TripDayMapPoint } from "@/lib/trips/dayMapData";
 const IMAGE_SETTLE_TIMEOUT_PER_IMAGE_MS = 8000;
 const IMAGE_SETTLE_TIMEOUT_CEILING_MS = 40000;
 
-const TRANSPORT_LABELS: Record<string, string> = {
-  car: "Car",
-  ship: "Ship",
-  flight: "Flight",
-  walking: "Walking",
-  cycling: "Cycling",
-};
-
-const formatDuration = (minutes: number) => {
-  if (!Number.isFinite(minutes) || minutes <= 0) return "";
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  if (h > 0 && m > 0) return `${h}h ${m}m`;
-  if (h > 0) return `${h}h`;
-  return `${m}m`;
+/**
+ * The dictionary key each transport type is named by, not the name itself (DW-230).
+ *
+ * The five keys already existed for the travel-segment dialog and the day view, so this sheet joins them
+ * rather than adding a second spelling of "Car" that could drift out of step with the one on screen for
+ * the same segment.
+ *
+ * A `transportType` outside these five still prints raw, exactly as before. That branch matters: the value
+ * comes out of the database and `tripImportSchemas.ts` does not constrain it to the five, so a restored
+ * backup can carry anything - and `t()` returns the *key* for a miss, which would put
+ * `trips.travelSegment.transport.hovercraft` on a printed page. Membership is therefore checked before the
+ * lookup rather than leaning on a `??` fallback that a missing dictionary entry never reaches.
+ *
+ * **The narrowing and the key type both come from `transportTypes.ts`, which this file already imports.**
+ * A `Record<string, string>` narrowed by a hand-rolled `hasOwnProperty` is the same guard that module
+ * exports as `isTransportType`, written a second time - and it costs the exhaustiveness its docblock
+ * promises: keyed by `TransportType`, a sixth mode added to `TRANSPORT_TYPES` fails to compile *here*,
+ * which is the whole point of that module existing ("every enum-to-string mapper in the codebase is
+ * exhaustive so the compiler catches the next added mode"). Keyed by `string` it would silently print the
+ * new mode raw on paper while the day view named it properly, and no test would be looking.
+ */
+const TRANSPORT_LABEL_KEYS: Record<TransportType, string> = {
+  car: "trips.travelSegment.transport.car",
+  ship: "trips.travelSegment.transport.ship",
+  flight: "trips.travelSegment.transport.flight",
+  walking: "trips.travelSegment.transport.walking",
+  cycling: "trips.travelSegment.transport.cycling",
 };
 
 const GOOGLE_MAPS_MAX_STOPS = 9;
@@ -74,9 +88,39 @@ type TripDayPrintDocumentProps = {
 
 export default function TripDayPrintDocument({ payload, onReady }: TripDayPrintDocumentProps) {
   const { trip, day, timeline, map } = payload;
+  // DW-230. An ordinary `useI18n` consumer like every other client component in this tree. Both of the
+  // day's offline artefacts - this sheet and the document packet - now read the same two dictionaries, so
+  // a traveller cannot end up holding one of each in different languages.
+  const { t, language } = useI18n();
 
   const googleMapsUrl = useMemo(() => buildGoogleMapsUrl(map.points), [map.points]);
   const hasMapPoints = map.points.length > 0;
+
+  /**
+   * Two keys rather than one, and joined by a space rather than interpolated into a third.
+   *
+   * The halves are independently optional - `1h`, `45m` and `1h 45m` are all reachable - so a single
+   * "{hours}h {minutes}m" key could not express the first two. And the unit is not a suffix in every
+   * language: German writes `1 Std. 45 Min.` with a space before each unit where English writes none, so
+   * the space has to live inside the value.
+   */
+  const formatDuration = (minutes: number) => {
+    if (!Number.isFinite(minutes) || minutes <= 0) return "";
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    const parts: string[] = [];
+    if (h > 0) parts.push(formatMessage(t("trips.dayPrint.durationHours"), { hours: h }));
+    if (m > 0) parts.push(formatMessage(t("trips.dayPrint.durationMinutes"), { minutes: m }));
+    return parts.join(" ");
+  };
+
+  // Memoised because the document traversal below lists it as a dependency: a fresh closure every render
+  // would re-run that traversal every render, and leaving it out of the dependency list instead would be a
+  // list that lies - which is what both `exhaustive-deps` and the React Compiler object to.
+  const planItemFallback = useCallback(
+    (position: number) => formatMessage(t("trips.dayPrint.planItemFallback"), { position }),
+    [t],
+  );
 
   // One traversal of the day's documents, from the module the packet route also imports, so the sheet
   // and the packet cannot disagree about which documents this day has or in what order.
@@ -88,25 +132,30 @@ export default function TripDayPrintDocument({ payload, onReady }: TripDayPrintD
   // listed in an appendix as a PDF it is not. The packet half, which has to hand the bytes to a parser,
   // refuses that case outright with a label page.
   const { imageDocuments, pdfDocuments } = useMemo(() => {
-    const documents = collectTimelineDocuments(timeline);
+    const documents = collectTimelineDocuments(timeline, planItemFallback);
     return {
       imageDocuments: documents.filter((document) => !document.isPdf),
       pdfDocuments: documents.filter((document) => document.isPdf),
     };
-  }, [timeline]);
+  }, [timeline, planItemFallback]);
 
   const root = useRef<HTMLDivElement | null>(null);
 
-  const formattedDate = new Intl.DateTimeFormat("en-US", {
+  // The one `Intl` argument that changes, and the only formatting this story touches: `en-US` still
+  // resolves through `INTL_LOCALES.en`, so the English sheet prints the same `August 10, 2026` it always
+  // has, while German gets `10. August 2026`. The options and `timeZone: "UTC"` are untouched - the date
+  // is a calendar day stored at midnight UTC, and formatting it in the viewer's zone would move it.
+  const formattedDate = new Intl.DateTimeFormat(INTL_LOCALES[language], {
     month: "long",
     day: "numeric",
     year: "numeric",
     timeZone: "UTC",
   }).format(new Date(day.date));
 
-  const dayHeading = day.note?.trim()
-    ? `Day ${day.dayIndex}: ${day.note.trim()}`
-    : `Day ${day.dayIndex}`;
+  // The note is appended rather than interpolated: it is the user's own text, and a `{note}` placeholder
+  // in the dictionary would let a translation move it away from the colon that introduces it.
+  const dayIndexHeading = formatMessage(t("trips.dayPrint.dayHeading"), { index: day.dayIndex });
+  const dayHeading = day.note?.trim() ? `${dayIndexHeading}: ${day.note.trim()}` : dayIndexHeading;
 
   // `onReady` is what fires `window.print()` (`TripDayPrintPage.tsx`), and the print dialog snapshots
   // the page at the moment it opens - a later image load does not update the preview. Before Story 9.2
@@ -278,7 +327,7 @@ export default function TripDayPrintDocument({ payload, onReady }: TripDayPrintD
                 fontWeight: 600,
               }}
             >
-              Day route
+              {t("trips.dayPrint.routeSection")}
             </div>
             <div style={{ fontSize: "11px", color: "#333" }}>
               <a
@@ -288,7 +337,7 @@ export default function TripDayPrintDocument({ payload, onReady }: TripDayPrintD
                 rel="noopener noreferrer"
                 style={{ color: "#333", wordBreak: "break-all" }}
               >
-                Navigate in Google Maps ↗
+                {t("trips.dayPrint.mapsLink")}
               </a>
             </div>
             {/* A route drawn past stops that have no coordinates reads as complete, and on paper there is
@@ -315,8 +364,10 @@ export default function TripDayPrintDocument({ payload, onReady }: TripDayPrintD
                 style={{ fontSize: "10px", color: "#888", marginTop: "2px" }}
               >
                 {map.missingLocations.length === 1
-                  ? "Route omits 1 stop with no saved location"
-                  : `Route omits ${map.missingLocations.length} stops with no saved location`}
+                  ? t("trips.dayPrint.missingLocationsOne")
+                  : formatMessage(t("trips.dayPrint.missingLocations"), {
+                      count: map.missingLocations.length,
+                    })}
               </div>
             )}
           </div>
@@ -334,17 +385,23 @@ export default function TripDayPrintDocument({ payload, onReady }: TripDayPrintD
               fontWeight: 600,
             }}
           >
-            Itinerary
+            {t("trips.dayPrint.itinerarySection")}
           </div>
 
           {timeline.length === 0 && (
-            <p style={{ color: "#666", fontSize: "12px" }}>No details recorded for this day.</p>
+            <p style={{ color: "#666", fontSize: "12px" }}>{t("trips.dayPrint.empty")}</p>
           )}
 
           {timeline.map((entry, index) => {
             if (entry.kind === "travelSegment") {
               const seg = entry.segment;
-              const transport = TRANSPORT_LABELS[seg.transportType] ?? seg.transportType;
+              // Membership first, then `t()`. See `TRANSPORT_LABEL_KEYS`: an unknown type must print raw,
+              // and `t()` hands back the key itself for a miss, which would print the key on paper. The
+              // check is the shared `isTransportType` rather than a local one, so this sheet and every
+              // other surface answer "is this one of the five" the same way.
+              const transport = isTransportType(seg.transportType)
+                ? t(TRANSPORT_LABEL_KEYS[seg.transportType])
+                : seg.transportType;
               const duration = formatDuration(seg.durationMinutes);
               // Ship and flight cannot carry a distance (Story 6.16 / AC6) but an imported backup can still
               // restore one — tripImportSchemas.ts does not enforce the coupling. Gate on the shared rule so
@@ -360,7 +417,7 @@ export default function TripDayPrintDocument({ payload, onReady }: TripDayPrintD
               // separately rather than papered over by loosening this one.
               const distance =
                 transportTypeAllowsDistance(seg.transportType) && seg.distanceKm != null && seg.distanceKm > 0
-                  ? `${seg.distanceKm} km`
+                  ? `${seg.distanceKm} ${t("trips.travelSegment.kmSuffix")}`
                   : null;
               const label = [transport, duration, distance].filter(Boolean).join(" · ");
               const fromName = getEntryDisplayName(timeline[index - 1]);
@@ -399,8 +456,8 @@ export default function TripDayPrintDocument({ payload, onReady }: TripDayPrintD
               const stay = entry.stay;
               const label =
                 entry.kind === "previousStay"
-                  ? "Previous night accommodation"
-                  : "Tonight's accommodation";
+                  ? t("trips.dayPrint.previousStay")
+                  : t("trips.dayPrint.currentStay");
               const images = stay.images.slice(0, 2);
               return (
                 <div
@@ -426,10 +483,14 @@ export default function TripDayPrintDocument({ payload, onReady }: TripDayPrintD
                     <div style={{ flex: 1 }}>
                       <div style={{ fontWeight: 700, fontSize: "13px" }}>{stay.name}</div>
                       {stay.checkOutTime && entry.kind === "previousStay" && (
-                        <div style={{ fontSize: "11px", color: "#555" }}>Check-out: {stay.checkOutTime}</div>
+                        <div style={{ fontSize: "11px", color: "#555" }}>
+                          {formatMessage(t("trips.dayPrint.checkOut"), { time: stay.checkOutTime })}
+                        </div>
                       )}
                       {stay.checkInTime && entry.kind === "currentStay" && (
-                        <div style={{ fontSize: "11px", color: "#555" }}>Check-in: {stay.checkInTime}</div>
+                        <div style={{ fontSize: "11px", color: "#555" }}>
+                          {formatMessage(t("trips.dayPrint.checkIn"), { time: stay.checkInTime })}
+                        </div>
                       )}
                       {stay.notes && (
                         <div style={{ fontSize: "11px", color: "#444", marginTop: "2px" }}>
@@ -460,7 +521,7 @@ export default function TripDayPrintDocument({ payload, onReady }: TripDayPrintD
               // The same call the document pages and the packet's label pages make, so a loose printed
               // page names its activity with the byte-identical string this card shows. The three-step
               // expression it replaces is unchanged - it moved, it was not rewritten.
-              const label = getPrintEntryLabel(entry, index);
+              const label = getPrintEntryLabel(entry, index, planItemFallback);
               const description = item.title?.trim() ? truncateText(parsePlanText(item.contentJson)) : null;
               const timeTag =
                 item.fromTime && item.toTime
@@ -584,7 +645,7 @@ export default function TripDayPrintDocument({ payload, onReady }: TripDayPrintD
                 fontWeight: 600,
               }}
             >
-              Documents not included in this printout
+              {t("trips.dayPrint.documentsAppendixHeading")}
             </div>
             <ul style={{ margin: "0 0 6px", paddingLeft: "18px", fontSize: "11px", color: "#333" }}>
               {pdfDocuments.map((document, index) => (
@@ -598,8 +659,7 @@ export default function TripDayPrintDocument({ payload, onReady }: TripDayPrintD
               ))}
             </ul>
             <div style={{ fontSize: "11px", color: "#444" }}>
-              These PDF files are not part of this printout. Download the day&apos;s document packet from
-              the day screen to have them offline.
+              {t("trips.dayPrint.documentsAppendixNote")}
             </div>
           </div>
         )}

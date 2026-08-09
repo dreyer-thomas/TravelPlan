@@ -73,10 +73,21 @@ const segment = (): Extract<TimelineEntry, { kind: "travelSegment" }>["segment"]
 const planTextOf = (text: string) =>
   JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text }] }] });
 
+/**
+ * DW-230. The positional wording is the caller's now, not this module's.
+ *
+ * This is the exact English the module used to hold, so every expectation below is unchanged - what they
+ * pin has shifted from "the module writes `Plan item N`" to "the caller's wording, with the caller's
+ * number, reaches the label", which is the property the sheet and the packet have to share. The
+ * `formatMessage`-based real thing lives at the two call sites; a template literal here keeps this suite
+ * free of the dictionary, exactly as the module is.
+ */
+const englishFallback = (position: number) => `Plan item ${position}`;
+
 describe("getPrintEntryLabel", () => {
   it("names a stay by its own name, for both stay kinds", () => {
-    expect(getPrintEntryLabel({ kind: "previousStay", stay: stay({ name: "Airport Inn" }) }, 0)).toBe("Airport Inn");
-    expect(getPrintEntryLabel({ kind: "currentStay", stay: stay({ name: "Hotel Roma" }) }, 3)).toBe("Hotel Roma");
+    expect(getPrintEntryLabel({ kind: "previousStay", stay: stay({ name: "Airport Inn" }) }, 0, englishFallback)).toBe("Airport Inn");
+    expect(getPrintEntryLabel({ kind: "currentStay", stay: stay({ name: "Hotel Roma" }) }, 3, englishFallback)).toBe("Hotel Roma");
   });
 
   it("truncates an over-long stay name, because the packet's label page lays out from a fixed height", () => {
@@ -85,14 +96,14 @@ describe("getPrintEntryLabel", () => {
     // file name and AC5's "could not be included" sentence below y = 0, where they are drawn and invisible.
     // Without the truncation this returns the whole 1,500 characters.
     const long = "Grand Hotel ".repeat(125); // 1,500 characters
-    const label = getPrintEntryLabel({ kind: "currentStay", stay: stay({ name: long }) }, 0);
+    const label = getPrintEntryLabel({ kind: "currentStay", stay: stay({ name: long }) }, 0, englishFallback);
     expect(label.length).toBeLessThan(long.length);
     expect(label.length).toBeLessThanOrEqual(301); // PRINT_MAX_CHARS plus the ellipsis
     expect(label.endsWith("…")).toBe(true);
   });
 
   it("prefers an explicit plan item title, trimmed", () => {
-    expect(getPrintEntryLabel({ kind: "planItem", item: item({ title: "  City Walk  " }) }, 0)).toBe("City Walk");
+    expect(getPrintEntryLabel({ kind: "planItem", item: item({ title: "  City Walk  " }) }, 0, englishFallback)).toBe("City Walk");
   });
 
   it("falls back to the item's own body text when there is no title", () => {
@@ -100,12 +111,12 @@ describe("getPrintEntryLabel", () => {
       kind: "planItem",
       item: item({ title: null, contentJson: planTextOf("Breakfast at the market hall") }),
     };
-    expect(getPrintEntryLabel(entry, 0)).toBe("Breakfast at the market hall");
+    expect(getPrintEntryLabel(entry, 0, englishFallback)).toBe("Breakfast at the market hall");
   });
 
   it("truncates the body-text fallback at the sheet's own limit", () => {
     const long = "x".repeat(PRINT_MAX_CHARS + 50);
-    const label = getPrintEntryLabel({ kind: "planItem", item: item({ title: null, contentJson: planTextOf(long) }) }, 0);
+    const label = getPrintEntryLabel({ kind: "planItem", item: item({ title: null, contentJson: planTextOf(long) }) }, 0, englishFallback);
 
     expect(label).toBe(truncateText(long));
     expect(label.endsWith("…")).toBe(true);
@@ -116,23 +127,23 @@ describe("getPrintEntryLabel", () => {
     // The *timeline* index, segments included - the number the itinerary card prints. A per-plan-item
     // counter would name the card "Plan item 1" and the document page "Plan item 3" on the same day.
     const entry: TimelineEntry = { kind: "planItem", item: item({ title: null }) };
-    expect(getPrintEntryLabel(entry, 0)).toBe("Plan item 1");
-    expect(getPrintEntryLabel(entry, 4)).toBe("Plan item 5");
+    expect(getPrintEntryLabel(entry, 0, englishFallback)).toBe("Plan item 1");
+    expect(getPrintEntryLabel(entry, 4, englishFallback)).toBe("Plan item 5");
   });
 
   it("treats whitespace-only content as absent rather than as a label", () => {
     const entry: TimelineEntry = { kind: "planItem", item: item({ title: "   ", contentJson: planTextOf("   ") }) };
-    expect(getPrintEntryLabel(entry, 1)).toBe("Plan item 2");
+    expect(getPrintEntryLabel(entry, 1, englishFallback)).toBe("Plan item 2");
   });
 
   it("gives a travel segment no label, because nothing attaches to one", () => {
-    expect(getPrintEntryLabel({ kind: "travelSegment", segment: segment() }, 1)).toBe("");
+    expect(getPrintEntryLabel({ kind: "travelSegment", segment: segment() }, 1, englishFallback)).toBe("");
   });
 });
 
 describe("collectTimelineDocuments", () => {
   it("returns an empty list for an empty timeline", () => {
-    expect(collectTimelineDocuments([])).toEqual([]);
+    expect(collectTimelineDocuments([], englishFallback)).toEqual([]);
   });
 
   it("returns an empty list when every entry carries no documents", () => {
@@ -142,7 +153,7 @@ describe("collectTimelineDocuments", () => {
         { kind: "planItem", item: item() },
         { kind: "travelSegment", segment: segment() },
         { kind: "currentStay", stay: stay() },
-      ]),
+      ], englishFallback),
     ).toEqual([]);
   });
 
@@ -172,7 +183,7 @@ describe("collectTimelineDocuments", () => {
         kind: "currentStay",
         stay: stay({ id: "stay-2", name: "Hotel Roma", documents: [doc({ id: "e", fileName: "Booking.jpg" })] }),
       },
-    ]);
+    ], englishFallback);
 
     expect(collected.map((entry) => entry.fileName)).toEqual([
       "Voucher.jpg",
@@ -195,10 +206,38 @@ describe("collectTimelineDocuments", () => {
       { kind: "previousStay", stay: stay() },
       { kind: "travelSegment", segment: segment() },
       { kind: "planItem", item: item({ title: null, documents: [doc()] }) },
-    ]);
+    ], englishFallback);
 
     expect(collected).toHaveLength(1);
     expect(collected[0].entryLabel).toBe("Plan item 3");
+  });
+
+  /**
+   * DW-230. The wording really is the caller's, on both entry points.
+   *
+   * The four cases above all pass the English the module used to hardcode, so every one of them would
+   * still pass against a `getPrintEntryLabel` that ignored its third argument and kept the literal. This
+   * is the case that cannot: a wording nothing in the tree writes, asserted through `getPrintEntryLabel`
+   * *and* through `collectTimelineDocuments`, because the sheet calls the first and the packet reaches the
+   * label through the second - and a `collectTimelineDocuments` that forgot to pass the function on would
+   * leave the packet naming an activity differently from the card it belongs to, which is the exact
+   * disagreement this module exists to make impossible.
+   *
+   * The number is asserted too, not just the wording: the position is interpolated by the caller, so a
+   * fallback handed the wrong index is a failure this suite has to be able to see.
+   */
+  it("hands the position to the caller's wording, on both entry points", () => {
+    const german = (position: number) => `Programmpunkt ${position}`;
+    const untitled: TimelineEntry = { kind: "planItem", item: item({ title: null, documents: [doc()] }) };
+
+    expect(getPrintEntryLabel(untitled, 1, german)).toBe("Programmpunkt 2");
+
+    const collected = collectTimelineDocuments(
+      [{ kind: "previousStay", stay: stay() }, { kind: "travelSegment", segment: segment() }, untitled],
+      german,
+    );
+    expect(collected).toHaveLength(1);
+    expect(collected[0].entryLabel).toBe("Programmpunkt 3");
   });
 
   it("derives isPdf from the document URL and not from a .pdf-suffixed file name", () => {
@@ -220,7 +259,7 @@ describe("collectTimelineDocuments", () => {
           ],
         }),
       },
-    ]);
+    ], englishFallback);
 
     expect(collected.map((entry) => entry.isPdf)).toEqual([false, true, true, false, false]);
   });
@@ -229,7 +268,7 @@ describe("collectTimelineDocuments", () => {
     const url = "/uploads/trips/t/days/d/accommodations/a/documents/doc-1729-abc.pdf";
     const collected = collectTimelineDocuments([
       { kind: "currentStay", stay: stay({ documents: [doc({ documentUrl: url, fileName: "Hotel.pdf" })] }) },
-    ]);
+    ], englishFallback);
 
     expect(collected[0].documentUrl).toBe(url);
   });

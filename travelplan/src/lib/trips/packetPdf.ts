@@ -44,6 +44,7 @@
  */
 import { PDFDocument, StandardFonts, degrees, rgb } from "pdf-lib";
 import type { PDFFont, PDFImage, PDFPage } from "pdf-lib";
+import { DEFAULT_LANGUAGE, dictionaries, translate, type Language } from "@/i18n";
 import { documentUrlExtension } from "@/lib/trips/documentUploads";
 
 /** A4 at 72dpi, the size of every page this module *creates*. Copied pages keep their own - see below. */
@@ -281,6 +282,69 @@ export type PacketDocument = {
  */
 export type PacketDocumentReader = (document: PacketDocument) => Promise<Uint8Array>;
 
+/**
+ * Every string this module draws that does not come from the day's own data (DW-230).
+ *
+ * Resolved once per packet and handed down, rather than each drawing function reaching for a dictionary:
+ * `buildDocumentPacket` is the only place that knows the request's language, and passing the resolved
+ * strings keeps `drawLabelPage` a pure drawing function that a test can call with any wording at all.
+ */
+export type PacketLabels = {
+  heading: string;
+  headingFailed: string;
+  unavailable: string;
+  unknownEntry: string;
+  unknownFile: string;
+};
+
+export const getPacketLabels = (language: Language): PacketLabels => {
+  const dictionary = dictionaries[language];
+  return {
+    heading: translate(dictionary, "trips.documents.packetLabelHeading"),
+    headingFailed: translate(dictionary, "trips.documents.packetLabelHeadingFailed"),
+    unavailable: translate(dictionary, "trips.documents.packetLabelUnavailable"),
+    unknownEntry: translate(dictionary, "trips.documents.packetLabelUnknownEntry"),
+    unknownFile: translate(dictionary, "trips.documents.packetLabelUnknownFile"),
+  };
+};
+
+/**
+ * The label page of absolutely last resort: constants, ASCII, and nothing from a dictionary in any of it.
+ *
+ * **Why it deliberately stops speaking the request's language.** The retry one level above already swaps
+ * the document's own `entryLabel` and `fileName` for dictionary placeholders, which handles the case where
+ * the *document's* data is what `drawLabelPage` choked on. It cannot handle the case where the `labels`
+ * are: it passes the same `labels` object to both attempts, so a value in there that makes the function
+ * throw throws identically on the retry, escapes `buildDocumentPacket`, and the route answers 500 - AC5
+ * defeated through the very page that implements it, which is exactly the failure the comment at that
+ * `catch` claims is covered. Before DW-230 the retry really did draw with fully constant inputs and the
+ * claim was true; threading a dictionary through it is what quietly took the guarantee away.
+ *
+ * So the third attempt takes its wording from here. A German traveller reaching this page gets an English
+ * one, and that is the trade being made on purpose: the alternative is not a German page, it is no packet
+ * at all. Everything here is a literal in the printable-ASCII range, so it is `toWinAnsiText`-clean and
+ * `Helvetica`-drawable by inspection rather than by trusting a value nobody checked - the property the
+ * pre-DW-230 fallback had for free and this restores.
+ *
+ * Unreachable today: `toWinAnsiText` emits only 0x20-0x7E, 0xA0-0xFF, space, `?` and `...`, every one of
+ * which `Helvetica` encodes. It is the line of defence for the day the sanitiser, the font or a dictionary
+ * value's *type* changes, and a packet that names a group only by its position still beats a 500.
+ */
+const LAST_RESORT_LABELS: PacketLabels = {
+  heading: "DOCUMENT",
+  headingFailed: "DOCUMENT NOT INCLUDED",
+  unavailable: "This document could not be included in this packet. Open it from the app to view it.",
+  unknownEntry: "Document",
+  unknownFile: "unnamed file",
+};
+
+const LAST_RESORT_DOCUMENT: PacketDocument = {
+  entryLabel: LAST_RESORT_LABELS.unknownEntry,
+  fileName: LAST_RESORT_LABELS.unknownFile,
+  documentUrl: "",
+  isPdf: false,
+};
+
 const wrapText = (text: string, font: PDFFont, size: number, maxWidth: number): string[] => {
   const lines: string[] = [];
   let current = "";
@@ -333,25 +397,41 @@ const drawTextBlock = (
  * `failed` is what AC5's degradation looks like from the traveller's side. A packet that is nine tickets
  * long with no explanation, or that 500s because of the tenth, cannot be acted on at a gate; a page
  * naming the file and saying to open it from the app can.
+ *
+ * **Every string drawn here goes through `toWinAnsiText`, and every one through `wrapText` (DW-230).**
+ * The heading and the "could not be included" sentence used to skip one or both, which was safe only for
+ * as long as they were hand-written ASCII literals that visibly fitted the box. They come out of a
+ * dictionary now, and neither property is something a dictionary value carries by construction:
+ * `StandardFonts.Helvetica` **throws at draw time** on any code point outside WinAnsi, so an unsanitised
+ * translation would take the whole packet down through the very page that exists to report a failure -
+ * and an unwrapped one would simply run off the right edge of the page. German happens to be safe on both
+ * counts, so this buys nothing today and everything on the next language added, which is exactly when
+ * nobody will re-read this function. The dictionary test pins the WinAnsi half at the source as well; this
+ * is the half that holds when the source is a value nobody checked.
  */
 const drawLabelPage = (
   pdf: PDFDocument,
   fonts: { regular: PDFFont; bold: PDFFont },
   document: PacketDocument,
   failed: boolean,
+  labels: PacketLabels,
 ) => {
   const page = pdf.addPage(A4_PORTRAIT);
   const maxWidth = A4_PORTRAIT[0] - LABEL_MARGIN * 2;
   let top = A4_PORTRAIT[1] - LABEL_MARGIN * 2;
 
-  top = drawTextBlock(page, [failed ? "DOCUMENT NOT INCLUDED" : "DOCUMENT"], {
-    x: LABEL_MARGIN,
-    top,
-    size: 10,
-    lineHeight: 14,
-    font: fonts.bold,
-    color: MUTED,
-  });
+  top = drawTextBlock(
+    page,
+    wrapText(toWinAnsiText(failed ? labels.headingFailed : labels.heading), fonts.bold, 10, maxWidth),
+    {
+      x: LABEL_MARGIN,
+      top,
+      size: 10,
+      lineHeight: 14,
+      font: fonts.bold,
+      color: MUTED,
+    },
+  );
 
   top = drawTextBlock(page, wrapText(toWinAnsiText(document.entryLabel), fonts.bold, 20, maxWidth), {
     x: LABEL_MARGIN,
@@ -374,12 +454,7 @@ const drawLabelPage = (
   if (failed) {
     drawTextBlock(
       page,
-      wrapText(
-        "This document could not be included in this packet. Open it from the app to view it.",
-        fonts.regular,
-        11,
-        maxWidth,
-      ),
+      wrapText(toWinAnsiText(labels.unavailable), fonts.regular, 11, maxWidth),
       { x: LABEL_MARGIN, top: top - 16, size: 11, lineHeight: 15, font: fonts.regular, color: MUTED },
     );
   }
@@ -616,6 +691,19 @@ export const buildDocumentPacket = async (
      * seconds to copy, which is exactly the cost the budget exists to avoid paying.
      */
     maxPages?: number;
+    /**
+     * The language the packet's own label pages are drawn in, defaulting to `DEFAULT_LANGUAGE` (DW-230).
+     *
+     * Optional and defaulted rather than required so that every existing call site and unit test keeps
+     * its current output byte for byte - the English packet is the regression gate. The route resolves it
+     * from the request's `lang` cookie, which is the same value the menu item the user just clicked was
+     * rendered with.
+     *
+     * Only the label pages are affected. Nothing about page geometry, order, budgets or the degradation
+     * shape reads this, which is what makes "the German packet is the English packet with different words
+     * on the label pages" an assertable property rather than a hope.
+     */
+    language?: Language;
   } = {},
 ): Promise<Uint8Array<ArrayBuffer>> => {
   const {
@@ -623,7 +711,9 @@ export const buildDocumentPacket = async (
     maxInputBytes = MAX_PACKET_INPUT_BYTES,
     maxDecodedPixels = MAX_PACKET_DECODED_PIXELS,
     maxPages = MAX_PACKET_PAGES,
+    language = DEFAULT_LANGUAGE,
   } = options;
+  const labels = getPacketLabels(language);
   const pdf = await PDFDocument.create();
   const fonts = {
     regular: await pdf.embedFont(StandardFonts.Helvetica),
@@ -646,6 +736,32 @@ export const buildDocumentPacket = async (
   let packetPages = 0;
 
   for (const document of documents) {
+    // Where this document's contribution starts, captured before anything can be added to it.
+    //
+    // `drawLabelPage` calls `addPage` *before* it draws, so every attempt that throws leaves a blank A4
+    // sheet behind - including the success-path attempt below, which is outside the `catch` entirely.
+    // Rewinding to this mark at the top of the `catch` and before each further attempt is what makes the
+    // promise the degradation path is written around true rather than nearly true: a degraded document
+    // shows exactly the one label page it announces, and the count is the one thing about a degraded
+    // packet a traveller can check at a gate.
+    //
+    // **The page count is what is rolled back, and only that. No budget is refunded** - `packetPages`
+    // least of all, though an earlier revision of this handler did refund it on the reasoning that a
+    // document throwing between `copyPages` and the `addPage` loop had "spent budget on pages that are not
+    // in the packet". Measured, they are in the packet: a copied page belongs to the destination context
+    // from `copyPages` onward and `save()` serialises it whether or not it was ever added (three
+    // copied-and-never-added pages take an 853-byte packet to 1,447, and their text reads back out of the
+    // saved bytes). `MAX_PACKET_PAGES` is a ceiling on exactly that copy-and-save cost, so handing it back
+    // for work already done and bytes already in the file lets a later document push the packet past a
+    // bound whose stated job is keeping the process up. `inputBytes` and `decodedPixels` are kept for the
+    // same reason - the bytes were read, the pixels were decoded, the image is embedded - and not
+    // refunding any of the three is the only reading that leaves them consistent.
+    //
+    // Note also what `removePage` does and does not do: it detaches the page from the page tree, so the
+    // count and everything a reader renders are correct, but the orphaned content stream stays in the
+    // saved bytes. Nothing user-facing depends on it; `test/helpers/pdfText.ts` documents it because a
+    // whole-file text scan still sees it.
+    const pagesBeforeDocument = pdf.getPageCount();
     try {
       // `>=`, not `>`: the budget is a ceiling on bytes actually read, so once it is reached nothing
       // further is opened. `>` would let one more document of any size through after the limit.
@@ -671,7 +787,7 @@ export const buildDocumentPacket = async (
         }
         const copied = await pdf.copyPages(source, source.getPageIndices());
         packetPages += pageCount;
-        drawLabelPage(pdf, fonts, document, false);
+        drawLabelPage(pdf, fonts, document, false, labels);
         for (const page of copied) pdf.addPage(page);
       } else {
         const { image, rotation, decodedPixels: cost } = await embedPacketImage(
@@ -681,7 +797,7 @@ export const buildDocumentPacket = async (
           maxDecodedPixels - decodedPixels,
         );
         decodedPixels += cost;
-        drawLabelPage(pdf, fonts, document, false);
+        drawLabelPage(pdf, fonts, document, false, labels);
         drawImagePage(pdf, image, rotation);
       }
     } catch (error) {
@@ -692,10 +808,37 @@ export const buildDocumentPacket = async (
       // the very page that implements it. Today `toWinAnsiText` makes that unreachable (every code point
       // it can emit was checked against `Helvetica`), so this is the second line of defence for the day
       // the sanitiser or the font changes, and a group named only by its position still beats a 500.
+      //
+      // `rewind` runs before *every* attempt, not only the last. Each failed attempt leaves its own blank
+      // sheet, and so does the success-path draw that sent us here, so anchoring the rollback anywhere
+      // inside this handler would leave exactly the run of blanks it exists to prevent - the count is the
+      // one thing about a degraded document a traveller can check at a gate.
+      const rewind = () => {
+        while (pdf.getPageCount() > pagesBeforeDocument) pdf.removePage(pdf.getPageCount() - 1);
+      };
+      rewind();
       try {
-        drawLabelPage(pdf, fonts, document, true);
+        drawLabelPage(pdf, fonts, document, true, labels);
       } catch {
-        drawLabelPage(pdf, fonts, { entryLabel: "Document", fileName: "unnamed file", documentUrl: "", isPdf: false }, true);
+        rewind();
+        try {
+          // The placeholder names come from the same dictionary as the rest of the packet, so this page
+          // does not switch language at the moment it gives up on saying anything else useful. This covers
+          // the case the comment above describes: the *document's* own strings were the problem.
+          drawLabelPage(
+            pdf,
+            fonts,
+            { entryLabel: labels.unknownEntry, fileName: labels.unknownFile, documentUrl: "", isPdf: false },
+            true,
+            labels,
+          );
+        } catch {
+          // And this covers the case that one cannot: `labels` itself is what `drawLabelPage` choked on, so
+          // re-entering it with the same object throws the same way and there would be nothing left between
+          // that and a 500. Constants only, English on purpose - see `LAST_RESORT_LABELS`.
+          rewind();
+          drawLabelPage(pdf, fonts, LAST_RESORT_DOCUMENT, true, LAST_RESORT_LABELS);
+        }
       }
     }
   }
