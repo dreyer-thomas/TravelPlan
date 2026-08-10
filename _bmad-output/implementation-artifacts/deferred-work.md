@@ -797,7 +797,8 @@ origin: incidental to story 6-11 review, 2026-08-02
 location: `travelplan/src/components/HeaderMenu.tsx` — the hamburger `IconButton`
 severity: low
 reason: The trigger carries `aria-label` but no `aria-haspopup`, `aria-expanded` or `aria-controls`, so a screen-reader user hears "Open menu, button" with no indication it opens a menu or whether it is currently open. Story 6.11 introduced a second menu trigger on the day hero and gave it all three, which is what surfaced this — the two now diverge. Not fixed in 6.11 because that story's AC5 explicitly forbids modifying `HeaderMenu.tsx`; the same one-line fix applies there and should be taken with whatever next touches that component.
-status: open
+status: done 2026-08-10
+resolution: resolved by sweep bundle dw-dw-header-menu-a11y-and-navigation
 
 ### DW-98: On-photo chrome is unreadable over bright photography — the scrim only protects the title
 
@@ -1107,7 +1108,8 @@ location: `travelplan/src/lib/navigation/authMenu.ts` (`href?: string`) against 
 severity: medium
 summary: `HeaderMenu` decides link-versus-action by the literal `item.key === "logout"`, and renders everything else as `MenuItem component={Link} href={item.href ?? "#"}`. `href` stays optional on a union that now contains a destination, so the invariant the menu depends on — a non-logout item always carries an href — is enforced by nothing. The next *action* item added to the list renders as an anchor to `#` and silently does nothing.
 evidence: Not introduced by 6-20 — the `?? "#"` fallback and the `key === "logout"` branch both predate it, and every item shipping today satisfies the invariant, so nothing is broken now. Surfaced because 6-20 widened the union for the first time and deliberately left `HeaderMenu.tsx` untouched (the story's whole point was that the existing href branch already handled a destination). The fix is a discriminated union — `{ kind: "destination"; href: string } | { kind: "action" }` or equivalent — which turns the failure into a compile error and lets the renderer branch on shape rather than on a key literal; the unreachable `?? "#"` then goes away with it. Touching a global component that three stories have warned against extending, so it wants its own scoped change rather than a drive-by.
-status: open
+status: done 2026-08-10
+resolution: resolved by sweep bundle dw-dw-header-menu-a11y-and-navigation
 
 ### DW-128: The header menu never revalidates its auth state, and now carries navigation rather than only session actions
 
@@ -1117,7 +1119,8 @@ location: `travelplan/src/components/HeaderMenu.tsx` — `authState`, seeded fro
 severity: medium
 summary: `authState` is seeded from a server-rendered prop and only ever changes on prop change or an explicit logout. A tab left open past session expiry keeps offering "All trips", which `middleware.ts`'s `isProtectedPath` then bounces to the login screen — the outcome story 6-20's AC3 calls "worse than none".
 evidence: Pre-existing staleness: the menu has always been able to show "Sign out" to an expired session. Surfaced by 6-20 because it changed what a stale row costs — a stale session *action* is a failed click on something the user was finishing anyway, while a stale *navigation* row is a broken promise about where the app can take them. Cheap mitigation: the menu already fetches `/api/auth/csrf` when it opens, so a `401` there is a ready signal to flip `authState` to false without any new endpoint. Not urgent — the bounce lands on a login screen that then returns the user to the app — but it is the one hole in AC3's guarantee, and AC3 is stated absolutely.
-status: open
+status: done 2026-08-10
+resolution: resolved by sweep bundle dw-dw-header-menu-a11y-and-navigation
 
 ### DW-129: The global menu's trips row is not marked as the current page when it already is
 
@@ -1127,7 +1130,8 @@ location: `travelplan/src/components/HeaderMenu.tsx:209-223`, decision recorded 
 severity: low
 summary: On `/trips` the row links to the page already shown. Story 6-20 AC4 decided deliberately to keep it visible there, but nothing marks it as current: a screen-reader user gets an identical announcement on `/trips` as on a trip page, and activating it produces no perceptible change.
 evidence: The self-link is intentional and argued (the global menu is a function of auth state alone, and route-awareness is the coupling stories 6.11 and 6.15 refused), so this is not a defect in the decision — it is the one piece of polish the decision leaves owing. `aria-current="page"` plus MUI's `selected` would signpost it without making menu *content* route-dependent, but both need `usePathname()`, which is exactly the dependency AC4 declined; whether that trade is worth making is a design call, not a patch. Worth deciding once for the whole menu rather than for this row.
-status: open
+status: done 2026-08-10
+resolution: resolved by sweep bundle dw-dw-header-menu-a11y-and-navigation
 decision: 2026-08-08 Mark the current row with aria-current — Add `usePathname()` in HeaderMenu and set `aria-current="page"` plus MUI's `selected` on the row whose href matches the current path. Menu content stays auth-derived and route-independent; only its presentation becomes route-aware, which is the narrowest form of the coupling those stories declined.
 
 ### DW-130: One breadcrumb moved into the menu; its three structural twins stayed above the content
@@ -1246,7 +1250,8 @@ location: `travelplan/src/components/HeaderMenu.tsx:161-174`
 severity: low
 summary: The global menu's `IconButton` carries `aria-label` alone. A screen-reader user is told it is a button named "Menü öffnen" but not that it opens a menu, nor whether that menu is currently open — while the page-local day-hero `⋯` has carried all three attributes since Story 6.11.
 evidence: Measured on 2026-08-02: `trigger.getAttribute("aria-expanded")` is `null` before opening, while open, and after closing. `TripDayView.tsx` sets `aria-haspopup="menu"`, `aria-expanded={Boolean(dayMenuAnchor)}` and `aria-controls` on its own trigger, so the app already has the pattern and this one component diverges. Pre-existing and not introduced by 6.20 — but 6.20 is the story that gave this menu a navigation destination, which makes it the point at which the gap starts to matter. Fix is three attributes plus an `id` on the `Menu`, mirroring what `TripDayView` already does.
-status: open
+status: done 2026-08-10
+resolution: resolved by sweep bundle dw-dw-header-menu-a11y-and-navigation
 
 ### DW-141: `isOwner`/`canEditPlanning` default to `true` when the payload omits `accessRole`, and owner-only controls inherit that
 
@@ -1720,7 +1725,8 @@ severity: medium
 summary: MUI's `MenuItem` sets `minHeight: 48` and then resets it to `auto` inside a `theme.breakpoints.up('sm')` block. A plain `sx={{ minHeight: 44 }}` is the same one class of specificity as that media rule, so above 600px the later rule in the emotion sheet wins and the item collapses. **Measured: 44px at 390x844 and 32.3px at 747x925 for the identical constant.** The app's 44px target floor is therefore absent from every overflow and header menu on every desktop width.
 evidence: Found because Story 5.11's review patch had the bug too — `ROW_MENU_ITEM_SX = { minHeight: 44 }` was written from `DAY_MENU_ITEM_SX` as the precedent, passed at 390px, and was caught only when the browser pass ran the same measurement at 747px. That one is now `{ "&&": { minHeight: 44 } }`, where the doubled selector reaches (0,2,0) and the ordering question disappears. `DAY_MENU_ITEM_SX` is the byte-identical single-class version and predates this story, so it is recorded rather than changed here. `HeaderMenu`'s rows are worse: they set no height at all, so they inherit MUI's base 48 below the breakpoint and its `auto` above it. Measured in the same pass, on the same menu: **48px at 390x844 and 32.3px at 747x925** — including the row Story 5.10 added ("Nutzerverwaltung" / "User administration"), a privileged navigation target that holds the floor on a phone and loses it on every desktop. That pair of numbers is the clearest statement of the mechanism: the bug is invisible at the width most people would think to check. Fix is the `&&` form in both places, plus a measurement above 600px rather than below it, because below the breakpoint the bug is invisible.
   **Half resolved by Story 9.2 (`spec-9-2-documents-in-print-and-an-offline-packet`), 2026-08-06.** `DAY_MENU_ITEM_SX` in `TripDayView.tsx` is now `{ "&&": { minHeight: 44 } }`, which fixes the day hero overflow's whole list in one edit — back-to-trip, the day-image edit, move, swap, print and the packet item this story added — because all six read the one constant. Story 9.2 added a `MenuItem` to that menu and could not copy the broken form into it, so fixing the constant was the smaller change as well as the right one. **`HeaderMenu.tsx` is untouched and this entry stays open for it:** its four rows still carry no height rule at all, so they inherit MUI's base 48 below `sm` and its `auto` above it, and the fix there is to add the `&&` form rather than to correct one. The measurement above 600px is still owed — 9.2's own browser pass measures the day menu, not the header's.
-status: open
+status: done 2026-08-10
+resolution: resolved by sweep bundle dw-dw-header-menu-a11y-and-navigation
 
 ### DW-181: `grep` reports zero matches in `tripRepo.ts`, the repo's largest consumer of `uploadPaths.ts`
 
@@ -2642,3 +2648,54 @@ location: `travelplan/src/components/features/trips/TripDayTravelSegmentDialog.t
 reason: `mapsLink` is built from both `fromItem`/`toItem` and is falsy if either is missing a location (`buildGoogleMapsLink`, consumed at `:254`); `staticRouteHelper`'s routable arm (`:614-616`) renders the "both adjacent items" copy for any falsy `mapsLink`, without distinguishing one-missing from both-missing. Pre-existing in add mode since the string was introduced (predates DW-114/DW-115); `spec-travel-segment-static-helper-routability.md` makes the same copy newly reachable in edit mode (that is its intended fix, DW-115) but does not change the copy itself, and its Boundaries explicitly forbid introducing new translation keys/strings, so this was out of scope for that bundle. Surfaced by Blind Hunter during that spec's first review pass, 2026-08-09. The work is to decide whether the string should name which neighbour is missing (would need a new key, or a parameterized one) or stay generic, and update both `en.ts`/`de.ts` and the dialog accordingly if it changes.
 status: open
 decision: 2026-08-10 Add one-missing and both-missing variants — Add one-missing and both-missing variants of the unavailable-route helper in both dictionaries, selected from which of fromItem and toItem lacks a location, so the sentence names the item the user has to fix. Pin all three states in the travel-segment dialog suite and keep the key-length budget in i18nDictionaries.test.ts satisfied.
+
+### DW-287: The header menu's row list can collapse from four rows to two *while the menu is open*, with no announcement and no pointer or focus management
+
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-header-menu-a11y-and-navigation.md`
+origin: incidental to the follow-up review of spec-dw-header-menu-a11y-and-navigation, 2026-08-10
+location: `travelplan/src/components/HeaderMenu.tsx` — `handleOpen` sets the anchor and then probes; `fetchCsrfToken`'s `setAuthState(false)` branch
+severity: medium
+summary: DW-128's revalidation fires *after* the anchor is set, so the menu is already visible when the probe's answer arrives. A signed-in menu (language, All trips, User administration, Sign out) can become a signed-out one (language, Login, Register) under an open popup: a pointer already travelling toward "Sign out" can land on "Register", and a screen-reader user is told nothing at all — the row list simply differs from the one that was announced.
+evidence: Reproduced in jsdom during the follow-up review (`headerMenuAccessibility.test.tsx` covers the collapse itself and passes, which is how the timing is known): open on a `probeReporting(false)` stub and the rows swap in place with the menu still mounted and `aria-expanded="true"`. Practically narrow, because the probe normally settles inside MUI's opening transition. Deliberately deferred rather than patched twice now, because every available fix trades against DW-128's own guarantee: closing the menu on collapse contradicts AC4 of `spec-dw-header-menu-a11y-and-navigation` ("the menu offers Login and Register instead of All trips" — the collapsed rows are required to be *visible*), waiting until close restores exactly the dead "All trips" row DW-128 calls "worse than none", and an inline `aria-live` announcement needs new copy in both `en.ts` and `de.ts`, which is a product decision. The keyboard half of this — focus stranded on `<body>` when the focused row was the one unmounted — **was** fixed in that bundle's follow-up review (`variant="menu"` on the `Menu`, pinned by "keeps keyboard focus inside the menu when the rows collapse under it"); what remains is the announcement and the pointer-target swap.
+status: open
+
+### DW-288: `aria-controls` on every menu trigger in the app points at MUI's Popover root, a `role="presentation"` wrapper, rather than at the `role="menu"` list
+
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-header-menu-a11y-and-navigation.md`
+origin: incidental to the follow-up review of spec-dw-header-menu-a11y-and-navigation, 2026-08-10
+location: `travelplan/src/components/HeaderMenu.tsx:258`, `travelplan/src/components/LanguageSwitcherMenuItem.tsx:116`, `travelplan/src/components/features/trips/TripDayView.tsx:2102,2853`, `travelplan/src/components/features/admin/AdminUsersList.tsx:816`
+severity: low
+summary: MUI puts a `Menu`'s `id` on the modal/Popover root, so `aria-controls="header-menu"` resolves to a `<div role="presentation">`, and the `<ul role="menu">` that actually holds the rows carries no `id` at all. Every one of the app's five menu triggers has the same defect; the attribute is inert rather than wrong-pointing, since assistive tech following it finds a presentational container.
+evidence: Measured in jsdom during the follow-up review: `document.getElementById("header-menu")` returns `DIV` with `role="presentation"`, `class="MuiPopover-root MuiMenu-root MuiModal-root …"`, while `getByRole("menu")` returns a `UL` whose `id` is `null`. The correct target is a list id supplied through `slotProps.list` — a two-line change per site. Deferred twice rather than patched, for the same reason both times: `spec-dw-header-menu-a11y-and-navigation`'s Boundaries forbid touching `TripDayView.tsx` and `AdminUsersList.tsx`, and fixing only the header menu re-creates precisely the divergence DW-97 and DW-140 were filed about. It wants one change across all five triggers. Note what *is* already correct and should not be re-litigated: `aria-haspopup="menu"` and `aria-expanded` carry the announcement DW-97/DW-140 asked for, and each list now has an accessible name via `slotProps.list: { "aria-labelledby": … }`, so the popup is named even while `aria-controls` is inert.
+status: open
+
+### DW-289: A header menu collapsed by the auth probe stays collapsed across every soft navigation inside the `(routes)` group
+
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-header-menu-a11y-and-navigation.md`
+origin: incidental to the follow-up review of spec-dw-header-menu-a11y-and-navigation, 2026-08-10
+location: `travelplan/src/components/HeaderMenu.tsx` — the `useEffect` re-syncing `authState` from the `isAuthenticated` prop, against `AppHeader` in the `(routes)` layout
+severity: low
+summary: `authState` is restored from the `isAuthenticated` prop by an effect keyed on that prop. `AppHeader` is a server component in the `(routes)` layout, which App Router keeps mounted across a soft navigation inside the group, so the prop never changes and the effect never re-fires. Once the probe has flipped the menu to Login/Register it stays that way until a document load or leaving the route group.
+severity_note: Correct in the case DW-128 targets — the session really is gone, and the collapse is the point. The residual window is a session restored in another tab, where this tab keeps offering Login until the next full load.
+evidence: Established by reading the layout/mount structure during the bundle's first review pass and re-confirmed in the follow-up: the one-direction rule (`false` only, never back to `true`) is a stated Boundary of `spec-dw-header-menu-a11y-and-navigation`, so nothing in that bundle could close this. The code comment at the `setAuthState(false)` site names the recovery paths accurately. Fixing it would mean either a cross-tab signal (`BroadcastChannel`/`storage` event) or letting the probe promote as well as demote — the latter explicitly forbidden by that spec, and a design decision either way.
+status: open
+
+### DW-290: The `{ "&&": { minHeight: 44 } }` row floor overrides MUI's unconditional `minHeight: 48`, so menu rows are 4px *shorter* on phones than before the fix
+
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-header-menu-a11y-and-navigation.md`
+origin: incidental to the follow-up review of spec-dw-header-menu-a11y-and-navigation, 2026-08-10
+location: `travelplan/src/components/HeaderMenu.tsx` (`HEADER_MENU_ITEM_SX`), `travelplan/src/components/LanguageSwitcherMenuItem.tsx` (`LANGUAGE_MENU_ITEM_SX`), `travelplan/src/components/features/trips/TripDayView.tsx` (`DAY_MENU_ITEM_SX`), `travelplan/src/components/features/admin/AdminUsersList.tsx` (`ROW_MENU_ITEM_SX`)
+severity: low
+summary: `node_modules/@mui/material/MenuItem/MenuItem.js` sets `minHeight: 48` *unconditionally* and resets it to `auto` only inside `breakpoints.up('sm')`. The doubled selector sits at (0,2,0) and therefore beats **both** — which is the intended win above `sm` (DW-180) but also an unintended override below it. Every menu row that adopts the pattern goes from 48px to exactly 44px on phone widths. 44px still clears the app's stated target floor, so nothing is non-compliant; the point is that the constant behaves as a fixed height rather than as a floor, in the direction of smaller.
+evidence: Measured in jsdom during the follow-up review — `getComputedStyle(row).minHeight` is `44px` with no media queries evaluated, i.e. the sub-`sm` cascade. DW-180's own text records the pre-change header rows as "**48px at 390x844** and 32.3px at 747x925", so the 390px reading was already above target and the fix reduces it. Not patched in `spec-dw-header-menu-a11y-and-navigation`: the `{ "&&": { minHeight: 44 } }` form is mandated verbatim by that spec's Boundaries, `DAY_MENU_ITEM_SX` and `ROW_MENU_ITEM_SX` are explicitly out of its scope, and diverging in one of the four sites is worse than the 4px. The work is one decision for all four: scope the rule to `breakpoints.up('sm')` so MUI's 48 survives below it, or declare 48 and let the doubled selector carry that number instead — either gives floor semantics rather than fixed-height semantics.
+status: open
+
+### DW-291: DW-180's owed above-600px browser measurement is still owed for the header and language menus
+
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-header-menu-a11y-and-navigation.md`
+origin: incidental to the follow-up review of spec-dw-header-menu-a11y-and-navigation, 2026-08-10
+location: `travelplan/test/headerMenuAccessibility.test.tsx` (the DW-180 describe block) — the measurement targets are the header menu and the language submenu at ≥747px
+severity: low
+summary: DW-180 asks for "the `&&` form in both places, **plus a measurement above 600px** rather than below it, because below the breakpoint the bug is invisible". The `&&` form shipped and is pinned, but the measurement did not: jsdom evaluates no media queries and performs no layout, so the suite proves the floor is *declared* above the specificity of MUI's `sm` reset — the mechanism — and cannot produce a box height at 747px.
+evidence: The suite's own docstring states the limit ("The 32.3px measurement above 600px that the ledger records as owed is still owed; it cannot be discharged from here"), and its describe block was deliberately renamed from "hold the 44px floor above sm" to "declare … at a specificity that survives sm" during the bundle's first review pass for exactly this reason. Recorded as its own entry because DW-180 is now closed and this half of its stated fix would otherwise disappear with it — the original bug shipped twice precisely because it was verified only below the breakpoint. The work is a browser pass at ≥747px on the header menu and the language submenu, reading computed row heights. Note the interaction with DW-290: if that decision changes the constant, this measurement should be taken against whatever it becomes.
+status: open

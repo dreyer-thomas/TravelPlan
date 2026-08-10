@@ -25,13 +25,19 @@ const selectorsFor = (element: Element) =>
  * Recursion keys off `cssRules` rather than the media-rule type, so `@supports`, `@layer` and
  * `@container` are traversed too. Missing one of those would let a declaration hide from the
  * negative assertions and pass them vacuously.
+ *
+ * `shapeSelector` is applied to each of the element's own class selectors *individually*, so a shape that
+ * uses the selector twice - `&&` - yields `.css-a.css-a` and never the cross-product `.css-b.css-a`. An
+ * earlier version took a plain suffix string and appended it to every selector, which matched any
+ * two-class compound rule and would have let an unrelated `.css-b.css-a { min-height: 44px }` satisfy an
+ * assertion about the `&&` form.
  */
 const visitRulesFor = (
   element: Element,
   onRule: (rule: CSSStyleRule, mediaCondition: string | null) => void,
-  selectorSuffix = "",
+  shapeSelector: (classSelector: string) => string = (classSelector) => classSelector,
 ) => {
-  const selectors = selectorsFor(element).map((selector) => `${selector}${selectorSuffix}`);
+  const selectors = selectorsFor(element).map(shapeSelector);
 
   const targetsElement = (selectorText: string) =>
     selectorText.split(",").some((part) => selectors.includes(part.trim()));
@@ -66,25 +72,59 @@ const visitRulesFor = (
   });
 };
 
-/**
- * One CSS property's declared values, split by the media condition each declaration sits under.
- */
-export const emotionDeclarations = (element: Element, property: string) => {
+const declarationsFor = (
+  element: Element,
+  property: string,
+  shapeSelector?: (classSelector: string) => string,
+) => {
   const base: string[] = [];
   const media = new Map<string, string[]>();
 
-  visitRulesFor(element, (styleRule, condition) => {
-    const value = styleRule.style.getPropertyValue(property).trim();
-    if (!value) return;
-    if (condition === null) {
-      base.push(value);
-      return;
-    }
-    media.set(condition, [...(media.get(condition) ?? []), value]);
-  });
+  visitRulesFor(
+    element,
+    (styleRule, condition) => {
+      const value = styleRule.style.getPropertyValue(property).trim();
+      if (!value) return;
+      if (condition === null) {
+        base.push(value);
+        return;
+      }
+      media.set(condition, [...(media.get(condition) ?? []), value]);
+    },
+    shapeSelector,
+  );
 
   return { base, media };
 };
+
+/**
+ * One CSS property's declared values, split by the media condition each declaration sits under.
+ *
+ * Reads only single-class rules (`.css-abc { … }`), which is also a statement about specificity: every
+ * value this returns was declared at (0,1,0).
+ */
+export const emotionDeclarations = (element: Element, property: string) => declarationsFor(element, property);
+
+/**
+ * The same reading, taken at the doubled-class specificity that `sx: { "&&": … }` emits.
+ *
+ * Emotion compiles `{ "&&": { minHeight: 44 } }` to `.css-abc.css-abc { min-height: 44px }` - the same
+ * class twice, which is the whole point (DW-180: MUI's `MenuItem` resets `minHeight` to `auto` inside a
+ * `min-width:600px` rule, and only a selector above (0,1,0) survives that). `emotionDeclarations` cannot
+ * see those rules at all: it matches a rule when its selector *equals* one of the element's own class
+ * selectors, and `.css-abc.css-abc` never equals `.css-abc`. Reading a `&&` floor through it therefore
+ * reports MUI's 48px/auto pair and misses the 44 entirely - a vacuous pass in the direction of "the bug is
+ * still there".
+ *
+ * So the pair reads as: this function says what the winning declaration is, and `emotionDeclarations` says
+ * what the losing one-class rules say. The two together are the mechanism DW-180 records.
+ *
+ * Strictly the *doubled* form, not "any two classes": each of the element's own class selectors is repeated
+ * against itself, so `.css-a.css-b` - which Emotion does not emit, but which nothing else would have
+ * excluded - cannot stand in for the floor.
+ */
+export const emotionDoubledSelectorDeclarations = (element: Element, property: string) =>
+  declarationsFor(element, property, (classSelector) => `${classSelector}${classSelector}`);
 
 /**
  * Which conditions declare a property, without reading its value.
@@ -147,7 +187,7 @@ export const emotionPseudoClassStyle = (element: Element, pseudoClass: string) =
         style.set(property, styleRule.style.getPropertyValue(property));
       });
     },
-    pseudoClass,
+    (classSelector) => `${classSelector}${pseudoClass}`,
   );
 
   return style;

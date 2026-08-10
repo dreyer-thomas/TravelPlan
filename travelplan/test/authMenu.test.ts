@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getAuthMenuItems } from "@/lib/navigation/authMenu";
+import { getAuthMenuItems, type AuthMenuItem } from "@/lib/navigation/authMenu";
 
 describe("getAuthMenuItems", () => {
   it("returns login and register when signed out", () => {
@@ -22,7 +22,26 @@ describe("getAuthMenuItems", () => {
   it("gives the trips entry an href so the menu renders it as a link", () => {
     const trips = getAuthMenuItems({ isAuthenticated: true, isAdmin: false }).find((item) => item.key === "trips");
 
-    expect(trips).toEqual({ key: "trips", labelKey: "header.trips", href: "/trips" });
+    expect(trips).toEqual({ kind: "destination", key: "trips", labelKey: "header.trips", href: "/trips" });
+  });
+
+  /**
+   * DW-127's guarantee, as a checked assertion rather than a claim: `tsconfig.json` includes `test/**`, so
+   * `npm run typecheck` compiles this file and the expect-error below fails the build if the destination
+   * arm ever stops requiring `href`. An *unused* `@ts-expect-error` is itself an error, which is what
+   * makes this a test and not a comment.
+   *
+   * The `expect`s below are not the test - they exercise no production code, and exist only so the two
+   * bindings are read and neither the compiler nor the linter reports them unused. `tsc` is the assertion.
+   */
+  it("cannot describe a destination without somewhere to go", () => {
+    const item: AuthMenuItem = { kind: "destination", key: "trips", labelKey: "header.trips", href: "/trips" };
+
+    // @ts-expect-error - a destination without `href` is exactly the shape that used to render as `#`.
+    const missingHref: AuthMenuItem = { kind: "destination", key: "trips", labelKey: "header.trips" };
+
+    expect(item.kind).toBe("destination");
+    expect(missingHref.kind).toBe("destination");
   });
 
   /**
@@ -50,7 +69,7 @@ describe("getAuthMenuItems", () => {
     it("points it at the administration page", () => {
       const admin = getAuthMenuItems({ isAuthenticated: true, isAdmin: true }).find((item) => item.key === "admin");
 
-      expect(admin).toEqual({ key: "admin", labelKey: "header.userAdmin", href: "/admin/users" });
+      expect(admin).toEqual({ kind: "destination", key: "admin", labelKey: "header.userAdmin", href: "/admin/users" });
     });
 
     it("leaves a signed-in non-admin's menu exactly as it was", () => {

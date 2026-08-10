@@ -11,6 +11,11 @@ vi.mock("next/navigation", () => ({
     push: vi.fn(),
     refresh: vi.fn(),
   }),
+  // The factory replaces the whole module, so every hook `HeaderMenu` reads has to be here or it is
+  // `undefined` at call time. `usePathname` arrived with DW-129's current-page marker; `/` deliberately
+  // matches no row's `href`, which is what keeps this suite's expectations the ones it always had.
+  // `headerMenuAccessibility.test.tsx` is where the pathname is varied.
+  usePathname: () => "/",
 }));
 
 /**

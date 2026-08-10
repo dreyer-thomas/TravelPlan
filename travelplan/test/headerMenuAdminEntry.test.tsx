@@ -11,6 +11,9 @@ vi.mock("next/navigation", () => ({
     push: vi.fn(),
     refresh: vi.fn(),
   }),
+  // Required, not decorative: the factory replaces the module wholesale, and `HeaderMenu` reads
+  // `usePathname` for DW-129's current-page marker. `/` matches no row, so nothing below changes meaning.
+  usePathname: () => "/",
 }));
 
 /**
