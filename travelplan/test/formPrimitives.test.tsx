@@ -387,9 +387,15 @@ describe("DialogShell", () => {
     });
 
     /**
-     * The finding this suite exists for. `theme.ts` scopes the app-wide focus ring to `MuiButton`,
-     * and MUI's `ButtonBase` ships `outline: 0`, so an `IconButton` renders no focus indicator at
-     * all unless it says so itself. EXPERIENCE.md's Accessibility Floor makes a visible focus state
+     * The finding this suite exists for. MUI's `ButtonBase` ships `outline: 0`, so an `IconButton`
+     * renders no focus indicator at all unless something says so — and for the whole of Story 6.24
+     * the only thing that did was this control's own `sx`, because `theme.ts` scoped the app-wide
+     * ring to `MuiButton` alone. DW-65 / DW-154 moved it to `MuiIconButton.styleOverrides.root` and
+     * deleted the per-site copy, so the ring now arrives from the theme.
+     *
+     * The assertion is deliberately unchanged by that move: what it has always been worth is that
+     * *this* control, the one every dialog in the app closes through, ends up with the ring — not
+     * which layer supplies it. EXPERIENCE.md's Accessibility Floor makes a visible focus state
      * unconditional, and DESIGN.md's `icon-button` entry names the ring explicitly.
      */
     it("gives the close control a visible focus ring", () => {

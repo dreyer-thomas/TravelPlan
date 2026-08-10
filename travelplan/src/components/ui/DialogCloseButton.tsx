@@ -57,18 +57,6 @@ export function DialogCloseButton({ label, onClose, disabled = false }: DialogCl
             borderRadius: "6px",
             color: tokens.inkSoft,
             backgroundColor: "transparent",
-            // DESIGN.md's `icon-button` entry: "Hover and focus follow the Accessibility Floor — the
-            // app-wide focus ring, never colour alone." `theme.ts` defines that ring under
-            // `MuiButton` only, and MUI's `ButtonBase` ships `outline: 0`, so an `IconButton`
-            // renders no focus indicator at all unless it says so itself. Story 6.24 hit this on
-            // both of its icon buttons and fixed it per-site; stating it once here is why DW-154's
-            // per-site copies stop multiplying. The app-wide gap on the *other* sixteen icon buttons
-            // is still DW-154 and still open — a `MuiIconButton` theme override would close it, and
-            // that is a sweep of its own, not a chrome story's diff.
-            "&.Mui-focusVisible": {
-              outline: `2px solid ${tokens.ink}`,
-              outlineOffset: "2px",
-            },
           }}
         >
           <CloseXIcon sx={{ fontSize: 20 }} />

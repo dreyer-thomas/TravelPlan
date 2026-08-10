@@ -2026,14 +2026,6 @@ export default function TripDayPlanDialog({
                     height: 44,
                     borderRadius: "6px",
                     color: tokens.ink,
-                    // As on `DialogShell`'s `✕`, and for the same reason: `theme.ts` scopes the
-                    // app-wide focus ring to `MuiButton`, so this control silently lost the ring it
-                    // carried as a `<Button variant="text">` when it became an `IconButton`. On the
-                    // destructive action that is a regression, not a cosmetic gap.
-                    "&.Mui-focusVisible": {
-                      outline: `2px solid ${tokens.ink}`,
-                      outlineOffset: "2px",
-                    },
                   }}
                 >
                   <TrashIcon sx={{ fontSize: 20 }} />

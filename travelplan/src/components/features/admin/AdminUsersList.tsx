@@ -628,9 +628,13 @@ export default function AdminUsersList({ currentUserId }: { currentUserId: strin
   const ROW_MENU_ITEM_SX = { "&&": { minHeight: 44 } } as const;
 
   /**
-   * The 44px hit area plus the focus ring, once. Spelled out rather than inherited because `theme.ts`
-   * has no `MuiIconButton` override and scopes the app-wide focus ring to `MuiButton`. Was copy-pasted
-   * verbatim at all three call sites until review folded it into one constant.
+   * The 44px hit area plus the focus ring, once. Was copy-pasted verbatim at all three call sites until
+   * review folded it into one constant.
+   *
+   * The ring half is now redundant: DW-65 / DW-154 moved it into `theme.ts`'s `MuiIconButton` override,
+   * which these three inherit. It is left in place deliberately (removing DW-50's row treatment is its
+   * own decision, not that sweep's) — but it is a *duplicate*, and `sx` outranks `styleOverrides`, so
+   * editing the value here silently diverges these rows from the app-wide ring rather than changing it.
    */
   const ROW_ICON_BUTTON_SX = {
     width: 44,
@@ -797,9 +801,10 @@ export default function AdminUsersList({ currentUserId }: { currentUserId: strin
                       </Box>
                       {/*
                         The 44px hit area is spelled out for the reason `TripDayView`'s trigger spells it
-                        out: theme.ts sets `minHeight` on `MuiButton` and has no `MuiIconButton` override,
-                        so `size="small"` alone renders ~28px. The focus ring is spelled out for the same
-                        reason 6.24's trash glyph is — the app-wide ring is scoped to `MuiButton`.
+                        out: theme.ts sets `minHeight` on `MuiButton`, and its `MuiIconButton` override
+                        carries the focus ring and no geometry at all, so `size="small"` alone still
+                        renders ~28px. The ring in `ROW_ICON_BUTTON_SX` is now inherited rather than
+                        needed — see that constant for why the duplicate stays.
                       */}
                       {/*
                         The `span` wrapper is required, not decorative: a `Tooltip` whose child is a

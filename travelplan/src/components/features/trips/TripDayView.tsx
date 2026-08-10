@@ -2844,8 +2844,9 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                   hold anything?" test either: the menu's first item is the way back to the trip and
                   it is ungated, so the trigger can never be empty and gating it would strand a
                   viewer on the day screen with no route off it (6.19 AC8; 6.15 trap 1b). The 44px
-                  hit area is spelled out because the theme sets `minHeight` on MuiButton and has no
-                  MuiIconButton override - `size="small"` alone renders ~28px. */}
+                  hit area is spelled out because the theme sets `minHeight` on MuiButton, while its
+                  `MuiIconButton` override carries the focus ring and no geometry at all - so
+                  `size="small"` alone still renders ~28px. */}
               <IconButton
                 id="day-hero-overflow-button"
                 aria-label={t("trips.dayView.moreActions")}

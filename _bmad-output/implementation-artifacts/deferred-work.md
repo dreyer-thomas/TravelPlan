@@ -514,7 +514,8 @@ resolution: already resolved: Reconciled by hand on 2026-08-01: `7-9-full-page-m
 origin: migrated from legacy ledger ("Deferred from: retroactive operator verification of 7-9 and 7-11 (2026-08-01)"), 2026-08-01
 location: `travelplan/src/theme.ts` — the `MuiButton` block
 reason: Story 7.11 AC6 added `&.Mui-focusVisible` to `MuiButton`, which fixed every `variant="contained"` button as specified (confirmed: `outline: 2px solid #2B2A26` at 2px offset on both auth submits and the trips-list "Add trip"). `MuiIconButton` is a separate component and inherits nothing from that rule: tabbing to the header's `aria-label="Open menu"` button yields `outline: none` / `box-shadow: none` with `:focus-visible` matching. Strictly outside AC6, which named contained buttons only — but `EXPERIENCE.md:104` makes visible focus an unconditional baseline, so the gap survives 7.11. Fix is an `MuiIconButton` `&.Mui-focusVisible` treatment alongside the `MuiButton` one. Note that plain links correctly fall back to the UA ring and need nothing. Verified empirically 2026-08-01 against a throwaway copy of `dev.db` on an isolated port in a separate worktree.
-status: open
+status: done 2026-08-10
+resolution: resolved by sweep bundle dw-dw-icon-button-focus-ring
 
 ### DW-66: `bmad-loop confirm` sets the frontmatter status but not the body's `Status:` line, so every confirmed story drifts
 
@@ -1449,7 +1450,8 @@ location: `travelplan/src/theme.ts` (`MuiButton.styleOverrides.root`, the `&.Mui
 severity: medium
 summary: `theme.ts` defines the app's focus ring inside `MuiButton` only. MUI's `IconButton` is a different component and inherits none of it, and `ButtonBase` ships `outline: 0`, so every icon-only control in the app computes to no visible focus indicator at all. EXPERIENCE.md's Accessibility Floor makes a visible focus state unconditional and DESIGN.md's `icon-button` entry names the ring explicitly ("Hover and focus follow the Accessibility Floor — the app-wide focus ring, never colour alone").
 evidence: `grep -n "MuiIconButton\|MuiButtonBase" src/theme.ts` returns nothing, and there is no global CSS focus rule in `src`. Measured against real MUI in jsdom: `getComputedStyle(closeButton).outline` was `0px` before the fix. `TripIcons.tsx:447` is the only site that has ever carried one, and it spells its own out for on-photo chrome. Story 6.24 fixed its own two controls per-site (`DialogShell`'s `✕` and the activity dialog's trash glyph) rather than adding a `MuiIconButton` theme override, because a theme override would have put a ring on sixteen other icon buttons across the app — a visual change on surfaces AC9 says this story does not touch. The correct fix is one `MuiIconButton` (or `MuiButtonBase`) override plus a check that the on-photo chrome, which needs a white ring rather than an ink one, still overrides it. Story 6.25's Task 2 is the natural place: it extracts a shared close control across a dozen dialogs and can carry the ring with it.
-status: open
+status: done 2026-08-10
+resolution: resolved by sweep bundle dw-dw-icon-button-focus-ring
 
 ### DW-155: The activity dialog's frame still moves on tab switch for activities with a long description — no static floor can prevent it
 
@@ -2698,4 +2700,64 @@ location: `travelplan/test/headerMenuAccessibility.test.tsx` (the DW-180 describ
 severity: low
 summary: DW-180 asks for "the `&&` form in both places, **plus a measurement above 600px** rather than below it, because below the breakpoint the bug is invisible". The `&&` form shipped and is pinned, but the measurement did not: jsdom evaluates no media queries and performs no layout, so the suite proves the floor is *declared* above the specificity of MUI's `sm` reset — the mechanism — and cannot produce a box height at 747px.
 evidence: The suite's own docstring states the limit ("The 32.3px measurement above 600px that the ledger records as owed is still owed; it cannot be discharged from here"), and its describe block was deliberately renamed from "hold the 44px floor above sm" to "declare … at a specificity that survives sm" during the bundle's first review pass for exactly this reason. Recorded as its own entry because DW-180 is now closed and this half of its stated fix would otherwise disappear with it — the original bug shipped twice precisely because it was verified only below the breakpoint. The work is a browser pass at ≥747px on the header menu and the language submenu, reading computed row heights. Note the interaction with DW-290: if that decision changes the constant, this measurement should be taken against whatever it becomes.
+status: open
+
+### DW-292: Nothing guards the two surviving per-site focus rings against drifting from the theme's
+
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-icon-button-focus-ring.md`
+origin: incidental to the follow-up review of spec-dw-icon-button-focus-ring, 2026-08-10
+location: `travelplan/src/components/features/admin/AdminUsersList.tsx` (`ROW_ICON_BUTTON_SX`, 3 buttons), `travelplan/src/components/features/trips/TripBucketListPanel.tsx` (`rowActionButtonSx`, 2 buttons)
+severity: medium
+summary: DW-65 / DW-154 moved the icon-button focus ring into `theme.ts`, which makes both of DW-50's per-site rings exact duplicates of it — stated through two *different* selectors (`.Mui-focusVisible` vs `:focus-visible`) and both spelled as literals rather than derived from the theme. Because `sx` outranks `styleOverrides`, editing the ring's colour, width or offset in `theme.ts` silently leaves these five rows on the old value instead of moving them, and no test anywhere fails.
+evidence: `theme.test.tsx`'s new drift test compares `MuiIconButton` to `MuiButton` and never looks at either `sx` constant; `iconButtonFocusRing.test.tsx` renders neither component; `tripBucketListPanel.test.tsx:206` asserts the row outline against a hardcoded literal, so it stays green when the theme moves. The sweep left both constants deliberately — removing DW-50's row treatment is its own decision and was out of that bundle's stated intent — and added comments at both sites warning about exactly this, but a comment is not a guard. The work is one decision for both: delete the redundant ring halves and let the theme supply them, or derive each `sx` value from `theme.components.MuiIconButton.styleOverrides.root` so an edit cannot diverge. Note `rowActionButtonSx`'s `:focus-visible` form is also a different predicate from MUI's `Mui-focusVisible` class, so the two are not guaranteed to fire under identical conditions.
+status: open
+
+### DW-293: `Radio` has no visible focus indicator at all — DW-65's defect, one component over
+
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-icon-button-focus-ring.md`
+origin: incidental to the follow-up review of spec-dw-icon-button-focus-ring, 2026-08-10
+location: `travelplan/src/components/features/trips/TripDayPlanDialog.tsx:2451` and `travelplan/src/components/features/trips/TripAccommodationDialog.tsx:2009` — the payment-mode radios; the fix belongs in `travelplan/src/theme.ts`
+severity: medium
+summary: `Radio` extends `SwitchBase` extends `ButtonBase`, so MUI's `outline: 0` stands, and it is not an `IconButton`, so DW-65's new `MuiIconButton` override does not reach it. Measured under this app's theme, a `Radio` with `Mui-focusVisible` applied changes nothing: no outline, no background, no box-shadow. That is the same unconditional-visible-focus violation against EXPERIENCE.md:107 that DW-65 was filed for, on live production controls, and it is recorded nowhere.
+evidence: Probed in jsdom during the follow-up review against the real theme — `.MuiRadio-root` reads `{outline: "0px", backgroundColor: "rgba(0, 0, 0, 0)", boxShadow: ""}` both before and after the class is applied. `grep -in "MuiRadio" _bmad-output/implementation-artifacts/deferred-work.md` returns nothing and `grep -n "^    Mui" travelplan/src/theme.ts` shows no `MuiRadio` block. The same probe found `Checkbox` and `Tab` equally inert (`MuiMenuItem` is fine — it takes MUI's default `rgba(0,0,0,0.12)` focus background), so the honest scope is "the `ButtonBase` descendants the icon-button sweep deliberately did not touch", with `Radio` the one that is live on two dialogs today. Out of DW-65's bundle by its stated Boundaries, which scoped the override to `MuiIconButton` precisely to avoid restyling these four families as a side effect — so this is the follow-up that decision implies, not a regression from it.
+status: open
+
+### DW-294: The new focus ring draws a 48px outline around a 24px disc on both bucket-list add controls
+
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-icon-button-focus-ring.md`
+origin: incidental to the follow-up review of spec-dw-icon-button-focus-ring, 2026-08-10
+location: `travelplan/src/components/features/trips/TripBucketListPanel.tsx:690` and `travelplan/src/components/features/trips/TripDayBucketListPanel.tsx:103-127`
+severity: medium
+summary: Both controls declare a 44×44 `IconButton` whose only visible affordance is a 24×24 `.bucket-add-circle`. The theme ring resolves at the 44px box plus its 2px offset, so a keyboard user now sees a 48px outline floating roughly 12px clear of the disc it belongs to. Correct as a hit-area indicator and defensible, but it is an unreviewed visual decision on two controls that previously showed nothing at all, and the alternative — ringing the inner disc — is a design call DW-65's bundle had no mandate to make.
+evidence: The two components size the button and the glyph independently; every control `iconButtonFocusRing.test.tsx` asserts on has glyph ≈ box, so the ratio is untested and was not seen during the sweep. DESIGN.md:272 specifies `icon-button` as a 44×44 square, which these satisfy as a target but not as a visible shape. The work is a design decision for both sites at once — accept the hit-area ring as the app's convention and say so in DESIGN.md, or give these two a `borderRadius`/inner-element ring — and it wants the browser pass DW-296 tracks, since the judgement is "does this read as sloppy", which jsdom cannot answer.
+status: open
+
+### DW-295: `TripDayPlanDialog` cannot be mounted under real MUI, so the app's one destructive icon-only control has no rendered focus guard
+
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-icon-button-focus-ring.md`
+origin: incidental to the follow-up review of spec-dw-icon-button-focus-ring, 2026-08-10
+location: `travelplan/src/components/features/trips/TripDayPlanDialog.tsx` (the `plan-delete-action` trash glyph, ~`:2020`); harness side, `travelplan/test/tripDayPlanDialog.test.tsx`
+severity: low
+summary: DW-65 deleted this button's per-site `&.Mui-focusVisible` block on the strength of the theme now supplying it, and nothing renders the button to prove that. The blocker is the harness, which is the more general gap: `tripDayPlanDialog.test.tsx` mocks `@mui/material` wholesale, so any computed style measured there is the mock's, and mounting the real dialog elsewhere hangs indefinitely because it pulls Leaflet in through a dynamic import that every existing harness stubs the whole dialog out to avoid.
+evidence: Attempted during the bundle's first review pass and withdrawn — the render never settles, and a hanging test is worse than the gap, so the finding was reclassified rather than left as a silent patch. Consequence today is bounded: the ring arrives from the theme and `theme.test.tsx` plus `iconButtonFocusRing.test.tsx` pin the theme rule itself, so what is unguarded is specifically a future local `sx` on this button silently removing its ring — on the one destructive icon-only control in the app. The work is the harness, not the assertion: make the dialog mountable under real MUI (stub the Leaflet dynamic import at the module boundary rather than stubbing the dialog), after which this and any other computed-style claim about it becomes a two-line test.
+status: open
+
+### DW-296: The browser pass DW-65's fix owes is owed and is filed nowhere
+
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-icon-button-focus-ring.md`
+origin: incidental to the follow-up review of spec-dw-icon-button-focus-ring, 2026-08-10
+location: `travelplan/test/iconButtonFocusRing.test.tsx` (the suite docstring states the limit) — the measurement targets are the header hamburger, one day-hero chevron and one bucket-list add control
+severity: low
+summary: Every assertion closing DW-65 and DW-154 substitutes the `Mui-focusVisible` class by hand, because jsdom implements no `:focus-visible`. So the suite proves the *cascade* resolves correctly given the class — which is where the bug lived — and cannot prove the browser applies the class at the right moment, nor that the resulting ring is legible on the near-white app bar and on a hero photo. The spec records the pass as owed and the suite says so twice; no ledger entry, task or skip marker carries it, so it disappears with the closed entries.
+evidence: `iconButtonFocusRing.test.tsx`'s docstring: "**jsdom cannot match `:focus-visible`**, so nothing here tabs", and again that a manual pass "is owed regardless". Note DW-65's own original evidence was gathered empirically in a browser against a real DB on an isolated port, and the closure is jsdom-only. There is a second, sharper reason the pass is owed: the on-photo white ring wins by emotion's *insertion order* of two separate `<style>` elements carrying the identical selector (measured against MUI 7.3.11 during this review), and the tests run under `renderWithProviders`'s bare `ThemeProvider` while production also wraps `AppRouterCacheProvider` and `CssBaseline` — so a cache option in `src/app/theme-registry.tsx` could invert the ring on six on-photo controls in the browser while every assertion stays green. The work is one tabbing pass over the three targets, ideally taken together with DW-294's ratio judgement.
+status: open
+
+### DW-297: The header hamburger is a 32×32 hit area, below the 44px floor DESIGN.md gives `icon-button`
+
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-icon-button-focus-ring.md`
+origin: incidental to the follow-up review of spec-dw-icon-button-focus-ring, 2026-08-10
+location: `travelplan/src/components/HeaderMenu.tsx:270-278` — the `aria-label="Open menu"` trigger
+severity: low
+summary: The trigger sets `width: 32, height: 32, padding: 0` in its own `sx`, overriding its `size="large"`. EXPERIENCE.md:109 states "Touch targets ≥ 44×44px (epics.md Additional Requirements)" and DESIGN.md:272 specifies `icon-button` as a 44×44 square, so the app's global navigation affordance is the one control that misses the floor by the widest margin. Pre-existing and untracked: DW-97 and DW-140 both cover this button but are ARIA-only, and no entry covers its geometry.
+evidence: Named explicitly as out of scope by the DW-65 bundle's Boundaries ("Do not fix the unrelated defects visible in the same files — the header hamburger's 32×32 hit area is below the 44px floor and is not this bundle's"), which is correct scoping but leaves the defect recorded only in a spec that is now closed. Surfaced again by this change, which put a focus ring on the control and had its dimensions in hand — `iconButtonFocusRing.test.tsx`'s docstring notes "a 32px box" as a neutral aside. `grep -in "hamburger" deferred-work.md` returns only DW-140. The work is small and localised but is a visual change to the app bar, so it wants a deliberate decision on how the 44px box is absorbed (padding vs. a larger visible glyph) rather than a bare number swap.
 status: open

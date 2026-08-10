@@ -14,6 +14,22 @@ import { renderWithProviders } from "./helpers/renderWithProviders";
  * are consumed by ~20 `<Alert>` call sites and ~27 `helperText` usages across the app, so pinning them
  * once here is cheaper and more honest than asserting a derived colour on each surface.
  */
+
+/**
+ * Serialises a `styleOverrides` block for the substring guards in the icon-button ring test below.
+ *
+ * MUI permits any slot to be a `({ theme }) => ({...})` callback, and `JSON.stringify` drops function
+ * values entirely — so a callback slot would turn a `not.toMatch` guard into a guard over `"{}"`, which
+ * passes no matter what the callback returns. That failure is silent and permanent, so the callback case
+ * is asserted against rather than serialised: the guards below need rewriting the day one is introduced,
+ * not quietly skipping. Nothing in this theme uses the callback form today.
+ */
+const serialisedOverrides = (overrides: unknown) => {
+  const slots = Object.values((overrides ?? {}) as Record<string, unknown>);
+  expect(slots.filter((slot) => typeof slot === "function")).toEqual([]);
+  return JSON.stringify(overrides ?? {});
+};
+
 describe("theme token contract", () => {
   it("carries the two row/pill tokens that were previously hardcoded in the icon module", () => {
     // AC1-AC3: `ROW_GAP_BG` and `NEUTRAL_PILL_BG` moved out of `TripIcons.tsx` into the palette. The
@@ -133,6 +149,45 @@ describe("theme token contract", () => {
       outline: "2px solid #FFFFFF",
       outlineOffset: "2px",
     });
+  });
+
+  /**
+   * DW-65 / DW-154. `IconButton` is its own MUI component and inherits nothing from the `MuiButton`
+   * rule above, so the ring has to be stated a second time — and the only thing worth pinning about the
+   * second statement is that it is *the same statement*. Written as an equality between the two
+   * overrides rather than against a literal, so a future edit to the ring's colour, width or offset
+   * either moves both or fails here; a literal on each side would let them drift in lockstep-looking
+   * pairs that are no longer one ring.
+   *
+   * The rendered behaviour — that a real icon button goes from nothing to this, and that the on-photo
+   * white ring still outranks it — is `iconButtonFocusRing.test.tsx`; this is the theme-object half.
+   */
+  it("states the same focus ring for icon buttons, so the two cannot drift apart", () => {
+    const button = theme.components?.MuiButton?.styleOverrides?.root as Record<string, unknown>;
+    const iconButton = theme.components?.MuiIconButton?.styleOverrides?.root as Record<string, unknown>;
+    expect(iconButton).toBeDefined();
+    expect(iconButton["&.Mui-focusVisible"]).toEqual(button["&.Mui-focusVisible"]);
+    expect(iconButton["&.Mui-focusVisible"]).toEqual({
+      outline: `2px solid ${theme.palette.tokens.ink}`,
+      outlineOffset: "2px",
+    });
+    // The two guards below serialise the *whole* override rather than scanning `Object.keys` of its
+    // `root` slot, because a top-level key scan never descends into a second slot or a nested block
+    // (`&:hover`, a breakpoint) and would silently stop guarding the moment one appeared.
+    //
+    // Scoped to `MuiIconButton`, never `MuiButtonBase`: `Button`, `MenuItem`, `Tab` and `Checkbox` all
+    // extend `ButtonBase` and all four already carry deliberate treatment in this theme, so a
+    // base-level ring would restyle focus on four component families to fix one. Asserted as "no focus
+    // rule at the base", not "no `MuiButtonBase` key" — a ring-neutral entry there (`disableRipple`, say)
+    // is a legitimate change this test has no business failing.
+    expect(serialisedOverrides(theme.components?.MuiButtonBase?.styleOverrides)).not.toMatch(/focus/i);
+    // Focus only. The override deliberately carries no geometry — `TripDayView`'s hero controls and the
+    // dialog close glyph size themselves, and a `minHeight` here would silently resize every icon button
+    // in the app, including the ones MUI renders internally (`Alert`'s close slot). Geometry is what is
+    // forbidden; a future non-geometry entry is not this test's business.
+    expect(serialisedOverrides(theme.components?.MuiIconButton?.styleOverrides)).not.toMatch(
+      /width|height|padding|margin|inset|gap|fontSize/i,
+    );
   });
 
   /**

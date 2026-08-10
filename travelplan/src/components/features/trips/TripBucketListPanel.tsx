@@ -638,6 +638,12 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
 
   // Shared by both row-action buttons so the 44px hit-area floor and the DW-50 `:focus-visible`
   // outline cannot drift apart between them.
+  //
+  // The outline half is now redundant: DW-65 / DW-154 moved the ring into `theme.ts`'s `MuiIconButton`
+  // override, which both rows inherit. Left in place deliberately (removing DW-50's row treatment is its
+  // own decision) — but note it is a *duplicate* stated through a different selector (`:focus-visible`
+  // rather than `.Mui-focusVisible`), and `sx` outranks `styleOverrides`, so editing the value here
+  // diverges these two rows from the app-wide ring instead of changing it.
   const rowActionButtonSx = {
     width: 44,
     height: 44,
@@ -804,9 +810,9 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
                       </Typography>
                     </Box>
                     {/* `gap: 1` (8px, DW-50) keeps the two 44px hit areas from reading as a single
-                        touch target; the `&:focus-visible` outline matches the local-sx pattern used
-                        in `DocChip.tsx` and `PhotoUploadField.tsx` rather than the app-wide
-                        `MuiIconButton` fix reserved for DW-65. */}
+                        touch target. The `&:focus-visible` outline in `rowActionButtonSx` predates
+                        DW-65's app-wide `MuiIconButton` ring, which these rows now also inherit; see
+                        that constant for why the duplicate was left rather than removed. */}
                     <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexShrink: 0 }}>
                       <IconButton
                         aria-label={t("trips.bucketList.editAction")}

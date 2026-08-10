@@ -488,9 +488,20 @@ export const HERO_SCRIM =
 /**
  * Translucent chrome for controls that sit on top of a hero photo (`.share-btn.on-photo`).
  *
- * The focus ring is white, overriding the `ink` one `theme.ts`'s `MuiButton` root now applies app-wide:
- * two of the three consumers here are MUI `Button`s sitting on `HERO_SCRIM`, where a #2B2A26 outline is
- * ink-on-near-black and effectively invisible. Same 2px/2px geometry, inverted for the surface.
+ * The focus ring is white, overriding the `ink` one `theme.ts` applies app-wide from *both* its
+ * `MuiButton` and its `MuiIconButton` roots. All seven consumers sit on a near-black surface where a
+ * #2B2A26 outline is effectively invisible: the day hero's two chevrons and its overflow trigger over
+ * `HERO_SCRIM`, `TripTimeline`'s share action over the same scrim (the one MUI `Button` of the seven),
+ * and `FullscreenPhotoViewer`'s three controls over that viewer's own `rgba(0, 0, 0, 0.92)` backdrop -
+ * not the scrim, which the viewer never uses. Same 2px/2px geometry, inverted for the surface.
+ *
+ * That inversion holds by insertion order, not by specificity. Measured against MUI 7.3.11: `sx` and the
+ * theme's `styleOverrides` compile to the *identical* selector and are emitted as two separate rules in
+ * two separate `<style>` elements, ink first and white second, because `sx` is the last style argument in
+ * MUI's `styled()` composition. So the win depends on the order emotion inserts them into the document -
+ * which a MUI version bump that reordered the composition could flip, and so could an emotion cache
+ * option in `src/app/theme-registry.tsx`. Either would put an ink ring on six icon buttons sitting on a
+ * photo, which is why it is pinned in `test/iconButtonFocusRing.test.tsx` rather than assumed.
  */
 export const ON_PHOTO_CHROME = {
   backgroundColor: "rgba(255,255,255,.18)",

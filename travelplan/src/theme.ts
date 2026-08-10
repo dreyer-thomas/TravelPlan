@@ -404,6 +404,58 @@ const theme = createTheme({
         },
       },
     },
+    // MUI's `IconButton` is its own component, not a `Button` variant, so it inherits nothing from the
+    // `&.Mui-focusVisible` rule directly above - and `ButtonBase`, which it does extend, ships
+    // `outline: 0`. Until this rule existed, every MUI `IconButton` in the app computed to no visible
+    // focus indicator unless its own `sx` said otherwise, the header's "Open menu" hamburger included.
+    // EXPERIENCE.md's Accessibility Floor makes a visible focus state unconditional, and DESIGN.md's
+    // `icon-button` entry names this ring specifically ("Hover and focus follow the Accessibility Floor -
+    // the app-wide focus ring, never colour alone"), so the same 2px `ink` outline at the same 2px offset
+    // is the only correct value here; a second geometry or a second token would be two focus rings.
+    //
+    // Scoped to `MuiIconButton` rather than `MuiButtonBase`: `Button`, `MenuItem`, `Tab` and `Checkbox`
+    // are all `ButtonBase` descendants and all four already carry deliberate treatment in this file, so a
+    // base-level rule would restyle focus on four component families to fix one.
+    //
+    // Stated here rather than at the call sites because it is a floor, not a decision. Seven hand-written
+    // `<IconButton`s carried no ring at all - `HeaderMenu`'s hamburger, both map-expand controls
+    // (`TripDayMapPanel`, `TripOverviewMapPanel`), both bucket-list panels' add/collapse controls
+    // (`TripBucketListPanel` x2, `TripDayBucketListPanel`) and `TripDayView`'s travel-segment edit glyph -
+    // and they are exactly the sites nobody thought to hand-copy it into. So this rule deletes Story
+    // 6.24's two copies (DW-65 / DW-154) rather than adding a further one. (`AdminUsersList`'s
+    // `ROW_ICON_BUTTON_SX` and `TripBucketListPanel`'s `rowActionButtonSx` are DW-50's row treatment and
+    // stay: redundant now, but removing them is its own decision. Nothing guards them against drifting
+    // from this value, because `sx` still wins - see below.)
+    //
+    // Two limits worth stating, because both are easy to read past. It reaches *more* than the
+    // hand-written sites: MUI composes `IconButton` internally, so `Alert`'s `onClose` slot
+    // (`AdminUsersList`'s error alert) takes this ring too - correct by the Floor, but it means the
+    // blast radius is not bounded by a `grep '<IconButton'`. And it reaches *less* than "every icon-only
+    // control": the glyph buttons built as `Box component="button"` (`DocChip`, `PhotoUploadField`,
+    // `DocumentUploadField`, `TripDayPlanItemContent`) are not `IconButton`s, carry their own
+    // `:focus-visible` rings, and this selector cannot see them.
+    //
+    // The one deliberate exception stays a call-site concern: `ON_PHOTO_CHROME` (`TripIcons.tsx`) needs a
+    // white ring because ink-on-hero-photo is ink-on-near-black, and it still wins. Not by specificity:
+    // measured against MUI 7.3.11, `sx` and `styleOverrides` compile to the *identical* selector
+    // (`.css-<hash>-MuiButtonBase-root-MuiIconButton-root.Mui-focusVisible`) and are emitted as two
+    // separate rules in two separate `<style>` elements, ink first and white second, because `sx` is the
+    // final style argument in the component's `styled()` composition. So it is document *insertion* order
+    // among equal-specificity rules that decides - which means two things. Any future ring stated in `sx`
+    // will silently outrank this one; and the guarantee is only as stable as emotion's insertion order, so
+    // a cache option in `src/app/theme-registry.tsx` (`prepend`, `insertionPoint`, `enableCssLayer`) could
+    // invert it in the browser while every jsdom assertion stays green. Pinned in
+    // `test/iconButtonFocusRing.test.tsx`, which states the same limit.
+    MuiIconButton: {
+      styleOverrides: {
+        root: {
+          "&.Mui-focusVisible": {
+            outline: `2px solid ${colors.ink}`,
+            outlineOffset: "2px",
+          },
+        },
+      },
+    },
     MuiTextField: {
       defaultProps: {
         variant: "outlined",

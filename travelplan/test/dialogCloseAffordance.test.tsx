@@ -128,10 +128,14 @@ describe("the shared close control (AC1, AC6)", () => {
   });
 
   /**
-   * `theme.ts` scopes the app-wide focus ring to `MuiButton` and MUI's `ButtonBase` ships `outline: 0`,
-   * so an `IconButton` shows nothing under keyboard focus unless it says so itself. Story 6.24 fixed
-   * that per-site on two buttons (DW-154); the point of the shared component is that the fix travels
-   * with the glyph, so it is asserted on the shared path rather than on each of the ten call sites.
+   * MUI's `ButtonBase` ships `outline: 0`, so an `IconButton` shows nothing under keyboard focus unless
+   * something says so. Story 6.24 said it per-site on two buttons because `theme.ts` scoped the ring to
+   * `MuiButton` alone; DW-65 / DW-154 has since moved it to `MuiIconButton.styleOverrides.root`, and the
+   * per-site copy is gone.
+   *
+   * The assertion survives that move untouched, and asserting it here is still the point: the glyph on
+   * this path is the same shared component the shell uses, so proving the ring reaches it proves it
+   * reaches all ten of these dialogs without asserting it ten times.
    */
   it("carries the focus ring with it", () => {
     renderTitleRow();
