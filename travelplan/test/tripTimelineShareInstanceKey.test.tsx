@@ -99,6 +99,7 @@ describe("TripTimeline share dialog instance key", () => {
               trip: {
                 id: "trip-1",
                 name: "Trip",
+                accessRole: "owner",
                 startDate: "2026-12-01T00:00:00.000Z",
                 endDate: "2026-12-02T00:00:00.000Z",
                 dayCount: 2,

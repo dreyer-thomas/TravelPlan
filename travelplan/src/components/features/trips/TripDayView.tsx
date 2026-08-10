@@ -58,6 +58,7 @@ import TripDayTravelSegmentDialog from "@/components/features/trips/TripDayTrave
 import { MiniImageStrip, PlanItemRichContent, isSafeLink, parsePlanText, toViewerImages } from "@/components/features/trips/TripDayPlanItemContent";
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
+import { canTripAccessRoleWrite, type TripAccessRole } from "@/lib/auth/tripAccessRole";
 import { extractAttachmentFilename, triggerBlobDownload } from "@/lib/browser/blobDownload";
 import { buildDayMapPanelData, buildTripDayMapItems } from "@/lib/trips/dayMapData";
 import { documentDisplayName } from "@/lib/trips/documentUploads";
@@ -282,7 +283,7 @@ const HERO_CHEVRON_BACKING = {
 type TripSummary = {
   id: string;
   name: string;
-  accessRole?: "owner" | "viewer" | "contributor";
+  accessRole?: TripAccessRole;
   startDate: string;
   endDate: string;
   dayCount: number;
@@ -648,7 +649,19 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   // `isOwner` used to sit beside this and is gone as of Story 5.13: its last three readers (the day-image
   // menu item, the bucket-list fetch and the bucket-list panel) all moved to `canEditPlanning`, and this
   // screen now holds nothing that is the owner's alone.
-  const canEditPlanning = detail?.trip.accessRole ? detail.trip.accessRole !== "viewer" : true;
+  // The server's own write predicate rather than a hand-written test, and positive equality rather
+  // than `!== "viewer"`: this screen's only role flag decides click-to-edit on every activity card,
+  // the day-image menu item and whether the bucket-list fetch is issued at all. Until DW-243 it read
+  // `accessRole ? … : true`, so a detail payload missing the field opened all three to whoever loaded
+  // the day. Absent, `null` and unrecognised now land in the same arm as `viewer`.
+  //
+  // This is where DW-243's accepted cost is actually paid, and it is a real one: the flag also gates
+  // the bucket-list fetch below, which used to go out in parallel with the detail request because it
+  // was `true` from the first render. It now waits for the detail response, so an owner's bucket list
+  // arrives one round trip later. That is the same change that stops a viewer's copy of that fetch
+  // firing at all - it returned 403 and could flash a permission error on a panel she is not meant to
+  // see - which DW-243 names as part of the defect, so the delay is the fix rather than a side effect.
+  const canEditPlanning = canTripAccessRoleWrite(detail?.trip.accessRole);
 
   // Story 6.15: the hero overflow used to hold one ungated item (print), so the trigger could be
   // unconditional by inheritance. It now holds three gating levels at once, so "does anything

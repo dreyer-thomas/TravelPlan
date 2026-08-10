@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db/prisma";
 import { createAccountWithTemporaryPassword } from "@/lib/repositories/userRepo";
 import { Prisma } from "@/generated/prisma/client";
 import type { TravelSegmentItemType, TravelTransportType } from "@/generated/prisma/enums";
-import type { TripAccessRole } from "@/lib/auth/tripAccess";
+import { deriveTripAccessRole, mapTripMemberRole, type TripAccessRole } from "@/lib/auth/tripAccessRole";
 import { buildDayMapPanelData, buildTripDayMapItems, type TripDayMapPanelData } from "@/lib/trips/dayMapData";
 import { getTripUploadDir, resolveStoredMediaPath } from "@/lib/trips/uploadPaths";
 import {
@@ -573,9 +573,6 @@ const buildLocationData = (location?: TripLocationInput) =>
         label: location?.label ?? null,
       };
 
-const mapTripMemberRole = (role: "VIEWER" | "CONTRIBUTOR"): "viewer" | "contributor" =>
-  role === "VIEWER" ? "viewer" : "contributor";
-
 const toTripMemberRole = (role: "viewer" | "contributor") => (role === "viewer" ? "VIEWER" : "CONTRIBUTOR");
 
 const listTripCollaborators = async (
@@ -667,7 +664,10 @@ export const listTripsForUser = async (userId: string): Promise<TripSummary[]> =
     include: {
       members: {
         where: { userId },
-        select: { role: true },
+        // `userId` rides along unused by this query's own shaping: `deriveTripAccessRole` matches on
+        // it rather than trusting `members[0]`, so the `where` above is no longer the only thing
+        // standing between a caller and somebody else's role.
+        select: { userId: true, role: true },
         take: 1,
       },
       days: {
@@ -681,13 +681,20 @@ export const listTripsForUser = async (userId: string): Promise<TripSummary[]> =
 
   // Prisma loads a to-many `include` as its own statement, so the `EXISTS` filter above and the
   // membership read are not one atomic query: a membership revoked between them comes back as a
-  // non-owned row with `members: []`. `getTripAccessForUser` answers `null` - no access at all - for
+  // non-owned row with `members: []`. `deriveTripAccessRole` answers `null` - no access at all - for
   // exactly that state, so the list drops the row rather than downgrading it to `viewer`. Downgrading
   // would hand a just-removed collaborator the trip's name, dates, route and cost total one last
   // time, on a row that 404s the moment it is clicked.
-  const accessible = trips.filter((trip) => trip.userId === userId || trip.members.length > 0);
+  //
+  // The role is derived here rather than again inside the mapping, so "who may see this row" and "what
+  // does the row say the account may do" are one answer from one function - the same one
+  // `getTripWithDaysForUser` calls. They used to be two separate expressions, and they disagreed.
+  const accessible = trips.flatMap((trip) => {
+    const accessRole = deriveTripAccessRole(userId, trip);
+    return accessRole === null ? [] : [{ trip, accessRole }];
+  });
 
-  return accessible.map((trip) => {
+  return accessible.map(({ trip, accessRole }) => {
     // Mirrors `getTripWithDaysForUser`'s visible-cost rules verbatim: a stay whose name is blank
     // contributes neither cost nor "has accommodation", so the same trip reads identically here and
     // on the trip overview.
@@ -701,12 +708,7 @@ export const listTripsForUser = async (userId: string): Promise<TripSummary[]> =
     return {
       id: trip.id,
       name: trip.name,
-      // Byte-identical to `getTripWithDaysForUser`'s derivation, deliberately: the same expression on
-      // both surfaces is what stops them drifting into disagreement about a trip's ownership. The
-      // `?? "VIEWER"` arm is unreachable here - the filter above has already dropped every non-owned
-      // row with no membership - and is kept only so this line stays the same expression as the one
-      // it mirrors, where the fallback does carry weight.
-      accessRole: trip.userId === userId ? "owner" : mapTripMemberRole(trip.members[0]?.role ?? "VIEWER"),
+      accessRole,
       startDate: trip.startDate,
       endDate: trip.endDate,
       // `trip.days` is already loaded in full, so counting it here avoids a `_count` subquery.
@@ -849,7 +851,10 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
       updatedAt: true,
       members: {
         where: { userId },
-        select: { role: true },
+        // `userId` rides along unused by this query's own shaping: `deriveTripAccessRole` matches on
+        // it rather than trusting `members[0]`, so the `where` above is no longer the only thing
+        // standing between a caller and somebody else's role.
+        select: { userId: true, role: true },
         take: 1,
       },
       days: {
@@ -919,8 +924,19 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
     return null;
   }
 
-  const accessRole: TripAccessRole =
-    trip.userId === userId ? "owner" : mapTripMemberRole(trip.members[0]?.role ?? "VIEWER");
+  // Ahead of the day-meta read below, and answered by the same helper `listTripsForUser` filters on:
+  // the `where` above and this membership `select` are separate statements, so a membership revoked
+  // between them arrives here as a non-owned row with `members: []`. This used to fall back to
+  // `"VIEWER"` and serve the whole trip - every day, stay, plan item and cost - to someone the list
+  // read and `getTripAccessForUser` both already answered "no access" for (DW-239). `null` is the
+  // repository's existing "you cannot have this", which the route at
+  // `src/app/api/trips/[id]/route.ts:38-40` already turns into the 404 a stranger gets; there is no
+  // new status code and no new branch for the route to learn.
+  const accessRole = deriveTripAccessRole(userId, trip);
+
+  if (accessRole === null) {
+    return null;
+  }
 
   const dayMetaRows = await prisma.$queryRawUnsafe<
     {

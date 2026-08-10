@@ -175,7 +175,9 @@ describe("TripTimeline role gating", () => {
     vi.unstubAllGlobals();
   });
 
-  type TripOverrides = { name: string; accessRole: "owner" | "contributor" | "viewer" };
+  // `accessRole` is optional here only so the fail-closed case below can build a payload without it.
+  // Every other case names a role, because "which role is this?" is what they are about.
+  type TripOverrides = { name: string; accessRole?: "owner" | "contributor" | "viewer" };
 
   const buildDetailResponse = (
     trip: TripOverrides & { heroImageUrl?: string | null; updatedAt?: string },
@@ -186,7 +188,12 @@ describe("TripTimeline role gating", () => {
         id: "trip-1",
         name: trip.name,
         currentUserId: "u1",
-        accessRole: trip.accessRole,
+        // The key is omitted, not set to `undefined`. The component reads both the same way, so this
+        // is not what makes the case pass - it is that a real response from a route that does not
+        // send the field has no key at all, and a stub that invents one as `undefined` would be
+        // reproducing a state the server cannot produce. (These stubs hand back the object from
+        // `json()` rather than serializing it, so nothing here would have dropped it for us.)
+        ...(trip.accessRole ? { accessRole: trip.accessRole } : {}),
         startDate: "2026-12-01T00:00:00.000Z",
         endDate: "2026-12-02T00:00:00.000Z",
         dayCount: 1,
@@ -319,6 +326,42 @@ describe("TripTimeline role gating", () => {
     expect(dayCard).toHaveTextContent("Planned 0m, Unplanned 24h");
     expect(dayCard).not.toHaveTextContent("Accommodation missing");
     expect(dayCard).not.toHaveTextContent("Plan missing");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("grants nothing when the payload carries no accessRole at all", async () => {
+    // DW-243. Until this case the `: true` arm of `accessRole ? test : true` had no coverage on either
+    // flag, and it was the arm that mattered: a response missing the field - an older cached one, a
+    // shape change, a route that answered before the field existed - handed whoever loaded the trip
+    // Edit, Delete, Share and Export on a trip that may not be theirs, plus click-to-edit throughout.
+    // Every one of those controls then failed against a route that refuses them, so the fail-open
+    // default bought nothing even for the owner it was written for.
+    //
+    // Pinned at the desktop width for the same reason as the viewer cases: without it this only ever
+    // checks the phone mount point of the controls card.
+    setViewportWidth(DESKTOP_WIDTH);
+    const fetchMock = stubDetailFetch(
+      buildDetailResponse({ name: "Roleless Trip" }, { missingAccommodation: true, accommodation: null }),
+    );
+
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/trips/trip-1", expect.anything()));
+
+    // The same four absences a viewer gets, and no empty card left holding none of them.
+    expect(screen.queryByRole("button", { name: "Share trip" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit trip" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete trip" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: EXPORT_LABEL })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: IMPORT_LABEL })).not.toBeInTheDocument();
+    expect(controlsCards()).toHaveLength(0);
+    // `canEditPlanning`'s own reader on this screen: the bucket list is contributor-and-up.
+    expect(screen.queryByTestId("bucket-list-panel")).not.toBeInTheDocument();
+
+    // Reading still works - fail closed means "no writes", not "no trip".
+    expect(screen.getByRole("heading", { name: "Roleless Trip", level: 4 })).toBeInTheDocument();
+    expect(screen.getByTestId("overview-map-panel")).toBeInTheDocument();
 
     vi.unstubAllGlobals();
   });

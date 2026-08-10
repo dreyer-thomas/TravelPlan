@@ -350,6 +350,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-01T00:00:00.000Z",
             dayCount: 1,
@@ -463,6 +464,111 @@ describe("TripDayView layout", () => {
     vi.unstubAllGlobals();
   });
 
+  it("gives a payload with no accessRole exactly the viewer's day, not the owner's", async () => {
+    // DW-243, and the twin of the viewer case above with the one field removed. `canEditPlanning` is
+    // this screen's only role flag, and until now it read `accessRole ? … : true` - so a response
+    // without the field opened click-to-edit on every activity and stay card, the day-image item and
+    // the bucket-list fetch to whoever loaded the day, on a trip the route would then refuse every one
+    // of those writes on.
+    //
+    // Written as its own fixture to stay a line-for-line twin of the viewer case above, which is also
+    // inline: the two differ in exactly one field and their assertions have to be comparable by eye.
+    // `buildDayResponse(day, { accessRole: undefined })` would in fact reproduce the state - the
+    // builder spreads `...trip` after its own `accessRole`, and these stubs return the object rather
+    // than serializing it, so the key survives as `undefined` and the component reads it the same way
+    // - but it builds a different day, and then the pair no longer proves the role is what changed.
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const fetchMock = withBucketList(async (input) => {
+      const url = String(input);
+      if (url.includes("/accommodations/images") || url.includes("/day-plan-items/images")) {
+        return mockFetchResponse({ data: { images: [] }, error: null });
+      }
+      if (url.includes("/days/day-1/route")) {
+        return mockFetchResponse({ data: { points: [], route: { polyline: [], distanceMeters: null, durationSeconds: null } }, error: null });
+      }
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-01T00:00:00.000Z",
+            dayCount: 1,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
+          },
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: {
+                id: "stay-1",
+                name: "Roleless Hotel",
+                notes: null,
+                status: "booked",
+                costCents: null,
+                payments: [],
+                link: null,
+                checkInTime: null,
+                checkOutTime: null,
+                location: null,
+              },
+              dayPlanItems: [
+                {
+                  id: "item-1",
+                  title: "Museum",
+                  fromTime: "09:00",
+                  toTime: "10:00",
+                  contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Visit" }] }] }),
+                  costCents: null,
+                  payments: [],
+                  linkUrl: null,
+                  location: null,
+                },
+              ],
+              travelSegments: [],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
+
+    stubFetch(fetchMock);
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    expect(await screen.findByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
+    // The same four absences the viewer case asserts, for the same reason.
+    expect(screen.queryByTestId("timeline-current-stay-edit-overlay")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("timeline-previous-stay-edit-overlay")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add item" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("day-plan-item-edit-overlay")).not.toBeInTheDocument();
+    // DW-246's 2026-08-08 decision - viewers may read the bucket list, and the day view's
+    // edit-capability short-circuit on that fetch is to be dropped - has not been implemented. When it
+    // is, this line and its twin in the viewer case above both become wrong for the same reason and
+    // should be updated together: the panel will render for every role that can open the day, and what
+    // an absent `accessRole` must still withhold is the *write* affordances asserted around it.
+    expect(screen.queryByText("Bucket list")).not.toBeInTheDocument();
+
+    // The hero overflow's three day-changing items are on the same flag, and the divider that marks
+    // them off goes with them. Print stays: read access is all it needs, and it is what keeps the
+    // trigger itself worth rendering.
+    await userEvent.click(screen.getByTestId("day-hero-overflow"));
+    expect(await screen.findByRole("menuitem", { name: "Print day" })).toBeInTheDocument();
+    for (const name of ["Edit day details", "Move activities", "Swap activities"]) {
+      expect(screen.queryByRole("menuitem", { name })).not.toBeInTheDocument();
+    }
+    expect(screen.queryByTestId("day-hero-overflow-divider")).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
   it("shows contributor planning controls and the bucket list, which Story 5.13 moved to her", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
@@ -568,6 +674,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-01T00:00:00.000Z",
             dayCount: 1,
@@ -596,7 +703,11 @@ describe("TripDayView layout", () => {
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
 
     expect(await screen.findByText("Bucket list")).toBeInTheDocument();
-    expect(screen.getByText("Bucket stop")).toBeInTheDocument();
+    // Awaited, not read synchronously off the panel's arrival: the bucket-list fetch is gated on
+    // `canEditPlanning`, which is `false` until the detail response lands (DW-243 - it used to be
+    // `true` from the first render, so the request went out alongside the detail one and the items
+    // were usually already there). The panel header and its contents now arrive one round trip apart.
+    expect(await screen.findByText("Bucket stop")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Add to day" }));
 
     await waitFor(() => {
@@ -651,6 +762,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-01T00:00:00.000Z",
             dayCount: 1,
@@ -680,7 +792,9 @@ describe("TripDayView layout", () => {
 
     expect(await screen.findByText("Bucket list")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Add to day" }));
+    // The item's own button, so it has to be waited for rather than queried off the panel header -
+    // same one-round-trip gap as the case above.
+    await userEvent.click(await screen.findByRole("button", { name: "Add to day" }));
     expect(await screen.findByTestId("plan-dialog")).toBeInTheDocument();
     const mountsAfterFirstOpen = planDialogMountState.mounts;
 
@@ -713,6 +827,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-01T00:00:00.000Z",
             dayCount: 1,
@@ -754,6 +869,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-02T00:00:00.000Z",
             dayCount: 2,
@@ -825,6 +941,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-01T00:00:00.000Z",
             dayCount: 1,
@@ -917,6 +1034,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-01T00:00:00.000Z",
             dayCount: 1,
@@ -1004,6 +1122,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-02T00:00:00.000Z",
             dayCount: 2,
@@ -1081,6 +1200,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-01T00:00:00.000Z",
             dayCount: 1,
@@ -1160,6 +1280,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-01T00:00:00.000Z",
             dayCount: 1,
@@ -1215,6 +1336,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-01T00:00:00.000Z",
             dayCount: 1,
@@ -1271,6 +1393,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-02T00:00:00.000Z",
             dayCount: 2,
@@ -1343,6 +1466,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-03T00:00:00.000Z",
             dayCount: 3,
@@ -1422,6 +1546,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-03T00:00:00.000Z",
             dayCount: 3,
@@ -1494,6 +1619,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-03T00:00:00.000Z",
             dayCount: 3,
@@ -1571,6 +1697,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-03T00:00:00.000Z",
             dayCount: 3,
@@ -1663,6 +1790,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-01T00:00:00.000Z",
             dayCount: 1,
@@ -1732,6 +1860,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-01T00:00:00.000Z",
             dayCount: 1,
@@ -1785,6 +1914,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-02T00:00:00.000Z",
             dayCount: 2,
@@ -1906,6 +2036,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-02T00:00:00.000Z",
             dayCount: 2,
@@ -1995,6 +2126,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-02T00:00:00.000Z",
             dayCount: 2,
@@ -2438,6 +2570,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-02T00:00:00.000Z",
             dayCount: 2,
@@ -2510,6 +2643,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-02T00:00:00.000Z",
             dayCount: 2,
@@ -2589,6 +2723,7 @@ describe("TripDayView layout", () => {
             trip: {
               id: "trip-1",
               name: "Trip",
+              accessRole: "owner",
               startDate: "2026-12-01T00:00:00.000Z",
               endDate: "2026-12-02T00:00:00.000Z",
               dayCount: 2,
@@ -2685,6 +2820,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-01T00:00:00.000Z",
             dayCount: 1,
@@ -2773,6 +2909,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-02T00:00:00.000Z",
             dayCount: 2,
@@ -2869,6 +3006,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-02T00:00:00.000Z",
             dayCount: 2,
@@ -2979,6 +3117,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-02T00:00:00.000Z",
             dayCount: 2,
@@ -3092,6 +3231,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-02T00:00:00.000Z",
             dayCount: 2,
@@ -3186,6 +3326,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-02T00:00:00.000Z",
             dayCount: 2,
@@ -3266,6 +3407,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-02T00:00:00.000Z",
             dayCount: 2,
@@ -3376,6 +3518,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-01T00:00:00.000Z",
             dayCount: 1,
@@ -3476,6 +3619,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-01T00:00:00.000Z",
             dayCount: 1,
@@ -3614,6 +3758,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-02T00:00:00.000Z",
             dayCount: 2,
@@ -3716,6 +3861,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-02T00:00:00.000Z",
             dayCount: 2,
@@ -3943,6 +4089,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-02T00:00:00.000Z",
             dayCount: 2,
@@ -4044,6 +4191,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-02T00:00:00.000Z",
             dayCount: 2,
@@ -4134,6 +4282,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-02T00:00:00.000Z",
             dayCount: 1,
@@ -4200,6 +4349,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-02T00:00:00.000Z",
             dayCount: 2,
@@ -4345,6 +4495,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-02T00:00:00.000Z",
             dayCount: 2,
@@ -4490,6 +4641,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-02T00:00:00.000Z",
             dayCount: 2,
@@ -4635,6 +4787,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-01T00:00:00.000Z",
             dayCount: 1,
@@ -4801,6 +4954,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-04T00:00:00.000Z",
             dayCount: 4,
@@ -5370,6 +5524,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-01T00:00:00.000Z",
             dayCount: 1,
@@ -5617,6 +5772,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-01T00:00:00.000Z",
             dayCount: 1,
@@ -5958,6 +6114,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-11-30T00:00:00.000Z",
             endDate: "2026-12-01T00:00:00.000Z",
             dayCount: 2,
@@ -6657,9 +6814,8 @@ describe("TripDayView layout", () => {
 
   it("opens the transfer dialog in move mode from the move item and in swap mode from the swap item (AC4)", async () => {
     navigationMockState.search = "";
-    // Role pinned rather than left to the `accessRole`-absent default: these two items are gated on
-    // `canEditPlanning`, so the case worth proving is a contributor reaching them, not the fallback
-    // that treats an unknown role as an owner.
+    // Contributor rather than the builder's `owner` default: these two items are gated on
+    // `canEditPlanning`, so the case worth proving is the lesser role that still reaches them.
     vi.stubGlobal("fetch", buildTwoDayResponse({ trip: { accessRole: "contributor" } }));
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
@@ -6800,6 +6956,7 @@ describe("TripDayView layout", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-03T00:00:00.000Z",
             dayCount: 3,
@@ -7138,6 +7295,7 @@ describe("TripDayView document chips", () => {
         trip: {
           id: "trip-1",
           name: "Trip",
+          accessRole: "owner",
           startDate: "2026-12-01T00:00:00.000Z",
           endDate: "2026-12-02T00:00:00.000Z",
           dayCount: 2,

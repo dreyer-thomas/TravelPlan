@@ -1,24 +1,33 @@
 import { apiError } from "@/lib/errors/apiError";
 import { fail } from "@/lib/http/response";
 import { prisma } from "@/lib/db/prisma";
+import {
+  canTripAccessRoleManageTrip,
+  canTripAccessRoleRead,
+  canTripAccessRoleWrite,
+  deriveTripAccessRole,
+  type TripAccessRole,
+} from "@/lib/auth/tripAccessRole";
 
-export type TripAccessRole = "owner" | "viewer" | "contributor";
+/**
+ * The role union and its predicates now live in `tripAccessRole.ts`, which imports no `prisma` and so
+ * can be read by a client component; this module keeps the server-side access surface - everything
+ * below that needs a database round-trip.
+ *
+ * They are re-exported rather than left behind an import path change because this file is where ~20
+ * routes and repositories already ask for them, and moving a declaration is not a reason to touch
+ * twenty call sites. `@/lib/auth/tripAccess` stays the address for server code; a client component
+ * imports from `@/lib/auth/tripAccessRole` directly, since importing them *through* here would drag
+ * `prisma` into the browser bundle - the very thing the split avoids.
+ */
+export { canTripAccessRoleManageTrip, canTripAccessRoleRead, canTripAccessRoleWrite };
+export type { TripAccessRole };
 
 export type TripAccess = {
   tripId: string;
   ownerUserId: string;
   accessRole: TripAccessRole;
 };
-
-export const canTripAccessRoleRead = (accessRole: TripAccessRole | null | undefined) => accessRole !== null && accessRole !== undefined;
-
-export const canTripAccessRoleManageTrip = (accessRole: TripAccessRole | null | undefined) => accessRole === "owner";
-
-export const canTripAccessRoleWrite = (accessRole: TripAccessRole | null | undefined) =>
-  accessRole === "owner" || accessRole === "contributor";
-
-const mapTripMemberRole = (role: "VIEWER" | "CONTRIBUTOR"): Exclude<TripAccessRole, "owner"> =>
-  role === "VIEWER" ? "viewer" : "contributor";
 
 export const getTripAccessForUser = async (userId: string, tripId: string): Promise<TripAccess | null> => {
   const trip = await prisma.trip.findFirst({
@@ -31,7 +40,7 @@ export const getTripAccessForUser = async (userId: string, tripId: string): Prom
       userId: true,
       members: {
         where: { userId },
-        select: { role: true },
+        select: { userId: true, role: true },
         take: 1,
       },
     },
@@ -41,23 +50,20 @@ export const getTripAccessForUser = async (userId: string, tripId: string): Prom
     return null;
   }
 
-  if (trip.userId === userId) {
-    return {
-      tripId: trip.id,
-      ownerUserId: trip.userId,
-      accessRole: "owner",
-    };
-  }
+  // The same derivation the two trip reads in `tripRepo.ts` call, not a fourth statement of it. This
+  // one is the gate every write goes through, so it is the copy that mattered most: DW-239 was three
+  // hand-written spellings of one rule disagreeing about a revoked collaborator, and leaving this one
+  // behind while consolidating the other two would have put the next drift on the enforcement side.
+  const accessRole = deriveTripAccessRole(userId, trip);
 
-  const membership = trip.members[0];
-  if (!membership) {
+  if (accessRole === null) {
     return null;
   }
 
   return {
     tripId: trip.id,
     ownerUserId: trip.userId,
-    accessRole: mapTripMemberRole(membership.role),
+    accessRole,
   };
 };
 

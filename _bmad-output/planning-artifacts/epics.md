@@ -3151,6 +3151,82 @@ The change is cheaper than it looks, and for a reason worth stating: every store
 **Then** the images still appear, because the browser sends the session cookie on a same-origin request — verified on screen, not reasoned about
 
 
+### Story 8.4: Media Deletion That Deletes Only Its Own File
+
+As someone who removes a day's cover photo,
+I want exactly that file removed,
+So that the tickets and photos attached to that day's stays and activities are still there afterwards.
+
+**FRs covered:** None (defect bundle; contains the ledger's only `high`)
+
+**Depends on:** nothing. Bundles four recorded deferred-work entries — DW-194, DW-86, DW-88, DW-195.
+
+**Context:** Four entries that share one failure shape: a write path whose blast radius is wider than the thing it was asked to change.
+
+The `high` one destroys data. `PATCH { imageUrl: null }` on the day-image route cleans up one file by recursively removing the entire day upload directory — which, by construction in `uploadPaths.ts`, is the parent of every stay and activity photo and every Story 9.1 document on that day. One click unlinks all of them while touching no row, so the chips keep rendering and every one 404s. The same condition fires when the day image is merely *replaced* with a URL outside the day directory. Note that the ledger entry's suggested fix rests on a false premise: it says the route already knows the previous `imageUrl`, and it does not — the repository looks the day up with `select: { id: true }`.
+
+The other three: two concurrent overwrite imports of one trip can interleave and destroy each other's files; a create-new import restores a foreign `/uploads/trips/<id>/…` URL verbatim and renders another user's photo; and a filesystem failure after a committed row delete turns a completed deletion into a 500 that tells the user removal failed. DW-86 and DW-88 already carry recorded sweep decisions, which are the specification rather than an open question.
+
+**Acceptance Criteria:**
+
+**Given** a day carrying a day image, a stay photo and a stay document
+**When** the day image is removed
+**Then** only the day image file is gone — both entry files survive byte-identically, and the day image's own file is genuinely removed rather than orphaned
+
+**Given** the same day
+**When** the day image is replaced with a URL outside the day's upload directory
+**Then** the same holds, because that is the condition's second trigger
+
+**Given** a media row whose delete has already committed
+**When** the subsequent unlink fails with anything other than a missing file
+**Then** the failure is logged and the response reports the deletion that actually happened, on all four media routes at once
+
+**Given** two overwrite imports of the same trip
+**When** they run concurrently
+**Then** they cannot both write into one directory — an exclusive per-trip sentinel released in a `finally`, with an explicit staleness timeout
+
+**Given** a create-new import carrying an upload URL belonging to a different trip
+**When** it is restored
+**Then** the foreign URL is nulled and the summary names how many images were dropped, while a URL belonging to the trip being created is still restored verbatim and the existing v1 tests pass unmodified
+
+
+### Story 8.5: Travel Segments That Match Their Day
+
+As someone planning a day,
+I want the travel legs on that day to be the ones I can see and change,
+So that a stay I deleted or an activity I inserted does not leave minutes in my travel time that nothing on the screen can account for.
+
+**FRs covered:** FR25, FR27
+
+**Depends on:** nothing. Bundles four recorded deferred-work entries — DW-79, DW-215, DW-148, DW-151.
+
+**Context:** Reported from production on 2026-08-07: an activity was deleted, a travel segment vanished that should have survived, and re-creating the route between two activities was refused with "Travel segment already exists". The row is genuinely there — but `buildSegmentTimeline` no longer produces that endpoint pair, so the day never draws it and `ensureSegmentItemsExist` answers `missing` for every attempt to edit or delete it. It is real, invisible, counted in the day's travel time, and unreachable through every control the UI offers.
+
+Three entries produce such rows and one is the cost of living with them. The story turns on a distinction the fix must respect: when an **endpoint ceased to exist** (a deleted stay) nothing can repair the segment and it should be deleted, which is what the activity path already does and what DW-79's recorded decision asks for. When **both endpoints still exist and only adjacency changed** (an activity inserted or retimed between them) the segment still records a transport mode, a duration and a distance the user measured — none of it derivable — so it must be surfaced rather than silently discarded. Story 6.23 argued the same principle in the other direction: "a fabricated segment is worse than a visible gap".
+
+**Acceptance Criteria:**
+
+**Given** an accommodation that is an endpoint of one or more travel segments
+**When** it is deleted
+**Then** those segments are removed in the same transaction, through one helper serving both endpoint types rather than a second near-identical one
+
+**Given** a day whose two activities are joined by a travel segment
+**When** an activity is inserted between them, retimed so the order changes, or moved away
+**Then** the segment survives with its mode, duration and distance intact — it is not silently deleted
+
+**Given** a segment whose endpoints exist but are no longer adjacent
+**When** the day is opened
+**Then** it appears as an orphaned leg showing what it records, with a control that removes it, and the day's travel-time total counts only the legs the timeline actually draws
+
+**Given** an orphaned leg
+**When** its removal is requested
+**Then** it is deleted — creation of a non-adjacent pair still refuses, but removal must not, or the row stays unreachable
+
+**Given** a backup carrying a segment that is orphaned in its restored day
+**When** it is imported
+**Then** it is restored rather than dropped, and surfaces as an orphaned leg — import fidelity is unchanged
+
+
 ## Epic 9: Travel Documents
 
 Users can keep tickets and booking confirmations as the original files on the stay or activity they belong to, see and open them from the day timeline, and take them offline as one PDF.

@@ -16,6 +16,7 @@ import {
   WarningTriangleIcon,
 } from "@/components/features/trips/TripIcons";
 import TripImportDialog from "@/components/features/trips/TripImportDialog";
+import type { TripAccessRole } from "@/lib/auth/tripAccessRole";
 import { withImageCacheBuster } from "@/lib/trips/imageUploads";
 import { formatCost } from "@/lib/trips/formatCost";
 import { deriveTripStatus, startOfTodayUtc, type TripStatus } from "@/lib/trips/tripStatus";
@@ -31,14 +32,16 @@ type TripSummary = {
   id: string;
   name: string;
   /**
-   * Owner, or the role this account holds through a membership on somebody else's trip. Declared
-   * inline rather than imported: `TripAccessRole` lives beside the server-side access helpers and
-   * the client components here keep their own copy, as `TripTimeline` does.
+   * Owner, or the role this account holds through a membership on somebody else's trip. Imported
+   * from `@/lib/auth/tripAccessRole` rather than re-declared here: that module carries no `prisma`
+   * import precisely so a client component can name the union. Be exact about what that buys, since
+   * the stronger claim is tempting and wrong: nothing here exhausts the union, so a fourth role is
+   * *not* a compile error at this consumer - it is one place to add it and three predicates that
+   * deny it until someone grants it. See the note at the top of `tripAccessRole.ts`.
    *
    * Optional so a payload from a server that has not yet been redeployed still parses - not for
    * `updatedAt`'s client-cache reason, which no longer applies to this fetch now that it sends
-   * `no-store`. The absent case is read the opposite way round from every other surface; see
-   * `isShared` below.
+   * `no-store`.
    *
    * Be clear about what that window costs, because it is wider than "an unknown row": a server old
    * enough to omit the field is also old enough to filter the list on ownership alone, so it returns
@@ -47,7 +50,7 @@ type TripSummary = {
    * wrong label for the length of a deploy; reading the absent field the other way round would
    * present somebody else's trip as the account's own, which is the defect this field exists to fix.
    */
-  accessRole?: "owner" | "viewer" | "contributor";
+  accessRole?: TripAccessRole;
   startDate: string;
   endDate: string;
   dayCount: number;
@@ -509,13 +512,13 @@ export default function TripsDashboard() {
               const status = statuses.get(trip.id) ?? "planned";
               const isGap = status === "gap";
               const isPast = status === "past";
-              // The fallback direction is inverted relative to `TripTimeline`/`TripDayView`, which
-              // read an absent `accessRole` as *owner* because they predate the field and a cached
-              // older payload had to keep working for the trip's own owner. Every entry here carries
-              // the field by construction, and defaulting an unknown row to "owner" would present
-              // somebody else's trip as this account's own - the exact failure the marking exists to
-              // prevent. An unrecognised role must not be presented as the more privileged one.
-              const isShared = trip.accessRole ? trip.accessRole !== "owner" : true;
+              // Positive equality against the one role that means "not shared", so an absent or
+              // unrecognised value falls to the marked side. This surface has always read it that
+              // way; `TripTimeline` and `TripDayView` used to read an absent role as *owner*, and
+              // DW-243 brought them here rather than the other way round. Defaulting an unknown row
+              // to "owner" would present somebody else's trip as this account's own - the exact
+              // failure the marking exists to prevent.
+              const isShared = trip.accessRole !== "owner";
               const route =
                 trip.startLocationLabel?.trim() && trip.destinationLocationLabel?.trim()
                   ? ` · ${trip.startLocationLabel.trim()} → ${trip.destinationLocationLabel.trim()}`

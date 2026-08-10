@@ -35,6 +35,11 @@ import {
   WarningTriangleIcon,
   toCssUrl,
 } from "@/components/features/trips/TripIcons";
+import {
+  canTripAccessRoleManageTrip,
+  canTripAccessRoleWrite,
+  type TripAccessRole,
+} from "@/lib/auth/tripAccessRole";
 import { extractAttachmentFilename, triggerBlobDownload } from "@/lib/browser/blobDownload";
 import { formatShortDate } from "@/lib/trips/formatShortDate";
 import { withImageCacheBuster } from "@/lib/trips/imageUploads";
@@ -50,7 +55,7 @@ type ApiEnvelope<T> = {
 type TripSummary = {
   id: string;
   name: string;
-  accessRole?: "owner" | "viewer" | "contributor";
+  accessRole?: TripAccessRole;
   startDate: string;
   endDate: string;
   dayCount: number;
@@ -165,8 +170,23 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
   // an already-mounted element. See DW-107 for the focus-restore consequence of the resulting
   // unmount/remount.
   const isTwoColumnLayout = useMediaQuery(theme.breakpoints.up("md"));
-  const isOwner = detail?.trip.accessRole ? detail.trip.accessRole === "owner" : true;
-  const canEditPlanning = detail?.trip.accessRole ? detail.trip.accessRole !== "viewer" : true;
+  // The same two predicates the server gates the routes behind, not a restatement of them: an absent
+  // or unrecognised role has to grant nothing, and these say so by testing for the roles that *do*
+  // grant rather than for the one that does not. Until DW-243 both lines read `accessRole ? test :
+  // true`, so a payload without the field - an older cached response, a shape change, a fetch that
+  // failed halfway - handed the reader Edit, Delete, Share, Export and click-to-edit on a trip that
+  // might be somebody else's, and every one of those buttons then died on a 403 or 404 from the route.
+  //
+  // DW-243's decision accepts that an owner may briefly see the read-only surface, since "not yet
+  // known" and "no access" are now the same state. That cost is not paid *here*, but name the reason
+  // precisely, because the obvious one is only half of it: the `loading` early return below covers
+  // the first render, and the load-error path does *not* - it clears `detail` and drops `loading`,
+  // then falls through to the main return. What actually keeps both flags out of a rendered tree is
+  // that `tripControlsCard` and every other reader of them sit inside the `{detail && …}` wrappers.
+  // Hoist one of them out and this cost lands here after all. It is paid on the day screen, where
+  // `canEditPlanning` also gates an effect - see `TripDayView.tsx`.
+  const isOwner = canTripAccessRoleManageTrip(detail?.trip.accessRole);
+  const canEditPlanning = canTripAccessRoleWrite(detail?.trip.accessRole);
 
   // DW-107: `tripControlsCard` (below, after the `loading`/`notFound` early returns) is built once
   // but mounted at one of two JSX positions gated by `isTwoColumnLayout` above - different React
@@ -391,7 +411,16 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
   };
 
   const handleUpdated = (updated: EditableTripDetail) => {
-    setDetail(updated as TripDetail);
+    // `accessRole` is carried across rather than taken from `updated`, and the spread order is the
+    // whole point: `EditableTripDetail`'s trip type (`TripEditDialog.tsx`) declares no `accessRole`
+    // at all, so the cast below is the one path in this component that can hand `setDetail` a trip
+    // without one. The PATCH response does include the field today - the dialog spreads the body
+    // through - which is exactly why this was invisible while the flags failed open. Now that an
+    // absent role means "no access", the same cast would strip an owner's Edit, Delete, Share and
+    // Export the instant her own save succeeded, with no error and nothing on screen to explain it.
+    // `...updated.trip` still wins wherever the field is present, so a role the server actually
+    // changed is respected; this only fills a hole the type cannot see.
+    setDetail((current) => ({ ...updated, trip: { accessRole: current?.trip.accessRole, ...updated.trip } }) as TripDetail);
     setEditOpen(false);
   };
 
@@ -501,8 +530,11 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
   // `<body>` when the previously-focused button's instance is the one that unmounts. The refs and
   // the restoring effect live earlier in this component, alongside `isTwoColumnLayout` - not here -
   // because hooks cannot sit after the `loading`/`notFound` early returns above.
+  // `|| isOwner` used to sit on this test and is gone: `canTripAccessRoleWrite` admits every role
+  // `canTripAccessRoleManageTrip` does, so the second operand could never change the answer. It read
+  // as two independent reasons to render the card when there has only ever been one.
   const tripControlsCard =
-    canEditPlanning || isOwner ? (
+    canEditPlanning ? (
       <Box
         data-testid="trip-controls-card"
         sx={{

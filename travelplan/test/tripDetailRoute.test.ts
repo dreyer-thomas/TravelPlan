@@ -362,6 +362,49 @@ describe("GET /api/trips/[id]", () => {
     expect(payload.data?.days.map((day) => day.dayIndex)).toEqual([1, 2]);
   });
 
+  it("stops serving the trip once the membership is removed", async () => {
+    // The detail-side twin of `tripsListRoute.test.ts:261`, and the case DW-239 was opened for. The two
+    // reads used to disagree about this exact state: the list dropped the row, while
+    // `getTripWithDaysForUser` fell back to `"VIEWER"` and handed a removed collaborator the whole trip
+    // - name, dates, every day, stay, plan item and cost. Both now derive the role through
+    // `deriveTripAccessRole`, which answers `null`, and `null` is the repository's existing "no trip"
+    // that this route already turns into a 404 (`src/app/api/trips/[id]/route.ts:38-40`). No 403 branch
+    // was added: someone with no relationship to the trip learns nothing about it, per Story 8.3.
+    //
+    // Asserted before and after, so a green result cannot come from a fixture that never granted access
+    // in the first place.
+    const owner = await prisma.user.create({
+      data: { email: "trip-detail-revoked-owner@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const collaborator = await prisma.user.create({
+      data: { email: "trip-detail-revoked@example.com", passwordHash: "hashed", role: "VIEWER" },
+    });
+    const token = await createSessionJwt({ sub: collaborator.id, role: collaborator.role });
+
+    const { trip } = await createTripWithDays({
+      userId: owner.id,
+      name: "Shared, then revoked",
+      startDate: "2026-06-01T00:00:00.000Z",
+      endDate: "2026-06-02T00:00:00.000Z",
+    });
+    const membership = await prisma.tripMember.create({
+      data: { tripId: trip.id, userId: collaborator.id, role: "VIEWER" },
+    });
+
+    const before = await GET(buildRequest(trip.id, { session: token }), routeContext(trip.id));
+    expect(before.status).toBe(200);
+
+    await prisma.tripMember.delete({ where: { id: membership.id } });
+
+    const after = await GET(buildRequest(trip.id, { session: token }), routeContext(trip.id));
+    const payload = (await after.json()) as ApiEnvelope<null>;
+
+    expect(after.status).toBe(404);
+    expect(payload.data).toBeNull();
+    expect(payload.error?.code).toBe("not_found");
+    expect(payload.error?.message).toBe("Trip not found");
+  });
+
   it("rejects unauthenticated requests", async () => {
     const request = buildRequest("missing-trip");
     const response = await GET(request, routeContext("missing-trip"));

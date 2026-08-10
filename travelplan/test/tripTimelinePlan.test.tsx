@@ -71,6 +71,7 @@ describe("TripTimeline plan action", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-02T00:00:00.000Z",
             dayCount: 2,
@@ -128,6 +129,7 @@ describe("TripTimeline plan action", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-02T00:00:00.000Z",
             dayCount: 2,
@@ -192,6 +194,7 @@ describe("TripTimeline plan action", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-01T00:00:00.000Z",
             dayCount: 1,
@@ -237,6 +240,7 @@ describe("TripTimeline plan action", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-01T00:00:00.000Z",
             dayCount: 1,
@@ -285,6 +289,7 @@ describe("TripTimeline plan action", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-01T00:00:00.000Z",
             dayCount: 1,
@@ -340,6 +345,7 @@ describe("TripTimeline plan action", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-02T00:00:00.000Z",
             dayCount: 2,
@@ -420,6 +426,11 @@ describe("TripTimeline plan action", () => {
 
     vi.unstubAllGlobals();
   });
+  // The `accessRole: "owner"` every fixture in this file now carries is load-bearing here and only
+  // here. This case asserts a *layout* rule - per-day verbs belong on the day screen, not the
+  // overview - and since DW-243 an absent role denies rather than grants, so without the field the
+  // buttons below would be missing for the wrong reason and the case would stay green if the layout
+  // rule were reversed.
   it("does not render per-day action buttons in the overview", async () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,
@@ -429,6 +440,7 @@ describe("TripTimeline plan action", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-01T00:00:00.000Z",
             dayCount: 1,
@@ -488,6 +500,7 @@ describe("TripTimeline plan action", () => {
         trip: {
           id: "trip-1",
           name: "Trip",
+          accessRole: "owner",
           startDate: "2026-12-01T00:00:00.000Z",
           endDate: "2026-12-02T00:00:00.000Z",
           dayCount: 2,
@@ -588,6 +601,7 @@ describe("TripTimeline plan action", () => {
         trip: {
           id: "trip-1",
           name: "Trip",
+          accessRole: "owner",
           startDate: "2026-12-01T00:00:00.000Z",
           endDate: "2026-12-01T00:00:00.000Z",
           dayCount: 1,
@@ -660,6 +674,7 @@ describe("TripTimeline plan action", () => {
         trip: {
           id: "trip-1",
           name: "Trip",
+          accessRole: "owner",
           startDate: "2026-12-01T00:00:00.000Z",
           endDate: "2026-12-02T00:00:00.000Z",
           dayCount: 2,
@@ -747,6 +762,7 @@ describe("TripTimeline plan action", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-01T00:00:00.000Z",
             dayCount: 1,
@@ -803,6 +819,7 @@ describe("TripTimeline plan action", () => {
           trip: {
             id: "trip-1",
             name: "Trip",
+            accessRole: "owner",
             startDate: "2026-12-01T00:00:00.000Z",
             endDate: "2026-12-02T00:00:00.000Z",
             dayCount: 2,
