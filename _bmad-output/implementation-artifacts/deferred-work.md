@@ -100,7 +100,8 @@ decision: 2026-08-01 Close - matches the app-wide client-rendering convention â€
 origin: migrated from legacy ledger ("Deferred from: code review of 7-2-trip-overview-redesign (2026-07-31)"), 2026-08-01
 location: `TripTimeline.tsx:153`
 reason: `HERO_SCRIM`, `DAY_ROW_GAP_BG = "#FBF6EE"` (a fourth near-duplicate of `warnBg`/`cardAlt`), plus `"#FFFFFF"`, `rgba(255,255,255,.18/.28/.55/.92)`, `"11.5px"` and `p: "16px 24px"` literals throughout the hero, stat strip, day row and sidebar. Several are spec-mandated literal values (the 4-stop scrim, the mockup's `#FBF6EE`, white-on-photo alphas), so this is not a straight defect â€” but retheming (dark mode, brand change) now requires editing component bodies again, which is exactly what 7.1 set out to eliminate. The story already flags the `#FBF6EE` vs `colors.warn-bg` `#F6ECE0` conflict between the mockup and DESIGN.md's token table; a token reconciliation pass is the natural home.
-status: open
+status: done 2026-08-10
+resolution: already resolved: Retired by story 7-11-design-token-reconciliation (commit 33abbdf): DAY_ROW_GAP_BG/ROW_GAP_BG are gone, theme.ts:80 now carries warnBgRow with globals.css:22's --color-warn-bg-row, and HERO_SCRIM/ON_PHOTO_CHROME are documented shared constants at TripIcons.tsx:485,495 - the remaining literals are the spec-mandated white-on-photo values 7-11 deliberately kept out of scope.
 
 ### DW-13: Four one-off SVG icon components inlined in `TripTimeline.tsx`
 
