@@ -387,6 +387,13 @@ export const POST = async (request: NextRequest) => {
         bucketListItemCount: imported.bucketListItemCount,
         photoCount: imported.photoCount,
         documentCount: imported.documentCount,
+        // `imported.droppedImageCount` is deliberately **not** on the envelope (Story 8.4 / DW-88). AC6
+        // asks that the import *result* name the count: the repository result carries it and the
+        // repository tests assert it there, and the user-facing channel is the warning below, which the
+        // dialog already renders. A field on the wire that no component reads is dead surface, and
+        // declaring it on `ImportResponse` to fix that only produces a typed field nothing reads - the
+        // five-cell summary grid is deliberately untouched, see the Design Note.
+        //
         // Two sources, one channel. The manifest's own warnings are what the *export* dropped - a photo
         // whose file was already gone, one that failed the containment check. `imported.warnings` is
         // what this *import* dropped, which since Story 2.35 means travel segments whose endpoints name
@@ -414,6 +421,21 @@ export const POST = async (request: NextRequest) => {
         // five sibling errors all got explicit 4xx mappings and a missing parameter answering 500 is
         // wrong in a way that only shows up once the schema changes.
         return fail(apiError("validation_error", "Overwrite requires the trip to overwrite"), 400);
+      }
+      if (error instanceof Error && error.message === "import_lock_unsafe_trip_id") {
+        // Unreachable today: the wrapper resolves the lock key through `findFirst({ id, userId })`, so
+        // only a cuid the database returned ever reaches `acquireTripImportLock`. Mapped anyway, on
+        // exactly the grounds the `target_trip_required` sibling above was given an explicit 4xx: a
+        // mapping by omission "is wrong in a way that only shows up once the schema changes", and this
+        // should not be the one fault left falling through to the generic 500 handler. A malformed id is a
+        // bad request, not a lost race, so it is not folded into the 409 below.
+        return fail(apiError("validation_error", "Overwrite target is not a valid trip reference"), 400);
+      }
+      if (error instanceof Error && error.message === "import_in_progress") {
+        // Another overwrite import of this trip holds the per-trip sentinel (Story 8.4 / DW-86). A 409
+        // rather than a 500: nothing is broken, the request simply lost a race, and retrying once the
+        // first import finishes is the correct and sufficient response. Nothing was written.
+        return fail(apiError("import_in_progress", "Another import of this trip is already running"), 409);
       }
       if (error instanceof Error && error.message === "target_trip_not_found") {
         return fail(apiError("not_found", "Target trip not found for overwrite"), 404);

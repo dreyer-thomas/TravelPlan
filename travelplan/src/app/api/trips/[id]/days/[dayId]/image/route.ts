@@ -9,6 +9,7 @@ import { getTripDayByIdForUser, updateTripDayImageForUser } from "@/lib/reposito
 import { CSRF_COOKIE_NAME, validateCsrf } from "@/lib/security/csrf";
 import { dayImageUpdateSchema } from "@/lib/validation/dayImageSchemas";
 import { requireSession } from "@/lib/auth/sessionGuard";
+import { removeManagedMediaFile, storedMediaUrlsNameSameFile } from "@/lib/trips/mediaCleanup";
 import { getTripDayUploadDir } from "@/lib/trips/uploadPaths";
 
 export const runtime = "nodejs";
@@ -156,7 +157,18 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
   });
 
   if (!updated) {
-    await fs.rm(uploadDir, { recursive: true, force: true });
+    // Undo the one `day.<ext>` written a few lines above and nothing else (Story 8.4 / DW-194). This
+    // used to remove the whole `uploadDir` *tree* - the day directory, parent of every stay and
+    // activity photo and document on the day - so a rollback of one failed write took all of them.
+    //
+    // Through the shared helper rather than `removeExistingDayImageFiles`: that one rethrows every
+    // non-`ENOENT` errno and this handler has no `try/catch`, so an `EACCES` here would escape as a
+    // framework error page instead of the 404 envelope below (AC4).
+    await removeManagedMediaFile({
+      storedUrl: imageUrl,
+      allowedDir: uploadDir,
+      context: "day image upload rollback",
+    });
     return fail(apiError("not_found", "Trip day not found"), 404);
   }
 
@@ -221,11 +233,35 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
       return fail(apiError("not_found", "Trip day not found"), 404);
     }
 
-    const nextImageUrl = parsed.data.imageUrl;
-    const dayUploadPathPrefix = `/uploads/trips/${tripId}/days/${dayId}/`;
-    if (nextImageUrl === null || (typeof nextImageUrl === "string" && !nextImageUrl.startsWith(dayUploadPathPrefix))) {
-      const uploadDir = getTripDayUploadDir(tripId, dayId);
-      await fs.rm(uploadDir, { recursive: true, force: true });
+    // Story 8.4 / DW-194. This used to remove the whole `getTripDayUploadDir(...)` tree, i.e. it
+    // removed the day image by removing the directory that *contains* every stay and activity photo
+    // and every document on that day (`uploadPaths.ts`). One click destroyed all of them while
+    // touching no row, so the chips and strips kept rendering and every one of them 404'd.
+    //
+    // Now it removes one file: the one the *previous* URL names, and only when that file sits directly
+    // in this day's own upload directory - `removeManagedMediaFile` compares resolved parent against
+    // id-derived directory, which is what makes a `..` sequence or a nested stay photo a no-op rather
+    // than a deletion (AC8).
+    //
+    // One condition, on what the repository *stored and read back* rather than on the request field: it
+    // covers removal, replacement with an out-of-directory URL *and* an in-directory rename (which the
+    // earlier two-arm form orphaned), and it is inert for a note-only `PATCH`, which now carries no
+    // `imageUrl` at all - the client used to resend one out of local state, and under this trigger that
+    // turned a note save into a deletion of the day's current photo. Not "the committed values", which
+    // would overstate it - `previousImageUrl` is read before the `UPDATE` and `imageUrl` after it, three
+    // unsynchronised statements, so a concurrent writer could interleave. The consequence of losing that
+    // race is at worst a skipped unlink or one orphaned file, never a deletion of something else: what
+    // the unlink can reach is bounded by `allowedDir`, not by this condition.
+    //
+    // Compared as *resolved paths*, not as strings: `/uploads//trips/<t>/days/<d>/day.webp` is a value a
+    // client can send and is the same file as `/uploads/trips/<t>/days/<d>/day.webp`, so a string
+    // comparison reads one file as two and unlinks the one the row still points at.
+    if (updated.previousImageUrl && !storedMediaUrlsNameSameFile(updated.previousImageUrl, updated.imageUrl)) {
+      await removeManagedMediaFile({
+        storedUrl: updated.previousImageUrl,
+        allowedDir: getTripDayUploadDir(tripId, dayId),
+        context: "day image update",
+      });
     }
 
     return ok({

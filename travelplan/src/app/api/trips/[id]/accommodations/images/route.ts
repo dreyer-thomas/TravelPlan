@@ -18,7 +18,8 @@ import {
   accommodationImageUploadSchema,
 } from "@/lib/validation/imageGallerySchemas";
 import { requireSession } from "@/lib/auth/sessionGuard";
-import { getAccommodationImageUploadDir, resolveStoredMediaPath } from "@/lib/trips/uploadPaths";
+import { removeManagedMediaFile } from "@/lib/trips/mediaCleanup";
+import { getAccommodationImageUploadDir, readStoredMediaDayId } from "@/lib/trips/uploadPaths";
 
 export const runtime = "nodejs";
 
@@ -44,22 +45,6 @@ const parseJson = async (request: NextRequest) => {
     return await request.json();
   } catch {
     return null;
-  }
-};
-
-const removeManagedFile = async (tripId: string, imageUrl: string) => {
-  const prefix = `/uploads/trips/${tripId}/`;
-  if (!imageUrl.startsWith(prefix)) {
-    return;
-  }
-  const filePath = resolveStoredMediaPath(imageUrl);
-  try {
-    await fs.unlink(filePath);
-  } catch (error) {
-    if (error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT") {
-      return;
-    }
-    throw error;
   }
 };
 
@@ -241,8 +226,46 @@ export const DELETE = async (request: NextRequest, context: RouteContext) => {
     return fail(apiError("not_found", "Image not found"), 404);
   }
 
+  // Post-commit, so the row is already gone whatever happens here: `removeManagedMediaFile` logs a
+  // non-`ENOENT` errno instead of throwing (Story 8.4 / DW-195). It used to rethrow, which turned a
+  // completed deletion into a 500 and a "removal failed" message about a row that no longer existed.
+  //
+  // The directory is the entry's own. It is **not** "strictly narrower" than the `/uploads/trips/<tripId>/`
+  // string test it replaces, and saying so would be a containment claim that is false on its own terms: it
+  // is narrower on nesting and traversal (which that prefix admitted into any file in the trip - AC8) and
+  // deliberately *wider* on spelling (a `//uploads/…` value failed the prefix test and passes this one,
+  // because the decision is made on the resolved path rather than on the string). Its day segment comes
+  // from the **stored URL**, not from `parsed.data.tripDayId` (AC9). Nothing moves an
+  // accommodation between days today, so the two agree here - but the stored URL is the authority on
+  // where a file actually is, and reading it the same way on all four routes is what stops this one
+  // acquiring the AC9 orphan the day a mover is added: see `readStoredMediaDayId`. `null` means the URL names nothing under this trip's days, so there is no
+  // file of ours to remove - and that skip is logged rather than silent, see below.
+  const storedDayId = existing?.imageUrl ? readStoredMediaDayId(existing.imageUrl, tripId) : null;
   if (existing?.imageUrl) {
-    await removeManagedFile(tripId, existing.imageUrl);
+    if (storedDayId) {
+      await removeManagedMediaFile({
+        storedUrl: existing.imageUrl,
+        allowedDir: getAccommodationImageUploadDir(tripId, storedDayId, parsed.data.accommodationId),
+        context: "accommodation image delete",
+      });
+    } else {
+      // Logged, not skipped in silence. `null` here means the stored URL names no day under this trip -
+      // a value drifted, imported or migrated from somewhere else - so there is no file of ours to remove
+      // and the `200` is right. Saying nothing is not: the outcome is a committed row delete with bytes
+      // left on disk and nothing naming them, which is exactly the outcome the containment refusal and an
+      // `EACCES` produce, and both of those log. A silent skip here is how an earlier iteration's orphans
+      // went unnoticed under a green suite.
+      //
+      // It logs the ids and not `storedUrl` alone, because this branch fires precisely when the URL names
+      // some *other* trip - so the URL is the one value that cannot lead back to the row whose bytes were
+      // abandoned. The trip and entity ids are what make it findable.
+      console.error("accommodation image delete: stored media url names no day under this trip", {
+        tripId,
+        accommodationId: parsed.data.accommodationId,
+        imageId: parsed.data.imageId,
+        storedUrl: existing.imageUrl,
+      });
+    }
   }
 
   return ok({ deleted: true });

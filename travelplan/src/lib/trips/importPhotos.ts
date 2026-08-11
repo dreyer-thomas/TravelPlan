@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { toPhotoSource, type PhotoSource } from "@/lib/trips/importPackage";
@@ -8,6 +9,7 @@ import {
   getDayPlanItemImageUploadDir,
   getTripDayUploadDir,
   getTripUploadDir,
+  isSafeMediaSegment,
 } from "@/lib/trips/uploadPaths";
 
 /**
@@ -272,6 +274,244 @@ export const writeImportedPhotos = async (
 
 export const removeWrittenPhotos = async (filePaths: string[]) => {
   await Promise.all(filePaths.map((filePath) => fs.rm(filePath, { force: true })));
+};
+
+/**
+ * How old a lock directory's `mtime` must be before another import may reclaim it.
+ *
+ * With the heartbeat below refreshing that `mtime` every minute, this reads "the holding process is
+ * gone", not "the import is slow" - which is the only reading that makes it safe. Measured from
+ * acquisition with no refresh, the timeout would instead measure *import duration*, and a legitimate
+ * import near the `MAX_IMPORT_MEDIA_TOTAL_BYTES` (3 GB) ceiling would have its lock stolen mid-flight
+ * by the very mechanism that exists to keep two writers apart.
+ *
+ * Fifteen minutes is fifteen missed heartbeats, so a crashed or `SIGKILL`ed process does not lock the
+ * trip until somebody notices. Exported so the unit tests can backdate a lock by exactly this much
+ * instead of duplicating the number or waiting for the clock.
+ */
+export const IMPORT_LOCK_STALE_MS = 15 * 60 * 1000;
+
+/** One minute, i.e. fifteen chances to prove liveness before `IMPORT_LOCK_STALE_MS` expires. */
+const IMPORT_LOCK_REFRESH_MS = 60 * 1000;
+
+/**
+ * Name of the file inside the sentinel carrying the holder's nonce.
+ *
+ * Release compares it before removing anything. Without it, release is "remove this path", so a holder
+ * whose stale lock was reclaimed would delete the *reclaimer's* fresh sentinel on its way out and open
+ * the window for a third import - the failure mode the lock exists to prevent, reached through the
+ * lock.
+ */
+const IMPORT_LOCK_HOLDER_FILE = "holder";
+
+/**
+ * Where one trip's import sentinel lives.
+ *
+ * A *sibling* of the trip's upload directory rather than a child, because the trip directory is exactly
+ * what the import renames away - a lock inside it would travel with the stash. That is also why trip
+ * deletion has to name it explicitly (`api/trips/[id]/route.ts`): the recursive `fs.rm` of the trip
+ * directory does not reach a sibling, and a deleted trip's id is never imported again, so nothing would
+ * ever reclaim what was left behind. One definition, used by the acquire and by that deletion, so the
+ * two cannot come to disagree about which path is the sentinel.
+ */
+export const getTripImportLockDir = (tripId: string) => `${getTripUploadDir(tripId)}.import-lock`;
+
+export type TripImportLock = {
+  lockDir: string;
+  /** This holder's claim on `lockDir`; see `IMPORT_LOCK_HOLDER_FILE`. */
+  nonce: string;
+  /** The heartbeat, cleared by the release. `unref`'d, so it never holds the process open. */
+  heartbeat: ReturnType<typeof setInterval>;
+};
+
+/**
+ * Refreshes the sentinel's `mtime` while this holder still owns it.
+ *
+ * **It verifies the claim on every tick, not just the path.** Closing over `lockDir` alone means a holder
+ * whose stale lock was reclaimed keeps touching the *reclaimer's* sentinel - so the reclaimer's lock is
+ * attested as alive by a process that does not own it, and if the reclaimer then dies the trip never goes
+ * stale and can never be reclaimed again. Reading the nonce first and `clearInterval`-ing on a mismatch
+ * makes the heartbeat mean "the holder of *this* claim is alive", which is the only statement
+ * `IMPORT_LOCK_STALE_MS` can safely be read against.
+ *
+ * **An unreadable holder file is "unknown", not a mismatch, and it keeps beating.** A read that fails is
+ * not evidence the claim moved to somebody else - only a *different nonce* is that. Treating a failure as
+ * a mismatch means one transient `EIO`, `EMFILE` or `ENFILE` silently ends the liveness of a live import,
+ * whose lock is then reclaimed out from under it fifteen minutes later while it is still writing. The
+ * cost of the other direction is bounded and much smaller: a holder that keeps beating on a directory it
+ * no longer owns for as long as the file stays unreadable, which the nonce check ends the moment one read
+ * succeeds.
+ */
+const startImportLockHeartbeat = (lockDir: string, nonce: string) => {
+  const heartbeat: ReturnType<typeof setInterval> = setInterval(() => {
+    void (async () => {
+      const holder = await fs.readFile(path.join(lockDir, IMPORT_LOCK_HOLDER_FILE), "utf8").catch(() => null);
+      if (holder !== null && holder.trim() !== nonce) {
+        clearInterval(heartbeat);
+        return;
+      }
+      const now = new Date();
+      // A failed `utimes` is ignored on purpose: a missed refresh only brings the lock closer to being
+      // reclaimable, and there is no caller here to report to.
+      await fs.utimes(lockDir, now, now).catch(() => undefined);
+    })();
+  }, IMPORT_LOCK_REFRESH_MS);
+  heartbeat.unref?.();
+  return heartbeat;
+};
+
+/**
+ * The exclusive claim itself: `mkdir` without `recursive`, which is the only `fs` call here that fails
+ * when the thing already exists.
+ *
+ * **All-or-nothing, and that is not defensive tidiness.** A `mkdir` that succeeds followed by a holder
+ * write that fails (`ENOSPC`, `EACCES`, `EIO`) leaves behind a sentinel nobody can ever remove: release
+ * refuses on a holder file it cannot read, and the caller never received a lock object to release in the
+ * first place. The trip would then answer `409 import_in_progress` for the whole staleness window with no
+ * import running anywhere. Removing the directory before rethrowing turns that into an ordinary failed
+ * acquire, which the caller already handles.
+ */
+const claimImportLock = async (lockDir: string): Promise<TripImportLock> => {
+  await fs.mkdir(lockDir);
+  const nonce = randomUUID();
+  try {
+    await fs.writeFile(path.join(lockDir, IMPORT_LOCK_HOLDER_FILE), nonce, "utf8");
+  } catch (error) {
+    // Best effort, and deliberately not allowed to mask the real error: if even this fails there is
+    // nothing further to try, and the original write failure is the one worth reporting.
+    await fs.rm(lockDir, { recursive: true, force: true }).catch(() => undefined);
+    throw error;
+  }
+  return { lockDir, nonce, heartbeat: startImportLockHeartbeat(lockDir, nonce) };
+};
+
+/**
+ * Serialises overwrite imports of one trip (Story 8.4 / DW-86).
+ *
+ * Two concurrent overwrite imports of the same trip interleaved in the worst possible way: both
+ * transactions committed, then both ran the disk phase over one directory - the second
+ * `stashTripUploadDir` moved the *first* import's freshly written files aside as though they were the
+ * old ones, and its `discardStashedTripUploadDir` then deleted them. The `ENOENT` swallow in
+ * `stashTripUploadDir` is correct and stays (a photo-free trip has no directory); it is only what made
+ * the race silent.
+ *
+ * **Why an exclusive `mkdir`.** It is the one filesystem primitive here that is atomic and fails when
+ * the thing already exists. Every other `fs.mkdir` in this codebase passes `{ recursive: true }`, which
+ * succeeds on an existing directory and is therefore useless as a sentinel - hence the bare `mkdir`
+ * inside `claimImportLock`, and hence the parent being ensured separately first. There is no existing
+ * lock idiom in `src/` to mirror.
+ *
+ * The lock lives beside the trip directory rather than inside it, because the trip directory is exactly
+ * what the import renames away. Its name cannot collide with `stashTripUploadDir`'s
+ * `<tripDir>.import-<ts>-<rand>` stash: that suffix always continues with a digit, this one with `l`.
+ *
+ * **`tripId` must be one safe path segment, and this is the last line of defence rather than the first.**
+ * The caller now resolves the id through the database before locking, so nothing hostile should arrive
+ * here - but the id is interpolated straight into a filesystem path, and the first implementation of
+ * this story locked on the raw `targetTripId` request field (`z.string().trim().min(1)`), which was
+ * confirmed by execution to `mkdir` and then `rm -rf` a directory *outside* the media root for any
+ * authenticated caller. Refusing an unsafe segment here means no future caller can reintroduce that,
+ * and it throws its own message rather than `import_in_progress`: a malformed id is a fault, not a
+ * lost race, and reporting it as a race would be a permanent false "another import is running".
+ */
+export const acquireTripImportLock = async (tripId: string): Promise<TripImportLock> => {
+  if (!isSafeMediaSegment(tripId)) {
+    throw new Error("import_lock_unsafe_trip_id");
+  }
+
+  const lockDir = getTripImportLockDir(tripId);
+  await fs.mkdir(path.dirname(lockDir), { recursive: true });
+
+  try {
+    return await claimImportLock(lockDir);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException | null)?.code !== "EEXIST") {
+      throw error;
+    }
+  }
+
+  const stats = await fs.stat(lockDir).catch(() => null);
+  if (stats && Date.now() - stats.mtimeMs < IMPORT_LOCK_STALE_MS) {
+    throw new Error("import_in_progress");
+  }
+
+  if (stats) {
+    // **Reclaim by rename, because reclaim has to be atomic.** `stat` -> `rm -rf` -> `mkdir` lets two
+    // callers that both read the same stale `stat` both succeed: the second's `rm` removes the first's
+    // freshly created sentinel.
+    //
+    // **But `fs.rename` on its own is not sufficient either, and "exactly one reclaimer can win" was
+    // false.** Two callers can both `stat` the same stale lock; the winner renames it aside, removes it,
+    // `mkdir`s and writes its holder - and only *then* does the loser's rename execute, moving the
+    // **winner's fresh sentinel** aside and claiming the lock as well. Confirmed by execution: two
+    // concurrent acquires against one stale lock both returned a lock, which is DW-86's interleaving
+    // reached through the mechanism built to prevent it.
+    //
+    // So the rename is verified rather than trusted: the directory that was moved must be the directory
+    // that was found stale, which its inode number identifies across the rename. On a mismatch this
+    // caller moved something that was not its to move, puts it back (best effort - a third caller may
+    // have recreated the path in the meantime, and then leaving the copy aside is the lesser harm) and
+    // reports the lost race. The residual is a filesystem that reuses an inode number for a directory
+    // created microseconds after another was removed; APFS and ext4 both allocate monotonically here.
+    const staleDir = `${lockDir}.stale-${randomUUID()}`;
+    let renamed = true;
+    try {
+      await fs.rename(lockDir, staleDir);
+    } catch (error) {
+      // **An `ENOENT` here is not a lost race.** It means the stale holder's own release removed the
+      // sentinel between the `stat` and the `rename`, so there is now no lock at all and the right move is
+      // the retry below - exactly what the `stats === null` branch above already does for the identical
+      // situation observed one step earlier. Reporting `import_in_progress` for it answers "another import
+      // is running" when none is, and does so for the full staleness window's worth of retries.
+      if ((error as NodeJS.ErrnoException | null)?.code !== "ENOENT") {
+        throw new Error("import_in_progress");
+      }
+      renamed = false;
+    }
+    if (renamed) {
+      const moved = await fs.stat(staleDir).catch(() => null);
+      if (!moved || moved.ino !== stats.ino) {
+        await fs.rename(staleDir, lockDir).catch(() => undefined);
+        throw new Error("import_in_progress");
+      }
+      await fs.rm(staleDir, { recursive: true, force: true }).catch(() => undefined);
+    }
+  }
+
+  // A lock that vanished between the `EEXIST` and the `stat` was released by its holder, so this retry
+  // is the right move on that path too.
+  try {
+    return await claimImportLock(lockDir);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException | null)?.code === "EEXIST") {
+      throw new Error("import_in_progress");
+    }
+    // Anything else - `EACCES`, `ENOSPC`, `EROFS` - is rethrown rather than reported as a lost race. A
+    // bare `catch` here made every one of them a permanent `import_in_progress` for a trip no import
+    // was touching, with nothing in the message to say why.
+    throw error;
+  }
+};
+
+/**
+ * Must run in a `finally`: a lock that outlives its import blocks the trip until it goes stale.
+ *
+ * Removes the sentinel **only while it is still this holder's**. The nonce comparison is what keeps a
+ * slow holder whose lock was already reclaimed from deleting the reclaimer's - see
+ * `IMPORT_LOCK_HOLDER_FILE`. A mismatch, or a holder file that cannot be read, means the directory is
+ * not ours to remove and is left alone; the current owner's release, or the staleness timeout, deals
+ * with it.
+ */
+export const releaseTripImportLock = async (lock: TripImportLock | null) => {
+  if (!lock) return;
+  clearInterval(lock.heartbeat);
+
+  const holder = await fs.readFile(path.join(lock.lockDir, IMPORT_LOCK_HOLDER_FILE), "utf8").catch(() => null);
+  if (holder?.trim() !== lock.nonce) {
+    return;
+  }
+
+  await fs.rm(lock.lockDir, { recursive: true, force: true });
 };
 
 export type StashedTripUploadDir = {

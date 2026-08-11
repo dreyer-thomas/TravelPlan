@@ -373,6 +373,41 @@ describe("TripImportDialog", () => {
     expect(screen.getByRole("button", { name: "Create new trip" })).toBeInTheDocument();
   });
 
+  /**
+   * Story 8.4 / DW-86, iteration 5. The per-trip import sentinel's only user-facing surface.
+   *
+   * `import_in_progress` is a 409, and this dialog intercepts 409 for `trip_name_conflict` first, so the
+   * new code reaches `resolveApiError` only if that guard lets it past. Nothing asserted either half:
+   * the whole `import_in_progress` case and its locale key were deletable with a green suite, which is
+   * exactly what the copy is for - "please try again" is right about the retry and wrong about the reason,
+   * because the user has to wait for the other import rather than change the file they picked.
+   */
+  it("says another import is running rather than offering the conflict choices on that 409", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(csrfResponse)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 409,
+        json: async () => ({
+          data: null,
+          error: { code: "import_in_progress", message: "Another import of this trip is already running" },
+        }),
+      }) as unknown as typeof fetch;
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderDialog();
+    await selectBackup();
+    await userEvent.click(screen.getByRole("button", { name: "Start import" }));
+
+    expect(
+      await screen.findByText("Another import of this trip is already running. Please wait for it to finish."),
+    ).toBeInTheDocument();
+    // Not the name-conflict branch: there is no trip to choose between, so offering the strategy buttons
+    // would send the user to answer a question nobody asked.
+    expect(screen.queryByLabelText("Trip to overwrite")).not.toBeInTheDocument();
+  });
+
   it("tells the user the upload failed when the multipart body did not parse", async () => {
     const fetchMock = vi
       .fn()

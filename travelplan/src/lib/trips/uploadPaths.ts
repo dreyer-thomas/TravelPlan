@@ -157,3 +157,135 @@ export const isSafeMediaSegment = (segment: string) =>
  */
 export const resolveStoredMediaPath = (storedUrl: string) =>
   path.join(getMediaRoot(), storedUrl.replace(/^\/+/, ""));
+
+/**
+ * Whether a stored URL names something *outside* our media tree entirely (Story 8.4 / AC8).
+ *
+ * **This is the only string-shape test left, and the change of question is the whole point.** Four
+ * iterations of this story asked "does this look like one of ours?" and each one shipped a rule the next
+ * review walked through, because "looks like ours" is an open set of spellings that cannot be enumerated:
+ *
+ * | Rule | Walked through by |
+ * |---|---|
+ * | `startsWith("/uploads/trips/<id>/")` | `//uploads/…`, nested media, `..` traversal |
+ * | `startsWith("/uploads/")` on the raw string | `//uploads/…`, `/uploads//…` |
+ * | leading slashes collapsed, then `startsWith("/uploads/")` | `uploads/…`, `/./uploads/…`, `/Uploads/…` |
+ * | first non-empty, non-`.` segment `=== "uploads"` | `/x/../uploads/trips/<other>/hero.jpg` |
+ *
+ * The last one is not a careless rule - it was written to survive the three before it, and it does. It
+ * fails because a `..` *pops the segment in front of it*, so the first segment of the string is not the
+ * first segment of the path, while `resolveStoredMediaPath` maps the value onto byte-for-byte the same
+ * file as the canonical spelling (confirmed by execution). And fixing that by resolving `..` before the
+ * test is the *other* wrong answer: `path.posix.normalize("/uploads/trips/../../../etc/passwd")` is not a
+ * media URL, which would hand a traversal the very "nothing of ours here" exit the rule exists to deny it.
+ * Both directions are wrong, which is the signal that the question is wrong.
+ *
+ * **"Is this external?" is closed and decidable.** A value either parses as an absolute URL with a scheme
+ * or it does not; there is no fifth spelling of `https://`. So this is used *only* to let an external
+ * cover image out, and **everything else is treated as naming a path in our tree** and sent to the
+ * resolved-path containment check - which fails closed: not inside the directory you own means nulled
+ * (`isForeignTripUploadUrl`) or refused-and-logged (`removeManagedMediaFile`). The escape case and the
+ * foreign-trip case stop being two rules with two exit paths and become one rule with one.
+ *
+ * `new URL("C:/x")` succeeds on Node (scheme `c:`), so a Windows-style path reads as external. That is the
+ * safe direction here - no unlink, no null - and no writer in this application can produce one.
+ */
+export const isExternalMediaUrl = (storedUrl: string) => URL.canParse(storedUrl);
+
+/**
+ * Compares two resolved media paths the way the filesystem under them does.
+ *
+ * **Why case-folded, and why it has to be in one place.** A case-insensitive filesystem opens
+ * `/Uploads/…` and `/uploads/…` as the same file, so every question this module answers about a resolved
+ * path has to be answered the way that filesystem would answer it. When two of them disagree the pair is
+ * a deletion rather than a refusal: a `/Uploads/…` row judged case-sensitively reads as *outside* the very
+ * directory it is inside, so the import rule keeps a URL it should null and the cleanup logs a refusal
+ * instead of removing the file - while a third comparison that reads the same file as *two* files fires
+ * the cleanup at the file the row was just pointed at (both confirmed by execution). One shared key is
+ * what stops the three from drifting back apart.
+ *
+ * For a *directory* comparison, folding case cannot merge two genuinely different directories here: both
+ * sides are built from the same media root, and the only varying segments are trip, day and entry ids,
+ * which are `cuid()`s - lowercase alphanumerics that cannot differ by case alone. For a *file*
+ * comparison (`mediaPathsNameSameFile`) that argument does not hold, because the final segment is a
+ * filename: on a case-sensitive filesystem `day.webp` and `DAY.webp` really are two files. The fold is
+ * still right there, and the trade is deliberate - reading them as one file at worst skips an unlink and
+ * leaves one orphan, where reading them as two deletes the file a row still points at.
+ */
+const mediaPathKey = (mediaPath: string) => path.resolve(mediaPath).toLowerCase();
+
+/** Whether a resolved media path sits *directly* in `dir` - the containment rule, in one place. */
+export const mediaPathIsDirectlyIn = (filePath: string, dir: string) =>
+  mediaPathKey(path.dirname(path.resolve(filePath))) === mediaPathKey(dir);
+
+/** Whether a resolved media path sits anywhere beneath `dir`. The trailing separator is load-bearing:
+ * without it `…/abc` reads as inside trip `abcd`. */
+export const mediaPathIsInside = (filePath: string, dir: string) =>
+  mediaPathKey(filePath).startsWith(`${mediaPathKey(dir)}${path.sep}`);
+
+/**
+ * Whether two resolved media paths name one file. The third comparator, and it has to be here with the
+ * other two.
+ *
+ * Iteration 5: `storedMediaUrlsNameSameFile` compared `path.resolve(a) === path.resolve(b)`
+ * case-*sensitively* while `mediaPathIsDirectlyIn` folded case, so the day-image cleanup could read one
+ * file as two and then be permitted to unlink it. Confirmed by execution: a previous URL of
+ * `/Uploads/trips/<t>/days/<d>/day.webp` against a new one of `/uploads/trips/<t>/days/<d>/day.webp` gave
+ * "not the same file" (so the cleanup fired) and "directly inside the day's directory" (so it was allowed)
+ * - deleting the file the row had just been pointed at. Pass 4 introduced the fold to end exactly this
+ * disagreement and left this one comparison out of it.
+ */
+export const mediaPathsNameSameFile = (a: string, b: string) => mediaPathKey(a) === mediaPathKey(b);
+
+/**
+ * The day id a stored media URL actually lives under, or `null` if it does not name one for this trip.
+ *
+ * **Why a media cleanup cannot use the day id from the request (Story 8.4 / AC9).** An activity's media
+ * does not follow the activity between days. `moveDayPlanItemToTripDay`
+ * (`dayPlanItemRepo.ts:660-698`) moves one with a bare `updateMany` of `tripDayId` - deliberately, so
+ * that "everything attached to the activity travels with it for free" - which moves no file and rewrites
+ * no URL. So after a move the row names one day and its stored URL names another, and the URL is the one
+ * that is true about the disk. The second implementation of this story built the directory it was allowed
+ * to unlink in out of `parsed.data.tripDayId`, the *current* day; the dirname check then failed for every
+ * photo and document of every activity that had ever been moved, and the delete answered
+ * `200 { deleted: true }` with the bytes orphaned for good, since the row that named them was gone
+ * (confirmed by execution). The trip-wide prefix test it replaced removed them correctly, so that was a
+ * regression rather than a new gap.
+ *
+ * **Containment is not weakened by reading a segment out of the URL.** Exactly one segment is taken, it
+ * must satisfy `isSafeMediaSegment`, and it is taken only after the resolved path has been shown to be
+ * inside `getTripUploadDir(tripId)` - a directory the caller composed from the route parameter it has
+ * already authorised. Everything else in the directory the cleanup then compares against is composed from
+ * ids the caller already holds, and that comparison is exact equality against a path built only from safe
+ * segments. A `..`, an empty segment, a nested path or another trip's id all return `null` here, and a
+ * `null` means the unlink is skipped rather than aimed somewhere else.
+ *
+ * **Derived from the resolved path, never from a second parse of the raw URL, and that is what makes it
+ * spelling-proof by construction.** Two earlier versions ran their own `split("/")` over the string, and
+ * each inherited every defect of the shape test beside it: they answered `null` for `/uploads//trips/…`,
+ * `/./uploads/…`, `/Uploads/…` and `/x/../uploads/…` while `resolveStoredMediaPath` mapped all of them onto
+ * a real file inside the entry's own directory (confirmed by execution). On the four media routes a `null`
+ * means "log and skip", so those spellings left a committed row delete with the bytes still on disk. There
+ * is exactly one authority on what a stored URL names on disk - `resolveStoredMediaPath` - and every
+ * structural question is asked of *its answer* rather than of the string it was given, so no future
+ * spelling can make this disagree with the check that acts on it.
+ *
+ * `path.relative` is taken over the case-folded pair for the same reason `mediaPathKey` folds: the
+ * `mediaPathIsInside` above has already answered "inside" case-insensitively, and a case-sensitive
+ * `path.relative` against that same pair answers with a `..` prefix instead - which is precisely the
+ * disagreement this module exists to prevent. The day id is returned in the *resolved path's* own spelling,
+ * taken from the same position in the unfolded path, because that spelling is what opens the file.
+ */
+export const readStoredMediaDayId = (storedUrl: string, tripId: string): string | null => {
+  const tripDir = path.resolve(getTripUploadDir(tripId));
+  const resolved = path.resolve(resolveStoredMediaPath(storedUrl));
+  if (!mediaPathIsInside(resolved, tripDir)) return null;
+
+  const relativeSegments = path.relative(mediaPathKey(tripDir), mediaPathKey(resolved)).split(path.sep);
+  if (relativeSegments.length < 2 || relativeSegments[0] !== "days") return null;
+
+  // The folded relative is the tail of the unfolded resolved path segment for segment, so the day id sits
+  // at the same offset from the end of both.
+  const dayId = resolved.split(path.sep).at(-(relativeSegments.length - 1));
+  return dayId && isSafeMediaSegment(dayId) ? dayId : null;
+};

@@ -6,6 +6,7 @@ import { DELETE, GET, PATCH } from "@/app/api/trips/[id]/route";
 import { prisma } from "@/lib/db/prisma";
 import { createSessionJwt } from "@/lib/auth/jwt";
 import { createTripWithDays } from "@/lib/repositories/tripRepo";
+import { acquireTripImportLock } from "@/lib/trips/importPhotos";
 import { getTripsUploadRoot } from "@/lib/trips/uploadPaths";
 import { absentSegmentContext, routeContext } from "./helpers/routeContext";
 
@@ -821,6 +822,14 @@ describe("DELETE /api/trips/[id]", () => {
     await fs.mkdir(uploadDir, { recursive: true });
     await fs.writeFile(path.join(uploadDir, "hero.png"), Buffer.from("hero"));
 
+    // Story 8.4 / DW-86. The import sentinel is a *sibling* of the upload directory, deliberately - an
+    // overwrite import renames the directory away, so a lock inside it would travel with the stash. That
+    // means the recursive removal of `uploadDir` does not reach it, and a sentinel left behind here would
+    // outlive the trip for good: a deleted trip's id is never imported again, so nothing would ever come
+    // along to find it stale and reclaim it.
+    const lock = await acquireTripImportLock(trip.id);
+    expect(await fs.stat(lock.lockDir).catch(() => null)).not.toBeNull();
+
     const request = buildRequest(trip.id, {
       session: token,
       csrf: "csrf-token",
@@ -833,6 +842,7 @@ describe("DELETE /api/trips/[id]", () => {
     expect(response.status).toBe(200);
     expect(payload.data?.deleted).toBe(true);
     await expect(fs.stat(uploadDir)).rejects.toThrow();
+    await expect(fs.stat(lock.lockDir)).rejects.toThrow();
   });
 
   it("rejects unauthenticated delete requests", async () => {

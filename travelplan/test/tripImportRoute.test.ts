@@ -10,6 +10,7 @@ import { prisma } from "@/lib/db/prisma";
 import { createTripWithDays } from "@/lib/repositories/tripRepo";
 import { MULTIPART_FRAMING_SLACK_BYTES } from "@/lib/http/bodyLimit";
 import { MAX_IMPORT_PACKAGE_BYTES } from "@/lib/trips/importLimits";
+import { acquireTripImportLock, releaseTripImportLock } from "@/lib/trips/importPhotos";
 import { getTripUploadDir, getTripsUploadRoot } from "@/lib/trips/uploadPaths";
 import { buildPackage, buildZip } from "./helpers/zipBuilder";
 import { jpegBytes, pngBytes } from "./helpers/uploadFixtures";
@@ -347,6 +348,50 @@ describe("POST /api/trips/import", () => {
     expect(payload.error).toBeNull();
     expect(payload.data?.mode).toBe("overwrite");
     expect(payload.data?.trip.id).toBe(target.trip.id);
+  });
+
+  /**
+   * Story 8.4 / DW-86, iteration 5. The sentinel's HTTP mapping, which nothing asserted.
+   *
+   * `acquireTripImportLock` throwing `import_in_progress` was pinned at the library and repository
+   * boundaries, but the route's translation of it into a `409` with that error code - the only part any
+   * client sees - was not, so the mapping was deletable with a green suite and the request would have
+   * fallen through to the generic `500`.
+   *
+   * Reached by holding the real sentinel rather than by mocking, so this also pins that the wrapper locks
+   * on the *same* path the library does: a drift there would let the second import through.
+   */
+  it("answers 409 import_in_progress when another overwrite import of the trip holds the sentinel", async () => {
+    const user = await prisma.user.create({
+      data: { email: "import-route-lock-held@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const session = await createSessionJwt({ sub: user.id, role: user.role });
+
+    const target = await createTripWithDays({
+      userId: user.id,
+      name: VALID_PAYLOAD.trip.name,
+      startDate: "2026-10-01T00:00:00.000Z",
+      endDate: "2026-10-02T00:00:00.000Z",
+    });
+
+    const held = await acquireTripImportLock(target.trip.id);
+    try {
+      const response = await POST(
+        buildRequest(
+          { payload: VALID_PAYLOAD, strategy: "overwrite", targetTripId: target.trip.id },
+          { session, csrf: "csrf-token" }
+        )
+      );
+      const payload = (await response.json()) as ApiEnvelope<null>;
+
+      expect(response.status).toBe(409);
+      expect(payload.error?.code).toBe("import_in_progress");
+      // Refused before the transaction, so the target still has the days it started with rather than the
+      // payload's - "no row written, no file written" is the whole point of locking above the transaction.
+      expect(await prisma.tripDay.count({ where: { tripId: target.trip.id } })).toBe(2);
+    } finally {
+      await releaseTripImportLock(held);
+    }
   });
 
   it("rejects overwrite target that is not part of same-name conflicts", async () => {

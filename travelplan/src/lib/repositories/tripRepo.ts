@@ -6,7 +6,12 @@ import { Prisma } from "@/generated/prisma/client";
 import type { TravelSegmentItemType, TravelTransportType } from "@/generated/prisma/enums";
 import { deriveTripAccessRole, mapTripMemberRole, type TripAccessRole } from "@/lib/auth/tripAccessRole";
 import { buildDayMapPanelData, buildTripDayMapItems, type TripDayMapPanelData } from "@/lib/trips/dayMapData";
-import { getTripUploadDir, resolveStoredMediaPath } from "@/lib/trips/uploadPaths";
+import {
+  getTripUploadDir,
+  isExternalMediaUrl,
+  mediaPathIsInside,
+  resolveStoredMediaPath,
+} from "@/lib/trips/uploadPaths";
 import {
   DOCUMENT_SIGNATURE_HEAD_BYTES,
   mergeMemberSources,
@@ -18,6 +23,7 @@ import {
 } from "@/lib/trips/importPackage";
 import type { TransportType } from "@/lib/trips/transportTypes";
 import {
+  acquireTripImportLock,
   discardStashedTripUploadDir,
   planAccommodationDocument,
   planAccommodationGalleryPhoto,
@@ -25,11 +31,13 @@ import {
   planDayPlanItemGalleryPhoto,
   planTripDayPhoto,
   planTripHeroPhoto,
+  releaseTripImportLock,
   restoreStashedTripUploadDir,
   stashTripUploadDir,
   writeImportedPhotos,
   type PlannedPhotoWrite,
   type StashedTripUploadDir,
+  type TripImportLock,
 } from "@/lib/trips/importPhotos";
 import type { TripImportConflictStrategy, TripImportPayloadInput } from "@/lib/validation/tripImportSchemas";
 
@@ -441,6 +449,13 @@ type ImportTripSuccessResult = {
    * pools are restored through separate validation for reasons the manifest's shape records.
    */
   documentCount: number;
+  /**
+   * Images whose stored URL resolved into another trip's upload directory and were therefore nulled
+   * rather than restored (Story 8.4 / DW-88). Always `0` on the overwrite path, which does not apply
+   * the rule. Its own field beside `photoCount` because it counts the opposite thing - what did *not*
+   * come back - and a summary that folded the two would report a loss as a restore.
+   */
+  droppedImageCount: number;
   /**
    * What *this import* dropped, in the same English-string channel `meta.warnings` uses for what the
    * export dropped (Story 2.35 AC3). The route concatenates the two; the dialog needs no change.
@@ -1047,6 +1062,17 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
   };
 };
 
+/**
+ * Updates a day's cover image and note, and reports the URL that was there before.
+ *
+ * `previousImageUrl` exists for the route's cleanup (Story 8.4 / DW-194). The ledger entry claimed
+ * "the route already knows the previous `imageUrl`" - it did not: this function selected `{ id }`,
+ * issued the raw `UPDATE` and re-read the *new* row, so the old value was never captured anywhere.
+ * The route therefore had no file to unlink and removed the day's whole upload directory instead,
+ * which is the parent of every stay and activity photo and document on that day. The lookup below
+ * already runs before the `UPDATE`, so widening its `select` is the entire cost of giving the route
+ * the one string it needs - no extra query.
+ */
 export const updateTripDayImageForUser = async ({
   userId,
   tripId,
@@ -1072,12 +1098,16 @@ export const updateTripDayImageForUser = async ({
         OR: [{ userId }, { members: { some: { userId, role: "CONTRIBUTOR" } } }],
       },
     },
-    select: { id: true },
+    // `imageUrl` is read here and nowhere else: after the `UPDATE` below it is gone. The `where`
+    // above - Story 5.13's writer clause - is deliberately untouched.
+    select: { id: true, imageUrl: true },
   });
 
   if (!day) {
     return null;
   }
+
+  const previousImageUrl = day.imageUrl;
 
   const setClauses: string[] = [];
   const setValues: Array<string | null> = [];
@@ -1119,6 +1149,7 @@ export const updateTripDayImageForUser = async ({
     id: row.id,
     tripId: row.trip_id,
     imageUrl: row.image_url,
+    previousImageUrl,
     note: row.note,
     updatedAt: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at),
   };
@@ -1686,11 +1717,12 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
    * pools rather than copied into a second one: a fork is how one of the two copies quietly loses
    * the realpath step below, and the copy that loses it is the one nobody re-reads.
    *
-   * The prefix test alone is the pattern `removeManagedFile` uses, and it is not enough here: that
-   * function only unlinks, this one reads bytes into a file the user downloads.
-   * `/uploads/trips/<tripId>/../../../etc/passwd` satisfies the prefix and escapes the directory, so
-   * the resolved-path containment check is the control that matters. The trailing separator stops
-   * `.../trips/abc-evil` from passing as `.../trips/abc`.
+   * The prefix test alone is never enough, and Story 8.4 made that general rather than local to this
+   * function: `/uploads/trips/<tripId>/../../../etc/passwd` satisfies the prefix and escapes the
+   * directory, so the resolved-path containment check is the control that matters. The media-cleanup
+   * helper (`mediaCleanup.ts`) now decides the same question the same way for the paths it unlinks; here
+   * it matters more still, because this one reads bytes into a file the user downloads. The trailing
+   * separator stops `.../trips/abc-evil` from passing as `.../trips/abc`.
    *
    * `path.resolve` is purely lexical, but `fs.stat` and `fs.readFile` both follow symlinks - so a
    * symlink *inside* the trip's own directory pointing anywhere on the box would pass a lexical
@@ -2142,17 +2174,94 @@ const requirePooledDocument = (documents: ImportDocumentPool, documentId: string
  * longer exists - the orphaned rows AC5 rules out. Storing `null` is the honest answer: the image is
  * genuinely gone, and a null renders as "no image" rather than as a broken one.
  *
- * `replacedUploadPrefix` is `null` in create-new mode, which is what keeps that path byte-identical:
- * there the URL names some *other* trip's directory, nothing on disk is touched, and AC2 requires
- * the string back verbatim.
+ * `replacedUploadTripId` is `null` in create-new mode, because create-new deletes nothing: no URL is
+ * dead *for this reason* there. That is not the whole story any more - Story 8.4 / DW-88 added
+ * `isForeignTripUploadUrl`, which nulls a create-new URL for the other reason, that it resolves into a
+ * directory the created trip does not own. Two rules, two conditions, deliberately not merged: this one
+ * is about files this import is about to delete and applies only to overwrite.
+ *
+ * **Decided on the resolved path, for the same reason its create-new counterpart is.** This used to be
+ * `imageUrl.startsWith("/uploads/trips/<target>/")`, and it carried the identical evasion: a spelling
+ * like `//uploads/trips/<target>/x` reads as not-this-trip's and is restored verbatim, while resolving to
+ * a file this very import is about to delete - so the row comes back pointing at nothing. Well-formed
+ * URLs are classified exactly as before, which is why AC7's pinned overwrite behaviour is untouched;
+ * only the evasive spellings move.
  */
-const dropReplacedUploadUrl = (imageUrl: string | null, replacedUploadPrefix: string | null) => {
-  if (!imageUrl || !replacedUploadPrefix) return imageUrl;
-  return imageUrl.startsWith(replacedUploadPrefix) ? null : imageUrl;
+const dropReplacedUploadUrl = (imageUrl: string | null, replacedUploadTripId: string | null) => {
+  if (!imageUrl || !replacedUploadTripId) return imageUrl;
+  return resolvesInsideTripUploadDir(imageUrl, replacedUploadTripId) ? null : imageUrl;
 };
 
-/** The prefix every stored URL under one trip's upload directory begins with. */
-const tripUploadUrlPrefix = (tripId: string) => `/uploads/trips/${tripId}/`;
+/**
+ * Whether a stored URL resolves to a file inside one trip's upload directory.
+ *
+ * The one containment primitive behind both import URL rules, so the two cannot drift apart on the
+ * question they both turn on. The only value that exits before the resolve is an **external** one - a URL
+ * with a scheme, which names nothing on this disk. Everything else is path-shaped and is decided on the
+ * path `resolveStoredMediaPath` actually produces, which is what ends four iterations of "does this look
+ * like one of ours?" string tests, each of which the next spelling walked through: see
+ * `isExternalMediaUrl`. The trailing `path.sep` inside `mediaPathIsInside` keeps an id that is merely a
+ * prefix of another out of it - `.../abc` must not read as inside trip `abcd`.
+ */
+const resolvesInsideTripUploadDir = (url: string, tripId: string) => {
+  if (isExternalMediaUrl(url)) return false;
+  // `mediaPathIsInside` rather than a bare `startsWith`, so this comparison asks the filesystem's own
+  // question about case - see `mediaPathKey`. It also owns the trailing-separator detail above.
+  return mediaPathIsInside(path.resolve(resolveStoredMediaPath(url)), getTripUploadDir(tripId));
+};
+
+/**
+ * Whether a stored URL resolves into a *different* trip's upload directory (Story 8.4 / DW-88).
+ *
+ * The create-new path used to restore a v1 `/uploads/trips/<id>/…` string verbatim on the reasoning that
+ * it touches no file, so the string is harmless. It is not: the id in it is the *source* trip's, so the
+ * restored row points into a directory this trip does not own. Story 8.3's authorising serve route means
+ * that is **not** "user X's trip renders user Y's photo" - only somebody who already has read access to
+ * the owning trip sees anything at all. What remains is still worth nulling: for everyone else the chip
+ * 404s, the image disappears the moment the owning trip is deleted or overwrite-imported, and two
+ * unrelated trips' lifetimes are silently coupled. A trip with no image beats a trip with a broken one,
+ * and nulling is DW-88's recorded decision.
+ *
+ * **Decided on the resolved path, not on the raw string.** A `startsWith("/uploads/trips/<own>/")` test
+ * is evadable, and all three of these were confirmed by execution to resolve to the foreign file while
+ * reading as not-foreign: `//uploads/trips/<other>/x`, `/uploads//trips/<other>/x` and
+ * `/uploads/trips/<own>/../<other>/x`. `resolveStoredMediaPath` normalises every one of them, so the
+ * question is asked of the file the row actually points at.
+ *
+ * **And there is no "is this a media URL?" shape test in front of it any more.** Four of them were written
+ * for this rule and each was walked through by the next spelling - `//uploads/…`, `/uploads//…`,
+ * `uploads/…`, `/./uploads/…`, `/Uploads/…`, and finally `/x/../uploads/trips/<other>/hero.jpg`, whose own
+ * leading segment is popped by the `..` that follows it while `resolveStoredMediaPath` maps it onto
+ * byte-for-byte the same file (all confirmed by execution). `heroImageUrl` carries no format validation at
+ * all, so a backup can spell it any of those ways. Only "is this external?" survives, because it is a
+ * closed question; everything path-shaped goes to the containment check. See `isExternalMediaUrl`.
+ *
+ * **And it fails closed for every path-shaped value.** Only a URL naming no file here at all takes the
+ * "keep" branch - which is to say anything with a scheme, and that is wider than "an external `https://…`
+ * cover image": `data:`, `file:` and `javascript:` are kept verbatim too, because they are equally not
+ * ours to judge and equally name no file in this tree. What a stored URL is *allowed* to be is the import
+ * schema's question, not this rule's - `heroImageUrl` is `z.union([z.string().trim(), z.null()])` with no
+ * format check, which is a pre-existing gap this rule neither widens nor closes. Iteration 2 asked instead
+ * whether the resolved path was inside
+ * `getTripsUploadRoot()` and kept it when it was not, which let `/uploads/trips/../../../../etc/passwd`
+ * through: confirmed by execution to be imported verbatim with `droppedImageCount: 0`. A `/uploads/…` URL
+ * resolving *outside* the trips root is further from "a file this trip owns" than a foreign-trip URL is,
+ * so it is the last thing that should be restored.
+ *
+ * Compared against the id of the trip *being created*, never the payload's own `trip.id`: DW-88's harm
+ * case is precisely a URL carrying the backup's own source id, so comparing against that would make the
+ * rule agree with every URL it exists to catch.
+ */
+const isForeignTripUploadUrl = (url: string | null, ownTripId: string) => {
+  if (!url) return false;
+  // The only value that is not ours to judge: an external URL with a scheme, which names no file here at
+  // all. It stays verbatim. See `isExternalMediaUrl` for why this is the last shape test standing.
+  if (isExternalMediaUrl(url)) return false;
+
+  // Anything under `/uploads/` that is not inside this trip's own directory is foreign - including a path
+  // that escapes the trips root entirely. See the fail-closed note above.
+  return !resolvesInsideTripUploadDir(url, ownTripId);
+};
 
 type ImportedDaysResult = {
   dayIdBySourceId: Map<string, string>;
@@ -2165,6 +2274,8 @@ type ImportedDaysResult = {
   travelSegmentCount: number;
   /** Segments dropped because an endpoint named no record in the package - see the skip below. */
   skippedTravelSegmentCount: number;
+  /** Day images nulled because their URL resolved into another trip's directory - see `isForeignTripUploadUrl`. */
+  droppedImageCount: number;
 };
 
 const createImportedDays = async ({
@@ -2174,7 +2285,8 @@ const createImportedDays = async ({
   photos,
   documents,
   takenFileNames,
-  replacedUploadPrefix,
+  replacedUploadTripId,
+  dropForeignUploadUrls,
 }: {
   tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
   tripId: string;
@@ -2182,8 +2294,18 @@ const createImportedDays = async ({
   photos: ImportPhotoPool;
   documents: ImportDocumentPool;
   takenFileNames: Set<string>;
-  /** See `dropReplacedUploadUrl`. Only ever set in overwrite mode. */
-  replacedUploadPrefix: string | null;
+  /**
+   * The trip whose files this import is about to delete - see `dropReplacedUploadUrl`. Only ever set in
+   * overwrite mode, and an id rather than a URL prefix because the rule is decided on the resolved path.
+   */
+  replacedUploadTripId: string | null;
+  /**
+   * Whether to apply `isForeignTripUploadUrl` against `tripId` - which is the trip being written either
+   * way, so the flag is the *mode*, not a second id. Only create-new sets it: overwrite already nulls
+   * the URLs that matter through `replacedUploadTripId`, and Story 2.32's v1 verbatim rule is pinned on
+   * that path (AC7).
+   */
+  dropForeignUploadUrls: boolean;
 }): Promise<ImportedDaysResult> => {
   const dayIdBySourceId = new Map<string, string>();
   const accommodationIdBySourceId = new Map<string, string>();
@@ -2192,14 +2314,24 @@ const createImportedDays = async ({
   const documentWrites: PlannedPhotoWrite[] = [];
   let travelSegmentCount = 0;
   let skippedTravelSegmentCount = 0;
+  let droppedImageCount = 0;
 
   for (const day of sortedDays) {
+    const restoredDayImageUrl = dropReplacedUploadUrl(day.imageUrl ?? null, replacedUploadTripId);
+    const dayImageIsForeign = dropForeignUploadUrls && isForeignTripUploadUrl(restoredDayImageUrl, tripId);
+    // Nulled whenever it is foreign, but *counted* only when nothing else was going to replace it: a day
+    // carrying a pooled photo gets real bytes a few lines below, so reporting its dead v1 string as a
+    // dropped image would name a loss the user did not suffer.
+    if (dayImageIsForeign && !day.imagePhotoId) {
+      droppedImageCount += 1;
+    }
+
     const createdDay = await tx.tripDay.create({
       data: {
         tripId,
         date: new Date(day.date),
         dayIndex: day.dayIndex,
-        imageUrl: dropReplacedUploadUrl(day.imageUrl ?? null, replacedUploadPrefix),
+        imageUrl: dayImageIsForeign ? null : restoredDayImageUrl,
         note: day.note ?? null,
       },
     });
@@ -2450,6 +2582,7 @@ const createImportedDays = async ({
     documentWrites,
     travelSegmentCount,
     skippedTravelSegmentCount,
+    droppedImageCount,
   };
 };
 
@@ -2465,6 +2598,22 @@ const skippedTravelSegmentWarnings = (count: number): string[] => {
   if (count === 0) return [];
   const subject = count === 1 ? "1 travel segment" : `${count} travel segments`;
   return [`Skipped ${subject} whose start or end point is missing from this backup`];
+};
+
+/**
+ * DW-88's prescribed warning: the import result has to *name* how many images were dropped, or the
+ * nulling is a silent loss and the user simply finds a trip with fewer pictures than the one they backed
+ * up. Same channel and same English as the segment warning above, for the same reason.
+ *
+ * The wording covers **both** inputs `isForeignTripUploadUrl` catches, because one sentence has to be true
+ * of both: a URL naming another trip's directory, and a URL escaping the media tree altogether. "Belongs
+ * to a different trip" was only true of the first - `/uploads/trips/../../../../etc/passwd` belongs to no
+ * trip at all - so the claim is the one they share: the file is not this trip's to restore.
+ */
+const droppedForeignImageWarnings = (count: number): string[] => {
+  if (count === 0) return [];
+  const subject = count === 1 ? "1 image" : `${count} images`;
+  return [`Dropped ${subject} whose stored file is not this trip's to restore`];
 };
 
 const createImportedBucketListItems = async ({
@@ -2493,7 +2642,12 @@ const createImportedBucketListItems = async ({
   return items.length;
 };
 
-export const importTripFromExportForUser = async ({
+/**
+ * The import itself. Wrapped by `importTripFromExportForUser` below, which owns the per-trip lock -
+ * this is a plain rename of what used to be the exported function's body, so the two concerns stay one
+ * diff apart.
+ */
+const runTripImport = async ({
   userId,
   payload,
   strategy,
@@ -2628,6 +2782,7 @@ export const importTripFromExportForUser = async ({
     travelSegmentCount: number;
     skippedTravelSegmentCount: number;
     bucketListItemCount: number;
+    droppedImageCount: number;
   };
 
   const mode: "overwrite" | "createNew" = strategy === "overwrite" ? "overwrite" : "createNew";
@@ -2670,8 +2825,10 @@ export const importTripFromExportForUser = async ({
         ? requirePooledPhoto(photos, payload.trip.heroPhotoId)
         : null;
       const heroPlacement = heroPhoto ? planTripHeroPhoto(targetTrip.id, heroPhoto.contentType) : null;
-      // This trip's own files are about to be deleted, so any restored URL naming one is dead.
-      const replacedUploadPrefix = tripUploadUrlPrefix(targetTrip.id);
+      // This trip's own files are about to be deleted, so any restored URL resolving into its upload
+      // directory is dead. The *id* rather than a URL prefix, because `dropReplacedUploadUrl` asks the
+      // question of the resolved path now - see the note there.
+      const replacedUploadTripId = targetTrip.id;
 
       const updatedTrip = await tx.trip.update({
         where: { id: targetTrip.id },
@@ -2681,7 +2838,7 @@ export const importTripFromExportForUser = async ({
           endDate: new Date(payload.trip.endDate),
           heroImageUrl: heroPlacement
             ? heroPlacement.imageUrl
-            : dropReplacedUploadUrl(payload.trip.heroImageUrl, replacedUploadPrefix),
+            : dropReplacedUploadUrl(payload.trip.heroImageUrl, replacedUploadTripId),
           ...(payload.trip.startLocation === undefined
             ? {}
             : {
@@ -2712,7 +2869,11 @@ export const importTripFromExportForUser = async ({
         photos,
         documents,
         takenFileNames,
-        replacedUploadPrefix,
+        replacedUploadTripId,
+        // Overwrite writes into the trip whose id the URLs may already carry, and Story 2.32's v1
+        // verbatim rule is pinned on this path (AC7). `replacedUploadTripId` above is what handles the
+        // URLs whose files this import is about to delete.
+        dropForeignUploadUrls: false,
       });
       const bucketListItemCount = await createImportedBucketListItems({
         tx,
@@ -2735,6 +2896,7 @@ export const importTripFromExportForUser = async ({
         travelSegmentCount: days.travelSegmentCount,
         skippedTravelSegmentCount: days.skippedTravelSegmentCount,
         bucketListItemCount,
+        droppedImageCount: days.droppedImageCount,
       };
     }, IMPORT_TRANSACTION_OPTIONS);
   } else {
@@ -2757,13 +2919,22 @@ export const importTripFromExportForUser = async ({
 
       // The hero URL contains the trip id, which only exists once the row does - hence create, then
       // update. Same precedence as day images: a pooled photo replaces the v1 string outright.
+      //
+      // The foreign-URL rule (Story 8.4 / DW-88) is applied here rather than at the `create` above for
+      // exactly the same reason: `createdTrip.id` is the id the URL has to be compared against, and it
+      // does not exist until the row does.
       let heroImageUrl = createdTrip.heroImageUrl;
+      let droppedHeroImageCount = 0;
       const heroWrites: PlannedPhotoWrite[] = [];
       if (payload.trip.heroPhotoId) {
         const heroPhoto = requirePooledPhoto(photos, payload.trip.heroPhotoId);
         const placement = planTripHeroPhoto(createdTrip.id, heroPhoto.contentType);
         heroWrites.push({ filePath: placement.filePath, archivePath: heroPhoto.archivePath });
         heroImageUrl = placement.imageUrl;
+        await tx.trip.update({ where: { id: createdTrip.id }, data: { heroImageUrl } });
+      } else if (isForeignTripUploadUrl(heroImageUrl, createdTrip.id)) {
+        heroImageUrl = null;
+        droppedHeroImageCount = 1;
         await tx.trip.update({ where: { id: createdTrip.id }, data: { heroImageUrl } });
       }
 
@@ -2774,8 +2945,11 @@ export const importTripFromExportForUser = async ({
         photos,
         documents,
         takenFileNames,
-        // Create-new touches no existing file, so every v1 URL is restored verbatim (AC2).
-        replacedUploadPrefix: null,
+        // Create-new deletes no existing file, so nothing here is dead for *that* reason (AC2).
+        replacedUploadTripId: null,
+        // It is dead for the other one: a URL resolving into `/uploads/trips/<other>/…` names a
+        // directory this trip does not own, so the row would point at another trip's file (DW-88).
+        dropForeignUploadUrls: true,
       });
       const bucketListItemCount = await createImportedBucketListItems({
         tx,
@@ -2796,6 +2970,7 @@ export const importTripFromExportForUser = async ({
         travelSegmentCount: days.travelSegmentCount,
         skippedTravelSegmentCount: days.skippedTravelSegmentCount,
         bucketListItemCount,
+        droppedImageCount: droppedHeroImageCount + days.droppedImageCount,
       };
     }, IMPORT_TRANSACTION_OPTIONS);
   }
@@ -2871,8 +3046,72 @@ export const importTripFromExportForUser = async ({
     bucketListItemCount: committed.bucketListItemCount,
     photoCount: committed.photoWrites.length,
     documentCount: committed.documentWrites.length,
-    warnings: skippedTravelSegmentWarnings(committed.skippedTravelSegmentCount),
+    droppedImageCount: committed.droppedImageCount,
+    // Prepended, not appended, and for the same reason the segment warnings go ahead of `meta.warnings`
+    // in the route: the dropped-image line is the whole of AC6's "names how many images were dropped",
+    // and a loss the user has to read should not sit under a line about something else. `warnings` holds
+    // at most two entries either way - `skippedTravelSegmentWarnings` returns one string however many
+    // segments it skipped - so the dialog's ten-line cap is never in play here.
+    warnings: [
+      ...droppedForeignImageWarnings(committed.droppedImageCount),
+      ...skippedTravelSegmentWarnings(committed.skippedTravelSegmentCount),
+    ],
   };
+};
+
+/**
+ * Runs one import, serialised per trip when it overwrites (Story 8.4 / DW-86).
+ *
+ * Only the overwrite path takes the lock, and only for a target this user actually owns: create-new
+ * writes to a trip id that does not exist until its own transaction runs, so two concurrent create-new
+ * imports cannot reach the same directory and locking them would serialise unrelated work.
+ *
+ * **The lock key is resolved from the database, never taken from the request.** `targetTripId` is
+ * validated only as `z.string().trim().min(1)` and is interpolated into a filesystem path, and the first
+ * implementation of this story locked on it directly: `targetTripId: "../../../../probe-escape/x"` was
+ * confirmed by execution to `mkdir` - and then, in the `finally`, `rm -rf` - a directory *outside* the
+ * media root, reachable by any authenticated caller with a parseable backup and no trip ownership at
+ * all. Resolving the id through `findFirst({ where: { id, userId } })` first closes that, and at the same
+ * time stops a `409 import_in_progress` from being a discriminator for "an import of a trip you cannot
+ * see is running". A miss takes no lock and falls straight through to `runTripImport`'s own ownership
+ * checks, which answer with the error the caller would have got anyway.
+ *
+ * The lock is acquired **before** `runTripImport`, which means before its transaction rather than down at
+ * `stashTripUploadDir` where the collision happens. Locking at the stash would let both imports commit
+ * their rows and only then discover the conflict, leaving the loser holding a committed import it would
+ * have to unwind. Refused here, the loser has written nothing at all.
+ */
+export const importTripFromExportForUser = async (
+  args: Parameters<typeof runTripImport>[0],
+): Promise<ImportTripResult> => {
+  let lock: TripImportLock | null = null;
+  if (args.strategy === "overwrite" && args.targetTripId) {
+    const owned = await prisma.trip.findFirst({
+      where: { id: args.targetTripId, userId: args.userId },
+      select: { id: true },
+    });
+    if (owned) {
+      lock = await acquireTripImportLock(owned.id);
+    }
+  }
+
+  try {
+    return await runTripImport(args);
+  } finally {
+    // Every exit path, success or throw, or the trip stays locked until the sentinel goes stale.
+    //
+    // A failure here is logged rather than swallowed. It cannot be rethrown - that would replace the
+    // import's own result or error with a filesystem complaint - but it must not be silent either: a
+    // `fs.rm` that fails leaves the trip refusing imports for the full `IMPORT_LOCK_STALE_MS` window,
+    // and the user's obvious next move is a retry that is turned away with a message about an import
+    // that is not running. This line is the only thing that would ever explain that.
+    await releaseTripImportLock(lock).catch((error: unknown) => {
+      console.error("trip import: unable to release the per-trip import lock", {
+        lockDir: lock?.lockDir,
+        error,
+      });
+    });
+  }
 };
 
 export const deleteTripForUser = async (userId: string, tripId: string) => {

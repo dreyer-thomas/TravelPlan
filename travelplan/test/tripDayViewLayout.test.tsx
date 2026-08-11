@@ -3954,6 +3954,117 @@ describe("TripDayView layout", () => {
   });
 
   /**
+   * Story 8.4 / DW-194. The day-meta save must send **only the field being edited**.
+   *
+   * It used to post `imageUrl: day.imageUrl ?? null` alongside the note, out of local state. That was
+   * harmless while the route's cleanup fired only for `null` or an out-of-directory value, and it is not
+   * any more: the cleanup now unlinks the previous file whenever the stored URL changes, so a client
+   * holding a stale `day.webp` while the row has advanced to `day.png` sets the row back **and unlinks
+   * `day.png`** - the file the day was displaying (confirmed by execution). Sending only the note removes
+   * the lost update as well as the deletion, which is the honest fix rather than a narrower trigger.
+   *
+   * Asserted on the request body, because that is where the defect lived: every visible outcome of this
+   * save is identical either way, which is exactly why it shipped green.
+   */
+  it("sends only the note when a day-details save carries no new image", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+
+    const patchBodies: string[] = [];
+    const state = {
+      imageUrl: "/uploads/trips/trip-1/days/day-1/day.webp" as string | null,
+      note: "Flight from FRA to SIN" as string | null,
+    };
+
+    const fetchMock = withBucketList(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+
+      if (url.includes("/api/auth/csrf")) {
+        return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
+      }
+
+      if (url.includes("/days/day-1/image") && method === "PATCH") {
+        patchBodies.push(String(init?.body ?? "{}"));
+        const parsed = JSON.parse(String(init?.body ?? "{}")) as { imageUrl?: string | null; note: string | null };
+        // Mirrors the route: an absent `imageUrl` leaves the column alone.
+        if (parsed.imageUrl !== undefined) {
+          state.imageUrl = parsed.imageUrl;
+        }
+        state.note = parsed.note;
+        return mockFetchResponse({
+          data: {
+            day: { id: "day-1", imageUrl: state.imageUrl, note: state.note, updatedAt: "2026-12-01T00:00:00.000Z" },
+          },
+          error: null,
+        });
+      }
+
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            accessRole: "owner",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-02T00:00:00.000Z",
+            dayCount: 2,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
+          },
+          days: [
+            {
+              id: "day-0",
+              date: "2026-11-30T00:00:00.000Z",
+              dayIndex: 0,
+              imageUrl: null,
+              note: null,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: null,
+              dayPlanItems: [],
+            },
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              imageUrl: state.imageUrl,
+              note: state.note,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: null,
+              dayPlanItems: [],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
+
+    stubFetch(fetchMock);
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByTestId("day-hero");
+    await activateDayOverflowItem("Edit day details");
+
+    fireEvent.change(await screen.findByLabelText("Day note"), { target: { value: "Ferry at 07:40" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save day details" }));
+
+    await waitFor(() => expect(patchBodies).toHaveLength(1));
+    const body = JSON.parse(patchBodies[0]) as Record<string, unknown>;
+    expect(body).toEqual({ note: "Ferry at 07:40" });
+    // Spelled out, because `toEqual` above would also pass for `{ note, imageUrl: undefined }` if the key
+    // were ever serialised as an explicit `undefined`: the key must not be on the wire at all.
+    expect(Object.keys(body)).toEqual(["note"]);
+    expect(await screen.findByRole("heading", { name: "Day 1: Ferry at 07:40", level: 5 })).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  /**
    * Story 5.13 / AC7, for the day image specifically. The plan dialog's photo upload has its own
    * `forbidden` render case (`tripDayPlanDialog.test.tsx`), but the day-image writes live here in
    * `TripDayView` and were the *first* surface the story named. Adding `case "forbidden"` to a

@@ -5,7 +5,7 @@ baseline_commit: 84fd6fb94d399bda42765a576c3061a003f3e402
 
 # Story 8.4: Media Deletion That Deletes Only Its Own File
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -141,10 +141,91 @@ No new dependency, no migration, no schema change. One repository function widen
 
 ### Agent Model Used
 
+Claude Opus 5 (1M context) - `claude-opus-5[1m]`, via `bmad-dev-auto`, 2026-08-11.
+Spec: `spec-8-4-media-deletion-that-deletes-only-its-own-file.md` (commit `9a99dda`, baseline `15ba325`).
+
 ### Debug Log References
+
+Full detail lives in the spec's `## Spec Change Log`, `## Review Triage Log` and `## Auto Run Result`.
+Four implementation iterations, four adversarial review passes; passes 1-3 each found a defect the
+change itself had introduced, reproduced by execution before being accepted.
+
+**The story's two false premises, both confirmed.** DW-194's "the route already knows the previous
+`imageUrl`" - it does not; the lookup selected `{ id }` and re-read the *new* row. And **AC7's**
+"the seven existing v1 tests pin that string pass unmodified" is a miscount: two of them
+(`test/tripRepo.test.ts:1982`, `:2187`) are create-new tests over `IMPORT_PAYLOAD`, whose `trip.id`
+is `export-trip` while a create-new import mints a fresh cuid - so those URLs are foreign by
+construction and AC6 requires them nulled. DW-88's recorded decision governs; exactly those two
+assertions moved, the overwrite pin at `:2333` and the other five v1 pins are untouched.
+
+**What the review passes caught, none of which the green suite saw.** A URL string prefix is not a
+containment check: `dayImageUpdateSchema` admits any `/uploads/…` string, so the first
+implementation's `startsWith(dayPrefix)` guard resolved `…/days/<dayId>/../../../../../victim.txt`
+to `<mediaRoot>/victim.txt` and unlinked it - a new arbitrary-file-unlink primitive - and admitted
+`…/days/<dayId>/accommodations/<a>/img-stay.webp`, i.e. DW-194's own symptom one file at a time.
+The lock was keyed on the raw `targetTripId` (`z.string().trim().min(1)`), so `../../../../x`
+produced `mkdir` then `rm -rf` outside the media root for any authenticated caller. `allowedDir`
+built from the request's day orphaned the media of every activity ever moved between days.
+`fs.rename` alone does not make a stale-lock reclaim atomic - two callers both got the lock. And the
+`previous !== updated` trigger made a note-only save delete the day's current photo.
+
+**Mutation-checked, per Story 8.3's discipline.** Removing the `ino` comparison, `looksLikeStoredMediaUrl`,
+the `fs.utimes` heartbeat, the `{ note }`-only request body, the resolved-path trigger, the
+"no day in the stored URL" log line, the case fold, and the empty-body `refine` each fails a test.
+The heartbeat is the one that mattered: before a test existed for it, replacing `fs.utimes` with a
+no-op left the whole suite green, so the mechanism the entire staleness argument rests on was
+deletable undetected.
 
 ### Completion Notes List
 
+- AC1-AC4 done for the day-image route and all four media routes, through one shared
+  `removeManagedMediaFile` that never throws; the four `removeManagedFile` copies are deleted, not edited.
+- AC5 done: per-trip sentinel on a DB-resolved owned id, atomic reclaim, nonce-checked release,
+  liveness heartbeat, released on every exit path, and removed when the trip is deleted.
+- AC6/AC7 done: create-new nulls a URL that is not this trip's (decided on the resolved path, failing
+  closed for one escaping the media tree) and reports the count; overwrite is unchanged.
+- Two acceptance criteria were added during review and are also met: **AC8** (containment, not prefix
+  matching) and **AC9** (media found under the day its stored URL names, not the entry's current day).
+- Red before green: the AC1 and AC8 regressions failed at baseline. The AC9 regressions are red against
+  the second iteration's shape, not the baseline - the baseline handled that input correctly - and that
+  is reported rather than papered over.
+- Suite: 146 files / 2273 tests, from a baseline of 145 / 2223. Typecheck clean, lint at the baseline
+  warning count (79, 0 errors), build compiles.
+- **Next story should be DW-305:** `hero-image/route.ts` still recursively removes the *whole trip's*
+  media on its rollback - the same defect class, one level broader. This story's spec excluded it on the
+  stated grounds that it "owns a flat file, not a tree", which is false: its `uploadDir` is
+  `getTripUploadDir(tripId)`.
+
 ### File List
 
+**New**
+- `travelplan/src/lib/trips/mediaCleanup.ts`
+- `travelplan/test/tripDayImageRollback.test.ts`
+
+**Modified**
+- `travelplan/src/lib/trips/uploadPaths.ts`, `travelplan/src/lib/trips/importPhotos.ts`
+- `travelplan/src/lib/repositories/tripRepo.ts`, `travelplan/src/lib/validation/dayImageSchemas.ts`
+- `travelplan/src/app/api/trips/[id]/days/[dayId]/image/route.ts`
+- `travelplan/src/app/api/trips/[id]/{accommodations,day-plan-items}/{images,documents}/route.ts`
+- `travelplan/src/app/api/trips/[id]/route.ts`, `travelplan/src/app/api/trips/import/route.ts`
+- `travelplan/src/components/features/trips/{TripDayView,TripImportDialog}.tsx`
+- `travelplan/src/i18n/en.ts`, `travelplan/src/i18n/de.ts`
+- 11 test suites; `deferred-work.md` (DW-302..DW-310 added)
+
+**Deliberately not modified** - `travelplan/src/app/api/trips/[id]/hero-image/route.ts` (DW-305).
+
 ### Change Log
+
+| File | Change |
+|---|---|
+| `lib/trips/mediaCleanup.ts` | **New.** `removeManagedMediaFile` - unlinks one file only when its resolved parent *is* the caller's own directory; `ENOENT` quiet, every other errno logged, never throws. Plus `storedMediaUrlsNameSameFile`. |
+| `lib/trips/uploadPaths.ts` | `readStoredMediaDayId` (the day a stored URL actually lives under), `looksLikeStoredMediaUrl` (segment-based, not a prefix test, and deliberately not `path.posix.normalize`), `mediaPathIsDirectlyIn` / `mediaPathIsInside` (one case-folded comparator pair). |
+| `lib/trips/importPhotos.ts` | Per-trip import lock: `IMPORT_LOCK_STALE_MS`, `getTripImportLockDir`, all-or-nothing claim, `ino`-verified `fs.rename` reclaim, nonce-checked release, ownership-checked 60s heartbeat, `isSafeMediaSegment` refusal. |
+| `lib/repositories/tripRepo.ts` | `updateTripDayImageForUser` returns `previousImageUrl` (widened `select`, Story 5.13's `where` untouched); `resolvesInsideTripUploadDir` as the one containment primitive behind both import rules; `isForeignTripUploadUrl` fails closed; `droppedImageCount` + warning; `runTripImport` behind a lock-owning wrapper. |
+| `api/.../days/[dayId]/image/route.ts` | `PATCH` unlinks the previous day image's own file instead of removing the day tree; `POST`'s rollback likewise, through the never-throwing helper. |
+| the four media routes | Local `removeManagedFile` deleted; shared helper with the entry's own directory, built from the day the **stored URL** names; an unparseable URL logs rather than skipping silently. |
+| `api/trips/[id]/route.ts` | Trip deletion removes the import sentinel, which is a sibling of the trip directory. |
+| `api/trips/import/route.ts` | `import_in_progress` → 409, `import_lock_unsafe_trip_id` → explicit 4xx. |
+| `validation/dayImageSchemas.ts` | `imageUrl` optional so a note-only save can omit it; `refine` rejects a body that asks for no change. |
+| `TripDayView.tsx` | The day-meta save sends `{ note }` only - resending a stale `imageUrl` deleted the day's current photo under the new trigger. |
+| `TripImportDialog.tsx`, `i18n/{en,de}.ts` | `import_in_progress` message. |

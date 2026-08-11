@@ -46,7 +46,15 @@ type ImportResponse = {
   photoCount?: number;
   /** Added by Story 9.1, optional on the same terms as the three above. */
   documentCount?: number;
-  /** What the *export* skipped. Server-generated English, shown as-is under a translated heading. */
+  /**
+   * No `droppedImageCount` (Story 8.4 / DW-88). The images the import nulled because their stored URL
+   * named a directory the new trip does not own are reported to the *user* through `warnings` below,
+   * which this dialog already renders, and to callers of the repository through its result. The route
+   * puts no such field on the envelope: the summary grid is deliberately not extended (see the Design
+   * Note on its five-cell column reasoning), so a declaration here would be a typed field nothing reads.
+   *
+   * What the *export* skipped. Server-generated English, shown as-is under a translated heading.
+   */
   warnings?: string[];
 };
 
@@ -210,6 +218,11 @@ export default function TripImportDialog({ open, onClose, onImported }: TripImpo
           return t("trips.import.uploadFailed");
         case "validation_error":
           return t("trips.import.validationError");
+        case "import_in_progress":
+          // Not `trips.import.error` ("please try again"). The retry advice is right but the reason is
+          // not generic: another import of this trip is still running, and the user has to wait for it
+          // rather than change anything about the file they picked.
+          return t("trips.import.inProgress");
         case "not_found":
           return t("trips.import.targetMissing");
         case "server_error":

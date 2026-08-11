@@ -199,6 +199,8 @@ const de: Dictionary = {
   "trips.import.summarySegments": "Reiseabschnitte",
   "trips.import.summaryBucket": "Bucket-Liste",
   "trips.import.error": "Reiseimport fehlgeschlagen. Bitte erneut versuchen.",
+  "trips.import.inProgress":
+    "Für diese Reise läuft bereits ein Import. Bitte warte, bis er abgeschlossen ist.",
   "trips.import.initError": "Import konnte nicht initialisiert werden. Bitte aktualisieren.",
   "trips.delete.initError": "Löschen konnte nicht initialisiert werden. Bitte aktualisieren.",
   "trips.delete.error": "Reiselöschung fehlgeschlagen. Bitte erneut versuchen.",

@@ -1,9 +1,10 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import fs from "node:fs/promises";
 import { DELETE, GET, POST } from "@/app/api/trips/[id]/day-plan-items/documents/route";
 import { createSessionJwt } from "@/lib/auth/jwt";
 import { prisma } from "@/lib/db/prisma";
+import { moveDayPlanItemToTripDay } from "@/lib/repositories/dayPlanItemRepo";
 import { MAX_DOCUMENTS_PER_ENTRY } from "@/lib/trips/documentUploads";
 import { getDayPlanItemDocumentUploadDir, getTripsUploadRoot, resolveStoredMediaPath } from "@/lib/trips/uploadPaths";
 
@@ -540,5 +541,161 @@ describe("/api/trips/[id]/day-plan-items/documents", () => {
     const contributorDelete = await remove(contributorToken, documentId);
     expect(contributorDelete.status).toBe(200);
     expect(await prisma.dayPlanItemDocument.findUnique({ where: { id: documentId } })).toBeNull();
+  });
+
+  /**
+   * Story 8.4 / DW-195, AC4 - the activity-document copy of the case all five media routes carry. See
+   * `tripAccommodationDocumentsRoute.test.ts` for why it is repeated rather than shared: the four route
+   * helpers were byte-identical, so one suite proves nothing about the other three.
+   */
+  it("reports the delete that committed when the unlink fails with a non-ENOENT errno", async () => {
+    const { trip, day, item, token } = await seed("unlinkfails");
+
+    const created = (await (
+      await upload(trip.id, { tripDayId: day.id, dayPlanItemId: item.id }, pdfFile("Locked.pdf"), { token })
+    ).json()) as ApiEnvelope<{ document: DocumentPayload }>;
+    const filePath = resolveStoredMediaPath(created.data!.document.documentUrl);
+
+    const permissionDenied = new Error(`EACCES: permission denied, unlink '${filePath}'`) as Error & {
+      code: string;
+    };
+    permissionDenied.code = "EACCES";
+    const unlinkSpy = vi.spyOn(fs, "unlink").mockRejectedValue(permissionDenied);
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    try {
+      const response = await DELETE(
+        new NextRequest(`http://localhost/api/trips/${trip.id}/day-plan-items/documents`, {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+            cookie: `session=${token}; csrf_token=csrf-token`,
+            "x-csrf-token": "csrf-token",
+          },
+          body: JSON.stringify({
+            tripDayId: day.id,
+            dayPlanItemId: item.id,
+            documentId: created.data!.document.id,
+          }),
+        }),
+        { params: Promise.resolve({ id: trip.id }) },
+      );
+
+      expect(response.status).toBe(200);
+      expect(((await response.json()) as ApiEnvelope<{ deleted: boolean }>).data?.deleted).toBe(true);
+      expect(await prisma.dayPlanItemDocument.count()).toBe(0);
+      expect(consoleSpy).toHaveBeenCalledWith(
+        "day plan item document delete: unable to remove media file",
+        expect.objectContaining({ filePath, code: "EACCES" }),
+      );
+    } finally {
+      unlinkSpy.mockRestore();
+      consoleSpy.mockRestore();
+    }
+  });
+
+  /**
+   * Story 8.4, iteration 5. The sibling of the case above, carried by the same argument.
+   *
+   * When `readStoredMediaDayId` cannot read a day out of the stored URL there is no file of ours to remove,
+   * so the `200` is right - but the outcome is a committed row delete with bytes left on disk, exactly what
+   * the containment refusal and the `EACCES` above produce, and both of those log. Iteration 4 added the log
+   * line and asserted it on one of the four routes only, which is the same "one suite is not evidence for
+   * the rest" this file's AC4 case exists to refuse.
+   */
+  it("logs rather than skipping silently when the stored url names no day under this trip", async () => {
+    const { trip, day, item, token } = await seed("nodayinurl");
+
+    // Parses as a path, but the trip id in it is not this route's, so `readStoredMediaDayId` refuses it.
+    const documentUrl = "/uploads/trips/other-trip/days/other-day/day-plan-items/other-item/documents/doc-1.pdf";
+    const row = await prisma.dayPlanItemDocument.create({
+      data: { dayPlanItemId: item.id, documentUrl, fileName: "Drifted.pdf", sortOrder: 0 },
+    });
+
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const response = await DELETE(
+        new NextRequest(`http://localhost/api/trips/${trip.id}/day-plan-items/documents`, {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+            cookie: `session=${token}; csrf_token=csrf-token`,
+            "x-csrf-token": "csrf-token",
+          },
+          body: JSON.stringify({ tripDayId: day.id, dayPlanItemId: item.id, documentId: row.id }),
+        }),
+        { params: Promise.resolve({ id: trip.id }) },
+      );
+
+      expect(response.status).toBe(200);
+      expect(await prisma.dayPlanItemDocument.findUnique({ where: { id: row.id } })).toBeNull();
+      // The ids, not `storedUrl` alone. This branch fires precisely when the URL names some *other*
+      // trip, so the URL is the one value in the record that cannot be traced back to the row whose
+      // bytes were abandoned - which makes it the one value a log of it alone cannot do its job with.
+      expect(consoleSpy).toHaveBeenCalledWith(
+        "day plan item document delete: stored media url names no day under this trip",
+        expect.objectContaining({
+          tripId: trip.id,
+        dayPlanItemId: item.id,
+        documentId: row.id,
+          storedUrl: documentUrl,
+        }),
+      );
+    } finally {
+      consoleSpy.mockRestore();
+    }
+  });
+
+  /**
+   * Story 8.4 / AC9 - the document twin of the case in `tripDayPlanItemImagesRoute.test.ts`.
+   *
+   * `moveDayPlanItemToTripDay` reassigns `tripDayId` with a bare `updateMany`, moving no file and
+   * rewriting no URL, so a ticket PDF uploaded on day 1 stays under `days/<day-1>/…` after the activity
+   * has been moved to day 2. A cleanup that builds the directory it may unlink in out of the request's
+   * `tripDayId` looks under day 2, finds nothing it is allowed to touch, and answers
+   * `200 { deleted: true }` with the PDF still on disk and no row left naming it.
+   */
+  it("removes the file of a document uploaded before the activity was moved to another day", async () => {
+    const { owner, token, trip, day, item } = await seed("moved");
+    const laterDay = await prisma.tripDay.create({
+      data: { tripId: trip.id, date: new Date("2026-12-22T00:00:00.000Z"), dayIndex: 2 },
+    });
+
+    const created = (await (
+      await upload(trip.id, { tripDayId: day.id, dayPlanItemId: item.id }, pdfFile("Moved ticket.pdf"), { token })
+    ).json()) as ApiEnvelope<{ document: DocumentPayload }>;
+    const filePath = resolveStoredMediaPath(created.data!.document.documentUrl);
+    expect(await fs.readFile(filePath, "utf8")).toContain("%PDF-1.4");
+
+    const move = await moveDayPlanItemToTripDay({
+      userId: owner.id,
+      tripId: trip.id,
+      tripDayId: day.id,
+      itemId: item.id,
+      targetTripDayId: laterDay.id,
+    });
+    expect(move.status).toBe("moved");
+    expect(created.data!.document.documentUrl).toContain(`/days/${day.id}/`);
+
+    const response = await DELETE(
+      new NextRequest(`http://localhost/api/trips/${trip.id}/day-plan-items/documents`, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          cookie: `session=${token}; csrf_token=csrf-token`,
+          "x-csrf-token": "csrf-token",
+        },
+        body: JSON.stringify({
+          tripDayId: laterDay.id,
+          dayPlanItemId: item.id,
+          documentId: created.data!.document.id,
+        }),
+      }),
+      { params: Promise.resolve({ id: trip.id }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await prisma.dayPlanItemDocument.count()).toBe(0);
+    await expect(fs.access(filePath)).rejects.toBeDefined();
   });
 });

@@ -29,6 +29,26 @@ describe("dayImageSchemas", () => {
     expect(result.success).toBe(true);
   });
 
+  it("accepts a body that carries only a note", () => {
+    // Story 8.4. The day-meta save sends only the field being edited: it used to resend
+    // `imageUrl: day.imageUrl ?? null` out of local state, which under the new cleanup trigger unlinked
+    // the day's current photo whenever that local value was stale. Omitting the key is how the client
+    // says "leave the image alone", and the repository already skips the column when it is `undefined`.
+    const result = dayImageUpdateSchema.safeParse({ note: "Ferry at 07:40" });
+
+    expect(result.success).toBe(true);
+    expect(result.data?.imageUrl).toBeUndefined();
+  });
+
+  it("rejects a body that asks for no change at all", () => {
+    // The other side of making both fields optional (Story 8.4). `updateTripDayImageForUser` builds its
+    // `SET` clauses from the fields that are present and skips the `UPDATE` when there are none, so `{}`
+    // would answer `200` for a save that wrote nothing - which the dialog renders as "saved".
+    expect(dayImageUpdateSchema.safeParse({}).success).toBe(false);
+    // Same for a body whose only key is not one this endpoint knows: `note` is absent either way.
+    expect(dayImageUpdateSchema.safeParse({ noteText: "Ferry at 07:40" }).success).toBe(false);
+  });
+
   it("rejects invalid url values", () => {
     const result = dayImageUpdateSchema.safeParse({
       imageUrl: "not-a-url",

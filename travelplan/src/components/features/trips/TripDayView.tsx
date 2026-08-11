@@ -2398,8 +2398,15 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
           "Content-Type": "application/json",
           "x-csrf-token": token,
         },
+        // Only the field this save is editing (Story 8.4 / DW-194). It used to resend
+        // `imageUrl: day.imageUrl ?? null` out of local state, which is a lost update dressed up as a
+        // no-op: with the row already advanced to `day.png` by another writer or another tab, a note-only
+        // save from a client still holding `day.webp` set the row back - and, once the day-image route
+        // began unlinking the previous file, deleted `day.png`, the file the day was displaying
+        // (confirmed by execution). Sending only the note removes the lost update itself rather than the
+        // deletion alone, which is why it is the fix and not a narrower trigger. `handleRemoveDayImage`
+        // below is a different intent and still sends `imageUrl: null` on purpose.
         body: JSON.stringify({
-          imageUrl: day.imageUrl ?? null,
           note: normalizedNote.length > 0 ? normalizedNote : null,
         }),
       });

@@ -700,7 +700,8 @@ origin: 2-32-complete-trip-backup-import-with-photos-travel-segments-and-bucket-
 location: `travelplan/src/lib/trips/importPhotos.ts` — `stashTripUploadDir` / `restoreStashedTripUploadDir`; `travelplan/src/lib/repositories/tripRepo.ts` — the post-commit disk phase
 severity: medium
 reason: Nothing serializes imports against a trip id. Import A renames `<tripDir>` to its stash; import B's rename then hits `ENOENT`, which `stashTripUploadDir` swallows by design (a photo-free trip has no directory), so B proceeds believing there was nothing to stash. Both then write into `<tripDir>`, and the hero and day filenames are deterministic (`hero.<ext>`, `day.<ext>`) rather than randomized, so they collide. If B fails, its cleanup unlinks paths that may now be A's files and its `restoreStashedTripUploadDir(null)` is a no-op; if both succeed, A's `discardStashedTripUploadDir` deletes the original directory while the surviving rows are B's, leaving a mix of both imports on disk. Not patched here: the fix is a real per-trip lock (an exclusive `mkdir` sentinel, or a DB advisory row) with its own stale-lock and crash-recovery semantics, which is a design decision rather than a drive-by. Requires the same owner to run two overwrites of one trip at once, so it is unlikely but not synthetic — a double-clicked submit on a slow upload is enough.
-status: open
+status: done 2026-08-11
+resolution: resolved by Story 8.4 (commit 9a99dda), implementing this entry's recorded decision. `acquireTripImportLock` / `releaseTripImportLock` in `travelplan/src/lib/trips/importPhotos.ts` use an exclusive `mkdir` of `<tripDir>.import-lock` with a `randomUUID` holder nonce; `importTripFromExportForUser` wraps `runTripImport` and acquires BEFORE the transaction (not at `stashTripUploadDir`, or the loser would commit rows it then had to unwind), releasing in a `finally`. Three properties review had to add on top of the decision: the key is resolved through `findFirst({ id, userId })` because locking on the raw `targetTripId` produced `mkdir` then `rm -rf` outside the media root; the stale reclaim is `ino`-verified because `fs.rename` alone let two callers both hold one lock; and a 60s `mtime` heartbeat makes the staleness timeout mean 'the process is gone' rather than 'the import is slow'. `stashTripUploadDir`'s `ENOENT` swallow is unchanged, as this entry requires. The sentinel is also removed when the trip is deleted.
 decision: 2026-08-09 Exclusive mkdir sentinel per trip — Before stashTripUploadDir runs, attempt an exclusive directory creation (e.g. `<tripDir>.import-lock`) as a lock; release it in a finally after the import completes or fails. Needs an explicit staleness timeout (e.g. lock older than N minutes is assumed abandoned and reclaimed) since a crashed process leaves the sentinel behind forever otherwise.
 
 ### DW-87: The overwrite stash lives inside the publicly-served uploads root and can outlive the request
@@ -718,7 +719,8 @@ origin: 2-32-complete-trip-backup-import-with-photos-travel-segments-and-bucket-
 location: `travelplan/src/lib/repositories/tripRepo.ts` — `dropReplacedUploadUrl`, called with `replacedUploadPrefix: null` on the create-new path
 severity: medium
 reason: AC2 requires a v1 backup to restore "exactly as before", and the seven original v1 tests pin the verbatim string, so create-new deliberately keeps `heroImageUrl` / `imageUrl` as written (DW-85's resolution narrowed the nulling to overwrite only, on purpose). The case that was not considered: user X imports a backup exported by user Y whose photo the *export* had to skip, so `heroPhotoId` is null but the v1 URL survives. X's trip then stores `/uploads/trips/<Y-trip-id>/hero.jpg` and renders Y's image — no bytes were copied and no access check applies, because the file is served statically. It breaks silently the moment Y deletes or overwrite-imports that trip. Not patched here because the honest fix is a product call between three options that AC2 does not choose between: refuse the cross-trip URL, null it, or copy the bytes if the file happens to be present. Reachable only through a shared export whose photos were already incomplete.
-status: open
+status: done 2026-08-11
+resolution: resolved by Story 8.4 (commit 9a99dda), implementing this entry's recorded decision on the create-new path. `isForeignTripUploadUrl` in `tripRepo.ts` nulls a stored URL that does not resolve into the created trip's own directory, decided on the RESOLVED path rather than a string prefix (three spellings evade a prefix test while resolving to the same file) and failing closed for a URL that escapes the media tree; the count is reported as `droppedImageCount` with a warning. Note the security half of this entry was already closed by Story 8.3's authorising serve route, so the harm addressed here is a row coupled to another trip's lifetime, not a cross-user read - the ledger's original wording predates 8.3. AC7's claim that seven v1 tests pass unmodified was a miscount: two are create-new tests over a foreign URL and their assertions moved to `null`; the overwrite path is unchanged, and the residual there is recorded as DW-302.
 decision: 2026-08-08 Null the foreign URL and warn — On the create-new path, null any `/uploads/trips/<id>/...` URL whose trip id is not the trip being created and add an import warning naming how many images were dropped. The imported trip then has no image instead of a broken one, and the v1 verbatim rule is narrowed to URLs that still resolve.
 
 ### DW-89: The precise diagnostics the package reader produces never reach the user
@@ -1849,7 +1851,8 @@ location: `travelplan/src/app/api/trips/[id]/days/[dayId]/image/route.ts:219-221
 severity: high
 summary: `PATCH { imageUrl: null }` on the day-image route recursively removes the **entire** day upload directory to clean up one file. Every entry's media lives inside that directory: `getAccommodationImageUploadDir` / `getDayPlanItemImageUploadDir` are `path.join(getTripDayUploadDir(...), …)`, and Story 9.1's document dirs are composed from those in turn. So pressing "remove day image" unlinks every `days/<dayId>/{accommodations,day-plan-items}/*/[documents/]*` file on that day while touching no row: the strips and chips still render, and every one of them 404s. The bytes are unrecoverable — an export can only emit `Skipped document whose file is missing on disk`.
 evidence: Read directly at HEAD; the `rm` is unconditional apart from the `nextImageUrl` check, and the day upload dir is the parent of all four media trees by construction (`uploadPaths.ts:93-119`). Pre-existing: it already destroyed gallery images before Story 9.1 existed, and `DW-181`'s production audit found six image rows pointing at absent files, which is what this looks like afterwards. Story 9.1 did not cause it and did not widen the trigger, but it did put up-to-10 MB ticket PDFs behind the same one-click path, so the cost per occurrence is now much higher. The fix is to remove only the day image's own file rather than the tree — the route already knows the previous `imageUrl` — and it belongs to whichever story owns the day-image route, not to documents.
-status: open
+status: done 2026-08-11
+resolution: resolved by Story 8.4 (commit 9a99dda). `travelplan/src/app/api/trips/[id]/days/[dayId]/image/route.ts` no longer removes the day directory: `updateTripDayImageForUser` now returns `previousImageUrl` (this entry's claim that the route already knew it was FALSE - the lookup selected `{ id }` and re-read the *new* row), and the route unlinks that one file through the new `travelplan/src/lib/trips/mediaCleanup.ts`. Cleanup is gated on `path.dirname(resolved) === path.resolve(allowedDir)` against an id-derived directory, not a URL prefix - review established that a prefix test admits both `../` out of the media root and a nested stay photo, i.e. it re-enters this very defect one file at a time. Both trigger arms are covered (removal and replacement with an out-of-directory URL), and `POST`'s rollback was fixed with it. Regression test: `test/tripDayImageRoute.test.ts` seeds a day image plus a stay photo and a stay document, `PATCH { imageUrl: null }`, and asserts both siblings byte-identical - observed failing at baseline.
 
 ### DW-195: A failed unlink answers "removal failed" for media whose row is already gone
 
@@ -1859,7 +1862,8 @@ location: `travelplan/src/app/api/trips/[id]/accommodations/documents/route.ts` 
 severity: medium
 summary: `removeManagedFile` swallows `ENOENT` and rethrows every other errno. It runs **after** the row delete has committed, so an `EACCES`, `EIO`, `EPERM` or `EBUSY` on the upload volume turns a completed deletion into an unhandled throw: the client sees 500 and renders `trips.documents.deleteError` ("Document removal failed. Please try again."), leaves the chip in place, and a retry answers 404 `Document not found`. The row is gone, the file is orphaned forever, and the one message the user was shown was the opposite of what happened.
 evidence: The read-before-delete ordering is deliberate and its comment reasons carefully about the orphaned-bytes direction — the row is the only record of where the file is — but not about this one, where the row is already committed and the failure is the filesystem's. Pre-existing in shape: the two image routes carry the byte-identical `removeManagedFile` and the same post-commit await, and Story 9.1's spec required the route order be copied from them. The fix is to log rather than rethrow once the row is committed, applied to all four media routes at once, and it pairs naturally with `DW-188`'s transaction work and `DW-187`'s missing orphan sweep.
-status: open
+status: done 2026-08-11
+resolution: resolved by Story 8.4 (commit 9a99dda). The four byte-identical `removeManagedFile` copies are deleted (`grep -rn removeManagedFile travelplan/src` is empty), replaced by one `removeManagedMediaFile` in `travelplan/src/lib/trips/mediaCleanup.ts` that never throws: `ENOENT` returns quietly and every other errno is logged with the error object, so a post-commit unlink failure reports the deletion that actually happened. Applied to all four media routes and the day-image route at once, each asserted by its own `EACCES` case.
 
 ### DW-196: The upload routes create the entry's media directories before the repository confirms the entry exists
 
@@ -2805,4 +2809,164 @@ location: `travelplan/src/components/features/trips/TripShareDialog.tsx:48` (`Ro
 severity: low
 summary: `type RoleBadgeVariant = "owner" | "viewer" | "contributor"` is `TripAccessRole` written out verbatim, and two member-role fields restate `Exclude<TripAccessRole, "owner">`. This change created `@/lib/auth/tripAccessRole` specifically so a client component could name the union without dragging `prisma` into the bundle, and moved `TripTimeline`, `TripDayView` and `TripsDashboard` onto it — `TripShareDialog` is the fourth trip component and was not in the Code Map, so it still holds its own copy.
 evidence: `grep -na '"owner"\|"viewer"\|"contributor"' src/components/features/trips/TripShareDialog.tsx` shows the three declarations plus a `role === "contributor" ? … : "viewer"` narrowing at `:411`. Genuinely arguable rather than clear-cut, which is why it is deferred rather than patched: `RoleBadgeVariant` is a *display* type that happens to share its members, and collapsing it onto `TripAccessRole` couples a badge palette to an authorization union — a fourth role would then be required to have a badge. The decision is which of the two it is; if it is the union, the change is an import and a delete, and it should take `:32`/`:44` with it.
+status: open
+
+### DW-302: A third trip's upload URL survives an overwrite import uncounted and unwarned
+
+source_spec: `_bmad-output/implementation-artifacts/spec-8-4-media-deletion-that-deletes-only-its-own-file.md`
+origin: incidental to the review of spec-8-4-media-deletion-that-deletes-only-its-own-file, 2026-08-11
+location: `travelplan/src/lib/repositories/tripRepo.ts` — the overwrite branch's `dropForeignUploadUrls: false`, and `dropReplacedUploadUrl`
+severity: medium
+summary: Story 8.4 closed DW-88 on the create-new path only, because DW-88's recorded decision is scoped to create-new. `dropReplacedUploadUrl` nulls only URLs naming the **target** trip, so an overwrite import of a backup whose day `imageUrl` or `heroImageUrl` names some *third* trip restores it verbatim, with `droppedImageCount: 0` and no warning. The harm is the same one DW-88 describes — a row pointing into a directory this trip does not own, which breaks the moment that trip is deleted or overwrite-imported — reached through the other strategy.
+evidence: Read at HEAD after Story 8.4. The story's own I/O matrix specifies "Overwrite import, foreign v1 URL → Unchanged", so this is a knowingly partial fix rather than a defect introduced by it; deferred because widening the rule to overwrite is the product call DW-88's decision deliberately did not make, and `test/tripRepo.test.ts:2333` currently pins the verbatim behaviour on that path.
+status: open
+
+### DW-303: An overwrite import deletes a day image and reports nothing, while create-new reports the same loss
+
+source_spec: `_bmad-output/implementation-artifacts/spec-8-4-media-deletion-that-deletes-only-its-own-file.md`
+origin: incidental to the review of spec-8-4-media-deletion-that-deletes-only-its-own-file, 2026-08-11
+location: `travelplan/src/lib/repositories/tripRepo.ts` — `dropReplacedUploadUrl` and the `droppedImageCount` accounting
+severity: low
+summary: On overwrite, a v1 day `imageUrl` naming the target trip is nulled by `dropReplacedUploadUrl` **and** its file is genuinely deleted by the stash-then-discard phase. That is an image the user loses, and it produces neither a count nor a warning, because `droppedImageCount` increments only under the create-new rule. The same user restoring the same file as a new trip is told "Dropped N images…". Same loss, two reporting behaviours.
+evidence: Pre-existing since DW-85's resolution narrowed the nulling to overwrite; Story 8.4 did not change it, but made the asymmetry visible by giving create-new a count and a warning. Fixing it means counting the overwrite nulls too, which is a one-line accounting change but needs a decision about whether "dropped" should cover an image the import legitimately replaced.
+status: open
+
+### DW-304: A killed test run leaves a migration lock that fails a whole worker's suite with a misleading timeout
+
+source_spec: `_bmad-output/implementation-artifacts/spec-8-4-media-deletion-that-deletes-only-its-own-file.md`
+origin: incidental to the implementation of spec-8-4-media-deletion-that-deletes-only-its-own-file, 2026-08-11
+location: `travelplan/test/setup.ts:57-73` (`acquireMigrationLock`, `prisma/test-migrate-<workerId>.lock`)
+severity: medium
+summary: The per-worker migration lock file has no staleness check. A `npm test` run killed by a signal leaves `prisma/test-migrate-<n>.lock` behind, and every subsequent run stalls 15 s on that worker and then fails its entire test file with `Timed out waiting for Prisma migration lock` — reported as a genuine test failure, with nothing pointing at a stale file as the cause.
+evidence: Hit during this story's verification: a SIGTERM'd run left `test-migrate-34.lock`, which failed `tripDayMapPanel.test.tsx` on three consecutive runs until the file was removed by hand. The fix is the same mtime staleness check Story 8.4 added to `acquireTripImportLock` in `importPhotos.ts`, which is now a working in-repo precedent.
+status: open
+
+### DW-305: The hero-image route's rollback deletes every photo and document in the whole trip
+
+source_spec: `_bmad-output/implementation-artifacts/spec-8-4-media-deletion-that-deletes-only-its-own-file.md`
+origin: incidental to the review of spec-8-4-media-deletion-that-deletes-only-its-own-file, 2026-08-11
+location: `travelplan/src/app/api/trips/[id]/hero-image/route.ts:122` (`fs.rm(uploadDir, { recursive: true, force: true })`, where `uploadDir = getTripUploadDir(tripId)` at `:109`)
+severity: high
+summary: This is DW-194 one level broader. When `updateTripHeroImageForUser` returns `null`, the `POST` handler rolls back by recursively removing `getTripUploadDir(tripId)` — the **entire trip** upload tree: every day image, every stay and activity photo, and every Story 9.1 document, across every day of the trip. No row is touched, so every chip and strip keeps rendering and every one of them 404s, and an export can only emit "Skipped document whose file is missing on disk". The blast radius is strictly larger than the day-image defect Story 8.4 was written to close.
+evidence: Read at HEAD. Story 8.4 generalised exactly this fix into `travelplan/src/lib/trips/mediaCleanup.ts` ("one file, never a tree") and applied it to five routes, but its spec excluded this sixth one on the stated grounds that it "owns a flat file, not a tree" — which is wrong, as `:109` shows. The fix is mechanical and already has its instrument: call `removeManagedMediaFile({ storedUrl: heroImageUrl, allowedDir: uploadDir, context: "hero image upload rollback" })` in place of the `fs.rm`, exactly as the day-image `POST` rollback now does. Reachable only through the narrow window where the trip row stops satisfying the writer clause between the route gate and the update, i.e. the same window DW-245 records for the day route — rare, but the cost per occurrence is the trip's entire media library.
+status: open
+
+### DW-306: A trip import is not serialised against deletion of the trip it is writing
+
+source_spec: `_bmad-output/implementation-artifacts/spec-8-4-media-deletion-that-deletes-only-its-own-file.md`
+origin: incidental to the review of spec-8-4-media-deletion-that-deletes-only-its-own-file, 2026-08-11
+location: `travelplan/src/app/api/trips/[id]/route.ts` (`DELETE`, `fs.rm(getTripUploadDir(tripId), { recursive: true, force: true })`) against `travelplan/src/lib/trips/importPhotos.ts` (`acquireTripImportLock`) and `tripRepo.ts`'s post-commit disk phase
+severity: medium
+summary: Story 8.4 closed DW-86 by serialising imports against each other, but the other writer over a trip's upload directory — trip deletion — never consults the sentinel. An owner who starts an overwrite import of a large backup and then deletes the trip has the rows and the directory removed while `writeImportedPhotos` is still running; the import then finishes writing files into a recreated directory that no row references. The result is permanent orphans, invisible to the export (which walks rows) and to the serve route.
+evidence: DW-86's stated cause is "nothing serializes imports against a trip id"; the lock addressed the import-vs-import case only, which is what its recorded decision asked for. Read at HEAD after Story 8.4: the `DELETE` handler takes no lock and makes no check. The fix is either to acquire the same sentinel in the delete path or to have the disk phase re-verify the trip row before writing; both are design choices beyond the recorded decision, which is why this is deferred rather than folded in.
+status: open
+
+### DW-307: Nothing collects a reclaimed import lock's renamed remains
+
+source_spec: `_bmad-output/implementation-artifacts/spec-8-4-media-deletion-that-deletes-only-its-own-file.md`
+origin: incidental to the review of spec-8-4-media-deletion-that-deletes-only-its-own-file, 2026-08-11
+location: `travelplan/src/lib/trips/importPhotos.ts` — `acquireTripImportLock`'s stale-lock reclaim (`fs.rename` to `<lockDir>.stale-<uuid>`, then `fs.rm(...).catch(() => undefined)`)
+severity: low
+summary: Reclaiming a stale lock renames it aside and then removes it, but the removal is deliberately failure-tolerant — a failure there must not fail the import. So an `EACCES` or a held handle leaves a `<tripDir>.import-lock.stale-<uuid>` directory under the trips upload root with nothing to collect it. Harmless in itself (it is not a sentinel, nothing reads it, and its name cannot be mistaken for one) but it is unbounded growth on a path that already has no sweeper.
+evidence: Read at HEAD after Story 8.4. Pairs with DW-187, the missing orphan sweep — a sweeper over the trips root would need to know about `.import-lock`, `.import-lock.stale-*` and `.import-<ts>-<rand>` siblings, so the three are worth resolving together rather than one at a time.
+status: open
+
+### DW-308: A persistently failing lock heartbeat lets a live import's lock be reclaimed
+
+source_spec: `_bmad-output/implementation-artifacts/spec-8-4-media-deletion-that-deletes-only-its-own-file.md`
+origin: incidental to the review of spec-8-4-media-deletion-that-deletes-only-its-own-file, 2026-08-11
+location: `travelplan/src/lib/trips/importPhotos.ts` — the `fs.utimes` heartbeat inside `startImportLockHeartbeat`
+severity: low
+summary: The heartbeat ignores its own failures, on the reasoning that a missed refresh only brings the lock closer to reclaimable and there is no caller to report to. If `fs.utimes` fails for the whole staleness window (`EACCES`/`EROFS` on the lock directory, e.g. a read-only remount mid-import), a genuinely live import's lock goes stale and a second overwrite import reclaims it — reintroducing the DW-86 interleaving through the mechanism meant to prevent it.
+evidence: Read at HEAD after Story 8.4. Requires a filesystem that accepts the import's own writes while refusing `utimes` on a directory, so it is remote rather than synthetic. Closing it means counting consecutive failures and aborting the import, which is a policy decision (fail an in-flight import to protect a lock) rather than a patch.
+status: open
+
+### DW-309: The day-image POST's pre-write cleanup can throw out of a handler with no try/catch
+
+source_spec: `_bmad-output/implementation-artifacts/spec-8-4-media-deletion-that-deletes-only-its-own-file.md`
+origin: incidental to the review of spec-8-4-media-deletion-that-deletes-only-its-own-file, 2026-08-11
+location: `travelplan/src/app/api/trips/[id]/days/[dayId]/image/route.ts` — `removeExistingDayImageFiles` called from `POST` before the write (`:142`-ish), and the helper's own rethrow of every non-`ENOENT` errno
+severity: low
+summary: `removeExistingDayImageFiles` swallows `ENOENT` and rethrows everything else, and `POST` has no `try/catch` anywhere. An `EACCES`/`EPERM`/`EIO` on the upload volume therefore escapes the handler, so the client receives the framework's HTML error page instead of the `{ data, error }` envelope every other failure on this route produces — and a client that calls `response.json()` on it fails a second time, on parsing.
+evidence: Read at HEAD after Story 8.4. Distinct from DW-195: this call runs **before** any row is written, so a 5xx is the honest answer — the defect is only that it is not the *shaped* one. Story 8.4 fixed the post-commit rollback in the same handler by routing it through `removeManagedMediaFile`, which never throws; this pre-write call was deliberately left alone because failing before a commit is legitimate. The fix is to wrap `POST` in the same `try/catch` `PATCH` already has.
+status: open
+
+### DW-310: A respelled stored media URL is accepted on write, then dropped by the export
+
+source_spec: `_bmad-output/implementation-artifacts/spec-8-4-media-deletion-that-deletes-only-its-own-file.md`
+origin: incidental to the review of spec-8-4-media-deletion-that-deletes-only-its-own-file, 2026-08-11
+location: `travelplan/src/lib/validation/dayImageSchemas.ts` (`imageUrlSchema` accepts any string beginning `/uploads/`), against the export's own prefix test in `travelplan/src/lib/repositories/tripRepo.ts` (the pooling pass that emits `Skipped image outside this trip's upload directory`)
+severity: low
+summary: A trip writer can `PATCH` a day image URL spelled `/uploads//trips/<tripId>/days/<dayId>/day.webp` — a doubled inner slash, or a `/./` segment, or a capitalised `/Uploads/` — and it is stored verbatim, because the schema only checks the `/uploads/` prefix. Story 8.4's cleanup handles every such spelling (it decides on the resolved path), but the **export** still classifies with a raw string prefix, so it refuses to pool the file and emits `Skipped image outside this trip's upload directory`. The user's own day image is silently missing from their own backup.
+evidence: Pre-existing, not caused by Story 8.4: the same URL was storable before it (`imageUrlSchema` is unchanged) and the export's prefix test predates it. Story 8.4 made the *cleanup* side spelling-proof via `looksLikeStoredMediaUrl` plus resolved-path comparison, which is what exposed the asymmetry. The clean fix is to canonicalise on write — one `canonicalStoredMediaUrl` helper applied in the day-image `PATCH` — so the column only ever holds the canonical form and every reader agrees. It must **not** be applied on the import restore path: Story 2.32's AC2 requires a v1 URL back exactly as written, which Story 8.4's AC7 re-pins.
+status: open
+
+### DW-311: A stale client's day-image `PATCH` now deletes the day's current photo, and only the client stops it
+
+source_spec: `_bmad-output/implementation-artifacts/spec-8-4-media-deletion-that-deletes-only-its-own-file.md`
+origin: incidental to the review of spec-8-4-media-deletion-that-deletes-only-its-own-file, 2026-08-11
+location: `travelplan/src/app/api/trips/[id]/days/[dayId]/image/route.ts` — the `PATCH` cleanup trigger (`updated.previousImageUrl && !storedMediaUrlsNameSameFile(...)`), against `travelplan/src/lib/validation/dayImageSchemas.ts`'s `dayImageUpdateSchema`
+severity: medium
+summary: The day-image `PATCH` has no optimistic-concurrency precondition, and Story 8.4 raised the price of losing that race from "a reverted column" to "a deleted file". Any caller holding a stale `imageUrl` — a browser tab loaded before the deploy, a cached bundle, a second tab, or a non-browser API consumer — that sends `{ imageUrl: "<stale>", note }` while the row has advanced to another filename sets the row back **and** unlinks the file the day was displaying. Nothing recovers it: no other row names it.
+evidence: Confirmed by execution during review pass 5 (`PATCH` with a stale `day.webp` against a row and file at `day.png` answered `200`, reverted the column and removed `day.png`). Story 8.4 fixed the one reachable in-app path — iteration 3 stopped `TripDayView`'s day-meta save from resending `imageUrl` at all, and iteration 5 added the case-fold that stops two spellings of one file reading as two — so the destructive combination is not reachable from the current client. It is a **client-side** fix to a server-side capability, which is why it is worth carrying: the route still accepts the request, and the mechanism is the pre-existing lost update, not the cleanup. Closing it means a real precondition (an `updatedAt`/If-Match the repository checks in the same statement as the `UPDATE`, answering `409` on mismatch) rather than another guard on the cleanup — the cleanup is behaving correctly given that the write happened. That is new API surface and a product decision about what a losing save should see, and it wants DW-188's transaction work underneath it.
+status: open
+
+### DW-312: Removing a day image reverts a note another writer changed
+
+source_spec: `_bmad-output/implementation-artifacts/spec-8-4-media-deletion-that-deletes-only-its-own-file.md`
+origin: incidental to the review of spec-8-4-media-deletion-that-deletes-only-its-own-file, 2026-08-11
+location: `travelplan/src/components/features/trips/TripDayView.tsx` — `handleRemoveDayImage`'s request body (`{ imageUrl: null, note: dayNoteDraft… }`)
+severity: low
+summary: The remove-image handler sends `note` out of the local `dayNoteDraft` alongside `imageUrl: null`, so removing the day photo also writes whatever note the client happened to be holding. If another tab or another writer saved a note after this view loaded, that note is silently replaced by the stale draft — a lost update on a field the user was not editing.
+evidence: Read at HEAD after Story 8.4. The mirror image of the defect iteration 3 fixed twenty lines above it: the day-meta save was made to send `{ note }` only, on the reasoning that "sending only the field being edited removes the lost update itself". That reasoning applies here with the fields swapped, and the fix is the same one-line omission — `note` became optional in `dayImageUpdateSchema` in the same story, so `{ imageUrl: null }` is now a legal body. Not patched in review pass 5 because the story's comment explicitly rules the sibling handler in scope-as-is ("`handleRemoveDayImage` below is a different intent and still sends `imageUrl: null` on purpose"), and that comment defends the `imageUrl` half without addressing `note`; changing it wants the intent stated rather than inferred. Consequence is bounded — one note, overwritten by a value the user could see on screen — where DW-311's is an unrecoverable file.
+status: open
+
+### DW-313: A crashed import's stash keeps a full copy of a deleted trip's media forever
+
+source_spec: `_bmad-output/implementation-artifacts/spec-8-4-media-deletion-that-deletes-only-its-own-file.md`
+origin: incidental to the review of spec-8-4-media-deletion-that-deletes-only-its-own-file, 2026-08-11
+location: `travelplan/src/app/api/trips/[id]/route.ts` — `removeTripUploads`, against `stashTripUploadDir`'s `<tripDir>.import-<ts>-<rand>` sibling in `travelplan/src/lib/trips/importPhotos.ts`
+severity: medium
+summary: An overwrite import stashes the trip's upload directory by renaming it to a sibling `<tripDir>.import-<ts>-<rand>`, and restores or discards it on the way out. If the process dies in between, or `discardStashedTripUploadDir` fails, or `restoreStashedTripUploadDir` fails after its own `fs.rm`, the stash survives — a byte-for-byte copy of the trip's entire media tree, including the ticket PDFs whose module header describes them as carrying names, addresses and booking codes. Trip deletion does not reach it: `removeTripUploads` removes the trip directory and the `.import-lock` sentinel, both by exact path, and the stash's name is neither. So a user who deletes a trip to remove their data leaves a complete copy of it on disk with nothing that will ever collect it.
+evidence: Read at HEAD after Story 8.4. Story 8.4 added the `.import-lock` removal to `removeTripUploads` with a comment reasoning that a sibling directory "would outlive the trip forever" — the identical argument applies to the stash and to `.import-lock.stale-*` (DW-307), and only the sentinel was handled, because only the sentinel was in that story's scope. Pairs with DW-187 (the missing orphan sweep) and DW-307: a sweeper over the trips root would need to know about all three sibling shapes, so they are worth resolving together. The deletion-time fix is narrow (remove the trip's own `.import-*` siblings by prefix, not by exact path); the crashed-import case in general needs the sweeper.
+status: open
+
+### DW-314: A media upload racing an overwrite import is swept into the stash and lost
+
+source_spec: `_bmad-output/implementation-artifacts/spec-8-4-media-deletion-that-deletes-only-its-own-file.md`
+origin: incidental to the review of spec-8-4-media-deletion-that-deletes-only-its-own-file, 2026-08-11
+location: `travelplan/src/lib/trips/importPhotos.ts` — `stashTripUploadDir`'s rename of the whole trip directory, against the five media upload routes under `travelplan/src/app/api/trips/[id]/`
+severity: medium
+summary: An overwrite import renames the trip's entire upload directory aside and later discards it. The media upload routes take no import lock, so a photo or document uploaded while an import is in flight can be written into the directory that is then renamed away and deleted — while its database row, written in a separate transaction, survives. The result is DW-194's symptom reached from the other side: a chip that renders and 404s, for a file the user watched upload successfully.
+evidence: Read at HEAD after Story 8.4. Story 8.4 introduced `acquireTripImportLock`/`releaseTripImportLock` and applied it to import-versus-import only, which is what DW-86 asked for; import-versus-upload is a wider exclusion that the story deliberately did not take on. The mechanism is now in place, so the fix is to wrap the upload routes' write in the same lock — but that turns a 409 into a user-visible failure mode on a common action, so it wants a product decision about what an upload during an import should see (refuse, or queue) rather than a patch. Related: DW-306 (import versus trip deletion) is the same class of unguarded concurrent access to the trip directory.
+status: open
+
+### DW-315: The day-image POST deletes the previous image before it knows the new one will land
+
+source_spec: `_bmad-output/implementation-artifacts/spec-8-4-media-deletion-that-deletes-only-its-own-file.md`
+origin: incidental to the review of spec-8-4-media-deletion-that-deletes-only-its-own-file, 2026-08-11
+location: `travelplan/src/app/api/trips/[id]/days/[dayId]/image/route.ts` — `POST`, the `removeExistingDayImageFiles(uploadDir)` call that precedes `fs.writeFile` and `updateTripDayImageForUser`
+severity: low
+summary: `POST` unlinks every `day.{jpg,jpeg,png,webp}` in the day's directory, then writes the new file, then updates the row. If the write throws, or the repository returns `null` (the caller lost write access between the route's own check and the update), the previous cover image is already gone and the row still names it. The user sees a broken image for a request that failed, and nothing can restore it: the bytes are unlinked before anything is durable.
+evidence: Read at HEAD after Story 8.4. Pre-existing ordering — the unlink-then-write sequence predates the story, which changed only the rollback. Not fixed by the narrowed rollback and arguably surfaced by it: the new rollback removes precisely the `day.<ext>` this request wrote, which is correct for the file it created and silent about the one deleted three lines earlier. The old recursive `fs.rm` did not restore it either, so this is neither caused nor worsened by Story 8.4. The fix is to write the new file under a temporary name, update the row, and only then remove the superseded candidates — i.e. make the unlink the last step rather than the first.
+status: open
+
+### DW-316: A third containment implementation sits sixty lines from the shared comparators
+
+source_spec: `_bmad-output/implementation-artifacts/spec-8-4-media-deletion-that-deletes-only-its-own-file.md`
+origin: incidental to the review of spec-8-4-media-deletion-that-deletes-only-its-own-file, 2026-08-11
+location: `travelplan/src/lib/repositories/tripRepo.ts` — `resolveOwnedMediaPath`, against `mediaPathIsInside` in `travelplan/src/lib/trips/uploadPaths.ts`
+severity: low
+summary: `resolveOwnedMediaPath` hand-rolls its containment check as two case-sensitive `startsWith(root + path.sep)` tests, while `uploadPaths.ts` now exports `mediaPathIsInside` for exactly that question, case-folded in one place. The two answer differently for a path whose case differs from the root's on a case-insensitive filesystem, which is the same disagreement Story 8.4's review pass 4 introduced the fold to end. Not currently exploitable — this helper is fed export-side paths that the pooling pass has already classified — but it is the drift the shared comparators exist to prevent, in the same file as the rules that use them.
+evidence: Read at HEAD after Story 8.4. The story's own comment on `resolvesInsideTripUploadDir` states the goal as "the one containment primitive behind both import URL rules, so the two cannot drift apart"; `resolveOwnedMediaPath` is a third and was out of scope because no AC touched the export path. The fix is to route it through `mediaPathIsInside` and delete the local tests, which is mechanical but changes behaviour on case-insensitive filesystems and so wants its own test rather than being folded into an unrelated story.
+status: open
+
+### DW-317: An imported hero image URL may carry any scheme, and nothing validates it
+
+source_spec: `_bmad-output/implementation-artifacts/spec-8-4-media-deletion-that-deletes-only-its-own-file.md`
+origin: incidental to the review of spec-8-4-media-deletion-that-deletes-only-its-own-file, 2026-08-11
+location: `travelplan/src/lib/validation/tripImportSchemas.ts` — `heroImageUrl: z.union([z.string().trim(), z.null()])`, and `dayImageUrlOrNull`'s `z.string().url()` fallback
+severity: low
+summary: The import schema puts no format constraint on `heroImageUrl` at all, and the day-image variant accepts anything `z.string().url()` parses. So a hand-edited backup can restore a trip whose hero is `data:…`, `file:///…`, `javascript:…` or `http://tracker.example/pixel.gif`, and the dashboard and timeline render it directly as an `<img src>`. The concrete harm is narrow — `<img>` executes neither `javascript:` nor script inside an SVG data URL — but an `http(s)` value is a third-party request made from the user's browser every time the trip list renders, i.e. a tracking pixel embedded by whoever authored the backup.
+evidence: Read at HEAD after Story 8.4. Pre-existing and unchanged by the story: `looksLikeStoredMediaUrl` returned `false` for these values and `isExternalMediaUrl` returns `true`, so both the old and the new rule take the same "not ours to judge, keep verbatim" branch, and the create-new nulling rule is deliberately about ownership rather than scheme. Surfaced because the story's new docblock claims the rule "fails closed" — corrected in review pass 7 to say it fails closed for every *path-shaped* value and that what a stored URL may be is the schema's question. The fix belongs in the schema: constrain both fields to `/uploads/…` or an `http(s)` absolute URL, matching what `dayImageUrlOrNull` half-does already. It interacts with Story 2.32's AC2 and Story 8.4's AC7, which require v1 URLs restored exactly as written, so a rejected value must be nulled-and-counted rather than failing the import.
 status: open

@@ -5,10 +5,12 @@ import { prisma } from "@/lib/db/prisma";
 import {
   getAccommodationImageUploadDir,
   getDayPlanItemImageUploadDir,
+  getMediaRoot,
   getTripDayUploadDir,
   getTripUploadDir,
   getTripsUploadRoot,
 } from "@/lib/trips/uploadPaths";
+import { acquireTripImportLock, releaseTripImportLock } from "@/lib/trips/importPhotos";
 import {
   createTripWithDays,
   deleteTripForUser,
@@ -1979,7 +1981,10 @@ describe("tripRepo", () => {
       "1-2026-11-01T00:00:00.000Z",
       "2-2026-11-02T00:00:00.000Z",
     ]);
-    expect(detail?.days[1].imageUrl).toBe("/uploads/trips/export-trip/days/export-day-2/day.webp");
+    // `null`, not the payload's `/uploads/trips/export-trip/…` string (Story 8.4 / DW-88). The created
+    // trip has a fresh cuid, so that URL resolves into a directory this trip does not own - the row would
+    // point at another trip's file, which 404s for most viewers and vanishes when that trip is deleted.
+    expect(detail?.days[1].imageUrl).toBeNull();
     expect(detail?.days[1].note).toBe("Arrival and city walk");
     expect(detail?.days[1].accommodation?.status).toBe("booked");
     expect(detail?.days[1].accommodation?.checkInTime).toBe("16:00");
@@ -2166,7 +2171,15 @@ describe("tripRepo", () => {
     expect(await fs.readFile(path.join(stayDir, path.basename(stayImages[0].imageUrl)))).toEqual(webpBytes());
   });
 
-  it("keeps the v1 image strings when a backup carries no pooled photos", async () => {
+  /**
+   * Story 8.4 / DW-88 narrowed this. It used to assert the v1 string came back verbatim on create-new;
+   * Story 2.32's verbatim rule is now read as "verbatim for URLs that still resolve to this trip", which
+   * on this path means URLs naming the trip being created. `IMPORT_PAYLOAD`'s `export-trip` is foreign by
+   * construction - a create-new import mints a fresh cuid - so it is nulled and counted. The *overwrite*
+   * counterpart below still pins the verbatim string, and so does everything else that pinned it: the
+   * export-side tests, the external `https://` hero, the schema parse.
+   */
+  it("nulls a create-new v1 image string that names another trip's upload directory", async () => {
     const user = await prisma.user.create({
       data: { email: "trip-import-v1-urls@example.com", passwordHash: "hashed", role: "OWNER" },
     });
@@ -2182,9 +2195,286 @@ describe("tripRepo", () => {
     expect(result.photoCount).toBe(0);
     expect(result.travelSegmentCount).toBe(0);
     expect(result.bucketListItemCount).toBe(0);
+    // The count and the warning are the whole of AC6's "names how many images were dropped" - without them
+    // this is a silent loss and the user just finds a trip with fewer pictures than they backed up.
+    expect(result.droppedImageCount).toBe(1);
+    expect(result.warnings[0]).toContain("1 image");
 
     const day = await prisma.tripDay.findFirstOrThrow({ where: { tripId: result.trip.id, dayIndex: 2 } });
-    expect(day.imageUrl).toBe("/uploads/trips/export-trip/days/export-day-2/day.webp");
+    expect(day.imageUrl).toBeNull();
+  });
+
+  it("keeps a create-new url that names the trip being created, and never counts an external one", async () => {
+    // AC7's other half. A create-new id is minted inside the transaction, so a payload cannot state one in
+    // advance - the reachable form of an own-trip URL is the one the import writes itself when a pooled
+    // photo replaces the v1 string, and that URL must survive the rule rather than be nulled by it. The
+    // external `https://` hero is the case the rule must never match at all: it names no upload directory,
+    // so there is nothing foreign about it.
+    const user = await prisma.user.create({
+      data: { email: "trip-import-own-urls@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+
+    const result = await importTripFromExportForUser({
+      userId: user.id,
+      payload: {
+        ...V2_IMPORT_PAYLOAD,
+        trip: { ...V2_IMPORT_PAYLOAD.trip, heroPhotoId: null, heroImageUrl: "https://cdn.example.com/hero.jpg" },
+      },
+      strategy: "createNew",
+      photoBytes: v2PhotoBytes(),
+    });
+
+    expect(result.outcome).toBe("imported");
+    if (result.outcome !== "imported") return;
+    expect(result.droppedImageCount).toBe(0);
+    expect(result.warnings).toEqual([]);
+    expect(result.trip.heroImageUrl).toBe("https://cdn.example.com/hero.jpg");
+
+    // Day 1 carried both a foreign v1 string and a pooled photo. The photo wins, the written URL names the
+    // created trip, and nothing is reported as dropped - the user lost no image.
+    const day = await prisma.tripDay.findFirstOrThrow({ where: { tripId: result.trip.id, dayIndex: 1 } });
+    expect(day.imageUrl).toBe(`/uploads/trips/${result.trip.id}/days/${day.id}/day.png`);
+  });
+
+  /**
+   * Story 8.4 / AC8. Spellings that a `startsWith("/uploads/trips/<own>/")` test reads as not-foreign,
+   * and which `resolveStoredMediaPath` + `path.join` normalise onto a file the created trip does not own
+   * - verified by execution during review. The rule is therefore decided on the resolved path, and these
+   * cases are what pin that rather than the string form.
+   *
+   * The hero rather than a day image, because the hero is the one field of the three whose value reaches
+   * the rule straight from the payload with no pooled-photo precedence in front of it.
+   *
+   * **The `/uploads/trips/<own>/../<other>/x` class is deliberately absent, because it is unreachable on
+   * this path.** A create-new trip's id is minted inside the transaction, so no payload can spell it in
+   * advance; a literal placeholder in its place would just be another foreign id, i.e. a case the naive
+   * string rule would also have caught, dressed up as an evasion. Iteration 2's version of this test did
+   * exactly that and passed against the very rule it claimed to exclude. The class is real on the
+   * *overwrite* path, where the target id is known - and that is `dropReplacedUploadUrl`, which now
+   * decides on the resolved path for this reason.
+   *
+   * The escape row is the fail-closed case: a `/uploads/…` URL that escapes the trips root entirely. It is
+   * *further* from "a file this trip owns" than a foreign-trip URL is, so it must be nulled too. Asking
+   * instead whether the resolved path was inside `getTripsUploadRoot()` and keeping it when it was not
+   * imported `/uploads/trips/../../../../etc/passwd` verbatim with `droppedImageCount: 0` - confirmed by
+   * execution.
+   *
+   * **The last four rows are this table's history of shape tests, and each one killed the rule before it.**
+   * A normalised-prefix test collapses leading slashes but adds none, so a URL with no leading slash at
+   * all, one with a `.` segment in front, and one spelling `uploads` with a capital all read as naming no
+   * file here. The rule that replaced it - "the first remaining segment is `uploads`" - survives those
+   * three and dies on the last row: a `..` *pops the segment in front of it*, so the first segment of the
+   * string (`x`) is not the first segment of the path, while `resolveStoredMediaPath` maps the value onto
+   * byte-for-byte the same foreign file (all confirmed by execution). There is no shape test in front of
+   * the rule any more - only `isExternalMediaUrl`, and none of these has a scheme - so every row reaches
+   * the resolved-path containment check, which fails closed. `heroImageUrl` is
+   * `z.union([z.string().trim(), z.null()])` with no format validation at all (`tripImportSchemas.ts`), so
+   * a backup can carry any of them.
+   */
+  it.each([
+    ["a doubled leading slash", "//uploads/trips/other-trip/hero.jpg"],
+    ["a doubled inner slash", "/uploads//trips/other-trip/hero.jpg"],
+    ["a path that escapes the trips root entirely", "/uploads/trips/../../../../etc/passwd"],
+    ["no leading slash at all", "uploads/trips/other-trip/hero.jpg"],
+    ["a single-dot segment in front", "/./uploads/trips/other-trip/hero.jpg"],
+    ["a capitalised uploads segment", "/Uploads/trips/other-trip/hero.jpg"],
+    ["a segment popped by a following `..`", "/x/../uploads/trips/other-trip/hero.jpg"],
+  ])("nulls a create-new hero url that reaches a foreign file through %s", async (label, heroImageUrl) => {
+    const user = await prisma.user.create({
+      data: {
+        email: `trip-import-evasion-${label.replace(/[^a-z]+/gi, "-")}@example.com`,
+        passwordHash: "hashed",
+        role: "OWNER",
+      },
+    });
+
+    const result = await importTripFromExportForUser({
+      userId: user.id,
+      payload: {
+        ...IMPORT_PAYLOAD,
+        trip: { ...IMPORT_PAYLOAD.trip, heroPhotoId: null, heroImageUrl },
+      },
+      strategy: "createNew",
+    });
+
+    expect(result.outcome).toBe("imported");
+    if (result.outcome !== "imported") return;
+    expect(result.trip.heroImageUrl).toBeNull();
+    const stored = await prisma.trip.findUniqueOrThrow({ where: { id: result.trip.id } });
+    expect(stored.heroImageUrl).toBeNull();
+    // The day image is foreign too, so the count is hero plus day - what matters is that the hero was
+    // caught at all, which a raw string test would not have done for any of these spellings.
+    expect(result.droppedImageCount).toBe(2);
+  });
+
+  /**
+   * The opposite direction, and it is what stops the gate above being widened into a deletion of its own.
+   *
+   * The rule now nulls **everything path-shaped** that does not resolve inside the created trip's own
+   * directory, and the only thing standing between an external cover image and that treatment is
+   * `isExternalMediaUrl`. Remove it and every one of these heroes is nulled and counted, because
+   * `resolveStoredMediaPath("https://cdn.example.com/hero.jpg")` resolves under the media root and lands
+   * nowhere near the created trip - a silent data loss for a URL the import never had any business
+   * judging. The count is `1` rather than `0` here because `IMPORT_PAYLOAD`'s day image is foreign by
+   * construction: what these rows pin is that the hero is not among the drops. `droppedImageCount: 0` for a
+   * payload with no foreign URL at all is pinned by the V2 case above.
+   */
+  it.each([
+    ["an https url", "https://cdn.example.com/hero.jpg"],
+    ["an http url", "http://cdn.example.com/hero.jpg"],
+    ["a data url", "data:image/png;base64,iVBORw0KGgo="],
+  ])("restores a create-new hero spelled as %s verbatim and never counts it", async (label, heroImageUrl) => {
+    const user = await prisma.user.create({
+      data: {
+        email: `trip-import-external-${label.replace(/[^a-z]+/gi, "-")}@example.com`,
+        passwordHash: "hashed",
+        role: "OWNER",
+      },
+    });
+
+    const result = await importTripFromExportForUser({
+      userId: user.id,
+      payload: {
+        ...IMPORT_PAYLOAD,
+        trip: { ...IMPORT_PAYLOAD.trip, heroPhotoId: null, heroImageUrl },
+      },
+      strategy: "createNew",
+    });
+
+    expect(result.outcome).toBe("imported");
+    if (result.outcome !== "imported") return;
+    expect(result.trip.heroImageUrl).toBe(heroImageUrl);
+    const stored = await prisma.trip.findUniqueOrThrow({ where: { id: result.trip.id } });
+    expect(stored.heroImageUrl).toBe(heroImageUrl);
+    // The day image alone. The hero is not ours to judge and is not among the drops.
+    expect(result.droppedImageCount).toBe(1);
+  });
+
+  it("refuses a second overwrite import of a trip while the first still holds the lock", async () => {
+    // Story 8.4 / DW-86 at the repository boundary: the refusal has to happen before the transaction, so
+    // the loser has written no row and no file when it is turned away.
+    const user = await prisma.user.create({
+      data: { email: "trip-import-concurrent@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const target = await createTripWithDays({
+      userId: user.id,
+      name: IMPORT_PAYLOAD.trip.name,
+      startDate: "2026-11-01T00:00:00.000Z",
+      endDate: "2026-11-02T00:00:00.000Z",
+    });
+
+    const lock = await acquireTripImportLock(target.trip.id);
+    try {
+      await expect(
+        importTripFromExportForUser({
+          userId: user.id,
+          payload: IMPORT_PAYLOAD,
+          strategy: "overwrite",
+          targetTripId: target.trip.id,
+        }),
+      ).rejects.toThrow("import_in_progress");
+    } finally {
+      await releaseTripImportLock(lock);
+    }
+
+    // The refusal is not a one-way door: once the holder releases, the same import succeeds. Running it
+    // twice is also what proves the wrapper's `finally` released the lock it took on the first, successful
+    // run - without that, the second call would be refused.
+    const after = await importTripFromExportForUser({
+      userId: user.id,
+      payload: IMPORT_PAYLOAD,
+      strategy: "overwrite",
+      targetTripId: target.trip.id,
+    });
+    expect(after.outcome).toBe("imported");
+
+    const again = await importTripFromExportForUser({
+      userId: user.id,
+      payload: IMPORT_PAYLOAD,
+      strategy: "overwrite",
+      targetTripId: target.trip.id,
+    });
+    expect(again.outcome).toBe("imported");
+  });
+
+  it("releases the lock after an import that throws, not only after one that succeeds", async () => {
+    // The `finally` is the whole of AC5's "released on every exit path including failure". Without it a
+    // failed import locks the trip for `IMPORT_LOCK_STALE_MS` - fifteen minutes in which the user's obvious
+    // next move, retrying, is refused with a message about an import that is not running.
+    const user = await prisma.user.create({
+      data: { email: "trip-import-lock-release-on-throw@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const target = await createTripWithDays({
+      userId: user.id,
+      name: V2_IMPORT_PAYLOAD.trip.name,
+      startDate: "2026-12-01T00:00:00.000Z",
+      endDate: "2026-12-02T00:00:00.000Z",
+    });
+
+    // A manifest declaring pooled photos with no bytes behind them: it fails inside `runTripImport`, after
+    // the lock has been taken.
+    await expect(
+      importTripFromExportForUser({
+        userId: user.id,
+        payload: V2_IMPORT_PAYLOAD,
+        strategy: "overwrite",
+        targetTripId: target.trip.id,
+      }),
+    ).rejects.toThrow();
+
+    expect(await fs.stat(`${getTripUploadDir(target.trip.id)}.import-lock`).catch(() => null)).toBeNull();
+    // And the proof that matters: the next acquire succeeds rather than being told a race was lost.
+    const lock = await acquireTripImportLock(target.trip.id);
+    await releaseTripImportLock(lock);
+  });
+
+  it("takes no lock for an overwrite whose target the caller does not own", async () => {
+    // Story 8.4 / AC8. The first implementation locked on the raw `targetTripId` request field, which is
+    // validated only as a non-empty string and is interpolated into a filesystem path - so a hostile value
+    // got `mkdir` and then `rm -rf` on a directory *outside* the media root, for any authenticated caller
+    // with a parseable backup and no trip ownership at all. The key is now resolved through
+    // `findFirst({ where: { id, userId } })`, so a miss - a stranger's trip or a traversal string - takes no
+    // lock and creates nothing, and `409 import_in_progress` stops being a discriminator for "an import of
+    // a trip you cannot see is running".
+    const owner = await prisma.user.create({
+      data: { email: "trip-import-lock-owner@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const stranger = await prisma.user.create({
+      data: { email: "trip-import-lock-stranger@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const target = await createTripWithDays({
+      userId: owner.id,
+      name: IMPORT_PAYLOAD.trip.name,
+      startDate: "2026-11-01T00:00:00.000Z",
+      endDate: "2026-11-02T00:00:00.000Z",
+    });
+
+    // `target_trip_not_conflict`, not `target_trip_not_found`: the name-conflict list `runTripImport` checks
+    // first is scoped to the caller, so another user's trip can never appear in it. Either way the request
+    // is refused, and the point of this case is what is *not* on disk afterwards.
+    await expect(
+      importTripFromExportForUser({
+        userId: stranger.id,
+        payload: IMPORT_PAYLOAD,
+        strategy: "overwrite",
+        targetTripId: target.trip.id,
+      }),
+    ).rejects.toThrow("target_trip_not_conflict");
+    expect(await fs.stat(`${getTripUploadDir(target.trip.id)}.import-lock`).catch(() => null)).toBeNull();
+
+    // And a `targetTripId` that is a traversal string rather than an id: no directory anywhere, least of
+    // all outside the media root.
+    const escapeProbe = path.resolve(getMediaRoot(), "..", "..", "probe-escape");
+    await expect(
+      importTripFromExportForUser({
+        userId: stranger.id,
+        payload: IMPORT_PAYLOAD,
+        strategy: "overwrite",
+        targetTripId: "../../../../probe-escape/x",
+      }),
+    ).rejects.toThrow("target_trip_not_conflict");
+    expect(await fs.stat(escapeProbe).catch(() => null)).toBeNull();
+    expect(await fs.stat(`${escapeProbe}.import-lock`).catch(() => null)).toBeNull();
   });
 
   it("replaces bucket list items and leaves no orphaned segment or image rows on overwrite", async () => {
@@ -2305,6 +2595,54 @@ describe("tripRepo", () => {
     expect(trip.heroImageUrl).toBeNull();
     const day = await prisma.tripDay.findFirstOrThrow({ where: { tripId: target.trip.id, dayIndex: 2 } });
     expect(day.imageUrl).toBeNull();
+    expect(await fs.readdir(getTripUploadDir(target.trip.id)).catch(() => [])).not.toContain("hero.jpg");
+  });
+
+  /**
+   * Story 8.4 / AC8, the overwrite half. `dropReplacedUploadUrl` used to be a string prefix test and so
+   * carried the same evasion its create-new counterpart did: `//uploads/trips/<target>/x` reads as
+   * not-this-trip's and is restored verbatim, while resolving to a file this very import is about to
+   * delete - a row pointing at nothing, which is precisely what the rule exists to prevent. Decided on
+   * the resolved path, all three spellings land on the same file and are nulled.
+   *
+   * Reachable here in a way it is not on create-new: an overwrite's target id is known before the
+   * transaction, so a payload can spell it - including a traversal *through* it.
+   */
+  it.each([
+    ["a doubled leading slash", (id: string) => `//uploads/trips/${id}/hero.jpg`],
+    ["a doubled inner slash", (id: string) => `/uploads//trips/${id}/hero.jpg`],
+    ["a traversal through its own directory", (id: string) => `/uploads/trips/${id}/days/../hero.jpg`],
+  ])("clears an overwrite v1 hero url spelled with %s", async (label, spell) => {
+    const user = await prisma.user.create({
+      data: {
+        email: `trip-import-overwrite-evasion-${label.replace(/[^a-z]+/gi, "-")}@example.com`,
+        passwordHash: "hashed",
+        role: "OWNER",
+      },
+    });
+
+    const target = await createTripWithDays({
+      userId: user.id,
+      name: IMPORT_PAYLOAD.trip.name,
+      startDate: "2026-10-10T00:00:00.000Z",
+      endDate: "2026-10-11T00:00:00.000Z",
+    });
+    await writeUploadFile(getTripUploadDir(target.trip.id), "hero.jpg", jpegBytes());
+
+    const result = await importTripFromExportForUser({
+      userId: user.id,
+      payload: {
+        ...IMPORT_PAYLOAD,
+        trip: { ...IMPORT_PAYLOAD.trip, heroImageUrl: spell(target.trip.id) },
+      },
+      strategy: "overwrite",
+      targetTripId: target.trip.id,
+    });
+
+    expect(result.outcome).toBe("imported");
+    const trip = await prisma.trip.findFirstOrThrow({ where: { id: target.trip.id } });
+    expect(trip.heroImageUrl).toBeNull();
+    // And the file really was deleted, so keeping the string would have restored a broken row.
     expect(await fs.readdir(getTripUploadDir(target.trip.id)).catch(() => [])).not.toContain("hero.jpg");
   });
 

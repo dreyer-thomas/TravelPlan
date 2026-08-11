@@ -7,6 +7,7 @@ import { CSRF_COOKIE_NAME, validateCsrf } from "@/lib/security/csrf";
 import { deleteTripForUser, getTripWithDaysForUser, updateTripWithDays } from "@/lib/repositories/tripRepo";
 import { updateTripSchema } from "@/lib/validation/tripSchemas";
 import { requireSession } from "@/lib/auth/sessionGuard";
+import { getTripImportLockDir } from "@/lib/trips/importPhotos";
 import { getTripUploadDir } from "@/lib/trips/uploadPaths";
 
 export const runtime = "nodejs";
@@ -19,6 +20,11 @@ type RouteContext = {
 
 const removeTripUploads = async (tripId: string) => {
   await fs.rm(getTripUploadDir(tripId), { recursive: true, force: true });
+  // The import sentinel too (Story 8.4 / DW-86). It is a *sibling* of the trip directory - deliberately,
+  // since the directory is what an overwrite import renames away - so the recursive removal above does
+  // not reach it. Left behind, it would outlive the trip forever: a deleted trip's id is never imported
+  // again, so no acquire would ever come along to find it stale and reclaim it.
+  await fs.rm(getTripImportLockDir(tripId), { recursive: true, force: true });
 };
 
 export const GET = async (request: NextRequest, context: RouteContext) => {

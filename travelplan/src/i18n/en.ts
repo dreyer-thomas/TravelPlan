@@ -210,6 +210,7 @@ const en: Dictionary = {
   "trips.import.summarySegments": "Travel segments",
   "trips.import.summaryBucket": "Bucket list",
   "trips.import.error": "Trip import failed. Please try again.",
+  "trips.import.inProgress": "Another import of this trip is already running. Please wait for it to finish.",
   "trips.import.initError": "Unable to initialize import. Please refresh.",
   "trips.delete.initError": "Unable to initialize deletion. Please refresh.",
   "trips.delete.error": "Trip deletion failed. Please try again.",

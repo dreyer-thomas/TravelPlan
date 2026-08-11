@@ -11,7 +11,12 @@ import {
   getTripDayUploadDir,
   getTripUploadDir,
   getTripsUploadRoot,
+  isExternalMediaUrl,
   isSafeMediaSegment,
+  mediaPathIsDirectlyIn,
+  mediaPathIsInside,
+  mediaPathsNameSameFile,
+  readStoredMediaDayId,
   resolveStoredMediaPath,
 } from "@/lib/trips/uploadPaths";
 
@@ -294,6 +299,150 @@ describe("upload paths", () => {
    * A `\0` in particular otherwise arrives at `fs.realpath`, which throws, and the route's `catch`
    * turns that into the same 404 - correct by accident rather than by design.
    */
+  /**
+   * Story 8.4. Every spelling below resolves onto one file, so the comparators that decide where that file
+   * is must answer alike for all of them - including case, because a case-insensitive filesystem opens
+   * `/Uploads/…` and `/uploads/…` as the same file. While the fold was missing, a `/Uploads/…` row was
+   * judged to be outside the very directory it was inside, so the import rule kept a URL it should have
+   * nulled and the cleanup logged a refusal instead of removing the file. Asserted directly, because
+   * through the routes both spellings answer alike.
+   *
+   * **And none of them is decided by a shape test any more.** `isExternalMediaUrl` is the only string test
+   * left, and it says "not external" for every one of these - so they all reach the containment check
+   * rather than taking a silent "nothing of ours here" exit. The `/x/../uploads/…` row is the one that
+   * ended the four-iteration arms race: its own leading segment is popped by the `..` that follows it, so a
+   * first-segment shape test read it as naming no file of ours while it resolves to exactly this file.
+   */
+  describe("media path comparators answer alike for every spelling of one file", () => {
+    it("treats a case-variant uploads segment as the same media path", () => {
+      const dayDir = getTripDayUploadDir("trip-1", "day-1");
+
+      for (const url of [
+        "/uploads/trips/trip-1/days/day-1/day.webp",
+        "//uploads/trips/trip-1/days/day-1/day.webp",
+        "uploads/trips/trip-1/days/day-1/day.webp",
+        "/./uploads/trips/trip-1/days/day-1/day.webp",
+        "/Uploads/trips/trip-1/days/day-1/day.webp",
+        "/x/../uploads/trips/trip-1/days/day-1/day.webp",
+      ]) {
+        expect(isExternalMediaUrl(url), url).toBe(false);
+        expect(mediaPathIsDirectlyIn(resolveStoredMediaPath(url), dayDir), url).toBe(true);
+        expect(mediaPathIsInside(resolveStoredMediaPath(url), getTripUploadDir("trip-1")), url).toBe(true);
+      }
+    });
+
+    it("still refuses a nested file, a traversal and a sibling trip whose id is a prefix", () => {
+      const dayDir = getTripDayUploadDir("trip-1", "day-1");
+      const nested = resolveStoredMediaPath("/uploads/trips/trip-1/days/day-1/accommodations/a/img.webp");
+      const escaped = resolveStoredMediaPath("/uploads/trips/trip-1/days/day-1/../../../../../victim.txt");
+
+      expect(mediaPathIsDirectlyIn(nested, dayDir)).toBe(false);
+      expect(mediaPathIsDirectlyIn(escaped, dayDir)).toBe(false);
+      // The trailing separator: `trip-1` must not read as inside `trip-10`.
+      expect(mediaPathIsInside(resolveStoredMediaPath("/uploads/trips/trip-10/hero.jpg"), getTripUploadDir("trip-1"))).toBe(
+        false,
+      );
+    });
+
+    /**
+     * The other direction, and the only shape question left. A value with a scheme names nothing on this
+     * disk, so it is the one silent exit `removeManagedMediaFile` permits and the one value the import
+     * rules leave verbatim. Everything path-shaped - traversals included - answers `false` and goes on to
+     * the containment check, which fails closed. `C:/x` parses as scheme `c:`, which reads as external:
+     * the safe direction here (no unlink, no null) and unreachable from any writer.
+     */
+    it("separates values with a scheme from everything path-shaped", () => {
+      for (const external of ["https://cdn.example.com/hero.jpg", "http://x/y.png", "data:image/png;base64,AA", "C:/x"]) {
+        expect(isExternalMediaUrl(external), external).toBe(true);
+      }
+
+      for (const internal of [
+        "/uploads/trips/trip-1/days/day-1/day.webp",
+        "//uploads/trips/trip-1/days/day-1/day.webp",
+        "uploads/trips/trip-1/days/day-1/day.webp",
+        "/./uploads/trips/trip-1/days/day-1/day.webp",
+        "/Uploads/trips/trip-1/days/day-1/day.webp",
+        "/x/../uploads/trips/other-trip/hero.jpg",
+        "/uploads/trips/trip-1/days/day-1/../../../../../victim.txt",
+        "",
+      ]) {
+        expect(isExternalMediaUrl(internal), internal).toBe(false);
+      }
+    });
+
+    /**
+     * Story 8.4, iteration 5. The third comparator was left out of the fold, and this pair is a deletion.
+     *
+     * The day-image cleanup asks two questions about the previous URL: "is it a different file from the new
+     * one?" (`storedMediaUrlsNameSameFile`, which fires the cleanup) and "is it directly inside this day's
+     * directory?" (`mediaPathIsDirectlyIn`, which permits it). While the first compared case-sensitively and
+     * the second folded case, a `/Uploads/…` previous URL against a `/uploads/…` new one answered *yes* to
+     * both - two files, one directory - so the route unlinked the file the row had just been pointed at.
+     */
+    it("answers 'same file' for the spellings the containment check treats as one directory", () => {
+      const canonical = resolveStoredMediaPath("/uploads/trips/trip-1/days/day-1/day.webp");
+
+      for (const url of [
+        "/uploads/trips/trip-1/days/day-1/day.webp",
+        "//uploads/trips/trip-1/days/day-1/day.webp",
+        "uploads/trips/trip-1/days/day-1/day.webp",
+        "/./uploads/trips/trip-1/days/day-1/day.webp",
+        "/Uploads/trips/trip-1/days/day-1/day.webp",
+        "/uploads//trips/trip-1/days/day-1/day.webp",
+      ]) {
+        expect(mediaPathsNameSameFile(resolveStoredMediaPath(url), canonical), url).toBe(true);
+      }
+
+      // Two genuinely different files in the same directory stay different, or the cleanup would stop
+      // removing a replaced photo at all.
+      expect(mediaPathsNameSameFile(resolveStoredMediaPath("/uploads/trips/trip-1/days/day-1/day.png"), canonical)).toBe(
+        false,
+      );
+    });
+  });
+
+  /**
+   * Story 8.4, iteration 5. `readStoredMediaDayId` is what builds the directory the four media routes are
+   * allowed to unlink in (AC9), so a `null` from it means "log and skip" - a committed row delete with the
+   * bytes left on disk.
+   *
+   * It ran its own parse of the raw string, which is how it came to disagree with the comparator beside it
+   * about the same value: `mediaPathIsDirectlyIn` said "directly inside the entry's own directory" while
+   * this said "no day", and the file was orphaned for good (confirmed by execution on the
+   * accommodation-images DELETE). It now derives the day from `path.relative` against the *resolved* trip
+   * directory, so there is one authority on what a URL names and no spelling can make the two disagree.
+   * Asserted against the comparator rather than alone, because the defect was the disagreement.
+   */
+  describe("readStoredMediaDayId agrees with the comparators about the same url", () => {
+    it("reads the day out of every spelling that resolves into the entry's own directory", () => {
+      const entryDir = getAccommodationImageUploadDir("trip-1", "day-1", "stay-1");
+
+      for (const url of [
+        "/uploads/trips/trip-1/days/day-1/accommodations/stay-1/img.webp",
+        "//uploads/trips/trip-1/days/day-1/accommodations/stay-1/img.webp",
+        "uploads/trips/trip-1/days/day-1/accommodations/stay-1/img.webp",
+        "/./uploads/trips/trip-1/days/day-1/accommodations/stay-1/img.webp",
+        "/Uploads/trips/trip-1/days/day-1/accommodations/stay-1/img.webp",
+        "/uploads//trips/trip-1/days/day-1/accommodations/stay-1/img.webp",
+        "/uploads/trips/trip-1/days/day-1/./accommodations/stay-1/img.webp",
+        "/x/../uploads/trips/trip-1/days/day-1/accommodations/stay-1/img.webp",
+      ]) {
+        // The premise: all three questions are about one file on disk.
+        expect(isExternalMediaUrl(url), url).toBe(false);
+        expect(mediaPathIsDirectlyIn(resolveStoredMediaPath(url), entryDir), url).toBe(true);
+        expect(readStoredMediaDayId(url, "trip-1"), url).toBe("day-1");
+      }
+    });
+
+    it("still refuses another trip, an unsafe day segment and a url that names no day", () => {
+      expect(readStoredMediaDayId("/uploads/trips/trip-2/days/day-1/x.webp", "trip-1")).toBeNull();
+      expect(readStoredMediaDayId("/uploads/trips/trip-1/days/../x.webp", "trip-1")).toBeNull();
+      expect(readStoredMediaDayId("/uploads/trips/trip-1/hero.png", "trip-1")).toBeNull();
+      expect(readStoredMediaDayId("https://cdn.example.com/hero.jpg", "trip-1")).toBeNull();
+      expect(readStoredMediaDayId("", "trip-1")).toBeNull();
+    });
+  });
+
   describe("isSafeMediaSegment", () => {
     it("accepts the segment shapes real stored URLs are made of", () => {
       for (const segment of [
