@@ -42,6 +42,15 @@ import {
 } from "@/lib/auth/tripAccessRole";
 import { extractAttachmentFilename, triggerBlobDownload } from "@/lib/browser/blobDownload";
 import { formatShortDate } from "@/lib/trips/formatShortDate";
+// Story 8.5 review. The same two rules `TripDayView` uses, because this file's coverage bar and that
+// screen's travel figure describe the same day: the order the day's endpoints are in, and which pairs
+// of that order are legs the timeline draws.
+import { compareDayPlanItemsByStartTime } from "@/lib/trips/dayPlanItemOrder";
+import {
+  buildDrawnDaySegmentPairKeys,
+  isDrawnDaySegment,
+  type DaySegmentEndpoint,
+} from "@/lib/trips/daySegmentPairs";
 import { withImageCacheBuster } from "@/lib/trips/imageUploads";
 import type { TransportType } from "@/lib/trips/transportTypes";
 import { useI18n } from "@/i18n/provider";
@@ -94,6 +103,14 @@ type TripDay = {
     contentJson: string;
     linkUrl: string | null;
     location: { lat: number; lng: number; label: string | null } | null;
+    /**
+     * Story 8.5 review. `GET /api/trips/{id}` carries this, and it is optional here for the same
+     * reason it is in `TripDayView`: a payload built before it did (an older cached response, a
+     * fixture) must still type-check. It is the tie-break `compareDayPlanItemsByStartTime` applies to
+     * two activities starting at the same minute, and this file needs that order because the coverage
+     * bar below counts exactly the legs the day's endpoint order makes consecutive.
+     */
+    createdAt?: string;
   }[];
   travelSegments?: {
     id: string;
@@ -774,6 +791,42 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
               {!listEmpty &&
                 detail.days.map((day, index) => {
                   const previousDay = index > 0 ? detail.days[index - 1] : null;
+                  /**
+                   * Story 8.5 review (`DW-151`). The day's endpoint order, exactly as `TripDayView`
+                   * builds it: last night's stay, the day's activities, this night's stay. Only the
+                   * consecutive pairs of it are legs the timeline draws, and only those may be counted.
+                   *
+                   * This bar renders through the *same* `trips.dayView.ganttSummary` string as the day
+                   * view's, so fed every stored row it reported a different "Planned" figure for the
+                   * very day the day view lists the extra leg under "Orphaned travel legs" as not
+                   * counted — 7h 45m here against 7h 30m there, on this story's own fixture. One rule,
+                   * imported, rather than a second local opinion about what is drawn.
+                   *
+                   * **And the activity order is derived here, not taken from the payload.** This bar
+                   * used to read `day.dayPlanItems` in array order, which was correct only because
+                   * `getTripWithDaysForUser` sorts each day's activities before serialising them
+                   * (`tripRepo.ts`) — the same invisible, unpinned dependency this story removed from
+                   * `TripDayView`, left standing on the surface that renders the *same* summary string.
+                   * Applying the shared comparator here means both screens compute their drawn set from
+                   * an order they own, so they cannot come apart if that mapping ever changes.
+                   */
+                  const orderedPlanItems = [...day.dayPlanItems].sort((left, right) =>
+                    compareDayPlanItemsByStartTime(
+                      { fromTime: left.fromTime ?? null, createdAt: left.createdAt ?? "", id: left.id },
+                      { fromTime: right.fromTime ?? null, createdAt: right.createdAt ?? "", id: right.id },
+                    ),
+                  );
+                  const dayEndpoints: DaySegmentEndpoint[] = [
+                    ...(previousDay?.accommodation
+                      ? [{ type: "accommodation" as const, id: previousDay.accommodation.id }]
+                      : []),
+                    ...orderedPlanItems.map((item) => ({ type: "dayPlanItem" as const, id: item.id })),
+                    ...(day.accommodation ? [{ type: "accommodation" as const, id: day.accommodation.id }] : []),
+                  ];
+                  const drawnPairKeys = buildDrawnDaySegmentPairKeys(dayEndpoints);
+                  const drawnTravelSegments = Array.isArray(day.travelSegments)
+                    ? day.travelSegments.filter((segment) => isDrawnDaySegment(drawnPairKeys, segment))
+                    : [];
                   const ganttSegments = buildOverviewGanttSegments({
                     previousStay: previousDay?.accommodation
                       ? {
@@ -788,19 +841,17 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                           checkOutTime: day.accommodation.checkOutTime ?? null,
                         }
                       : null,
-                    planItems: day.dayPlanItems.map((item) => ({
+                    planItems: orderedPlanItems.map((item) => ({
                       id: item.id,
                       fromTime: item.fromTime ?? null,
                       toTime: item.toTime ?? null,
                     })),
-                    travelSegments: Array.isArray(day.travelSegments)
-                      ? day.travelSegments.map((segment) => ({
-                          id: segment.id,
-                          fromItemType: segment.fromItemType,
-                          fromItemId: segment.fromItemId,
-                          durationMinutes: segment.durationMinutes,
-                        }))
-                      : [],
+                    travelSegments: drawnTravelSegments.map((segment) => ({
+                      id: segment.id,
+                      fromItemType: segment.fromItemType,
+                      fromItemId: segment.fromItemId,
+                      durationMinutes: segment.durationMinutes,
+                    })),
                   });
                   const ganttCoverage = deriveCoverageSummary(ganttSegments);
                   // A stay on record with no check-in/out times contributes no accommodation segment,

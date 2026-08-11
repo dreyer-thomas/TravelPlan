@@ -2970,3 +2970,73 @@ severity: low
 summary: The import schema puts no format constraint on `heroImageUrl` at all, and the day-image variant accepts anything `z.string().url()` parses. So a hand-edited backup can restore a trip whose hero is `data:…`, `file:///…`, `javascript:…` or `http://tracker.example/pixel.gif`, and the dashboard and timeline render it directly as an `<img src>`. The concrete harm is narrow — `<img>` executes neither `javascript:` nor script inside an SVG data URL — but an `http(s)` value is a third-party request made from the user's browser every time the trip list renders, i.e. a tracking pixel embedded by whoever authored the backup.
 evidence: Read at HEAD after Story 8.4. Pre-existing and unchanged by the story: `looksLikeStoredMediaUrl` returned `false` for these values and `isExternalMediaUrl` returns `true`, so both the old and the new rule take the same "not ours to judge, keep verbatim" branch, and the create-new nulling rule is deliberately about ownership rather than scheme. Surfaced because the story's new docblock claims the rule "fails closed" — corrected in review pass 7 to say it fails closed for every *path-shaped* value and that what a stored URL may be is the schema's question. The fix belongs in the schema: constrain both fields to `/uploads/…` or an `http(s)` absolute URL, matching what `dayImageUrlOrNull` half-does already. It interacts with Story 2.32's AC2 and Story 8.4's AC7, which require v1 URLs restored exactly as written, so a rejected value must be nulled-and-counted rather than failing the import.
 status: open
+
+### DW-318: Shrinking a trip's date range deletes stays without sweeping the next day's travel segments
+
+source_spec: `_bmad-output/implementation-artifacts/spec-8-5-travel-segments-that-match-their-day.md`
+origin: review of spec-8-5-travel-segments-that-match-their-day, 2026-08-11
+location: `travelplan/src/lib/repositories/tripRepo.ts` — `updateTripWithDays`, the stale `tripDay` delete
+severity: medium
+summary: Story 8.5 closed the stay-delete path (`deleteAccommodationForTripDay` now sweeps the trip's segments in the same transaction), but editing a trip's dates so a day falls out of range deletes that `TripDay` — and with it, by cascade, its `Accommodation` and its own segments — while leaving the **following** day's segments pointing at the now-deleted stay. The row survives as an orphan for the life of the trip.
+evidence: Reproduced by execution during the review: 3-day trip with a stay on day 1 and an `ACCOMMODATION(stay) → DAY_PLAN_ITEM(arrival)` leg on day 2; moving the range forward by one day left `accommodations: 0, segments: 1`. Pre-existing and outside Story 8.5's acceptance criteria, which name the accommodation delete path only. The fix is mechanical now that the helper exists: call `removeTravelSegmentsReferencingItemInTransaction` for each accommodation on a day about to be deleted, inside the same transaction, before the day rows go.
+status: open
+
+### DW-319: The day-level activity transfer deletes every travel segment on both days
+
+source_spec: `_bmad-output/implementation-artifacts/spec-8-5-travel-segments-that-match-their-day.md`
+origin: review of spec-8-5-travel-segments-that-match-their-day, 2026-08-11
+location: `travelplan/src/lib/repositories/dayPlanItemRepo.ts` — `moveDayPlanItemsBetweenTripDays`, `tx.travelSegment.deleteMany({ where: { tripDayId: { in: [sourceTripDayId, targetTripDayId] } } })`
+severity: medium
+summary: Moving or swapping a whole day's activities wipes both days' travel segments outright, including stay-to-stay legs that reference nothing being moved. Story 8.5 canonised the opposite rule — mode, duration and distance are the user's measurements, so a leg whose endpoints still exist is surfaced rather than destroyed — and this bulk delete is the one path that still contradicts it.
+evidence: Read during the review of Story 8.5, which refactored the single-activity sweep into a shared type-agnostic helper and left this call untouched because no acceptance criterion reached it. The single-activity paths (`deleteDayPlanItemForTripDay`, `moveDayPlanItemToTripDay`) delete only the rows that reference the item; the day-level transfer predates that precision. The fix is to sweep per moved item through the shared helper, which also makes `removedTravelSegmentIds` reportable for this path as it already is for the others.
+status: open
+
+### DW-320: The printed day sheet silently omits legs the day still holds
+
+source_spec: `_bmad-output/implementation-artifacts/spec-8-5-travel-segments-that-match-their-day.md`
+origin: review of spec-8-5-travel-segments-that-match-their-day, 2026-08-11
+location: `travelplan/src/lib/repositories/tripRepo.ts` — the print payload's `orderedStops` / segment lookup; `travelplan/src/lib/trips/printDocuments.ts`
+severity: low
+summary: The print payload builds its own ordered stop list and drops any segment whose pair is not consecutive. After Story 8.5 the screen names those rows as orphaned legs and reports their minutes as uncounted; the sheet the user takes on the trip shows neither the leg nor any note that something was left out, so paper and screen disagree about what the day contains.
+evidence: Read during the review of Story 8.5. Pre-existing: the omission predates the story, which only made the same rows visible and nameable on screen. It is also the fourth independent implementation of "which pairs are adjacent" (`buildSegmentTimeline`, the day view, the print payload, and `dayPlanItemRepo`'s comparator copy) — see DW-216. The fix is to reuse the shared ordering rule and either print the orphaned legs in a trailing block or state that they exist.
+status: open
+
+### DW-321: Travel-segment API errors reach the user as untranslated English
+
+source_spec: `_bmad-output/implementation-artifacts/spec-8-5-travel-segments-that-match-their-day.md`
+origin: review of spec-8-5-travel-segments-that-match-their-day, 2026-08-11
+location: `travelplan/src/components/features/trips/TripDayTravelSegmentDialog.tsx` — the `setServerError(body.error?.message ?? …)` fallback, against `travelplan/src/app/api/trips/[id]/travel-segments/route.ts:146` (`not_adjacent`) and its siblings
+severity: medium
+summary: Every travel-segment failure except the `409` conflict is shown to the user as the server's raw English sentence — "Travel segment must connect adjacent items", "Trip day not found" — under a German UI. Story 8.5 translated the one message a production report named and left the rest relaying English, with a test now pinning that relay as the expected behaviour.
+evidence: Read during the review of Story 8.5, whose AC7 covered `travel_segment_exists` only. `not_adjacent` is the most reachable of the remainder: it is the answer to any attempt to record a leg between two points the day does not put next to each other. The fix is a `resolveApiError`-style code→key map for this dialog, mirroring what `TripImportDialog` and `TripDayView` already do, and is small enough to ride with the next story touching this dialog. See also DW-152 on the untranslated import warnings channel.
+status: open
+
+### DW-322: A travel leg the timeline draws still cannot be deleted, only edited
+
+source_spec: `_bmad-output/implementation-artifacts/spec-8-5-travel-segments-that-match-their-day.md`
+origin: review of spec-8-5-travel-segments-that-match-their-day, 2026-08-11
+location: `travelplan/src/components/features/trips/TripDayView.tsx` (`renderTravelSegment`'s edit-only control), `travelplan/src/components/features/trips/TripDayTravelSegmentDialog.tsx` (no delete action)
+severity: low
+summary: Story 8.5 gave orphaned legs a removal control and left drawn legs with an edit action only. A user who recorded a leg by mistake can change its mode, duration and distance but cannot remove it — the only route to deletion is to make the leg undrawable first, which is the opposite of what the story is for.
+evidence: Read during the review of Story 8.5. The route has supported `DELETE { tripDayId, segmentId }` since the feature shipped and the story wired the first caller for it, so the missing piece is one action in the segment dialog plus its confirmation copy. Scoped out because AC6 asks only that an orphaned leg be removable; recorded because "delete is only reachable through a defect state" is a poor resting place for the feature.
+status: open
+
+### DW-323: A failed stay delete tells the user her CSRF token is missing
+
+source_spec: `_bmad-output/implementation-artifacts/spec-8-5-travel-segments-that-match-their-day.md`
+origin: review of spec-8-5-travel-segments-that-match-their-day, 2026-08-12
+location: `travelplan/src/app/api/trips/[id]/accommodations/route.ts` — `DELETE`, the unguarded `await deleteAccommodationForTripDay(...)`; `travelplan/src/components/features/trips/TripAccommodationDialog.tsx` — the delete handler's blanket `catch { setServerError(t("errors.csrfMissing")) }`
+severity: low
+summary: The `DELETE` handler calls the repository with no `try`/`catch`, so any rejection escapes as a Next.js 500 whose body is an error page rather than the API envelope. The dialog's `await response.json()` throws on that body, its `catch` fires, and the user is told `errors.csrfMissing` — that her security token is missing — for a stay that failed to delete for an unrelated reason. Nothing was deleted and the message names the wrong cause, so the only remedy it suggests (reload and sign in again) cannot help.
+evidence: Read at HEAD after Story 8.5. Both halves confirmed by reading: the route has no `try` around the repository call (its only `try` is `parseJson`'s), and the dialog maps every thrown error in the delete path to `errors.csrfMissing`, a shape its own docblock at the save handler already records as a hazard. Pre-existing in kind — the bare `prisma.accommodation.delete` could always throw, and a `findUnique`-then-`delete` race still answers Prisma `P2025` — but Story 8.5 added a second way in: the delete now runs a segment sweep in the same transaction and rejects deliberately when it fails, which is the atomicity `test/accommodationDeleteRollback.test.ts` pins. The fix is two-part and neither part is this story: give the route the `try`/`catch` → `500 internal_error` envelope its siblings have, and narrow the dialog's `catch` so a body that will not parse is not reported as a CSRF failure. See also the ledger entry on `TripAccommodationDialog`'s validation sitting behind `ensureCsrfToken`, which is the same mis-attribution from the other direction.
+status: open
+
+### DW-324: Every drawn travel leg's edit button has the same accessible name
+
+source_spec: `_bmad-output/implementation-artifacts/spec-8-5-travel-segments-that-match-their-day.md`
+origin: review of spec-8-5-travel-segments-that-match-their-day, 2026-08-12
+location: `travelplan/src/components/features/trips/TripDayView.tsx` — `renderTravelSegment`'s edit control, `aria-label={t("trips.travelSegment.editAction")}`
+severity: low
+summary: A day with three drawn legs presents a screen-reader user three buttons all named "Edit travel", with nothing in the name to say which leg each one edits. Story 8.5 diagnosed exactly this for the orphaned-legs list and fixed it there with a four-placeholder template carrying the row's endpoints and its mode, duration and distance — the drawn legs one section up the same panel kept the constant string.
+evidence: Read during the review of Story 8.5. Pre-existing: the edit control and its label predate the story, which added no drawn-leg markup. The remedy is already written and translated — `trips.travelSegment.orphanRemoveAction`'s shape, applied to the edit action with the endpoints `timelineEndpoints` already resolves for the row being rendered. Recorded rather than patched because it is outside every acceptance criterion of a story about undrawable legs, and because the same constant-label pattern is worth sweeping across this file's other repeated row controls in one pass rather than one button at a time.
+status: open

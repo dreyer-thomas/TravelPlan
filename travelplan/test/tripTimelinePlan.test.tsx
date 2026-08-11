@@ -231,6 +231,226 @@ describe("TripTimeline plan action", () => {
     vi.unstubAllGlobals();
   });
 
+  /**
+   * Story 8.5 review (`DW-151`). **Two screens, one day, one figure.**
+   *
+   * The day view counts only the legs its timeline draws and lists the rest as orphaned, stating their
+   * minutes as *not* counted. This bar renders through the very same `trips.dayView.ganttSummary`
+   * string from the very same day's rows — and built from all of them it answered "Planned 7h 45m"
+   * about the day the day view answers "Planned 7h 30m" about, the 15 minutes being an orphaned leg
+   * that overhangs the drawn one. A user comparing the overview row with the day it links to was
+   * simply told two different things.
+   *
+   * The fixture is the day view's own: Museum / Market / Park, a stay from 20:00, one drawn leg
+   * (`Museum → Market`, 30m) and one stranded by an insertion (`Museum → Park`, 45m — measured while
+   * they were neighbours). 4h stay + 3 × 1h + 30m drawn travel = 7h 30m; the orphan's 45m from 10:00
+   * would push the union to 7h 45m.
+   */
+  it("keeps an orphaned travel leg out of a day's overview coverage bar", async () => {
+    const planItem = (id: string, title: string, fromTime: string, toTime: string) => ({
+      id,
+      title,
+      fromTime,
+      toTime,
+      contentJson: JSON.stringify({
+        type: "doc",
+        content: [{ type: "paragraph", content: [{ type: "text", text: title }] }],
+      }),
+      costCents: null,
+      linkUrl: null,
+      location: null,
+    });
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            accessRole: "owner",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-01T00:00:00.000Z",
+            dayCount: 1,
+            plannedCostTotal: 0,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
+          },
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              imageUrl: null,
+              note: null,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: {
+                id: "stay-1",
+                name: "Quinta",
+                notes: null,
+                status: "booked",
+                costCents: null,
+                link: null,
+                checkInTime: "20:00",
+                checkOutTime: null,
+                location: null,
+              },
+              dayPlanItems: [
+                planItem("item-1", "Museum", "09:00", "10:00"),
+                planItem("item-2", "Market", "13:00", "14:00"),
+                planItem("item-3", "Park", "16:00", "17:00"),
+              ],
+              travelSegments: [
+                // Drawn: `Museum` and `Market` are consecutive in the day's endpoint order.
+                {
+                  id: "segment-drawn",
+                  fromItemType: "dayPlanItem",
+                  fromItemId: "item-1",
+                  toItemType: "dayPlanItem",
+                  toItemId: "item-2",
+                  transportType: "car",
+                  durationMinutes: 30,
+                  distanceKm: 12,
+                  linkUrl: null,
+                },
+                // Orphaned: `Market` was inserted between these two, so the timeline cannot draw the
+                // leg and neither screen may count it.
+                {
+                  id: "segment-orphan",
+                  fromItemType: "dayPlanItem",
+                  fromItemId: "item-1",
+                  toItemType: "dayPlanItem",
+                  toItemId: "item-3",
+                  transportType: "car",
+                  durationMinutes: 45,
+                  distanceKm: 30,
+                  linkUrl: null,
+                },
+              ],
+            },
+          ],
+        },
+        error: null,
+      }),
+    })) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(screen.getByText("Planned 7h 30m, Unplanned 16h 30m")).toBeInTheDocument();
+    expect(screen.queryByText("Planned 7h 45m, Unplanned 16h 15m")).toBeNull();
+
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * Review addition, and the other half of the case above. That test proves this bar applies the
+   * drawn-pair rule; this one proves it applies the rule to the *right order*.
+   *
+   * The bar used to read `day.dayPlanItems` in array order, which was correct only because
+   * `getTripWithDaysForUser` sorts each day's activities before serialising them — the same invisible,
+   * unpinned dependency Story 8.5 removed from `TripDayView` and left standing here, on the surface
+   * that renders the same summary string. So the fixture delivers a day the server would never emit
+   * *today*: `Dinner` (19:00) ahead of `Museum` (09:00), the order they were created in. The one leg
+   * the adjacency rule accepts is `Museum → Dinner`; in array order that pair is not consecutive and
+   * its 30 minutes drop out of "Planned", which is this story's defect reappearing on the overview.
+   *
+   * 4h stay from 20:00 + 1h Museum + 1h Dinner + 30m travel = 6h 30m. Reading the array as it came
+   * gives 6h.
+   */
+  it("derives the day's endpoint order itself rather than trusting the payload's array order", async () => {
+    const planItem = (id: string, title: string, fromTime: string, toTime: string, createdAt: string) => ({
+      id,
+      title,
+      fromTime,
+      toTime,
+      createdAt,
+      contentJson: JSON.stringify({
+        type: "doc",
+        content: [{ type: "paragraph", content: [{ type: "text", text: title }] }],
+      }),
+      costCents: null,
+      linkUrl: null,
+      location: null,
+    });
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            accessRole: "owner",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-01T00:00:00.000Z",
+            dayCount: 1,
+            plannedCostTotal: 0,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
+          },
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              imageUrl: null,
+              note: null,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: {
+                id: "stay-1",
+                name: "Quinta",
+                notes: null,
+                status: "booked",
+                costCents: null,
+                link: null,
+                checkInTime: "20:00",
+                checkOutTime: null,
+                location: null,
+              },
+              // Creation order, not start-time order — the array a payload without that sort delivers.
+              dayPlanItems: [
+                planItem("item-dinner", "Dinner", "19:00", "20:00", "2026-11-01T10:00:00.000Z"),
+                planItem("item-museum", "Museum", "09:00", "10:00", "2026-11-01T10:01:00.000Z"),
+              ],
+              travelSegments: [
+                // The pair the server's adjacency rule accepts, and the only one it would ever have
+                // written: `Museum` runs first, `Dinner` follows it.
+                {
+                  id: "segment-drawn",
+                  fromItemType: "dayPlanItem",
+                  fromItemId: "item-museum",
+                  toItemType: "dayPlanItem",
+                  toItemId: "item-dinner",
+                  transportType: "car",
+                  durationMinutes: 30,
+                  distanceKm: 12,
+                  linkUrl: null,
+                },
+              ],
+            },
+          ],
+        },
+        error: null,
+      }),
+    })) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(screen.getByText("Planned 6h 30m, Unplanned 17h 30m")).toBeInTheDocument();
+    // What the array-order reading produces: the accepted leg dismissed as undrawable.
+    expect(screen.queryByText("Planned 6h, Unplanned 18h")).toBeNull();
+
+    vi.unstubAllGlobals();
+  });
+
   it("links the planned total to the cost overview page", async () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,

@@ -733,13 +733,15 @@ export const tripImportPayloadSchema = z.object({
      * a distance-1 reference: `buildSegmentTimeline` (`travelSegmentRepo.ts`) offers the immediately
      * preceding day's accommodation and nothing further back, and `TripDayView` draws only endpoint
      * pairs that timeline contains. So a restored distance-2-or-more reference is a row the timeline
-     * will not draw, `ensureSegmentItemsExist` answers `missing` for, and `totalTravelMinutes` counts
-     * anyway - the invisible-but-counted shape Story 6.23 set out to stop creating. Accepted knowingly:
+     * will not draw and `ensureSegmentItemsExist` answers `missing` for. **Story 8.5 changed what that
+     * costs**: such a row is no longer invisible-but-counted - `totalTravelMinutes` now sums only the
+     * pairs the timeline draws, and everything else is listed under "Orphaned travel legs" with its
+     * minutes stated as uncounted and a control to remove it (that is this story's AC8, pinned in
+     * `test/tripImportRoute.test.ts`). Accepted knowingly, and now with somewhere for the row to land:
      * such a row can only be *in* a package because the source database already held it (delete a day
      * between the two and a distance-1 reference becomes distance-2 in place, with no import involved),
      * and a restore that silently dropped it would make the backup differ from what was backed up. The
-     * skip path is for endpoints naming nothing; it is not a repair pass for rows the app mislays. The
-     * pre-existing pathology those rows land in is recorded in `deferred-work.md`.
+     * skip path is for endpoints naming nothing; it is not a repair pass for rows the app mislays.
      *
      * **An id that names nothing in the package at all is an orphan, and no longer an error.** Those
      * are rows left behind by activities deleted before Story 6.23 fixed the cause, so every database

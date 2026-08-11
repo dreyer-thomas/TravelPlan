@@ -1199,4 +1199,84 @@ describe("dayPlanItemRepo", () => {
     expect(await prisma.travelSegment.count({ where: { tripDayId: day.id } })).toBe(1);
     expect(await totalTravelMinutesForDay(day.id)).toBe(20);
   });
+
+  /**
+   * Story 8.5 AC3 — the decision this story **declines**, pinned so a later tidy-up cannot make it by
+   * accident.
+   *
+   * `DW-148` carries a 2026-08-08 decision that "a segment whose endpoints are no longer adjacent is
+   * deleted". Story 8.5 supersedes it on Story 6.23's own grounds: transport mode, duration and
+   * distance are the user's measurements, none of them is derivable, and destroying them the moment
+   * someone merely inserts or retimes an activity is the same mistake as fabricating a segment,
+   * pointing the other way. The row is kept and surfaced as an orphaned leg instead (`TripDayView`).
+   *
+   * Two producers in one case, because they are the same event seen twice: the insertion changes the
+   * order, and so does the retime. Neither may touch the segment, and neither may create one.
+   */
+  it("keeps a neighbours' segment intact when an activity is inserted between them or one is retimed", async () => {
+    const user = await createUser("plan-insert-keeps-segment@example.com");
+    const { trip, day } = await createTripWithDay(user.id);
+
+    const first = await prisma.dayPlanItem.create({
+      data: { tripDayId: day.id, title: "A", fromTime: "09:00", toTime: "10:00", contentJson: sampleDoc("A") },
+    });
+    const second = await prisma.dayPlanItem.create({
+      data: { tripDayId: day.id, title: "B", fromTime: "15:00", toTime: "16:00", contentJson: sampleDoc("B") },
+    });
+
+    const leg = await prisma.travelSegment.create({
+      data: {
+        tripDayId: day.id,
+        fromItemType: "DAY_PLAN_ITEM",
+        fromItemId: first.id,
+        toItemType: "DAY_PLAN_ITEM",
+        toItemId: second.id,
+        transportType: "CAR",
+        durationMinutes: 40,
+        distanceKm: 12,
+      },
+    });
+
+    // The insertion, as a user reaches it: a new activity whose time falls between the two, created
+    // last. There is no "insert at position" anywhere in this app — this is what insertion *is*.
+    const created = await createDayPlanItemForTripDay({
+      userId: user.id,
+      tripId: trip.id,
+      tripDayId: day.id,
+      title: "M",
+      fromTime: "12:00",
+      toTime: "13:00",
+      contentJson: sampleDoc("M"),
+      costCents: null,
+      linkUrl: null,
+    });
+    expect(created).not.toBeNull();
+
+    // The retime: moving B earlier changes the order again without changing what the leg records.
+    const updated = await updateDayPlanItemForTripDay({
+      userId: user.id,
+      tripId: trip.id,
+      tripDayId: day.id,
+      itemId: second.id,
+      title: "B",
+      fromTime: "11:00",
+      toTime: "11:30",
+      contentJson: sampleDoc("B"),
+      costCents: null,
+      linkUrl: null,
+    });
+    expect(updated.status).toBe("updated");
+
+    // Nothing deleted and nothing fabricated: still exactly the one row, with the user's own numbers.
+    const segments = await prisma.travelSegment.findMany({ where: { tripDayId: day.id } });
+    expect(segments).toHaveLength(1);
+    expect(segments[0]).toMatchObject({
+      id: leg.id,
+      fromItemId: first.id,
+      toItemId: second.id,
+      transportType: "CAR",
+      durationMinutes: 40,
+      distanceKm: 12,
+    });
+  });
 });

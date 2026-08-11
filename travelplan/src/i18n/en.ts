@@ -431,6 +431,43 @@ const en: Dictionary = {
     "Enter a distance greater than 0 with at most one decimal: 12.5 or 12,5, and 1000 not 1.000",
   "trips.travelSegment.initError": "Unable to initialize travel segment editor. Please refresh.",
   "trips.travelSegment.saveError": "Travel segment update failed. Please try again.",
+  // Story 8.5. The orphaned-leg block, and the refusal that now points at it.
+  //
+  // "Orphaned leg" is the word the whole story is written in, so it is the word on screen: a row the
+  // day still holds and the timeline no longer draws. The description says *why* it is not drawn and,
+  // in the same breath, why the app did not simply delete it — mode, duration and distance are the
+  // user's own measurements, and only they can decide the leg is finished with.
+  "trips.travelSegment.orphanTitle": "Orphaned travel legs",
+  "trips.travelSegment.orphanDescription":
+    "These legs connect two points the day no longer puts next to each other, so the timeline above cannot draw them. Their transport, duration and distance are yours — remove a leg only when you no longer need it.",
+  "trips.travelSegment.orphanUncounted": "{duration} not counted in this day's travel time",
+  "trips.travelSegment.orphanUnknownEndpoint": "No longer on this day",
+  // Names the leg, not just the action: several orphans on one day would otherwise give a screen
+  // reader a set of buttons all called "Remove", with nothing to tell them apart.
+  //
+  // Worded connectors rather than the "{from} → {to}" the row shows: an arrow is announced as nothing
+  // by most screen readers, which turned this into "Remove travel leg Museum Park". And `{details}` -
+  // the same mode · duration · distance the row displays - because two orphans whose endpoints have all
+  // been deleted both resolve to `orphanUnknownEndpoint`, and without it their buttons had one
+  // identical name between them.
+  "trips.travelSegment.orphanRemoveAction": "Remove travel leg from {from} to {to}, {details}",
+  "trips.travelSegment.orphanRemoveConfirm":
+    "Remove this travel leg? Its transport, duration and distance are deleted with it.",
+  "trips.travelSegment.orphanRemoveError": "The travel leg could not be removed. Please try again.",
+  // The message the 2026-08-07 production report was about. "Travel segment already exists" was true
+  // and useless: the row existed, was invisible, and there was nowhere to go and look at it. This says
+  // what the constraint refused and where the row it refused over can be found. Shown on the *create*
+  // path only — an edit conflict would be pointing the user at a list for the row already open in
+  // front of them.
+  //
+  // Review correction: it used to assert the existing row is an orphan, and that is only one of the
+  // two ways to get here. Create mode is entered whenever *this tab* holds no row for the pair, which
+  // includes the ordinary case of a collaborator (or a second tab) having just added a perfectly
+  // adjacent leg — sending that user to an "Orphaned travel legs" block that does not exist on their
+  // day. So the sentence now says what is true either way: reload, and the row is on the timeline or
+  // in that list.
+  "trips.travelSegment.existsHint":
+    "A travel leg between these two points already exists — it was added since this day was loaded, or the day no longer puts these two points next to each other. Reload the day to find it: on the timeline, or under \"Orphaned travel legs\".",
   "trips.travelSegment.kmSuffix": "km",
   "trips.travelSegment.transport.car": "Car",
   "trips.travelSegment.transport.ship": "Ship",

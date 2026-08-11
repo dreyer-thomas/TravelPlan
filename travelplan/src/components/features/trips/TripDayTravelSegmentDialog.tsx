@@ -591,6 +591,20 @@ export default function TripDayTravelSegmentDialog({
 
       const body = (await response.json()) as ApiEnvelope<{ segment: TravelSegment }>;
       if (!response.ok || body.error || !body.data?.segment) {
+        // Story 8.5 AC7. The `409` is correct and stays: `@@unique([tripDayId, fromItemType,
+        // fromItemId, toItemType, toItemId])` really does already hold this pair. What the user read
+        // was the server's raw English "Travel segment already exists" — true, untranslated, and with
+        // nowhere to go, because the existing row is one the timeline cannot draw. This names the
+        // constraint and points at the day's orphaned-legs list, where the row now is.
+        //
+        // Create only. `PATCH` answers the same code (`route.ts:219`) when an edit is retargeted onto
+        // a pair that already has a row, and "find it under Orphaned travel legs" would then be
+        // describing the row the user has open in this very dialog. Every other error — and every
+        // conflict on the edit path — keeps relaying the server's message exactly as before.
+        if (!isEditing && body.error?.code === "travel_segment_exists") {
+          setServerError(t("trips.travelSegment.existsHint"));
+          return;
+        }
         setServerError(body.error?.message ?? t("trips.travelSegment.saveError"));
         return;
       }

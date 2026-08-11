@@ -1,6 +1,18 @@
 import { prisma } from "@/lib/db/prisma";
 import type { TravelSegmentItemType, TravelTransportType } from "@/generated/prisma/enums";
+// Story 8.5: the adjacency rule below used to sort with a private copy of this comparator, while the
+// screen that draws the same day's legs read the API's `createdAt` order. Two orders, one of which
+// decides what the server accepts and the other what the user sees. Now one module owns the rule and
+// `TripDayView.tsx` imports the same function — see `dayPlanItemOrder.ts` for why that mattered.
+import { compareDayPlanItemsByStartTime } from "@/lib/trips/dayPlanItemOrder";
 import type { TransportType } from "@/lib/trips/transportTypes";
+
+/**
+ * Declared per repository, as `dayPlanItemRepo.ts` and `bucketListRepo.ts` do. There is no shared
+ * repository module in this project and inventing one to hold a four-word type alias would be a
+ * larger change than the one Story 8.5 is making.
+ */
+type TransactionClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 
 /** Lowercase wire vocabulary for `TravelTransportType`, mirroring `TravelSegmentItemTypeInput`. */
 export type TransportTypeInput = TransportType;
@@ -176,24 +188,6 @@ const findTripDayForTripWriter = async (userId: string, tripId: string, tripDayI
     select: { id: true },
   });
 
-const comparePlanItemsByStartTime = (
-  left: { fromTime: string | null; createdAt: Date; id: string },
-  right: { fromTime: string | null; createdAt: Date; id: string },
-) => {
-  const leftHasStart = Boolean(left.fromTime);
-  const rightHasStart = Boolean(right.fromTime);
-  if (leftHasStart && rightHasStart) {
-    if (left.fromTime !== right.fromTime) return left.fromTime!.localeCompare(right.fromTime!);
-  } else if (leftHasStart !== rightHasStart) {
-    return leftHasStart ? -1 : 1;
-  }
-
-  const leftTime = left.createdAt.getTime();
-  const rightTime = right.createdAt.getTime();
-  if (leftTime !== rightTime) return leftTime - rightTime;
-  return left.id.localeCompare(right.id);
-};
-
 const buildSegmentTimeline = async (
   userId: string,
   tripId: string,
@@ -235,7 +229,7 @@ const buildSegmentTimeline = async (
     timeline.push({ id: previousDay.accommodation.id, type: "accommodation" });
   }
 
-  const sortedPlanItems = [...day.dayPlanItems].sort(comparePlanItemsByStartTime);
+  const sortedPlanItems = [...day.dayPlanItems].sort(compareDayPlanItemsByStartTime);
   for (const item of sortedPlanItems) {
     timeline.push({ id: item.id, type: "dayPlanItem" });
   }
@@ -263,6 +257,60 @@ const ensureSegmentItemsExist = async (
   if (toIndex !== fromIndex + 1) return "not_adjacent";
 
   return "ok";
+};
+
+/**
+ * Story 6.23, AC4/AC6, generalised by Story 8.5 (`DW-215`). Deletes every travel segment on
+ * `tripDayIds` that points at `itemId` **as `itemType`**, and returns the ids it deleted so the
+ * caller can report them.
+ *
+ * `TravelSegment` has **no foreign key to either endpoint** — `fromItemId`/`toItemId` are plain
+ * strings paired with a `fromItemType`/`toItemType` discriminator, and the only cascade is on
+ * `tripDayId`. So an endpoint that leaves a day (moved *or* deleted) leaves its segments behind, and
+ * before this helper nothing in the app cleaned them up. They are invisible — `TripDayView` only
+ * draws pairs the timeline actually produces — and were counted as "Fahrzeit" forever.
+ *
+ * It lives here rather than in `dayPlanItemRepo.ts` because `TravelSegmentItemType` has exactly two
+ * members and both of them now come through this one function: activities from
+ * `moveDayPlanItemToTripDay` and `deleteDayPlanItemForTripDay`, accommodations from
+ * `deleteAccommodationForTripDay`. `DW-215`'s decision is one helper, not a second near-identical
+ * `removeTravelSegmentsReferencingAccommodation`. Fixing only some of those paths would mean the app
+ * tidies up after one kind of removal but not another, which is the defect AC6 exists to close.
+ *
+ * The day ids are the caller's because the two types have different reach: an activity can only be an
+ * endpoint on its own day, while `buildSegmentTimeline` above offers day N's accommodation as the
+ * leading endpoint of day N+1, so the stay path passes the whole trip's days. See the Design Notes in
+ * the story spec.
+ *
+ * It deliberately does **not** heal the chain by joining the removed item's two former
+ * neighbours, and does not create anything on the target day: transport mode, duration and distance
+ * are the user's knowledge, and a fabricated segment is worse than a visible gap (AC5, Trap 3).
+ */
+export const removeTravelSegmentsReferencingItemInTransaction = async (
+  tx: TransactionClient,
+  tripDayIds: string[],
+  itemType: TravelSegmentItemType,
+  itemId: string,
+): Promise<string[]> => {
+  const segments = await tx.travelSegment.findMany({
+    where: {
+      tripDayId: { in: tripDayIds },
+      OR: [
+        { fromItemType: itemType, fromItemId: itemId },
+        { toItemType: itemType, toItemId: itemId },
+      ],
+    },
+    select: { id: true },
+    orderBy: { createdAt: "asc" },
+  });
+
+  if (segments.length === 0) {
+    return [];
+  }
+
+  const removedIds = segments.map((segment) => segment.id);
+  await tx.travelSegment.deleteMany({ where: { id: { in: removedIds } } });
+  return removedIds;
 };
 
 export const listTravelSegmentsForTripDay = async (params: {

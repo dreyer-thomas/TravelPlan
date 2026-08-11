@@ -45,6 +45,7 @@ import {
   MoreHorizontalIcon,
   ON_PHOTO_CHROME,
   PencilIcon,
+  TrashIcon,
   WarningTriangleIcon,
   toCssUrl,
   transportIconFor,
@@ -61,6 +62,18 @@ import { formatMessage } from "@/i18n";
 import { canTripAccessRoleWrite, type TripAccessRole } from "@/lib/auth/tripAccessRole";
 import { extractAttachmentFilename, triggerBlobDownload } from "@/lib/browser/blobDownload";
 import { buildDayMapPanelData, buildTripDayMapItems } from "@/lib/trips/dayMapData";
+// Story 8.5. The same function `travelSegmentRepo.ts` decides adjacency with. This screen's activity
+// order, the legs it draws between those activities, and the pairs the API will accept are one order
+// because they are one comparator - see `dayPlanItemOrder.ts` for what happened when they were two.
+import { compareDayPlanItemsByStartTime } from "@/lib/trips/dayPlanItemOrder";
+// Story 8.5 review. The drawn-pair rule, shared with `TripTimeline` so the trip overview's coverage bar
+// and this screen's travel figure cannot disagree about one day.
+import {
+  buildDaySegmentPairKey,
+  buildDaySegmentPairKeyForSegment,
+  buildDrawnDaySegmentPairKeys,
+  isDrawnDaySegment,
+} from "@/lib/trips/daySegmentPairs";
 import { documentDisplayName } from "@/lib/trips/documentUploads";
 import { IMAGE_UPLOAD_ACCEPT, isSupportedImageUpload } from "@/lib/trips/imageUploads";
 import { transportTypeAllowsDistance, type TransportType } from "@/lib/trips/transportTypes";
@@ -324,6 +337,14 @@ type TripDay = {
     payments?: { amountCents: number; dueDate: string }[];
     linkUrl: string | null;
     location: { lat: number; lng: number; label?: string | null } | null;
+    /**
+     * Story 8.5. `GET /api/trips/{id}` carries this now; it is optional only because a payload built
+     * before it did (an older cached response, a fixture) must still type-check. It is the tie-break
+     * `compareDayPlanItemsByStartTime` uses for two activities that start at the same minute, so
+     * without it this screen could order such a pair differently from the server that decides which
+     * legs between them are legal.
+     */
+    createdAt?: string;
   }[];
   travelSegments?: {
     id: string;
@@ -480,13 +501,28 @@ const COVERAGE_AXIS_TICKS = [
   { label: "24:00", percent: 100 },
 ];
 
-const buildSegmentKey = (from: SegmentItem, to: SegmentItem) => `${from.type}:${from.id}::${to.type}:${to.id}`;
-const buildSegmentKeyFromIds = (
-  fromType: "accommodation" | "dayPlanItem",
-  fromId: string,
-  toType: "accommodation" | "dayPlanItem",
-  toId: string,
-) => `${fromType}:${fromId}::${toType}:${toId}`;
+// Story 8.5 review: both of these were local to this file, and the trip overview then derived the same
+// day's coverage bar from *unfiltered* segments — one day, two figures, through the same
+// `trips.dayView.ganttSummary` string. The rule lives in `@/lib/trips/daySegmentPairs` now and both
+// screens import it; this wrapper only saves the two call sites below from spelling out four arguments
+// they already hold as two endpoints.
+const buildSegmentKey = (from: SegmentItem, to: SegmentItem) =>
+  buildDaySegmentPairKey(from.type, from.id, to.type, to.id);
+
+/**
+ * Story 8.5 review. Module scope, beside the other pure helpers, because it is pure: it closes over
+ * nothing in the component. Declared in the body it was rebuilt on every render and then called from
+ * inside two `useMemo`s that (correctly) do not list it as a dependency — a shape that is fine only for
+ * as long as the function stays free of component state, and that hides it if it ever stops being.
+ *
+ * The guards are the ones the travel-time reduction has always carried: a non-finite duration
+ * contributes nothing rather than poisoning the total with `NaN`, and a negative one cannot subtract.
+ */
+const sumSegmentMinutes = (segments: TravelSegment[]) =>
+  segments.reduce(
+    (sum, segment) => sum + (Number.isFinite(segment.durationMinutes) ? Math.max(0, segment.durationMinutes) : 0),
+    0,
+  );
 
 const parsePolyline = (value: unknown): [number, number][] => {
   if (!Array.isArray(value)) return [];
@@ -642,6 +678,25 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     setPlanMoveNotice(null);
   }
   const planItemsRef = useRef<DayPlanItem[]>([]);
+  // Story 8.5. `handleRemoveOrphanSegment`'s rollback snapshot, kept the way `planItemsRef` keeps
+  // `handleDeletePlan`'s. It is *not* a re-render optimisation - `day` is in that callback's dependency
+  // list and every segment mutation calls `setDay`, so the callback is rebuilt anyway.
+  //
+  // Nor - review correction - is it "the current list at click time": it is refreshed by the effect
+  // below, so between a `setTravelSegments` and the commit that follows it holds the *previous* list,
+  // one render behind. What makes that sufficient is that the two writers cannot interleave within one
+  // turn: `handleRemoveOrphanSegment` calls `window.confirm` before it reads the ref, and that call
+  // blocks the main thread, so no other click can run between this read and this handler's own
+  // `setTravelSegments`. The index it takes from the snapshot is clamped into range on restore for the
+  // same reason a stale-by-one index needs clamping at all - the list may have been re-fetched by
+  // `loadDay` while the request was in flight.
+  const travelSegmentsRef = useRef<TravelSegment[]>([]);
+  // The ids whose `DELETE` is in flight. A ref, not state, because the guard has to hold *within* the
+  // click that reads it: React batches state, so a second click arriving in the same turn as the first
+  // would see a stale set and issue its own request - and that second request's `404` is what used to
+  // undo the first one's result. The state below is the same information for rendering.
+  const pendingOrphanRemovalsRef = useRef<Set<string>>(new Set());
+  const [pendingOrphanRemovals, setPendingOrphanRemovals] = useState<string[]>([]);
   const handledDeepLinkRef = useRef<string | null>(null);
   const scrollRestoreKey = useMemo(() => `trip-day-scroll:${tripId}:${dayId}`, [dayId, tripId]);
   const defaultCheckInTime = "16:00";
@@ -708,6 +763,10 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   useEffect(() => {
     planItemsRef.current = planItems;
   }, [planItems]);
+
+  useEffect(() => {
+    travelSegmentsRef.current = travelSegments;
+  }, [travelSegments]);
 
   useEffect(() => {
     if (loading || !day) return;
@@ -808,8 +867,19 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     [buildBucketListContentJson],
   );
 
-  const loadDay = useCallback(async () => {
-    setLoading(true);
+  /**
+   * `options.silent` skips the `loading` flag, and only that. Every other effect of a load - the
+   * refetch, the state it replaces, the `notFound` and error handling - is identical.
+   *
+   * Why it exists (Story 8.5 review): `loading` makes this component return a full-screen skeleton
+   * (see the early return below the hooks), so a re-read triggered by a *background* correction blanks
+   * the hero, the coverage bar, the stat strip and every card, then remounts them. That is the right
+   * shape for a cold route load and the wrong one for `handleRemoveOrphanSegment`'s `404` branch,
+   * which re-reads to settle one row of one list. The comment further down about `loadDay()`
+   * unmounting the hero out from under an open menu is the same hazard from the other side.
+   */
+  const loadDay = useCallback(async (options?: { silent?: boolean }) => {
+    if (!options?.silent) setLoading(true);
     setError(null);
     setNotFound(false);
 
@@ -854,19 +924,29 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
 
       setDetail(detailBody.data);
       setDay(resolvedDay);
+      // Story 8.5. Two changes to a mapping that used to throw `createdAt` away and take the array as
+      // it came. `createdAt` is carried because the shared comparator breaks a same-start-time tie
+      // with it, and the list is sorted with that comparator because this screen's activity order is
+      // no longer only a rendering choice: the day's travel legs are the consecutive pairs of this
+      // order, and the API accepts exactly the pairs *its* order makes consecutive
+      // (`ensureSegmentItemsExist`). Sorting here rather than trusting the payload's order means the
+      // two cannot come apart — a leg counted but not drawn, or an accepted leg offered for deletion
+      // as an orphan, is what a disagreement between them looks like on screen.
       setPlanItems(
-        (resolvedDay.dayPlanItems ?? []).map((item) => ({
-          id: item.id,
-          tripDayId: resolvedDay.id,
-          title: item.title,
-          fromTime: item.fromTime ?? null,
-          toTime: item.toTime ?? null,
-          contentJson: item.contentJson,
-          costCents: typeof item.costCents === "number" ? item.costCents : null,
-          linkUrl: item.linkUrl,
-          location: item.location,
-          createdAt: "",
-        })),
+        (resolvedDay.dayPlanItems ?? [])
+          .map((item) => ({
+            id: item.id,
+            tripDayId: resolvedDay.id,
+            title: item.title,
+            fromTime: item.fromTime ?? null,
+            toTime: item.toTime ?? null,
+            contentJson: item.contentJson,
+            costCents: typeof item.costCents === "number" ? item.costCents : null,
+            linkUrl: item.linkUrl,
+            location: item.location,
+            createdAt: item.createdAt ?? "",
+          }))
+          .sort(compareDayPlanItemsByStartTime),
       );
       setTravelSegments(Array.isArray(resolvedDay.travelSegments) ? resolvedDay.travelSegments : []);
     } catch {
@@ -877,7 +957,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
       setBucketItems([]);
       setTravelSegments([]);
     } finally {
-      setLoading(false);
+      if (!options?.silent) setLoading(false);
     }
   }, [dayId, resolveApiError, t, tripId]);
 
@@ -931,10 +1011,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const segmentsByKey = useMemo(() => {
     const map = new Map<string, TravelSegment>();
     for (const segment of travelSegments) {
-      map.set(
-        buildSegmentKeyFromIds(segment.fromItemType, segment.fromItemId, segment.toItemType, segment.toItemId),
-        segment,
-      );
+      map.set(buildDaySegmentPairKeyForSegment(segment), segment);
     }
     return map;
   }, [travelSegments]);
@@ -975,6 +1052,157 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     });
     setSegmentDialogOpen(false);
   };
+
+  /**
+   * Story 8.5 AC6. Removes one orphaned leg through the `DELETE` the route has always accepted.
+   *
+   * No repository or route change stands behind this. `deleteTravelSegmentForTripDay` looks the row up
+   * by `{ id, tripDayId }` and never consults `ensureSegmentItemsExist`, and
+   * `DELETE /api/trips/{id}/travel-segments` answers `200 { deleted: true }` for an orphan's id today.
+   * `DW-151`'s "cannot be deleted through the UI" was true and its stated cause was not: **nothing in
+   * `src/` ever issued that request**, because the only way to reach a segment was a timeline leg,
+   * which requires the pair to be drawn. This is the missing caller, and widening
+   * `ensureSegmentItemsExist` to get here would have relaxed the creation refusal AC7 depends on.
+   *
+   * Optimistic-with-rollback, and patching all three copies, exactly as `handleDeletePlan` and
+   * `handleTravelSegmentSaved` do: nothing reloads the day afterwards, so a row left in `detail.days[]`
+   * would come back the next time anything re-derives from it.
+   */
+  const handleRemoveOrphanSegment = useCallback(
+    async (segmentId: string) => {
+      if (!day) return;
+      // Review correction: the same first line every sibling handler carries (`handleOpenTravelSegment`,
+      // `handleOpenAddPlan`, `handleOpenEditPlan`). The control is withheld from a viewer, so this is
+      // not the only thing standing between her and the request - but "the button is not rendered" is a
+      // rendering fact, and this handler is reachable from anywhere the row is (a deep link that opens
+      // it, a future keyboard shortcut, a role that changed under an open tab). The route refuses her
+      // anyway; the point is not to ask.
+      if (!canEditPlanning) return;
+      // Read and claim in one turn, before any await - see `pendingOrphanRemovalsRef`.
+      if (pendingOrphanRemovalsRef.current.has(segmentId)) return;
+
+      const confirmed = window.confirm(t("trips.travelSegment.orphanRemoveConfirm"));
+      if (!confirmed) return;
+
+      const snapshot = travelSegmentsRef.current;
+      const removedIndex = snapshot.findIndex((segment) => segment.id === segmentId);
+      const removedSegment = removedIndex >= 0 ? snapshot[removedIndex] : null;
+      if (!removedSegment) return;
+
+      pendingOrphanRemovalsRef.current.add(segmentId);
+      setPendingOrphanRemovals((current) => (current.includes(segmentId) ? current : [...current, segmentId]));
+
+      const dayId = day.id;
+      const withoutSegment = (segments: TravelSegment[] | undefined) =>
+        (segments ?? []).filter((segment) => segment.id !== segmentId);
+      // Index-preserving in all three copies, not just the rendered one. Re-inserting at the snapshot
+      // index here and appending there would leave the day's three views of one list holding the same
+      // rows in two different orders - no consumer reads them in order today, which is exactly why
+      // such a divergence would be found by whoever first does.
+      const withSegment = (segments: TravelSegment[] | undefined) => {
+        const current = segments ?? [];
+        if (current.some((segment) => segment.id === segmentId)) return current;
+        const insertAt = Math.min(Math.max(removedIndex, 0), current.length);
+        return [...current.slice(0, insertAt), removedSegment, ...current.slice(insertAt)];
+      };
+
+      setTravelSegments((current) => withoutSegment(current));
+      setDay((current) => (current ? { ...current, travelSegments: withoutSegment(current.travelSegments) } : current));
+      setDetail((current) =>
+        current
+          ? {
+              ...current,
+              days: current.days.map((entry) =>
+                entry.id === dayId ? { ...entry, travelSegments: withoutSegment(entry.travelSegments) } : entry,
+              ),
+            }
+          : current,
+      );
+      setError(null);
+
+      // The list's own order is restored, not appended to: an orphaned leg is identified on screen by
+      // the pair it names, and a failed removal that reordered the list would move a *different* row
+      // under the pointer that just missed.
+      //
+      // And it restores only if this is still the day the click happened on. `dayId` is captured, but
+      // `travelSegments` and `day` are the *currently shown* day's state: a user who presses Remove and
+      // navigates to the next day before the request settles would otherwise have this day's segment
+      // pushed into that one's list, where it renders as an orphaned leg of a day it was never on and
+      // stays until the next full load. `setDetail` below is keyed by `dayId` and was always safe; these
+      // two were not.
+      const restore = () => {
+        if (currentDayIdRef.current !== dayId) return;
+        setTravelSegments((current) => withSegment(current));
+        setDay((current) => (current ? { ...current, travelSegments: withSegment(current.travelSegments) } : current));
+        setDetail((current) =>
+          current
+            ? {
+                ...current,
+                days: current.days.map((entry) =>
+                  entry.id === dayId ? { ...entry, travelSegments: withSegment(entry.travelSegments) } : entry,
+                ),
+              }
+            : current,
+        );
+      };
+
+      const release = () => {
+        pendingOrphanRemovalsRef.current.delete(segmentId);
+        setPendingOrphanRemovals((current) => current.filter((id) => id !== segmentId));
+      };
+
+      try {
+        const token = await ensureCsrfToken();
+        const response = await fetch(`/api/trips/${tripId}/travel-segments`, {
+          method: "DELETE",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            "x-csrf-token": token,
+          },
+          body: JSON.stringify({ tripDayId: dayId, segmentId }),
+        });
+
+        /**
+         * Review correction, and the status is read *before* the body on purpose.
+         *
+         * `travel-segments/route.ts` answers `404 not_found` for two states it cannot tell apart:
+         * the row is already gone, and `findTripDayForTripWriter` refused the caller (a viewer, or a
+         * contributor demoted while this tab was open). Treating every `404` as success made a refused
+         * removal look like a successful one - the row vanished silently and came back on the next
+         * reload - and treating it as a failure would put a ghost row back under a "please try again"
+         * that can never succeed. Neither answer is knowable here, so this asks the server instead:
+         * `loadDay` re-fetches the day and its state settles it. Gone stays gone; refused comes back,
+         * along with the permissions the day really has. The API's error codes are unchanged.
+         */
+        if (response.status === 404) {
+          void loadDay({ silent: true });
+          return;
+        }
+
+        // Defensive parse: `response.json()` throws on a proxy's or platform's HTML error page, and the
+        // `catch` below is the *network* arm - it would restore the row under the retry message even for
+        // a body that was merely not JSON. A failure with an unreadable body is still a failure, it just
+        // has no error code to translate, so it falls through to the generic message.
+        const body = (await response.json().catch(() => null)) as ApiEnvelope<{ deleted: boolean }> | null;
+        // A `not_found` code on some other status is the same "already gone or never yours" answer.
+        if (body?.error?.code === "not_found") {
+          void loadDay({ silent: true });
+          return;
+        }
+        if (!response.ok || body?.error) {
+          restore();
+          setError(resolveApiError(body?.error?.code, t("trips.travelSegment.orphanRemoveError")));
+        }
+      } catch {
+        restore();
+        setError(resolveApiError("network_error", t("trips.travelSegment.orphanRemoveError")));
+      } finally {
+        release();
+      }
+    },
+    [canEditPlanning, day, ensureCsrfToken, loadDay, resolveApiError, t, tripId],
+  );
 
   const handleOpenAddPlan = () => {
     if (!canEditPlanning) return;
@@ -1586,23 +1814,149 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
       setCopyingStay(false);
     }
   }, [day, ensureCsrfToken, previousStay, t, tripId]);
-  const previousStaySegment = previousStay
-    ? {
-        id: previousStay.id,
-        type: "accommodation" as const,
-        label: previousStay.name,
-        location: previousStay.location ?? null,
-        endTime: resolveStayTime(previousStay.checkOutTime, defaultCheckOutTime),
+  const getPlanItemLabel = useCallback(
+    (item: DayPlanItem, index: number) => {
+      const preview = parsePlanText(item.contentJson) || formatMessage(t("trips.dayView.budgetItemPlan"), { index: index + 1 });
+      return item.title?.trim() || preview;
+    },
+    [t],
+  );
+  // Story 8.5: both were plain consts, rebuilt object-identical on every render. They are memos now
+  // because `timelineEndpoints` below is derived from them, and a dependency that changes every pass
+  // would make the day's one source of truth about what is drawn recompute on every render.
+  const previousStaySegment = useMemo<SegmentItem | null>(
+    () =>
+      previousStay
+        ? {
+            id: previousStay.id,
+            type: "accommodation",
+            label: previousStay.name,
+            location: previousStay.location ?? null,
+            endTime: resolveStayTime(previousStay.checkOutTime, defaultCheckOutTime),
+          }
+        : null,
+    // `resolveStayTime` is a pure local helper over its two arguments and is left out of the list for
+    // the same reason `staySegments` below leaves it out.
+    [defaultCheckOutTime, previousStay],
+  );
+  const currentStaySegment = useMemo<SegmentItem | null>(
+    () =>
+      currentStay
+        ? {
+            id: currentStay.id,
+            type: "accommodation",
+            label: currentStay.name,
+            location: currentStay.location ?? null,
+          }
+        : null,
+    [currentStay],
+  );
+
+  /** The endpoint an activity presents to the timeline — extracted from the two inline copies the JSX built. */
+  const toPlanSegmentItem = useCallback(
+    (item: DayPlanItem, index: number): SegmentItem => ({
+      id: item.id,
+      type: "dayPlanItem",
+      label: getPlanItemLabel(item, index),
+      location: item.location,
+      endTime: item.toTime ?? null,
+    }),
+    [getPlanItemLabel],
+  );
+
+  /**
+   * Story 8.5 AC4/AC5. **The** ordered endpoint list for this day: last night's stay, this day's
+   * activities in order, this day's stay. The timeline's legs are its consecutive pairs, and nothing
+   * else on this screen is allowed to have a second opinion about what those are.
+   *
+   * That is the whole point of the array. `totalTravelMinutes` used to reduce over every fetched row
+   * while the JSX assembled the drawn pairs inline at three separate places; the two could disagree,
+   * and a disagreement in that direction *is* the defect (`DW-151`) — minutes counted in "Fahrzeit"
+   * for a leg with no row on screen and no control anywhere that could remove it. One array feeds the
+   * render, the drawn-key set and the orphan split, so they cannot drift apart again.
+   *
+   * The order matches the server's `buildSegmentTimeline` (`travelSegmentRepo.ts`) endpoint for
+   * endpoint: `previousDay` is `orderedDays[currentIndex - 1]`, chronological, against the
+   * repository's nearest-lower `dayIndex`, and `planItems` was sorted with the very comparator that
+   * repository sorts with (`loadDay`).
+   */
+  const timelineEndpoints = useMemo<SegmentItem[]>(() => {
+    const endpoints: SegmentItem[] = [];
+    if (previousStaySegment) endpoints.push(previousStaySegment);
+    planItems.forEach((item, index) => endpoints.push(toPlanSegmentItem(item, index)));
+    if (currentStaySegment) endpoints.push(currentStaySegment);
+    return endpoints;
+  }, [currentStaySegment, planItems, previousStaySegment, toPlanSegmentItem]);
+
+  /** Where the activities start in `timelineEndpoints`, so the JSX below indexes rather than rebuilds. */
+  const planEndpointOffset = previousStaySegment ? 1 : 0;
+
+  const drawnSegmentKeys = useMemo(() => buildDrawnDaySegmentPairKeys(timelineEndpoints), [timelineEndpoints]);
+
+  const isDrawnSegment = useCallback(
+    (segment: TravelSegment) => isDrawnDaySegment(drawnSegmentKeys, segment),
+    [drawnSegmentKeys],
+  );
+
+  const drawnSegments = useMemo(
+    () => travelSegments.filter((segment) => isDrawnSegment(segment)),
+    [isDrawnSegment, travelSegments],
+  );
+
+  /**
+   * Everything the timeline does not draw: a pair whose endpoints are still both on the day but are no
+   * longer next to each other (an activity was inserted between them, or one was retimed — `DW-148`),
+   * and the pre-existing rows whose endpoints name nothing at all. Kept rather than deleted, because
+   * transport mode, duration and distance are the user's own measurements and none of them is
+   * derivable; they are listed below the stat strip with a removal control instead.
+   */
+  const orphanedSegments = useMemo(
+    () => travelSegments.filter((segment) => !isDrawnSegment(segment)),
+    [isDrawnSegment, travelSegments],
+  );
+
+  // AC5: the day's travel time is the sum of exactly the legs the timeline draws. The guards are the
+  // ones this reduction always carried (see `sumSegmentMinutes` at module scope); only the list it runs
+  // over changed.
+  const totalTravelMinutes = useMemo(() => sumSegmentMinutes(drawnSegments), [drawnSegments]);
+  const orphanedTravelMinutes = useMemo(() => sumSegmentMinutes(orphanedSegments), [orphanedSegments]);
+
+  // `timelineEndpoints[1]` by construction: with a previous night on record it is index 0, so its
+  // successor is whatever the day offers next — the first activity, or this day's stay on a day with
+  // no activities at all. The render site keeps its `previousStaySegment &&` guard, which is what
+  // makes the lookup meaningful.
+  const previousSegmentTarget = timelineEndpoints[1] ?? null;
+
+  /**
+   * Story 8.5 AC4. An orphan's endpoints are ids beside a type discriminator with no join behind them,
+   * so they are resolved against what this day already holds — the previous night's stay, this day's
+   * stay, this day's activities — and nothing is fetched to resolve one that is not there. The row is
+   * being shown so it can be removed, and a label that cannot be found *is* the explanation for why it
+   * is no longer drawn.
+   */
+  const resolveSegmentEndpointLabel = useCallback(
+    (itemType: "accommodation" | "dayPlanItem", itemId: string) => {
+      if (itemType === "accommodation") {
+        if (previousStay?.id === itemId) return previousStay.name;
+        if (currentStay?.id === itemId) return currentStay.name;
+        return t("trips.travelSegment.orphanUnknownEndpoint");
       }
-    : null;
-  const currentStaySegment = currentStay
-    ? {
-        id: currentStay.id,
-        type: "accommodation" as const,
-        label: currentStay.name,
-        location: currentStay.location ?? null,
-      }
-    : null;
+      const index = planItems.findIndex((item) => item.id === itemId);
+      if (index < 0) return t("trips.travelSegment.orphanUnknownEndpoint");
+      return getPlanItemLabel(planItems[index], index);
+    },
+    [currentStay, getPlanItemLabel, planItems, previousStay, t],
+  );
+
+  /** `from → to`, as the row records them. Also the orphan row's remove button's accessible name. */
+  const describeOrphanRoute = useCallback(
+    (segment: TravelSegment) =>
+      `${resolveSegmentEndpointLabel(segment.fromItemType, segment.fromItemId)} → ${resolveSegmentEndpointLabel(
+        segment.toItemType,
+        segment.toItemId,
+      )}`,
+    [resolveSegmentEndpointLabel],
+  );
   const staySegments = useMemo(
     () =>
       buildStaySegments({
@@ -1625,7 +1979,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     [planItems],
   );
   const travelSegmentsForGantt = useMemo(() => {
-    if (!travelSegments.length) return [];
+    if (!drawnSegments.length) return [];
     const accommodationEndTimes: Record<string, string | null | undefined> = {};
     if (previousStay) {
       accommodationEndTimes[previousStay.id] = resolveStayTime(previousStay.checkOutTime, defaultCheckOutTime);
@@ -1635,7 +1989,12 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
       planItemEndTimes[item.id] = item.toTime;
     }
     return buildTravelSegments({
-      travelSegments: travelSegments.map((segment) => ({
+      // Story 8.5 AC5: the *drawn* legs, for the same reason the stat cell below counts only those.
+      // This bar sits in the same panel and derives "Planned" from the rows it is given, so fed every
+      // fetched row it painted a travel block - and folded those minutes into "Planned" - for a leg
+      // the block underneath simultaneously reports as not counted in this day's travel time. One
+      // day, one panel, two figures disagreeing about it. `buildTravelSegments` itself is untouched.
+      travelSegments: drawnSegments.map((segment) => ({
         id: segment.id,
         fromItemType: segment.fromItemType,
         fromItemId: segment.fromItemId,
@@ -1644,7 +2003,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
       accommodationEndTimes,
       planItemEndTimes,
     });
-  }, [planItems, previousStay, travelSegments]);
+  }, [drawnSegments, planItems, previousStay]);
   const ganttSegments = useMemo(
     () => [...staySegments, ...planItemSegments, ...travelSegmentsForGantt],
     [planItemSegments, staySegments, travelSegmentsForGantt],
@@ -1699,14 +2058,6 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
       : gaps.map((gap) => ({ startMinute: gap.startMinute, endMinute: gap.endMinute, kind: "gap" as const }));
     return [...ganttSegments, ...gapSegments];
   }, [coverageIsAssumed, day?.missingAccommodation, ganttCoverage.gaps, ganttSegments]);
-  const totalTravelMinutes = useMemo(
-    () =>
-      travelSegments.reduce(
-        (sum, segment) => sum + (Number.isFinite(segment.durationMinutes) ? Math.max(0, segment.durationMinutes) : 0),
-        0,
-      ),
-    [travelSegments],
-  );
   const dayHasTimelineContent = Boolean(previousStay || currentStay || planItems.length > 0);
   // The range strings stay byte-identical when the underlying times are real. When they are not, the
   // pill says so rather than presenting resolveStayTime's 16:00/10:00 fallback as a recorded fact -
@@ -1742,24 +2093,6 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     const endMinutes = Math.min(startMinutes + durationMinutes, 24 * 60);
     return `${formatMinutesToTime(startMinutes)} - ${formatMinutesToTime(endMinutes)}`;
   }, []);
-  const getPlanItemLabel = useCallback(
-    (item: DayPlanItem, index: number) => {
-      const preview = parsePlanText(item.contentJson) || formatMessage(t("trips.dayView.budgetItemPlan"), { index: index + 1 });
-      return item.title?.trim() || preview;
-    },
-    [t],
-  );
-  const firstPlanSegment =
-    planItems.length > 0
-      ? {
-          id: planItems[0].id,
-          type: "dayPlanItem" as const,
-          label: getPlanItemLabel(planItems[0], 0),
-          location: planItems[0].location,
-          endTime: planItems[0].toTime ?? null,
-        }
-      : null;
-  const previousSegmentTarget = firstPlanSegment ?? (planItems.length === 0 ? currentStaySegment : null);
   // Shared DESIGN.md shells, declared once so the timeline, sidebar and stat strip cannot drift apart.
   const cardSx = {
     backgroundColor: tokens.card,
@@ -3239,6 +3572,123 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                 </Typography>
               </Box>
             </Box>
+
+            {/* Story 8.5 AC4/AC5. Directly beneath the stat strip, inside the same panel, because the
+                figure this list is separate *from* is the one immediately above it: a leg reported as
+                uncounted needs the count in view or the sentence has nothing to be measured against.
+                It is not in the timeline, because these rows have no position in it — that is what
+                being an orphan means. The whole block is absent when there are none. */}
+            {orphanedSegments.length > 0 ? (
+              <Box
+                data-testid="orphan-travel-segments"
+                sx={{
+                  backgroundColor: tokens.card,
+                  borderTop: "1px solid",
+                  borderColor: tokens.border,
+                  padding: "14px 18px",
+                }}
+              >
+                <Typography variant="labelCaps" component="h6" sx={{ color: tokens.inkSoft, display: "block" }}>
+                  {t("trips.travelSegment.orphanTitle")}
+                </Typography>
+                <Typography variant="body2" sx={{ color: tokens.inkSoft, mt: "4px" }}>
+                  {t("trips.travelSegment.orphanDescription")}
+                </Typography>
+                {/* A real ul/li, as in `TripDayBucketListPanel`: the bordered rows are presentational
+                    and must not cost the list its "list, N items". */}
+                <Box
+                  component="ul"
+                  sx={{ listStyle: "none", m: 0, mt: 1, p: 0, "& > li:last-child": { borderBottom: "none" } }}
+                >
+                  {orphanedSegments.map((segment) => {
+                    const route = describeOrphanRoute(segment);
+                    // Named per row, not "Remove": several orphans on one day would otherwise present
+                    // a set of buttons sharing one name.
+                    //
+                    // Review correction, and the reason this is not simply `{ route }`: the visible
+                    // route reads `Museum → Park`, and most screen readers announce `→` as nothing at
+                    // all ("Remove travel leg Museum Park"). The template takes its two endpoints
+                    // separately so the locale can put a real word between them, and takes what the row
+                    // *records* as well - two orphans whose four endpoints have all been deleted resolve
+                    // to the identical fallback label, and mode · duration · distance is then the only
+                    // thing left that tells one button from the other.
+                    const removeLabel = formatMessage(t("trips.travelSegment.orphanRemoveAction"), {
+                      from: resolveSegmentEndpointLabel(segment.fromItemType, segment.fromItemId),
+                      to: resolveSegmentEndpointLabel(segment.toItemType, segment.toItemId),
+                      details: travelSegmentLabel(segment),
+                    });
+                    const removalPending = pendingOrphanRemovals.includes(segment.id);
+                    return (
+                      <Box
+                        component="li"
+                        key={segment.id}
+                        data-testid="orphan-travel-segment"
+                        data-segment-id={segment.id}
+                        sx={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: 1.25,
+                          padding: "9px 0",
+                          borderBottom: "1px solid",
+                          borderColor: tokens.border,
+                        }}
+                      >
+                        <Box sx={{ minWidth: 0 }}>
+                          <Typography
+                            data-testid="orphan-travel-segment-route"
+                            sx={{ fontSize: "12.5px", fontWeight: 700, color: tokens.ink, overflowWrap: "anywhere" }}
+                          >
+                            {route}
+                          </Typography>
+                          {/* The same label the drawn legs carry: mode · duration · distance. These are
+                              the user's own measurements and the reason the row is surfaced rather than
+                              deleted for them. */}
+                          <Typography
+                            data-testid="orphan-travel-segment-label"
+                            sx={{ fontSize: 11, fontWeight: 600, color: tokens.inkSoft, mt: "1px" }}
+                          >
+                            {travelSegmentLabel(segment)}
+                          </Typography>
+                        </Box>
+                        {/* Contributors included (Story 5.13): removing an orphaned leg is the same
+                            right as editing a segment. A viewer sees the row and no control.
+                            The glyph is 24px inside the 44px hit area EXPERIENCE.md floors it at. */}
+                        {canEditPlanning ? (
+                          <IconButton
+                            data-testid="orphan-travel-segment-remove"
+                            aria-label={removeLabel}
+                            disabled={removalPending}
+                            onClick={() => void handleRemoveOrphanSegment(segment.id)}
+                            sx={{
+                              flexShrink: 0,
+                              width: 44,
+                              height: 44,
+                              padding: 0,
+                              color: theme.palette.primary.main,
+                            }}
+                          >
+                            <Box component="span" sx={VISUALLY_HIDDEN}>
+                              {removeLabel}
+                            </Box>
+                            <TrashIcon />
+                          </IconButton>
+                        ) : null}
+                      </Box>
+                    );
+                  })}
+                </Box>
+                <Typography
+                  data-testid="orphan-travel-segments-uncounted"
+                  variant="body2"
+                  sx={{ color: tokens.inkSoft, mt: 1 }}
+                >
+                  {formatMessage(t("trips.travelSegment.orphanUncounted"), {
+                    duration: formatDurationSummary(orphanedTravelMinutes),
+                  })}
+                </Typography>
+              </Box>
+            ) : null}
           </Box>
 
           <Box
@@ -3405,26 +3855,15 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                     const preview =
                       parsePlanText(item.contentJson) || formatMessage(t("trips.dayView.budgetItemPlan"), { index: index + 1 });
                     const title = item.title?.trim() || preview;
-                    const segmentItem: SegmentItem = {
-                      id: item.id,
-                      type: "dayPlanItem",
-                      label: title,
-                      location: item.location,
-                      endTime: item.toTime ?? null,
-                    };
+                    // Story 8.5: both endpoints are read out of `timelineEndpoints` rather than rebuilt
+                    // here. The pair the JSX draws and the pair `drawnSegmentKeys` counts are now the
+                    // same expression, which is what stops a leg from being counted without being drawn.
+                    const endpointIndex = planEndpointOffset + index;
+                    const segmentItem = timelineEndpoints[endpointIndex];
+                    const nextSegmentItem = timelineEndpoints[endpointIndex + 1] ?? null;
                     const itemImages = planItemImagesById[item.id] ?? [];
                     // Every child of the head row is conditional, so the row itself has to be too.
                     const showCardHead = Boolean((item.fromTime && item.toTime) || item.costCents || canEditPlanning);
-                    const nextPlanItem = planItems[index + 1];
-                    const nextSegmentItem = nextPlanItem
-                      ? {
-                          id: nextPlanItem.id,
-                          type: "dayPlanItem" as const,
-                          label: getPlanItemLabel(nextPlanItem, index + 1),
-                          location: nextPlanItem.location,
-                          endTime: nextPlanItem.toTime ?? null,
-                        }
-                      : currentStaySegment;
 
                     return (
                       <Box key={item.id}>

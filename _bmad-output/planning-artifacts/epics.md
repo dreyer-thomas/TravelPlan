@@ -3227,6 +3227,35 @@ Three entries produce such rows and one is the cost of living with them. The sto
 **Then** it is restored rather than dropped, and surfaces as an orphaned leg — import fidelity is unchanged
 
 
+### Story 8.6: The Sixth Route Story 8.4 Left Out
+
+As someone whose hero-image upload fails at the last step,
+I want that failure to clean up the file it just wrote,
+So that it does not take every photo and document in the trip with it.
+
+**FRs covered:** None (defect; the ledger's only open `high`)
+
+**Depends on:** Story 8.4, which built the instrument this story applies.
+
+**Context:** Story 8.4 closed DW-194 by building `mediaCleanup.ts` around one rule — *one file, never a tree* — and applying it to five routes. Its spec excluded a sixth on the stated ground that the hero-image route "owns a flat file, not a tree". That is false: the rollback there removes `getTripUploadDir(tripId)` recursively, which is the root of the trip's entire media tree — every day image, every stay and activity photo, and every document, across every day. A failed hero upload therefore destroys the trip's whole media library while touching no row, so every chip keeps rendering a 404.
+
+Recorded as DW-305 by Story 8.4's own review, which checked the spec's reasoning against the code rather than trusting it. The window is narrow — the trip must stop satisfying the writer clause between the route gate and the update — but the cost per occurrence is the trip's entire media library, and the fix is one call to a helper that already exists.
+
+**Acceptance Criteria:**
+
+**Given** a trip whose media tree holds a day image, a stay photo and a document
+**When** a hero-image upload rolls back because the trip row no longer satisfies the writer clause
+**Then** only the hero file that request wrote is removed, and every other file survives byte-identically
+
+**Given** the same rollback
+**When** it completes
+**Then** the hero file it wrote is genuinely gone rather than orphaned, and the route still answers 404
+
+**Given** Story 8.4's `removeManagedMediaFile`
+**When** this route is fixed
+**Then** it becomes that helper's sixth call site rather than a second implementation of the same rule
+
+
 ## Epic 9: Travel Documents
 
 Users can keep tickets and booking confirmations as the original files on the stay or activity they belong to, see and open them from the day timeline, and take them offline as one PDF.

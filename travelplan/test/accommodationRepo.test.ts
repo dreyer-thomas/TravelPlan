@@ -67,9 +67,27 @@ const createTripWithTwoDays = async (userId: string) => {
   return { trip, previousDay, currentDay };
 };
 
+/**
+ * Story 8.5 AC1. The same sum `TripDayView`'s "Fahrzeit" cell reports, reproduced here rather than
+ * counted as rows — copied deliberately from `dayPlanItemRepo.test.ts:85`, because the stay-side
+ * defect (`DW-79`, `DW-215`) is the activity-side one seen from the other endpoint type, and the two
+ * regression tests should measure it the same way.
+ */
+const totalTravelMinutesForDay = async (tripDayId: string) => {
+  const segments = await prisma.travelSegment.findMany({
+    where: { tripDayId },
+    select: { durationMinutes: true },
+  });
+  return segments.reduce((total, segment) => total + segment.durationMinutes, 0);
+};
+
 describe("accommodationRepo", () => {
   beforeEach(async () => {
+    // Story 8.5: this suite now seeds segments and activities, so it has to clear them too. Both go
+    // ahead of `tripDay`, which is what they hang off.
+    await prisma.travelSegment.deleteMany();
     await prisma.costPayment.deleteMany();
+    await prisma.dayPlanItem.deleteMany();
     await prisma.accommodation.deleteMany();
     await prisma.tripDay.deleteMany();
     await prisma.trip.deleteMany();
@@ -349,6 +367,93 @@ describe("accommodationRepo", () => {
 
     expect(deleted).toBe(true);
     expect(await prisma.accommodation.count()).toBe(0);
+  });
+
+  /**
+   * Story 8.5 AC1/AC2, and the mirror of `dayPlanItemRepo.test.ts`'s "removes the travel segments
+   * referencing a deleted activity so the day stops counting them".
+   *
+   * `TravelSegment` has no foreign key to `Accommodation` either — `fromItemId`/`toItemId` are plain
+   * strings beside a type discriminator — so before this story deleting a stay left every segment
+   * pointing at it in place: invisible, because `TripDayView` only draws pairs the timeline produces,
+   * and permanently counted, because `totalTravelMinutes` summed every fetched row.
+   *
+   * The sweep is trip-scoped rather than day-scoped because a stay is an endpoint on **two** days:
+   * `buildSegmentTimeline` (`travelSegmentRepo.ts:222-234`) offers day N's accommodation as the
+   * leading endpoint of day N+1. A `[tripDayId]`-scoped cleanup would leave the second row below
+   * behind — the same defect, one day over — which is what makes it the assertion that matters here.
+   */
+  it("removes the travel segments referencing a deleted stay, on its own day and the following one", async () => {
+    const user = await createUser("stay-delete-segments@example.com");
+    const { trip, previousDay, currentDay } = await createTripWithTwoDays(user.id);
+
+    const stay = await prisma.accommodation.create({
+      data: { tripDayId: previousDay.id, name: "Doomed Stay", status: "PLANNED" },
+    });
+    const morning = await prisma.dayPlanItem.create({
+      data: { tripDayId: previousDay.id, title: "Morning", contentJson: "{}" },
+    });
+    const arrival = await prisma.dayPlanItem.create({
+      data: { tripDayId: currentDay.id, title: "Arrival", contentJson: "{}" },
+    });
+    const museum = await prisma.dayPlanItem.create({
+      data: { tripDayId: currentDay.id, title: "Museum", contentJson: "{}" },
+    });
+
+    await prisma.travelSegment.createMany({
+      data: [
+        // The stay as the day's own closing endpoint.
+        {
+          tripDayId: previousDay.id,
+          fromItemType: "DAY_PLAN_ITEM",
+          fromItemId: morning.id,
+          toItemType: "ACCOMMODATION",
+          toItemId: stay.id,
+          transportType: "CAR",
+          durationMinutes: 45,
+        },
+        // The same stay as the *next* day's previous-night endpoint — the row a day-scoped sweep misses.
+        {
+          tripDayId: currentDay.id,
+          fromItemType: "ACCOMMODATION",
+          fromItemId: stay.id,
+          toItemType: "DAY_PLAN_ITEM",
+          toItemId: arrival.id,
+          transportType: "CAR",
+          durationMinutes: 60,
+        },
+        // Names the stay nowhere, so it must survive untouched.
+        {
+          tripDayId: currentDay.id,
+          fromItemType: "DAY_PLAN_ITEM",
+          fromItemId: arrival.id,
+          toItemType: "DAY_PLAN_ITEM",
+          toItemId: museum.id,
+          transportType: "CAR",
+          durationMinutes: 15,
+        },
+      ],
+    });
+
+    expect(await totalTravelMinutesForDay(previousDay.id)).toBe(45);
+    expect(await totalTravelMinutesForDay(currentDay.id)).toBe(75);
+
+    const deleted = await deleteAccommodationForTripDay({
+      userId: user.id,
+      tripId: trip.id,
+      tripDayId: previousDay.id,
+    });
+
+    expect(deleted).toBe(true);
+    expect(await prisma.accommodation.count()).toBe(0);
+
+    const survivors = await prisma.travelSegment.findMany({ select: { id: true, tripDayId: true } });
+    expect(survivors).toHaveLength(1);
+    expect(survivors[0].tripDayId).toBe(currentDay.id);
+
+    // Neither day counts travel to a place that no longer exists; the unrelated 15 minutes stay.
+    expect(await totalTravelMinutesForDay(previousDay.id)).toBe(0);
+    expect(await totalTravelMinutesForDay(currentDay.id)).toBe(15);
   });
 
   it("rejects deletion for non-owned trip day", async () => {

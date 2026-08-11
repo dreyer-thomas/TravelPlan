@@ -6,6 +6,8 @@ import type { ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import TripDayTravelSegmentDialog from "@/components/features/trips/TripDayTravelSegmentDialog";
 import { I18nProvider } from "@/i18n/provider";
+import de from "@/i18n/de";
+import en from "@/i18n/en";
 import theme from "@/theme";
 
 /**
@@ -1737,6 +1739,150 @@ describe("TripDayTravelSegmentDialog", () => {
       ).toBeInTheDocument();
       expect(screen.queryByText("Distance is required for car travel")).not.toBeInTheDocument();
       expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/travel-segments"))).toBe(false);
+
+      vi.unstubAllGlobals();
+    });
+  });
+  /**
+   * Story 8.5 AC7 — the message the 2026-08-07 production report was actually about.
+   *
+   * The `409` itself is correct and unchanged: `@@unique([tripDayId, fromItemType, fromItemId,
+   * toItemType, toItemId])` really does hold the pair. What the owner read was the server's raw
+   * English "Travel segment already exists" against a row nothing on screen could account for — the
+   * timeline had stopped drawing it, so there was no explanation and nowhere to go. The refusal now
+   * names the constraint *and* the place the existing row can be found, which is the half of AC7 the
+   * day view's orphaned-legs list is the other half of.
+   */
+  describe("story 8.5: the refusal for a pair that already has a segment", () => {
+    const conflictBody = {
+      data: null,
+      error: { code: "travel_segment_exists", message: "Travel segment already exists" },
+    };
+
+    const stubConflictFetch = () =>
+      stubFetch(async (input) => {
+        if (String(input).includes("/api/auth/csrf")) return csrfResponse;
+        return { ok: false, status: 409, json: async () => conflictBody };
+      });
+
+    const existingSegment = {
+      id: "segment-1",
+      fromItemType: "dayPlanItem" as const,
+      fromItemId: "item-1",
+      toItemType: "accommodation" as const,
+      toItemId: "stay-1",
+      transportType: "car" as const,
+      durationMinutes: 95,
+      distanceKm: 320.5,
+      linkUrl: null,
+    };
+
+    it("translates the conflict and points at the orphaned-legs list", async () => {
+      stubConflictFetch();
+
+      render(
+        <I18nProvider initialLanguage="en">
+          <TripDayTravelSegmentDialog {...baseProps} />
+        </I18nProvider>,
+      );
+
+      await openTransportMenu();
+      fireEvent.click(await screen.findByRole("option", { name: "Walking" }));
+      setDuration("0", "45");
+      fireEvent.click(screen.getByRole("button", { name: "OK" }));
+
+      expect(await screen.findByText(en["trips.travelSegment.existsHint"])).toBeInTheDocument();
+      // The English server string is what the user used to be shown, and it is gone.
+      expect(screen.queryByText("Travel segment already exists")).not.toBeInTheDocument();
+
+      /**
+       * Review correction, pinned as a property of the copy rather than as its wording. The hint used
+       * to *assert* that the conflicting row is an orphan — but create mode is entered whenever this
+       * tab holds no row for the pair, which includes a stale day whose collaborator (or second tab)
+       * just added a perfectly adjacent leg. That user was being sent to an "Orphaned travel legs"
+       * block that does not exist on their day. The sentence has to hold in both worlds: reload, and
+       * the row is on the timeline or in that list.
+       */
+      const hint = en["trips.travelSegment.existsHint"];
+      expect(hint).toMatch(/reload/i);
+      expect(hint).toMatch(/timeline/i);
+      expect(hint).toContain(en["trips.travelSegment.orphanTitle"]);
+
+      vi.unstubAllGlobals();
+    });
+
+    it("translates it in German too rather than relaying the server's English", async () => {
+      stubConflictFetch();
+
+      render(
+        <I18nProvider initialLanguage="de">
+          <TripDayTravelSegmentDialog {...baseProps} />
+        </I18nProvider>,
+      );
+
+      fireEvent.mouseDown(await screen.findByLabelText("Transport"));
+      fireEvent.click(await screen.findByRole("option", { name: "Zu Fu\u00df" }));
+      fireEvent.change(screen.getByLabelText("Dauer (Std.)"), { target: { value: "0" } });
+      fireEvent.change(screen.getByLabelText("Dauer (Min.)"), { target: { value: "45" } });
+      fireEvent.click(screen.getByRole("button", { name: "OK" }));
+
+      expect(await screen.findByText(de["trips.travelSegment.existsHint"])).toBeInTheDocument();
+      expect(screen.queryByText("Travel segment already exists")).not.toBeInTheDocument();
+
+      vi.unstubAllGlobals();
+    });
+
+    /**
+     * `PATCH` answers the same code, and there the hint would be describing a list entry for the row
+     * the user has open in this dialog. The edit path keeps the server's message.
+     */
+    it("does not point an edit conflict at a list holding the row being edited", async () => {
+      stubConflictFetch();
+
+      render(
+        <I18nProvider initialLanguage="en">
+          <TripDayTravelSegmentDialog {...baseProps} segment={existingSegment} />
+        </I18nProvider>,
+      );
+
+      fireEvent.click(await screen.findByRole("button", { name: "OK" }));
+
+      expect(await screen.findByText("Travel segment already exists")).toBeInTheDocument();
+      expect(screen.queryByText(en["trips.travelSegment.existsHint"])).not.toBeInTheDocument();
+
+      vi.unstubAllGlobals();
+    });
+
+    /**
+     * Only this one code is intercepted. Every other refusal goes on relaying the server's message,
+     * which is what a broad `body.error?.message` replacement would have quietly ended.
+     */
+    it("still relays the server's message for every other error", async () => {
+      stubFetch(async (input) => {
+        if (String(input).includes("/api/auth/csrf")) return csrfResponse;
+        return {
+          ok: false,
+          status: 400,
+          json: async () => ({
+            data: null,
+            error: { code: "validation_error", message: "Travel segment must connect adjacent items" },
+          }),
+        };
+      });
+
+      render(
+        <I18nProvider initialLanguage="en">
+          <TripDayTravelSegmentDialog {...baseProps} />
+        </I18nProvider>,
+      );
+
+      await openTransportMenu();
+      fireEvent.click(await screen.findByRole("option", { name: "Walking" }));
+      setDuration("0", "45");
+      fireEvent.click(screen.getByRole("button", { name: "OK" }));
+
+      expect(await screen.findByText("Travel segment must connect adjacent items")).toBeInTheDocument();
+      expect(screen.queryByText(en["trips.travelSegment.existsHint"])).not.toBeInTheDocument();
 
       vi.unstubAllGlobals();
     });

@@ -418,6 +418,26 @@ const de: Dictionary = {
     "Entfernung größer als 0 mit höchstens einer Dezimalstelle: 12,5 oder 12.5, und 1000 statt 1.000",
   "trips.travelSegment.initError": "Reiseabschnitt konnte nicht geladen werden. Bitte aktualisieren.",
   "trips.travelSegment.saveError": "Reiseabschnitt konnte nicht gespeichert werden. Bitte erneut versuchen.",
+  // Story 8.5 — siehe die Anmerkung in `en.ts`. "Verwaist" ist bewusst dasselbe Wort, in dem die
+  // Story geschrieben ist: eine Zeile, die der Tag noch führt und die Zeitleiste nicht mehr zeichnet.
+  "trips.travelSegment.orphanTitle": "Verwaiste Reiseabschnitte",
+  "trips.travelSegment.orphanDescription":
+    "Diese Abschnitte verbinden zwei Punkte, die der Tag nicht mehr nebeneinander stellt — deshalb kann die Zeitleiste oben sie nicht zeichnen. Reiseart, Dauer und Entfernung sind deine Angaben: Entferne einen Abschnitt nur, wenn du ihn nicht mehr brauchst.",
+  // `{duration}` ist eine Größe, kein Plural von Minuten: "1 Std. 30 Min. zählt nicht", also Singular.
+  "trips.travelSegment.orphanUncounted": "{duration} zählt nicht zur Fahrzeit dieses Tages",
+  "trips.travelSegment.orphanUnknownEndpoint": "Nicht mehr an diesem Tag",
+  // Ausgeschriebene Verbindungswörter statt des Pfeils, den die Zeile anzeigt: Screenreader lesen „→"
+  // meist gar nicht vor. `{details}` — dieselbe Angabe aus Reiseart · Dauer · Entfernung — steht dabei,
+  // weil zwei verwaiste Abschnitte mit lauter gelöschten Endpunkten sonst denselben Namen tragen.
+  "trips.travelSegment.orphanRemoveAction": "Reiseabschnitt von {from} nach {to} entfernen, {details}",
+  "trips.travelSegment.orphanRemoveConfirm":
+    "Diesen Reiseabschnitt entfernen? Reiseart, Dauer und Entfernung werden mit gelöscht.",
+  "trips.travelSegment.orphanRemoveError": "Der Reiseabschnitt konnte nicht entfernt werden. Bitte erneut versuchen.",
+  // Siehe `en.ts`: Der Satz behauptete, die vorhandene Zeile sei verwaist. Das ist nur einer von zwei
+  // Fällen — genauso gut hat jemand anderes (oder ein zweiter Tab) den Abschnitt gerade regulär
+  // angelegt, und dann gibt es die Liste „Verwaiste Reiseabschnitte“ an diesem Tag gar nicht.
+  "trips.travelSegment.existsHint":
+    "Zwischen diesen beiden Punkten gibt es bereits einen Reiseabschnitt — er wurde angelegt, nachdem dieser Tag geladen wurde, oder der Tag stellt die beiden Punkte nicht mehr nebeneinander. Lade den Tag neu, um ihn zu finden: in der Zeitleiste oder unter „Verwaiste Reiseabschnitte“.",
   "trips.travelSegment.kmSuffix": "km",
   "trips.travelSegment.transport.car": "Auto",
   "trips.travelSegment.transport.ship": "Schiff",

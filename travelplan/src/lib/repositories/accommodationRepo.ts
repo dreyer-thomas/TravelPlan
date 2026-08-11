@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
+import { removeTravelSegmentsReferencingItemInTransaction } from "@/lib/repositories/travelSegmentRepo";
 import { MAX_DOCUMENTS_PER_ENTRY } from "@/lib/trips/documentUploads";
 
 export type AccommodationDetail = {
@@ -471,6 +472,27 @@ export const copyAccommodationFromPreviousNight = async (params: {
   return { status: "copied", accommodation: toDetail({ ...nextAccommodation, payments: [] }) };
 };
 
+/**
+ * Story 8.5 AC1/AC2 (`DW-79`, `DW-215`). Deleting a stay now takes its travel segments with it, in the
+ * same transaction, through the same helper the activity paths use.
+ *
+ * This was a bare `prisma.accommodation.delete` with no transaction and no cleanup, while the activity
+ * side has had both since Story 6.23 — so every stay a user deleted left rows behind that nothing on
+ * the screen could draw and nothing anywhere could remove, while `totalTravelMinutes` kept summing
+ * them into "Fahrzeit". A segment whose endpoint has *ceased to exist* is unrepairable: nobody can
+ * supply the missing half, so it is deleted. That is the opposite half of this story's rule from the
+ * merely-non-adjacent case, which keeps its row and surfaces it (see `TripDayView`'s orphaned legs).
+ *
+ * **The sweep is scoped to the trip's days, not to this one.** An activity can only be an endpoint on
+ * its own day; a stay cannot. `buildSegmentTimeline` (`travelSegmentRepo.ts`) offers day N's
+ * accommodation as the leading endpoint of day N+1, so `[tripDayId]` alone would leave the next day's
+ * `stay → firstActivity` row behind — the same defect, one day over — and older rows can sit on any
+ * later day. Endpoint ids are cuids, so a trip-wide `in` cannot reach another trip's rows.
+ *
+ * The idempotent `true` for a day with no stay is unchanged and stays *outside* the transaction: a
+ * `DELETE` for a day that has nothing to delete must go on touching nothing, and the route contract
+ * (`accommodations/route.ts:197`) still reads a plain boolean.
+ */
 export const deleteAccommodationForTripDay = async (params: AccommodationDeleteParams): Promise<boolean> => {
   const { userId, tripId, tripDayId } = params;
   const tripDay = await findTripDayForTripWriter(userId, tripId, tripDayId);
@@ -483,7 +505,20 @@ export const deleteAccommodationForTripDay = async (params: AccommodationDeleteP
     return true;
   }
 
-  await prisma.accommodation.delete({ where: { id: existing.id } });
+  // One transaction, so a failed sweep fails the delete rather than committing half of it. The row
+  // goes first and the segments after, mirroring `deleteDayPlanItemForTripDay`; the segments have no
+  // foreign key to the accommodation, so neither order cascades into the other.
+  await prisma.$transaction(async (tx) => {
+    const tripDays = await tx.tripDay.findMany({ where: { tripId }, select: { id: true } });
+    await tx.accommodation.delete({ where: { id: existing.id } });
+    await removeTravelSegmentsReferencingItemInTransaction(
+      tx,
+      tripDays.map((day) => day.id),
+      "ACCOMMODATION",
+      existing.id,
+    );
+  });
+
   return true;
 };
 

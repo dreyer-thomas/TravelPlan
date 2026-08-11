@@ -963,6 +963,57 @@ describe("POST /api/trips/import", () => {
       expect(days[1].travelSegments[0].fromItemId).not.toBe(days[1].accommodation!.id);
     });
 
+    /**
+     * Story 8.5 AC8. A backup may legitimately carry a segment whose endpoints are no longer adjacent
+     * — delete a day between them, or insert an activity, and a drawable pair becomes an undrawable
+     * one in place, with no import involved. Story 2.35 restores such a row on purpose ("a restore
+     * that discarded them would make the backup differ from what was backed up"), and 8.5 does **not**
+     * add a drop-on-import to tidy them away: the restored row surfaces on the day as an orphaned leg,
+     * where its owner can decide (`tripDayViewOrphanSegments.test.tsx` holds that half).
+     *
+     * This asserts against the import path as it stands and adds nothing to it. Day 2's endpoint order
+     * is `[day-1 stay, src-plan-2, src-plan-2b, day-2 stay]`, so the restored `src-plan-2 → src-stay-2`
+     * leg spans a distance of two — kept, counted nowhere, and reachable.
+     */
+    it("restores a segment whose endpoints are no longer adjacent rather than dropping it", async () => {
+      const { session } = await createOwner("import-route-nonadjacent-segment@example.com");
+
+      const manifest = twoDayManifest("Non-Adjacent Segment Trip", [
+        segment({
+          id: "src-seg-nonadjacent",
+          fromItemType: "dayPlanItem",
+          fromItemId: "src-plan-2",
+          toItemType: "accommodation",
+          toItemId: "src-stay-2",
+          transportType: "car",
+          durationMinutes: 40,
+          distanceKm: 12,
+        }),
+      ]);
+      // The activity that came between them after the leg was measured.
+      manifest.days[1].dayPlanItems = [planItem("src-plan-2"), planItem("src-plan-2b")];
+
+      const response = await POST(buildRequest({ payload: manifest }, { session, csrf: "csrf-token" }));
+      const payload = (await response.json()) as ApiEnvelope<{
+        trip: { id: string };
+        travelSegmentCount: number;
+        warnings: string[];
+      }>;
+
+      expect(response.status).toBe(200);
+      expect(payload.data?.travelSegmentCount).toBe(1);
+      // Not a skip, and not a warning: the row is restorable and was restored.
+      expect(payload.data?.warnings).toEqual([]);
+
+      const restored = await prisma.travelSegment.findFirstOrThrow({
+        where: { tripDay: { tripId: payload.data!.trip.id } },
+      });
+      // Unchanged, down to the measurements that are the whole reason the row is kept.
+      expect(restored.transportType).toBe("CAR");
+      expect(restored.durationMinutes).toBe(40);
+      expect(restored.distanceKm).toBe(12);
+    });
+
     it("skips a segment whose endpoint names no record and reports the count", async () => {
       // AC2 and AC3. One orphan used to make the whole archive unrestorable.
       const { session } = await createOwner("import-route-orphan-segment@example.com");

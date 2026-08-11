@@ -287,6 +287,12 @@ describe("GET /api/trips/[id]", () => {
     expect(Object.keys(items[0]!).sort()).toEqual([
       "contentJson",
       "costCents",
+      // Story 8.5. A deliberate addition, not a leak: `compareDayPlanItemsByStartTime` breaks a
+      // same-start-time tie with `createdAt`, and `TripDayView` re-applies that comparator to order
+      // the activities whose consecutive pairs are the day's travel legs. Without the field on the
+      // wire the screen could order such a pair differently from the server that decides which legs
+      // between them exist at all.
+      "createdAt",
       "fromTime",
       "id",
       "linkUrl",
@@ -312,6 +318,63 @@ describe("GET /api/trips/[id]", () => {
 
     // Belt and braces: the removed feature must not reappear at any depth.
     expect(JSON.stringify(payload)).not.toMatch(/feedback|voteSummary/i);
+  });
+
+  /**
+   * Story 8.5 review. **The sort every consumer of this payload rests on, and nothing pinned it.**
+   *
+   * The Prisma query orders `dayPlanItems` by `createdAt`; what puts them in the order the day
+   * actually happens is `[...day.dayPlanItems].sort(compareDayPlanItemsByStartTime)` in the mapping
+   * (`tripRepo.ts`), which until the review pass was a private copy of the comparator and is now an
+   * import of the shared one. That line decides more than a rendering order: `TripDayView` re-applies
+   * the same comparator to what it receives and takes the consecutive pairs of the result as the day's
+   * travel legs, so the array's order and the server's adjacency rule have to be the same order. Lose
+   * this sort and the day view's timeline, its "Fahrzeit" figure and its orphaned-legs list all move
+   * together — and the trip overview's coverage bar, which has no `createdAt` on the wire to re-sort
+   * with, cannot even notice.
+   *
+   * Created deliberately out of chronological order, which is the only arrangement that can tell the
+   * two orders apart.
+   */
+  it("returns a day's activities in start-time order even when they were created in another", async () => {
+    const user = await prisma.user.create({
+      data: { email: "trip-sort@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const token = await createSessionJwt({ sub: user.id, role: user.role });
+
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Sort Trip",
+      startDate: "2026-05-01T00:00:00.000Z",
+      endDate: "2026-05-01T00:00:00.000Z",
+    });
+
+    const day = await prisma.tripDay.findFirstOrThrow({
+      where: { tripId: trip.id },
+      orderBy: { dayIndex: "asc" },
+    });
+
+    // Entered first, happens last.
+    await prisma.dayPlanItem.create({
+      data: { tripDayId: day.id, title: "Dinner", fromTime: "19:00", contentJson: "{}" },
+    });
+    await prisma.dayPlanItem.create({
+      data: { tripDayId: day.id, title: "Museum", fromTime: "09:00", contentJson: "{}" },
+    });
+    // Untimed, so it sorts after everything timed however early it was created.
+    await prisma.dayPlanItem.create({
+      data: { tripDayId: day.id, title: "Souvenirs", fromTime: null, contentJson: "{}" },
+    });
+
+    const response = await GET(buildRequest(trip.id, { session: token }), routeContext(trip.id));
+    expect(response.status).toBe(200);
+
+    const payload = (await response.json()) as ApiEnvelope<{
+      days: { id: string; dayPlanItems: { title: string | null }[] }[];
+    }>;
+
+    const titles = payload.data!.days[0]!.dayPlanItems.map((item) => item.title);
+    expect(titles).toEqual(["Museum", "Dinner", "Souvenirs"]);
   });
 
   it("returns trip and days for collaborator memberships", async () => {

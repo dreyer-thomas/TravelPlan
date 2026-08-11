@@ -93,6 +93,14 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
             title: item.title,
             fromTime: item.fromTime,
             toTime: item.toTime,
+            // Story 8.5. The repository has always selected this and the payload has always dropped
+            // it, which left the client unable to reproduce the order the rows arrive in. That order
+            // is start-time order with `createdAt` as the tie-break - `getTripWithDaysForUser` sorts
+            // by it, and `travelSegmentRepo`'s adjacency rule, which decides which travel legs may
+            // exist at all, sorts by it too. The day view re-derives it rather than trusting the
+            // array, because the legs it draws are its consecutive pairs; without this field it
+            // could only guess at a tie, and a guess here is a leg counted that is not drawn.
+            createdAt: item.createdAt.toISOString(),
             contentJson: item.contentJson,
             costCents: item.costCents,
             payments: item.payments ?? [],
@@ -217,6 +225,14 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
             title: item.title,
             fromTime: item.fromTime,
             toTime: item.toTime,
+            // Story 8.5. The repository has always selected this and the payload has always dropped
+            // it, which left the client unable to reproduce the order the rows arrive in. That order
+            // is start-time order with `createdAt` as the tie-break - `getTripWithDaysForUser` sorts
+            // by it, and `travelSegmentRepo`'s adjacency rule, which decides which travel legs may
+            // exist at all, sorts by it too. The day view re-derives it rather than trusting the
+            // array, because the legs it draws are its consecutive pairs; without this field it
+            // could only guess at a tie, and a guess here is a leg counted that is not drawn.
+            createdAt: item.createdAt.toISOString(),
             contentJson: item.contentJson,
             costCents: item.costCents,
             payments: item.payments ?? [],

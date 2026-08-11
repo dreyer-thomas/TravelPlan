@@ -6,6 +6,13 @@ import { Prisma } from "@/generated/prisma/client";
 import type { TravelSegmentItemType, TravelTransportType } from "@/generated/prisma/enums";
 import { deriveTripAccessRole, mapTripMemberRole, type TripAccessRole } from "@/lib/auth/tripAccessRole";
 import { buildDayMapPanelData, buildTripDayMapItems, type TripDayMapPanelData } from "@/lib/trips/dayMapData";
+// Story 8.5 review (`DW-216`, partially). This file's private copy of the comparator was byte-identical
+// to the shared one *and* was the copy that sorted both the day payload and the print payload - i.e. the
+// order every client of `getTripWithDaysForUser` receives, including the day view that re-applies the
+// very same rule to decide which travel legs exist. Two identical spellings of the order two layers
+// have to agree on is the shape of this story's original defect; one import removes it. The shared
+// signature takes `Date | string`, so the `Date`s here are a drop-in.
+import { compareDayPlanItemsByStartTime } from "@/lib/trips/dayPlanItemOrder";
 import {
   getTripUploadDir,
   isExternalMediaUrl,
@@ -137,6 +144,13 @@ export type TripDaySummary = {
     title: string | null;
     fromTime: string | null;
     toTime: string | null;
+    /**
+     * Story 8.5. The tie-break in `compareDayPlanItemsByStartTime`, which this type's own producer
+     * sorts by and `travelSegmentRepo`'s adjacency rule sorts by. Carried so a consumer re-deriving
+     * that order — the day view does, because the legs it draws are the consecutive pairs of it —
+     * reaches the same answer for two activities that start at the same minute.
+     */
+    createdAt: Date;
     contentJson: string;
     costCents: number | null;
     payments: { amountCents: number; dueDate: string }[];
@@ -539,24 +553,6 @@ const buildTripDays = (start: Date, end: Date) => {
   }
 
   return days;
-};
-
-const compareDayPlanItemsByStartTime = (
-  left: { fromTime: string | null; createdAt: Date; id: string },
-  right: { fromTime: string | null; createdAt: Date; id: string },
-) => {
-  const leftHasStart = Boolean(left.fromTime);
-  const rightHasStart = Boolean(right.fromTime);
-  if (leftHasStart && rightHasStart) {
-    if (left.fromTime !== right.fromTime) return left.fromTime!.localeCompare(right.fromTime!);
-  } else if (leftHasStart !== rightHasStart) {
-    return leftHasStart ? -1 : 1;
-  }
-
-  const leftTime = left.createdAt.getTime();
-  const rightTime = right.createdAt.getTime();
-  if (leftTime !== rightTime) return leftTime - rightTime;
-  return left.id.localeCompare(right.id);
 };
 
 const parsePrintablePlanText = (value: string) => {
@@ -1031,6 +1027,12 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
           title: item.title,
           fromTime: item.fromTime,
           toTime: item.toTime,
+          // Story 8.5. Selected all along and dropped here, which left every consumer of this payload
+          // unable to reproduce the sort applied one line above: `fromTime` alone does not order two
+          // activities that start at the same minute, and `createdAt` is what breaks that tie both
+          // here and in `travelSegmentRepo`'s adjacency rule. `TripDayView` re-applies the shared
+          // comparator to what it receives, and needs this field to arrive at the same answer.
+          createdAt: item.createdAt,
           contentJson: item.contentJson,
           costCents: item.costCents,
           payments: item.payments ?? [],

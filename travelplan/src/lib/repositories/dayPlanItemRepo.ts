@@ -3,9 +3,17 @@ import {
   deleteBucketListItemForTripInTransaction,
   findBucketListItemForTripInTransaction,
 } from "@/lib/repositories/bucketListRepo";
+// Story 8.5 (`DW-215`): the segment sweep this file used to own privately now serves both members of
+// `TravelSegmentItemType` and lives beside the rows it deletes. Passing `"DAY_PLAN_ITEM"` at the two
+// call sites below is the whole of what changed here — the behaviour, the return shape and
+// `removedTravelSegmentIds` are the ones Story 6.23 shipped.
+import { removeTravelSegmentsReferencingItemInTransaction } from "@/lib/repositories/travelSegmentRepo";
 import { MAX_DOCUMENTS_PER_ENTRY } from "@/lib/trips/documentUploads";
 
-type TransactionClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+// The `TransactionClient` alias that stood here went with the segment sweep it existed for: its only
+// reader was that helper's `tx` parameter, and the copy in `travelSegmentRepo.ts` is now the one the
+// shared function is typed against. Every `prisma.$transaction` callback left in this file infers its
+// own client.
 
 export type DayPlanItemDetail = {
   id: string;
@@ -270,51 +278,6 @@ const findScopedDayPlanItemForTripParticipant = async ({
     },
     select: { id: true },
   });
-
-/**
- * Story 6.23, AC4/AC6. Deletes every travel segment on `tripDayIds` that points at `itemId`, and
- * returns the ids it deleted so the caller can report them.
- *
- * `TravelSegment` has **no foreign key to `DayPlanItem`** — `fromItemId`/`toItemId` are plain strings
- * paired with a `fromItemType`/`toItemType` discriminator, and the only cascade is on `tripDayId`. So
- * an activity that leaves a day (moved *or* deleted) leaves its segments behind, and nothing in the
- * app cleans them up. They are invisible — `segmentsByKey` in `TripDayView` only looks up pairs the
- * timeline actually draws — but `totalTravelMinutes` sums *every* segment on the day, so the orphan
- * keeps being counted as "Fahrzeit" forever.
- *
- * This is called from both `moveDayPlanItemToTripDay` and `deleteDayPlanItemForTripDay`. Fixing only
- * the move path would mean the app tidies up after a move but not after a delete, which is the
- * defect AC6 exists to close.
- *
- * It deliberately does **not** heal the chain by joining the removed activity's two former
- * neighbours, and does not create anything on the target day: transport mode, duration and distance
- * are the user's knowledge, and a fabricated segment is worse than a visible gap (AC5, Trap 3).
- */
-const removeTravelSegmentsReferencingDayPlanItem = async (
-  tx: TransactionClient,
-  tripDayIds: string[],
-  itemId: string,
-): Promise<string[]> => {
-  const segments = await tx.travelSegment.findMany({
-    where: {
-      tripDayId: { in: tripDayIds },
-      OR: [
-        { fromItemType: "DAY_PLAN_ITEM", fromItemId: itemId },
-        { toItemType: "DAY_PLAN_ITEM", toItemId: itemId },
-      ],
-    },
-    select: { id: true },
-    orderBy: { createdAt: "asc" },
-  });
-
-  if (segments.length === 0) {
-    return [];
-  }
-
-  const removedIds = segments.map((segment) => segment.id);
-  await tx.travelSegment.deleteMany({ where: { id: { in: removedIds } } });
-  return removedIds;
-};
 
 const toDetail = (item: {
   id: string;
@@ -630,7 +593,12 @@ export const deleteDayPlanItemForTripDay = async (
     if (deleted.count !== 1) {
       return { status: "missing" as const };
     }
-    const removed = await removeTravelSegmentsReferencingDayPlanItem(tx, [tripDayId], itemId);
+    const removed = await removeTravelSegmentsReferencingItemInTransaction(
+      tx,
+      [tripDayId],
+      "DAY_PLAN_ITEM",
+      itemId,
+    );
     return { status: "deleted" as const, removedTravelSegmentIds: removed };
   });
 
@@ -690,9 +658,10 @@ export const moveDayPlanItemToTripDay = async (
     }
     // Both days, not just the source: AC4 says the activity's segments go from both, and scoping the
     // sweep to one of them would leave a stray behind if one ever existed on the other.
-    const removed = await removeTravelSegmentsReferencingDayPlanItem(
+    const removed = await removeTravelSegmentsReferencingItemInTransaction(
       tx,
       [tripDayId, targetTripDayId],
+      "DAY_PLAN_ITEM",
       itemId,
     );
     return { status: "moved" as const, removedTravelSegmentIds: removed };
