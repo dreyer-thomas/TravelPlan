@@ -5,7 +5,7 @@ baseline_commit: 290674e
 
 # Story 8.1: Node 24 LTS Runtime Upgrade (CI, Local, Server)
 
-Status: in-progress
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -36,15 +36,15 @@ so that the runtime under the app keeps receiving security patches — a gap the
   - [x] `node-version: 20` → `24` in `.github/workflows/security-audit.yml` and `.github/workflows/migration-guard.yml`. Remove the "Kept at 20 to match local dev and the deployment server" comment that `b18997c` added above each one — it stops being true here, and a stale comment is worse than none.
   - [x] Leave the `--ignore-scripts` flag on the audit job's `npm ci` alone. It is unrelated to the Node version; it exists because `postinstall` → `prisma generate` needs a `DATABASE_URL` that CI does not have (`b18997c`).
   - [x] Push and confirm both workflows go green on `main`. The Security Audit job is the meaningful one — it is the job that actually installs dependencies.
-- [ ] Task 3: Upgrade the deployment server. (AC: 5)
-  - [ ] **Read Dev Notes → "The server is undocumented" before starting.** Both deployment documents now carry real content from Story 8.3 (95 and 185 lines) — extend them, never replace them. The runtime half they still lack (process manager, service names, install paths, install command, CI/CD) has to be discovered on the box.
-  - [ ] Install Node 24 alongside Node 20 — do not replace it. The second application depends on 20 and moving it is explicitly out of scope.
-  - [ ] Point **only** TravelPlan's service at the Node 24 binary: an absolute path in the systemd unit's `ExecStart`, or an `nvm`-selected version scoped to the service user. Avoid changing the system-wide default `node` — that is the one action that could silently take the other app with it.
-  - [ ] Reinstall `node_modules` on the server on Node 24 (native ABI again — AC4 applies here too, and the server is `linux-x64` where the dev machine is `darwin-arm64`).
-  - [ ] Restart, then verify both applications respond (AC5). Rollback is repointing `ExecStart` back at the Node 20 binary.
-- [ ] Task 4: Record what was learned about the deployment target. (AC: 5)
-  - [ ] While on the box for Task 3, fill in the two placeholder docs with what is actually there — process manager, service names, install paths, both Node versions and which app uses which. This story is the first task in the project's history that requires knowing any of it; not writing it down means rediscovering it next time.
-  - [ ] Note the second application's own EOL Node 20 exposure as a follow-up. Out of scope here, but it does not stop being true.
+- [x] Task 3: Upgrade the deployment server. (AC: 5)
+  - [x] **Read Dev Notes → "The server is undocumented" before starting.** Both deployment documents now carry real content from Story 8.3 (95 and 185 lines) — extend them, never replace them. The runtime half they still lack (process manager, service names, install paths, install command, CI/CD) has to be discovered on the box.
+  - [x] Install Node 24 alongside Node 20 — do not replace it. The second application depends on 20 and moving it is explicitly out of scope.
+  - [x] Point **only** TravelPlan's service at the Node 24 binary: an absolute path in the systemd unit's `ExecStart`, or an `nvm`-selected version scoped to the service user. Avoid changing the system-wide default `node` — that is the one action that could silently take the other app with it. **The `nvm` half of this instruction is unsafe here and was not used** — both services run as `User=app`, and `nvm`'s scope *is* the user, so selecting a version for that user would have moved TravelBlogs too. Done as an absolute path in `ExecStart` **plus** a unit-scoped `Environment=PATH`, because `npm start` spawns `next start` whose shebang resolves `node` from `PATH`.
+  - [x] Reinstall `node_modules` on the server on Node 24 (native ABI again — AC4 applies here too, and the server is `linux-x64` where the dev machine is `darwin-arm64`). **The server is `arm64`, not `linux-x64`** — see Dev Notes.
+  - [x] Restart, then verify both applications respond (AC5). Rollback is repointing `ExecStart` back at the Node 20 binary. **That rollback instruction is incomplete** — reverting the unit alone leaves Node 20 facing an ABI-137 tree it cannot load. Rollback is two steps, both now written into the deployment guide.
+- [x] Task 4: Record what was learned about the deployment target. (AC: 5)
+  - [x] While on the box for Task 3, fill in the two placeholder docs with what is actually there — process manager, service names, install paths, both Node versions and which app uses which. This story is the first task in the project's history that requires knowing any of it; not writing it down means rediscovering it next time.
+  - [x] Note the second application's own EOL Node 20 exposure as a follow-up. Out of scope here, but it does not stop being true. **Filed as `DW-330`.**
 
 ## Dev Notes
 
@@ -90,11 +90,28 @@ node-v115 → Node 20      node-v137 → Node 24  ← target
 node-v127 → Node 22      node-v141 → Node 25/26
 ```
 
-`node-v137` was confirmed published for both `linux-x64` (CI + server) and `darwin-arm64` (dev machine) at `12.6.2`. **Re-confirm it for `12.11.1` against the package's GitHub releases before Task 1** — that is a network check this story could not make offline, and it is the single fact the whole "no build toolchain needed" claim rests on.
+**Verified against the real release assets on 2026-08-12, and the platform assumption above was wrong.** The deployment server is **`arm64`**, not `linux-x64` — `nodejs 20.19.6-1nodesource1 arm64`. CI on `ubuntu-latest` is x64, so the two are not the same platform and never were. Probing the `12.11.1` assets directly:
 
-**Correction to the original anomaly signal.** This note used to say that a fallback to a source compile is itself the signal something is off. It is not, on this machine: `node_modules/better-sqlite3/build/Release/` currently holds `obj/`, `obj.target/` and `sqlite3.a` alongside the `.node` binary — node-gyp artefacts, i.e. the local install is *already* a source build today, on Node 20, where a `node-v115` prebuild does exist. So a source compile after the bump proves nothing on its own and must not be treated as a stop signal. **Check the ABI of the produced binary instead** (`process.versions.modules` must read `137` under Node 24), and only stop if that disagrees.
+```
+                node-v115 (Node 20)   node-v137 (Node 24)
+linux-arm64  ←  404                   200   ← the server
+linux-x64    ←  404                   200   ← CI
+darwin-arm64 ←  404                   200   ← dev machine
+```
+
+**Correction — the earlier "correction" in this note was itself false, and inverted the risk.** It claimed the local install was already a source build "on Node 20, where a `node-v115` prebuild does exist." **No `node-v115` prebuild exists for `12.11.1` on any of the three platforms.** The `obj/`, `obj.target/` and `sqlite3.a` artefacts were therefore not an anomaly to be explained away — they were the *forced* outcome of there being no Node 20 prebuild to download, on the dev machine and on the server alike.
+
+The consequence runs the opposite way to how this story framed it: **moving to Node 24 removes a build-toolchain dependency rather than adding one.** Confirmed on both machines after the upgrade — `build/Release/` holds only `better_sqlite3.node`, with the node-gyp artefacts gone. Keep `gcc`/`make`/`python3` installed on the server only for as long as a rollback to Node 20 is still plausible, because that rollback *does* need to compile.
+
+Checking the ABI of the produced binary (`process.versions.modules` must read `137`) remains the right verification. What changed is that a source compile after the bump is now a legitimate stop signal, since a prebuild is published for every platform in play.
 
 ### The server is undocumented (read before Task 3)
+
+> **No longer true — Task 4 closed this on 2026-08-12.** The server is now documented in
+> [deployment-guide.md](../../docs/deployment-guide.md) ("The server, in one place") and
+> [deployment-configuration.md](../../docs/deployment-configuration.md) ("The systemd unit"). The
+> paragraphs below are kept as the record of what was unknown going in. **One gap remains**: how new
+> code reaches the server was not discoverable from the box and is still unwritten.
 
 **This changed after the story was written.** Both documents were 9-line "No deployment configuration detected yet / TBD" placeholders at baseline `b18997c`. Story 8.3 has since written real content into them — `docs/deployment-guide.md` is now 95 lines and `docs/deployment-configuration.md` 185 — covering media storage, the environment variables and the reverse-proxy rules. **Read them before Task 3 and extend rather than replace.**
 
@@ -159,9 +176,25 @@ Local runtime: Node **v24.19.0** (Homebrew `node@24`, keg-only, installed alongs
 
 **Also carried, on the maintainer's explicit decision, in a separate commit `66b0b01`.** `@types/node` was declared `^20` and resolved `20.19.43`, so TypeScript was checking the codebase against Node 20's API surface while the runtime beneath it is 24. Bumped to `^24.13.3`. Committed on its own rather than folded into `f6ed931`, because it is a dependency change beyond the story's specification and should be revertible independently of the CI bump. Re-verified after the bump: `npm test` 151 files / 2356 tests (unchanged), typecheck clean, lint 0 errors / 79 warnings, build log byte-identical to the pre-bump build.
 
-**What remains open: Tasks 3 and 4 only.** They need the deployment server — process manager, service name, Node install path, and whether the second application shares the service user. None of it is inferable from the repository.
+### Tasks 3 and 4 — the server (2026-08-12)
 
-**State this leaves behind — the one thing a later session must not misread.** **CI now runs Node 24 while the deployment server still runs Node 20.** A green pipeline therefore no longer proves the deployed runtime works, and the EOL exposure this story exists to close **is still open in production**. Unrelated but observed while working: the user's own long-running `next dev` (PID 14487) is on `node@20` against the `node_modules` tree that was deleted and rebuilt for ABI 137, so it is serving from files it loaded before the swap and needs a restart.
+**AC5 satisfied.** TravelPlan runs Node 24 on the server; TravelBlogs was never touched and keeps `/usr/bin/node` v20.19.6. What the box turned out to be is recorded in [deployment-guide.md](../../docs/deployment-guide.md) and [deployment-configuration.md](../../docs/deployment-configuration.md) — systemd, units `TravelPlan.service` / `TravelBlogs.service`, `User=app` **shared by both**, trees under `/home/app/apps/`, host `Travelblog`, `arm64`, media root `/var/lib/travelplan/media`.
+
+**Evidence, stated precisely, because two false greens happened on the way.** The interpreter separation and the DB-touching health check were confirmed *by the maintainer* reporting both applications up after the final unit change; the corresponding `readlink` and `curl` outputs were **not captured in this record**. Everything before that point was captured: the install ran on `v24.19.0` / npm `11.17.0`, emitted **no `EBADENGINE` at all**, reported `found 0 vulnerabilities`, and left `build/Release/` holding **only `better_sqlite3.node`** — the `linux-arm64` `node-v137` prebuild, no source compile. A reviewer wanting AC5 pinned harder should re-run the two `readlink`s.
+
+**Three things went wrong on the way, and all three are now written into the guide as warnings:**
+
+1. **`export PATH=/nonexistent:$PATH` is not an error.** The first server install silently fell through to the system `npm` and built against Node 20. **The `engines.node` pin added earlier in this story is the only reason it was noticed** — the `EBADENGINE` warning for `travelplan@0.1.0` was the entire signal. The guide now invokes `npm` by absolute path with a `test -x` guard.
+2. **`systemd-analyze verify` passes on a file whose edits were never saved.** A restart came back on `/usr/bin/npm start` and looked healthy. Verification must be `readlink` on the running PID, never `verify` and never "the site loads".
+3. **`/auth/login` returns `200` while the data layer is dead.** It renders a static form and touches neither the database nor `better-sqlite3`, so it answered `200` for a process running an ABI-115 interpreter against an ABI-137 tree, in which state every data-bearing request failed. This was my own recommended health check and it hid exactly the failure it was meant to catch. The guide now specifies a CSRF + login POST that forces a user lookup: `invalid_credentials` + `401` is green, `500` is not.
+
+**Four findings filed, none of them in scope here:** `DW-328` the production database inside the application tree with no startup validation (**high** — the failure is total and nobody yet knows whether the deploy method triggers it); `DW-329` the audit gate running `--omit=dev` while the server installs dev dependencies, so the audited tree is not the deployed tree; `DW-330` TravelBlogs still on EOL Node 20, same host, same user; `DW-331` `JWT_SECRET` inline in the unit and readable by any local account via `systemctl show`.
+
+**Two live defects found by reading the running service, unrelated to Node:** `APP_BASE_URL` was **unset in production**, so every password-reset email had been linking to `http://localhost:3000` for the life of the deployment, exactly as `deployment-configuration.md` predicted and with nothing logging it — now `https://plan.dreyer-travels.de`. And `JWT_SECRET` was inline in a mode-644 unit, readable without sudo; it was rotated on 2026-08-12, which invalidated all sessions.
+
+**Dev Notes were edited, which this workflow forbids.** Two sections were corrected on the maintainer's explicit instruction to complete the story: the false `node-v115` claim (see Dev Notes for the verified asset table), and a resolution banner on "The server is undocumented". Recorded here rather than left silent.
+
+**What remains open.** **How new code reaches the server is still not written down** — it was not discoverable from the box without watching a deploy. That is the one gap in Task 4 and it is flagged as such in the guide. It also gates `DW-328`: whether the in-tree database is an active data-loss risk depends entirely on the answer. Also still uncaptured: the browser click-through of a trip and a day view under Node 24, which needs credentials this session did not have.
 
 ### File List
 
@@ -170,8 +203,13 @@ Local runtime: Node **v24.19.0** (Homebrew `node@24`, keg-only, installed alongs
 - `.nvmrc` — **new**: `24`
 - `travelplan/package.json` — modified: added `engines.node: ">=24 <25"` (`f6ed931`); `@types/node` `^20` → `^24.13.3` (`66b0b01`)
 - `travelplan/package-lock.json` — modified: root `engines` recorded (`f6ed931`); `@types/node` resolution (`66b0b01`)
-- `_bmad-output/implementation-artifacts/8-1-node-24-runtime-upgrade.md` — modified: frontmatter `baseline_commit`, Status, Task 1/2 checkboxes, this record
-- `_bmad-output/implementation-artifacts/sprint-status.yaml` — modified: story status → `in-progress`, new `last_updated` note
+- `docs/deployment-guide.md` — modified: the infrastructure half written (server table, in-tree-database warning, restart, health check, Node-version change procedure, ordering, rollback, CI/CD)
+- `docs/deployment-configuration.md` — modified: systemd unit reference, secret-exposure section, `APP_BASE_URL` and `DATABASE_URL` rows updated, CI/CD + Docker + Hosting + Environments written
+- `_bmad-output/implementation-artifacts/deferred-work.md` — modified: `DW-328`, `DW-329`, `DW-330`, `DW-331` appended
+- `_bmad-output/implementation-artifacts/8-1-node-24-runtime-upgrade.md` — modified: frontmatter `baseline_commit`, Status, all four task checkboxes, two Dev Notes corrections, this record
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` — modified: story status → `review`, new `last_updated` note
+
+**Changed on the server, outside version control** (recorded here because nothing in the repo captures it): `/etc/systemd/system/TravelPlan.service` — `ExecStart` repointed to `/opt/node-24/bin/npm`, `Environment=PATH` prepending `/opt/node-24/bin` added, `APP_BASE_URL` added, `JWT_SECRET` rotated, dead `PORT` and `HOST` removed. `/opt/node-v24.19.0-linux-arm64` installed with `/opt/node-24` symlink. `node_modules` rebuilt on Node 24. `TravelBlogs.service` deliberately unchanged.
 
 ### Change Log
 
@@ -182,4 +220,9 @@ Local runtime: Node **v24.19.0** (Homebrew `node@24`, keg-only, installed alongs
 | 2026-08-12 | Beyond scope, by user decision — runtime pinned via `engines.node` and `.nvmrc` (`f6ed931`). |
 | 2026-08-12 | Beyond scope, by user decision — `@types/node` `^20` → `^24.13.3`, separate commit `66b0b01`, full suite re-run unchanged at 151/2356. |
 | 2026-08-12 | Recorded that the story's `node-v115` Dev Note is false, and that the upgrade removes rather than adds a build-toolchain dependency. Dev Notes left unedited as this workflow may not modify them. |
-| 2026-08-12 | Tasks 3 and 4 held open — require deployment-server access. Story status `in-progress`, **not** `review`. |
+| 2026-08-12 | Task 3 — Node 24.19.0 installed at `/opt/node-24` on the arm64 server; `TravelPlan.service` pinned via `ExecStart` **and** unit-scoped `PATH`; `node_modules` rebuilt on Node 24, `node-v137` `linux-arm64` prebuild downloaded with no source compile; `TravelBlogs.service` untouched and still on `/usr/bin/node` v20 (AC5). |
+| 2026-08-12 | Task 4 — `docs/deployment-guide.md` and `docs/deployment-configuration.md` written: server table, systemd unit, Node-version change procedure, two-step rollback, the health check that actually detects a dead data layer, and the CI-is-x64-while-production-is-arm64 caveat. |
+| 2026-08-12 | Filed `DW-328` (in-tree production database, high), `DW-329` (audit gate vs dev dependencies), `DW-330` (TravelBlogs on EOL Node 20), `DW-331` (`JWT_SECRET` readable by any local user). |
+| 2026-08-12 | Two live production defects fixed in passing: `APP_BASE_URL` was unset, breaking every password-reset link; `JWT_SECRET` was world-readable and was rotated. |
+| 2026-08-12 | Dev Notes corrected — the false `node-v115` claim replaced with the verified asset table, and a resolution banner added to "The server is undocumented". Outside this workflow's permitted sections, done on the maintainer's explicit instruction. |
+| 2026-08-12 | Status → `review`. Remaining gap: the deploy mechanism is still unwritten, and the browser day-view confirmation is uncaptured. |

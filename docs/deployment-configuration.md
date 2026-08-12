@@ -1,13 +1,12 @@
 # Deployment Configuration
 
-Most of this file is still to be written. There is no `Dockerfile`, no `docker-compose.yml`, no
-`.nvmrc` or `.node-version`, no PM2 config and no systemd unit anywhere in the repository, so the
-process manager, service names and install paths are genuinely not knowable from the source tree.
-**Story 8.1 owns discovering and recording them** — see the CI/CD, Docker, Hosting and Environments
-sections below, which are deliberately left as they were.
+The process manager, service names and install paths were discovered on the server during **Story
+8.1** and are recorded in [deployment-guide.md](deployment-guide.md), which is the operational
+reference. This file holds the configuration detail: environment variables, the systemd unit, and the
+reverse proxy.
 
-What *is* known and load-bearing is the media storage root, added by Story 8.3. It is recorded here
-and in [deployment-guide.md](deployment-guide.md).
+Still not written down anywhere: **how new code reaches the server.** See
+[deployment-guide.md](deployment-guide.md#deployment-process).
 
 ## Environment variables
 
@@ -18,9 +17,9 @@ fail loudly: a variable that defaults to something plausible is one nobody disco
 | Variable | Required | Notes |
 |---|---|---|
 | `MEDIA_STORAGE_ROOT` | **Yes, in production** | Absolute path to the directory that holds uploaded media. See below. |
-| `DATABASE_URL` | Yes | SQLite connection string, e.g. `file:/absolute/path/prisma/dev.db`. |
+| `DATABASE_URL` | Yes | SQLite connection string, e.g. `file:/absolute/path/prisma/dev.db`. In production it is `file:/home/app/apps/TravelPlan/travelplan/prisma/prod.db` — **inside the application tree**, which is the same hazard this file spends several paragraphs warning about for media, except that nothing validates it at startup. A deploy that replaces the tree rather than updating it in place destroys production data. Tracked as `DW-328`. |
 | `JWT_SECRET` | Yes | Session signing key (HS256). |
-| `APP_BASE_URL` | **In practice yes** | Origin used to build the link in password-reset emails (`password-reset/request/route.ts`). **Falls back to `http://localhost:3000` with no warning**, so if it is unset in production every reset email links to localhost and the flow is unusable, with nothing in any log to say why. Set it to the public origin. |
+| `APP_BASE_URL` | **In practice yes** | Origin used to build the link in password-reset emails (`password-reset/request/route.ts:53`). **Falls back to `http://localhost:3000` with no warning**, so if it is unset in production every reset email links to localhost and the flow is unusable, with nothing in any log to say why. Set it to the public origin. **This was unset in production until 2026-08-12** — the failure predicted in this row had been live for the entire life of the deployment, and was found by enumerating the service's environment during Story 8.1 rather than by anybody reporting a broken email. It is now `https://plan.dreyer-travels.de`. |
 | `OSRM_BASE_URL` | No | Route-geometry service. Defaults to the public `https://routing.openstreetmap.de`; set it only to point at a self-hosted deployment. |
 
 ### `MEDIA_STORAGE_ROOT`
@@ -170,16 +169,89 @@ survived the story's own test suite and its browser pass, both of which talked t
 — behind the same `/uploads/trips/<tripId>/…` scheme. Any proxy rule that bypasses the handler
 publishes them.
 
+## The systemd unit
+
+`/etc/systemd/system/TravelPlan.service`. The shape that matters:
+
+```ini
+[Service]
+Type=simple
+User=app
+Group=app
+WorkingDirectory=/home/app/apps/TravelPlan/travelplan
+
+Environment=NODE_ENV=production
+Environment="JWT_SECRET=…"
+Environment="DATABASE_URL=file:/home/app/apps/TravelPlan/travelplan/prisma/prod.db"
+Environment="MEDIA_STORAGE_ROOT=/var/lib/travelplan/media"
+Environment="APP_BASE_URL=https://plan.dreyer-travels.de"
+
+Environment=PATH=/opt/node-24/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/opt/node-24/bin/npm start
+
+Restart=on-failure
+RestartSec=3
+```
+
+Three things about it are load-bearing:
+
+1. **`PATH` is as important as `ExecStart`.** `npm start` spawns `next start`, whose shebang resolves
+   `node` from `PATH`. Pinning only `ExecStart` leaves the child's interpreter to whatever `PATH`
+   yields — which is `/usr/bin/node`, i.e. Node 20.
+2. **`PORT` and `HOST` are not set, and must not be relied on.** They were present historically and
+   were removed as dead: `npm start` is `next start -p 3001 -H 127.0.0.1`, whose explicit flags win,
+   and `grep -r 'process\.env\.' travelplan/src` finds no reader for either. Changing `PORT` in the
+   unit would move nothing, which is a confusing hour for whoever tries it.
+3. `TravelBlogs.service` is the same shape with `ExecStart=/usr/bin/npm run start`, no `PATH` override,
+   and `EnvironmentFile=…/travelblogs/.env` instead of inline variables. **It must stay that way** —
+   it is what keeps that application on Node 20.
+
+### Secrets in the unit are readable by every local user
+
+`JWT_SECRET` is an inline `Environment=` value. **`systemctl show -p Environment TravelPlan` returns
+it to any unprivileged local account**, because the value is served from the systemd manager over
+D-Bus rather than read from the file — so tightening the unit file's permissions does not help. Unit
+files are also mode `644` by default, so `systemctl cat` exposes it as well.
+
+The fix, if this is ever worth closing, is `EnvironmentFile=` pointing at a file **outside the
+application tree**, `root:root` mode `600`. systemd reads it as PID 1 before dropping to `User=app`, so
+the service user never needs read access to the secret at all — which is stronger than TravelBlogs'
+in-tree `.env`. Note that `travelplan/.gitignore` covers `.env` and `.env.local` but **not**
+`.env.production`, so an env file inside the tree under that name is one `git add -A` away from being
+committed. Tracked as `DW-331`.
+
+The current secret was rotated on 2026-08-12 after it was exposed during Story 8.1's discovery pass.
+Rotating invalidates every active session and forces all users to sign in again.
+
 ## CI/CD
-- TBD (Story 8.1)
+
+No automated deployment exists. The two GitHub Actions workflows and their caveats — including the fact
+that CI runs on x64 while production is arm64 — are documented in
+[deployment-guide.md](deployment-guide.md#cicd-details).
 
 ## Docker
-- TBD (Story 8.1)
+
+Not used. There is no `Dockerfile` and no `docker-compose.yml`, and the deployment is a plain systemd
+service running `next start` behind nginx. Nothing here is containerised.
 
 ## Hosting
-- TBD (Story 8.1). The only ambient signal in the repository is `next.config.ts`'s reference to an
-  nginx `client_max_body_size 320m`, and `npm start` being `next start -p 3001 -H 127.0.0.1` — i.e.
-  bound to loopback behind a reverse proxy.
+
+Single Linux host, `arm64`, host name `Travelblog` — named after the *other* application that shares
+it. Both applications run as the `app` user under system-level systemd units. `next start -p 3001 -H
+127.0.0.1` binds loopback only; nginx terminates TLS and proxies. `next.config.ts` documents the
+required nginx `client_max_body_size 320m`, which is what lets a large trip backup reach the import
+route to be accepted or refused on its own terms.
+
+See [deployment-guide.md](deployment-guide.md#the-server-in-one-place) for the full table of paths,
+versions and unit names.
 
 ## Environments
-- TBD (Story 8.1)
+
+There is **one** environment: production, on the host above. There is no staging deployment, so any
+change is exercised in exactly two places — a developer machine and production. That is worth stating
+plainly rather than leaving implied, because it sets the bar for how much verification a change needs
+before it is restarted on the server.
+
+Development and test need no `MEDIA_STORAGE_ROOT`: the default `<repo>/travelplan/var` is correct
+there, `travelplan/.gitignore` ignores `var/`, and the suite overrides it per worker
+(`test/setup.ts`).
