@@ -8,6 +8,7 @@ import { hasTripOwnerAccess } from "@/lib/auth/tripAccess";
 import { CSRF_COOKIE_NAME, validateCsrf } from "@/lib/security/csrf";
 import { getTripByIdForUser, updateTripHeroImageForUser } from "@/lib/repositories/tripRepo";
 import { requireSession } from "@/lib/auth/sessionGuard";
+import { removeManagedMediaFile } from "@/lib/trips/mediaCleanup";
 import { getTripUploadDir } from "@/lib/trips/uploadPaths";
 
 export const runtime = "nodejs";
@@ -119,7 +120,21 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
   const updated = await updateTripHeroImageForUser({ userId, tripId, heroImageUrl });
 
   if (!updated) {
-    await fs.rm(uploadDir, { recursive: true, force: true });
+    // One file, never a tree (Story 8.4 / DW-305). This rolled back with
+    // `fs.rm(uploadDir, { recursive: true, force: true })`, and `uploadDir` is `getTripUploadDir(tripId)` -
+    // the root of the trip's *entire* media tree, not the "flat file" 8.4's spec excluded this route on.
+    // A failed hero write therefore destroyed every day image, photo and document in the trip while
+    // touching no row. `allowedDir` is that same `uploadDir` because the hero file sits *directly* in it,
+    // so the helper's exact-parent containment rule holds here without a special case. Note this is the
+    // widest `allowedDir` of the helper's six call sites - the trip root rather than a leaf entry
+    // directory - so containment alone would permit unlinking any file sitting directly in it. What makes
+    // that safe is that `heroImageUrl` is composed by the server two lines above from `tripId` and a
+    // whitelisted extension, never taken from the request. Keep it that way.
+    await removeManagedMediaFile({
+      storedUrl: heroImageUrl,
+      allowedDir: uploadDir,
+      context: "hero image upload rollback",
+    });
     return fail(apiError("not_found", "Trip not found"), 404);
   }
 
