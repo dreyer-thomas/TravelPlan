@@ -1,10 +1,11 @@
 ---
 authored_against: b18997c
+baseline_commit: 290674e
 ---
 
 # Story 8.1: Node 24 LTS Runtime Upgrade (CI, Local, Server)
 
-Status: ready-for-dev
+Status: in-progress
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -25,16 +26,16 @@ so that the runtime under the app keeps receiving security patches — a gap the
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Install Node 24 locally and verify the app before touching CI. (AC: 2, 3, 4, 6)
-  - [ ] The dev machine currently has **only** Homebrew `node@20` and **no `nvm`** (verified at baseline: `/opt/homebrew/bin/node` → v20.19.2, `~/.nvm/versions/node` does not exist). Install Node 24 side-by-side rather than replacing 20 — `brew install node@24`, or install `nvm` if you want per-project switching. Do not `brew upgrade node`; keeping 20 available is what makes a rollback cheap.
-  - [ ] Delete `travelplan/node_modules` and reinstall from the lockfile on Node 24 (`npm ci`). A stale tree built against Node 20's ABI will mask exactly the native-module failure AC4 is there to catch.
-  - [ ] Confirm AC6: the `@prisma/streams-local@0.1.11` `EBADENGINE` warning (`requires >=22.0.0`) should be gone. It is the **only** engine conflict in the tree — see Dev Notes → "Compatibility was verified statically, not guessed".
-  - [ ] Run `npm test` and record the pass count against the Node 20 baseline (AC2), then `npm run build` (AC3).
-  - [ ] Smoke-test at runtime, not just at build time (AC4): `npm run dev`, open a trip, load a day view. `better-sqlite3` binding failures surface on first query, not at install.
-- [ ] Task 2: Bump CI. (AC: 1)
-  - [ ] `node-version: 20` → `24` in `.github/workflows/security-audit.yml` and `.github/workflows/migration-guard.yml`. Remove the "Kept at 20 to match local dev and the deployment server" comment that `b18997c` added above each one — it stops being true here, and a stale comment is worse than none.
-  - [ ] Leave the `--ignore-scripts` flag on the audit job's `npm ci` alone. It is unrelated to the Node version; it exists because `postinstall` → `prisma generate` needs a `DATABASE_URL` that CI does not have (`b18997c`).
-  - [ ] Push and confirm both workflows go green on `main`. The Security Audit job is the meaningful one — it is the job that actually installs dependencies.
+- [x] Task 1: Install Node 24 locally and verify the app before touching CI. (AC: 2, 3, 4, 6)
+  - [x] The dev machine currently has **only** Homebrew `node@20` and **no `nvm`** (verified at baseline: `/opt/homebrew/bin/node` → v20.19.2, `~/.nvm/versions/node` does not exist). Install Node 24 side-by-side rather than replacing 20 — `brew install node@24`, or install `nvm` if you want per-project switching. Do not `brew upgrade node`; keeping 20 available is what makes a rollback cheap.
+  - [x] Delete `travelplan/node_modules` and reinstall from the lockfile on Node 24 (`npm ci`). A stale tree built against Node 20's ABI will mask exactly the native-module failure AC4 is there to catch.
+  - [x] Confirm AC6: the `@prisma/streams-local@0.1.11` `EBADENGINE` warning (`requires >=22.0.0`) should be gone. It is the **only** engine conflict in the tree — see Dev Notes → "Compatibility was verified statically, not guessed".
+  - [x] Run `npm test` and record the pass count against the Node 20 baseline (AC2), then `npm run build` (AC3).
+  - [x] Smoke-test at runtime, not just at build time (AC4): `npm run dev`, open a trip, load a day view. `better-sqlite3` binding failures surface on first query, not at install.
+- [x] Task 2: Bump CI. (AC: 1)
+  - [x] `node-version: 20` → `24` in `.github/workflows/security-audit.yml` and `.github/workflows/migration-guard.yml`. Remove the "Kept at 20 to match local dev and the deployment server" comment that `b18997c` added above each one — it stops being true here, and a stale comment is worse than none.
+  - [x] Leave the `--ignore-scripts` flag on the audit job's `npm ci` alone. It is unrelated to the Node version; it exists because `postinstall` → `prisma generate` needs a `DATABASE_URL` that CI does not have (`b18997c`).
+  - [x] Push and confirm both workflows go green on `main`. The Security Audit job is the meaningful one — it is the job that actually installs dependencies.
 - [ ] Task 3: Upgrade the deployment server. (AC: 5)
   - [ ] **Read Dev Notes → "The server is undocumented" before starting.** Both deployment documents now carry real content from Story 8.3 (95 and 185 lines) — extend them, never replace them. The runtime half they still lack (process manager, service names, install paths, install command, CI/CD) has to be discovered on the box.
   - [ ] Install Node 24 alongside Node 20 — do not replace it. The second application depends on 20 and moving it is explicitly out of scope.
@@ -125,10 +126,60 @@ It does **not** address a related observation: `prisma` is declared in `dependen
 
 ### Agent Model Used
 
+claude-opus-5[1m] (Opus 5, 1M context), via `bmad-dev-story` — interactive session, not `bmad-loop`/`bmad-dev-auto`.
+
 ### Debug Log References
+
+Local runtime: Node **v24.19.0** (Homebrew `node@24`, keg-only, installed alongside the existing `node@20`), `process.versions.modules` = **137**.
+
+- `npm ci` — 766 packages, 0 vulnerabilities, **no `EBADENGINE` of any kind** (AC6).
+- `npm test` — `Test Files 151 passed (151) / Tests 2356 passed (2356)`, 244 s (AC2).
+- `npm run build` — succeeded; `prisma generate` postinstall ran; 2 pre-existing Turbopack warnings, neither Node-related (see Completion Notes).
+- `npm run typecheck` — clean. `npm run lint` — `0 errors, 79 warnings`.
+- `npm run audit:check` — *"No vulnerabilities in the production dependency tree, and nothing suppressed."*
+- `npm run check:migrations` — passed.
+- CI on `main` at `f6ed931`: **Migration Guard** run `31609775577` success; **Security Audit** run `31609775566` success, all `npm-audit` job steps green including *Install dependencies* and *Audit production dependencies* (AC1).
 
 ### Completion Notes List
 
+**Tasks 1 and 2 are complete. Tasks 3 and 4 are deliberately open** — see "State this leaves behind" below. This story is **not** ready for review.
+
+- **AC1 satisfied.** `node-version: 20` → `24` in both workflow files, and the stale `# Kept at 20 to match local dev and the deployment server` comment (which also still referenced the story by its old number, 7-10) removed above each. `--ignore-scripts` on the audit job's `npm ci` left untouched, as the task specified. Both jobs were pre-run locally on Node 24 before pushing, then both went green on `main`.
+- **AC2 satisfied literally, not approximately.** 151 files / 2356 tests — byte-for-byte the Node 20 baseline recorded for story 8-6 in `spec-8-6-the-sixth-route-story-8-4-left-out.md:186`. No test count drift, no new warnings indicating runtime incompatibility.
+- **AC3 satisfied.** Build log compared against the Node 20 run: identical. The two remaining warnings are pre-existing and unrelated to the runtime — the NFT-tracing warning on `next.config.ts`, and `The "middleware" file convention is deprecated`, which is story **8-2**'s subject and the next `ready-for-dev` item.
+- **AC4 satisfied, and verified in the Next server runtime rather than only under vitest.** vitest runs in a plain node environment, so a green suite alone does not prove the app's own server process can load the addon. `next dev` was started on the `node@24` binary and driven into a real database query (`POST /api/auth/login` → `401 invalid_credentials`, i.e. the user lookup reached SQLite). `lsof` on that process confirms `/opt/homebrew/Cellar/node@24/24.19.0/bin/node` + `libnode.137.dylib` with **`better-sqlite3/build/Release/better_sqlite3.node`, `bcrypt/prebuilds/darwin-arm64/bcrypt.node` and `@next/swc-darwin-arm64/next-swc.darwin-arm64.node` all mapped into the process**. `/uploads/trips/x/y.png` still answered `401`, so story 8.3's authorisation gate is intact under 24. Not done, because it needs credentials this session does not have: the literal browser click-through of a trip and a day view. Worth doing as a final visual confirmation.
+- **AC6 satisfied.** The `@prisma/streams-local@0.1.11` warning is gone; the Node 24 install emits no `EBADENGINE` at all.
+- **AC5 untouched.** It is entirely about the deployment server — Task 3.
+
+**A Dev Note in this story is false, and it is still written above.** The *"Correction to the original anomaly signal"* paragraph states that the local install is already a source build *"on Node 20, where a `node-v115` prebuild does exist."* **It does not exist.** Probing the `better-sqlite3` 12.11.1 release assets returns **404 for `node-v115` on both `darwin-arm64` and `linux-x64`**, while `node-v127`, `node-v137` and `node-v141` all return 200. So the `obj/`, `obj.target/` and `sqlite3.a` artefacts were not an anomaly needing to be explained away — they were the forced result of there being no Node 20 prebuild to download. This **inverts the story's risk framing**: the upgrade *removes* a build-toolchain dependency instead of adding one. After the bump, `build/Release/` holds only `better_sqlite3.node`. This bears directly on Task 3, because the server is `linux-x64` and was compiling from source for the same reason. Dev Notes are not a section this workflow may modify, so the correction is recorded here — **whoever takes Task 3 should fix the Dev Note itself.**
+
+**A second finding, not in the story at all, that belongs in Task 4's documentation.** npm 11.17.0 (shipped with `node@24`) prints `npm warn allow-scripts — 7 packages have install scripts not yet covered by allowScripts`, naming `better-sqlite3`, `bcrypt`, `@prisma/engines`, `esbuild`, `fsevents`, `prisma` and `unrs-resolver`. The scripts **do still run** today; the warning is advisory. But if npm ever flips this to default-deny, `better-sqlite3` would silently skip its prebuild download and fail on **first query at runtime**, not at install time. That failure mode should be written into the deployment guide.
+
+**Carried in this commit beyond the story's ACs, on the user's explicit decision.** The runtime is now pinned in the repository for the first time: `engines.node: ">=24 <25"` in `travelplan/package.json`, plus a root `.nvmrc` containing `24`. The rationale is that the *absence* of any pin is exactly why Tasks 3 and 4 are discovery work at all — the story's own Dev Notes record that a repo-wide search for a Node pin finds hits only in the two workflow files. Verified to actually bite: `npm ci --dry-run` under `node@20` now warns `EBADENGINE ... package: 'travelplan@0.1.0', required: { node: '>=24 <25' }`.
+
+**Also carried, on the maintainer's explicit decision, in a separate commit `66b0b01`.** `@types/node` was declared `^20` and resolved `20.19.43`, so TypeScript was checking the codebase against Node 20's API surface while the runtime beneath it is 24. Bumped to `^24.13.3`. Committed on its own rather than folded into `f6ed931`, because it is a dependency change beyond the story's specification and should be revertible independently of the CI bump. Re-verified after the bump: `npm test` 151 files / 2356 tests (unchanged), typecheck clean, lint 0 errors / 79 warnings, build log byte-identical to the pre-bump build.
+
+**What remains open: Tasks 3 and 4 only.** They need the deployment server — process manager, service name, Node install path, and whether the second application shares the service user. None of it is inferable from the repository.
+
+**State this leaves behind — the one thing a later session must not misread.** **CI now runs Node 24 while the deployment server still runs Node 20.** A green pipeline therefore no longer proves the deployed runtime works, and the EOL exposure this story exists to close **is still open in production**. Unrelated but observed while working: the user's own long-running `next dev` (PID 14487) is on `node@20` against the `node_modules` tree that was deleted and rebuilt for ABI 137, so it is serving from files it loaded before the swap and needs a restart.
+
 ### File List
 
+- `.github/workflows/security-audit.yml` — modified: `node-version` 20 → 24, stale comment removed
+- `.github/workflows/migration-guard.yml` — modified: `node-version` 20 → 24, stale comment removed
+- `.nvmrc` — **new**: `24`
+- `travelplan/package.json` — modified: added `engines.node: ">=24 <25"` (`f6ed931`); `@types/node` `^20` → `^24.13.3` (`66b0b01`)
+- `travelplan/package-lock.json` — modified: root `engines` recorded (`f6ed931`); `@types/node` resolution (`66b0b01`)
+- `_bmad-output/implementation-artifacts/8-1-node-24-runtime-upgrade.md` — modified: frontmatter `baseline_commit`, Status, Task 1/2 checkboxes, this record
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` — modified: story status → `in-progress`, new `last_updated` note
+
 ### Change Log
+
+| Date | Change |
+|---|---|
+| 2026-08-12 | Task 1 — Node 24 (v24.19.0) installed alongside `node@20`; `node_modules` rebuilt from the lockfile; AC2/AC3/AC4/AC6 verified by execution, including an app-level runtime check through `next dev` on the Node 24 binary. |
+| 2026-08-12 | Task 2 — CI bumped to `node-version: 24` in both workflows; both green on `main` at `f6ed931` (AC1). |
+| 2026-08-12 | Beyond scope, by user decision — runtime pinned via `engines.node` and `.nvmrc` (`f6ed931`). |
+| 2026-08-12 | Beyond scope, by user decision — `@types/node` `^20` → `^24.13.3`, separate commit `66b0b01`, full suite re-run unchanged at 151/2356. |
+| 2026-08-12 | Recorded that the story's `node-v115` Dev Note is false, and that the upgrade removes rather than adds a build-toolchain dependency. Dev Notes left unedited as this workflow may not modify them. |
+| 2026-08-12 | Tasks 3 and 4 held open — require deployment-server access. Story status `in-progress`, **not** `review`. |
