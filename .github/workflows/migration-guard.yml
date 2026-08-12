@@ -19,9 +19,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
-          # Kept at 20 to match local dev and the deployment server.
-          # Bumped to 24 LTS as one coordinated change — see story 7-10.
-          node-version: 20
+          node-version: 24
 
       - name: Check migration immutability
         run: npm run check:migrations
