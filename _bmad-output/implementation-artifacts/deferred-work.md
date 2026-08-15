@@ -657,7 +657,8 @@ origin: 2-31-complete-trip-backup-export-with-photos-travel-segments-and-bucket-
 location: `travelplan/package.json` — no `engines` field; `.github/workflows/*` pin `node-version: 20` (floating minor)
 severity: low
 reason: `zipArchive.ts` depends on `zlib.crc32`, added in Node 20.15.0 / 22.2.0. Story 2.31 verified it against Node 20.19.2, but that is an observation, not a constraint: `package.json` declares no `engines` at all and CI pins only the major. A self-hosted deployment on Node 20.0–20.14 gets `crc32 is not a function` on every export request, which the route's bare `catch` turns into an unexplained `500` with nothing logged. Pre-existing in the sense that the project has never declared an engine floor — this story is the first code that makes one load-bearing. Fix is one line (`"engines": { "node": ">=20.15" }`), but it is a project-wide toolchain policy rather than a story-scoped change, and note npm does not enforce `engines` without `engine-strict`. Worth pairing with Story 8.1's Node 24 bump, which will want to revisit the floor anyway.
-status: open
+status: done 2026-08-15
+resolution: already resolved: travelplan/package.json:5-7 now declares `"engines": { "node": ">=24 <25" }` and both workflows plus .nvmrc pin Node 24 (migration-guard.yml:22, security-audit.yml:46, .nvmrc), landed in f6ed931 / 66b0b01 — the floor is far above the 20.15 zlib.crc32 needs.
 
 ### DW-82: A photo file that disappears between the assembly-time stat and the stream-time read truncates an archive already sent as 200
 
