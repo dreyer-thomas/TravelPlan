@@ -99,6 +99,43 @@ export type TripSummary = {
   destinationLocationLabel: string | null;
 };
 
+/**
+ * The most trips one `listTripsForUser` call will return, and the only bound this surface has.
+ *
+ * The dashboard has no pager and is not getting one: the agreed resolution is a generous cap plus a
+ * total, so a user over it is told rather than silently truncated. 200 sits far above any real
+ * account's trip count while keeping the response, the aggregate and the client-side sort all
+ * O(200) regardless of how many trips the account can reach.
+ *
+ * It doubles as a bind-parameter budget. The aggregate below binds the page's id list *twice* plus
+ * two trim strings, so a full page costs 2 x 200 + 2 = 402 host parameters - comfortably under
+ * SQLite's `SQLITE_MAX_VARIABLE_NUMBER` (32766 since 3.32, and 999 in older builds). Raising this
+ * constant has to keep that headroom, or the aggregate starts failing at exactly the page sizes the
+ * cap exists to make safe.
+ */
+export const TRIPS_LIST_LIMIT = 200;
+
+/**
+ * One page of the trips list plus the size of the set it was cut from.
+ *
+ * `totalCount` is what lets the dashboard say "showing N of M" instead of presenting a truncated
+ * list as the whole account. It is *not* `trips.length` even below the cap: the drop-the-row rule
+ * for a revoked membership removes rows from `trips` after the count has been taken.
+ */
+export type TripListPage = {
+  /**
+   * Ordered `(startDate asc, id asc)`, and at most `TRIPS_LIST_LIMIT` rows - but *which* rows the cap
+   * keeps is the part the ordering hides. This is the **latest**-starting page, not the first one:
+   * the query selects descending and reverses, so an account over the cap loses its oldest trips
+   * rather than the upcoming ones the dashboard exists to show. Below the limit as well as at it, the
+   * length is an upper bound only - the drop-the-row rule for a revoked membership runs *after* the
+   * cap, and the slot it frees is not backfilled from the trips the cap excluded.
+   */
+  trips: TripSummary[];
+  /** Trips matching the same `where`, uncapped. See the drift note in `listTripsForUser`. */
+  totalCount: number;
+};
+
 export type TripHeroSummary = {
   id: string;
   name: string;
@@ -655,42 +692,178 @@ export const createTripWithDays = async ({
   });
 };
 
-export const listTripsForUser = async (userId: string): Promise<TripSummary[]> => {
+/**
+ * Exactly the code points `String.prototype.trim` strips, as the second argument to SQLite's
+ * two-argument `trim(X, Y)`.
+ *
+ * The blank-stay rule ("a stay whose name trims to empty counts as an open day and adds no cost") is
+ * written in JavaScript in `getTripWithDaysForUser` and in SQL here, and the two surfaces must agree
+ * about the same row. SQLite's one-argument `trim(X)` strips U+0020 and nothing else, so a stay named
+ * with a single tab would read as *blank* on the trip overview and as *named* on the dashboard - the
+ * cost appearing in one total and not the other. The two-argument form strips precisely the character
+ * set it is handed, so handing it this set is the one spelling that matches the JS side.
+ *
+ * Spelled as `\uXXXX` escapes on purpose: the literal characters are invisible in an editor, and a
+ * missing one is then a silent behaviour difference rather than a visible edit. The set is
+ * ECMAScript's `WhiteSpace` plus `LineTerminator`: U+0009-U+000D, U+0020, U+00A0, U+1680,
+ * U+2000-U+200A, U+2028, U+2029, U+202F, U+205F, U+3000, U+FEFF.
+ */
+const JS_TRIM_CHARACTERS =
+  "\u0009\u000A\u000B\u000C\u000D\u0020\u00A0\u1680" +
+  "\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200A" +
+  "\u2028\u2029\u202F\u205F\u3000\uFEFF";
+
+/**
+ * One aggregate row per trip that has at least one day. A trip with no days produces no row at all,
+ * which is why every reader defaults the four fields to 0 rather than trusting a lookup to hit.
+ *
+ * The four numbers are declared `number | bigint` because that is what actually arrives.
+ * `@prisma/adapter-better-sqlite3` has no schema to consult for a raw statement's computed columns,
+ * so `COUNT(*)` and `SUM(...)` come back as `bigint` - verified against this database, not assumed.
+ * Declaring them `number` would type-check and then hand the route a `bigint`, which survives every
+ * arithmetic step here and dies at `JSON.stringify` in the response. Hence the `Number(...)` at each
+ * read site: it is load-bearing, not defensive.
+ */
+type TripAggregateRow = {
+  tripId: string;
+  dayCount: number | bigint;
+  openDayCount: number | bigint;
+  planItemCount: number | bigint;
+  plannedCostTotal: number | bigint;
+};
+
+/**
+ * The grouped aggregate behind `TripSummary`'s four derived integers, keyed by `trip_id`.
+ *
+ * Exported so `test/tripRepo.test.ts` can `EXPLAIN QUERY PLAN` the *same string production runs*
+ * rather than a hand-copied paraphrase of it - the plan is the property under test here, and a test
+ * that retypes the SQL would keep passing while the real query regressed.
+ *
+ * Three things about the shape are load-bearing:
+ *
+ *   - Plan items are pre-aggregated in a subquery instead of joined directly. `accommodations`
+ *     carries a unique index on `trip_day_id`, so that `LEFT JOIN` is 1:1 and cannot multiply rows;
+ *     a direct join to `day_plan_items` is 1:N and would multiply each day's accommodation cost by
+ *     its plan item count.
+ *   - **The subquery carries its own `WHERE` on the same trip ids.** It is not redundant with the
+ *     outer one: SQLite cannot push an outer predicate into an aggregate subquery, so what the
+ *     `WHERE` decides is *which rows the subquery is allowed to consider at all*. Without it the
+ *     subquery's row source is the whole of `day_plan_items` - every plan item in the database,
+ *     grouped, on every dashboard load - and the plan says so: `SCAN i USING INDEX
+ *     idx_day_plan_items_trip_day_id`, with no mention of `trip_days` inside the subquery, because
+ *     there is nothing to bound it by. That is the exact cost this whole change exists to remove,
+ *     merely moved off the wire and into the database. With the `WHERE` in place the subquery is
+ *     driven from `trip_days` instead: `SEARCH t USING INDEX idx_trip_days_trip_id (trip_id=?)` then
+ *     `SEARCH i USING INDEX idx_day_plan_items_trip_day_id (trip_day_id=?)`.
+ *
+ *     Two things this is deliberately *not* claiming. `MATERIALIZE p` is not evidence either way -
+ *     it appears in every plan of this statement, bounded or not, at every data size, and only says
+ *     the subquery is computed once. And the access path above is not a data-independent guarantee:
+ *     SQLite's choice is cost-based, so it depends on the table statistics in force. Measured on
+ *     this schema, the bounded plan above holds at 0, 2, 200, 1 000 and 5 000 trips as long as no
+ *     `ANALYZE` statistics exist - which is the state the application runs in, since nothing in it
+ *     ever issues `ANALYZE`. Given `ANALYZE` statistics the very same SQL can plan as `SCAN i` plus
+ *     `BLOOM FILTER ON t` (observed at 300 trips / 15 000 plan items with a 200-id page). The
+ *     bound is a property of the statement; the plan shape is a property of the statement *and* the
+ *     statistics. `test/tripRepo.test.ts` pins the statistics before asserting the shape.
+ *   - The id list is therefore bound twice, both times through `Prisma.join`. Never interpolate:
+ *     these ids reach us from a `findMany` today, and a concatenated one would be an injection the
+ *     next caller inherits for free.
+ *
+ * **Precondition: `tripIds` must not be empty.** `Prisma.join([])` throws "Expected `join([])` to be
+ * called with an array of multiple elements", which names neither this function nor the rule it
+ * broke, and `IN ()` is a syntax error in SQLite even if the join let it through. The guard below
+ * therefore fails loudly and by name; callers short-circuit an empty page instead of asking.
+ */
+export const buildTripAggregateQuery = (tripIds: string[]): Prisma.Sql => {
+  if (tripIds.length === 0) {
+    throw new Error(
+      "buildTripAggregateQuery requires a non-empty tripIds array: the trip id list is bound with " +
+        "`Prisma.join`, which rejects an empty array, and `IN ()` is not valid SQLite. A caller with " +
+        "no trips on the page has nothing to aggregate and must skip the query entirely.",
+    );
+  }
+
+  return Prisma.sql`
+  SELECT d.trip_id AS tripId,
+         COUNT(*) AS dayCount,
+         SUM(CASE WHEN a.trip_day_id IS NULL OR trim(a.property_name, ${JS_TRIM_CHARACTERS}) = '' THEN 1 ELSE 0 END) AS openDayCount,
+         SUM(COALESCE(p.itemCount, 0)) AS planItemCount,
+         SUM(CASE WHEN a.trip_day_id IS NOT NULL AND trim(a.property_name, ${JS_TRIM_CHARACTERS}) <> ''
+                  THEN COALESCE(a.cost_cents, 0) ELSE 0 END
+             + COALESCE(p.costTotal, 0)) AS plannedCostTotal
+  FROM trip_days d
+  LEFT JOIN accommodations a ON a.trip_day_id = d.id
+  LEFT JOIN (SELECT i.trip_day_id, COUNT(*) AS itemCount, SUM(COALESCE(i.cost_cents, 0)) AS costTotal
+             FROM day_plan_items i
+             JOIN trip_days t ON t.id = i.trip_day_id
+             WHERE t.trip_id IN (${Prisma.join(tripIds)})
+             GROUP BY i.trip_day_id) p ON p.trip_day_id = d.id
+  WHERE d.trip_id IN (${Prisma.join(tripIds)})
+  GROUP BY d.trip_id
+`;
+};
+
+export const listTripsForUser = async (userId: string): Promise<TripListPage> => {
   // One `findMany`, not one query per trip: calling `getTripWithDaysForUser` in a loop would issue a
   // raw query plus a full day/plan-item/travel-segment tree for every row on the landing surface.
-  // (Prisma still expands the nested relations into their own queries - the point is that the cost
-  // is fixed, not proportional to the number of trips.) The `where` authorises the same way every
-  // other trip read does - owned, or reachable through a membership - because this list is the only
-  // surface offered after sign-in, and filtering it on ownership alone left an invited collaborator
-  // staring at an empty dashboard while the trip opened fine by direct URL. Prisma compiles the
-  // relation filter inside `OR` to an `EXISTS` subquery, so a trip matching both arms is returned
-  // once rather than joined into duplicates.
+  // The `where` authorises the same way every other trip read does - owned, or reachable through a
+  // membership - because this list is the only surface offered after sign-in, and filtering it on
+  // ownership alone left an invited collaborator staring at an empty dashboard while the trip opened
+  // fine by direct URL. Prisma compiles the relation filter inside `OR` to an `EXISTS` subquery, so a
+  // trip matching both arms is returned once rather than joined into duplicates.
+  //
+  // Hoisted into a constant because the `count` below must be over *exactly* this set: a `totalCount`
+  // taken over a different predicate than the page would report a number the page can never reach.
+  //
+  // The annotation is load-bearing, not documentation. TypeScript only applies excess-property
+  // checking to an object *literal* written at the call site, so an unannotated `const` silently
+  // opts this filter out of it: `{ members: { some: { userId } } }` is a TS2561 error inline and
+  // compiles clean through a bare `const`. A misspelled relation is not a type error at the
+  // `findMany` either - it is an authorisation filter that quietly stops filtering. Naming
+  // `Prisma.TripWhereInput` puts the check back on the literal.
+  const where: Prisma.TripWhereInput = { OR: [{ userId }, { members: { some: { userId } } }] };
+
+  // Selected **descending** and reversed below, which is the whole point of the pair. `take` keeps the
+  // first rows the `orderBy` produces, so applying it to an ascending `startDate` would retain the
+  // *oldest* trips - and this surface pushes past trips to the bottom as archival, so an account over
+  // the cap would lose precisely the upcoming trips the dashboard exists to show, with "Active trips"
+  // reading 0 beside a full list of finished ones. Descending + `take` truncates the archival end
+  // instead; the ascending contract is restored by the `reverse()` below.
   //
   // The membership rides along in the same query rather than costing a `getTripAccessForUser` per
-  // row; `@@unique([tripId, userId])` is what makes `take: 1` exact. The `orderBy` is unchanged -
-  // past-trips-last ordering is applied client-side where "today" is known.
-  const trips = await prisma.trip.findMany({
-    where: { OR: [{ userId }, { members: { some: { userId } } }] },
-    orderBy: { startDate: "asc" },
-    include: {
-      members: {
-        where: { userId },
-        // `userId` rides along unused by this query's own shaping: `deriveTripAccessRole` matches on
-        // it rather than trusting `members[0]`, so the `where` above is no longer the only thing
-        // standing between a caller and somebody else's role.
-        select: { userId: true, role: true },
-        take: 1,
-      },
-      days: {
-        select: {
-          accommodation: { select: { name: true, costCents: true } },
-          dayPlanItems: { select: { costCents: true } },
+  // row; `@@unique([tripId, userId])` is what makes `take: 1` exact. No `days` include: the four
+  // derived integers come from `buildTripAggregateQuery` instead, so this query no longer drags the
+  // whole day/stay/plan-item tree of every reachable trip across the wire to be counted in JS.
+  //
+  // `Promise.all` overlaps the two round trips; it is **not** a transaction, and neither is the
+  // aggregate below. See the drift note further down for what that costs.
+  const [page, totalCount] = await Promise.all([
+    prisma.trip.findMany({
+      where,
+      orderBy: [{ startDate: "desc" }, { id: "desc" }],
+      take: TRIPS_LIST_LIMIT,
+      include: {
+        members: {
+          where: { userId },
+          // `userId` rides along unused by this query's own shaping: `deriveTripAccessRole` matches on
+          // it rather than trusting `members[0]`, so the `where` above is no longer the only thing
+          // standing between a caller and somebody else's role.
+          select: { userId: true, role: true },
+          take: 1,
         },
       },
-    },
-  });
+    }),
+    prisma.trip.count({ where }),
+  ]);
 
-  // Prisma loads a to-many `include` as its own statement, so the `EXISTS` filter above and the
+  // Back to the documented `(startDate asc, id asc)` contract. Only *which* rows survived the cap
+  // changed; the order callers receive did not. The `id` tiebreaker is not decoration: without it two
+  // trips sharing a `startDate` come back in whatever order SQLite happens to produce, which the
+  // client comparator cannot reproduce, so the same two rows can swap between two renders of one page.
+  page.reverse();
+
+  // Prisma loads the membership `include` as its own statement, so the `EXISTS` filter above and the
   // membership read are not one atomic query: a membership revoked between them comes back as a
   // non-owned row with `members: []`. `deriveTripAccessRole` answers `null` - no access at all - for
   // exactly that state, so the list drops the row rather than downgrading it to `viewer`. Downgrading
@@ -700,42 +873,53 @@ export const listTripsForUser = async (userId: string): Promise<TripSummary[]> =
   // The role is derived here rather than again inside the mapping, so "who may see this row" and "what
   // does the row say the account may do" are one answer from one function - the same one
   // `getTripWithDaysForUser` calls. They used to be two separate expressions, and they disagreed.
-  const accessible = trips.flatMap((trip) => {
+  const accessible = page.flatMap((trip) => {
     const accessRole = deriveTripAccessRole(userId, trip);
     return accessRole === null ? [] : [{ trip, accessRole }];
   });
 
-  return accessible.map(({ trip, accessRole }) => {
-    // Mirrors `getTripWithDaysForUser`'s visible-cost rules verbatim: a stay whose name is blank
-    // contributes neither cost nor "has accommodation", so the same trip reads identically here and
-    // on the trip overview.
-    const hasVisibleAccommodation = (day: (typeof trip.days)[number]) =>
-      (day.accommodation?.name?.trim() ?? "").length > 0;
-    const getVisibleAccommodationCost = (day: (typeof trip.days)[number]) =>
-      hasVisibleAccommodation(day) ? (day.accommodation?.costCents ?? 0) : 0;
-    const getVisibleDayPlanCost = (day: (typeof trip.days)[number]) =>
-      day.dayPlanItems.reduce((sum, item) => sum + (item.costCents ?? 0), 0);
+  // Keyed on the *filtered* ids, not on the page's - a strict subset, so a row the rule above dropped
+  // is never aggregated and the revoked collaborator's cost total is not computed, let alone returned.
+  // Zero ids short-circuits: `IN ()` is a syntax error in SQLite, and there is nothing to ask about.
+  const tripIds = accessible.map(({ trip }) => trip.id);
+  const aggregateRows = tripIds.length
+    ? await prisma.$queryRaw<TripAggregateRow[]>(buildTripAggregateQuery(tripIds))
+    : [];
+  const aggregatesByTripId = new Map(aggregateRows.map((row) => [row.tripId, row]));
 
-    return {
-      id: trip.id,
-      name: trip.name,
-      accessRole,
-      startDate: trip.startDate,
-      endDate: trip.endDate,
-      // `trip.days` is already loaded in full, so counting it here avoids a `_count` subquery.
-      dayCount: trip.days.length,
-      heroImageUrl: trip.heroImageUrl,
-      updatedAt: trip.updatedAt,
-      openDayCount: trip.days.filter((day) => !hasVisibleAccommodation(day)).length,
-      planItemCount: trip.days.reduce((sum, day) => sum + day.dayPlanItems.length, 0),
-      plannedCostTotal: trip.days.reduce(
-        (sum, day) => sum + getVisibleAccommodationCost(day) + getVisibleDayPlanCost(day),
-        0,
-      ),
-      startLocationLabel: trip.startLocationLabel,
-      destinationLocationLabel: trip.destinationLocationLabel,
-    };
-  });
+  // `findMany`, `count` and the aggregate are three unsynchronised reads. `totalCount` can therefore
+  // drift in **both** directions against `trips.length`: ahead when the drop-the-row rule removes a
+  // revoked membership, or when a trip is created between the count and the page; behind when one is
+  // deleted in that window. All that rides on the two agreeing is whether the dashboard draws a grey
+  // "showing N of M" line and whether it offers the create-your-first-trip card, so the drift is
+  // accepted rather than transacted away.
+  return {
+    trips: accessible.map(({ trip, accessRole }) => {
+      // No row at all for a trip with no days, which is the same thing as four zeros here.
+      const aggregate = aggregatesByTripId.get(trip.id);
+
+      return {
+        id: trip.id,
+        name: trip.name,
+        accessRole,
+        startDate: trip.startDate,
+        endDate: trip.endDate,
+        // `Number(...)` on all four because the adapter really does hand back `bigint` for a raw
+        // statement's computed columns - see `TripAggregateRow`. Without it `TripSummary`'s `number`
+        // fields carry `bigint`s that pass every arithmetic step and then throw
+        // "Do not know how to serialize a BigInt" inside the route's `ok(...)`.
+        dayCount: Number(aggregate?.dayCount ?? 0),
+        heroImageUrl: trip.heroImageUrl,
+        updatedAt: trip.updatedAt,
+        openDayCount: Number(aggregate?.openDayCount ?? 0),
+        planItemCount: Number(aggregate?.planItemCount ?? 0),
+        plannedCostTotal: Number(aggregate?.plannedCostTotal ?? 0),
+        startLocationLabel: trip.startLocationLabel,
+        destinationLocationLabel: trip.destinationLocationLabel,
+      };
+    }),
+    totalCount,
+  };
 };
 
 export type UpdateTripParams = {

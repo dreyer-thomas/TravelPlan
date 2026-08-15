@@ -128,6 +128,21 @@ const en: Dictionary = {
   "trips.dashboard.subline": "{tripCount} trips · {gapTripCount} with open items",
   // `formatMessage` has no plural support, so every count-bearing string needs its own singular twin.
   "trips.dashboard.sublineOne": "1 trip · {gapTripCount} with open items",
+  // Drawn only when the list is capped at `TRIPS_LIST_LIMIT`, so the user is told the page is a page
+  // rather than the whole account.
+  "trips.dashboard.showingCount": "Showing {shown} of {total} trips",
+  // `shown` is reachable at 1 - two matching trips with one dropped for a revoked membership - and
+  // German conjugates the verb with it, so the twin is not cosmetic there.
+  "trips.dashboard.showingCountOne": "Showing 1 of {total} trips",
+  // `total` reaches 1 too: one matching trip whose only row is dropped for a revoked membership. The
+  // plural key printed "of 1 trips". The line only draws when `total > shown`, so `total` of 1 forces
+  // `shown` to 0 - which is why this twin and `showingCountOne` can never both apply.
+  //
+  // Not spelled `…TotalOne`, though it is the same kind of twin: the `…One` suffix is claimed by the
+  // twin that strips to its own plural key, and `test/i18nDictionaries.test.ts` derives that pairing
+  // by stripping it. `showingCount` already has such a twin, and a second `…One` on one plural would
+  // either fail that check or need a dead `showingCountTotal` invented to satisfy it.
+  "trips.dashboard.showingCountTotalSingular": "Showing {shown} of 1 trip",
   "trips.dashboard.statActiveTrips": "Active trips",
   "trips.dashboard.statTotalCost": "Costs so far (all trips)",
   "trips.dashboard.statOpenItems": "Open items",

@@ -71,14 +71,28 @@ type TripSummary = {
  *
  * This is what Screen C depicts - its May-2026 row sits below the September/December ones - and it
  * follows from AC3's archival framing: a finished trip is a logbook entry, not a to-do. Applied
- * client-side because it depends on "today"; the repository's `orderBy` stays ascending.
+ * client-side because it depends on "today"; the repository's contract stays `(startDate asc, id asc)`.
+ *
+ * Re-sorting the server's page here is emphatically *not* a no-op - it moves every past trip to the
+ * end and reverses that group. The narrower claim the `id` tiebreaker buys is the one that is true:
+ * two trips sharing a `startDate` now land in a **defined, repeatable** order instead of whatever
+ * order they arrived in, which is what let the same payload render two different ways. That order
+ * matches the server's ascending contract in the non-past section and is its exact reverse in the
+ * past section, for the reason given below - so "client agrees with server" holds section by
+ * section, not row for row across the whole list.
+ *
+ * Compared with `<`/`>` rather than `localeCompare`, because the order being reproduced is SQLite's
+ * BINARY collation on the `id` column - `localeCompare` is a different ordering that would disagree
+ * on ids differing only in case. The past section is the exact reverse of the ascending order, so the
+ * tiebreaker is negated along with the date delta rather than applied on top of it.
  */
 const buildTripComparator = (todayUtc: Date) => (a: TripSummary, b: TripSummary) => {
   const aPast = deriveTripStatus(a, todayUtc) === "past";
   const bPast = deriveTripStatus(b, todayUtc) === "past";
   if (aPast !== bPast) return aPast ? 1 : -1;
   const delta = new Date(a.startDate).getTime() - new Date(b.startDate).getTime();
-  return aPast ? -delta : delta;
+  const ordered = delta !== 0 ? delta : a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  return aPast ? -ordered : ordered;
 };
 
 export default function TripsDashboard() {
@@ -86,6 +100,14 @@ export default function TripsDashboard() {
   const theme = useTheme();
   const tokens = theme.palette.tokens;
   const [trips, setTrips] = useState<TripSummary[]>([]);
+  /**
+   * Trips the account matches on the server, which is not the same number as `trips.length`. Two
+   * things separate them: the list is capped at `TRIPS_LIST_LIMIT` rows, and the count is a separate
+   * unsynchronised read, so a row dropped for a revoked membership - or a trip created or deleted
+   * between the two - moves one and not the other. Held separately so the advisory line below can
+   * say how much of the account the page represents.
+   */
+  const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -125,18 +147,26 @@ export default function TripsDashboard() {
       // `accessRole` existed carries no roles, and this surface reads an absent role as *shared*, so
       // a cached response would put a viewer pill on every one of the owner's own trips.
       const response = await fetch("/api/trips", { method: "GET", credentials: "include", cache: "no-store" });
-      const body = (await response.json()) as ApiEnvelope<{ trips: TripSummary[] }>;
+      const body = (await response.json()) as ApiEnvelope<{ trips: TripSummary[]; totalCount?: number }>;
 
       if (!response.ok || body.error) {
         setError(body.error?.message ?? t("trips.dashboard.loadError"));
         setTrips([]);
+        setTotalCount(0);
         return;
       }
 
-      setTrips([...(body.data?.trips ?? [])].sort(buildTripComparator(todayUtc)));
+      const rows = body.data?.trips ?? [];
+      setTrips([...rows].sort(buildTripComparator(todayUtc)));
+      // Optional, and defaulted to the row count rather than to 0: a server that has not yet been
+      // redeployed sends no `totalCount`, and reading that as 0 would both suppress the empty-state
+      // card and make the advisory line's condition unreachable. Falling back to what arrived says
+      // "this is all of it", which is exactly what an uncapped older server was returning.
+      setTotalCount(body.data?.totalCount ?? rows.length);
     } catch {
       setError(t("trips.dashboard.loadError"));
       setTrips([]);
+      setTotalCount(0);
     } finally {
       setLoading(false);
     }
@@ -146,7 +176,19 @@ export default function TripsDashboard() {
     loadTrips();
   }, [loadTrips]);
 
-  const listEmpty = useMemo(() => !loading && trips.length === 0 && !error, [loading, trips.length, error]);
+  // Both counters, because each one alone admits a contradiction and they are different ones.
+  //
+  // `trips.length === 0` alone drew "No trips yet" beside a line reading "Showing 0 of 240 trips",
+  // whenever every row of a page was dropped for a revoked membership.
+  //
+  // `totalCount === 0` alone is no better: `findMany` and `count` are unsynchronised reads, so a trip
+  // created between them arrives as a non-empty page against a total of 0, and the card would then
+  // render directly above that user's own trip rows. Requiring both is the only condition under which
+  // neither the line nor the list can contradict the card.
+  const listEmpty = useMemo(
+    () => !loading && !error && totalCount === 0 && trips.length === 0,
+    [loading, error, totalCount, trips.length],
+  );
   const formatDate = useMemo(
     () => (value: string) =>
       new Intl.DateTimeFormat(language === "de" ? "de-DE" : "en-US", {
@@ -182,11 +224,28 @@ export default function TripsDashboard() {
         startLocationLabel: response.trip.startLocation?.label ?? null,
         destinationLocationLabel: response.trip.destinationLocation?.label ?? null,
       };
+      // Read before either setter, so both decisions are made from the same list. Not computed inside
+      // the `setTrips` updater: React re-invokes updaters (twice in StrictMode, and again on a
+      // re-render that replays the queue), and a `setTotalCount` fired from in there would be a side
+      // effect riding along with each replay.
+      const known = trips.some((trip) => trip.id === summary.id);
       setTrips((current) =>
+        // The `filter` guards a re-delivered response: the same trip arriving twice replaces its row
+        // rather than duplicating it.
         [summary, ...current.filter((trip) => trip.id !== summary.id)].sort(buildTripComparator(todayUtc)),
       );
+      // The account now matches one more trip, so the total has to move with the list or the advisory
+      // line goes stale - and at the boundary it disappears entirely, since `totalCount > trips.length`
+      // stops holding the moment the list grows past a total that stayed put. `+ 1` rather than a
+      // refetch because POST answers with the created trip, not with a fresh total.
+      //
+      // Skipped for an id already on screen, so this counter honours the same dedupe the list does.
+      // Bumping unconditionally would leave the total one high after a re-delivered response - a
+      // "showing N of N+1" line drawn over a page that is in fact complete, and unlike the server's
+      // three unsynchronised reads that drift is entirely avoidable from here.
+      if (!known) setTotalCount((current) => current + 1);
     },
-    [todayUtc],
+    [todayUtc, trips],
   );
   const handleOpenCreate = useCallback(() => {
     setCreateOpen(true);
@@ -230,6 +289,20 @@ export default function TripsDashboard() {
     t(trips.length === 1 ? "trips.dashboard.sublineOne" : "trips.dashboard.subline"),
     { tripCount: trips.length, gapTripCount: gapTrips.length },
   );
+  // Both counters reach 1, and `formatMessage` has no plural support, so both need their own twin.
+  // `shown` gets there with two matching trips one of which is dropped for a revoked membership -
+  // German conjugates the verb with it. `total` gets there with *one* matching trip whose only row is
+  // dropped the same way, which the plural key rendered as "of 1 trips" / "von 1 Reisen".
+  //
+  // Tested in this order, but the two cannot in fact collide: the line only draws while
+  // `totalCount > trips.length`, so a total of 1 forces `shown` to 0.
+  const showingCountKey =
+    totalCount === 1
+      ? "trips.dashboard.showingCountTotalSingular"
+      : trips.length === 1
+      ? "trips.dashboard.showingCountOne"
+      : "trips.dashboard.showingCount";
+  const showingCount = formatMessage(t(showingCountKey), { shown: trips.length, total: totalCount });
 
   const statusPill = (trip: TripSummary, status: TripStatus) => {
     const treatment = {
@@ -501,6 +574,30 @@ export default function TripsDashboard() {
               {t("trips.dashboard.addTrip")}
             </Button>
           </Box>
+        )}
+
+        {/* Deliberately not guarded on `trips.length > 0`. Zero rows against a non-zero total is a
+            reachable state - every row of a page dropped for a revoked membership - and it is the
+            state where the user most needs to be told that the account holds trips this page is not
+            showing. `listEmpty` requires `totalCount === 0` *and* `trips.length === 0` for the same
+            reason, so the card cannot appear beside this line and cannot appear above a list of the
+            user's own rows either. */}
+        {!loading && !error && totalCount > trips.length && (
+          <Typography
+            data-testid="trips-showing-count"
+            sx={{
+              fontSize: 13,
+              fontWeight: 600,
+              color: tokens.inkSoft,
+              // 17px = a row's 1px border plus its 16px padding, which is the offset of a trip name
+              // from this container's content box at both breakpoints (the container's own 8px at
+              // `md` already applies to this element too). So the line starts where the trip names
+              // start rather than where their borders do.
+              px: "17px",
+            }}
+          >
+            {showingCount}
+          </Typography>
         )}
 
         {!loading && trips.length > 0 && (

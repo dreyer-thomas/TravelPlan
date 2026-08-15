@@ -201,23 +201,74 @@ describe("GET /api/trips", () => {
     expect(payload.data?.trips[0].accessRole).toBe("contributor");
   });
 
-  it("returns an owned trip and a shared one as two separately labelled entries", async () => {
+  it("returns an owned trip and a shared one at the positions their ids sort to", async () => {
     const user = await createUser("trips-list-both@example.com");
     const owner = await createUser("trips-list-both-owner@example.com");
     const token = await createSessionJwt({ sub: user.id, role: user.role });
-    await createTrip(user.id, "Mine");
-    const theirs = await createTrip(owner.id, "Theirs, shared");
-    await addMember(theirs.id, user.id, "CONTRIBUTOR");
+    // Explicit ids, because cuid is time-monotonic and would make id order and insertion order the
+    // same thing. Created in *ascending* id order, which is the direction that has teeth here: the
+    // repository selects `(startDate desc, id desc)` and reverses the page, so with the tiebreaker
+    // deleted SQLite's rowid order arrives reversed - "both-b" first - and this assertion fails.
+    // (`test/tripRepo.test.ts` carries the four-row fixture that is immune to the sorter's direction
+    // either way.) This test used to match the two entries by name precisely because their shared
+    // `startDate` left the order undefined; it is now the thing being asserted.
+    await createTrip(owner.id, "Theirs, shared", { id: "both-a" });
+    await createTrip(user.id, "Mine", { id: "both-b" });
+    await addMember("both-a", user.id, "CONTRIBUTOR");
 
     const response = await GET(buildRequest(token));
-    const payload = (await response.json()) as ApiEnvelope<{ trips: TripListEntry[] }>;
+    const payload = (await response.json()) as ApiEnvelope<{ trips: TripListEntry[]; totalCount: number }>;
 
     expect(payload.data?.trips).toHaveLength(2);
-    // Both fixtures share a `startDate`, so the `orderBy` leaves their relative order undefined -
-    // the entries are matched by name rather than by position.
-    const byName = new Map(payload.data!.trips.map((entry) => [entry.name, entry.accessRole]));
-    expect(byName.get("Mine")).toBe("owner");
-    expect(byName.get("Theirs, shared")).toBe("contributor");
+    expect(payload.data?.totalCount).toBe(2);
+    expect(payload.data?.trips.map((entry) => [entry.id, entry.name, entry.accessRole])).toEqual([
+      ["both-a", "Theirs, shared", "contributor"],
+      ["both-b", "Mine", "owner"],
+    ]);
+  });
+
+  // Matrix row 9. The route's `try/catch` is the only thing between a failing aggregate and an
+  // unhandled rejection escaping the handler, and nothing exercised it: every other failure path on
+  // this route is an auth check that returns before the repository is reached.
+  it("answers 500 server_error when the aggregate query throws", async () => {
+    const user = await createUser("trips-list-aggregate-throws@example.com");
+    const token = await createSessionJwt({ sub: user.id, role: user.role });
+    const trip = await createTrip(user.id, "Aggregated");
+    await createDay(trip.id, 1);
+
+    // The aggregate is the one read in the chain that goes through `$queryRaw`, so failing that
+    // method fails it specifically and leaves `findMany` and `count` alone. Restored by hand rather
+    // than by `mockRestore`: `prisma` is a Proxy whose own-property descriptors report `undefined`,
+    // so a restore would write that back and break `$queryRaw` for every later test in this worker.
+    const client = prisma as unknown as { $queryRaw: (...args: unknown[]) => Promise<unknown> };
+    const original = client.$queryRaw;
+    client.$queryRaw = () => Promise.reject(new Error("aggregate exploded"));
+
+    try {
+      const response = await GET(buildRequest(token));
+      const payload = (await response.json()) as ApiEnvelope<null>;
+
+      expect(response.status).toBe(500);
+      expect(payload.data).toBeNull();
+      expect(payload.error?.code).toBe("server_error");
+    } finally {
+      client.$queryRaw = original;
+    }
+  });
+
+  // The cap is invisible on a small fixture, so what is checkable here is that the route carries the
+  // number the dashboard needs at all, as a sibling of `trips` rather than inside a row.
+  it("reports the total matching trip count beside the page", async () => {
+    const user = await createUser("trips-list-total@example.com");
+    const token = await createSessionJwt({ sub: user.id, role: user.role });
+    await createTrip(user.id, "One", { id: "total-a" });
+    await createTrip(user.id, "Two", { id: "total-b" });
+
+    const response = await GET(buildRequest(token));
+    const payload = (await response.json()) as ApiEnvelope<{ trips: TripListEntry[]; totalCount: number }>;
+
+    expect(payload.data?.totalCount).toBe(2);
+    expect(Object.keys(payload.data ?? {}).sort()).toEqual(["totalCount", "trips"]);
   });
 
   // Prisma compiles the relation filter inside `OR` to an `EXISTS` subquery rather than a join, so a
@@ -294,10 +345,16 @@ describe("GET /api/trips", () => {
     const token = await createSessionJwt({ sub: user.id, role: user.role });
 
     const response = await GET(buildRequest(token));
-    const payload = (await response.json()) as ApiEnvelope<{ trips: TripListEntry[] }>;
+    const payload = (await response.json()) as ApiEnvelope<{ trips: TripListEntry[]; totalCount: number }>;
 
     expect(response.status).toBe(200);
     expect(payload.error).toBeNull();
     expect(payload.data?.trips).toEqual([]);
+    // The only test that reaches the `tripIds.length === 0` short-circuit, so it is also the only
+    // place `totalCount` is pinned on the empty page. Asserted explicitly rather than left to the
+    // key-set test next door: a short-circuit that returned the field as `undefined` would still
+    // serialise away and leave the client falling back to the row count, which is the same number
+    // here and so would hide the omission until an account that is merely *empty for now* met it.
+    expect(payload.data?.totalCount).toBe(0);
   });
 });

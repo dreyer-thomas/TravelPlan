@@ -64,8 +64,11 @@ const FOUR_STATE_TRIPS = [
   }),
 ];
 
-let mockTripsResponse: { data: { trips: unknown[] } | null; error: unknown } = {
-  data: { trips: [] },
+// `totalCount` is optional on the fixture type for the same reason it is optional on the component's
+// payload type: a server that has not yet been redeployed sends none, and the absent case is its own
+// behaviour (the dashboard falls back to the received row count) rather than an untested gap.
+let mockTripsResponse: { data: { trips: unknown[]; totalCount?: number } | null; error: unknown } = {
+  data: { trips: [], totalCount: 0 },
   error: null,
 };
 
@@ -91,7 +94,7 @@ const mockCreateResponse = {
 describe("TripsDashboard", () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true, now: TODAY });
-    mockTripsResponse = { data: { trips: [] }, error: null };
+    mockTripsResponse = { data: { trips: [], totalCount: 0 }, error: null };
     // `mockCreateResponse` is module-scope and mutable, so every field a test overwrites is restored
     // here rather than at the end of that test - otherwise a failed assertion skips the restore and
     // leaks the override into every test that follows.
@@ -711,6 +714,183 @@ describe("TripsDashboard", () => {
       expect(screen.queryByTestId("trip-row")).not.toBeInTheDocument();
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
+  });
+
+  /**
+   * The repository caps the list at `TRIPS_LIST_LIMIT` and reports the full match count beside it.
+   * There is no pager and there is not going to be one, so this grey line is the *entire* mechanism by
+   * which a user over the cap learns that the page is a page. If it does not render, the dashboard
+   * silently presents a truncation as the whole account.
+   */
+  describe("the capped-list advisory line", () => {
+    const showingLine = () => screen.queryByTestId("trips-showing-count");
+    const twoRows = [
+      trip({ id: "a", name: "Alpha" }),
+      trip({ id: "b", name: "Bravo", startDate: "2026-09-20T00:00:00.000Z" }),
+    ];
+
+    it("states how much of the account the page shows when the total exceeds the rows", async () => {
+      mockTripsResponse = { data: { trips: twoRows, totalCount: 240 }, error: null };
+      renderDashboard();
+
+      await screen.findAllByTestId("trip-row");
+      expect(showingLine()).toHaveTextContent("Showing 2 of 240 trips");
+    });
+
+    it("says nothing when the page is the whole account", async () => {
+      mockTripsResponse = { data: { trips: twoRows, totalCount: 2 }, error: null };
+      renderDashboard();
+
+      await screen.findAllByTestId("trip-row");
+      expect(showingLine()).not.toBeInTheDocument();
+    });
+
+    it("says nothing when the payload carries no total at all", async () => {
+      // A server old enough to predate the field. The fallback reads the received row count as the
+      // total, which is exactly what such a server was returning - an uncapped list - so the honest
+      // rendering is no line rather than a line comparing a number against itself.
+      mockTripsResponse = { data: { trips: twoRows }, error: null };
+      renderDashboard();
+
+      await screen.findAllByTestId("trip-row");
+      expect(showingLine()).not.toBeInTheDocument();
+    });
+
+    it("renders over an empty page with a non-zero total, and suppresses the empty-state card", async () => {
+      // Reachable: a capped page every row of which the revoked-membership rule dropped between the
+      // count and the read. This is the state where the line matters most, and where a
+      // `trips.length > 0` guard would have hidden it - leaving "No trips yet" as the only thing on
+      // screen for an account holding 240 of them.
+      mockTripsResponse = { data: { trips: [], totalCount: 240 }, error: null };
+      renderDashboard();
+
+      await waitFor(() => expect(showingLine()).toBeInTheDocument());
+      expect(showingLine()).toHaveTextContent("Showing 0 of 240 trips");
+      expect(screen.queryByText(/no trips yet/i)).not.toBeInTheDocument();
+      expect(screen.queryByTestId("trip-row")).not.toBeInTheDocument();
+    });
+
+    it("keeps the empty-state card away from a page that has rows, whatever the total says", async () => {
+      // `findMany` and `count` are unsynchronised reads, so a trip created between them arrives as a
+      // non-empty page against a total of 0. Narrowing `listEmpty` to `totalCount === 0` alone put
+      // "No trips yet / Add trip" directly above that user's own trip rows.
+      mockTripsResponse = { data: { trips: twoRows, totalCount: 0 }, error: null };
+      renderDashboard();
+
+      expect(await screen.findAllByTestId("trip-row")).toHaveLength(2);
+      expect(screen.queryByText(/no trips yet/i)).not.toBeInTheDocument();
+    });
+
+    // Anchored regexes, not substrings: `toHaveTextContent` matches a bare string anywhere in the
+    // element, and the English plural "Showing 0 of 1 trips" *contains* the singular "…of 1 trip", so
+    // a substring assertion passes with the twin never selected. Checked by making it do exactly that.
+    it.each([
+      ["en", /^Showing 0 of 1 trip$/],
+      ["de", /^0 von 1 Reise werden angezeigt$/],
+    ] as const)("uses the singular-total twin at a total of one in %s", async (language, expected) => {
+      // One matching trip whose only row is dropped for a revoked membership. The plural key printed
+      // "Showing 0 of 1 trips" / "0 von 1 Reisen werden angezeigt".
+      mockTripsResponse = { data: { trips: [], totalCount: 1 }, error: null };
+      renderWithProviders(<TripsDashboard />, { language });
+
+      await waitFor(() => expect(showingLine()).toBeInTheDocument());
+      expect(showingLine()).toHaveTextContent(expected);
+    });
+
+    it("uses the singular twin at one visible row, where German conjugates the verb", async () => {
+      mockTripsResponse = { data: { trips: [trip({ id: "a", name: "Alpha" })], totalCount: 240 }, error: null };
+      renderWithProviders(<TripsDashboard />, { language: "de" });
+
+      await screen.findAllByTestId("trip-row");
+      // "wird angezeigt", not "werden angezeigt" - the reason the twin exists rather than a shared
+      // plural with the number substituted in.
+      expect(showingLine()).toHaveTextContent("1 von 240 Reisen wird angezeigt");
+    });
+
+    it("keeps the line honest after an optimistic create", async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      mockTripsResponse = { data: { trips: twoRows, totalCount: 3 }, error: null };
+      renderDashboard();
+
+      await screen.findAllByTestId("trip-row");
+      expect(showingLine()).toHaveTextContent("Showing 2 of 3 trips");
+
+      await createOsloTrip(user);
+
+      // Without the `totalCount` bump the row count catches up with a total that stayed put and the
+      // line vanishes on the very interaction that made the account bigger.
+      expect(showingLine()).toHaveTextContent("Showing 3 of 4 trips");
+    });
+
+    // The list already deduped a re-delivered create response by id; the counter beside it has to
+    // honour the same decision. Bumping unconditionally left the total one high with no row to show
+    // for it, so the surface advertised a trip the account does not have until the next `loadTrips`.
+    it("does not bump the total twice when the same create response arrives again", async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      mockTripsResponse = { data: { trips: twoRows, totalCount: 3 }, error: null };
+      renderDashboard();
+
+      await screen.findAllByTestId("trip-row");
+      await createOsloTrip(user);
+      expect(showingLine()).toHaveTextContent("Showing 3 of 4 trips");
+
+      // Same `mockCreateResponse`, so the same trip id: the row is replaced, not appended.
+      await createOsloTrip(user);
+
+      expect(screen.getAllByTestId("trip-row")).toHaveLength(3);
+      // Not "Showing 3 of 5 trips".
+      expect(showingLine()).toHaveTextContent("Showing 3 of 4 trips");
+    });
+  });
+
+  // AC4's client half. The repository hands back `(startDate asc, id asc)`; `buildTripComparator`
+  // re-sorts that page for the past-trips-last rule, and the two have to agree about same-day ties or
+  // the rendered order is not the one the server promised.
+  it("renders same-day trips in ascending id order however the payload arrives", async () => {
+    // Fed in *descending* id order. `Array.prototype.sort` is stable, so a comparator with no id
+    // tiebreaker returns them untouched - Bravo first - and this fails. Both fixtures share a
+    // `startDate` and neither is past, so the date delta is 0 and the tiebreaker is the only thing
+    // deciding the order.
+    mockTripsResponse = {
+      data: {
+        trips: [trip({ id: "tie-b", name: "Bravo" }), trip({ id: "tie-a", name: "Alpha" })],
+        totalCount: 2,
+      },
+      error: null,
+    };
+    renderDashboard();
+
+    const rows = await screen.findAllByTestId("trip-row");
+    expect(rows.map((row) => within(row).getByRole("link").getAttribute("href"))).toEqual([
+      "/trips/tie-a",
+      "/trips/tie-b",
+    ]);
+  });
+
+  // The other half of the same rule, and the one the comparator's docstring is careful about: the
+  // past group is the exact reverse of the ascending order, so the tiebreaker is negated along with
+  // the date delta rather than applied on top of it. Same-day *past* trips therefore render in
+  // **descending** id order - deliberately the opposite of the repository contract, not a leak of it.
+  // Pinned because "client agrees with server on same-day ties" is only true section by section, and
+  // a future reader tempted to make the two literally identical would break the archival ordering.
+  it("renders same-day past trips in descending id order, mirroring the ascending section", async () => {
+    const past = { startDate: "2025-05-01T00:00:00.000Z", endDate: "2025-05-08T00:00:00.000Z" };
+    mockTripsResponse = {
+      data: {
+        // Ascending id, the order the repository promises - so a comparator that failed to negate
+        // would leave this untouched and render Alpha first.
+        trips: [trip({ id: "past-a", name: "Alpha", ...past }), trip({ id: "past-b", name: "Bravo", ...past })],
+        totalCount: 2,
+      },
+      error: null,
+    };
+    renderDashboard();
+
+    const rows = await screen.findAllByTestId("trip-row");
+    expect(rows.map((row) => within(row).getByRole("link").getAttribute("href"))).toEqual([
+      "/trips/past-b",
+      "/trips/past-a",
+    ]);
   });
 
   it("shows trip-row-shaped skeletons while loading", async () => {

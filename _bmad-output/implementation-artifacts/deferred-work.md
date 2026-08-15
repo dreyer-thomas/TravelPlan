@@ -144,7 +144,8 @@ resolution: resolved by sweep bundle dw-i18n-plurals
 origin: migrated from legacy ledger ("Deferred from: code review of 7-4-trips-list-redesign (2026-08-01)"), 2026-08-01
 location: `src/lib/repositories/tripRepo.ts:435-447`
 reason: The `include` pulls every `TripDay` with its `accommodation` and all `dayPlanItems` for every trip the user owns, with no `take` and no upper bound, on the landing surface. An account with 30 trips × 30 days × 10 items joins ~9,000 rows to compute `openDayCount`/`planItemCount`/`plannedCostTotal`, all three of which are expressible as SQL aggregates. Not a defect in that story — Task 1 prescribed this exact `include` and explicitly forbade the alternatives (per-trip fetch, `getTripWithDaysForUser` in a loop) — but it scales linearly with the user's whole history. Revisit if the trips list ever gets slow, or alongside a broader read-path performance pass.
-status: open
+status: done 2026-08-15
+resolution: resolved by sweep bundle dw-trips-list-query-performance
 
 ### DW-18: Design-system color constants live in an icon module
 
@@ -2194,7 +2195,8 @@ source_spec: `_bmad-output/implementation-artifacts/spec-5-12-shared-trips-on-th
 origin: migrated from legacy ledger ("Deferred from: 8-3 production rollout (2026-08-05)"), 2026-08-08
 location: `travelplan/src/lib/repositories/tripRepo.ts` — `listTripsForUser`
 reason: `listTripsForUser` loads every day, accommodation and plan item of every returned trip in order to compute the row aggregates. That was bounded by what the account created; the widened `OR: [{ userId }, { members: { some: { userId } } }]` makes it bounded by how many trips anyone else chooses to add the account to, with no cap anywhere in the chain. The unbounded shape is pre-existing — the query never had a `take` — but the population is now externally driven, which is the part that is new. A `take` alone would silently hide trips, so the fix is pagination or a documented cap with a "showing N of M" line, which is a story rather than a patch.
-status: open
+status: done 2026-08-15
+resolution: resolved by sweep bundle dw-trips-list-query-performance
 decision: 2026-08-08 Documented cap with a 'showing N of M' line — Apply a generous take to the query, return the total count, and render a 'showing N of M' line when the cap bites, so the landing screen has a bounded cost without a pager to build or test. Keep the aggregates accurate across the whole set by computing them in SQL rather than from the fetched page.
 
 ### DW-233: `Costs so far (all trips)` and `Active trips` now sum money and count trips the account neither owns nor pays for
@@ -2221,7 +2223,8 @@ source_spec: `_bmad-output/implementation-artifacts/spec-5-12-shared-trips-on-th
 origin: migrated from legacy ledger ("Deferred from: 8-3 production rollout (2026-08-05)"), 2026-08-08
 location: `travelplan/src/lib/repositories/tripRepo.ts` — `listTripsForUser`'s `orderBy`, and the client-side `buildTripComparator`
 reason: Pre-existing — the single-key sort predates Story 5.12 and that story's boundaries explicitly forbade touching it — but the consequence changed: with only the account's own trips a same-day tie was rare, and `test/tripsListRoute.test.ts`'s "returns an owned trip and a shared one as two separately labelled entries" now has to match its two fixtures by name rather than by position, which documents the non-determinism in the suite itself. Row order can differ between refetches for tied trips. A secondary key (`id`, or `name`) is a one-line fix, and `buildTripComparator`'s client-side pass would need the same tiebreaker to stay in agreement.
-status: open
+status: done 2026-08-15
+resolution: resolved by sweep bundle dw-trips-list-query-performance
 
 ### DW-236: There is no way for a collaborator to leave a trip, so a shared row is permanent on the one surface the account is offered after sign-in
 
@@ -3339,4 +3342,14 @@ location: `travelplan/src/components/features/trips/TripOverviewMapPanel.tsx` (`
 severity: low
 summary: DW-15's frame clipped the bottom of the route the first time it shipped: `globals.css` puts everything in `border-box`, so a bordered 150px wrapper has a 148px content box while the map was still told 150. The fix introduced the two constants and the subtraction, and carries a comment warning that two independent spellings of the border width would let a thicker frame clip the route again. Nothing asserts any of it — the four tests added to that suite cover only the caption. `MAP_PREVIEW_BORDER` could be deleted, or the outer height passed to the map, and the suite stays green.
 evidence: Read from the component and its suite at 2026-08-15. The regression is cosmetic and small — two clipped pixels at the bottom of a 150px preview — which is why it is low rather than medium, but it is also a regression that already happened once and was caught by a human looking at a browser rather than by anything repeatable. Closing it is one assertion on the mocked Leaflet child's `height` prop, which the suite's existing mock already receives; worth taking together with DW-346, since that entry brings the same border to `TripDayMapPanel` and would want the same assertion on the same day.
+status: open
+
+### DW-352: The dashboard header sub-line and stat strip quote the capped page as though it were the whole account
+
+source_spec: `_bmad-output/implementation-artifacts/spec-trips-list-query-performance.md`
+origin: follow-up review of the trips-list-query-performance change, 2026-08-15
+location: `travelplan/src/components/features/trips/TripsDashboard.tsx` — `subline` (~line 279), `totalCost` / `activeTrips` / `openItems` (~lines 261-274) and the `stat-total-cost` cell; labels `trips.dashboard.statTotalCost` (`src/i18n/en.ts`, `de.ts`)
+severity: medium
+summary: `listTripsForUser` now returns at most `TRIPS_LIST_LIMIT` (200) rows, and every aggregate on the surface is still computed from the rows on screen. On an over-cap account the header sub-line reads "200 trips" directly under the page title while the new advisory line, further down and in smaller grey type, reads "Showing 200 of 240 trips" — two different counts for one account on one screen, with the more prominent one wrong. `statTotalCost` is worse than merely truncated: it is labelled "Costs so far (all trips)" / "Kosten bisher (alle Reisen)", a claim the code no longer honours. `statActiveTrips` and `statOpenItems` under-report the same way without an explicit "all" in the label.
+evidence: Read from the component at 2026-08-15; both reviewers raised it independently. Before this change the list was uncapped, so "all trips" was accurate — the truncation that makes the label false is new here, which is why this is deferred rather than dropped. It was consciously left out of the change: this spec's **Never** forbids altering the stat strip's populations, and the sub-line is the sibling expression of the same decision, so touching either is a scope call rather than a fix. It is also unreachable below 200 trips, which no current account approaches. Closing it is a labelling and wording decision, not a query change: either the aggregates move server-side so they can honestly cover the account, or the labels stop claiming "all" whenever `totalCount > trips.length` (a `statTotalCostPage` variant selected on the same condition that draws the advisory line), and the sub-line quotes `totalCount` rather than `trips.length`. Whichever is chosen should be applied to all four figures at once, so the surface does not end up half-corrected.
 status: open

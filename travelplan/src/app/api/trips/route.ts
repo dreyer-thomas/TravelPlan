@@ -80,9 +80,14 @@ export const GET = async (request: NextRequest) => {
   const userId = auth.session.sub;
 
   try {
-    const trips = await listTripsForUser(userId);
+    const { trips, totalCount } = await listTripsForUser(userId);
     return ok(
       {
+        // Trips this account matches, uncapped, while `trips` beside it is one page bounded by
+        // `TRIPS_LIST_LIMIT`. Without this number the dashboard cannot tell a complete list from a
+        // truncated one and would present the cap's output as the whole account. A sibling of
+        // `trips` rather than a field on each row, because it describes the response, not a trip.
+        totalCount,
         trips: trips.map((trip) => ({
           id: trip.id,
           name: trip.name,

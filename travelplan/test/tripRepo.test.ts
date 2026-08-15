@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { prisma } from "@/lib/db/prisma";
@@ -12,12 +12,15 @@ import {
 } from "@/lib/trips/uploadPaths";
 import { acquireTripImportLock, releaseTripImportLock } from "@/lib/trips/importPhotos";
 import {
+  buildTripAggregateQuery,
   createTripWithDays,
   deleteTripForUser,
   getTripDayPrintPayloadForUser,
   getTripExportForUser,
   getTripWithDaysForUser,
   importTripFromExportForUser,
+  listTripsForUser,
+  TRIPS_LIST_LIMIT,
   updateTripDayImageForUser,
   updateTripWithDays,
   type ImportTripResult,
@@ -2727,5 +2730,458 @@ describe("tripRepo", () => {
 
     expect(await prisma.trip.count()).toBe(0);
     expect(await fs.readdir(uploadsRoot).catch(() => [])).toEqual([]);
+  });
+
+  /**
+   * `listTripsForUser` used to derive its four per-trip integers by including every `TripDay` with its
+   * accommodation and all of its plan items, for every trip the account can reach, and counting the
+   * result in JavaScript. Since the `where` became owner-OR-member the size of that fetch was decided
+   * partly by *other* accounts. The four numbers now come from one grouped SQL aggregate over a
+   * bounded page.
+   *
+   * The block below pins the numbers, and - just as importantly - the three properties that make the
+   * replacement worth having and that a passing set of numeric assertions would not notice: the page
+   * query loads no relations, the aggregate's plan-item subquery is bounded, and the cap discards the
+   * archival end of the list rather than the upcoming one.
+   */
+  describe("listTripsForUser", () => {
+    const createListUser = (email: string) =>
+      prisma.user.create({ data: { email, passwordHash: "hashed", role: "OWNER" } });
+
+    const createListTrip = (userId: string, name: string, overrides: Record<string, unknown> = {}) =>
+      prisma.trip.create({
+        data: {
+          userId,
+          name,
+          startDate: new Date("2026-09-01T00:00:00.000Z"),
+          endDate: new Date("2026-09-04T00:00:00.000Z"),
+          ...overrides,
+        },
+      });
+
+    const createListDay = (tripId: string, dayIndex: number) =>
+      prisma.tripDay.create({ data: { tripId, dayIndex, date: new Date(Date.UTC(2026, 8, dayIndex)) } });
+
+    /**
+     * The fixture the aggregate assertions and the `getTripWithDaysForUser` cross-check share, laid
+     * out so every row of the spec's edge-case matrix is present at once:
+     *
+     *   day 1 - no accommodation row, three plan items costing `null`, 500, `null`
+     *   day 2 - a stay named `"   "` carrying 12 000, which is blank and so contributes nothing
+     *   day 3 - a stay named "Hotel Lisboa" carrying 12 000, which counts
+     *   day 4 - a stay named with a single tab carrying 7 000: blank to `String.prototype.trim`, and
+     *           *not* blank to SQLite's one-argument `trim(X)`, so this day is the one that fails if
+     *           the aggregate ever loses its explicit character set
+     *
+     * which is `dayCount` 4, `openDayCount` 3, `planItemCount` 3 and `plannedCostTotal` 12 500.
+     */
+    const seedMixedTrip = async (userId: string, overrides: Record<string, unknown> = {}) => {
+      const trip = await createListTrip(userId, "Mixed", overrides);
+      const noStay = await createListDay(trip.id, 1);
+      const blankStay = await createListDay(trip.id, 2);
+      const namedStay = await createListDay(trip.id, 3);
+      const tabStay = await createListDay(trip.id, 4);
+
+      await prisma.accommodation.create({ data: { tripDayId: blankStay.id, name: "   ", costCents: 12_000 } });
+      await prisma.accommodation.create({
+        data: { tripDayId: namedStay.id, name: "Hotel Lisboa", costCents: 12_000 },
+      });
+      await prisma.accommodation.create({ data: { tripDayId: tabStay.id, name: "\u0009", costCents: 7_000 } });
+      await prisma.dayPlanItem.createMany({
+        data: [
+          { tripDayId: noStay.id, contentJson: "{}", costCents: null },
+          { tripDayId: noStay.id, contentJson: "{}", costCents: 500 },
+          { tripDayId: namedStay.id, contentJson: "{}", costCents: null },
+        ],
+      });
+
+      return trip;
+    };
+
+    it("derives the four summary numbers from the aggregate, with the visible-accommodation rule intact", async () => {
+      const user = await createListUser("list-aggregates@example.com");
+      const trip = await seedMixedTrip(user.id);
+
+      const { trips, totalCount } = await listTripsForUser(user.id);
+
+      expect(totalCount).toBe(1);
+      expect(trips).toHaveLength(1);
+      expect(trips[0]).toMatchObject({
+        id: trip.id,
+        dayCount: 4,
+        openDayCount: 3,
+        // 12 000 from the named stay only. The blank-named and tab-named stays carry 19 000 between
+        // them and contribute none of it; the three plan items contribute 500 across two nulls.
+        planItemCount: 3,
+        plannedCostTotal: 12_500,
+      });
+
+      // Not a formality. `@prisma/adapter-better-sqlite3` returns `bigint` for a raw statement's
+      // `COUNT`/`SUM` columns, and a `bigint` passes every arithmetic assertion above before dying as
+      // "Do not know how to serialize a BigInt" inside the route's response - a 500 no repository
+      // test would have seen.
+      for (const key of ["dayCount", "openDayCount", "planItemCount", "plannedCostTotal"] as const) {
+        expect(typeof trips[0][key], key).toBe("number");
+      }
+    });
+
+    it("treats a stay named only with characters String.prototype.trim strips as blank", async () => {
+      const user = await createListUser("list-trim@example.com");
+      const trip = await createListTrip(user.id, "Whitespace stays");
+
+      // Tab, no-break space and ideographic space. All three are stripped by `String.prototype.trim`
+      // and none of them by SQLite's one-argument `trim(X)`, which strips U+0020 alone - so with the
+      // one-argument form these three days would read as *named* on the dashboard and as blank on the
+      // trip overview, with their 30 000 appearing in one cost total and not the other.
+      const blankNames = ["\u0009", "\u00A0", "\u3000"];
+      for (const [index, name] of blankNames.entries()) {
+        const day = await createListDay(trip.id, index + 1);
+        await prisma.accommodation.create({ data: { tripDayId: day.id, name, costCents: 10_000 } });
+      }
+
+      const { trips } = await listTripsForUser(user.id);
+
+      expect(trips[0].dayCount).toBe(3);
+      expect(trips[0].openDayCount).toBe(3);
+      expect(trips[0].plannedCostTotal).toBe(0);
+    });
+
+    /**
+     * The whole-set version of the case above, and the one that actually pins `JS_TRIM_CHARACTERS`.
+     *
+     * That constant's own docstring warns that a missing code point is "a silent behaviour difference
+     * rather than a visible edit" - and then only three of its twenty-five characters were exercised
+     * anywhere. Deleting U+FEFF, U+1680, U+2007, U+205F, U+2028 or U+2029 from it left the entire
+     * suite green while a stay named with that character read blank on the trip overview (JavaScript
+     * `trim`) and named on the dashboard (SQL `trim`), its cost appearing in one total and not the
+     * other. Which is precisely the divergence the constant exists to prevent.
+     *
+     * The expected set is *derived*, not typed out: every BMP code point is asked whether
+     * `String.prototype.trim` strips it, which makes the set complete by construction and immune to a
+     * hand-written list drifting from the engine. (There is no whitespace above the BMP, so a 16-bit
+     * sweep is the whole of it.) The characters are read out of the production statement's own bound
+     * values rather than re-spelled here, so the test cannot agree with a copy of the constant while
+     * disagreeing with the constant.
+     */
+    it("strips exactly the code points String.prototype.trim strips, on both sides, one at a time", async () => {
+      // `Prisma.sql` binds in source order and `JS_TRIM_CHARACTERS` is the statement's first
+      // interpolation, so this is the very string the aggregate hands to SQLite's `trim(X, Y)`.
+      const [trimCharacters] = buildTripAggregateQuery(["any-trip-id"]).values as [string];
+
+      const jsWhitespace = Array.from({ length: 0x10000 }, (_, code) => String.fromCharCode(code)).filter(
+        (character) => character.trim() === "",
+      );
+      // Negative controls. Zero-width space, word joiner and the Mongolian vowel separator all *look*
+      // like whitespace and none of them is: they must be blank to neither side. Without these the
+      // test would still pass if the constant grew characters JavaScript does not strip, which is the
+      // same divergence in the other direction.
+      const candidates = [...jsWhitespace, "\u200B", "\u2060", "\u180E", "x"];
+
+      expect(jsWhitespace).toHaveLength(25);
+
+      for (const character of candidates) {
+        const codePoint = `U+${character.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0")}`;
+        const [row] = await prisma.$queryRawUnsafe<{ blank: number | bigint }[]>(
+          "SELECT trim(?, ?) = '' AS blank",
+          character,
+          trimCharacters,
+        );
+
+        expect(Number(row.blank) === 1, `${codePoint}: SQL trim() and String.prototype.trim() disagree`).toBe(
+          character.trim() === "",
+        );
+      }
+    });
+
+    it("refuses an empty trip id list by name rather than letting Prisma.join explain it", () => {
+      // The precondition is enforced at the call site inside `listTripsForUser`, which is exactly why
+      // it also has to be enforced here: the function is exported, and the failure a caller would
+      // otherwise get is `Prisma.join`'s "Expected `join([])` to be called with an array of multiple
+      // elements", which names neither this function nor the rule that was broken.
+      expect(() => buildTripAggregateQuery([])).toThrow(/buildTripAggregateQuery requires a non-empty tripIds/);
+    });
+
+    it("reports four zeros for a trip with no days, which produces no aggregate row at all", async () => {
+      const user = await createListUser("list-zero-days@example.com");
+      await createListTrip(user.id, "Nothing planned");
+
+      const { trips, totalCount } = await listTripsForUser(user.id);
+
+      // The aggregate is grouped over `trip_days`, so a dayless trip is simply absent from it. The
+      // four defaults are what turn that absence into zeros rather than into `undefined`s on the wire.
+      expect(totalCount).toBe(1);
+      expect(trips[0]).toMatchObject({ dayCount: 0, openDayCount: 0, planItemCount: 0, plannedCostTotal: 0 });
+    });
+
+    it("caps the page at TRIPS_LIST_LIMIT, keeps the latest-starting trips, and reports the full total", async () => {
+      const user = await createListUser("list-cap@example.com");
+      const overflow = 3;
+      const total = TRIPS_LIST_LIMIT + overflow;
+
+      // Zero-padded explicit ids, one day apart, so "ascending by id" and "ascending by start date"
+      // name the same order here and the two assertions below cannot disagree by accident.
+      await prisma.trip.createMany({
+        data: Array.from({ length: total }, (_, index) => ({
+          id: `cap-${String(index).padStart(3, "0")}`,
+          userId: user.id,
+          name: `Trip ${index}`,
+          startDate: new Date(Date.UTC(2026, 0, 1 + index)),
+          endDate: new Date(Date.UTC(2026, 0, 1 + index)),
+        })),
+      });
+
+      const { trips, totalCount } = await listTripsForUser(user.id);
+
+      expect(totalCount).toBe(total);
+      expect(trips).toHaveLength(TRIPS_LIST_LIMIT);
+      // *Which* end the cap keeps is the point of the descending-select-then-reverse pair. `take` on
+      // an ascending `startDate` would have returned cap-000..cap-199, discarding the three trips
+      // furthest in the future - precisely the ones this surface exists to show, on a dashboard that
+      // sorts finished trips to the bottom as archival.
+      expect(trips[0].id).toBe(`cap-${String(overflow).padStart(3, "0")}`);
+      expect(trips.at(-1)?.id).toBe(`cap-${String(total - 1).padStart(3, "0")}`);
+      // And the page is handed back ascending, not in the descending order it was selected in.
+      const ids = trips.map((entry) => entry.id);
+      expect(ids).toEqual([...ids].sort());
+    });
+
+    it("orders trips sharing a startDate by ascending id, identically on repeated reads", async () => {
+      const user = await createListUser("list-tiebreak@example.com");
+      const sameDay = {
+        startDate: new Date("2026-09-12T00:00:00.000Z"),
+        endDate: new Date("2026-09-13T00:00:00.000Z"),
+      };
+
+      // Two properties of this fixture are load-bearing and neither is obvious.
+      //
+      // *Explicit* ids, because cuid is time-monotonic: with generated ids the rows come out of a
+      // tiebreaker-less query in insertion order, which is also ascending id order, so the assertion
+      // below would pass with the tiebreaker deleted.
+      //
+      // And an insertion order that is *neither* ascending nor descending by id, because the
+      // repository selects `startDate desc, id desc` and then reverses. A fixture written in one
+      // straight direction comes back in the other, so a plain descending insertion - the obvious
+      // choice against an ascending query - would still satisfy this assertion with the tiebreaker
+      // gone. c, a, d, b satisfies neither SQLite's rowid order nor its reverse, so deleting
+      // `{ id: "desc" }` from the repository's `orderBy` fails this test. That was checked by
+      // deleting it, not reasoned about.
+      for (const id of ["tie-c", "tie-a", "tie-d", "tie-b"]) {
+        await prisma.trip.create({ data: { id, userId: user.id, name: id, ...sameDay } });
+      }
+
+      const first = await listTripsForUser(user.id);
+      const second = await listTripsForUser(user.id);
+
+      expect(first.trips.map((entry) => entry.id)).toEqual(["tie-a", "tie-b", "tie-c", "tie-d"]);
+      expect(second.trips.map((entry) => entry.id)).toEqual(first.trips.map((entry) => entry.id));
+    });
+
+    it("agrees with getTripWithDaysForUser's JavaScript derivation on the same fixture", async () => {
+      const user = await createListUser("list-crosscheck@example.com");
+      const trip = await seedMixedTrip(user.id);
+
+      // The blank-stay and visible-cost rules now exist twice - in SQL in the aggregate, and in
+      // JavaScript in `getTripWithDaysForUser` - and nothing but this case holds the two together. A
+      // `trim(X)` regression on the SQL side, or a changed rule on the JS side, surfaces here as a
+      // disagreement instead of as two internally consistent surfaces quoting different totals for
+      // one trip.
+      const detail = await getTripWithDaysForUser(user.id, trip.id);
+      const { trips } = await listTripsForUser(user.id);
+      const summary = trips.find((entry) => entry.id === trip.id);
+
+      expect(detail).not.toBeNull();
+      expect(summary).toBeDefined();
+      expect(summary?.dayCount).toBe(detail?.dayCount);
+      expect(summary?.plannedCostTotal).toBe(detail?.plannedCostTotal);
+      expect(summary?.openDayCount).toBe(detail?.days.filter((day) => day.missingAccommodation).length);
+      expect(summary?.planItemCount).toBe(
+        detail?.days.reduce((sum, day) => sum + day.dayPlanItems.length, 0),
+      );
+    });
+
+    it("asks the page query for no day, stay or plan-item rows", async () => {
+      const user = await createListUser("list-no-include@example.com");
+      await seedMixedTrip(user.id);
+
+      // `vi.spyOn` alone is not enough on a Prisma 7 delegate, and the failure is silent in one
+      // direction and destructive in the other. `prisma.trip` is a Proxy whose
+      // `getOwnPropertyDescriptor` reports `value: undefined` while its `get` returns the real
+      // function, so a plain spy wraps `undefined` (every call returns `undefined`) and
+      // `mockRestore` writes that `undefined` back - breaking `prisma.trip.findMany` for every test
+      // that runs after this one in the same worker. Capturing the function through `get` first, and
+      // reinstating it by hand in the `finally`, is what makes the spy both call through and clean up.
+      const delegate = prisma.trip as unknown as { findMany: (args?: unknown) => Promise<unknown[]> };
+      const original = delegate.findMany;
+      const findMany = vi
+        .spyOn(prisma.trip, "findMany")
+        .mockImplementation(((args: never) => original(args)) as never);
+
+      try {
+        await listTripsForUser(user.id);
+
+        expect(findMany).toHaveBeenCalledTimes(1);
+        const args = findMany.mock.calls[0]?.[0] as
+          | { include?: Record<string, unknown>; select?: Record<string, unknown> }
+          | undefined;
+        // Both keys, because Prisma loads a relation through either one and an `include`-only
+        // assertion is blind to the cheaper rewrite: `select: { id: true, ..., days: { select: ... } }`
+        // restores the O(days x items) fetch the whole change exists to remove while leaving
+        // `include` empty, and every numeric assertion in this block still passes with it back.
+        // Scalars are filtered out by name so a future `select` of plain columns stays legal - it is
+        // the *relations* that decide how much of the tree crosses the wire.
+        const TRIP_RELATION_FIELDS = ["user", "members", "days", "bucketListItems"];
+        const requested = { ...(args?.include ?? {}), ...(args?.select ?? {}) };
+        const relationsAsked = Object.keys(requested).filter(
+          (key) => TRIP_RELATION_FIELDS.includes(key) && requested[key],
+        );
+        // The membership sub-select is the only relation this query is allowed to load.
+        expect(relationsAsked).toEqual(["members"]);
+      } finally {
+        findMany.mockRestore();
+        delegate.findMany = original;
+      }
+    });
+
+    /**
+     * The plan-shape guard, and the one test in this block whose subject is *how* the aggregate runs
+     * rather than what it returns.
+     *
+     * Three things had to be got right for it to mean anything, and the first two are why the earlier
+     * version of it was worse than nothing.
+     *
+     * **It pins the statistics.** SQLite's plan choice is cost-based, so it is decided by
+     * `sqlite_stat1` and not by the SQL alone - and `sqlite_stat1` is *persistent state of the test
+     * database file*, surviving every `deleteMany` in `beforeEach` and every process boundary. One
+     * developer running `ANALYZE` on a large fixture while investigating this query leaves numbers
+     * behind that silently re-plan this statement for everybody afterwards; that is exactly what made
+     * the previous version pass in one invocation and fail in the next. Dropping the table restores
+     * the planner's built-in default estimates, which is also the state the application runs in -
+     * nothing in this codebase ever issues `ANALYZE`. Measured against those defaults the shape below
+     * held at 0, 2, 200, 1 000 and 5 000 trips, and for 1- and 200-id pages, so the assertions are not
+     * secretly a function of this fixture's size.
+     *
+     * **It names what it forbids.** "No line starting with SCAN" was simultaneously too strict and
+     * too weak: it banned `SCAN p`, which is a pass over the already-bounded materialised subquery and
+     * is not a cost anyone cares about, while saying nothing by name about the two tables that can
+     * actually be read whole. The cost this story exists to remove is an unbounded pass over
+     * `day_plan_items`; `accommodations` is the other table joined per page row. Those two are named.
+     *
+     * **It seeds its own data**, including plan items on a trip outside the page, so the aggregate's
+     * *result* can be checked to exclude them in the same breath - a bound the plan alone cannot show.
+     *
+     * SQLite prints the *aliases* from the statement, not table names: `i` is `day_plan_items`, `a` is
+     * `accommodations`, `t` and `d` are both `trip_days`, and `p` is the materialised subquery.
+     * `MATERIALIZE p` is deliberately *not* asserted: it appears whether or not the subquery carries
+     * its `WHERE`, so it can only ever fail spuriously.
+     */
+    it("plans the aggregate without an unbounded pass over day_plan_items or accommodations", async () => {
+      const user = await createListUser("list-query-plan@example.com");
+      const trip = await seedMixedTrip(user.id);
+      // Plan items belonging to a trip that is *not* on the page. The property under test is that
+      // they are never visited, which is a stronger statement than "they are not in the result" - but
+      // both are checked below.
+      const other = await createListTrip(user.id, "Not on the page");
+      const otherDay = await createListDay(other.id, 1);
+      await prisma.dayPlanItem.create({ data: { tripDayId: otherDay.id, contentJson: "{}", costCents: 999 } });
+
+      // See the docstring: leftover `ANALYZE` statistics in the test database file are what made this
+      // test's outcome depend on which other tests had run, and on which experiments a developer had
+      // run days earlier. `IF EXISTS` because the clean state is for the table to be absent.
+      await prisma.$executeRawUnsafe("DROP TABLE IF EXISTS sqlite_stat1");
+
+      // `EXPLAIN QUERY PLAN` of the very `Prisma.Sql` production runs, values and all - a retyped
+      // paraphrase of the statement would keep passing while the real query regressed.
+      const sql = buildTripAggregateQuery([trip.id]);
+      const plan = await prisma.$queryRawUnsafe<{ detail: string }[]>(
+        `EXPLAIN QUERY PLAN ${sql.sql}`,
+        ...sql.values,
+      );
+      const details = plan.map((row) => row.detail);
+
+      const scansOf = (alias: string) => details.filter((detail) => new RegExp(`^SCAN ${alias}\\b`).test(detail));
+
+      // The regression this whole change exists to prevent. Remove the subquery's own
+      // `WHERE t.trip_id IN (...)` - with or without leaving the `JOIN trip_days t` in place - and
+      // this becomes `["SCAN i USING INDEX idx_day_plan_items_trip_day_id"]`: every plan item row in
+      // the database, grouped, on every dashboard load.
+      expect(scansOf("i"), "unbounded pass over day_plan_items").toEqual([]);
+      expect(scansOf("a"), "unbounded pass over accommodations").toEqual([]);
+
+      // And positively: each of the four tables is reached through an equality lookup on its index.
+      // Stated as well as the prohibition above because a plan that stopped reading `day_plan_items`
+      // altogether - a subquery accidentally optimised away - would satisfy the prohibition alone.
+      const has = (pattern: RegExp) => details.some((detail) => pattern.test(detail));
+      expect(has(/^SEARCH i USING INDEX idx_day_plan_items_trip_day_id \(trip_day_id=\?\)/)).toBe(true);
+      expect(has(/^SEARCH t USING INDEX idx_trip_days_trip_id \(trip_id=\?\)/)).toBe(true);
+      expect(has(/^SEARCH d USING INDEX idx_trip_days_trip_id \(trip_id=\?\)/)).toBe(true);
+      expect(has(/^SEARCH a USING INDEX idx_accommodations_trip_day_id \(trip_day_id=\?\)/)).toBe(true);
+
+      // The result half of the same bound: the outside trip's plan item is neither visited nor counted.
+      const rows = await prisma.$queryRaw<{ planItemCount: number | bigint }[]>(sql);
+      expect(rows).toHaveLength(1);
+      expect(Number(rows[0].planItemCount)).toBe(3);
+    });
+
+    /**
+     * The same statement at the size production can actually reach. The test above binds a single id,
+     * so on its own it leaves the two claims that only bite at a full page untested:
+     *
+     *   - `TRIPS_LIST_LIMIT`'s docstring reasons about a **bind-parameter budget** - the id list is
+     *     bound twice plus two trim strings, so a full page is 2 x 200 + 2 = 402 host parameters. If
+     *     that arithmetic were ever wrong, or the constant raised past SQLite's ceiling, the failure
+     *     is "too many SQL variables" and a 500 on the dashboard's only fetch, on precisely the
+     *     accounts the cap exists to make safe. Nothing else in the suite executes the statement with
+     *     more than a handful of ids.
+     *   - The plan-shape docstring claims the access paths hold "for 1- and 200-id pages". Measured
+     *     once by hand is not the same as pinned; SQLite may plan a 200-element `IN` list differently
+     *     from a singleton.
+     *
+     * No fixture is seeded: both properties are about the *statement*, and an `IN` list of ids that
+     * match nothing exercises the binding and the planner exactly as a real page would.
+     */
+    it("binds and plans a full TRIPS_LIST_LIMIT page without exceeding its host-parameter budget", async () => {
+      const pageIds = Array.from({ length: TRIPS_LIST_LIMIT }, (_, index) => `plan-budget-${index}`);
+      const sql = buildTripAggregateQuery(pageIds);
+      expect(sql.values).toHaveLength(TRIPS_LIST_LIMIT * 2 + 2);
+
+      await prisma.$executeRawUnsafe("DROP TABLE IF EXISTS sqlite_stat1");
+
+      // Executing it is the assertion for the budget: over the ceiling this throws "too many SQL
+      // variables" rather than returning an empty result.
+      const rows = await prisma.$queryRaw<{ tripId: string }[]>(sql);
+      expect(rows).toEqual([]);
+
+      const plan = await prisma.$queryRawUnsafe<{ detail: string }[]>(
+        `EXPLAIN QUERY PLAN ${sql.sql}`,
+        ...sql.values,
+      );
+      const details = plan.map((row) => row.detail);
+      const scansOf = (alias: string) => details.filter((detail) => new RegExp(`^SCAN ${alias}\\b`).test(detail));
+
+      // The same bound as the single-id case, at the page size that makes it matter.
+      expect(scansOf("i"), "unbounded pass over day_plan_items at a full page").toEqual([]);
+      expect(scansOf("a"), "unbounded pass over accommodations at a full page").toEqual([]);
+      expect(details.some((detail) => /^SEARCH i USING INDEX idx_day_plan_items_trip_day_id/.test(detail))).toBe(true);
+    });
+
+    it("returns owned and membership-reached trips, and counts both in the total", async () => {
+      const owner = await createListUser("list-scope-owner@example.com");
+      const member = await createListUser("list-scope-member@example.com");
+      await createListTrip(member.id, "Mine", { id: "scope-a" });
+      await createListTrip(owner.id, "Theirs, shared", { id: "scope-b" });
+      await createListTrip(owner.id, "Theirs, not shared", { id: "scope-c" });
+      await prisma.tripMember.create({ data: { tripId: "scope-b", userId: member.id, role: "VIEWER" } });
+
+      const { trips, totalCount } = await listTripsForUser(member.id);
+
+      // `totalCount` runs the same owner-OR-member `where` as the page, so a trip the account cannot
+      // reach must not inflate it - otherwise the advisory line would announce a truncation that never
+      // happened, over somebody else's data.
+      expect(totalCount).toBe(2);
+      expect(trips.map((entry) => [entry.id, entry.accessRole])).toEqual([
+        ["scope-a", "owner"],
+        ["scope-b", "viewer"],
+      ]);
+    });
   });
 });

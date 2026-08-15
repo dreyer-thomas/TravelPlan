@@ -124,6 +124,16 @@ const de: Dictionary = {
   "trips.dashboard.subline": "{tripCount} Reisen · {gapTripCount} mit offenen Punkten",
   // `formatMessage` hat keine Pluralbehandlung, daher braucht jeder Zähler seine eigene Einzahlform.
   "trips.dashboard.sublineOne": "1 Reise · {gapTripCount} mit offenen Punkten",
+  // Nur sichtbar, wenn die Liste bei `TRIPS_LIST_LIMIT` gekappt wurde.
+  "trips.dashboard.showingCount": "{shown} von {total} Reisen werden angezeigt",
+  // Eigener Schlüssel, weil sich hier das Verb mitbeugt: „1 … wird angezeigt“, nicht „werden“.
+  "trips.dashboard.showingCountOne": "1 von {total} Reisen wird angezeigt",
+  // Auch `total` erreicht 1: eine passende Reise, deren einzige Zeile wegen entzogener Mitgliedschaft
+  // entfällt. Der Plural schrieb „von 1 Reisen“. Die Zeile erscheint nur bei `total > shown`, also ist
+  // `shown` hier zwingend 0 - beide Einzahlformen können sich daher nie überschneiden.
+  // Nicht `…TotalOne`: das Suffix `…One` gehört der Zwillingsform, die auf ihren eigenen Pluralschlüssel
+  // zurückfällt - `test/i18nDictionaries.test.ts` leitet diese Paarung durch Abschneiden ab.
+  "trips.dashboard.showingCountTotalSingular": "{shown} von 1 Reise werden angezeigt",
   "trips.dashboard.statActiveTrips": "Aktive Reisen",
   "trips.dashboard.statTotalCost": "Kosten bisher (alle Reisen)",
   "trips.dashboard.statOpenItems": "Offene Punkte",
