@@ -21,23 +21,33 @@ the two GitHub Actions workflows — all four added by Story 8.1.
 | Service user | **`app` for both applications** — they share it |
 | TravelPlan tree | `/home/app/apps/TravelPlan/travelplan` |
 | TravelBlogs tree | `/home/app/apps/TravelBlogs/travelblogs` |
-| TravelPlan runtime | Node **24.19.0** (ABI 137) at `/opt/node-24` → `/opt/node-v24.19.0-linux-arm64` |
-| TravelBlogs runtime | Node **20.19.6** (ABI 115) at `/usr/bin/node`, from the NodeSource apt repo |
+| Runtime, both applications | Node **24.19.0** (ABI 137) at `/opt/node-24` → `/opt/node-v24.19.0-linux-arm64` |
+| Node 20 | **Removed.** `/usr/bin/node` and the NodeSource `nodejs` package are gone as of 2026-08-15 |
 | Media root | `/var/lib/travelplan/media` |
 | Database | `/home/app/apps/TravelPlan/travelplan/prisma/prod.db` — **inside the application tree**, see the warning below |
 | Listens on | `127.0.0.1:3001`, behind nginx |
 
-**The shared `app` user is the constraint that shapes everything else.** Because both applications run
-as the same user, anything that selects a Node version *for that user* — `nvm`, a line in
-`~/.profile`, a change to the system-wide `node` — moves both applications at once. Per-version
-selection must therefore be **per systemd unit**, never per user. With systemd that is easy; it would
-have been considerably harder under PM2, whose daemon is per-user.
+**Both applications run as the same `app` user.** That matters whenever the two need to differ:
+anything selecting a Node version *for the user* — `nvm`, a line in `~/.profile`, a change to the
+system-wide `node` — moves both at once. Version selection has to be **per systemd unit**, never per
+user. With systemd that is easy; under PM2, whose daemon is per-user, it would have been considerably
+harder.
+
+Right now both are on Node 24, so nothing depends on that separation — but it is what made the staged
+migration possible, and it is what to reach for the next time the two must diverge.
+
+### History, because it explains the shape of what follows
+
+Story 8.1 moved **TravelPlan** to Node 24 on 2026-08-12 while TravelBlogs stayed on Node 20, which is
+why this guide is written around installing one version alongside another and pinning per unit.
+**TravelBlogs was migrated to Node 24 on 2026-08-15 and the Node 20 package was then removed.** The
+end state is simpler than the procedure that produced it — but the procedure is the one to reuse for
+the *next* major, so it is documented as it was actually performed.
 
 ## Infrastructure requirements
 
-- Node.js **24.x** for TravelPlan, pinned by `engines.node: ">=24 <25"` in `travelplan/package.json`
-  and by the unit file. TravelBlogs remains on Node 20 and is out of scope — but note that Node 20
-  reached end of life, so TravelBlogs carries the exposure TravelPlan just shed.
+- Node.js **24.x**, pinned by `engines.node: ">=24 <25"` in `travelplan/package.json` and by the unit
+  files. This is the only runtime installed on the host.
 - SQLite on disk, via `@prisma/adapter-better-sqlite3`. Single-process — `next start` must not be run
   as a multi-instance cluster against one database file.
 - A reverse proxy. `npm start` is `next start -p 3001 -H 127.0.0.1`, bound to loopback.
@@ -110,30 +120,61 @@ curl -s -o /dev/null -w '%{http_code}\n' https://<host>/uploads/trips/x/y.png   
 and the authorisation gate is bypassed. Checking `127.0.0.1:3001` instead proves nothing here — it
 skips the proxy, which is exactly how this defect stayed invisible.
 
-## ⚠️ The production database lives inside the application tree
+## The production database lives inside the application tree
 
 `DATABASE_URL=file:/home/app/apps/TravelPlan/travelplan/prisma/prod.db`.
 
 Everything this guide says about `MEDIA_STORAGE_ROOT` needing to sit outside the application tree
-applies to that file too, and nothing enforces it: `src/instrumentation.ts` validates the media root at
-startup, but no equivalent check exists for the database. **A deploy that replaces the application
-directory rather than updating it in place destroys production data.** A `git pull` or an in-place
-`rsync` is safe; a fresh-checkout-and-swap is not. This is unresolved and tracked as `DW-328` — settle
-it before changing how deploys work, not after.
+applies to that file too, and nothing enforces it — `src/instrumentation.ts` validates the media root
+at startup and has no equivalent for the database.
+
+**In practice it is safe today, and the reason is worth knowing.** The deploy script updates the tree
+with `git pull --ff-only`, in place; it never replaces the directory. Media had to move out because
+`public/` is served statically, but the database has no such pressure. What *would* destroy it is a
+change to a fresh-checkout-and-swap deploy, or a second clone made alongside. Tracked as `DW-328` at
+low severity for that reason — a latent hazard, not an active one.
 
 ## Deployment process
 
-**How new code reaches `/home/app/apps/TravelPlan/travelplan` is the one thing still not written
-down.** It was not discoverable from the box without watching a deploy happen. Whoever runs the next
-one should record it here, and answer the database question above in the same pass.
+Deploys run from `/usr/local/bin/deploy-travelplan.sh` on the server. A verbatim copy is committed at
+[`deploy/deploy-travelplan.sh`](../deploy/deploy-travelplan.sh) so it can be reviewed, diffed and
+restored — see [`deploy/README.md`](../deploy/README.md).
 
-What *is* established:
+**Nothing synchronises the two.** The server runs its own copy; the repository holds a record taken on
+2026-08-15. A change to one must be made to the other, and a drifted copy is worse than none because
+it reads as authoritative. Compare them with `sha256sum` before trusting either.
 
-- `npm start` is `next start -p 3001 -H 127.0.0.1` — loopback only, nginx in front.
-- Both applications install **dev dependencies** on the server (`node_modules/vitest` is present in
-  both trees). That has a consequence for the security gate, recorded as `DW-329`.
-- No schema migration runs automatically. `postinstall` is `prisma generate`, which only regenerates
-  the client. Applying migrations is a separate, manual step.
+What it does, in order:
+
+1. Refuses to run if `$REPO_DIR` has uncommitted changes — someone edited on the server and
+   `git pull --ff-only` would either discard or abort on it.
+2. Records the `sha256` of `package-lock.json` **before** the pull.
+3. `systemctl stop TravelPlan`, then installs an `ERR` trap that restarts the service on any failure —
+   without which `set -e` would exit with the site still down.
+4. Copies the database to `/home/app/backups/`, keeping the newest 10.
+5. `git fetch` / `checkout` / `pull --ff-only`.
+6. Runs `npm ci` **only if the lockfile hash changed**.
+7. `npx prisma migrate deploy` — so migrations *are* applied automatically, contrary to what the
+   repository alone would suggest.
+8. `npm run build`, clears the trap, starts the service, sleeps 5s and checks `systemctl is-active`.
+
+The shape is sound — the pre-flight dirty-tree check, the `ERR` trap and the backup are all doing real
+work. Three defects, all recorded:
+
+- **It does not pin `PATH`.** `npm ci` and `npm run build` run in the invoking shell, not under the
+  unit, so they use whatever `node` that shell resolves — the unit's `Environment=PATH` applies only to
+  the process systemd spawns and never reaches the script. While two majors coexisted this could build
+  native modules against the wrong ABI on any deploy that changed the lockfile. It should export
+  `PATH=/opt/node-24/bin:$PATH` and echo `node -v`, so every deploy log records which runtime built it.
+- **It backs up the wrong database** — `cp "$APP_DIR/prisma/dev.db"` while the service runs
+  `prod.db`. See `DW-332`.
+- **`systemctl is-active` is not a health check.** It is true for a process that is up and answering
+  `500` to everything, which is exactly the `MEDIA_STORAGE_ROOT` failure mode. Use the request below.
+
+Two further facts about what runs on the server:
+
+- Both applications install **dev dependencies** (`node_modules/vitest` is present in both trees),
+  which has a consequence for the security gate — `DW-329`.
 - The media-root move described above must happen **before** the first start of a build containing
   Story 8.3.
 
@@ -175,15 +216,16 @@ and `npm` resolves `node` through its shebang, so **the unit's `PATH` matters as
 `ExecStart`**: `npm start` spawns `next start`, and that child resolves `node` from `PATH`. Pinning one
 without the other leaves the interpreter to chance.
 
-TravelPlan's unit therefore carries both:
+Each unit therefore carries both:
 
 ```ini
 Environment=PATH=/opt/node-24/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ExecStart=/opt/node-24/bin/npm start
 ```
 
-`TravelBlogs.service` is deliberately untouched: it keeps `ExecStart=/usr/bin/npm run start` and the
-default `PATH`, so it resolves `/usr/bin/node` (v20).
+`TravelBlogs.service` has the same shape since its own migration on 2026-08-15. While the two versions
+coexisted, that unit was deliberately left on `/usr/bin/npm run start` with the default `PATH` — which
+is the mechanism to reuse whenever the two applications must run different majors again.
 
 ### Installing a Node version alongside the existing one
 
@@ -259,21 +301,28 @@ which is exactly how a restart during Story 8.1 came back on the old interpreter
 
 ### Rollback
 
-Reverting `ExecStart` alone is **not** a rollback: it leaves Node 20 facing an ABI-137 tree, which
-cannot load. Both steps are required.
+**There is currently no older Node to roll back to** — Node 20 was removed on 2026-08-15, so the
+procedure below is written for the *general* case of reverting to a previously installed version, and
+would first require reinstalling one.
+
+Reverting `ExecStart` alone is **not** a rollback. It leaves the old interpreter facing a
+`node_modules` built for the new ABI, which it cannot load. Both steps are always required:
 
 ```sh
 sudo cp ~/TravelPlan.service.bak /etc/systemd/system/TravelPlan.service
 sudo -u app -H bash -c '
   cd /home/app/apps/TravelPlan/travelplan
+  export PATH=/opt/node-<old>/bin:$PATH
   export DATABASE_URL=file:/home/app/apps/TravelPlan/travelplan/prisma/prod.db
-  rm -rf node_modules && /usr/bin/npm ci
+  rm -rf node_modules && /opt/node-<old>/bin/npm ci
 '
 sudo systemctl daemon-reload && sudo systemctl restart TravelPlan
 ```
 
-That second `npm ci` compiles `better-sqlite3` from source, so it needs `gcc`, `make` and `python3`
-present.
+Whether that reinstall needs a build toolchain depends on the target version: `better-sqlite3` 12.11.1
+publishes a `linux-arm64` prebuild for `node-v137` (Node 24) but **not** for `node-v115` (Node 20), so
+a rollback to 20 compiles from source and needs `gcc`, `make` and `python3`. Keep them installed while
+any rollback is still plausible.
 
 ## CI/CD details
 

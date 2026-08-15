@@ -11,6 +11,7 @@ import {
 } from "@/lib/trips/importLimits";
 import { isValidDateOnly } from "@/lib/validation/dateOnly";
 import { isSafeExternalUrl } from "@/lib/validation/safeExternalUrl";
+import { isSafeStoredImageUrl } from "@/lib/validation/safeStoredImageUrl";
 
 const ISO_UTC_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
 const DATE_ONLY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
@@ -85,17 +86,18 @@ const externalLinkOrNull = z
   ])
   .transform((value) => (typeof value === "string" ? value.trim() : value));
 
-const dayImageUrlOrNull = z
-  .union([z.string().trim(), z.null()])
-  .refine(
-    (value) => {
-      if (value === null) return true;
-      if (value.startsWith("/uploads/")) return true;
-      return z.string().url("URL must be valid").safeParse(value).success;
-    },
-    { message: "URL must be valid" },
-  )
-  .transform((value) => (typeof value === "string" ? value.trim() : value));
+/**
+ * The two fields that carry a stored image address - `trip.heroImageUrl` and `days[].imageUrl`.
+ *
+ * Deliberately *not* the `externalLinkOrNull` treatment above, even though the danger is the same
+ * one, and deliberately carrying no `.max()` either. Every refusal in a field schema is a 400 for
+ * the whole archive, and Story 2.32 AC2 is that a backup restores rather than being turned away
+ * over a single field a restore can simply do without. So this schema asserts nothing but the type,
+ * and *every* judgement about the value - scheme and length alike - is made by the payload-level
+ * transform at the foot of this file, which has the one remedy a field schema does not: null it,
+ * count it, and let the rest of the trip through.
+ */
+const storedImageUrlOrNull = z.union([z.string().trim(), z.null()]);
 
 const optionalLabelSchema = z.union([z.string().trim(), z.null()]);
 
@@ -457,7 +459,7 @@ const tripDayImportSchema = z.object({
   id: z.string().trim().min(1),
   date: isoUtcDate,
   dayIndex: z.number().int().min(1),
-  imageUrl: dayImageUrlOrNull.optional().default(null),
+  imageUrl: storedImageUrlOrNull.optional().default(null),
   imagePhotoId: photoIdOrNull,
   note: z.union([z.string().trim().max(280), z.null()]).optional().default(null),
   createdAt: isoUtcDate,
@@ -477,7 +479,7 @@ const tripImportSchema = z
     name: z.string().trim().min(1, "Trip name is required"),
     startDate: isoUtcDate,
     endDate: isoUtcDate,
-    heroImageUrl: z.union([z.string().trim(), z.null()]),
+    heroImageUrl: storedImageUrlOrNull,
     heroPhotoId: photoIdOrNull,
     startLocation: z.union([locationSchema, z.null()]).optional(),
     destinationLocation: z.union([locationSchema, z.null()]).optional(),
@@ -495,6 +497,24 @@ const tripImportSchema = z
     path: ["endDate"],
   });
 
+/**
+ * The line the transform below writes, in the house style of `skippedTravelSegmentWarnings` and
+ * `droppedForeignImageWarnings` (`tripRepo.ts`): plain English, aggregated by count, never one line
+ * per value, never localized - the dialog's heading carries the language.
+ *
+ * Aggregated for the same reason the repository's lines are: the values are the manifest's own
+ * strings, so quoting them would put attacker-chosen text (a `javascript:` payload, verbatim) into a
+ * dialog, and nine of them would push the export's own warnings out of the ten-line window
+ * `TripImportDialog` renders.
+ *
+ * The wording has to be true of every input the rule refuses - `data:`, `file:`, `blob:`, a bare
+ * string, a scheme nobody has thought of yet - so it names the accept set rather than the offence.
+ */
+const unsafeStoredImageUrlWarning = (count: number): string => {
+  const subject = count === 1 ? "1 image" : `${count} images`;
+  return `Dropped ${subject} whose stored address is neither an uploaded file nor an http(s) URL`;
+};
+
 export const tripImportPayloadSchema = z.object({
   meta: z.object({
     exportedAt: isoUtcDate,
@@ -508,8 +528,13 @@ export const tripImportPayloadSchema = z.object({
       .int()
       .positive()
       .max(MAX_SUPPORTED_FORMAT_VERSION, "Backup was written by a newer version of this app"),
-    // Present in every v2 manifest (`[]` when clean), absent in v1. Read for reporting only - a
-    // warning records what the *export* skipped and is never a reason to fail an import.
+    // Present in every v2 manifest (`[]` when clean), absent in v1. Never a reason to fail an
+    // import: whatever it says, it says about a restore that succeeded.
+    //
+    // Read for reporting, and - since the transform at the foot of this schema - also *written*
+    // here. What arrives is what the export skipped; what leaves may additionally name what this
+    // parse itself dropped. The two are one channel on purpose (`route.ts:400-409`): the dialog
+    // renders one list, and a user who is short of an image does not care which side lost it.
     //
     // Bounded because it is echoed back verbatim in the success envelope and rendered by the
     // dialog: unbounded, a hand-built manifest turns a 200 into an arbitrarily large response.
@@ -825,7 +850,58 @@ export const tripImportPayloadSchema = z.object({
       path: [],
     });
   }
-});
+})
+  /**
+   * The scheme rule for stored image URLs, applied where both halves of it are visible at once.
+   *
+   * It cannot live on `storedImageUrlOrNull`. A field-level refusal would 400 the archive, which
+   * AC2 forbids; a field-level *transform* could null the value but would then have destroyed the
+   * only evidence a counter has, and Zod gives a field no route to `meta.warnings` anyway. One walk
+   * at payload level sees the raw value, every other field's raw value, and the array the count is
+   * announced through.
+   *
+   * The line goes **first** within `meta.warnings`, not appended - `route.ts:404-408` records why:
+   * the dialog shows ten lines and this array may hold 500, so an appended line is buried on exactly
+   * the archives most likely to carry both kinds. (First *here*; the route still puts the
+   * repository's own lines ahead of the whole array, which is the order it argues for.) It is
+   * prepended after `.max(MAX_IMPORT_WARNINGS)` has already run, so a manifest sitting exactly on
+   * that cap comes back one line over it; a bound that exists to keep the response finite is not
+   * worth dropping the one line this rule exists to show.
+   *
+   * **Nulled always, counted only when nothing else was going to replace it**, which is the rule
+   * `runTripImport` already applies to a foreign upload URL (`tripRepo.ts`): a field carrying a
+   * pooled photo id gets real bytes written over it a moment later, so reporting its dead string as
+   * a dropped image would name a loss the user did not suffer. An empty string is the same case
+   * from the other side - there was no image to lose - so it is normalised to null in silence.
+   */
+  .transform((payload): typeof payload => {
+    const isUnsafe = (value: string | null) => value !== null && !isSafeStoredImageUrl(value);
+    const isCountable = (value: string | null, photoId: string | null) =>
+      isUnsafe(value) && value !== "" && photoId === null;
+
+    const droppedCount =
+      (isCountable(payload.trip.heroImageUrl, payload.trip.heroPhotoId) ? 1 : 0) +
+      payload.days.filter((day) => isCountable(day.imageUrl, day.imagePhotoId)).length;
+    const nulledAny =
+      isUnsafe(payload.trip.heroImageUrl) || payload.days.some((day) => isUnsafe(day.imageUrl));
+    if (!nulledAny) return payload;
+
+    return {
+      ...payload,
+      meta: {
+        ...payload.meta,
+        warnings:
+          droppedCount === 0
+            ? payload.meta.warnings
+            : [unsafeStoredImageUrlWarning(droppedCount), ...payload.meta.warnings],
+      },
+      trip: {
+        ...payload.trip,
+        heroImageUrl: isUnsafe(payload.trip.heroImageUrl) ? null : payload.trip.heroImageUrl,
+      },
+      days: payload.days.map((day) => (isUnsafe(day.imageUrl) ? { ...day, imageUrl: null } : day)),
+    };
+  });
 
 export const tripImportConflictStrategySchema = z.enum(["overwrite", "createNew"]);
 

@@ -8,6 +8,7 @@ import {
   MAX_SUPPORTED_FORMAT_VERSION,
 } from "@/lib/trips/importLimits";
 import { MAX_DOCUMENTS_PER_ENTRY } from "@/lib/trips/documentUploads";
+import { MAX_STORED_IMAGE_URL_LENGTH } from "@/lib/validation/safeStoredImageUrl";
 import {
   tripImportRequestSchema,
   tripImportPayloadSchema,
@@ -1015,6 +1016,177 @@ describe("tripImportSchemas", () => {
       expect(tripImportPayloadSchema.safeParse({ ...v2Payload, meta: { ...v2Payload.meta, warnings } }).success).toBe(
         false,
       );
+    });
+  });
+
+  /**
+   * The two fields whose value is rendered straight into an `<img src>`, and the only untrusted
+   * writer they have.
+   *
+   * The property under test throughout is *nulled and counted, never refused*: every case below that
+   * carries a hostile value still parses successfully, because a backup that restores one image short
+   * is worth incomparably more than one the app declines to read (Story 2.32 AC2).
+   */
+  describe("stored image URLs", () => {
+    const UNSAFE_WARNING = "Dropped 1 image whose stored address is neither an uploaded file nor an http(s) URL";
+
+    /**
+     * `heroPhotoId: null` on purpose, and it is the difference between a real report and a false one:
+     * `v2Payload`'s hero is backed by pooled bytes, so a hero these tests null would have been
+     * overwritten a moment later anyway. The pooled variants are pinned separately below.
+     */
+    const parseWithHero = (heroImageUrl: unknown) =>
+      tripImportPayloadSchema.safeParse({
+        ...v2Payload,
+        trip: { ...v2Payload.trip, heroPhotoId: null, heroImageUrl },
+      });
+
+    const parseWithDayImage = (imageUrl: unknown) =>
+      tripImportPayloadSchema.safeParse(withFirstDay({ imagePhotoId: null, imageUrl }));
+
+    it.each([
+      ["an uploads-rooted path", "/uploads/trips/trip-export-id/hero.webp"],
+      ["an https url", "https://cdn.example.com/hero.jpg"],
+      ["an http url", "http://cdn.example.com/hero.jpg"],
+    ])("keeps a hero spelled as %s verbatim and warns about nothing", (_label, heroImageUrl) => {
+      // The absolute rows are not decoration: `tripBackupRoundTrip.test.ts` restores a v1 hero of
+      // exactly this shape through the real route, so refusing them here would break a shipped
+      // guarantee rather than tighten this one.
+      const result = parseWithHero(heroImageUrl);
+
+      expect(result.success).toBe(true);
+      expect(result.data?.trip.heroImageUrl).toBe(heroImageUrl);
+      expect(result.data?.meta.warnings).toEqual([]);
+    });
+
+    it("leaves an absent day image and a null hero alone, with nothing to report", () => {
+      const result = tripImportPayloadSchema.safeParse({
+        ...v2Payload,
+        days: [{ ...v2Day, imageUrl: undefined }],
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.data?.trip.heroImageUrl).toBeNull();
+      expect(result.data?.days[0].imageUrl).toBeNull();
+      expect(result.data?.meta.warnings).toEqual([]);
+    });
+
+    it("nulls a javascript: hero and says so, rather than refusing the archive", () => {
+      const result = parseWithHero("javascript:alert(1)");
+
+      expect(result.success).toBe(true);
+      expect(result.data?.trip.heroImageUrl).toBeNull();
+      expect(result.data?.meta.warnings).toEqual([UNSAFE_WARNING]);
+    });
+
+    it("nulls a data: day image and says so", () => {
+      const result = parseWithDayImage("data:image/svg+xml,<svg/>");
+
+      expect(result.success).toBe(true);
+      expect(result.data?.days[0].imageUrl).toBeNull();
+      expect(result.data?.meta.warnings).toEqual([UNSAFE_WARNING]);
+    });
+
+    it.each([
+      ["a hero", { trip: { ...v2Payload.trip, heroImageUrl: "javascript:alert(1)" } }],
+      ["a day image", { days: [{ ...v2Day, imageUrl: "data:image/svg+xml,<svg/>" }] }],
+    ])("nulls %s the pool is about to replace without claiming anything was lost", (_label, overrides) => {
+      // `v2Payload` keeps `heroPhotoId`/`imagePhotoId` set here, so real bytes land on the field a
+      // moment later. `runTripImport` draws exactly this distinction for a foreign upload URL, and a
+      // warning that named this a dropped image would be telling the user about a loss they did not
+      // suffer.
+      const result = tripImportPayloadSchema.safeParse({ ...v2Payload, ...overrides });
+
+      expect(result.success).toBe(true);
+      expect(result.data?.trip.heroImageUrl).toBeNull();
+      expect(result.data?.days[0].imageUrl).toBeNull();
+      expect(result.data?.meta.warnings).toEqual([]);
+    });
+
+    it("normalises an empty hero to null in silence, having lost nothing", () => {
+      const result = parseWithHero("   ");
+
+      expect(result.success).toBe(true);
+      expect(result.data?.trip.heroImageUrl).toBeNull();
+      expect(result.data?.meta.warnings).toEqual([]);
+    });
+
+    it.each([
+      ["a file url", "file:///etc/passwd"],
+      ["a blob url", "blob:https://cdn.example.com/9b2c"],
+      ["a vbscript url", "vbscript:msgbox(1)"],
+      ["an ftp url", "ftp://cdn.example.com/hero.jpg"],
+      ["a bare string", "hero.jpg"],
+      ["a relative path outside the media tree", "/etc/passwd"],
+      // The `scheme:host` shorthand `isSafeExternalUrl` exists to refuse: `new URL()` forgives the
+      // missing slash pair for a special scheme, so `.url()` would have waved this through.
+      ["the slashless https shorthand", "https:cdn.example.com/hero.jpg"],
+      ["a protocol-relative url", "//cdn.example.com/hero.jpg"],
+      ["an uppercase javascript scheme", "JavaScript:alert(1)"],
+      ["a whitespace-padded javascript scheme", "  javascript:alert(1)  "],
+    ])("nulls a hero spelled as %s", (_label, heroImageUrl) => {
+      const result = parseWithHero(heroImageUrl);
+
+      expect(result.success).toBe(true);
+      expect(result.data?.trip.heroImageUrl).toBeNull();
+      expect(result.data?.meta.warnings).toEqual([UNSAFE_WARNING]);
+    });
+
+    it("reports one aggregated line for a payload with a bad hero and a bad day image", () => {
+      // Aggregated by count is the house style, and it is what keeps a manifest with a hundred bad
+      // day images from filling the ten-line window the dialog renders.
+      const result = tripImportPayloadSchema.safeParse({
+        ...v2Payload,
+        trip: { ...v2Payload.trip, heroPhotoId: null, heroImageUrl: "javascript:alert(1)" },
+        days: [{ ...v2Day, imagePhotoId: null, imageUrl: "data:image/svg+xml,<svg/>" }],
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.data?.trip.heroImageUrl).toBeNull();
+      expect(result.data?.days[0].imageUrl).toBeNull();
+      expect(result.data?.meta.warnings).toEqual([
+        "Dropped 2 images whose stored address is neither an uploaded file nor an http(s) URL",
+      ]);
+    });
+
+    it("puts its line ahead of the warnings the export wrote", () => {
+      // The dialog renders the first ten lines only, so appending would bury this one behind up to
+      // 500 photo lines on exactly the archives most likely to carry both.
+      const result = tripImportPayloadSchema.safeParse({
+        ...v2Payload,
+        meta: { ...v2Payload.meta, warnings: ["Skipped image whose file is missing on disk: /uploads/x.jpg"] },
+        trip: { ...v2Payload.trip, heroPhotoId: null, heroImageUrl: "javascript:alert(1)" },
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.data?.meta.warnings).toEqual([
+        UNSAFE_WARNING,
+        "Skipped image whose file is missing on disk: /uploads/x.jpg",
+      ]);
+    });
+
+    it("nulls a stored image URL longer than the column has any business holding", () => {
+      // Over-long goes down the same road as an unusable scheme rather than 400ing the archive: the
+      // day-image write side caps at this same number, so a longer value cannot be one the app
+      // produced, and refusing to restore a whole backup over one absurd string is what AC2 rules out.
+      const result = parseWithHero(
+        `https://cdn.example.com/${"a".repeat(MAX_STORED_IMAGE_URL_LENGTH)}.jpg`
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.data?.trip.heroImageUrl).toBeNull();
+      expect(result.data?.meta.warnings).toEqual([UNSAFE_WARNING]);
+    });
+
+    it("keeps a stored image URL sitting exactly on the cap", () => {
+      const prefix = "https://cdn.example.com/";
+      const atCap = `${prefix}${"a".repeat(MAX_STORED_IMAGE_URL_LENGTH - prefix.length)}`;
+      const result = parseWithHero(atCap);
+
+      expect(atCap).toHaveLength(MAX_STORED_IMAGE_URL_LENGTH);
+      expect(result.success).toBe(true);
+      expect(result.data?.trip.heroImageUrl).toBe(atCap);
+      expect(result.data?.meta.warnings).toEqual([]);
     });
   });
 });

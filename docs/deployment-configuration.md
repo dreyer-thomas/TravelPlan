@@ -202,9 +202,11 @@ Three things about it are load-bearing:
    were removed as dead: `npm start` is `next start -p 3001 -H 127.0.0.1`, whose explicit flags win,
    and `grep -r 'process\.env\.' travelplan/src` finds no reader for either. Changing `PORT` in the
    unit would move nothing, which is a confusing hour for whoever tries it.
-3. `TravelBlogs.service` is the same shape with `ExecStart=/usr/bin/npm run start`, no `PATH` override,
-   and `EnvironmentFile=…/travelblogs/.env` instead of inline variables. **It must stay that way** —
-   it is what keeps that application on Node 20.
+3. `TravelBlogs.service` is the same shape but uses `EnvironmentFile=…/travelblogs/.env` instead of
+   inline variables — which is the better pattern of the two, see below. It was migrated to Node 24 on
+   2026-08-15 and now carries the same `PATH` and `ExecStart` pinning; while the two majors coexisted
+   it deliberately did not, and that difference was the entire mechanism keeping the applications on
+   separate runtimes.
 
 ### Secrets in the unit are readable by every local user
 

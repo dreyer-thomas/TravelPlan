@@ -2234,16 +2234,23 @@ const resolvesInsideTripUploadDir = (url: string, tripId: string) => {
  * for this rule and each was walked through by the next spelling - `//uploads/…`, `/uploads//…`,
  * `uploads/…`, `/./uploads/…`, `/Uploads/…`, and finally `/x/../uploads/trips/<other>/hero.jpg`, whose own
  * leading segment is popped by the `..` that follows it while `resolveStoredMediaPath` maps it onto
- * byte-for-byte the same file (all confirmed by execution). `heroImageUrl` carries no format validation at
- * all, so a backup can spell it any of those ways. Only "is this external?" survives, because it is a
- * closed question; everything path-shaped goes to the containment check. See `isExternalMediaUrl`.
+ * byte-for-byte the same file (all confirmed by execution). The import schema has since grown a shape
+ * test of its own (`isSafeStoredImageUrl`), and it is the same story one layer up: it turns away five of
+ * those six spellings and `/uploads//trips/<other>/hero.jpg` walks straight through its
+ * `startsWith("/uploads/")`, confirmed by execution. That is exactly why it is a second line and not this
+ * rule's - a shape test anywhere is walked through by the next spelling somebody invents. Only
+ * "is this external?" survives, because it is a closed question; everything path-shaped goes to the
+ * containment check. See `isExternalMediaUrl`.
  *
  * **And it fails closed for every path-shaped value.** Only a URL naming no file here at all takes the
  * "keep" branch - which is to say anything with a scheme, and that is wider than "an external `https://…`
  * cover image": `data:`, `file:` and `javascript:` are kept verbatim too, because they are equally not
  * ours to judge and equally name no file in this tree. What a stored URL is *allowed* to be is the import
- * schema's question, not this rule's - `heroImageUrl` is `z.union([z.string().trim(), z.null()])` with no
- * format check, which is a pre-existing gap this rule neither widens nor closes. Iteration 2 asked instead
+ * schema's question, not this rule's, and the schema has since answered it: `heroImageUrl` and
+ * `days[].imageUrl` are nulled and counted there unless they are `/uploads/…` or `http(s)`, so a request
+ * arriving through the route can no longer carry `data:`, `file:` or `javascript:` this far. This function
+ * is unchanged by that and still keeps such a value verbatim when handed one directly - the gap it neither
+ * widens nor closes was closed a layer up. Iteration 2 asked instead
  * whether the resolved path was inside
  * `getTripsUploadRoot()` and kept it when it was not, which let `/uploads/trips/../../../../etc/passwd`
  * through: confirmed by execution to be imported verbatim with `droppedImageCount: 0`. A `/uploads/…` URL

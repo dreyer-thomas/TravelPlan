@@ -575,6 +575,40 @@ describe("POST /api/trips/import", () => {
       ]);
     });
 
+    it("restores a package whose hero is a javascript: url, nulling the field and saying so", async () => {
+      const { session } = await createOwner("import-route-unsafe-hero@example.com");
+
+      // A hand-edited backup is the only way such a value reaches these columns, and the column is
+      // rendered straight into an `<img src>`. What this pins is the whole shape of the answer: the
+      // rest of the archive still restores, and the loss is *stated* rather than silent - nulled and
+      // counted, not a 400 and not a quiet drop.
+      const manifest = {
+        ...V2_MANIFEST,
+        photos: {},
+        trip: { ...V2_MANIFEST.trip, heroPhotoId: null, heroImageUrl: "javascript:alert(1)" },
+      };
+      const archive = buildPackage(manifest, []);
+      const response = await POST(buildMultipartRequest(archive, { session, csrf: "csrf-token" }));
+      const payload = (await response.json()) as ApiEnvelope<{
+        trip: { id: string; heroImageUrl: string | null };
+        dayCount: number;
+        travelSegmentCount: number;
+        warnings: string[];
+      }>;
+
+      expect(response.status).toBe(200);
+      expect(payload.error).toBeNull();
+      expect(payload.data?.trip.heroImageUrl).toBeNull();
+      expect(payload.data?.dayCount).toBe(2);
+      expect(payload.data?.travelSegmentCount).toBe(1);
+      expect(payload.data?.warnings).toContain(
+        "Dropped 1 image whose stored address is neither an uploaded file nor an http(s) URL"
+      );
+
+      const stored = await prisma.trip.findUniqueOrThrow({ where: { id: payload.data!.trip.id } });
+      expect(stored.heroImageUrl).toBeNull();
+    });
+
     it("rejects a package with an unregistered archive member", async () => {
       const { session } = await createOwner("import-route-stowaway@example.com");
 
