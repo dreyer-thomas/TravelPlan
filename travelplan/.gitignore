@@ -39,6 +39,11 @@ yarn-error.log*
 # env files (allow .env.example to be committed)
 .env
 .env.local
+# .env.production is not hypothetical: production secrets live in the systemd unit today,
+# and the documented way to move them out is an env file. Next.js also auto-loads this exact
+# name when NODE_ENV=production, so an in-tree copy would silently become a second config
+# source as well as a commit hazard. See DW-331.
+.env.production
 
 # vercel
 .vercel

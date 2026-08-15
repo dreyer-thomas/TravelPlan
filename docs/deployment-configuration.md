@@ -215,12 +215,17 @@ it to any unprivileged local account**, because the value is served from the sys
 D-Bus rather than read from the file — so tightening the unit file's permissions does not help. Unit
 files are also mode `644` by default, so `systemctl cat` exposes it as well.
 
-The fix, if this is ever worth closing, is `EnvironmentFile=` pointing at a file **outside the
-application tree**, `root:root` mode `600`. systemd reads it as PID 1 before dropping to `User=app`, so
-the service user never needs read access to the secret at all — which is stronger than TravelBlogs'
-in-tree `.env`. Note that `travelplan/.gitignore` covers `.env` and `.env.local` but **not**
-`.env.production`, so an env file inside the tree under that name is one `git add -A` away from being
-committed. Tracked as `DW-331`.
+**This is an accepted risk, not an outstanding recommendation.** The decision was taken on 2026-08-15
+(`DW-331`): the inline `Environment=` values stay as they are. The host has two accounts that matter —
+`app` and the maintainer's own — and against that population the exposure buys little. **The revisit
+trigger is named: if the host ever gains accounts beyond those two, move the secret.**
+
+The move, when it comes, is `EnvironmentFile=` pointing at a file **outside the application tree**,
+`root:root` mode `600`. systemd reads it as PID 1 before dropping to `User=app`, so the service user
+never needs read access to the secret at all — stronger than TravelBlogs' in-tree `.env`. Two traps to
+avoid at that point: Next.js auto-loads `.env.production` when `NODE_ENV=production`, so an in-tree
+file under that name becomes a second config source; and it must not be committable. The second half is
+already closed — `travelplan/.gitignore` now covers `.env.production` alongside `.env` and `.env.local`.
 
 The current secret was rotated on 2026-08-12 after it was exposed during Story 8.1's discovery pass.
 Rotating invalidates every active session and forces all users to sign in again.

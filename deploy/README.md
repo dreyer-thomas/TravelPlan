@@ -64,5 +64,5 @@ because the copy must match what actually runs:
 ## Not here yet
 
 The two systemd units, `TravelPlan.service` and `TravelBlogs.service`, are equally load-bearing and
-equally absent — tracked as `DW-335`. `TravelPlan.service` cannot be committed as-is because it holds
+equally absent — tracked as `DW-353`. `TravelPlan.service` cannot be committed as-is because it holds
 `JWT_SECRET` as an inline `Environment=` value (`DW-331`); a redacted template is the way in.
