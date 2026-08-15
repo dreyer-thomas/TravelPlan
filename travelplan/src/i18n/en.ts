@@ -511,6 +511,11 @@ const en: Dictionary = {
   "trips.timeline.gapAlertBody": "No accommodation has been recorded yet for day {dayIndex} ({date}).",
   "trips.overviewMap.title": "Route",
   "trips.overviewMap.expand": "Expand map",
+  // DW-15: deliberately the same wording as `trips.dayView.mapCaption*` rather than a route-specific
+  // phrasing - one caption vocabulary across every map surface. `formatMessage` is plain {key}
+  // substitution with no plural handling, so the singular needs its own key.
+  "trips.overviewMap.mapCaption": "{count} stops · open the full map",
+  "trips.overviewMap.mapCaptionOne": "1 stop · open the full map",
   "trips.overviewMap.back": "← Back to trip overview",
   "trips.overviewMap.emptyTitle": "No mapped places yet",
   "trips.overviewMap.emptyBody": "Add locations to stays or plan items to see markers here.",

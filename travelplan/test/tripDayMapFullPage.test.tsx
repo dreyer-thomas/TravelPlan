@@ -4,8 +4,12 @@ import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import TripDayMapFullPage from "@/components/features/trips/TripDayMapFullPage";
+import en from "@/i18n/en";
+import { formatMessage } from "@/i18n";
 import { renderWithProviders } from "./helpers/renderWithProviders";
 import { expectNoHardcodedColour } from "./helpers/hardcodedColour";
+import { expectNoFullViewportFloor } from "./helpers/fullViewportFloor";
+import { mockFetchResponse, requestUrl, stubFetch } from "./helpers/mockFetch";
 import type { ReactNode } from "react";
 
 vi.mock("react-leaflet", () => ({
@@ -43,6 +47,13 @@ vi.mock("leaflet", () => ({
 describe("day map page shell", () => {
   it("carries no hardcoded colour", () => {
     expectNoHardcodedColour("src/app/(routes)/trips/[id]/days/[dayId]/map/page.tsx");
+  });
+
+  // DW-59. See the sibling assertion in `tripOverviewMapFullPage.test.tsx` and the helper's own
+  // comment: a 100vh floor on the shell under the app header reintroduces the scroll that no value
+  // of `FULL_PAGE_MAP_HEIGHT` can remove.
+  it("puts no full-viewport floor under the app header", () => {
+    expectNoFullViewportFloor("src/app/(routes)/trips/[id]/days/[dayId]/map/page.tsx");
   });
 });
 
@@ -206,6 +217,96 @@ describe("TripDayMapFullPage", () => {
 
     await user.click(closeButton);
     expect(screen.queryByText("Plan details")).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  // DW-57. This screen is reachable by direct URL and its caps label reads "Day map" on every day of
+  // every trip, so before the subline nothing on the page said *which* day was being looked at.
+  it("names the loaded day under the card label", async () => {
+    stubFetch(
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (requestUrl(input).includes("/images")) {
+          return mockFetchResponse({ data: { images: [] }, error: null });
+        }
+
+        return mockFetchResponse({
+          data: {
+            trip: {
+              id: "trip-1",
+              name: "Trip",
+              startDate: "2026-12-01T00:00:00.000Z",
+              endDate: "2026-12-05T00:00:00.000Z",
+              dayCount: 3,
+              plannedCostTotal: 0,
+              accommodationCostTotalCents: null,
+              heroImageUrl: null,
+            },
+            days: [
+              {
+                id: "day-3",
+                date: "2026-12-03T00:00:00.000Z",
+                dayIndex: 3,
+                note: null,
+                accommodation: null,
+                dayPlanItems: [
+                  {
+                    id: "item-1",
+                    title: "Morning walk",
+                    contentJson: JSON.stringify({ type: "doc", content: [] }),
+                    location: { lat: 40.7, lng: -73.9 },
+                  },
+                ],
+              },
+            ],
+          },
+          error: null,
+        });
+      }),
+    );
+
+    renderWithProviders(<TripDayMapFullPage tripId="trip-1" dayId="day-3" />);
+
+    // Composed from the dictionary rather than hardcoded, so a placeholder rename fails here instead
+    // of shipping a literal "Day {index}".
+    expect(await screen.findByText(formatMessage(en["trips.dayView.title"], { index: 3 }))).toBeInTheDocument();
+    // Still a subline, not a second heading: the caps label remains this screen's only h1. Both
+    // halves of that are asserted - the label is a heading, and the `Day N` line under it is not.
+    // The positive alone would hold just as well if the subline had been given a heading role too.
+    expect(screen.getByRole("heading", { name: en["trips.dayView.mapTitle"] })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: formatMessage(en["trips.dayView.title"], { index: 3 }) }),
+    ).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  // DW-56. A failed load leaves `mapData.points` empty for the same reason a day with nothing mapped
+  // does, and the screen used to answer both with the placeholder - so the alert said "we could not
+  // load this" while the panel under it said "there is nothing here", and only one of them was true.
+  it("shows only the error alert when the day fails to load", async () => {
+    stubFetch(
+      vi.fn(async () =>
+        mockFetchResponse({ data: null, error: { code: "server_error", message: "boom" } }, { status: 500 }),
+      ),
+    );
+
+    renderWithProviders(<TripDayMapFullPage tripId="trip-1" dayId="day-1" />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(en["trips.dayView.loadError"]);
+    expect(screen.queryByText(en["trips.dayView.mapEmptyTitle"])).not.toBeInTheDocument();
+    expect(screen.queryByText(en["trips.dayView.mapEmptyBody"])).not.toBeInTheDocument();
+    // No day loaded, so no subline either. Built from the dictionary like its positive counterpart
+    // above: a hardcoded /^Day \d/ would stop matching the moment the key is reworded, and pass
+    // vacuously ever after.
+    //
+    // The raw template is the load-bearing one of the three. `formatMessage` substitutes `{index}`
+    // only when the value is defined and leaves the placeholder verbatim otherwise, so dropping the
+    // `day ?` gate does not render "Day undefined" - it renders a literal "Day {index}" on the
+    // screen, and only an assertion against the unsubstituted string catches that.
+    expect(screen.queryByText(en["trips.dayView.title"])).not.toBeInTheDocument();
+    expect(screen.queryByText(formatMessage(en["trips.dayView.title"], { index: "undefined" }))).not.toBeInTheDocument();
+    expect(screen.queryByText(formatMessage(en["trips.dayView.title"], { index: 1 }))).not.toBeInTheDocument();
 
     vi.unstubAllGlobals();
   });

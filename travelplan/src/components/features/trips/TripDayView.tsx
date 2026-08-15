@@ -555,6 +555,13 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const [travelSegments, setTravelSegments] = useState<TravelSegment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * DW-56. A second, narrower flag rather than a read of `error`: `error` is this screen's single
+   * message channel and also carries stay saves, image uploads and day transfers, none of which say
+   * anything about whether the day's map data arrived. Blanking the map panel's empty state because
+   * an unrelated upload failed would be a new defect, so this one is set only by `loadDay`.
+   */
+  const [loadFailed, setLoadFailed] = useState(false);
   const [notFound, setNotFound] = useState(false);
   const [stayOpen, setStayOpen] = useState(false);
   const [previousStayOpen, setPreviousStayOpen] = useState(false);
@@ -881,6 +888,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const loadDay = useCallback(async (options?: { silent?: boolean }) => {
     if (!options?.silent) setLoading(true);
     setError(null);
+    setLoadFailed(false);
     setNotFound(false);
 
     try {
@@ -903,6 +911,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
 
       if (!detailResponse.ok || detailBody.error || !detailBody.data) {
         setError(resolveApiError(detailBody.error?.code));
+        setLoadFailed(true);
         setDetail(null);
         setDay(null);
         setPlanItems([]);
@@ -951,6 +960,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
       setTravelSegments(Array.isArray(resolvedDay.travelSegments) ? resolvedDay.travelSegments : []);
     } catch {
       setError(t("trips.dayView.loadError"));
+      setLoadFailed(true);
       setDetail(null);
       setDay(null);
       setPlanItems([]);
@@ -4221,6 +4231,8 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
 
               <TripDayMapPanel
                 loading={loading}
+                /* DW-56: the load-scoped flag, not `error` - see its declaration. */
+                loadError={loadFailed}
                 points={mapData.points}
                 missingLocations={mapData.missingLocations}
                 polylinePositions={routePolyline.length >= 2 ? routePolyline : mapData.points.map((point) => point.position)}

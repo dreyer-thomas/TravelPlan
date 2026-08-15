@@ -28,6 +28,13 @@ type TripDayMapPanelProps = {
   polylinePositions?: [number, number][];
   routingUnavailable?: boolean;
   loading?: boolean;
+  /**
+   * DW-56: whether the parent's *load* failed. An empty `points` array means two different things -
+   * "this day has nothing mapped yet" and "we never got the data" - and only the first one deserves
+   * the placeholder. Optional and defaulting to false so the panel keeps behaving as it does today
+   * for any caller that does not track a load error.
+   */
+  loadError?: boolean;
   expandHref?: string;
   onExpandClick?: () => void;
   onMarkerClick?: (point: TripDayMapPoint) => void;
@@ -39,6 +46,7 @@ export default function TripDayMapPanel({
   polylinePositions,
   routingUnavailable = false,
   loading = false,
+  loadError = false,
   expandHref,
   onExpandClick,
   onMarkerClick,
@@ -85,28 +93,33 @@ export default function TripDayMapPanel({
         {loading ? (
           <Skeleton variant="rectangular" height={DAY_MAP_PANEL_HEIGHT} sx={{ borderRadius: "6px" }} />
         ) : points.length === 0 ? (
-          <Box
-            sx={{
-              height: DAY_MAP_PANEL_HEIGHT,
-              display: "flex",
-              flexDirection: "column",
-              justifyContent: "center",
-              alignItems: "center",
-              borderRadius: "6px",
-              border: "1px dashed",
-              borderColor: tokens.border,
-              px: 2,
-              textAlign: "center",
-              gap: 1,
-            }}
-          >
-            <Typography variant="body1" fontWeight={600}>
-              {t("trips.dayView.mapEmptyTitle")}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              {t("trips.dayView.mapEmptyBody")}
-            </Typography>
-          </Box>
+          /* DW-56: an empty `points` array beside a failed load is not an empty day, and saying "no
+             locations to map yet" under the parent's error alert contradicts it. Nothing at all is
+             the honest answer - the alert is already carrying the message. */
+          loadError ? null : (
+            <Box
+              sx={{
+                height: DAY_MAP_PANEL_HEIGHT,
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "center",
+                alignItems: "center",
+                borderRadius: "6px",
+                border: "1px dashed",
+                borderColor: tokens.border,
+                px: 2,
+                textAlign: "center",
+                gap: 1,
+              }}
+            >
+              <Typography variant="body1" fontWeight={600}>
+                {t("trips.dayView.mapEmptyTitle")}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {t("trips.dayView.mapEmptyBody")}
+              </Typography>
+            </Box>
+          )
         ) : (
           <Box sx={{ height: DAY_MAP_PANEL_HEIGHT, borderRadius: "6px", overflow: "hidden" }}>
             <TripDayLeafletMap

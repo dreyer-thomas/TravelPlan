@@ -126,7 +126,8 @@ decision: 2026-08-08 Keep the attribute, document it as a jsdom shim — Keep `d
 origin: migrated from legacy ledger ("Deferred from: code review of 7-2-trip-overview-redesign (2026-07-31)"), 2026-08-01
 location: `TripOverviewMapPanel.tsx:41`
 reason: `EXPERIENCE.md`'s Interaction Primitives and Accessibility Floor both state map previews are "always paired with a text caption/summary (station count…)", and the mockup has `.map-caption` "5 Stationen · Kartenvorschau öffnen". Task 4 explicitly authorized keeping the icon-button instead, so this is task-sanctioned — but the station count now lives in a different component (the stat strip) and the card carries only a "Route" label plus an icon button. Also the populated map wrapper has no border/background where the mockup's `.map-preview` has `1px solid #E4DFD3` on `#F7F4EC` (only the empty state kept a dashed border). Revisit if the caption pattern is standardized across map surfaces.
-status: open
+status: done 2026-08-15
+resolution: resolved by sweep bundle dw-map-panels-and-full-page
 decision: 2026-08-01 Standardise the caption across all map surfaces — Add the text caption `EXPERIENCE.md` mandates to every map preview surface, not just this one: a station-count-plus-action summary beneath the map in `TripOverviewMapPanel` and `TripDayMapPanel`, with a shared i18n key in both dictionaries. Feed the count from the same data the map already receives so it cannot drift from the stat strip. While there, give the populated map wrapper the mockup's `1px solid` token border on the `paper` fill, matching what the empty state already does, so populated and empty previews read as the same card.
 decision: 2026-08-01 Standardise the caption across all map surfaces — Add the text caption `EXPERIENCE.md` mandates to every map preview surface, not just this one: a station-count-plus-action summary beneath the map in `TripOverviewMapPanel` and `TripDayMapPanel`, with a shared i18n key in both dictionaries. Feed the count from the same data the map already receives so it cannot drift from the stat strip. While there, give the populated map wrapper the mockup's `1px solid` token border on the `paper` fill, matching what the empty state already does, so populated and empty previews read as the same card.
 
@@ -446,14 +447,16 @@ resolution: resolved by sweep bundle dw-trip-accommodation-dialog-daysubtitle-fi
 origin: migrated from legacy ledger ("Deferred from: code review of 7-9-full-page-map-screens-redesign (2026-08-01)"), 2026-08-01
 location: `travelplan/src/components/features/trips/TripOverviewMapFullPage.tsx:151-196`, `TripDayMapFullPage.tsx:392-427`
 reason: The empty state is gated on `mapData.points.length === 0` alone. When the fetch throws or returns non-ok, `error` is set and `detail`/`dayDetail` stay `null`, so `points` is empty and the screen shows an `Alert severity="error"` immediately above a full-height box asserting the trip has no locations. The two messages contradict each other, and the empty state's advice ("Add locations to stays or plan items") sends the user to fix data that may be fine. Pre-existing — the branch predates the redesign and Story 7.9 was visual-only — but the empty state is now a full-viewport `minHeight: FULL_PAGE_MAP_HEIGHT` panel rather than a modest one, so the false claim is much louder. Fix is a `&& !error` on the empty-state condition in both files; the same shape exists in both preview panels, so do all four together.
-status: open
+status: done 2026-08-15
+resolution: resolved by sweep bundle dw-map-panels-and-full-page
 
 ### DW-57: The full-page day map identifies neither the day nor the trip
 
 origin: migrated from legacy ledger ("Deferred from: code review of 7-9-full-page-map-screens-redesign (2026-08-01)"), 2026-08-01
 location: `travelplan/src/components/features/trips/TripDayMapFullPage.tsx:395-403`
 reason: After 7.9 the screen's only heading is the card label "Day map" / "Tageskarte". `/trips/{id}/days/{dayId}/map` is reachable by direct URL and by browser history, and nothing on it says which day or which trip is shown. The sibling trip map deliberately kept its trip-name subline for exactly this reason (7.9 Task 4), but the same reasoning was never applied to the day map, which has no AC covering it. Not a regression — the pre-redesign `h6` said "Day map" too — but the asymmetry between two screens redesigned in the same pass is now visible. Fix is a `trips.dayView.title`-based subline (`formatMessage(t("trips.dayView.title"), { index: dayDetail.day.dayIndex })`) in the panel-caption rhythm, matching the trip map's.
-status: open
+status: done 2026-08-15
+resolution: resolved by sweep bundle dw-map-panels-and-full-page
 
 ### DW-58: The `card` token bundle is now literally duplicated in six components
 
@@ -468,7 +471,8 @@ seen-again: 2026-08-03 (story 7-13-cost-overview-redesign) — a seventh verbati
 origin: migrated from legacy ledger ("Deferred from: code review of 7-9-full-page-map-screens-redesign (2026-08-01)"; empirically confirmed by the retroactive operator verification of 7-9 and 7-11 on 2026-08-01), 2026-08-01
 location: `travelplan/src/components/features/trips/TripDayMapFullPage.tsx:73`, `TripOverviewMapFullPage.tsx:57`
 reason: Static measurement of the day-map stack at `md` puts the real chrome near 291px (72px `Toolbar` + 1px `AppBar` border + 96px `Container` `py:6` + 44px back button + 24px `gap={3}` + 2px card border + 36px card padding + about 16px `labelCaps` title + 16px inner `gap={2}`), and the trip map adds a further ~23px for its trip-name subline plus `gap={0.75}` — so the two screens need different offsets while sharing one constant. Empirically confirmed afterwards: `calc(100vh - 220px)` leaves `document.scrollHeight - clientHeight` at 208px on the trip map and 153px on the day map, identical at 1440×1080 and 1280×620, so it is fixed chrome rather than a viewport-dependent effect, and both estimates above are in the right direction and roughly the right size. Pre-existing (`220px` predates the redesign) and 7.9 recovered about 28px by shrinking the card padding and the title. Story 7.9's Task 3 routed the decision to a browser measurement and its Task 8 flagged exactly this ("adjust the constant only if the page actually scrolls"), but the story was advanced to `done` by `bmad-loop confirm` before that pass ran, and the verification happened afterwards against a throwaway copy of `dev.db` on an isolated port in a separate worktree. The fix is a per-file constant change plus a re-measure; it was not folded into 7.9 because that story is committed and confirmed.
-status: open
+status: done 2026-08-15
+resolution: resolved by sweep bundle dw-map-panels-and-full-page
 
 ### DW-60: Nothing enforces key parity between the two i18n dictionaries
 
@@ -3253,4 +3257,84 @@ location: n/a
 source_spec: `spec-dw-14-timeline-layout-source-of-truth.md`
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260815-121825-9e9e; this entry preserves the lingering recommendation for a deliberate later review.
+status: open
+
+### DW-344: The full-page maps' fixed-offset height cannot absorb the chrome that varies, so the fit breaks in ordinary states
+
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-map-panels-and-full-page.md`
+origin: follow-up review of the DW-15/56/57/59 map change, 2026-08-15
+location: `travelplan/src/components/features/trips/TripDayMapFullPage.tsx` (`FULL_PAGE_MAP_HEIGHT`, the `missingLocations` list and the `routingUnavailable` warning below the map) and `TripOverviewMapFullPage.tsx` (same constant, the same missing-locations list, and the trip-name subline above the map)
+severity: medium
+summary: `FULL_PAGE_MAP_HEIGHT` subtracts one constant measured on a card that shows no missing-locations list, no routing warning and a trip name short enough not to wrap. All three of those are ordinary states, not corner cases — the missing-locations list exists precisely because plan items and stays without coordinates are common, and `routingUnavailable` is set by the routine failure path of `/api/trips/{id}/days/{id}/route`. Whenever one of them renders, the document exceeds the viewport by that block's height and the screen scrolls: the same symptom DW-59 was filed about, now reachable through a different door. A wrapped trip name is the cheapest trigger — one extra 17px line.
+evidence: Confirmed independently by both review passes against the source at 2026-08-15. The blocks are siblings of the map inside the same `gap={2}` column, so nothing subtracts them from the map's own height, and no test covers a full-page map in any of the three states. Deliberately not fixed in this change: the spec's Never list forbids replacing the fixed-offset approach with a measured or observer-driven layout, and every honest fix here is exactly that — either the map flex-grows inside a `100vh` flex column, or the constant gains terms for the optional blocks. Worth taking with the sibling entry on viewport units, since both want the same rewrite.
+status: open
+
+### DW-345: The full-page map constants are calibrated for desktop `md` only — `100vh` overshoots on mobile and the container band is wrong below `md`
+
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-map-panels-and-full-page.md`
+origin: follow-up review of the DW-15/56/57/59 map change, 2026-08-15
+location: `travelplan/src/components/features/trips/TripOverviewMapFullPage.tsx` and `TripDayMapFullPage.tsx` (`FULL_PAGE_MAP_HEIGHT`), against `src/app/(routes)/trips/[id]/map/page.tsx` and `.../days/[dayId]/map/page.tsx` (`Container sx={{ py: { xs: 4, md: 6 } }}`)
+severity: medium
+summary: Two separate things go wrong below `md`. First, `100vh` on iOS Safari and other mobile browsers resolves to the *largest* viewport — URL bar retracted — so `calc(100vh - 331px)` exceeds the visible area and the page scrolls by the URL-bar height on every phone, which is the defect DW-59 exists to prevent. `100dvh` is the unit for this and the repo already uses it for the same reason in `AuthScreenShell.tsx`. Second, the 331px band table counts 96px for `Container py={6}`, but below `md` the padding is `py={4}` — 64px — so the subtraction is 32px too large and the map leaves an unused strip. The first costs a scrollbar, the second costs space.
+evidence: Read from the two page shells and the two constants at 2026-08-15; both flagged independently by the two review passes, and the `dvh` precedent verified in `AuthScreenShell.tsx`. Out of scope for this change: DW-59's acceptance measured 1440x1080 and 1280x620 only, so no mobile viewport was ever in the contract, and switching the unit without a mobile measurement would trade a known-good desktop fit for an unverified one. Closing it means one responsive constant (`{ xs: calc(100dvh - 299px), md: calc(100dvh - 331px) }`) and a measurement pass on a real handset or an emulated one with a retracting URL bar.
+status: open
+
+### DW-346: The two map preview panels no longer look alike — only the overview one gained a frame
+
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-map-panels-and-full-page.md`
+origin: follow-up review of the DW-15/56/57/59 map change, 2026-08-15
+location: `travelplan/src/components/features/trips/TripDayMapPanel.tsx` (the populated map wrapper, `height: DAY_MAP_PANEL_HEIGHT` with no border) against `TripOverviewMapPanel.tsx` (the same wrapper, now `border: 1px solid tokens.border` on `background.default` with the map sized to the content box)
+severity: low
+summary: DW-15 was filed against the overview panel and fixed there: its populated preview now carries the same 1px frame the dashed empty state always had. `TripDayMapPanel` renders the visually identical card at the same 150px height and did not get the treatment, so the route preview on `/trips/{id}` is framed and the day preview on `/trips/{id}/days/{dayId}` is not. DW-15's own stated reason for the frame — "without it the tiles bleed straight into the card with no edge of their own" — applies verbatim to the untouched panel.
+evidence: Read from both components at 2026-08-15. Correctly out of scope rather than missed: the spec named `TripOverviewMapPanel` as DW-15's subject and the day panel as the *reference* implementation, so widening it would have been scope the story did not carry. Closing it is the same three `sx` lines plus the content-box subtraction the overview panel now documents (`MAP_PREVIEW_HEIGHT - 2 * MAP_PREVIEW_BORDER`, needed because `globals.css` puts everything in `border-box`) — and the day panel's existing "the map must be told its height" comment is the one that warns about precisely the clipping this would otherwise reintroduce.
+status: open
+
+### DW-347: All four map surfaces load Leaflet with no `loading` fallback, so the map area collapses between skeleton and chunk
+
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-map-panels-and-full-page.md`
+origin: follow-up review of the DW-15/56/57/59 map change, 2026-08-15
+location: `travelplan/src/components/features/trips/TripDayMapFullPage.tsx:23`, `TripOverviewMapFullPage.tsx:13`, `TripDayMapPanel.tsx:18`, `TripOverviewMapPanel.tsx:10` — each `dynamic(() => import("./…LeafletMap"), { ssr: false })`
+severity: low
+summary: None of the four passes `loading`, and the wrapper Box around each map takes its height from the child rather than setting one. So on first paint the sequence is: data resolves, the `Skeleton height={FULL_PAGE_MAP_HEIGHT}` unmounts, and until the Leaflet chunk arrives the card collapses to its padding — then jumps back to full height. On the two full-page screens that is a viewport-sized reflow of the page's primary content; on the previews it is 150px.
+evidence: All four call sites read at 2026-08-15 and confirmed identical. Pre-existing on three of them since their Leaflet children were first split out; the fourth joined the pattern in this change, where matching its siblings was the correct call and adding a loading state to one of four would have been the inconsistent one. The fix is uniform and small — `loading: () => <Skeleton variant="rectangular" height={…} sx={{ borderRadius: "6px" }} />` on each, reusing the height each surface already has — but it wants doing to all four together, which is a story rather than a patch.
+status: open
+
+### DW-348: Nothing pins the 331px band table, so the primary DW-59 defect has no automated guard
+
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-map-panels-and-full-page.md`
+origin: second follow-up review of the DW-15/56/57/59 map change, 2026-08-15
+location: `travelplan/src/components/features/trips/TripOverviewMapFullPage.tsx` and `TripDayMapFullPage.tsx` (`FULL_PAGE_MAP_HEIGHT` and its band table), against `src/components/AppHeader.tsx` (`Toolbar sx={{ minHeight: 72 }}`) and `src/theme.ts` (`MuiButton.root` minHeight)
+severity: medium
+summary: DW-59's scroll had two causes and only the secondary one is now guarded. The `100vh` floor on the page shells is pinned by `fullViewportFloor.ts` and its own suite; the constant itself — the part that was actually wrong, under-measuring the chrome by 7px — is a hand-derived sum of seven bands read out of theme values that no assertion touches. Change `Toolbar minHeight`, `MuiButton.root.minHeight`, the card's 18px padding or the `labelCaps` font size and the scrollbar returns with every test green. The header band is the softest of the seven twice over: `minHeight: 72` is a *minimum*, so the header can also grow on its own (a wrapped nav label, a taller avatar) without anything in `theme.ts` changing at all.
+evidence: Both reviewers reached this independently and it is visible in the source at 2026-08-15: the docblock's own enforcement mechanism is the sentence "Re-derive every band from source before changing anything above the map", which is a request, not a check. Precedent for closing it exists in this same change — `fullViewportFloor.test.ts` shows the shape of a guard for an untestable-by-rendering property. The cheap version is a unit test that recomputes the sum from the theme (`theme.components.MuiButton.styleOverrides.root.minHeight`, the Toolbar minHeight, the card padding) and asserts it equals the number in the constant, so a theme edit fails here rather than in a browser nobody opens. The thorough version is the browser measurement the acceptance criterion actually names, which no session has been able to run — see the residual risk recorded on the spec.
+status: open
+
+### DW-349: The full-viewport-floor guard is a two-file literal-path source scan, so the floor can return through any door it does not name
+
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-map-panels-and-full-page.md`
+origin: second follow-up review of the DW-15/56/57/59 map change, 2026-08-15
+location: `travelplan/test/helpers/fullViewportFloor.ts` (`expectNoFullViewportFloor`), called from `test/tripOverviewMapFullPage.test.tsx` and `test/tripDayMapFullPage.test.tsx`
+severity: low
+summary: The property the guard protects is a rendered document height; the thing it checks is two files' source text. A `minHeight: "100vh"` introduced in `(routes)/layout.tsx`, in a shared wrapper component, or through indirection in the shell itself (`const FULL = "100vh"; sx={{ minHeight: FULL }}`) reproduces DW-59 exactly while both assertions stay green — the guard only ever sees the two page files, and only ever recognises a literal.
+evidence: Read from the helper at 2026-08-15 and raised by both reviewers. The two-file scoping is deliberate and documented — five other pages carry the floor legitimately, one of them (the print sheet, DW-198) as the correct answer — so widening the call sites is a decision about those pages, not a tidy-up, and that part is correctly out of scope here. The indirection blind spot is the part that is simply unrecorded: the docblock lists `stripComments`'s two inherited limits but not this one. Closing it is either an added assignment branch (`= ["'\`]100[dsl]?vh["'\`]` in the scanned file) plus a documented note that cross-module indirection remains out of reach, or the real answer — the browser measurement, which is what the docblock already calls the real check.
+status: open
+
+### DW-350: The SSR guard hardcodes the four map surfaces, so a fifth ships the same 500 unguarded
+
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-map-panels-and-full-page.md`
+origin: second follow-up review of the DW-15/56/57/59 map change, 2026-08-15
+location: `travelplan/test/tripMapServerRender.test.ts` — the two `it.each` component-name lists
+severity: low
+summary: The suite exists because `TripDayMapFullPage` statically imported its Leaflet child and `/trips/{id}/days/{dayId}/map` answered 500 in dev and in production alike, and its own docblock's summary of why is "Nothing caught it". It now names four components by hand. A fifth map surface — added by a story that has no reason to know this file exists — reaches production with the identical defect and the identical silence.
+evidence: Read at 2026-08-15. The four names are the complete set today, verified against `src/components/features/trips/`, so this is a latent gap rather than a live one. Closing it means deriving the list instead of writing it: enumerate the files under `src/components/features/trips/` whose source imports a `*Leaflet*` module and assert the property over that set, which also makes the suite fail loudly when a surface is *renamed* rather than silently checking three of four. Left out of this pass because it changes what the suite iterates rather than what it asserts, and the assertion half had its own defects to fix first.
+status: open
+
+### DW-351: The coupled preview height/border arithmetic that fixed the clipped route has no test
+
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-map-panels-and-full-page.md`
+origin: second follow-up review of the DW-15/56/57/59 map change, 2026-08-15
+location: `travelplan/src/components/features/trips/TripOverviewMapPanel.tsx` (`MAP_PREVIEW_HEIGHT`, `MAP_PREVIEW_BORDER`, and the `MAP_PREVIEW_HEIGHT - 2 * MAP_PREVIEW_BORDER` height passed to the map) against `test/tripOverviewMapPanel.test.tsx`
+severity: low
+summary: DW-15's frame clipped the bottom of the route the first time it shipped: `globals.css` puts everything in `border-box`, so a bordered 150px wrapper has a 148px content box while the map was still told 150. The fix introduced the two constants and the subtraction, and carries a comment warning that two independent spellings of the border width would let a thicker frame clip the route again. Nothing asserts any of it — the four tests added to that suite cover only the caption. `MAP_PREVIEW_BORDER` could be deleted, or the outer height passed to the map, and the suite stays green.
+evidence: Read from the component and its suite at 2026-08-15. The regression is cosmetic and small — two clipped pixels at the bottom of a 150px preview — which is why it is low rather than medium, but it is also a regression that already happened once and was caught by a human looking at a browser rather than by anything repeatable. Closing it is one assertion on the mocked Leaflet child's `height` prop, which the suite's existing mock already receives; worth taking together with DW-346, since that entry brings the same border to `TripDayMapPanel` and would want the same assertion on the same day.
 status: open

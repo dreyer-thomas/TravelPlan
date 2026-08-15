@@ -479,6 +479,8 @@ const de: Dictionary = {
   "trips.timeline.gapAlertBody": "Für Tag {dayIndex} ({date}) ist noch keine Unterkunft hinterlegt.",
   "trips.overviewMap.title": "Route",
   "trips.overviewMap.expand": "Karte erweitern",
+  "trips.overviewMap.mapCaption": "{count} Stationen · Vollkarte öffnen",
+  "trips.overviewMap.mapCaptionOne": "1 Station · Vollkarte öffnen",
   "trips.overviewMap.back": "← Zurück zur Reiseübersicht",
   "trips.overviewMap.emptyTitle": "Noch keine Orte mit Standort",
   "trips.overviewMap.emptyBody": "Füge Standorte zu Unterkünften oder Planpunkten hinzu, um Marker zu sehen.",

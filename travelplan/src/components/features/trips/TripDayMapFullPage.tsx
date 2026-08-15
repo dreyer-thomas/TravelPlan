@@ -2,13 +2,25 @@
 
 import { Alert, Box, Chip, Dialog, DialogContent, List, ListItem, Skeleton, Typography, useTheme } from "@mui/material";
 import { DialogTitleWithClose } from "@/components/ui/DialogCloseButton";
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import TripDayLeafletMap from "@/components/features/trips/TripDayLeafletMap";
 import { MiniImageStrip, PlanItemRichContent, parsePlanText, toViewerImages } from "@/components/features/trips/TripDayPlanItemContent";
 import FullscreenPhotoViewer, { type FullscreenPhoto } from "@/components/ui/FullscreenPhotoViewer";
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
 import { buildDayMapPanelData, buildTripDayMapItems } from "@/lib/trips/dayMapData";
+
+/**
+ * `ssr: false`, exactly as the other three map surfaces already load their Leaflet child
+ * (`TripDayMapPanel.tsx:18`, `TripOverviewMapPanel.tsx:10`, `TripOverviewMapFullPage.tsx:13`). This
+ * screen was the one outlier, importing it statically since Story 2.28, and `react-leaflet` reads
+ * `window` at module evaluation: server-rendering this client component therefore threw
+ * `ReferenceError: window is not defined` and `/trips/{id}/days/{dayId}/map` answered **500** - in
+ * `next dev` and in a production build alike. Found while measuring DW-59; the route could not be
+ * opened at all. Nothing else here changes: the dynamic boundary resolves to the same component with
+ * the same props on the client.
+ */
+const TripDayLeafletMap = dynamic(() => import("./TripDayLeafletMap"), { ssr: false });
 
 type ApiEnvelope<T> = {
   data: T | null;
@@ -72,7 +84,30 @@ type MapDialogItem =
   | { kind: "previousStay"; id: string; label: string; stay: TripDay["accommodation"] }
   | { kind: "currentStay"; id: string; label: string; stay: TripDay["accommodation"] };
 
-const FULL_PAGE_MAP_HEIGHT = "calc(100vh - 220px)";
+/**
+ * DW-59. Per-file on purpose, not a shared export with `TripOverviewMapFullPage`: the two screens
+ * are free to carry different chrome above the map, and a shared constant would silently be wrong on
+ * one of them the moment they diverge. They agree today only because DW-57 gave this screen a
+ * subline the same height as that one's trip name - see the band table in that file.
+ *
+ * 331px is every band between the viewport top and the map at `md`, on a card with no
+ * missing-locations list and no routing warning: 73 header (`Toolbar sx={{ minHeight: 72 }}` plus
+ * the AppBar's 1px bottom border) + 96 `Container py={6}` + 45 back button + 24 `gap={3}` + 38 card
+ * border and padding + 39 caps label and `Day N` subline + 16 `gap={2}`. The 220px this was copied
+ * at accounted for roughly the app shell and nothing else, and the header band only became removable
+ * once the page shell stopped carrying `minHeight: "100vh"` below it - see the comment in
+ * `app/(routes)/trips/[id]/days/[dayId]/map/page.tsx`.
+ *
+ * This read 66 for the header and totalled 324 until review re-derived the bands from source, which
+ * left the page scrolling by the missing 7px - the exact defect DW-59 was filed about. Re-derive
+ * before changing anything above the map, and prefer erring high: over-subtracting costs a few
+ * unused pixels below the map, under-subtracting costs a scrollbar. Full band table in the sibling
+ * file.
+ *
+ * The `max()` is a floor, not part of the fit, and it takes over well before the subtraction would
+ * reach zero: `100vh - 331px < 240px` from a viewport of about 571px down. See the sibling file.
+ */
+const FULL_PAGE_MAP_HEIGHT = "max(240px, calc(100vh - 331px))";
 
 const compareTripDaysChronologically = (left: TripDay, right: TripDay) => {
   if (left.dayIndex !== right.dayIndex) return left.dayIndex - right.dayIndex;
@@ -406,36 +441,60 @@ export default function TripDayMapFullPage({ tripId, dayId }: TripDayMapFullPage
 
       <Box sx={cardSx}>
         <Box display="flex" flexDirection="column" gap={2}>
-          {/* component= is mandatory: the custom labelCaps variant has no variantMapping entry, so it
-              renders a <span> otherwise. h1 because neither map screen has a page title - the card
-              label is this screen's only heading. */}
-          <Typography variant="labelCaps" component="h1" sx={{ color: tokens.inkSoft }}>
-            {t("trips.dayView.mapTitle")}
-          </Typography>
+          {/* DW-57: the title stack `TripOverviewMapFullPage` already uses. This screen is reachable
+              by direct URL and "Day map" alone named neither the day nor anything else - the caps
+              label was the only text on the page. */}
+          <Box display="flex" flexDirection="column" gap={0.75}>
+            {/* component= is mandatory: the custom labelCaps variant has no variantMapping entry, so it
+                renders a <span> otherwise. h1 because neither map screen has a page title - the card
+                label is this screen's only heading. */}
+            <Typography variant="labelCaps" component="h1" sx={{ color: tokens.inkSoft }}>
+              {t("trips.dayView.mapTitle")}
+            </Typography>
+            {/* The panel-caption rhythm, so it reads as a subline under the caps label rather than
+                competing with it. Gated on `day` rather than rendering an empty slot, which fails
+                two ways without the gate: `day.dayIndex` on a null day throws, and the defensive
+                `day?.dayIndex` spelling is worse - `formatMessage` substitutes `{index}` only when
+                the value is defined and leaves the placeholder verbatim otherwise, so that one puts
+                a literal "Day {index}" on the screen. Both are covered in the suite. */}
+            {day ? (
+              <Typography sx={{ fontSize: "11.5px", fontWeight: 600, color: tokens.inkSoft }}>
+                {formatMessage(t("trips.dayView.title"), { index: day.dayIndex })}
+              </Typography>
+            ) : null}
+          </Box>
 
+          {/* DW-56: an empty `points` array beside a failed load is not an empty day. Without the
+              guard the alert above and a "no locations to map yet" panel below contradict each
+              other. Same nesting as the other three map surfaces: the ledger prescribed
+              `points.length === 0 && !error` on the condition, but that falls through to the *map*
+              arm on a failed load and hands Leaflet an empty bounds it cannot fit, so the no-points
+              branch resolves to nothing instead. */}
           {mapData.points.length === 0 ? (
-            <Box
-              sx={{
-                minHeight: FULL_PAGE_MAP_HEIGHT,
-                display: "flex",
-                flexDirection: "column",
-                justifyContent: "center",
-                alignItems: "center",
-                borderRadius: "6px",
-                border: "1px dashed",
-                borderColor: tokens.border,
-                px: 2,
-                textAlign: "center",
-                gap: 1,
-              }}
-            >
-              <Typography variant="body1" fontWeight={600}>
-                {t("trips.dayView.mapEmptyTitle")}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {t("trips.dayView.mapEmptyBody")}
-              </Typography>
-            </Box>
+            error ? null : (
+              <Box
+                sx={{
+                  minHeight: FULL_PAGE_MAP_HEIGHT,
+                  display: "flex",
+                  flexDirection: "column",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  borderRadius: "6px",
+                  border: "1px dashed",
+                  borderColor: tokens.border,
+                  px: 2,
+                  textAlign: "center",
+                  gap: 1,
+                }}
+              >
+                <Typography variant="body1" fontWeight={600}>
+                  {t("trips.dayView.mapEmptyTitle")}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {t("trips.dayView.mapEmptyBody")}
+                </Typography>
+              </Box>
+            )
           ) : (
             <Box sx={{ borderRadius: "6px", overflow: "hidden" }}>
               <TripDayLeafletMap

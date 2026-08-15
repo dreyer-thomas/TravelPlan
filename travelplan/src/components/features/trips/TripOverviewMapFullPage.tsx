@@ -55,7 +55,38 @@ type TripOverviewMapFullPageProps = {
   tripId: string;
 };
 
-const FULL_PAGE_MAP_HEIGHT = "calc(100vh - 220px)";
+/**
+ * DW-59. Per-file on purpose, not a shared export with `TripDayMapFullPage`: the two screens are
+ * free to carry different chrome above the map, and a shared constant would silently be wrong on one
+ * of them the moment they diverge. They happen to agree today.
+ *
+ * 331px is every band between the viewport top and the map at `md`, on a card with no
+ * missing-locations list and no routing warning. Each one is traceable to its source:
+ *
+ *     73  AppHeader - `Toolbar sx={{ minHeight: 72 }}` plus the AppBar's 1px bottom border,
+ *         `position="static"` so it is in flow, and no `MuiToolbar` override in `theme.ts`
+ *     96  Container py={6}, both ends
+ *     45  back button - `MuiButton.root` minHeight 44, paddingBlock 10 over a 24.5px line box
+ *     24  gap={3} between the back button and the card
+ *     38  card border (2) + padding (36)
+ *     39  the caps label and its trip-name subline, gap={0.75} included
+ *     16  gap={2} between that title block and the map
+ *
+ * The 220px this started at accounted for roughly the app shell and nothing else. Note the header
+ * band only became removable once the page shell stopped carrying `minHeight: "100vh"` below it -
+ * see the comment in `app/(routes)/trips/[id]/map/page.tsx`.
+ *
+ * This table previously read 66 for the header and totalled 324, which left the page scrolling by
+ * the missing 7px - the exact defect DW-59 was filed about. Re-derive every band from source before
+ * changing anything above the map, and prefer erring high: over-subtracting costs a few unused
+ * pixels below the map, under-subtracting costs a scrollbar.
+ *
+ * The `max()` is a floor, not part of the fit, and it takes over well before the subtraction would
+ * reach zero: `100vh - 331px < 240px` from a viewport of about 571px down. Below that the page
+ * scrolls rather than handing Leaflet a container too short to be a map, which is the right trade
+ * and the only case in which it is allowed to.
+ */
+const FULL_PAGE_MAP_HEIGHT = "max(240px, calc(100vh - 331px))";
 
 export default function TripOverviewMapFullPage({ tripId }: TripOverviewMapFullPageProps) {
   const { t } = useI18n();
@@ -177,29 +208,38 @@ export default function TripOverviewMapFullPage({ tripId }: TripOverviewMapFullP
             ) : null}
           </Box>
 
+          {/* DW-56: an empty `points` array beside a failed load is not an empty trip. Without the
+              guard the alert above and a "no mapped places yet" panel below contradict each other,
+              and the reader has to guess which one is telling the truth. Note the shape: the ledger
+              prescribed `points.length === 0 && !error` on the condition, but that falls through to
+              the *map* arm on a failed load and hands Leaflet an empty bounds it cannot fit. The
+              no-points branch has to resolve to nothing instead - the same nesting the two preview
+              panels use for the same rule. */}
           {mapData.points.length === 0 ? (
-            <Box
-              sx={{
-                minHeight: FULL_PAGE_MAP_HEIGHT,
-                display: "flex",
-                flexDirection: "column",
-                justifyContent: "center",
-                alignItems: "center",
-                borderRadius: "6px",
-                border: "1px dashed",
-                borderColor: tokens.border,
-                px: 2,
-                textAlign: "center",
-                gap: 1,
-              }}
-            >
-              <Typography variant="body1" fontWeight={600}>
-                {t("trips.overviewMap.emptyTitle")}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {t("trips.overviewMap.emptyBody")}
-              </Typography>
-            </Box>
+            error ? null : (
+              <Box
+                sx={{
+                  minHeight: FULL_PAGE_MAP_HEIGHT,
+                  display: "flex",
+                  flexDirection: "column",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  borderRadius: "6px",
+                  border: "1px dashed",
+                  borderColor: tokens.border,
+                  px: 2,
+                  textAlign: "center",
+                  gap: 1,
+                }}
+              >
+                <Typography variant="body1" fontWeight={600}>
+                  {t("trips.overviewMap.emptyTitle")}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {t("trips.overviewMap.emptyBody")}
+                </Typography>
+              </Box>
+            )
           ) : (
             <Box sx={{ borderRadius: "6px", overflow: "hidden" }}>
               <TripOverviewLeafletMap

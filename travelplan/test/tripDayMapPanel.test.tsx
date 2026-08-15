@@ -301,4 +301,18 @@ describe("TripDayMapPanel", () => {
     expect(screen.getByText("No locations to map yet")).toBeInTheDocument();
     expect(screen.queryByTestId("day-map-caption")).not.toBeInTheDocument();
   });
+
+  // DW-56: the parent raises an error alert of its own, so a "no locations to map yet" panel
+  // underneath it would be a second, contradicting answer to the same question.
+  it("suppresses the empty state when the load failed", () => {
+    render(
+      <Providers>
+        <TripDayMapPanel points={[]} missingLocations={[]} loading={false} loadError />
+      </Providers>,
+    );
+
+    expect(screen.queryByText("No locations to map yet")).not.toBeInTheDocument();
+    // The card itself stays - only the contradicting placeholder goes.
+    expect(screen.getByText("Day map")).toBeInTheDocument();
+  });
 });

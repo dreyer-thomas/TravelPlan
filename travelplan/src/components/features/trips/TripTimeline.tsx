@@ -1159,6 +1159,11 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                 missingLocations={overviewMapData.missingLocations}
                 polylinePositions={overviewMapData.polylinePositions}
                 expandHref={`/trips/${tripId}/map`}
+                /* DW-56. This screen's `error` is raised by the trip load and nothing else, so it is
+                   the load error the panel's guard is asking about. Defence in depth today - a failed
+                   load also nulls `detail`, which unmounts this whole body - but the rule belongs to
+                   the component, and it is only true of the component if a caller exercises it. */
+                loadError={Boolean(error)}
               />
 
               {/* Third sidebar card, after the map panel. The panel brings its own card shell

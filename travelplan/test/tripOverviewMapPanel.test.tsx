@@ -5,6 +5,8 @@ import { describe, expect, it, vi } from "vitest";
 import TripOverviewMapPanel from "@/components/features/trips/TripOverviewMapPanel";
 import type { TripOverviewMapPoint } from "@/components/features/trips/TripOverviewMapData";
 import type { ReactNode } from "react";
+import en from "@/i18n/en";
+import { formatMessage } from "@/i18n";
 import { renderWithProviders } from "./helpers/renderWithProviders";
 
 /**
@@ -81,5 +83,83 @@ describe("TripOverviewMapPanel", () => {
     );
 
     expect(screen.getByRole("link", { name: "Expand map" })).toHaveAttribute("href", "/trips/trip-1/map");
+  });
+
+  // DW-15. The caption is the panel's accessibility floor, not decoration: the marker count is the
+  // one fact the map carries that nothing else on the panel states in text.
+  it("pairs the preview with a text caption linking to the full map", () => {
+    renderWithProviders(
+      <TripOverviewMapPanel
+        points={[
+          overviewPoint({ id: "p1", label: "Hotel", kind: "accommodation" }),
+          overviewPoint({ id: "p2", label: "Museum" }),
+          overviewPoint({ id: "p3", label: "Park" }),
+          overviewPoint({ id: "p4", label: "Bridge" }),
+          overviewPoint({ id: "p5", label: "Market" }),
+        ]}
+        missingLocations={[]}
+        expandHref="/trips/trip-1/map"
+      />,
+    );
+
+    const caption = screen.getByTestId("trip-overview-map-caption");
+    // Composed from the dictionary rather than hardcoded, so a wording change moves one string and a
+    // *placeholder* change - the failure mode this guards - still fails here.
+    expect(caption).toHaveTextContent(formatMessage(en["trips.overviewMap.mapCaption"], { count: 5 }));
+    expect(caption.textContent).not.toContain("{count}");
+    expect(caption).toHaveAttribute("href", "/trips/trip-1/map");
+  });
+
+  it("uses the singular caption for a single stop", () => {
+    renderWithProviders(
+      <TripOverviewMapPanel
+        points={[overviewPoint({ id: "p1", label: "Hotel", kind: "accommodation" })]}
+        missingLocations={[]}
+        expandHref="/trips/trip-1/map"
+      />,
+    );
+
+    // formatMessage is plain {key} substitution with no plural handling, so the singular needs its
+    // own key rather than rendering "1 stops".
+    const caption = screen.getByTestId("trip-overview-map-caption");
+    expect(caption).toHaveTextContent(en["trips.overviewMap.mapCaptionOne"]);
+    expect(caption.textContent).not.toContain("{count}");
+  });
+
+  it("omits the caption entirely when there is nothing to map", () => {
+    renderWithProviders(<TripOverviewMapPanel points={[]} missingLocations={[]} expandHref="/trips/trip-1/map" />);
+
+    // "0 stops · open the full map", linking to a map with nothing on it, is worse than no caption -
+    // the empty-state placeholder already says what is going on.
+    expect(screen.getByText(en["trips.overviewMap.emptyTitle"])).toBeInTheDocument();
+    expect(screen.queryByTestId("trip-overview-map-caption")).not.toBeInTheDocument();
+  });
+
+  it("omits the caption when there is no full map to link to", () => {
+    renderWithProviders(
+      <TripOverviewMapPanel
+        points={[
+          overviewPoint({ id: "p1", label: "Hotel", kind: "accommodation" }),
+          overviewPoint({ id: "p2", label: "Museum" }),
+          overviewPoint({ id: "p3", label: "Park" }),
+        ]}
+        missingLocations={[]}
+      />,
+    );
+
+    // The caption is a link and nothing else; with no `expandHref` there is no destination, and a
+    // count rendered as dead text would be a different component.
+    expect(screen.queryByTestId("trip-overview-map-caption")).not.toBeInTheDocument();
+  });
+
+  // DW-56: the parent raises an error alert of its own, so a "no mapped places yet" panel underneath
+  // it would be a second, contradicting answer to the same question.
+  it("suppresses the empty state when the load failed", () => {
+    renderWithProviders(<TripOverviewMapPanel points={[]} missingLocations={[]} loadError />);
+
+    expect(screen.queryByText(en["trips.overviewMap.emptyTitle"])).not.toBeInTheDocument();
+    expect(screen.queryByText(en["trips.overviewMap.emptyBody"])).not.toBeInTheDocument();
+    // The card itself stays - only the contradicting placeholder goes.
+    expect(screen.getByText(en["trips.overviewMap.title"])).toBeInTheDocument();
   });
 });

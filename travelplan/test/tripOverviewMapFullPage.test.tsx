@@ -4,8 +4,11 @@ import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import TripOverviewMapFullPage from "@/components/features/trips/TripOverviewMapFullPage";
+import en from "@/i18n/en";
 import { renderWithProviders } from "./helpers/renderWithProviders";
 import { expectNoHardcodedColour } from "./helpers/hardcodedColour";
+import { expectNoFullViewportFloor } from "./helpers/fullViewportFloor";
+import { mockFetchResponse, stubFetch } from "./helpers/mockFetch";
 
 vi.mock("next/dynamic", () => ({
   default: () =>
@@ -33,6 +36,14 @@ vi.mock("next/dynamic", () => ({
 describe("trip map page shell", () => {
   it("carries no hardcoded colour", () => {
     expectNoHardcodedColour("src/app/(routes)/trips/[id]/map/page.tsx");
+  });
+
+  // DW-59, and a source scan for the same reason the colour guard is one: vitest never renders this
+  // async RSC shell. `minHeight: "100vh"` on the Box under the 73px AppHeader is what made the
+  // document 100vh + header and the screen scroll by exactly that much - unfixable from
+  // `FULL_PAGE_MAP_HEIGHT`, and an obvious-looking thing for a later change to put back.
+  it("puts no full-viewport floor under the app header", () => {
+    expectNoFullViewportFloor("src/app/(routes)/trips/[id]/map/page.tsx");
   });
 });
 
@@ -194,6 +205,25 @@ describe("TripOverviewMapFullPage", () => {
       "href",
       "/trips/trip-1/days/day-1?open=plan&itemId=item-1",
     );
+
+    vi.unstubAllGlobals();
+  });
+
+  // DW-56. A failed load leaves `mapData.points` empty for the same reason a trip with nothing mapped
+  // does, and the screen used to answer both with the placeholder - so the alert said "we could not
+  // load this" while the panel under it said "there is nothing here", and only one of them was true.
+  it("shows only the error alert when the trip fails to load", async () => {
+    stubFetch(
+      vi.fn(async () =>
+        mockFetchResponse({ data: null, error: { code: "server_error", message: "boom" } }, { status: 500 }),
+      ),
+    );
+
+    renderWithProviders(<TripOverviewMapFullPage tripId="trip-1" />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(en["trips.dayView.loadError"]);
+    expect(screen.queryByText(en["trips.overviewMap.emptyTitle"])).not.toBeInTheDocument();
+    expect(screen.queryByText(en["trips.overviewMap.emptyBody"])).not.toBeInTheDocument();
 
     vi.unstubAllGlobals();
   });
