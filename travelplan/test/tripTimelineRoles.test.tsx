@@ -41,6 +41,10 @@ const MD_MEDIA_CONDITION = "(min-width:900px)";
 // MUI emits an `xs` value in a responsive object as `(min-width:0px)`, not as an unconditional
 // declaration - so a rule set that covers `{ xs, md }` shows up as these two conditions and no base.
 const XS_MEDIA_CONDITION = "(min-width:0px)";
+// MUI's default `sm` breakpoint - `TIMELINE_CARD_LAYOUT_BREAKPOINT` in `TripTimeline.tsx`, the key
+// the day card's own grid splits on. Distinct from the overview grid's `md` above: two grids, two
+// decisions, and the point of the case below is that the card's one has not quietly become the other.
+const SM_MEDIA_CONDITION = "(min-width:600px)";
 
 // jsdom performs no layout, so Story 6.10's AC2 - "its rendered width matches a day row's" - cannot
 // be measured. Two properties make it true and both are asserted below: the day column declares the
@@ -746,6 +750,71 @@ describe("TripTimeline role gating", () => {
     // this fail if the split moves to `lg`, or if a third breakpoint is bolted on beside it.
     expect(columns.base).toBe(false);
     expect(columns.media).toEqual([XS_MEDIA_CONDITION, MD_MEDIA_CONDITION]);
+  });
+
+  it("declares the day card's own column split under the same `sm` condition `data-layout` is keyed to", async () => {
+    // The executable half of the 2026-08-08 DW-14 decision: the case above, one grid down.
+    // `TripTimeline.tsx` stamps `data-layout` (:935) and keys the day card's grid (:951/:954)
+    // from one `TIMELINE_CARD_LAYOUT_BREAKPOINT`, but the only other reader of that pairing -
+    // `tripTimelinePlan.test.tsx` ("keeps timeline cards readable when viewport changes between
+    // mobile and desktop widths", :1120/:1131) - reads the attribute alone, so a computed key put
+    // back as a literal `md:` moves the CSS and leaves it green.
+    //
+    // Condition *and* value, through `emotionDeclarations` rather than the conditions-only
+    // `emotionPropertyConditions`: despite that helper's docblock, jsdom does answer
+    // `getPropertyValue` for both grid shorthands here, so the weaker reading is not the only one
+    // available - and the key is only half the coupling. `72px` in the first column and `72` on the
+    // photo are the same number written twice, and moving the breakpoint together while moving one
+    // of the values would still leave the photo under-filling its track.
+    //
+    // All four of the card's `sm`-keyed declarations, not just the columns: they are separate
+    // declarations, so pinning one leaves the others free to move on their own - a `md:` on the
+    // areas alone puts three columns under a two-column area template between 600 and 899px, and a
+    // `md:` on the photo alone leaves a 56px image in a 72px track over the same band, both with
+    // the whole suite otherwise green. Asserted as ordered entry pairs, because two `min-width`
+    // rules at equal specificity are resolved by source order: `sm` emitted before `xs` would hand
+    // every viewport the `xs` template. The width is set only because rendering needs one; Emotion
+    // emits every condition regardless, so this claim is viewport-independent.
+    setViewportWidth(DESKTOP_WIDTH);
+    const fetchMock = stubDetailFetch(
+      buildDetailResponse({ name: "Card Breakpoint", accessRole: "owner" }, { missingAccommodation: true, accommodation: null }),
+    );
+
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/trips/trip-1", expect.anything()));
+    // On the card itself, not the fetch: `waitFor` above resolves when the request is *issued*, so
+    // querying straight after it can outrun the commit and hand `emotionDeclarations` an
+    // `undefined` element, which fails as an opaque `classList` error rather than a missing card.
+    const card = (await screen.findAllByTestId("timeline-day-card"))[0];
+    const photo = screen.getAllByTestId("day-row-photo")[0];
+
+    const columns = emotionDeclarations(card, "grid-template-columns");
+    const areas = emotionDeclarations(card, "grid-template-areas");
+    const photoWidth = emotionDeclarations(photo, "width");
+    const photoHeight = emotionDeclarations(photo, "height");
+    // Both photo axes take the same pair, and it is the grid's own first column on both sides of
+    // the bound - named here so a reader sees the two numbers meet rather than having to compare
+    // the four assertions below by eye.
+    const PHOTO_SIZE_DECLARATIONS = [
+      [XS_MEDIA_CONDITION, ["56px"]],
+      [SM_MEDIA_CONDITION, ["72px"]],
+    ];
+
+    expect(columns.base).toEqual([]);
+    expect([...columns.media]).toEqual([
+      [XS_MEDIA_CONDITION, ["56px 1fr"]],
+      [SM_MEDIA_CONDITION, ["72px 1fr 190px"]],
+    ]);
+    expect(areas.base).toEqual([]);
+    expect([...areas.media]).toEqual([
+      [XS_MEDIA_CONDITION, ['"photo title" "stay stay" "cov cov"']],
+      [SM_MEDIA_CONDITION, ['"photo title stay" "cov cov cov"']],
+    ]);
+    expect(photoWidth.base).toEqual([]);
+    expect([...photoWidth.media]).toEqual(PHOTO_SIZE_DECLARATIONS);
+    expect(photoHeight.base).toEqual([]);
+    expect([...photoHeight.media]).toEqual(PHOTO_SIZE_DECLARATIONS);
   });
 
   it.each(SINGLE_COLUMN_WIDTHS)("puts the controls card last on the page at %ipx, after the sidebar's cards", async (width) => {

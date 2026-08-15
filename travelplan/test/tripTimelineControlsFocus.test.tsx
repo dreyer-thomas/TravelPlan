@@ -49,17 +49,51 @@ let mockIsTwoColumnLayout = true;
 
 vi.mock("@mui/material", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@mui/material")>();
+  // The `md` bound as a number, read off MUI's own defaults rather than written out as `900`:
+  // `theme.ts` adds no `breakpoints` override, so this is the value the component's `up("md")`
+  // resolves to. Taken from `breakpoints.values` rather than by matching the emitted query string,
+  // which would also have depended on MUI's serialization - and a string that stopped matching
+  // would not fail, it would quietly route every query to the width comparison below and leave
+  // `mockIsTwoColumnLayout` inert while the DW-107 cases still claimed to cross `md`. Should
+  // `theme.ts` ever override `md`, `mockedWidth` straddles the wrong bound and those cases fail
+  // outright, which is the failure mode to prefer.
+  const { md } = actual.createTheme().breakpoints.values;
+  // One width for the whole answer set, exactly as a real viewport would have: the narrow case sits
+  // one pixel below the bound rather than at some arbitrary phone width, so it is still above `sm`
+  // and `isNarrowLayout` stays `false` either way (see below).
+  const mockedWidth = () => (mockIsTwoColumnLayout ? md : md - 1);
   return {
     ...actual,
-    // TripTimeline calls `useMediaQuery` twice: `isNarrowLayout` (`theme.breakpoints.down("sm")`,
-    // a `max-width` query) and `isTwoColumnLayout` (`theme.breakpoints.up("md")`, a `min-width`
-    // query). Only `isTwoColumnLayout` matters to this suite - `isNarrowLayout` only drives a
-    // cosmetic `data-layout` attribute (DW-14, out of scope here) - but answering both from the same
-    // boolean would let them report "narrower than `sm`" and "wider than `md`" at once, a state no
-    // real viewport can be in. Routing on the query string keeps `isNarrowLayout` pinned to `false`
-    // instead, which is the one value consistent with every `mockIsTwoColumnLayout` this file sets.
-    useMediaQuery: (query: unknown) =>
-      typeof query === "string" && query.includes("min-width") ? mockIsTwoColumnLayout : false,
+    // TripTimeline calls `useMediaQuery` twice, and since DW-14 both are `min-width` queries:
+    // `isTwoColumnLayout` (`up("md")`, `min-width:900px`) and `isNarrowLayout` (`up("sm")` negated
+    // at the call site, `min-width:600px`). Only `isTwoColumnLayout` matters to this suite -
+    // `isNarrowLayout` drives the `data-layout` attribute, which `tripTimelinePlan.test.tsx` pins
+    // and `tripTimelineRoles.test.tsx` backs with the matching grid conditions, both rather than
+    // here - but answering both from the same boolean would collapse `sm` and `md` into one width
+    // and let them report "narrower than `sm`" and "wider than `md`" at once, a state no real
+    // viewport can be in. Answering from one width instead makes that state unreachable by
+    // construction: at `md - 1` every "wider than X" below `md` still holds, so `isNarrowLayout`
+    // stays pinned to `false` - the one value consistent with every `mockIsTwoColumnLayout` this
+    // file sets - and it keeps holding if a breakpoint here changes direction or a third one is
+    // added, which a bound-by-bound match would not. Silent breakage on such an edit is exactly how
+    // DW-14 got here.
+    //
+    // A query with no width bound is not about layout at all - `(prefers-reduced-motion)`,
+    // `(hover: none)`, `print` - and answering those from a width would put this file's cases into a
+    // different rendering mode than the rest of the suite, so they land on `false`. Same rule, and
+    // now the same comparison, as `setViewportWidth` in `tripTimelineRoles.test.tsx` (:81-96); the
+    // two harnesses disagreeing about it is its own drift.
+    useMediaQuery: (query: unknown) => {
+      if (typeof query !== "string") return false;
+      const minWidthMatch = /min-width:\s*(\d+(\.\d+)?)px/.exec(query);
+      const maxWidthMatch = /max-width:\s*(\d+(\.\d+)?)px/.exec(query);
+      if (!minWidthMatch && !maxWidthMatch) return false;
+      const width = mockedWidth();
+      return (
+        width >= (minWidthMatch ? Number(minWidthMatch[1]) : 0) &&
+        width <= (maxWidthMatch ? Number(maxWidthMatch[1]) : Infinity)
+      );
+    },
   };
 });
 

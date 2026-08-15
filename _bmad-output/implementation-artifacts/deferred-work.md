@@ -117,7 +117,8 @@ resolution: already resolved: Both halves done: the four glyphs are now shared e
 origin: migrated from legacy ledger ("Deferred from: code review of 7-2-trip-overview-redesign (2026-07-31)"), 2026-08-01
 location: `TripTimeline.tsx:623`
 reason: Layout is driven by `sx` responsive objects, but `isNarrowLayout` (`useMediaQuery(theme.breakpoints.down("sm"))`) also stamps a `data-layout="stacked"/"inline"` attribute purely so tests can assert something jsdom cannot compute. Change one breakpoint and the attribute reports "inline" while the CSS renders stacked — and the test still passes. Pre-existing pattern, not introduced by 7.2; worth replacing with a real layout assertion (Playwright) when the responsive story is tackled.
-status: open
+status: done 2026-08-15
+resolution: resolved by sweep bundle dw-timeline-layout-source-of-truth
 decision: 2026-08-08 Keep the attribute, document it as a jsdom shim — Keep `data-layout` but stop it from drifting silently: derive it from the same breakpoint token the `sx` rules use and add a comment at both the attribute and the `sx` block saying they must be edited together, naming the test that depends on it. Add a comment in the test too, so a future reader knows the assertion is a jsdom approximation rather than a layout guarantee.
 
 ### DW-15: Route card has no text caption
@@ -3184,4 +3185,72 @@ location: `travelplan/src/lib/repositories/tripRepo.ts` — byte offsets 61322 a
 severity: medium
 summary: The file holds two `0x00` bytes, which makes `file` report it as `data` and makes `grep` treat it as binary. A plain `grep -n "isForeignTripUploadUrl" src/lib/repositories/tripRepo.ts` therefore returns **nothing and exits 0** for a symbol defined in that file. It does not report "binary file matches" when piped, so the failure is silent: the search looks like it ran and found no hits. At 137 KB this is the largest and most-searched file in the codebase, and every agent or developer who greps it gets a false negative.
 evidence: Found during this review, which is the strongest evidence available for it: two separate `grep` calls against `tripRepo.ts` returned empty, and the same symbols were then read out of the file with `sed` and confirmed present at lines 2260 and 2296. `python3` confirms exactly two NUL bytes at the offsets above and that the file is otherwise valid UTF-8, so nothing is corrupted — the compiler, TypeScript and every test are indifferent. It is pre-existing and not this story's doing: `git show eb3db32:travelplan/src/lib/repositories/tripRepo.ts | file -` also reports `data`, so the bytes predate the baseline. Worth tracing how far back with `git log -p` before deleting them, because whatever wrote them may still be in use. The fix is a one-line strip (`tr -d '\000'`) plus, ideally, a guard so it cannot recur silently — the two offsets fall inside comment prose, so the strip is behaviour-neutral and should be verified by a full `npm test` rather than reasoned about.
+status: open
+
+### DW-337: The day-card grid pin asserts which breakpoint a declaration sits under, never what it declares
+
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-14-timeline-layout-source-of-truth.md`
+origin: follow-up review of the DW-14 timeline layout change, 2026-08-15
+location: `travelplan/test/tripTimelineRoles.test.tsx` — `"declares the day card's own column split under the same \`sm\` condition \`data-layout\` is keyed to"` (:755), and the sibling overview-grid case at :724
+severity: low
+summary: `emotionPropertyConditions` answers *at which breakpoint* a property is declared, so the pin fails when a key moves to another breakpoint and passes for any values under those keys. Swapping the two column values — `{ xs: "72px 1fr 190px", sm: "56px 1fr" }`, i.e. three columns on phones under a two-column area template and two on desktop under a three-column one — leaves the case green. That is the same auto-placement overflow the comment directly above the templates warns about, so the guard passes through the defect it sits next to.
+evidence: Confirmed by mutation during this review: the swapped-values variant passes `tripTimelineRoles.test.tsx` and `tripTimelinePlan.test.tsx` in full. This is a scope boundary rather than an oversight — the spec deliberately scoped the pin to conditions, reasoning that jsdom answers `""` from `getPropertyValue` for both grid shorthands, which is true and is why `emotionPropertyConditions` exists at all (`test/helpers/emotionStyles.ts:142`). The opening left unexplored is that the emitted rule's `cssText` still carries the declaration text even where `getPropertyValue` does not, so a value assertion may be reachable without leaving jsdom; that needs verifying against the actual CSSOM before being promised. Worth weighing against the alternative already recorded as DW-14's own follow-up — a browser-level Playwright check, which would measure real layout instead of re-reading declarations — since one may make the other unnecessary. Applies equally to the overview-grid case at :724, which has the same shape.
+status: open
+
+### DW-338: `data-layout` and `isNarrowLayout` now exist solely to be read by one jsdom test
+
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-14-timeline-layout-source-of-truth.md`
+origin: follow-up review of the DW-14 timeline layout change, 2026-08-15
+location: `travelplan/src/components/features/trips/TripTimeline.tsx:195` (`isNarrowLayout`) and `:935` (`data-layout`)
+severity: low
+summary: No CSS rule, no component and no end-to-end spec anywhere in the repository selects on `[data-layout]` — its only readers are the two assertions in `tripTimelinePlan.test.tsx` and the boundary case beside them. Now that `tripTimelineRoles.test.tsx` pins the card's real emitted breakpoint conditions for all three of its `sm`-keyed decisions, the attribute is a second, weaker statement of something already covered, and it is not free: `useMediaQuery` keeps a live `matchMedia` subscription and re-renders the whole timeline on every `sm` crossing, for a value that drives no styling. The change's own comment concedes it falls outside DW-106's sanction (which covers only a breakpoint deciding which subtree mounts).
+evidence: Verified during this review by searching the repository for `[data-layout]` selectors and for any non-test reader: there are none. Not a defect in the change, which complied with its spec — the 2026-08-08 DW-14 decision explicitly retained the attribute as a declared jsdom shim, and the spec's Never list forbids removing it or rewriting the two assertions, so removal was out of scope by construction. What has changed is the premise: that decision was taken when nothing executable pinned the templates, and one now does. Closing this means deleting `isNarrowLayout`, the attribute and the three cases that read it, then confirming the roles pin still fails under each of the five mutations recorded in this spec's Verification section — if it does, nothing was lost. Sequence it after DW-337 and after DW-14's deferred Playwright follow-up, since both bear on whether the remaining coverage is strong enough to stand alone.
+status: open
+
+### DW-339: `emotionPropertyConditions`'s docblock states a jsdom limitation that does not exist
+
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-14-timeline-layout-source-of-truth.md`
+origin: follow-up review of the DW-14 timeline layout change, 2026-08-15
+location: `travelplan/test/helpers/emotionStyles.ts:129-141` — the docblock above `emotionPropertyConditions`
+severity: low
+summary: The docblock justifies the whole helper with "jsdom's CSSOM parses some shorthands into the rule's property list but implements no getter for them - `grid-template-columns` is one: it shows up in `Array.from(rule.style)` while `getPropertyValue` returns `""`, so `emotionDeclarations` reports nothing for it." In this repo's jsdom that is false: `getPropertyValue` returns the real declared value for both `grid-template-columns` and `grid-template-areas`. The helper still has a legitimate narrower use — asking *whether* a property is declared without committing to its text — but its stated reason for existing is wrong, and being wrong it has already propagated: the claim was copied into this spec's Code Map, into the day-card pin's comment (corrected in this pass), and into DW-337's evidence, which records the value assertion as an unverified possibility when it is in fact available today.
+evidence: Measured directly during this review with a throwaway jsdom case rendering the day card's exact `sx` through the repo's own helpers. `emotionDeclarations(el, "grid-template-columns").media` returned `{"(min-width:0px)": ["56px 1fr"], "(min-width:600px)": ["72px 1fr 190px"]}` and `grid-template-areas` likewise returned both full area strings — not `""`. The day-card pin has since been rewritten onto `emotionDeclarations` and now catches value drift that was previously green (two mutations verified). What remains open is the docblock itself and the one caller still resting on it: the Story 6.14 overview-grid case (`tripTimelineRoles.test.tsx:724`), which asserts conditions only and would pass with the two column values swapped. Closing this means correcting the docblock to describe what the helper is *for* rather than what jsdom supposedly cannot do, and lifting that case onto `emotionDeclarations` the same way. Kept separate from this change because `emotionStyles.ts` is shared by several suites and the spec scoped this bundle to the day card.
+status: open
+
+### DW-340: The overview grid still hardcodes `md` twice — the DW-14 duplication, in the pair DW-106 called consequential
+
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-14-timeline-layout-source-of-truth.md`
+origin: follow-up review of the DW-14 timeline layout change, 2026-08-15
+location: `travelplan/src/components/features/trips/TripTimeline.tsx:209` (`isTwoColumnLayout` = `useMediaQuery(theme.breakpoints.up("md"))`) and `:795` (`gridTemplateColumns: { xs: "1fr", md: "1.7fr 1fr" }`, with `gap: { xs: 2, md: 0 }` on the next line)
+severity: low
+summary: DW-14 was filed against one breakpoint written twice for one decision, and this change resolved it for the day card by putting both sites behind `TIMELINE_CARD_LAYOUT_BREAKPOINT`. The overview grid one level up has the identical shape and did not get the treatment: `up("md")` and the literal `md:` keys are two independently written references to one layout switch, so moving the grid to another breakpoint leaves `isTwoColumnLayout` answering for the old one. It matters more here than it did on the card, because by DW-106's own finding this is the breakpoint that decides *which subtree the trip-controls card mounts in* — a mismatch reorders the page rather than restyling a row. The comment at `:198` also restates the `sx` line as prose, giving the same value a third copy that can rot on its own.
+evidence: Read directly from `TripTimeline.tsx` at 2026-08-15; the two sites carry no shared token. Deliberately out of scope rather than missed — the spec's Never list forbids touching `isTwoColumnLayout` or its DW-106/DW-107 comment block, and the day card was the reported instance. The mechanism to reuse is now in the same file and proven, so closing this is mostly mechanical: a second module-level `Exclude<Breakpoint, "xs">` constant read by the `useMediaQuery` call and by both responsive objects. One thing to settle first that the day card did not face — `tripTimelineRoles.test.tsx:724` and the `SINGLE_COLUMN_WIDTHS` cases pin the `md` condition by hand from `MD_MEDIA_CONDITION`, and `tripTimelineControlsFocus.test.tsx` derives its mocked width from `breakpoints.values.md`, so three harnesses would need to move with the constant.
+status: open
+
+### DW-341: `tripTimelinePlan.test.tsx`'s `setMatchMedia` answers `true` to every query that carries no width bound
+
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-14-timeline-layout-source-of-truth.md`
+origin: follow-up review of the DW-14 timeline layout change, 2026-08-15
+location: `travelplan/test/tripTimelinePlan.test.tsx:43-66` — the `setMatchMedia` helper
+severity: low
+summary: The helper parses `min-width` / `max-width` out of the query and defaults the bounds it does not find to `0` and `Infinity`. A query with neither — `(prefers-reduced-motion: reduce)`, `(hover: none)`, `print`, `(prefers-color-scheme: dark)` — therefore falls through as `0 <= width <= Infinity` and matches. The two sibling harnesses answer `false` for exactly that case and say so in a comment: `setViewportWidth` in `tripTimelineRoles.test.tsx:85-90`, and the `useMediaQuery` mock in `tripTimelineControlsFocus.test.tsx` (rewritten this pass to the same rule). So the three cases in this file that install a viewport render in a different mode from the rest of the suite, and any future component or MUI internal that asks a non-width question gets the opposite answer here.
+evidence: Read from the helper at 2026-08-15; the `!maxWidthMatch && !minWidthMatch` early return its two siblings both carry is absent. Inert today — nothing under `TripTimeline` asks a non-width media question, so no assertion currently depends on it either way — which is why it is a latent trap rather than a live bug: the day it stops being inert, it fails as a rendering-mode difference between two neighbouring files, not as anything that names `matchMedia`. Explicitly not fixed here: the spec's Never list forbids modifying the `matchMedia` stubs in this file, and the three-line early return is the whole fix, so it wants doing under a story that can also re-run the file's 16 cases against it.
+status: open
+
+### DW-342: A DW-107 case in `tripTimelineControlsFocus.test.tsx` passes whether or not the card moves
+
+source_spec: `_bmad-output/implementation-artifacts/spec-dw-14-timeline-layout-source-of-truth.md`
+origin: follow-up review of the DW-14 timeline layout change, 2026-08-15
+location: `travelplan/test/tripTimelineControlsFocus.test.tsx` — the `toBeNull()` assertion on the main column's controls card (~:242)
+severity: low
+summary: The case establishes the single-column layout and then asserts the controls card is *absent* from the main column. A negative assertion of that shape also holds when the layout never changed, when the mock went inert, or when the card failed to render at all — so it cannot distinguish "the card moved to the sidebar" from "nothing happened". It is the one case in the file with no positive counterpart pinning where the card actually ended up.
+evidence: Surfaced by the edge-case pass and consistent with the file's structure: the sibling cases assert presence in the slot they expect, this one only asserts absence from the slot it does not. The mock rewrite in this pass makes an inert-mock failure less likely — a wrong `md` value now fails the positive cases outright instead of silently answering `true` — but it does not make this assertion falsifiable, which is a property of the assertion. Closing it is one added line: query the sidebar container and assert the card is there, so the pair states a move rather than an absence. Left out of this change because the case belongs to DW-107 and this bundle's only business in the file was the `useMediaQuery` mock.
+status: open
+
+### DW-343: Follow-up review still recommended for dw-timeline-layout-source-of-truth after the damping cap was spent
+origin: review-budget-followup
+location: n/a
+source_spec: `spec-dw-14-timeline-layout-source-of-truth.md`
+severity: low
+reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260815-121825-9e9e; this entry preserves the lingering recommendation for a deliberate later review.
 status: open

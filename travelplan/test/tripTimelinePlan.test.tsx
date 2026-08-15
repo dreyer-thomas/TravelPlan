@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import TripTimeline from "@/components/features/trips/TripTimeline";
 import theme from "@/theme";
 import { Providers, renderWithProviders } from "./helpers/renderWithProviders";
@@ -42,6 +42,9 @@ describe("TripTimeline plan action", () => {
   const setMatchMedia = (width: number) => {
     Object.defineProperty(window, "matchMedia", {
       writable: true,
+      // `configurable` so the property can be taken back off again - without it the `afterEach`
+      // below cannot delete it, and neither can vitest's own environment teardown.
+      configurable: true,
       value: (query: string) => {
         const maxWidthMatch = /max-width:\s*(\d+(\.\d+)?)px/.exec(query);
         const minWidthMatch = /min-width:\s*(\d+(\.\d+)?)px/.exec(query);
@@ -61,6 +64,21 @@ describe("TripTimeline plan action", () => {
       },
     });
   };
+
+  // `setMatchMedia` installs through `Object.defineProperty`, not `vi.stubGlobal`, so the
+  // `vi.unstubAllGlobals()` the two viewport cases end with does not take it back off: whatever
+  // width ran last stays installed for every case after it, and `window.innerWidth` with it. jsdom
+  // ships no `matchMedia` of its own, so deleting it is what "restore" means here. In `afterEach`
+  // rather than at the end of those cases because a failed assertion must not leak a viewport into
+  // the next test on its way out - and `unstubAllGlobals` runs here for the same reason, since
+  // every case in this file installs its `fetch` stub the same way and unstubs it on the last line,
+  // which a failure skips. Repeating it here is idempotent, so those lines can stay.
+  const originalInnerWidth = window.innerWidth;
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    Reflect.deleteProperty(window, "matchMedia");
+    window.innerWidth = originalInnerWidth;
+  });
 
   it("renders a compact gantt bar for each day card", async () => {
     const fetchMock = vi.fn(async () => ({
@@ -1092,6 +1110,13 @@ describe("TripTimeline plan action", () => {
     expect(screen.getByText("Day 2: City walk")).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: /^Open day view: / })).toHaveLength(2);
     expect(screen.getAllByTestId("trip-day-gantt-bar")).toHaveLength(2);
+    // This and its `inline` twin below read the stamped attribute, not the grid templates the card
+    // actually lays out with - a jsdom approximation kept as a declared shim by the 2026-08-08 DW-14
+    // decision. The templates themselves are pinned in `tripTimelineRoles.test.tsx` ("declares the
+    // day card's own column split under the same `sm` condition `data-layout` is keyed to", :755),
+    // and both sides resolve from `TIMELINE_CARD_LAYOUT_BREAKPOINT` in `TripTimeline.tsx`. Note also
+    // that `setMatchMedia`'s listeners are bare `vi.fn()`s that never fire, so nothing here observes
+    // a live breakpoint crossing: the `rerender` below is what re-reads the stub.
     expect(screen.getAllByTestId("timeline-day-card")[0]).toHaveAttribute("data-layout", "stacked");
 
     setViewport(1280);
@@ -1104,6 +1129,124 @@ describe("TripTimeline plan action", () => {
     expect(screen.getAllByText("Missing plan")).toHaveLength(1);
     expect(screen.getAllByTestId("trip-day-gantt-bar")).toHaveLength(2);
     expect(screen.getAllByTestId("timeline-day-card")[0]).toHaveAttribute("data-layout", "inline");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("stamps `stacked` right up to the `sm` bound and `inline` exactly on it", async () => {
+    // Guards the negated-`up()` form itself, which the two assertions above cannot see: they probe
+    // 375 and 1280, so `useMediaQuery(down("sm"))` would satisfy them just as well. `down("sm")` is
+    // `max-width:599.95px` while the `sm` sx key applies from `min-width:600px`, leaving `[599.95,
+    // 600)` claimed by neither - a band real viewports reach through browser zoom and fractional
+    // `devicePixelRatio`, where the attribute said `inline` while the `xs` template rendered.
+    // 599.98 is inside that old band, so this case fails if the `down()` form ever comes back.
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            accessRole: "owner",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-01T00:00:00.000Z",
+            dayCount: 1,
+            plannedCostTotal: 0,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
+          },
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              imageUrl: null,
+              note: "Arrival",
+              missingAccommodation: true,
+              missingPlan: false,
+              accommodation: null,
+              dayPlanItems: [],
+            },
+          ],
+        },
+        error: null,
+      }),
+    })) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+    const setViewport = (width: number) => {
+      setMatchMedia(width);
+      window.innerWidth = width;
+      window.dispatchEvent(new Event("resize"));
+    };
+
+    setViewport(599.98);
+    const { rerender } = renderWithProviders(<TripTimeline tripId="trip-1" />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    // `findAllByTestId`, not `getAllByTestId`: the `waitFor` above resolves when the request is
+    // *issued*, so a synchronous query can outrun the commit and fail on a missing element rather
+    // than on the attribute under test.
+    expect((await screen.findAllByTestId("timeline-day-card"))[0]).toHaveAttribute("data-layout", "stacked");
+
+    setViewport(600);
+    rerender(<Providers><TripTimeline tripId="trip-1" /></Providers>);
+
+    expect(screen.getAllByTestId("timeline-day-card")[0]).toHaveAttribute("data-layout", "inline");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("stamps `inline` when no `matchMedia` exists to ask", async () => {
+    // Guards the `defaultMatches: true` at `TripTimeline.tsx`'s `isNarrowLayout`. Negating `up()`
+    // also negates MUI's default answer, so without that option a viewportless render - SSR, and
+    // the four suites here that stub no `matchMedia` at all - would stamp `stacked` where the old
+    // `down("sm")` form stamped `inline`. Nothing else in the suite notices: every other case that
+    // reads the attribute installs a stub first, so this is the only place the default is visible.
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            accessRole: "owner",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-01T00:00:00.000Z",
+            dayCount: 1,
+            plannedCostTotal: 0,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
+          },
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              imageUrl: null,
+              note: "Arrival",
+              missingAccommodation: true,
+              missingPlan: false,
+              accommodation: null,
+              dayPlanItems: [],
+            },
+          ],
+        },
+        error: null,
+      }),
+    })) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+    // Explicit, not inherited from the `afterEach`: this case's whole subject is the absence, so it
+    // must not depend on which case ran before it.
+    Reflect.deleteProperty(window, "matchMedia");
+
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect((await screen.findAllByTestId("timeline-day-card"))[0]).toHaveAttribute("data-layout", "inline");
 
     vi.unstubAllGlobals();
   });

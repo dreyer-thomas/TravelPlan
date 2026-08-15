@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Box,
+  type Breakpoint,
   Button,
   CircularProgress,
   Divider,
@@ -138,6 +139,12 @@ type TripTimelineProps = {
 // the "something upstream changed" name, not the normal one.
 const EXPORT_FILENAME_FALLBACK = "trip-backup.zip";
 
+// The one breakpoint the day card's stacked/inline layout turns on, read by `data-layout`, by the
+// card's grid templates and by its photo's size - see the comments at those three sites. Annotated
+// rather than written `as const` (a no-op on a `const` string literal): the annotation is what
+// rejects a pixel number, and `Exclude<…, "xs">` what stops it colliding with the literal `xs` key.
+const TIMELINE_CARD_LAYOUT_BREAKPOINT: Exclude<Breakpoint, "xs"> = "sm";
+
 export default function TripTimeline({ tripId }: TripTimelineProps) {
   const { language, t } = useI18n();
   const theme = useTheme();
@@ -174,7 +181,20 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
   const [exportErrorKey, setExportErrorKey] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const router = useRouter();
-  const isNarrowLayout = useMediaQuery(theme.breakpoints.down("sm"));
+  // Negated `up()`, not `down()`: the `sm` sx key applies from `min-width:600px`, while
+  // `down("sm")` is `max-width:599.95px`, so the old form left `[599.95, 600)` claimed by neither -
+  // reachable through browser zoom and fractional `devicePixelRatio`. Pinned by
+  // `tripTimelinePlan.test.tsx` ("stamps `stacked` right up to the `sm` bound and `inline` exactly
+  // on it", :1191/:1196), which is the only case that fails if `down()` comes back.
+  // `defaultMatches: true` because the negation inverts MUI's default: with no `matchMedia` (SSR,
+  // and the suites that stub nothing) a bare `up()` answers `false`, which negates to `stacked`,
+  // where `down("sm")` used to answer `false` and stamp `inline`. Wrong on its own terms too - a
+  // viewportless render is not a phone - and it would move every server-rendered card's attribute.
+  // Pinned by the same file's "stamps `inline` when no `matchMedia` exists to ask" (:1249).
+  // Consumed once, at the day card's `data-layout` - see the comment there.
+  const isNarrowLayout = !useMediaQuery(theme.breakpoints.up(TIMELINE_CARD_LAYOUT_BREAKPOINT), {
+    defaultMatches: true,
+  });
   // The overview grid's own key (`gridTemplateColumns: { xs: "1fr", md: "1.7fr 1fr" }`), not a new
   // value: this decides *where* the single trip-controls card is mounted, and any other breakpoint
   // would open a window where the layout is stacked but the ordering is not.
@@ -906,6 +926,12 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                       key={day.id}
                       component="li"
                       data-testid="timeline-day-card"
+                      // Read by `tripTimelinePlan.test.tsx` ("keeps timeline cards readable when
+                      // viewport changes between mobile and desktop widths", :1120/:1131). This
+                      // `useMediaQuery` sits *outside* DW-106's sanction, which covers only a
+                      // breakpoint deciding which subtree mounts; it is kept anyway as a declared
+                      // jsdom shim per the 2026-08-08 DW-14 decision. It drives no styling: the
+                      // layout itself is the sx grid below, keyed to the same constant.
                       data-layout={isNarrowLayout ? "stacked" : "inline"}
                       sx={{
                         position: "relative",
@@ -913,10 +939,19 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                         // The xs template must name every area the children use: without a "stay" row the
                         // stay/gap indicator resolves against non-existent grid lines and gets auto-placed
                         // into an implicit track, overflowing the row on narrow viewports.
-                        gridTemplateColumns: { xs: "56px 1fr", sm: "72px 1fr 190px" },
+                        //
+                        // Both keys below read the same constant the `data-layout` query above is built
+                        // from, so the attribute and this grid cannot drift apart. Their emitted
+                        // conditions are pinned by `tripTimelineRoles.test.tsx` ("declares the day card's
+                        // own column split under the same `sm` condition `data-layout` is keyed to",
+                        // :755) - a literal put back here fails there as soon as it names a breakpoint
+                        // other than the constant's. Columns, areas and the photo's size are pinned
+                        // separately on purpose: moving one alone renders three columns against a
+                        // two-column area template, which is the auto-placement overflow above.
+                        gridTemplateColumns: { xs: "56px 1fr", [TIMELINE_CARD_LAYOUT_BREAKPOINT]: "72px 1fr 190px" },
                         gridTemplateAreas: {
                           xs: '"photo title" "stay stay" "cov cov"',
-                          sm: '"photo title stay" "cov cov cov"',
+                          [TIMELINE_CARD_LAYOUT_BREAKPOINT]: '"photo title stay" "cov cov cov"',
                         },
                         alignItems: "center",
                         gap: "14px",
@@ -948,8 +983,12 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                         alt=""
                         sx={{
                           gridArea: "photo",
-                          width: { xs: 56, sm: 72 },
-                          height: { xs: 56, sm: 72 },
+                          // 56/72 are the grid's own first-column widths above, so the photo takes the
+                          // same constant: moving one without the other leaves the photo under- or
+                          // over-filling its track. Pinned alongside the templates in the same
+                          // `tripTimelineRoles.test.tsx` case, via `day-row-photo`.
+                          width: { xs: 56, [TIMELINE_CARD_LAYOUT_BREAKPOINT]: 72 },
+                          height: { xs: 56, [TIMELINE_CARD_LAYOUT_BREAKPOINT]: 72 },
                           objectFit: "cover",
                           objectPosition: "center",
                           borderRadius: 0,
