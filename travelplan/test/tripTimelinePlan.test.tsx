@@ -991,6 +991,88 @@ describe("TripTimeline plan action", () => {
     vi.unstubAllGlobals();
   });
 
+  /**
+   * DW-16. The Duration tile is the second consumer of `trips.dashboard.dayCount`, so the singular
+   * twin the dashboard row got had to be branched on here as well - a day trip otherwise opened on a
+   * tile reading "1 days". The German half is asserted because `de.ts` carries the same twin and
+   * nothing else in this file ever renders the timeline in German.
+   */
+  describe("DW-16 duration tile at one day", () => {
+    const oneDayTripDetail = {
+      data: {
+        trip: {
+          id: "trip-1",
+          name: "Trip",
+          accessRole: "owner",
+          startDate: "2026-12-01T00:00:00.000Z",
+          endDate: "2026-12-01T00:00:00.000Z",
+          dayCount: 1,
+          plannedCostTotal: 0,
+          accommodationCostTotalCents: null,
+          heroImageUrl: null,
+        },
+        days: [
+          {
+            id: "day-1",
+            date: "2026-12-01T00:00:00.000Z",
+            dayIndex: 1,
+            imageUrl: null,
+            note: null,
+            missingAccommodation: false,
+            missingPlan: false,
+            accommodation: {
+              id: "stay-1",
+              name: "Hotel One",
+              notes: null,
+              status: "booked",
+              costCents: 0,
+              link: null,
+              checkInTime: null,
+              checkOutTime: null,
+              location: { lat: 53.55, lng: 10, label: "Hamburg" },
+            },
+            dayPlanItems: [],
+            travelSegments: [],
+          },
+        ],
+      },
+      error: null,
+    };
+
+    const stubOneDayFetch = () => {
+      const fetchMock = vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => oneDayTripDetail,
+      })) as unknown as typeof fetch;
+
+      vi.stubGlobal("fetch", fetchMock);
+      return fetchMock;
+    };
+
+    it("reads 1 day, not 1 days", async () => {
+      const fetchMock = stubOneDayFetch();
+
+      renderWithProviders(<TripTimeline tripId="trip-1" />);
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+      expect(await screen.findByText("1 day")).toBeInTheDocument();
+      expect(screen.queryByText("1 days")).not.toBeInTheDocument();
+    });
+
+    it("reads 1 Tag in German", async () => {
+      const fetchMock = stubOneDayFetch();
+
+      renderWithProviders(<TripTimeline tripId="trip-1" />, { language: "de" });
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+      expect(await screen.findByText("1 Tag")).toBeInTheDocument();
+      expect(screen.queryByText("1 Tage")).not.toBeInTheDocument();
+    });
+  });
+
   it("omits the gap-alert card when every day has an accommodation", async () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,

@@ -122,6 +122,9 @@ const en: Dictionary = {
   "trips.dashboard.empty": "No trips yet. Select Add trip to start building your plan.",
   "trips.dashboard.loadError": "Unable to load trips.",
   "trips.dashboard.dayCount": "{count} days",
+  // Two surfaces read this key - the row subtitle here and the timeline's Duration tile - and
+  // `formatMessage` has no plural support, so a one-day trip needs its own literal on both.
+  "trips.dashboard.dayCountOne": "1 day",
   "trips.dashboard.subline": "{tripCount} trips · {gapTripCount} with open items",
   // `formatMessage` has no plural support, so every count-bearing string needs its own singular twin.
   "trips.dashboard.sublineOne": "1 trip · {gapTripCount} with open items",
@@ -145,6 +148,9 @@ const en: Dictionary = {
   "trips.create.initError": "Unable to initialize trip creation. Please refresh.",
   "trips.create.error": "Trip creation failed. Please try again.",
   "trips.create.success": "Trip created with {count} days.",
+  // The toast is the first thing a new trip says about itself, so a singular twin rather than
+  // "created with 1 days" - `formatMessage` substitutes {count} and knows no plural rules.
+  "trips.create.successOne": "Trip created with 1 day.",
   "trips.create.uploadError": "Trip created, but the hero image upload failed. Please try again.",
   "trips.form.name": "Trip name",
   "trips.form.namePlaceholder": "e.g. Spring in Kyoto",
@@ -532,6 +538,9 @@ const en: Dictionary = {
   "trips.bucketList.empty": "No bucket list items yet.",
   "trips.bucketList.loadError": "Unable to load bucket list items.",
   "trips.bucketList.countLine": "{count} entries",
+  // Collapsed is this panel's default state and this line is all of it, so "1 entries" would be the
+  // whole visible content - the singular gets its own key, `formatMessage` having no plural support.
+  "trips.bucketList.countLineOne": "1 entry",
   "trips.bucketList.expandAction": "Expand bucket list",
   "trips.bucketList.collapseAction": "Collapse bucket list",
   "trips.bucketList.locationMissing": "No coordinates saved",

@@ -951,4 +951,52 @@ describe("i18n dictionaries", () => {
       expect(de[key]).toBe(value);
     });
   });
+
+  /**
+   * DW-16 / DW-68. The three count keys that used to render "1 days", "1 entries" and "Trip created with
+   * 1 days." now each have a singular twin, the same shape `trips.dayPrint.missingLocationsOne` above is
+   * pinned in. The pairing is what these cases protect: a plural that lost its `{count}` would print the
+   * same number for every trip, and a `…One` that gained one would be an unsubstituted `{count}` on screen,
+   * since the call sites deliberately pass no values to it.
+   */
+  describe("DW-16 count keys and their singular twins", () => {
+    it.each([
+      "trips.dashboard.dayCount",
+      "trips.create.success",
+      "trips.bucketList.countLine",
+    ])("keeps the {count} placeholder in %s in every language", (key) => {
+      for (const [language, dictionary] of Object.entries(dictionaries)) {
+        expect(dictionary[key], `${key} in ${language}`).toContain("{count}");
+      }
+    });
+
+    it.each([
+      "trips.dashboard.dayCountOne",
+      "trips.create.successOne",
+      "trips.bucketList.countLineOne",
+    ])("keeps %s free of any placeholder", (key) => {
+      for (const [language, dictionary] of Object.entries(dictionaries)) {
+        expect(dictionary[key], `${key} in ${language}`).not.toContain("{");
+        // A singular that dropped the number reads as a category, not a count.
+        expect(dictionary[key], `${key} in ${language}`).toContain("1");
+      }
+    });
+
+    // Derived rather than listed, so the next twin is covered the day it is added: a `…One` key whose
+    // plural sibling was renamed away is a branch that can now only ever pick the singular, and the
+    // hardcoded cases above would not notice. `sublineOne` is why this asserts the sibling's existence
+    // and not its placeholder - its plural counts `{tripCount}`, and it keeps `{gapTripCount}` in the
+    // singular, so "a twin carries no placeholder" is true of these three keys, not of the convention.
+    it("pairs every singular twin with the plural key it was split from", () => {
+      const twins = Object.keys(en).filter((key) => key.endsWith("One"));
+
+      expect(twins.length).toBeGreaterThanOrEqual(10);
+      for (const twin of twins) {
+        const plural = twin.slice(0, -"One".length);
+        for (const [language, dictionary] of Object.entries(dictionaries)) {
+          expect(dictionary[plural], `${plural} backing ${twin} in ${language}`).toBeDefined();
+        }
+      }
+    });
+  });
 });

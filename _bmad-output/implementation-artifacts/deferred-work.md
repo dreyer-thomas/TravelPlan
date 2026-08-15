@@ -136,7 +136,8 @@ decision: 2026-08-01 Standardise the caption across all map surfaces — Add the
 origin: migrated from legacy ledger ("Deferred from: code review of 7-4-trips-list-redesign (2026-08-01)"), 2026-08-01
 location: `src/i18n/en.ts`, `src/i18n/de.ts`
 reason: A pre-existing key that Task 4 explicitly said to keep as-is, so not a regression — but newly conspicuous: a one-day gap trip now shows "Sep 12, 2026 - Sep 12, 2026 · 1 days" directly beside a pill that correctly says "1 day open", because Story 7.4 added a dedicated `statusGapOne` key for the pill and nothing for the meta line. `formatMessage` is a `{key}` substituter with no plural support, so every count-bearing key needs its own singular twin until that changes. Natural home: whichever story next touches the shared i18n layer, or a small sweep auditing every `{count}` key across both dictionaries.
-status: open
+status: done 2026-08-15
+resolution: resolved by sweep bundle dw-i18n-plurals
 
 ### DW-17: `listTripsForUser` materializes the full day/accommodation/plan-item tree of every trip to produce three integers
 
@@ -545,7 +546,8 @@ resolution: already resolved: travelplan/src/components/features/trips/TripBucke
 origin: code review of 7-12-bucket-list-sidebar-card, 2026-08-01
 location: `travelplan/src/i18n/en.ts:378`, `travelplan/src/i18n/de.ts:375`; consumer `TripBucketListPanel.tsx:412`
 reason: Both dictionaries define the key as a bare `"{count} entries"` / `"{count} Einträge"` and `formatMessage` does no pluralization, so `items.length === 1` renders ungrammatically in both languages. Pre-existing since Story 4.4 introduced the collapsed count line. The app already has the precedent for handling this: the trips-list gap pill singularizes "N Tage offen" to "1 Tag offen" for N=1 (`EXPERIENCE.md:81`, Trip status variants). Visible on the collapsed card, which is the default state, so it is the first thing a user with one collected idea sees. Worth pairing with a sweep for other unpluralized `{count}` keys rather than fixing this one key alone.
-status: open
+status: done 2026-08-15
+resolution: resolved by sweep bundle dw-i18n-plurals
 
 ### DW-69: `tripTimelineRoles.test.tsx` unstubs `fetch` at the end of each test body instead of in an `afterEach`, so a failing assertion leaks the stub
 

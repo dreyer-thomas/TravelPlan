@@ -328,9 +328,11 @@ export default function TripCreateForm({
       }
 
       setSuccess(
-        formatMessage(t("trips.create.success"), {
-          count: body.data.dayCount,
-        }),
+        body.data.dayCount === 1
+          ? t("trips.create.successOne")
+          : formatMessage(t("trips.create.success"), {
+              count: body.data.dayCount,
+            }),
       );
       reset({ name: "", startDate: "", endDate: "" });
       // Cleared with the rest of the form: `reset` does not know about this flag, and a `true` left

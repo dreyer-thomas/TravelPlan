@@ -523,6 +523,12 @@ export default function TripsDashboard() {
                 trip.startLocationLabel?.trim() && trip.destinationLocationLabel?.trim()
                   ? ` · ${trip.startLocationLabel.trim()} → ${trip.destinationLocationLabel.trim()}`
                   : "";
+              // Hoisted rather than inlined into the subtitle's template literal below: a ternary
+              // inside a `${…}` is where this branch would stop being readable.
+              const dayCountLabel =
+                trip.dayCount === 1
+                  ? t("trips.dashboard.dayCountOne")
+                  : formatMessage(t("trips.dashboard.dayCount"), { count: trip.dayCount });
 
               return (
                 <Box
@@ -684,9 +690,7 @@ export default function TripsDashboard() {
                         whiteSpace: "nowrap",
                       }}
                     >
-                      {`${buildDateRange(trip)} · ${formatMessage(t("trips.dashboard.dayCount"), {
-                        count: trip.dayCount,
-                      })}${route}`}
+                      {`${buildDateRange(trip)} · ${dayCountLabel}${route}`}
                     </Typography>
                   </Box>
 

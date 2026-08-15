@@ -118,6 +118,9 @@ const de: Dictionary = {
   "trips.dashboard.empty": "Noch keine Reisen. Wähle „Reise hinzufügen“, um zu starten.",
   "trips.dashboard.loadError": "Reisen konnten nicht geladen werden.",
   "trips.dashboard.dayCount": "{count} Tage",
+  // Zwei Flächen lesen diesen Schlüssel - die Reisezeile und die Dauer-Kachel der Timeline - und
+  // `formatMessage` kennt keine Pluralformen, sonst stünde „1 Tage“ auf beiden.
+  "trips.dashboard.dayCountOne": "1 Tag",
   "trips.dashboard.subline": "{tripCount} Reisen · {gapTripCount} mit offenen Punkten",
   // `formatMessage` hat keine Pluralbehandlung, daher braucht jeder Zähler seine eigene Einzahlform.
   "trips.dashboard.sublineOne": "1 Reise · {gapTripCount} mit offenen Punkten",
@@ -140,6 +143,9 @@ const de: Dictionary = {
   "trips.create.initError": "Reiseerstellung konnte nicht initialisiert werden. Bitte aktualisieren.",
   "trips.create.error": "Reiseerstellung fehlgeschlagen. Bitte erneut versuchen.",
   "trips.create.success": "Reise mit {count} Tagen erstellt.",
+  // Eigener Schlüssel für die Einzahl, weil die Bestätigung das Erste ist, was eine neue Reise über
+  // sich sagt - Dativ Singular ohne -n, „mit 1 Tagen erstellt“ wäre ein sichtbarer Fehler.
+  "trips.create.successOne": "Reise mit 1 Tag erstellt.",
   "trips.create.uploadError": "Reise erstellt, aber das Hero-Bild konnte nicht hochgeladen werden. Bitte erneut versuchen.",
   "trips.form.name": "Reisename",
   "trips.form.namePlaceholder": "z. B. Frühling in Kyoto",
@@ -497,6 +503,9 @@ const de: Dictionary = {
   "trips.bucketList.empty": "Noch keine Bucket-List-Einträge.",
   "trips.bucketList.loadError": "Bucket-Liste konnte nicht geladen werden.",
   "trips.bucketList.countLine": "{count} Einträge",
+  // Eingeklappt ist der Standard dieses Panels und diese Zeile sein gesamter sichtbarer Inhalt -
+  // deshalb ein eigener Singular, siehe en.ts: `formatMessage` kennt keine Pluralregeln.
+  "trips.bucketList.countLineOne": "1 Eintrag",
   "trips.bucketList.expandAction": "Bucket-Liste erweitern",
   "trips.bucketList.collapseAction": "Bucket-Liste reduzieren",
   "trips.bucketList.locationMissing": "Keine Koordinaten gespeichert",

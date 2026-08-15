@@ -80,6 +80,30 @@ describe("TripBucketListPanel", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
+  // DW-68. Collapsed is the default, so this line is the panel's entire content until somebody
+  // expands it - "1 entries" was the whole thing a one-item list had to say for itself.
+  it("singularizes the count line at one item", async () => {
+    const fetchMock = mockBucketListFetch([buildItem()]);
+
+    renderWithProviders(<TripBucketListPanel tripId="trip-1" />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+    expect(screen.getByText("1 entry")).toBeVisible();
+    expect(screen.queryByText("1 entries")).not.toBeInTheDocument();
+  });
+
+  it("singularizes the count line at one item in German too", async () => {
+    const fetchMock = mockBucketListFetch([buildItem()]);
+
+    renderWithProviders(<TripBucketListPanel tripId="trip-1" />, { language: "de" });
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+    expect(screen.getByText("1 Eintrag")).toBeVisible();
+    expect(screen.queryByText("1 Einträge")).not.toBeInTheDocument();
+  });
+
   // DW-48.
   describe("load error handling", () => {
     it("shows the error alert instead of the count line while collapsed", async () => {

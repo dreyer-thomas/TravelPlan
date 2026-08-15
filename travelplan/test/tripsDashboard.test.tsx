@@ -374,6 +374,45 @@ describe("TripsDashboard", () => {
       expect(within(await rowFor(/portugal/i)).getByTestId("trip-row-status")).toHaveTextContent("1 day open");
     });
 
+    /**
+     * DW-16. The row already said "1 day open" in its pill while the subtitle two lines up said
+     * "1 days" about the same trip - the two counts sit close enough to be read together, so the
+     * defect was visible without leaving the row. Matched on the `<p>` the subtitle renders as: the
+     * `Box` wrapping it ends with the same words, so a bare text query would find both. The location
+     * labels are pinned to `null` rather than inherited: the `$` anchor only lands on the day count
+     * because `TripsDashboard` appends the route after it, so a fixture default that grew a route
+     * would fail these for a reason that has nothing to do with plurals. Both counts are asserted -
+     * the singular is the fix, and the plural is what an inverted condition would silently take away.
+     */
+    const oneDayTrips = (dayCount: number) => ({
+      data: {
+        trips: [
+          trip({
+            id: "solo",
+            name: "One day in Bruges",
+            endDate: "2026-09-12T00:00:00.000Z",
+            startLocationLabel: null,
+            destinationLocationLabel: null,
+            dayCount,
+          }),
+        ],
+      },
+      error: null,
+    });
+
+    it.each([
+      ["en", 1, /· 1 day$/],
+      ["de", 1, /· 1 Tag$/],
+      ["en", 6, /· 6 days$/],
+      ["de", 6, /· 6 Tage$/],
+    ] as const)("counts the row subtitle's days in %s at %i", async (language, dayCount, expected) => {
+      mockTripsResponse = oneDayTrips(dayCount);
+      renderWithProviders(<TripsDashboard />, { language });
+
+      const row = await rowFor(/bruges/i);
+      expect(within(row).getByText(expected, { selector: "p" })).toBeInTheDocument();
+    });
+
     it("fades only a past trip's photo and border, never its text, and uses the total-costs label", async () => {
       renderDashboard();
 

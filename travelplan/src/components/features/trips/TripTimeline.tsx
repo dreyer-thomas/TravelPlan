@@ -740,7 +740,9 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                   {t("trips.timeline.statDuration")}
                 </Typography>
                 <Typography sx={{ fontSize: 21, fontWeight: 900, fontVariantNumeric: "tabular-nums", color: tokens.ink }}>
-                  {formatMessage(t("trips.dashboard.dayCount"), { count: detail.trip.dayCount })}
+                  {detail.trip.dayCount === 1
+                    ? t("trips.dashboard.dayCountOne")
+                    : formatMessage(t("trips.dashboard.dayCount"), { count: detail.trip.dayCount })}
                 </Typography>
               </Box>
               <Box sx={{ p: "16px 24px", borderRight: { xs: "none", sm: "1px solid" }, borderBottom: { xs: "1px solid", sm: "none" }, borderColor: tokens.border }}>

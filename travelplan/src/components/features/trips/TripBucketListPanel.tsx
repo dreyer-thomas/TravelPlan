@@ -625,7 +625,10 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
 
   const dialogTitle = dialogMode === "edit" ? t("trips.bucketList.editTitle") : t("trips.bucketList.addTitle");
   const saveLabel = dialogMode === "edit" ? t("trips.bucketList.saveUpdate") : t("trips.bucketList.saveNew");
-  const entryCountLabel = formatMessage(t("trips.bucketList.countLine"), { count: items.length });
+  const entryCountLabel =
+    items.length === 1
+      ? t("trips.bucketList.countLineOne")
+      : formatMessage(t("trips.bucketList.countLine"), { count: items.length });
   const toggleLabel = isCollapsed ? t("trips.bucketList.expandAction") : t("trips.bucketList.collapseAction");
 
   // Gated on `!loadError` for the same reason `entryCountLabel` is: a failed load already clears

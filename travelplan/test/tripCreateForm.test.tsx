@@ -365,4 +365,68 @@ describe("TripCreateForm", () => {
       expect(screen.getByLabelText(/start location/i)).toHaveValue("");
     });
   });
+
+  /**
+   * DW-16. The success notice is the only sentence this form says about the trip it just wrote, so a
+   * single-day range made the very first confirmation a user reads say "with 1 days". Both languages
+   * are exercised because the German fix is a case change as well as a word one - dative singular
+   * "mit 1 Tag", without the plural's `-n`. The multi-day rows are here because nothing else in this
+   * file reads the notice back: with only the singular pinned, inverting the new condition to `!== 1`
+   * would tell every trip it was created with one day and leave the suite green.
+   */
+  describe("DW-16 success notice day count", () => {
+    const createResponseFor = (dayCount: number) => ({
+      data: {
+        trip: {
+          id: "trip-day-count",
+          name: "Day trip",
+          startDate: "2026-02-10T00:00:00.000Z",
+          endDate: "2026-02-10T00:00:00.000Z",
+        },
+        dayCount,
+      },
+      error: null,
+    });
+
+    // `mockCreateResponse` is shared by every case above, so these payloads get their own stub
+    // rather than a mutation the next test would inherit. Discriminates on the method as well as the
+    // URL: a hero-image upload POSTs to a different route, and returning a create envelope for it
+    // would let an upload assertion pass on the wrong body.
+    const stubCreateFetch = (dayCount: number) => {
+      const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url.includes("/api/auth/csrf")) {
+          return { ok: true, json: async () => mockCsrfResponse } as Response;
+        }
+        if (init?.method === "POST" && url.includes("/api/trips")) {
+          return { ok: true, json: async () => createResponseFor(dayCount) } as Response;
+        }
+        return { ok: false, status: 404, json: async () => ({ data: null, error: "unexpected" }) } as Response;
+      });
+      global.fetch = fetchMock as unknown as typeof fetch;
+    };
+
+    it.each([
+      ["en", 1, "Trip created with 1 day."],
+      ["de", 1, "Reise mit 1 Tag erstellt."],
+      ["en", 4, "Trip created with 4 days."],
+      ["de", 4, "Reise mit 4 Tagen erstellt."],
+    ] as const)("says the %s notice for %i day(s)", async (language, dayCount, expected) => {
+      const user = userEvent.setup();
+      stubCreateFetch(dayCount);
+      render(
+        <Providers language={language}>
+          <TripCreateForm />
+        </Providers>,
+      );
+
+      const isGerman = language === "de";
+      await user.type(screen.getByLabelText(isGerman ? /reisename/i : /trip name/i), "Day trip");
+      await user.type(screen.getByLabelText(isGerman ? /startdatum/i : /start date/i), "2026-02-10");
+      await user.type(screen.getByLabelText(isGerman ? /enddatum/i : /end date/i), "2026-02-13");
+      await user.click(screen.getByRole("button", { name: isGerman ? /reise erstellen/i : /create trip/i }));
+
+      expect(await screen.findByText(expected)).toBeInTheDocument();
+    });
+  });
 });
