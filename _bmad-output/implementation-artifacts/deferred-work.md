@@ -3377,3 +3377,75 @@ severity: low
 summary: The comment states that the proxy "answers every `/api/trips/*` request from a must-change-password session with a 403". It does not. `config.matcher` in `src/proxy.ts` carries `"/api/trips/:path((?!import/?$).*)"`, whose negative lookahead deliberately keeps `/api/trips/import` and `/api/trips/import/` out of the matcher — the exclusion Story 2.34 exists to preserve and which `proxy.ts`'s own matcher comment explains at length. `/api/trips/import` reaches its handler unguarded by the proxy and self-guards with `requireSession` instead, so a must-change-password session gets whatever that route decides, not a proxy 403.
 evidence: Read at 2026-09-20 during the code review of Story 8.2. Pre-existing — the overstatement predates the rename and Story 8.2's sweep only changed the noun (`middleware` → `proxy`) on that line, which is why it is deferred rather than patched with the rest of the sweep's prose. Closing it is a few words ("every `/api/trips/*` request except `import`"), best taken together with any future pass over the Story 2.34 comment cluster, since the same exclusion is explained correctly in `proxy.ts`, `next.config.ts`, `bodyLimit.ts` and `importLimits.ts` and only this one site gets it wrong.
 status: open
+
+## Deferred from: code review of 10-1-a-price-in-another-currency (2026-09-20)
+
+### DW-355: The server never checks that the stored euro figure follows from the stored rate
+
+source_spec: `_bmad-output/implementation-artifacts/10-1-a-price-in-another-currency.md`
+origin: code review of 10-1-a-price-in-another-currency, 2026-09-20
+location: `travelplan/src/lib/validation/costCurrencySchemas.ts:76` (`refineCostCurrency`)
+severity: medium
+summary: `refineCostCurrency` validates completeness (all four or none), the EUR exclusion, rate positivity, the date shape, and that the payment originals sum to `costOriginalAmount` — but never that `Math.round(costOriginalAmount / costRate)` is anywhere near `costCents`. A payload claiming `costOriginalAmount: 10000, costRate: 1.146, costCents: 11460` is stored happily, which is the multiply-instead-of-divide error the story's own Dev Notes call "the one likely silent error".
+evidence: Read at 2026-09-20 during the code review of Story 10.1. Not required by any AC — AC7 pins the direction with a hand-checked figure in `test/convertCost.test.ts`, which protects the one call site that already gets it right but nothing else. Closing it needs a tolerance policy (floats, and the residual sweep means the relation is exact only for the parent, not per payment row), which is why it is not a same-session patch.
+status: open
+
+### DW-356: `originalAmountSchema` has no upper bound while `costSchema` caps `costCents`
+
+source_spec: `_bmad-output/implementation-artifacts/10-1-a-price-in-another-currency.md`
+origin: code review of 10-1-a-price-in-another-currency, 2026-09-20
+location: `travelplan/src/lib/validation/costCurrencySchemas.ts:41`
+severity: low
+summary: `originalAmountSchema` is `.int().min(0)` with no `.max(…)`, against `accommodationSchemas.ts`'s `costSchema.max(100000000)`. The activity cost field has no client or server ceiling at all, so a large typed amount in a weak currency produces a `cost_original_amount` far past anything the euro column would accept.
+evidence: Read at 2026-09-20 during the code review of Story 10.1. This is the `DW-249` family ("an upper bound on the activity cost field or on payment rows"), which Story 10.1's Dev Notes list under "Explicitly out of scope" while noting that weak-currency hundredths reach large values quickly. Best closed together with `DW-249` rather than piecemeal, since the right bound for `costOriginalAmount` depends on what bound the activity field gets.
+status: open
+
+### DW-357: Live conversion captions round per box and disagree with the stored residual sweep
+
+source_spec: `_bmad-output/implementation-artifacts/10-1-a-price-in-another-currency.md`
+origin: code review of 10-1-a-price-in-another-currency, 2026-09-20
+location: `travelplan/src/components/features/trips/TripAccommodationDialog.tsx:658`, mirrored at `TripDayPlanDialog.tsx:929`
+severity: low
+summary: `convertedCaption` computes `Math.round(typed / rate)` independently for the cost box and for each payment row, while `convertEntryToCents` sweeps the leftover cent into the largest row before saving. The per-row captions can therefore sum to one cent away from the cost caption, and one row's stored figure can differ by a cent from the caption printed beside it.
+evidence: Read at 2026-09-20 during the code review of Story 10.1. Cosmetic — the stored values reconcile exactly, which is the invariant that matters, and the discrepancy is at most one cent on the last row. Closing it means running the captions through `convertEntryToCents` rather than rounding independently, which couples read-only feedback to the submit path for a one-cent display gain.
+status: open
+
+### DW-358: `buildDefaultPayments` mixes currencies across rows when a foreign parent has a row with a null `amountOriginal`
+
+source_spec: `_bmad-output/implementation-artifacts/10-1-a-price-in-another-currency.md`
+origin: code review of 10-1-a-price-in-another-currency, 2026-09-20
+location: `travelplan/src/components/features/trips/TripAccommodationDialog.tsx:389`, mirrored in `TripDayPlanDialog.tsx`
+severity: low
+summary: The seed is `isForeign && typeof payment.amountOriginal === "number" ? payment.amountOriginal : payment.amountCents`, per row. A foreign parent whose rows lack originals renders the typed foreign figure in one row and euro cents in its neighbour, in the same column, and an unchanged save writes that mixture back.
+evidence: Read at 2026-09-20 during the code review of Story 10.1. Deferred rather than patched because the shape is unreachable through supported paths once the `copyAccommodationFromPreviousNight` defect found by the same review is fixed: `refineCostCurrency`'s "Every payment must carry its original amount" refuses it on every write path. Worth revisiting only if a path is found that produces it.
+status: open
+
+### DW-359: `convertEntryToCents` can throw straight through an unwrapped async submit handler
+
+source_spec: `_bmad-output/implementation-artifacts/10-1-a-price-in-another-currency.md`
+origin: code review of 10-1-a-price-in-another-currency, 2026-09-20
+location: `travelplan/src/lib/trips/convertCost.ts:104`; callers at `TripAccommodationDialog.tsx:1259` and `TripDayPlanDialog.tsx:1436`
+severity: low
+summary: The reconciliation guard throws `"Converted payments do not reconcile with the converted cost"`, and neither dialog wraps the call in a `try`. If it were ever reached the result is an unhandled rejection inside `onSubmit`: a Save button that stops responding with no message anywhere.
+evidence: Read at 2026-09-20 during the code review of Story 10.1. The function's own comment argues the state is unreachable by construction — the residual sweep makes the sum exact — and the review found no path to it, which is exactly why nobody has tested what the dialog does if it is reached. Closing it is a `try`/`catch` around the call that falls back to the euro path and sets the banner.
+status: open
+
+### DW-360: The activity dialog's currency tests drive a mocked `<select>` while the stay dialog's drive the real MUI menu
+
+source_spec: `_bmad-output/implementation-artifacts/10-1-a-price-in-another-currency.md`
+origin: code review of 10-1-a-price-in-another-currency, 2026-09-20
+location: `travelplan/test/tripDayPlanDialog.test.tsx` (module mock replacing MUI `Select`/`MenuItem`)
+severity: low
+summary: Every currency assertion in the activity-dialog suite drives a native `<select>`/`<option>` substituted by a module mock, so the real control is never exercised there. The stay-dialog suite uses the real MUI menu with `mouseDown` plus a listbox query. A break in `MoneyField`'s labelling or in the `htmlFor` association would be caught by one suite and passed by the other.
+evidence: Read at 2026-09-20 during the code review of Story 10.1. Not a defect — the mock exists because MUI's menu is awkward in jsdom, and the stay-dialog suite does cover the real control. Recorded so the asymmetry is a known choice rather than something a later reader mistakes for equal coverage.
+status: open
+
+### DW-361: `check:migrations` passes vacuously while a new migration is untracked
+
+source_spec: `_bmad-output/implementation-artifacts/10-1-a-price-in-another-currency.md`
+origin: code review of 10-1-a-price-in-another-currency, 2026-09-20
+location: `travelplan/scripts/check-migration-immutability.sh`
+severity: low
+summary: Run against Story 10.1's working tree the script reports "Migration immutability check passed (no migration changes)" even though `prisma/migrations/20260920120000_add_cost_currency_metadata/` is a new, unstaged folder. The check compares tracked migration files, so an untracked migration is invisible to it and the green tick says nothing about the migration the story added.
+evidence: Observed at 2026-09-20 during the code review of Story 10.1, where the story's completion notes cite the passing check as evidence for the migration. It resolves itself the moment the work is staged, so it is not a defect in the script's contract — but a developer reading a green tick before committing is being told less than they think. Closing it would mean having the script consider untracked files under `prisma/migrations/` too.
+status: open

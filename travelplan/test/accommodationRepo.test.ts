@@ -600,6 +600,55 @@ describe("accommodationRepo", () => {
     }
   });
 
+  /**
+   * Story 10.1 review. The copy nulls `costCents` deliberately, and before this fix it did so while
+   * leaving the target row's four currency columns untouched - because the `upsert`'s `update` arm
+   * keeps any column the `data` object omits. The result was a complete receipt describing a price
+   * that was no longer there: the shape `refineCostCurrency` refuses outright, so the stay could
+   * never be saved from the dialog again and the trip's own archive failed its own import check.
+   */
+  it("clears the currency receipt of the stay it overwrites", async () => {
+    const user = await createUser("stay-copy-currency@example.com");
+    const { trip, previousDay, currentDay } = await createTripWithTwoDays(user.id);
+
+    await prisma.accommodation.create({
+      data: { tripDayId: previousDay.id, name: "Previous Stay", status: "PLANNED", costCents: null },
+    });
+
+    // The day being copied *onto* is the one that holds the receipt - that is the arm that kept it.
+    await prisma.accommodation.create({
+      data: {
+        tripDayId: currentDay.id,
+        name: "Foreign Stay",
+        status: "BOOKED",
+        costCents: 8726,
+        costOriginalAmount: 10000,
+        costCurrency: "USD",
+        costRate: 1.146,
+        costRateDate: "2026-09-18",
+      },
+    });
+
+    const result = await copyAccommodationFromPreviousNight({
+      userId: user.id,
+      tripId: trip.id,
+      tripDayId: currentDay.id,
+    });
+
+    expect(result.status).toBe("copied");
+    if (result.status === "copied") {
+      expect(result.accommodation.costCents).toBeNull();
+      expect(result.accommodation.costOriginalAmount).toBeNull();
+      expect(result.accommodation.costCurrency).toBeNull();
+      expect(result.accommodation.costRate).toBeNull();
+      expect(result.accommodation.costRateDate).toBeNull();
+    }
+
+    const stored = await prisma.accommodation.findUnique({ where: { tripDayId: currentDay.id } });
+    expect(stored?.costCurrency).toBeNull();
+    expect(stored?.costOriginalAmount).toBeNull();
+  });
+
   it("copies from a previous-day index of zero", async () => {
     const user = await createUser("stay-copy-zero@example.com");
     const trip = await prisma.trip.create({

@@ -28,11 +28,13 @@ export type AggregateCostPayment = {
 
 export type CostPaymentAvgAggregateOutputType = {
   amountCents: number | null
+  amountOriginal: number | null
   sortOrder: number | null
 }
 
 export type CostPaymentSumAggregateOutputType = {
   amountCents: number | null
+  amountOriginal: number | null
   sortOrder: number | null
 }
 
@@ -41,6 +43,7 @@ export type CostPaymentMinAggregateOutputType = {
   accommodationId: string | null
   dayPlanItemId: string | null
   amountCents: number | null
+  amountOriginal: number | null
   dueDate: string | null
   sortOrder: number | null
   createdAt: Date | null
@@ -52,6 +55,7 @@ export type CostPaymentMaxAggregateOutputType = {
   accommodationId: string | null
   dayPlanItemId: string | null
   amountCents: number | null
+  amountOriginal: number | null
   dueDate: string | null
   sortOrder: number | null
   createdAt: Date | null
@@ -63,6 +67,7 @@ export type CostPaymentCountAggregateOutputType = {
   accommodationId: number
   dayPlanItemId: number
   amountCents: number
+  amountOriginal: number
   dueDate: number
   sortOrder: number
   createdAt: number
@@ -73,11 +78,13 @@ export type CostPaymentCountAggregateOutputType = {
 
 export type CostPaymentAvgAggregateInputType = {
   amountCents?: true
+  amountOriginal?: true
   sortOrder?: true
 }
 
 export type CostPaymentSumAggregateInputType = {
   amountCents?: true
+  amountOriginal?: true
   sortOrder?: true
 }
 
@@ -86,6 +93,7 @@ export type CostPaymentMinAggregateInputType = {
   accommodationId?: true
   dayPlanItemId?: true
   amountCents?: true
+  amountOriginal?: true
   dueDate?: true
   sortOrder?: true
   createdAt?: true
@@ -97,6 +105,7 @@ export type CostPaymentMaxAggregateInputType = {
   accommodationId?: true
   dayPlanItemId?: true
   amountCents?: true
+  amountOriginal?: true
   dueDate?: true
   sortOrder?: true
   createdAt?: true
@@ -108,6 +117,7 @@ export type CostPaymentCountAggregateInputType = {
   accommodationId?: true
   dayPlanItemId?: true
   amountCents?: true
+  amountOriginal?: true
   dueDate?: true
   sortOrder?: true
   createdAt?: true
@@ -206,6 +216,7 @@ export type CostPaymentGroupByOutputType = {
   accommodationId: string | null
   dayPlanItemId: string | null
   amountCents: number
+  amountOriginal: number | null
   dueDate: string
   sortOrder: number
   createdAt: Date
@@ -240,6 +251,7 @@ export type CostPaymentWhereInput = {
   accommodationId?: Prisma.StringNullableFilter<"CostPayment"> | string | null
   dayPlanItemId?: Prisma.StringNullableFilter<"CostPayment"> | string | null
   amountCents?: Prisma.IntFilter<"CostPayment"> | number
+  amountOriginal?: Prisma.IntNullableFilter<"CostPayment"> | number | null
   dueDate?: Prisma.StringFilter<"CostPayment"> | string
   sortOrder?: Prisma.IntFilter<"CostPayment"> | number
   createdAt?: Prisma.DateTimeFilter<"CostPayment"> | Date | string
@@ -253,6 +265,7 @@ export type CostPaymentOrderByWithRelationInput = {
   accommodationId?: Prisma.SortOrderInput | Prisma.SortOrder
   dayPlanItemId?: Prisma.SortOrderInput | Prisma.SortOrder
   amountCents?: Prisma.SortOrder
+  amountOriginal?: Prisma.SortOrderInput | Prisma.SortOrder
   dueDate?: Prisma.SortOrder
   sortOrder?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -269,6 +282,7 @@ export type CostPaymentWhereUniqueInput = Prisma.AtLeast<{
   accommodationId?: Prisma.StringNullableFilter<"CostPayment"> | string | null
   dayPlanItemId?: Prisma.StringNullableFilter<"CostPayment"> | string | null
   amountCents?: Prisma.IntFilter<"CostPayment"> | number
+  amountOriginal?: Prisma.IntNullableFilter<"CostPayment"> | number | null
   dueDate?: Prisma.StringFilter<"CostPayment"> | string
   sortOrder?: Prisma.IntFilter<"CostPayment"> | number
   createdAt?: Prisma.DateTimeFilter<"CostPayment"> | Date | string
@@ -282,6 +296,7 @@ export type CostPaymentOrderByWithAggregationInput = {
   accommodationId?: Prisma.SortOrderInput | Prisma.SortOrder
   dayPlanItemId?: Prisma.SortOrderInput | Prisma.SortOrder
   amountCents?: Prisma.SortOrder
+  amountOriginal?: Prisma.SortOrderInput | Prisma.SortOrder
   dueDate?: Prisma.SortOrder
   sortOrder?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -301,6 +316,7 @@ export type CostPaymentScalarWhereWithAggregatesInput = {
   accommodationId?: Prisma.StringNullableWithAggregatesFilter<"CostPayment"> | string | null
   dayPlanItemId?: Prisma.StringNullableWithAggregatesFilter<"CostPayment"> | string | null
   amountCents?: Prisma.IntWithAggregatesFilter<"CostPayment"> | number
+  amountOriginal?: Prisma.IntNullableWithAggregatesFilter<"CostPayment"> | number | null
   dueDate?: Prisma.StringWithAggregatesFilter<"CostPayment"> | string
   sortOrder?: Prisma.IntWithAggregatesFilter<"CostPayment"> | number
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"CostPayment"> | Date | string
@@ -310,6 +326,7 @@ export type CostPaymentScalarWhereWithAggregatesInput = {
 export type CostPaymentCreateInput = {
   id?: string
   amountCents: number
+  amountOriginal?: number | null
   dueDate: string
   sortOrder: number
   createdAt?: Date | string
@@ -323,6 +340,7 @@ export type CostPaymentUncheckedCreateInput = {
   accommodationId?: string | null
   dayPlanItemId?: string | null
   amountCents: number
+  amountOriginal?: number | null
   dueDate: string
   sortOrder: number
   createdAt?: Date | string
@@ -332,6 +350,7 @@ export type CostPaymentUncheckedCreateInput = {
 export type CostPaymentUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   amountCents?: Prisma.IntFieldUpdateOperationsInput | number
+  amountOriginal?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   dueDate?: Prisma.StringFieldUpdateOperationsInput | string
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -345,6 +364,7 @@ export type CostPaymentUncheckedUpdateInput = {
   accommodationId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   dayPlanItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   amountCents?: Prisma.IntFieldUpdateOperationsInput | number
+  amountOriginal?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   dueDate?: Prisma.StringFieldUpdateOperationsInput | string
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -356,6 +376,7 @@ export type CostPaymentCreateManyInput = {
   accommodationId?: string | null
   dayPlanItemId?: string | null
   amountCents: number
+  amountOriginal?: number | null
   dueDate: string
   sortOrder: number
   createdAt?: Date | string
@@ -365,6 +386,7 @@ export type CostPaymentCreateManyInput = {
 export type CostPaymentUpdateManyMutationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   amountCents?: Prisma.IntFieldUpdateOperationsInput | number
+  amountOriginal?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   dueDate?: Prisma.StringFieldUpdateOperationsInput | string
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -376,6 +398,7 @@ export type CostPaymentUncheckedUpdateManyInput = {
   accommodationId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   dayPlanItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   amountCents?: Prisma.IntFieldUpdateOperationsInput | number
+  amountOriginal?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   dueDate?: Prisma.StringFieldUpdateOperationsInput | string
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -397,6 +420,7 @@ export type CostPaymentCountOrderByAggregateInput = {
   accommodationId?: Prisma.SortOrder
   dayPlanItemId?: Prisma.SortOrder
   amountCents?: Prisma.SortOrder
+  amountOriginal?: Prisma.SortOrder
   dueDate?: Prisma.SortOrder
   sortOrder?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -405,6 +429,7 @@ export type CostPaymentCountOrderByAggregateInput = {
 
 export type CostPaymentAvgOrderByAggregateInput = {
   amountCents?: Prisma.SortOrder
+  amountOriginal?: Prisma.SortOrder
   sortOrder?: Prisma.SortOrder
 }
 
@@ -413,6 +438,7 @@ export type CostPaymentMaxOrderByAggregateInput = {
   accommodationId?: Prisma.SortOrder
   dayPlanItemId?: Prisma.SortOrder
   amountCents?: Prisma.SortOrder
+  amountOriginal?: Prisma.SortOrder
   dueDate?: Prisma.SortOrder
   sortOrder?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -424,6 +450,7 @@ export type CostPaymentMinOrderByAggregateInput = {
   accommodationId?: Prisma.SortOrder
   dayPlanItemId?: Prisma.SortOrder
   amountCents?: Prisma.SortOrder
+  amountOriginal?: Prisma.SortOrder
   dueDate?: Prisma.SortOrder
   sortOrder?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -432,6 +459,7 @@ export type CostPaymentMinOrderByAggregateInput = {
 
 export type CostPaymentSumOrderByAggregateInput = {
   amountCents?: Prisma.SortOrder
+  amountOriginal?: Prisma.SortOrder
   sortOrder?: Prisma.SortOrder
 }
 
@@ -522,6 +550,7 @@ export type CostPaymentUncheckedUpdateManyWithoutDayPlanItemNestedInput = {
 export type CostPaymentCreateWithoutAccommodationInput = {
   id?: string
   amountCents: number
+  amountOriginal?: number | null
   dueDate: string
   sortOrder: number
   createdAt?: Date | string
@@ -533,6 +562,7 @@ export type CostPaymentUncheckedCreateWithoutAccommodationInput = {
   id?: string
   dayPlanItemId?: string | null
   amountCents: number
+  amountOriginal?: number | null
   dueDate: string
   sortOrder: number
   createdAt?: Date | string
@@ -572,6 +602,7 @@ export type CostPaymentScalarWhereInput = {
   accommodationId?: Prisma.StringNullableFilter<"CostPayment"> | string | null
   dayPlanItemId?: Prisma.StringNullableFilter<"CostPayment"> | string | null
   amountCents?: Prisma.IntFilter<"CostPayment"> | number
+  amountOriginal?: Prisma.IntNullableFilter<"CostPayment"> | number | null
   dueDate?: Prisma.StringFilter<"CostPayment"> | string
   sortOrder?: Prisma.IntFilter<"CostPayment"> | number
   createdAt?: Prisma.DateTimeFilter<"CostPayment"> | Date | string
@@ -581,6 +612,7 @@ export type CostPaymentScalarWhereInput = {
 export type CostPaymentCreateWithoutDayPlanItemInput = {
   id?: string
   amountCents: number
+  amountOriginal?: number | null
   dueDate: string
   sortOrder: number
   createdAt?: Date | string
@@ -592,6 +624,7 @@ export type CostPaymentUncheckedCreateWithoutDayPlanItemInput = {
   id?: string
   accommodationId?: string | null
   amountCents: number
+  amountOriginal?: number | null
   dueDate: string
   sortOrder: number
   createdAt?: Date | string
@@ -627,6 +660,7 @@ export type CostPaymentCreateManyAccommodationInput = {
   id?: string
   dayPlanItemId?: string | null
   amountCents: number
+  amountOriginal?: number | null
   dueDate: string
   sortOrder: number
   createdAt?: Date | string
@@ -636,6 +670,7 @@ export type CostPaymentCreateManyAccommodationInput = {
 export type CostPaymentUpdateWithoutAccommodationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   amountCents?: Prisma.IntFieldUpdateOperationsInput | number
+  amountOriginal?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   dueDate?: Prisma.StringFieldUpdateOperationsInput | string
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -647,6 +682,7 @@ export type CostPaymentUncheckedUpdateWithoutAccommodationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   dayPlanItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   amountCents?: Prisma.IntFieldUpdateOperationsInput | number
+  amountOriginal?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   dueDate?: Prisma.StringFieldUpdateOperationsInput | string
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -657,6 +693,7 @@ export type CostPaymentUncheckedUpdateManyWithoutAccommodationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   dayPlanItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   amountCents?: Prisma.IntFieldUpdateOperationsInput | number
+  amountOriginal?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   dueDate?: Prisma.StringFieldUpdateOperationsInput | string
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -667,6 +704,7 @@ export type CostPaymentCreateManyDayPlanItemInput = {
   id?: string
   accommodationId?: string | null
   amountCents: number
+  amountOriginal?: number | null
   dueDate: string
   sortOrder: number
   createdAt?: Date | string
@@ -676,6 +714,7 @@ export type CostPaymentCreateManyDayPlanItemInput = {
 export type CostPaymentUpdateWithoutDayPlanItemInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   amountCents?: Prisma.IntFieldUpdateOperationsInput | number
+  amountOriginal?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   dueDate?: Prisma.StringFieldUpdateOperationsInput | string
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -687,6 +726,7 @@ export type CostPaymentUncheckedUpdateWithoutDayPlanItemInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   accommodationId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   amountCents?: Prisma.IntFieldUpdateOperationsInput | number
+  amountOriginal?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   dueDate?: Prisma.StringFieldUpdateOperationsInput | string
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -697,6 +737,7 @@ export type CostPaymentUncheckedUpdateManyWithoutDayPlanItemInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   accommodationId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   amountCents?: Prisma.IntFieldUpdateOperationsInput | number
+  amountOriginal?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   dueDate?: Prisma.StringFieldUpdateOperationsInput | string
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -710,6 +751,7 @@ export type CostPaymentSelect<ExtArgs extends runtime.Types.Extensions.InternalA
   accommodationId?: boolean
   dayPlanItemId?: boolean
   amountCents?: boolean
+  amountOriginal?: boolean
   dueDate?: boolean
   sortOrder?: boolean
   createdAt?: boolean
@@ -723,6 +765,7 @@ export type CostPaymentSelectCreateManyAndReturn<ExtArgs extends runtime.Types.E
   accommodationId?: boolean
   dayPlanItemId?: boolean
   amountCents?: boolean
+  amountOriginal?: boolean
   dueDate?: boolean
   sortOrder?: boolean
   createdAt?: boolean
@@ -736,6 +779,7 @@ export type CostPaymentSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.E
   accommodationId?: boolean
   dayPlanItemId?: boolean
   amountCents?: boolean
+  amountOriginal?: boolean
   dueDate?: boolean
   sortOrder?: boolean
   createdAt?: boolean
@@ -749,13 +793,14 @@ export type CostPaymentSelectScalar = {
   accommodationId?: boolean
   dayPlanItemId?: boolean
   amountCents?: boolean
+  amountOriginal?: boolean
   dueDate?: boolean
   sortOrder?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }
 
-export type CostPaymentOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "accommodationId" | "dayPlanItemId" | "amountCents" | "dueDate" | "sortOrder" | "createdAt" | "updatedAt", ExtArgs["result"]["costPayment"]>
+export type CostPaymentOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "accommodationId" | "dayPlanItemId" | "amountCents" | "amountOriginal" | "dueDate" | "sortOrder" | "createdAt" | "updatedAt", ExtArgs["result"]["costPayment"]>
 export type CostPaymentInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   accommodation?: boolean | Prisma.CostPayment$accommodationArgs<ExtArgs>
   dayPlanItem?: boolean | Prisma.CostPayment$dayPlanItemArgs<ExtArgs>
@@ -780,6 +825,7 @@ export type $CostPaymentPayload<ExtArgs extends runtime.Types.Extensions.Interna
     accommodationId: string | null
     dayPlanItemId: string | null
     amountCents: number
+    amountOriginal: number | null
     dueDate: string
     sortOrder: number
     createdAt: Date
@@ -1213,6 +1259,7 @@ export interface CostPaymentFieldRefs {
   readonly accommodationId: Prisma.FieldRef<"CostPayment", 'String'>
   readonly dayPlanItemId: Prisma.FieldRef<"CostPayment", 'String'>
   readonly amountCents: Prisma.FieldRef<"CostPayment", 'Int'>
+  readonly amountOriginal: Prisma.FieldRef<"CostPayment", 'Int'>
   readonly dueDate: Prisma.FieldRef<"CostPayment", 'String'>
   readonly sortOrder: Prisma.FieldRef<"CostPayment", 'Int'>
   readonly createdAt: Prisma.FieldRef<"CostPayment", 'DateTime'>

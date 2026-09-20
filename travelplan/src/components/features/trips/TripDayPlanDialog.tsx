@@ -25,6 +25,8 @@ import {
 import { useTheme } from "@mui/material/styles";
 import DocumentUploadField from "@/components/forms/DocumentUploadField";
 import FormField from "@/components/forms/FormField";
+import MoneyField from "@/components/forms/MoneyField";
+import { useEntryCurrency } from "@/components/forms/useEntryCurrency";
 import FormNotice from "@/components/forms/FormNotice";
 import PhotoUploadField from "@/components/forms/PhotoUploadField";
 import DialogShell from "@/components/ui/DialogShell";
@@ -45,6 +47,7 @@ import {
   isSupportedDocumentUpload,
 } from "@/lib/trips/documentUploads";
 import { IMAGE_UPLOAD_ACCEPT, isSupportedImageUpload } from "@/lib/trips/imageUploads";
+import { convertEntryToCents, formatForeignAmount } from "@/lib/trips/convertCost";
 import { formatCentsAsAmount, parseAmountToCents } from "@/lib/trips/parseAmount";
 import { formatCoordinateLabel, parseLocationInput } from "@/lib/trips/parseLocationInput";
 import LocationCandidateList from "@/components/features/trips/LocationCandidateList";
@@ -76,7 +79,12 @@ type DayPlanItem = {
   toTime: string | null;
   contentJson: string;
   costCents: number | null;
-  payments?: { amountCents: number; dueDate: string }[];
+  /** Story 10.1. All four present or all four null - the server refuses any other combination. */
+  costOriginalAmount?: number | null;
+  costCurrency?: string | null;
+  costRate?: number | null;
+  costRateDate?: string | null;
+  payments?: { amountCents: number; dueDate: string; amountOriginal?: number | null }[];
   linkUrl: string | null;
   location: { lat: number; lng: number; label?: string | null } | null;
   createdAt: string;
@@ -457,6 +465,12 @@ type PlanFormValues = {
   fromTime: string;
   toTime: string;
   cost: string;
+  /**
+   * Story 10.1. `"EUR"` or one of `ECB_CURRENCIES`. It lives in `PlanFormValues` and not in plain
+   * component state for one reason: this type *is* the dirty fingerprint, and a value the user can
+   * change that is not in it is a value `✕` discards without asking.
+   */
+  costCurrency: string;
   paymentMode: "single" | "split";
   payments: Array<{ amount: string; dueDate: string }>;
   linkUrl: string;
@@ -524,6 +538,9 @@ const planFormFingerprint = (values: PlanFormValues) =>
     values.fromTime,
     values.toTime,
     values.cost,
+    // Story 10.1. This list is the dirty check, so a value the user can change that is absent from it
+    // is a value `✕` discards without asking - which is what a currency change would be.
+    values.costCurrency,
     values.paymentMode,
     values.payments.map((payment) => [payment.amount, payment.dueDate]),
     values.linkUrl,
@@ -544,24 +561,53 @@ const planFormFingerprint = (values: PlanFormValues) =>
 const buildDefaultPayments = ({
   payments,
   costCents,
+  costOriginalAmount,
+  isForeign,
   fallbackDate,
   language,
 }: {
-  payments?: { amountCents: number; dueDate: string }[];
+  payments?: { amountCents: number; dueDate: string; amountOriginal?: number | null }[];
   costCents: number | null | undefined;
+  /** Story 10.1: the parent's typed total, used only for the synthesized single row. */
+  costOriginalAmount?: number | null;
+  /** Story 10.1: the entry carries a currency, so every box shows what was *typed*, not the euros. */
+  isForeign?: boolean;
   fallbackDate: string;
   language: Language;
 }) => {
+  /*
+    Story 10.1, AC11 - the same rule as the stay dialog's builder next door. A foreign activity
+    reopens showing the amounts as typed. `formatCentsAsAmount` is still right for the *box*: it
+    emits the separator-correct plain string the field is typed back into, with no symbol and no
+    grouping, and `amountOriginal` is hundredths exactly as `amountCents` is.
+  */
   if (payments && payments.length > 0) {
     return payments.map((payment) => ({
-      amount: formatCentsAsAmount(payment.amountCents, language),
+      amount: formatCentsAsAmount(
+        isForeign && typeof payment.amountOriginal === "number" ? payment.amountOriginal : payment.amountCents,
+        language,
+      ),
       dueDate: payment.dueDate,
     }));
   }
-  if (typeof costCents === "number") {
-    return [{ amount: formatCentsAsAmount(costCents, language), dueDate: fallbackDate }];
+  const synthesized = isForeign && typeof costOriginalAmount === "number" ? costOriginalAmount : costCents;
+  if (typeof synthesized === "number") {
+    return [{ amount: formatCentsAsAmount(synthesized, language), dueDate: fallbackDate }];
   }
   return [{ amount: "", dueDate: "" }];
+};
+
+/**
+ * Story 10.1, AC11 - the stay dialog carries the identical helper. The cost box shows the number that
+ * was typed: the original amount when the entry carries a currency, the euro figure otherwise.
+ */
+const seedCostBox = (
+  item: { costCents: number | null; costOriginalAmount?: number | null; costCurrency?: string | null },
+  language: Language,
+) => {
+  const isForeign = Boolean(item.costCurrency);
+  const value = isForeign && typeof item.costOriginalAmount === "number" ? item.costOriginalAmount : item.costCents;
+  return typeof value === "number" ? formatCentsAsAmount(value, language) : "";
 };
 
 export default function TripDayPlanDialog({
@@ -629,6 +675,17 @@ export default function TripDayPlanDialog({
   const [contentJson, setContentJson] = useState<string>(toDocString(emptyDoc));
   const [titleInput, setTitleInput] = useState<string>("");
   const [costCentsInput, setCostCentsInput] = useState<string>("");
+  /*
+    Story 10.1, the same hook the stay dialog mounts. Seeded from the loaded activity so a foreign
+    entry reopens already showing its own rate with no request issued - re-fetching here would
+    re-price a saved activity at today's rate, which is the silent rewrite AC11 forbids.
+  */
+  const entryCurrency = useEntryCurrency({
+    initialCurrency: item?.costCurrency ?? null,
+    initialRate: item?.costRate ?? null,
+    initialRateDate: item?.costRateDate ?? null,
+  });
+  const { seedCurrency } = entryCurrency;
   const [fromTimeInput, setFromTimeInput] = useState<string>("");
   const [toTimeInput, setToTimeInput] = useState<string>("");
   const [paymentMode, setPaymentMode] = useState<"single" | "split">("single");
@@ -845,12 +902,62 @@ export default function TripDayPlanDialog({
    * `locationQuery` is seeded here but is deliberately absent from `PlanFormValues`: it is a search
    * box, not a saved field. See `planFormFingerprint`.
    */
+  /**
+   * Story 10.1. Switching **to** EUR clears the whole receipt: all five columns go `null` and the
+   * numbers already in the boxes are taken as euros from here on. The previous conversion is not
+   * preserved anywhere - a reader will otherwise assume it is, and then wonder why saving loses it.
+   * Switching between two foreign currencies re-converts the same typed numbers at the new rate,
+   * which is why the boxes are never rewritten here either.
+   *
+   * Unlike the stay dialog there is no `setValue` to make: `entryCurrency.currency` is read directly
+   * by `currentFingerprint`, so the change is dirty the moment it lands.
+   */
+  const handleCurrencyChange = useCallback(
+    (next: string) => {
+      entryCurrency.selectCurrency(next);
+      setPaymentError(null);
+    },
+    [entryCurrency],
+  );
+
+  /*
+    The caption under a box: the euro figure the typed amount converts to, at the rate in hand. It is
+    read-only feedback, so an unparseable box simply shows nothing rather than an error - the box's
+    own rule reports that, on save, in the user's words.
+  */
+  const convertedCaption = useCallback(
+    (raw: string) => {
+      if (!entryCurrency.isForeign || entryCurrency.rate === null) return null;
+      const typed = parseAmountToCents(raw.trim());
+      if (typed === null) return null;
+      return formatMessage(t("trips.money.convertedCaption"), {
+        value: formatForeignAmount(Math.round(typed / entryCurrency.rate), "EUR", language),
+      });
+    },
+    [entryCurrency.isForeign, entryCurrency.rate, language, t],
+  );
+
+  /*
+    Story 10.1 review, AC11's other half. The converted figure says how much this is in euros; the
+    rate date says when it was priced. `entryCurrency.rateDate` is the stored date while the
+    selection still matches the loaded entry and the fetched one after a change, which is exactly the
+    date the save will write.
+  */
+  const rateDateCaption = useMemo(
+    () =>
+      entryCurrency.isForeign && entryCurrency.rateDate
+        ? formatMessage(t("trips.money.rateDateCaption"), { date: entryCurrency.rateDate })
+        : null,
+    [entryCurrency.isForeign, entryCurrency.rateDate, t],
+  );
+
   const applyPlanFormValues = useCallback(
     (values: PlanFormValues, locationQuerySeed: string): PlanFormValues => {
       setTitleInput(values.title);
       setFromTimeInput(values.fromTime);
       setToTimeInput(values.toTime);
       setCostCentsInput(values.cost);
+      seedCurrency(values.costCurrency);
       setPaymentMode(values.paymentMode);
       setPayments(values.payments);
       setPaymentError(null);
@@ -860,7 +967,10 @@ export default function TripDayPlanDialog({
       setLocationQuery(locationQuerySeed);
       return { ...values, contentJson: setEditorContent(values.contentJson) };
     },
-    [setEditorContent],
+    // `seedCurrency` is a `useCallback([])`, so its identity is stable for the hook's life and
+    // naming it here cannot re-run the seed when the rate document lands - which would rewrite
+    // fields the user has already edited, the failure `languageAtOpen` next door exists to prevent.
+    [seedCurrency, setEditorContent],
   );
 
   /**
@@ -897,11 +1007,14 @@ export default function TripDayPlanDialog({
         title: item.title ?? "",
         fromTime: item.fromTime ?? "",
         toTime: item.toTime ?? "",
-        cost: item.costCents !== null ? formatCentsAsAmount(item.costCents, language) : "",
+        cost: seedCostBox(item, language),
+        costCurrency: item.costCurrency ?? "EUR",
         paymentMode: item.payments && item.payments.length > 1 ? "split" : "single",
         payments: buildDefaultPayments({
           payments: item.payments,
           costCents: item.costCents,
+          costOriginalAmount: item.costOriginalAmount,
+          isForeign: Boolean(item.costCurrency),
           fallbackDate: defaultDueDate,
           language,
         }),
@@ -921,6 +1034,7 @@ export default function TripDayPlanDialog({
         fromTime: "",
         toTime: "",
         cost: "",
+        costCurrency: "EUR",
         paymentMode: "single",
         payments: buildDefaultPayments({ payments: [], costCents: null, fallbackDate: defaultDueDate, language }),
         linkUrl: "",
@@ -936,6 +1050,7 @@ export default function TripDayPlanDialog({
         fromTime: "",
         toTime: "",
         cost: "",
+        costCurrency: "EUR",
         paymentMode: "single",
         payments: buildDefaultPayments({ payments: [], costCents: null, fallbackDate: defaultDueDate, language }),
         linkUrl: "",
@@ -1204,7 +1319,7 @@ export default function TripDayPlanDialog({
       return;
     }
 
-    let paymentsPayload: { amountCents: number; dueDate: string }[] = [];
+    let paymentsPayload: { amountCents: number; dueDate: string; amountOriginal?: number }[] = [];
     if (trimmedCost.length === 0) {
       const hasPaymentInput = payments.some(
         (payment) => payment.amount.trim().length > 0 || payment.dueDate.trim().length > 0,
@@ -1278,6 +1393,98 @@ export default function TripDayPlanDialog({
       }
     }
 
+    /*
+      Story 10.1, the same shape as the stay dialog's branch. Everything above ran on the numbers the
+      user typed, which under a foreign currency is exactly what AC5 requires: the payment-sum check
+      is made in the entered currency, before conversion, and reported against the figures on screen.
+
+      From here the typed totals become originals and one rate converts all of them. The EUR path
+      falls straight through with all four values left `null`.
+    */
+    let costCentsForSave = trimmedCost.length > 0 ? parsedCostCents : null;
+    let costOriginalAmount: number | null = null;
+    let costCurrencyPayload: string | null = null;
+    let costRatePayload: number | null = null;
+    let costRateDatePayload: string | null = null;
+
+    if (entryCurrency.isForeign && costCentsForSave !== null) {
+      const paymentsUnchanged =
+        (item?.payments?.length ?? 0) === paymentsPayload.length &&
+        (item?.payments ?? []).every(
+          (stored, index) =>
+            typeof stored.amountOriginal === "number" &&
+            stored.amountOriginal === paymentsPayload[index].amountCents,
+        );
+      const unchanged =
+        mode === "edit" &&
+        item?.costCurrency === entryCurrency.currency &&
+        typeof item?.costRate === "number" &&
+        typeof item?.costRateDate === "string" &&
+        item?.costOriginalAmount === costCentsForSave &&
+        paymentsUnchanged;
+
+      if (unchanged) {
+        /*
+          AC11. Nothing about the money was touched, so nothing about the money is recomputed: the
+          stored cents, rate and rate date go back exactly as they came. Re-fetching here would
+          re-price an activity saved weeks ago at today's rate and rewrite its receipt on a save the
+          user made to fix a typo in the title.
+
+          The stay dialog reaches the same conclusion through react-hook-form's `dirtyFields`; this
+          dialog has no such record, so the comparison is made against the loaded values directly.
+        */
+        const storedPayments = item?.payments ?? [];
+        costOriginalAmount = item!.costOriginalAmount as number;
+        costCurrencyPayload = entryCurrency.currency;
+        costRatePayload = item!.costRate as number;
+        costRateDatePayload = item!.costRateDate as string;
+        costCentsForSave = item!.costCents;
+        paymentsPayload = paymentsPayload.map((payment, index) => ({
+          amountCents: storedPayments[index].amountCents,
+          dueDate: payment.dueDate,
+          amountOriginal: storedPayments[index].amountOriginal ?? undefined,
+        }));
+      } else {
+        const resolved = await entryCurrency.ensureRate();
+        if (resolved) {
+          const converted = convertEntryToCents({
+            costOriginalAmount: costCentsForSave,
+            payments: paymentsPayload.map((payment) => ({ amountOriginal: payment.amountCents })),
+            rate: resolved.rate,
+          });
+          costOriginalAmount = costCentsForSave;
+          costCurrencyPayload = entryCurrency.currency;
+          costRatePayload = resolved.rate;
+          costRateDatePayload = resolved.rateDate;
+          costCentsForSave = converted.costCents;
+          paymentsPayload = paymentsPayload.map((payment, index) => ({
+            amountCents: converted.payments[index].amountCents,
+            dueDate: payment.dueDate,
+            amountOriginal: converted.payments[index].amountOriginal,
+          }));
+        } else if (entryCurrency.hasStoredReceipt) {
+          /*
+            Story 10.1 review, the same conclusion as the stay dialog and for the same reason.
+
+            With no rate a **new** activity still degrades: the typed numbers save as euros, the four
+            columns stay `null`, and the notice already on screen says so. Nothing is lost, because
+            there was nothing stored to lose.
+
+            An activity that already carries a receipt is the opposite case. Degrading there writes
+            the typed *foreign* number into `costCents` and nulls the rate, the rate date and the
+            original that explained it - so an activity stored as $100.00 -> EUR 87.26, reopened to
+            fix a typo during an ECB outage, silently becomes a EUR 101.00 activity. That is the data
+            loss AC11 exists to prevent, and the dialog closes before the notice can paint.
+          */
+          setSaving(false);
+          const nextErrors: PlanFieldErrors = { costCents: t("trips.money.rateRequired") };
+          setFieldErrors(nextErrors);
+          revealFirstError({ fieldErrors: nextErrors, paymentError: null, paymentRowErrors: [] });
+          return;
+        }
+      }
+    }
+
     /**
      * An unanswered candidate list is a question, not something to save past (6.28 follow-up review).
      *
@@ -1331,7 +1538,16 @@ export default function TripDayPlanDialog({
       fromTime: fromTimeInput.trim(),
       toTime: toTimeInput.trim(),
       contentJson,
-      costCents: trimmedCost.length > 0 ? parsedCostCents : null,
+      costCents: costCentsForSave,
+      /*
+        Sent explicitly rather than omitted, even on the euro path where all four are `null`: the
+        server refuses a partial receipt, so naming every field at the one place that builds the
+        payload is what makes "three of four" unreachable from here.
+      */
+      costOriginalAmount,
+      costCurrency: costCurrencyPayload,
+      costRate: costRatePayload,
+      costRateDate: costRateDatePayload,
       payments: paymentsPayload,
       linkUrl: trimmedLink.length > 0 ? trimmedLink : null,
       location: locationForSave,
@@ -1342,7 +1558,11 @@ export default function TripDayPlanDialog({
       toTime: string;
       contentJson: string;
       costCents: number | null;
-      payments: { amountCents: number; dueDate: string }[];
+      costOriginalAmount: number | null;
+      costCurrency: string | null;
+      costRate: number | null;
+      costRateDate: string | null;
+      payments: { amountCents: number; dueDate: string; amountOriginal?: number }[];
       linkUrl: string | null;
       location: { lat: number; lng: number; label?: string | null } | null;
       itemId?: string;
@@ -1463,6 +1683,7 @@ export default function TripDayPlanDialog({
         fromTime: fromTimeInput,
         toTime: toTimeInput,
         cost: costCentsInput,
+        costCurrency: entryCurrency.currency,
         paymentMode,
         payments,
         linkUrl,
@@ -1474,6 +1695,10 @@ export default function TripDayPlanDialog({
     [
       contentJson,
       costCentsInput,
+      // Story 10.1. Without this the memo never recomputes on a currency change, so the fingerprint
+      // stays on the loaded value and `✕` discards the change without asking - the exact failure
+      // putting `costCurrency` in `PlanFormValues` was meant to prevent.
+      entryCurrency.currency,
       documentFiles.length,
       fromTimeInput,
       galleryFiles.length,
@@ -2401,12 +2626,18 @@ export default function TripDayPlanDialog({
               flexDirection="column"
               gap="18px"
             >
-              <FormField
+              {/*
+                Story 10.1 swapped `FormField` for `MoneyField`, which composes it and adds the
+                currency selector beside it. Story 6.27's `type="text"` + `inputMode="decimal"` moved
+                inside that component: `type="number"` and `inputMode="decimal"` contradicted each
+                other here, the second asking a German keyboard for a comma and the first refusing it.
+              */}
+              <MoneyField
                 id={`${fieldIdPrefix}-cost`}
                 label={t("trips.plan.costLabel")}
                 value={costCentsInput}
-                onChange={(event) => {
-                  setCostCentsInput(event.target.value);
+                onChange={(next) => {
+                  setCostCentsInput(next);
                   setFieldErrors((previous) => ({ ...previous, costCents: undefined }));
                   // The block-level payment message ("sum does not match the cost") is about this
                   // number, so editing it invalidates that message too — and it is what keeps the
@@ -2415,12 +2646,16 @@ export default function TripDayPlanDialog({
                 }}
                 error={fieldErrors.costCents ?? undefined}
                 hint={t("trips.plan.costHelper")}
-                type="text"
-                slotProps={{ htmlInput: { inputMode: "decimal" } }}
                 // Story 6.27 AC5a. The placeholder is the first thing telling a German user which
                 // separator this box wants, and `0.00` was telling them the wrong one. Both are
                 // accepted either way - this is rendering, and rendering follows the locale.
                 placeholder={language === "de" ? "0,00" : "0.00"}
+                currency={entryCurrency.currency}
+                onCurrencyChange={handleCurrencyChange}
+                currencyLabel={t("trips.money.currencyLabel")}
+                convertedCaption={convertedCaption(costCentsInput)}
+                rateDateCaption={rateDateCaption}
+                notice={entryCurrency.unavailable ? t("trips.money.rateUnavailable") : null}
               />
               <FormControl component="fieldset" error={Boolean(paymentError)} variant="standard">
                 <FormLabel
@@ -2455,25 +2690,22 @@ export default function TripDayPlanDialog({
                   {payments.map((payment, index) => (
                     <Box key={`payment-${index}`} display="flex" gap={1} alignItems="flex-start" flexWrap="wrap">
                       <Box sx={{ flex: 1, minWidth: 140 }}>
-                        <FormField
+                        <MoneyField
                           id={`${fieldIdPrefix}-payment-amount-${index}`}
                           label={t("trips.payments.amountLabel")}
                           value={payment.amount}
-                          onChange={(event) => {
-                            const next = [...payments];
-                            next[index] = { ...next[index], amount: event.target.value };
-                            setPayments(next);
+                          onChange={(next) => {
+                            const rows = [...payments];
+                            rows[index] = { ...rows[index], amount: next };
+                            setPayments(rows);
                           }}
                           error={paymentRowErrors[index]?.amount}
-                          // Story 6.27. `type="number"` and `inputMode="decimal"` contradicted each
-                          // other here: the second asks a German keyboard for a comma, the first
-                          // refuses it and reports the box empty. `min`/`step` go with the type -
-                          // both are inert on a text input, and leaving them implies a constraint
-                          // nothing enforces. `readOnly` is unrelated to all of that and stays.
-                          type="text"
-                          slotProps={{
-                            htmlInput: { readOnly: paymentMode !== "split", inputMode: "decimal" },
-                          }}
+                          // Story 10.1: the same `MoneyField` with **no** currency pair, which is how
+                          // AC3's "one selector per entry" is expressed in code rather than in a
+                          // comment - the row cannot grow a selector, it is not given one to render.
+                          // `readOnly` still keeps the single-payment row mirroring the cost box.
+                          readOnly={paymentMode !== "split"}
+                          convertedCaption={convertedCaption(payment.amount)}
                         />
                       </Box>
                       <Box sx={{ flex: 1, minWidth: 170 }}>

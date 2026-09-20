@@ -378,4 +378,78 @@ describe("dayPlanItemSchemas", () => {
 
     expect(result.success).toBe(true);
   });
+
+  /** Story 10.1. The same rule as the stay schema's, checked against the activity's own machinery. */
+  describe("foreign-currency metadata", () => {
+    const foreign = (overrides: Record<string, unknown> = {}) =>
+      dayPlanItemMutationSchema.safeParse({
+        tripDayId: "day-id",
+        title: "Sky Tower",
+        fromTime: "09:30",
+        toTime: "11:00",
+        contentJson: sampleDoc,
+        costCents: 2763,
+        costOriginalAmount: 500000,
+        costCurrency: "JPY",
+        costRate: 180.94,
+        costRateDate: "2026-09-18",
+        payments: [{ amountCents: 2763, dueDate: "2026-11-01", amountOriginal: 500000 }],
+        ...overrides,
+      });
+
+    it("accepts a complete foreign-currency entry", () => {
+      expect(foreign().success).toBe(true);
+    });
+
+    it("rejects partial metadata", () => {
+      expect(foreign({ costRate: null }).success).toBe(false);
+      expect(foreign({ costCurrency: null }).success).toBe(false);
+    });
+
+    it("rejects EUR as a stored currency", () => {
+      expect(foreign({ costCurrency: "EUR" }).success).toBe(false);
+    });
+
+    it("rejects a payment row missing its original amount", () => {
+      expect(foreign({ payments: [{ amountCents: 2763, dueDate: "2026-11-01" }] }).success).toBe(false);
+    });
+
+    it("rejects originals that do not add up to the original cost", () => {
+      expect(
+        foreign({
+          payments: [
+            { amountCents: 1381, dueDate: "2026-11-01", amountOriginal: 250000 },
+            { amountCents: 1382, dueDate: "2026-11-02", amountOriginal: 240000 },
+          ],
+        }).success,
+      ).toBe(false);
+    });
+
+    it("rejects metadata on an entry with no cost", () => {
+      expect(foreign({ costCents: null, payments: [] }).success).toBe(false);
+    });
+
+    it("still accepts a plain EUR payload", () => {
+      const result = dayPlanItemMutationSchema.safeParse({
+        tripDayId: "day-id",
+        title: "Museum visit",
+        fromTime: "09:30",
+        toTime: "11:00",
+        contentJson: sampleDoc,
+        costCents: 1200,
+        payments: [{ amountCents: 1200, dueDate: "2026-11-01" }],
+      });
+
+      expect(result.success).toBe(true);
+    });
+
+    it("still reports a time-order fault alongside the currency rule", () => {
+      const result = foreign({ fromTime: "11:00", toTime: "09:30" });
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.issues.some((issue) => issue.path[0] === "toTime")).toBe(true);
+      }
+    });
+  });
 });

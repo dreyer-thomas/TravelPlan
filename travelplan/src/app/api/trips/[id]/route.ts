@@ -81,6 +81,15 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
                 notes: day.accommodation.notes,
                 status: day.accommodation.status,
                 costCents: day.accommodation.costCents,
+                /*
+                  Story 10.1. This payload is what `TripDayView` hands to both dialogs, so a field
+                  missing here is a field the dialog cannot reopen with - AC11 fails at this line
+                  before it fails anywhere visible.
+                */
+                costOriginalAmount: day.accommodation.costOriginalAmount,
+                costCurrency: day.accommodation.costCurrency,
+                costRate: day.accommodation.costRate,
+                costRateDate: day.accommodation.costRateDate,
                 payments: day.accommodation.payments ?? [],
                 link: day.accommodation.link,
                 checkInTime: day.accommodation.checkInTime ?? null,
@@ -103,6 +112,10 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
             createdAt: item.createdAt.toISOString(),
             contentJson: item.contentJson,
             costCents: item.costCents,
+            costOriginalAmount: item.costOriginalAmount,
+            costCurrency: item.costCurrency,
+            costRate: item.costRate,
+            costRateDate: item.costRateDate,
             payments: item.payments ?? [],
             linkUrl: item.linkUrl,
             location: item.location,
@@ -213,6 +226,11 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
                 notes: day.accommodation.notes,
                 status: day.accommodation.status,
                 costCents: day.accommodation.costCents,
+                // Story 10.1 - see the note on the GET handler above.
+                costOriginalAmount: day.accommodation.costOriginalAmount,
+                costCurrency: day.accommodation.costCurrency,
+                costRate: day.accommodation.costRate,
+                costRateDate: day.accommodation.costRateDate,
                 payments: day.accommodation.payments ?? [],
                 link: day.accommodation.link,
                 checkInTime: day.accommodation.checkInTime ?? null,
@@ -235,6 +253,10 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
             createdAt: item.createdAt.toISOString(),
             contentJson: item.contentJson,
             costCents: item.costCents,
+            costOriginalAmount: item.costOriginalAmount,
+            costCurrency: item.costCurrency,
+            costRate: item.costRate,
+            costRateDate: item.costRateDate,
             payments: item.payments ?? [],
             linkUrl: item.linkUrl,
             location: item.location,

@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { prisma } from "@/lib/db/prisma";
+import { type PaymentDetail, toPaymentDetails } from "@/lib/repositories/paymentDetail";
 import { createAccountWithTemporaryPassword } from "@/lib/repositories/userRepo";
 import { Prisma } from "@/generated/prisma/client";
 import type { TravelSegmentItemType, TravelTransportType } from "@/generated/prisma/enums";
@@ -170,7 +171,11 @@ export type TripDaySummary = {
     notes: string | null;
     status: "planned" | "booked";
     costCents: number | null;
-    payments: { amountCents: number; dueDate: string }[];
+    costOriginalAmount: number | null;
+    costCurrency: string | null;
+    costRate: number | null;
+    costRateDate: string | null;
+    payments: PaymentDetail[];
     link: string | null;
     checkInTime: string | null;
     checkOutTime: string | null;
@@ -190,7 +195,11 @@ export type TripDaySummary = {
     createdAt: Date;
     contentJson: string;
     costCents: number | null;
-    payments: { amountCents: number; dueDate: string }[];
+    costOriginalAmount: number | null;
+    costCurrency: string | null;
+    costRate: number | null;
+    costRateDate: string | null;
+    payments: PaymentDetail[];
     linkUrl: string | null;
     location: { lat: number; lng: number; label: string | null } | null;
   }[];
@@ -424,7 +433,11 @@ export type TripExportPayload = {
       notes: string | null;
       status: "planned" | "booked";
       costCents: number | null;
-      payments: { amountCents: number; dueDate: string }[];
+      costOriginalAmount: number | null;
+      costCurrency: string | null;
+      costRate: number | null;
+      costRateDate: string | null;
+      payments: PaymentDetail[];
       link: string | null;
       checkInTime: string | null;
       checkOutTime: string | null;
@@ -441,7 +454,11 @@ export type TripExportPayload = {
       toTime: string | null;
       contentJson: string;
       costCents: number | null;
-      payments: { amountCents: number; dueDate: string }[];
+      costOriginalAmount: number | null;
+      costCurrency: string | null;
+      costRate: number | null;
+      costRateDate: string | null;
+      payments: PaymentDetail[];
       linkUrl: string | null;
       location: { lat: number; lng: number; label: string | null } | null;
       createdAt: string;
@@ -1062,8 +1079,12 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
               notes: true,
               status: true,
               costCents: true,
+              costOriginalAmount: true,
+              costCurrency: true,
+              costRate: true,
+              costRateDate: true,
               payments: {
-                select: { amountCents: true, dueDate: true },
+                select: { amountCents: true, dueDate: true, amountOriginal: true },
                 orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
               },
               link: true,
@@ -1084,8 +1105,12 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
               createdAt: true,
               contentJson: true,
               costCents: true,
+              costOriginalAmount: true,
+              costCurrency: true,
+              costRate: true,
+              costRateDate: true,
               payments: {
-                select: { amountCents: true, dueDate: true },
+                select: { amountCents: true, dueDate: true, amountOriginal: true },
                 orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
               },
               linkUrl: true,
@@ -1192,7 +1217,11 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
               notes: day.accommodation!.notes,
               status,
               costCents: day.accommodation!.costCents,
-              payments: day.accommodation!.payments ?? [],
+              costOriginalAmount: day.accommodation!.costOriginalAmount,
+              costCurrency: day.accommodation!.costCurrency,
+              costRate: day.accommodation!.costRate,
+              costRateDate: day.accommodation!.costRateDate,
+              payments: toPaymentDetails(day.accommodation!.payments),
               link: day.accommodation!.link,
               checkInTime: day.accommodation!.checkInTime ?? null,
               checkOutTime: day.accommodation!.checkOutTime ?? null,
@@ -1219,7 +1248,11 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
           createdAt: item.createdAt,
           contentJson: item.contentJson,
           costCents: item.costCents,
-          payments: item.payments ?? [],
+          costOriginalAmount: item.costOriginalAmount,
+          costCurrency: item.costCurrency,
+          costRate: item.costRate,
+          costRateDate: item.costRateDate,
+          payments: toPaymentDetails(item.payments),
           linkUrl: item.linkUrl,
           location:
             item.locationLat !== null && item.locationLng !== null
@@ -1752,8 +1785,12 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
               notes: true,
               status: true,
               costCents: true,
+              costOriginalAmount: true,
+              costCurrency: true,
+              costRate: true,
+              costRateDate: true,
               payments: {
-                select: { amountCents: true, dueDate: true },
+                select: { amountCents: true, dueDate: true, amountOriginal: true },
                 orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
               },
               link: true,
@@ -1787,8 +1824,12 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
               toTime: true,
               contentJson: true,
               costCents: true,
+              costOriginalAmount: true,
+              costCurrency: true,
+              costRate: true,
+              costRateDate: true,
               payments: {
-                select: { amountCents: true, dueDate: true },
+                select: { amountCents: true, dueDate: true, amountOriginal: true },
                 orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
               },
               linkUrl: true,
@@ -2141,16 +2182,28 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
         toTime: item.toTime,
         contentJson: item.contentJson,
         costCents: item.costCents,
+        costOriginalAmount: item.costOriginalAmount,
+        costCurrency: item.costCurrency,
+        costRate: item.costRate,
+        costRateDate: item.costRateDate,
         payments:
           item.payments && item.payments.length > 0
-            ? item.payments
+            ? toPaymentDetails(item.payments)
             : item.costCents !== null
-              ? [
+              ? toPaymentDetails([
                   {
                     amountCents: item.costCents,
+                    /*
+                      Story 10.1. The synthesized row has to carry the parent's original amount: a
+                      foreign entry saved before payment rows existed exports one row here, and
+                      `tripImportSchemas.ts` refuses a foreign entry whose payments lack their
+                      originals. Without this the archive fails its own import check. A euro entry's
+                      synthesized row goes out without the field at all, like every other euro row.
+                    */
+                    amountOriginal: item.costCurrency !== null ? item.costOriginalAmount : null,
                     dueDate: day.date.toISOString().slice(0, 10),
                   },
-                ]
+                ])
               : [],
         linkUrl: item.linkUrl,
         location:
@@ -2184,16 +2237,23 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
             notes: day.accommodation.notes,
             status: day.accommodation.status === "BOOKED" ? "booked" : "planned",
             costCents: day.accommodation.costCents,
+            costOriginalAmount: day.accommodation.costOriginalAmount,
+            costCurrency: day.accommodation.costCurrency,
+            costRate: day.accommodation.costRate,
+            costRateDate: day.accommodation.costRateDate,
             payments:
               day.accommodation.payments && day.accommodation.payments.length > 0
-                ? day.accommodation.payments
+                ? toPaymentDetails(day.accommodation.payments)
                 : day.accommodation.costCents !== null
-                  ? [
+                  ? toPaymentDetails([
                       {
                         amountCents: day.accommodation.costCents,
+                        // See the note on the plan-item branch above: same fallback, same reason.
+                        amountOriginal:
+                          day.accommodation.costCurrency !== null ? day.accommodation.costOriginalAmount : null,
                         dueDate: day.date.toISOString().slice(0, 10),
                       },
-                    ]
+                    ])
                   : [],
             link: day.accommodation.link,
             checkInTime: day.accommodation.checkInTime ?? null,
@@ -2549,6 +2609,10 @@ const createImportedDays = async ({
           notes: day.accommodation.notes,
           status: toAccommodationStatus(day.accommodation.status),
           costCents: day.accommodation.costCents,
+          costOriginalAmount: day.accommodation.costOriginalAmount ?? null,
+          costCurrency: day.accommodation.costCurrency ?? null,
+          costRate: day.accommodation.costRate ?? null,
+          costRateDate: day.accommodation.costRateDate ?? null,
           link: day.accommodation.link,
           checkInTime: day.accommodation.checkInTime ?? null,
           checkOutTime: day.accommodation.checkOutTime ?? null,
@@ -2613,6 +2677,15 @@ const createImportedDays = async ({
             ? [
                 {
                   amountCents: day.accommodation.costCents,
+                  /*
+                    Story 10.1, the mirror of the export's fallback: an archive whose foreign entry
+                    carries no payment rows synthesizes one here, and it must carry the parent's
+                    original amount or the restored row contradicts the receipt above it.
+                  */
+                  amountOriginal:
+                    (day.accommodation.costCurrency ?? null) !== null
+                      ? (day.accommodation.costOriginalAmount ?? null)
+                      : null,
                   dueDate: day.date.slice(0, 10),
                 },
               ]
@@ -2622,6 +2695,7 @@ const createImportedDays = async ({
           data: accommodationPayments.map((payment, index) => ({
             accommodationId: accommodation.id,
             amountCents: payment.amountCents,
+            amountOriginal: payment.amountOriginal ?? null,
             dueDate: payment.dueDate,
             sortOrder: index,
           })),
@@ -2640,6 +2714,10 @@ const createImportedDays = async ({
           toTime: item.toTime ?? null,
           contentJson: item.contentJson,
           costCents: item.costCents ?? null,
+          costOriginalAmount: item.costOriginalAmount ?? null,
+          costCurrency: item.costCurrency ?? null,
+          costRate: item.costRate ?? null,
+          costRateDate: item.costRateDate ?? null,
           linkUrl: item.linkUrl,
           locationLat: item.location?.lat ?? null,
           locationLng: item.location?.lng ?? null,
@@ -2698,6 +2776,9 @@ const createImportedDays = async ({
             ? [
                 {
                   amountCents: item.costCents,
+                  // See the note on the accommodation fallback above: same rule, same reason.
+                  amountOriginal:
+                    (item.costCurrency ?? null) !== null ? (item.costOriginalAmount ?? null) : null,
                   dueDate: day.date.slice(0, 10),
                 },
               ]
@@ -2707,6 +2788,7 @@ const createImportedDays = async ({
           data: itemPayments.map((payment, index) => ({
             dayPlanItemId: createdItem.id,
             amountCents: payment.amountCents,
+            amountOriginal: payment.amountOriginal ?? null,
             dueDate: payment.dueDate,
             sortOrder: index,
           })),

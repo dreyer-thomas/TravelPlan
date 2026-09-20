@@ -273,6 +273,12 @@ describe("GET /api/trips/[id]", () => {
       "checkInTime",
       "checkOutTime",
       "costCents",
+      // Story 10.1. Four deliberate additions: this payload is what `TripDayView` hands to both
+      // dialogs, so a currency receipt absent here is one the dialog cannot reopen with.
+      "costCurrency",
+      "costOriginalAmount",
+      "costRate",
+      "costRateDate",
       "id",
       "link",
       "location",
@@ -287,6 +293,11 @@ describe("GET /api/trips/[id]", () => {
     expect(Object.keys(items[0]!).sort()).toEqual([
       "contentJson",
       "costCents",
+      // Story 10.1 - see the note on the accommodation key set above.
+      "costCurrency",
+      "costOriginalAmount",
+      "costRate",
+      "costRateDate",
       // Story 8.5. A deliberate addition, not a leak: `compareDayPlanItemsByStartTime` breaks a
       // same-start-time tie with `createdAt`, and `TripDayView` re-applies that comparator to order
       // the activities whose consecutive pairs are the day's travel legs. Without the field on the

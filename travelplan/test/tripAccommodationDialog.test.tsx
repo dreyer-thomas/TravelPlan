@@ -10,7 +10,7 @@ import TripAccommodationDialog, {
 } from "@/components/features/trips/TripAccommodationDialog";
 import { useI18n } from "@/i18n/provider";
 import { DOCUMENT_UPLOAD_ACCEPT } from "@/lib/trips/documentUploads";
-import { mockFetchResponse, stubFetch } from "./helpers/mockFetch";
+import { mockFetchResponse, requestUrl, stubFetch } from "./helpers/mockFetch";
 import { Providers } from "./helpers/renderWithProviders";
 
 /**
@@ -2307,6 +2307,438 @@ describe("TripAccommodationDialog", () => {
 
       expect(screen.queryByRole("button", { name: "Discard changes" })).toBeNull();
       expect(onClose).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  /**
+   * Story 10.1. The four properties that decide whether this dialog is correct, rather than a walk
+   * through the UI: EUR asks for nothing, a selection converts, a dead feed degrades instead of
+   * blocking, and a foreign entry reopens showing what was typed.
+   */
+  describe("Story 10.1 — a price in another currency", () => {
+    const ECB_BODY = {
+      data: { date: "2026-09-18", rates: { USD: 1.146, JPY: 180.94 } },
+      error: null,
+    };
+
+    type SaveBody = {
+      costCents: number | null;
+      costOriginalAmount: number | null;
+      costCurrency: string | null;
+      costRate: number | null;
+      costRateDate: string | null;
+      payments: { amountCents: number; dueDate: string; amountOriginal?: number | null }[];
+    };
+
+    /** Records every save body and answers the three endpoints this dialog reaches. */
+    const stubTripFetch = (options: { ratesFail?: boolean } = {}) => {
+      const saves: SaveBody[] = [];
+      const fetchMock = stubFetch(
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = requestUrl(input);
+
+          if (url.includes("/api/auth/csrf")) {
+            return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
+          }
+
+          if (url.includes("/api/exchange-rates")) {
+            return options.ratesFail
+              ? mockFetchResponse(
+                  { data: null, error: { code: "rates_unavailable", message: "no" } },
+                  { status: 502 },
+                )
+              : mockFetchResponse(ECB_BODY);
+          }
+
+          if (url.includes("/api/trips/trip-1/accommodations")) {
+            saves.push(JSON.parse(String(init?.body)) as SaveBody);
+            return mockFetchResponse({ data: { accommodation: { id: "stay-1" } }, error: null });
+          }
+
+          return mockFetchResponse({ data: null, error: { code: "not_found", message: "no" } }, { status: 404 });
+        }),
+      );
+
+      const rateCalls = () => fetchMock.mock.calls.filter(([input]) => requestUrl(input).includes("/api/exchange-rates"));
+      return { fetchMock, saves, rateCalls };
+    };
+
+    const renderStay = (accommodation: Record<string, unknown> | null, onSaved = vi.fn()) =>
+      render(
+        <Providers language="en">
+          <TripAccommodationDialog
+            open
+            tripId="trip-1"
+            stayType="current"
+            day={{
+              id: "day-1",
+              date: "2026-11-01T00:00:00.000Z",
+              dayIndex: 1,
+              accommodation: accommodation as never,
+            }}
+            onClose={() => undefined}
+            onSaved={onSaved}
+          />
+        </Providers>,
+      );
+
+    const eurStay = {
+      id: "stay-1",
+      name: "Harbor Hotel",
+      notes: null,
+      status: "planned" as const,
+      costCents: null,
+      link: null,
+      checkInTime: null,
+      checkOutTime: null,
+      location: null,
+    };
+
+    const selectCurrency = (code: string) => {
+      fireEvent.mouseDown(screen.getByLabelText("Currency"));
+      fireEvent.click(within(screen.getByRole("listbox")).getByRole("option", { name: code }));
+    };
+
+    it("issues no rate request while EUR is selected, and saves with every column null", async () => {
+      const { saves, rateCalls } = stubTripFetch();
+      const onSaved = vi.fn();
+      renderStay(eurStay, onSaved);
+
+      selectTab("Cost");
+      fireEvent.change(costField(), { target: { value: "120,50" } });
+      fireEvent.change(screen.getByLabelText("Due date"), { target: { value: "2026-11-01" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+
+      await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+
+      // AC4, the whole of it: no request, and a payload byte-for-byte what it was before this story.
+      expect(rateCalls()).toHaveLength(0);
+      expect(saves[0].costCents).toBe(12050);
+      expect(saves[0].costOriginalAmount).toBeNull();
+      expect(saves[0].costCurrency).toBeNull();
+      expect(saves[0].costRate).toBeNull();
+      expect(saves[0].costRateDate).toBeNull();
+      expect(saves[0].payments).toEqual([{ amountCents: 12050, dueDate: "2026-11-01" }]);
+    });
+
+    it("fetches once on the first move off EUR and converts by division", async () => {
+      const { saves, rateCalls } = stubTripFetch();
+      const onSaved = vi.fn();
+      renderStay(eurStay, onSaved);
+
+      selectTab("Cost");
+      fireEvent.change(costField(), { target: { value: "100,00" } });
+      fireEvent.change(screen.getByLabelText("Due date"), { target: { value: "2026-11-01" } });
+      selectCurrency("USD");
+
+      await waitFor(() => expect(rateCalls()).toHaveLength(1));
+
+      fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+      await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+
+      // The hand-checked figure: 10000 / 1.1460 = 8726.003..., and multiplying would give 11460.
+      expect(saves[0].costCents).toBe(8726);
+      expect(saves[0].costOriginalAmount).toBe(10000);
+      expect(saves[0].costCurrency).toBe("USD");
+      expect(saves[0].costRate).toBe(1.146);
+      expect(saves[0].costRateDate).toBe("2026-09-18");
+      expect(saves[0].payments).toEqual([
+        { amountCents: 8726, dueDate: "2026-11-01", amountOriginal: 10000 },
+      ]);
+    });
+
+    it("shows the converted figure as a caption once a rate is known", async () => {
+      stubTripFetch();
+      renderStay(eurStay);
+
+      selectTab("Cost");
+      fireEvent.change(costField(), { target: { value: "100,00" } });
+      selectCurrency("USD");
+
+      const caption = await screen.findAllByTestId("money-field-caption");
+      expect(caption[0]).toHaveTextContent("87.26");
+    });
+
+    it("degrades to euro entry with a notice when the rate feed is down, and still saves", async () => {
+      const { saves } = stubTripFetch({ ratesFail: true });
+      const onSaved = vi.fn();
+      renderStay(eurStay, onSaved);
+
+      selectTab("Cost");
+      fireEvent.change(costField(), { target: { value: "100,00" } });
+      fireEvent.change(screen.getByLabelText("Due date"), { target: { value: "2026-11-01" } });
+      selectCurrency("USD");
+
+      // AC9: a notice in the caption slot, not the input's error treatment, and never a block.
+      await waitFor(() => expect(screen.getAllByTestId("money-field-caption")[0]).toHaveTextContent("unavailable"));
+      expect(costField()).not.toHaveAttribute("aria-invalid", "true");
+
+      fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+      await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+
+      // The typed number saves as euros with no receipt - never a zero, never a `0` rate.
+      expect(saves[0].costCents).toBe(10000);
+      expect(saves[0].costCurrency).toBeNull();
+      expect(saves[0].costRate).toBeNull();
+    });
+
+    /**
+     * Story 10.1 review. `maxCostCents` is a ceiling on the **euro** figure. It was being applied to
+     * the raw box as well, which under a foreign currency holds the typed foreign hundredths - so
+     * ordinary prices in a weak currency were refused as "too high". 30 000 000 JPY is about
+     * EUR 165 800: three billion hundredths in the box, comfortably inside the ceiling once converted.
+     */
+    it("does not apply the euro ceiling to the typed foreign amount", async () => {
+      const { saves } = stubTripFetch();
+      const onSaved = vi.fn();
+      renderStay(eurStay, onSaved);
+
+      selectTab("Cost");
+      fireEvent.change(costField(), { target: { value: "30000000" } });
+      fireEvent.change(screen.getByLabelText("Due date"), { target: { value: "2026-11-01" } });
+      selectCurrency("JPY");
+      await waitFor(() => expect(screen.getAllByTestId("money-field-caption")[0]).toHaveTextContent("165"));
+
+      fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+      await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+
+      expect(saves[0].costOriginalAmount).toBe(3000000000);
+      expect(saves[0].costCents).toBe(Math.round(3000000000 / 180.94));
+    });
+
+    /** The ceiling still applies, in euros, once the rate is in hand. */
+    it("still refuses a converted figure above the euro ceiling", async () => {
+      const { saves } = stubTripFetch();
+      renderStay(eurStay);
+
+      selectTab("Cost");
+      // 200 000 000 JPY is about EUR 1 105 000 - over the million-euro ceiling.
+      fireEvent.change(costField(), { target: { value: "200000000" } });
+      fireEvent.change(screen.getByLabelText("Due date"), { target: { value: "2026-11-01" } });
+      selectCurrency("JPY");
+      await waitFor(() => expect(screen.getAllByTestId("money-field-caption")).not.toHaveLength(0));
+
+      fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+
+      await waitFor(() => expect(costField()).toHaveAttribute("aria-invalid", "true"));
+      expect(saves).toHaveLength(0);
+    });
+
+    const foreignStay = {
+      ...eurStay,
+      costCents: 8726,
+      costOriginalAmount: 10000,
+      costCurrency: "USD",
+      costRate: 1.146,
+      costRateDate: "2026-09-18",
+      payments: [{ amountCents: 8726, dueDate: "2026-11-01", amountOriginal: 10000 }],
+    };
+
+    /**
+     * Story 10.1 review, the one place AC9 and AC11 pull against each other.
+     *
+     * With the currency **unchanged** `rateFor` already falls back to the stored rate, so an outage
+     * costs nothing: the entry re-converts at the rate it was priced at. The exposed case is a change
+     * of currency while the feed is down - there is no stored rate for the new code, and degrading
+     * would write the typed foreign number into `costCents` and null the rate, the rate date and the
+     * original that explained the old price. A new entry has nothing to lose and still degrades.
+     */
+    it("refuses to drop a stored receipt when the new currency has no rate", async () => {
+      const { saves } = stubTripFetch({ ratesFail: true });
+      const onSaved = vi.fn();
+      renderStay(foreignStay, onSaved);
+
+      selectTab("Cost");
+      selectCurrency("JPY");
+      await waitFor(() => expect(screen.getAllByTestId("money-field-caption")[0]).toHaveTextContent("unavailable"));
+
+      fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+
+      await waitFor(() => expect(costField()).toHaveAttribute("aria-invalid", "true"));
+      expect(screen.getByText(/cannot be saved without an exchange rate/i)).toBeInTheDocument();
+      // Nothing was written: the stored receipt is still the only description of this price.
+      expect(saves).toHaveLength(0);
+      expect(onSaved).not.toHaveBeenCalled();
+    });
+
+    /** The unchanged-currency case is the one that was always safe, and must stay that way. */
+    it("re-converts at the stored rate when the feed is down and the currency is unchanged", async () => {
+      const { saves } = stubTripFetch({ ratesFail: true });
+      const onSaved = vi.fn();
+      renderStay(foreignStay, onSaved);
+
+      selectTab("Cost");
+      fireEvent.change(costField(), { target: { value: "101,00" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+
+      await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+      expect(saves[0].costOriginalAmount).toBe(10100);
+      expect(saves[0].costCurrency).toBe("USD");
+      expect(saves[0].costRate).toBe(1.146);
+      expect(saves[0].costCents).toBe(Math.round(10100 / 1.146));
+    });
+
+    /**
+     * Story 10.1 review. "Unchanged" is decided against the stored values now, not against
+     * react-hook-form's `dirtyFields`: the payment-mode effects write to `payments.0.amount` on any
+     * schedule toggle, so a dirty-flag test re-priced stays nobody had edited.
+     */
+    it("writes the stored receipt back untouched when only the name changed", async () => {
+      const { saves, rateCalls } = stubTripFetch();
+      const onSaved = vi.fn();
+      renderStay(
+        {
+          ...eurStay,
+          costCents: 8726,
+          costOriginalAmount: 10000,
+          costCurrency: "USD",
+          costRate: 1.0812,
+          costRateDate: "2026-08-01",
+          payments: [{ amountCents: 8726, dueDate: "2026-11-01", amountOriginal: 10000 }],
+        },
+        onSaved,
+      );
+
+      fireEvent.change(screen.getByLabelText("Stay name"), { target: { value: "Harbor Hotel & Spa" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+      await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+
+      // No re-fetch, no re-conversion at today's rate, and the August rate is still the stored one.
+      expect(rateCalls()).toHaveLength(0);
+      expect(saves[0].costCents).toBe(8726);
+      expect(saves[0].costRate).toBe(1.0812);
+      expect(saves[0].costRateDate).toBe("2026-08-01");
+      expect(saves[0].payments).toEqual([{ amountCents: 8726, dueDate: "2026-11-01", amountOriginal: 10000 }]);
+    });
+
+    it("reopens a foreign stay showing the amount that was typed, not the euro figure", async () => {
+      const { rateCalls } = stubTripFetch();
+      renderStay({
+        ...eurStay,
+        costCents: 8726,
+        costOriginalAmount: 10000,
+        costCurrency: "USD",
+        costRate: 1.146,
+        costRateDate: "2026-09-18",
+        payments: [{ amountCents: 8726, dueDate: "2026-11-01", amountOriginal: 10000 }],
+      });
+
+      selectTab("Cost");
+
+      // AC11: 100.00 is what was typed; 87.26 is what it converted to and must not be in the box.
+      expect(costField()).toHaveValue("100.00");
+      expect(screen.getByLabelText("Currency")).toHaveTextContent("USD");
+      expect(rateCalls()).toHaveLength(0);
+    });
+
+    it("writes back an unchanged foreign stay identically, with no re-fetch and no re-rounding", async () => {
+      const { saves, rateCalls } = stubTripFetch();
+      const onSaved = vi.fn();
+      renderStay(
+        {
+          ...eurStay,
+          costCents: 8726,
+          costOriginalAmount: 10000,
+          costCurrency: "USD",
+          // A rate from weeks ago. Re-fetching would re-price the stay at today's 1.1460 and rewrite
+          // the receipt on a save the user made for some other reason entirely.
+          costRate: 1.0812,
+          costRateDate: "2026-08-04",
+          payments: [
+            { amountCents: 5000, dueDate: "2026-11-01", amountOriginal: 5406 },
+            { amountCents: 3726, dueDate: "2026-12-01", amountOriginal: 4594 },
+          ],
+        },
+        onSaved,
+      );
+
+      fireEvent.change(screen.getByLabelText("Stay name"), { target: { value: "Harbour Hotel" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+      await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+
+      expect(rateCalls()).toHaveLength(0);
+      expect(saves[0].costCents).toBe(8726);
+      expect(saves[0].costRate).toBe(1.0812);
+      expect(saves[0].costRateDate).toBe("2026-08-04");
+      expect(saves[0].payments).toEqual([
+        { amountCents: 5000, dueDate: "2026-11-01", amountOriginal: 5406 },
+        { amountCents: 3726, dueDate: "2026-12-01", amountOriginal: 4594 },
+      ]);
+    });
+
+    it("reports a split mismatch against the numbers the user typed, not the converted cents", async () => {
+      const { saves } = stubTripFetch();
+      renderStay(eurStay);
+
+      selectTab("Cost");
+      fireEvent.change(costField(), { target: { value: "100,00" } });
+      selectCurrency("USD");
+      fireEvent.click(screen.getByLabelText("Split into multiple payments"));
+
+      const amounts = screen.getAllByLabelText("Amount", { selector: "input" });
+      fireEvent.change(amounts[0], { target: { value: "30,00" } });
+      fireEvent.change(screen.getAllByLabelText("Due date")[0], { target: { value: "2026-11-01" } });
+      fireEvent.change(amounts[1], { target: { value: "30,00" } });
+      fireEvent.change(screen.getAllByLabelText("Due date")[1], { target: { value: "2026-12-01" } });
+
+      fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+
+      // AC5: 30 + 30 is not 100 in the entered currency, and that is the comparison reported.
+      expect(await screen.findByText("Payments must add up to the total cost")).toBeInTheDocument();
+      expect(saves).toHaveLength(0);
+    });
+
+    it("sweeps the residual so a converted split still sums to the converted cost", async () => {
+      const { saves } = stubTripFetch();
+      const onSaved = vi.fn();
+      renderStay(eurStay, onSaved);
+
+      selectTab("Cost");
+      fireEvent.change(costField(), { target: { value: "100,00" } });
+      selectCurrency("USD");
+      fireEvent.click(screen.getByLabelText("Split into multiple payments"));
+
+      const amounts = screen.getAllByLabelText("Amount", { selector: "input" });
+      fireEvent.change(amounts[0], { target: { value: "33,33" } });
+      fireEvent.change(screen.getAllByLabelText("Due date")[0], { target: { value: "2026-11-01" } });
+      fireEvent.change(amounts[1], { target: { value: "66,67" } });
+      fireEvent.change(screen.getAllByLabelText("Due date")[1], { target: { value: "2026-12-01" } });
+
+      fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+      await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+
+      // AC6: the server enforces this as exact integer equality, so it has to hold on the wire.
+      const total = saves[0].payments.reduce((sum, payment) => sum + payment.amountCents, 0);
+      expect(total).toBe(saves[0].costCents);
+      expect(saves[0].payments.map((payment) => payment.amountOriginal)).toEqual([3333, 6667]);
+    });
+
+    it("clears the whole receipt when a foreign stay is switched back to EUR", async () => {
+      const { saves } = stubTripFetch();
+      const onSaved = vi.fn();
+      renderStay(
+        {
+          ...eurStay,
+          costCents: 8726,
+          costOriginalAmount: 10000,
+          costCurrency: "USD",
+          costRate: 1.146,
+          costRateDate: "2026-09-18",
+          payments: [{ amountCents: 8726, dueDate: "2026-11-01", amountOriginal: 10000 }],
+        },
+        onSaved,
+      );
+
+      selectTab("Cost");
+      selectCurrency("EUR");
+      fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+      await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+
+      // The typed numbers are taken as euros and the receipt is gone, not preserved.
+      expect(saves[0].costCents).toBe(10000);
+      expect(saves[0].costCurrency).toBeNull();
+      expect(saves[0].costOriginalAmount).toBeNull();
+      expect(saves[0].payments).toEqual([{ amountCents: 10000, dueDate: "2026-11-01" }]);
     });
   });
 });

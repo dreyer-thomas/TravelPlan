@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { costCurrencyFields, paymentOriginalField, refineCostCurrency } from "@/lib/validation/costCurrencySchemas";
 import { isValidDateOnly } from "@/lib/validation/dateOnly";
 import { locationInputSchema } from "@/lib/validation/locationSchemas";
 import { isSafeExternalUrl } from "@/lib/validation/safeExternalUrl";
@@ -17,6 +18,7 @@ const dateOnlySchema = z
 const paymentSchema = z.object({
   amountCents: costSchema,
   dueDate: dateOnlySchema,
+  ...paymentOriginalField,
 });
 const paymentsSchema = z.array(paymentSchema);
 // `.url()` alone accepted `javascript:`, `data:` and `ftp:` - it only asks whether `new URL()` parses.
@@ -60,6 +62,7 @@ export const accommodationMutationSchema = z.object({
   name: z.string().trim().min(1, "Accommodation name is required"),
   status: statusSchema,
   costCents: costSchema.optional().nullable(),
+  ...costCurrencyFields,
   payments: paymentsSchema.optional().nullable(),
   link: linkSchema.optional().nullable(),
   notes: notesSchema.optional().nullable(),
@@ -67,36 +70,50 @@ export const accommodationMutationSchema = z.object({
   checkOutTime: optionalTimeSchema,
   location: locationInputSchema.optional(),
 }).superRefine((value, context) => {
-  const costCents = value.costCents ?? null;
-  const payments = value.payments ?? null;
-  if (costCents === null) {
-    if (payments && payments.length > 0) {
+  /*
+    The cents invariant, unchanged. It lives in a nested function purely so its three early returns
+    stay readable while the currency check below still runs on every payload - a `return` at the top
+    level of the refinement would skip the currency rule for a cost-less entry, which is exactly the
+    shape (metadata present, costCents null) that must be refused.
+  */
+  const checkPaymentTotal = () => {
+    const costCents = value.costCents ?? null;
+    const payments = value.payments ?? null;
+    if (costCents === null) {
+      if (payments && payments.length > 0) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["payments"],
+          message: "Payments require a total cost",
+        });
+      }
+      return;
+    }
+
+    if (!payments || payments.length === 0) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["payments"],
-        message: "Payments require a total cost",
+        message: "Payments are required when cost is set",
+      });
+      return;
+    }
+
+    const total = payments.reduce((sum, payment) => sum + payment.amountCents, 0);
+    if (total !== costCents) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["payments"],
+        message: "Payment total must match cost",
       });
     }
-    return;
-  }
+  };
 
-  if (!payments || payments.length === 0) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["payments"],
-      message: "Payments are required when cost is set",
-    });
-    return;
-  }
+  checkPaymentTotal();
 
-  const total = payments.reduce((sum, payment) => sum + payment.amountCents, 0);
-  if (total !== costCents) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["payments"],
-      message: "Payment total must match cost",
-    });
-  }
+  // Story 10.1, additively and deliberately last: the cents invariant above is what the whole
+  // one-rate-per-entry design exists to satisfy, and the currency receipt is checked on top of it.
+  refineCostCurrency(value, context);
 });
 
 export type AccommodationMutationInput = z.infer<typeof accommodationMutationSchema>;

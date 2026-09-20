@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mockFetchResponse, stubFetch } from "./helpers/mockFetch";
+import { mockFetchResponse, requestUrl, stubFetch } from "./helpers/mockFetch";
 import { Providers } from "./helpers/renderWithProviders";
 import { useI18n } from "@/i18n/provider";
 import { DOCUMENT_UPLOAD_ACCEPT } from "@/lib/trips/documentUploads";
@@ -173,6 +173,36 @@ vi.mock("@mui/material", () => {
         />
         <span>{label}</span>
       </label>
+    ),
+    /*
+      Story 10.1. `MoneyField`'s currency selector. Rendered as a native <select> with the `<option>`
+      children `MenuItem` becomes, which is the same shape this mock already gives `TextField select`
+      - so a currency choice is a `fireEvent.change`, not the `mouseDown`-then-listbox dance the real
+      MUI menu needs. `inputProps["aria-label"]` is how `MoneyField` names the control.
+    */
+    Select: ({
+      children,
+      value,
+      onChange,
+      inputProps,
+      ...rest
+    }: {
+      children?: ReactNode;
+      value?: string;
+      onChange?: (event: ChangeEvent<HTMLSelectElement>) => void;
+      inputProps?: Record<string, unknown>;
+    }) => (
+      <select
+        value={value ?? ""}
+        onChange={onChange}
+        {...inputProps}
+        {...omitLayoutProps(rest as Record<string, unknown>)}
+      >
+        {children}
+      </select>
+    ),
+    MenuItem: ({ children, value }: { children?: ReactNode; value?: string }) => (
+      <option value={value}>{children}</option>
     ),
     SvgIcon: Simple,
     /*
@@ -3574,6 +3604,279 @@ describe("TripDayPlanDialog", () => {
 
       expect(screen.queryByText("Discard changes?")).toBeNull();
       expect(onClose).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  /**
+   * Story 10.1. The activity dialog's half, against its own machinery: three hand-rolled `useState`
+   * error stores and a fingerprint-based dirty check rather than react-hook-form.
+   */
+  describe("Story 10.1 — a price in another currency", () => {
+    const ECB_BODY = { data: { date: "2026-09-18", rates: { USD: 1.146, JPY: 180.94 } }, error: null };
+
+    type SaveBody = {
+      costCents: number | null;
+      costOriginalAmount: number | null;
+      costCurrency: string | null;
+      costRate: number | null;
+      costRateDate: string | null;
+      payments: { amountCents: number; dueDate: string; amountOriginal?: number | null }[];
+    };
+
+    const stubPlanFetch = (options: { ratesFail?: boolean } = {}) => {
+      const saves: SaveBody[] = [];
+      const fetchMock = stubFetch(
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = requestUrl(input);
+
+          if (url.includes("/api/auth/csrf")) {
+            return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
+          }
+
+          if (url.includes("/api/exchange-rates")) {
+            return options.ratesFail
+              ? mockFetchResponse({ data: null, error: { code: "rates_unavailable", message: "no" } }, { status: 502 })
+              : mockFetchResponse(ECB_BODY);
+          }
+
+          if (url.includes("/day-plan-items")) {
+            saves.push(JSON.parse(String(init?.body)) as SaveBody);
+            return mockFetchResponse({
+              data: {
+                dayPlanItem: {
+                  id: "item-1",
+                  tripDayId: "day-1",
+                  title: "Sky Tower",
+                  fromTime: "10:00",
+                  toTime: "11:00",
+                  contentJson: tiptapMocks.sampleDoc,
+                  costCents: 0,
+                  linkUrl: null,
+                  location: null,
+                  createdAt: new Date().toISOString(),
+                },
+              },
+              error: null,
+            });
+          }
+
+          return mockFetchResponse({ data: null, error: { code: "server_error", message: "boom" } }, { status: 500 });
+        }),
+      );
+
+      const rateCalls = () =>
+        fetchMock.mock.calls.filter(([input]) => requestUrl(input).includes("/api/exchange-rates"));
+      return { fetchMock, saves, rateCalls };
+    };
+
+    const renderPlan = async (item: Record<string, unknown> | null, onSaved = vi.fn()) => {
+      const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
+      render(
+        <Providers language="en">
+          <TripDayPlanDialog
+            open
+            mode={item ? "edit" : "add"}
+            tripId="trip-1"
+            day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
+            item={item as never}
+            onClose={() => undefined}
+            onSaved={onSaved}
+          />
+        </Providers>,
+      );
+      // The open-effect's CSRF request has to land before anything is clicked: `handleSave` refuses
+      // with `errors.csrfMissing` while the token is absent, which every other case in this file
+      // avoids by waiting on the same call.
+      await waitFor(() => expect(screen.queryByText("Security token missing. Please refresh and try again.")).toBeNull());
+      return onSaved;
+    };
+
+    const currencySelect = () => screen.getByLabelText("Currency") as HTMLSelectElement;
+
+    const eurItem = {
+      id: "item-1",
+      tripDayId: "day-1",
+      title: "Museum",
+      fromTime: "10:00",
+      toTime: "11:00",
+      contentJson: tiptapMocks.sampleDoc,
+      costCents: null,
+      payments: [],
+      linkUrl: null,
+      location: null,
+      createdAt: "2026-12-01T09:00:00.000Z",
+    };
+
+    const foreignItem = {
+      id: "item-1",
+      tripDayId: "day-1",
+      title: "Sky Tower",
+      fromTime: "10:00",
+      toTime: "11:00",
+      contentJson: tiptapMocks.sampleDoc,
+      costCents: 2763,
+      costOriginalAmount: 500000,
+      costCurrency: "JPY",
+      costRate: 180.94,
+      costRateDate: "2026-09-18",
+      payments: [{ amountCents: 2763, dueDate: "2026-11-01", amountOriginal: 500000 }],
+      linkUrl: null,
+      location: null,
+      createdAt: "2026-12-01T09:00:00.000Z",
+    };
+
+    /**
+     * Story 10.1 review, the same rule as the stay dialog. With the currency unchanged `rateFor`
+     * falls back to the stored rate, so an outage costs nothing. Changing to a code with no stored
+     * rate while the feed is down is the exposed case: degrading there would write the typed foreign
+     * number into `costCents` and null the receipt that explained the old price.
+     */
+    it("refuses to drop a stored receipt when the new currency has no rate", async () => {
+      const { saves } = stubPlanFetch({ ratesFail: true });
+      const onSaved = await renderPlan(foreignItem);
+
+      selectTab("cost");
+      fireEvent.change(currencySelect(), { target: { value: "USD" } });
+      await waitFor(() => expect(screen.getAllByTestId("money-field-caption")[0]).toHaveTextContent("unavailable"));
+
+      fireEvent.click(screen.getByRole("button", { name: "OK" }));
+
+      await waitFor(() => expect(screen.getByText(/cannot be saved without an exchange rate/i)).toBeInTheDocument());
+      expect(saves).toHaveLength(0);
+      expect(onSaved).not.toHaveBeenCalled();
+    });
+
+    it("issues no rate request while EUR is selected, and saves with every column null", async () => {
+      const { saves, rateCalls } = stubPlanFetch();
+      const onSaved = await renderPlan(eurItem);
+
+      selectTab("cost");
+      fireEvent.change(costField(), { target: { value: "12,00" } });
+      fireEvent.change(screen.getByLabelText("Due date"), { target: { value: "2026-11-01" } });
+      fireEvent.click(screen.getByRole("button", { name: "OK" }));
+
+      await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+
+      expect(rateCalls()).toHaveLength(0);
+      expect(saves[0].costCents).toBe(1200);
+      expect(saves[0].costCurrency).toBeNull();
+      expect(saves[0].costOriginalAmount).toBeNull();
+      expect(saves[0].payments).toEqual([{ amountCents: 1200, dueDate: "2026-11-01" }]);
+    });
+
+    it("converts a zero-exponent currency by division and stores hundredths", async () => {
+      const { saves, rateCalls } = stubPlanFetch();
+      const onSaved = await renderPlan(eurItem);
+
+      selectTab("cost");
+      fireEvent.change(costField(), { target: { value: "5000" } });
+      fireEvent.change(screen.getByLabelText("Due date"), { target: { value: "2026-11-01" } });
+      fireEvent.change(currencySelect(), { target: { value: "JPY" } });
+
+      await waitFor(() => expect(rateCalls()).toHaveLength(1));
+
+      fireEvent.click(screen.getByRole("button", { name: "OK" }));
+      await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+
+      // AC8: 5000 yen stores as 500000 hundredths regardless of JPY's zero exponent, and
+      // 500000 / 180.94 = 2763.35..., which rounds to 2763.
+      expect(saves[0].costOriginalAmount).toBe(500000);
+      expect(saves[0].costCents).toBe(2763);
+      expect(saves[0].costCurrency).toBe("JPY");
+      expect(saves[0].costRate).toBe(180.94);
+      expect(saves[0].costRateDate).toBe("2026-09-18");
+    });
+
+    it("degrades to euro entry with a notice when the rate feed is down, and still saves", async () => {
+      const { saves } = stubPlanFetch({ ratesFail: true });
+      const onSaved = await renderPlan(eurItem);
+
+      selectTab("cost");
+      fireEvent.change(costField(), { target: { value: "100,00" } });
+      fireEvent.change(screen.getByLabelText("Due date"), { target: { value: "2026-11-01" } });
+      fireEvent.change(currencySelect(), { target: { value: "USD" } });
+
+      await waitFor(() =>
+        expect(screen.getAllByTestId("money-field-caption")[0]).toHaveTextContent("unavailable"),
+      );
+      // AC9: a notice, never the input's error treatment, and never a block.
+      expect(costField()).toHaveAttribute("aria-invalid", "false");
+
+      fireEvent.click(screen.getByRole("button", { name: "OK" }));
+      await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+
+      expect(saves[0].costCents).toBe(10000);
+      expect(saves[0].costCurrency).toBeNull();
+      expect(saves[0].costRate).toBeNull();
+    });
+
+    it("reopens a foreign activity showing the amount that was typed", async () => {
+      const { rateCalls } = stubPlanFetch();
+      await renderPlan(foreignItem);
+
+      selectTab("cost");
+
+      // AC11: 5000 is what was typed; 27.63 is what it converted to and must not be in the box.
+      expect(costField()).toHaveValue("5000.00");
+      expect(currencySelect()).toHaveValue("JPY");
+      expect(rateCalls()).toHaveLength(0);
+    });
+
+    it("writes back an unchanged foreign activity identically, with no re-fetch", async () => {
+      const { saves, rateCalls } = stubPlanFetch();
+      const onSaved = await renderPlan({
+        ...foreignItem,
+        // A rate from weeks ago: re-fetching would re-price the activity at today's 180.94.
+        costRate: 171.2,
+        costRateDate: "2026-08-04",
+      });
+
+      fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Sky Tower at dusk" } });
+      fireEvent.click(screen.getByRole("button", { name: "OK" }));
+      await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+
+      expect(rateCalls()).toHaveLength(0);
+      expect(saves[0].costCents).toBe(2763);
+      expect(saves[0].costRate).toBe(171.2);
+      expect(saves[0].costRateDate).toBe("2026-08-04");
+      expect(saves[0].payments).toEqual([
+        { amountCents: 2763, dueDate: "2026-11-01", amountOriginal: 500000 },
+      ]);
+    });
+
+    it("reports a split mismatch against the numbers the user typed", async () => {
+      const { saves } = stubPlanFetch();
+      await renderPlan(eurItem);
+
+      selectTab("cost");
+      fireEvent.change(costField(), { target: { value: "100,00" } });
+      fireEvent.change(currencySelect(), { target: { value: "USD" } });
+      fireEvent.click(screen.getByLabelText("Split into multiple payments"));
+
+      const amounts = screen.getAllByLabelText("Amount");
+      fireEvent.change(amounts[0], { target: { value: "30,00" } });
+      fireEvent.change(screen.getAllByLabelText("Due date")[0], { target: { value: "2026-11-01" } });
+      fireEvent.change(amounts[1], { target: { value: "30,00" } });
+      fireEvent.change(screen.getAllByLabelText("Due date")[1], { target: { value: "2026-12-01" } });
+
+      fireEvent.click(screen.getByRole("button", { name: "OK" }));
+
+      // AC5: 30 + 30 is not 100 in the entered currency, and that is the comparison reported.
+      expect(await screen.findByText("Payments must add up to the total cost")).toBeInTheDocument();
+      expect(saves).toHaveLength(0);
+    });
+
+    it("counts a currency change as dirty, so the discard guard asks before closing", async () => {
+      stubPlanFetch();
+      await renderPlan(foreignItem);
+
+      selectTab("cost");
+      fireEvent.change(currencySelect(), { target: { value: "USD" } });
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+      // The currency lives in `PlanFormValues` precisely so the fingerprint covers it: a change that
+      // did not dirty the form would be discarded by `✕` without a word.
+      expect(await screen.findByText("Discard changes?")).toBeInTheDocument();
     });
   });
 });

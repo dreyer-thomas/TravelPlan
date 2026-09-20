@@ -700,6 +700,23 @@ const en: Dictionary = {
   "trips.payments.amountInvalid": "Enter a valid amount",
   "trips.payments.minRows": "Add at least two payments for a split schedule",
   "trips.payments.costRequired": "Enter a total cost before adding payments",
+  /*
+    Story 10.1. `trips.payments.sumMismatch` is deliberately reused for the entered-currency mismatch
+    rather than duplicated: its text is currency-neutral and already correct against the numbers the
+    user typed, which is the only pair those figures are ever compared as.
+  */
+  "trips.money.currencyLabel": "Currency",
+  "trips.money.convertedCaption": "≈ {value}",
+  "trips.money.rateUnavailable": "Exchange rates are unavailable - enter the price in euros.",
+  /*
+    Story 10.1 review. The blocking half of AC9, for the one case where degrading to euros would
+    destroy data rather than merely offer less: an entry that is *already* priced in a foreign
+    currency. Falling through to the euro path there rewrites a stored `costCents` with the typed
+    foreign number and nulls the receipt that explained it. A new entry has nothing to lose and still
+    degrades silently - this string is never shown for one.
+  */
+  "trips.money.rateRequired": "The price cannot be saved without an exchange rate. Try again in a moment, or switch the currency to EUR.",
+  "trips.money.rateDateCaption": "Rate of {date}",
   "trips.stay.copyPreviousAction": "Copy previous night",
   // Story 6.13: the stay cards are their own edit target, so these name the stretched overlay rather
   // than a visible button. Add and edit are separate strings on purpose - an empty accommodation card

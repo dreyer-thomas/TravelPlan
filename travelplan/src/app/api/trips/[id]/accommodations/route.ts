@@ -81,6 +81,15 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
     name: parsed.data.name,
     status: parsed.data.status,
     costCents: parsed.data.costCents ?? null,
+    /*
+      Story 10.1. This route builds its repository params field by field, so a validated field that
+      is not named here is dropped without a word - which is how a currency receipt would reach the
+      schema, pass every check, and never be stored.
+    */
+    costOriginalAmount: parsed.data.costOriginalAmount ?? null,
+    costCurrency: parsed.data.costCurrency ?? null,
+    costRate: parsed.data.costRate ?? null,
+    costRateDate: parsed.data.costRateDate ?? null,
     payments: parsed.data.payments ?? null,
     link,
     notes: notes ? notes : null,
@@ -146,6 +155,11 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
     name: parsed.data.name,
     status: parsed.data.status,
     costCents: parsed.data.costCents ?? null,
+    // Story 10.1 - see the note on the POST handler above.
+    costOriginalAmount: parsed.data.costOriginalAmount ?? null,
+    costCurrency: parsed.data.costCurrency ?? null,
+    costRate: parsed.data.costRate ?? null,
+    costRateDate: parsed.data.costRateDate ?? null,
     payments: parsed.data.payments ?? null,
     link,
     notes: notes ? notes : null,

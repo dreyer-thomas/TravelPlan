@@ -630,6 +630,16 @@ const de: Dictionary = {
   "trips.payments.amountInvalid": "Bitte einen gültigen Betrag eingeben",
   "trips.payments.minRows": "Für die Aufteilung sind mindestens zwei Zahlungen nötig",
   "trips.payments.costRequired": "Bitte zuerst eine Gesamtsumme eingeben",
+  // Story 10.1 - siehe die Anmerkung in `en.ts`: `trips.payments.sumMismatch` wird bewusst
+  // wiederverwendet, weil sein Text währungsneutral und bereits richtig ist.
+  "trips.money.currencyLabel": "Währung",
+  "trips.money.convertedCaption": "≈ {value}",
+  "trips.money.rateUnavailable": "Wechselkurse sind nicht verfügbar - bitte den Preis in Euro eingeben.",
+  // Story 10.1 Review - siehe die Anmerkung in `en.ts`: blockiert nur bei Einträgen, die bereits
+  // einen gespeicherten Kurs tragen; neue Einträge weichen weiterhin still auf Euro aus.
+  "trips.money.rateRequired":
+    "Der Preis kann ohne Wechselkurs nicht gespeichert werden. Bitte gleich noch einmal versuchen oder die Währung auf EUR stellen.",
+  "trips.money.rateDateCaption": "Kurs vom {date}",
   "trips.stay.copyPreviousAction": "Vorherige Nacht kopieren",
   // Story 6.13: Namen der aufgespannten Bearbeiten-Schaltfläche auf den Unterkunftskarten. Hinzufügen
   // und Bearbeiten sind bewusst getrennt - eine leere und eine gefüllte Karte klingen sonst gleich.

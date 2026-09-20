@@ -9,6 +9,7 @@ import {
   MAX_IMPORT_WARNINGS,
   MAX_SUPPORTED_FORMAT_VERSION,
 } from "@/lib/trips/importLimits";
+import { costCurrencyFields, paymentOriginalField, refineCostCurrency } from "@/lib/validation/costCurrencySchemas";
 import { isValidDateOnly } from "@/lib/validation/dateOnly";
 import { isSafeExternalUrl } from "@/lib/validation/safeExternalUrl";
 import { isSafeStoredImageUrl } from "@/lib/validation/safeStoredImageUrl";
@@ -350,11 +351,26 @@ const accommodationImportSchema = z.object({
   notes: z.union([z.string(), z.null()]),
   status: z.enum(["planned", "booked"]),
   costCents: z.union([z.number().int().nonnegative(), z.null()]),
+  /*
+    Story 10.1, additive within v2 in the same spirit as `documents` in 9.1: every field is optional,
+    so a v1 archive and every v2 package written before this story import byte-for-byte as they do
+    today, and `formatVersion` does not move.
+
+    Optional *without* a `.default(null)`, unlike `documents`: a default would make these fields
+    required on the parsed type, and the archive shape is consumed directly by `createImportedDays`
+    and by a dozen hand-built fixtures that describe pre-10.1 packages. Absent and `null` mean the
+    same thing to every reader below, all of which coalesce.
+  */
+  costOriginalAmount: costCurrencyFields.costOriginalAmount,
+  costCurrency: costCurrencyFields.costCurrency,
+  costRate: costCurrencyFields.costRate,
+  costRateDate: costCurrencyFields.costRateDate,
   payments: z
     .array(
       z.object({
         amountCents: z.number().int().nonnegative(),
         dueDate: dateOnlySchema,
+        amountOriginal: paymentOriginalField.amountOriginal,
       }),
     )
     .optional(),
@@ -367,74 +383,9 @@ const accommodationImportSchema = z.object({
   images: imagesSchema,
   documents: documentsSchema,
 }).superRefine((value, ctx) => {
-  const payments = value.payments ?? [];
-  if (payments.length === 0) return;
-  if (value.costCents === null) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["payments"],
-      message: "Payments require a costCents value",
-    });
-    return;
-  }
-  const total = payments.reduce((sum, payment) => sum + payment.amountCents, 0);
-  if (total !== value.costCents) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["payments"],
-      message: "Payments must sum to costCents",
-    });
-  }
-});
-
-const dayPlanItemImportSchema = z
-  .object({
-    id: z.string().trim().min(1),
-    title: z.union([z.string().trim().min(1).max(120), z.null()]).optional().default(null),
-    fromTime: z.union([z.string().trim().regex(HHMM_TIME_REGEX), z.null()]).optional().default(null),
-    toTime: z.union([z.string().trim().regex(HHMM_TIME_REGEX), z.null()]).optional().default(null),
-    contentJson: z.string().trim().min(1, "contentJson is required"),
-    costCents: z.union([z.number().int().nonnegative(), z.null()]).optional().default(null),
-    payments: z
-      .array(
-        z.object({
-          amountCents: z.number().int().nonnegative(),
-          dueDate: dateOnlySchema,
-        }),
-      )
-      .optional(),
-    linkUrl: urlOrNull,
-    location: z.union([locationSchema, z.null()]),
-    createdAt: isoUtcDate,
-    updatedAt: isoUtcDate,
-    images: imagesSchema,
-    documents: documentsSchema,
-  })
-  .superRefine((value, ctx) => {
-    const hasFromTime = typeof value.fromTime === "string";
-    const hasToTime = typeof value.toTime === "string";
-
-    if (hasFromTime !== hasToTime) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["fromTime"],
-        message: "fromTime and toTime must both be set or both be null",
-      });
-      return;
-    }
-
-    if (value.fromTime !== null && value.toTime !== null) {
-      const fromTime = value.fromTime;
-      const toTime = value.toTime;
-      if (parseTimeToMinutes(toTime) <= parseTimeToMinutes(fromTime)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["toTime"],
-          message: "toTime must be later than fromTime",
-        });
-      }
-    }
-
+  // Nested so its early returns stay local: a `return` at the top level would skip the currency
+  // rule below, and "metadata with no cost" is exactly one of the shapes that has to be refused.
+  const checkPaymentsSumToCostCents = () => {
     const payments = value.payments ?? [];
     if (payments.length === 0) return;
     if (value.costCents === null) {
@@ -453,6 +404,103 @@ const dayPlanItemImportSchema = z
         message: "Payments must sum to costCents",
       });
     }
+  };
+
+  checkPaymentsSumToCostCents();
+
+  // Story 10.1, alongside the cents check and never instead of it.
+  refineCostCurrency(value, ctx);
+});
+
+const dayPlanItemImportSchema = z
+  .object({
+    id: z.string().trim().min(1),
+    title: z.union([z.string().trim().min(1).max(120), z.null()]).optional().default(null),
+    fromTime: z.union([z.string().trim().regex(HHMM_TIME_REGEX), z.null()]).optional().default(null),
+    toTime: z.union([z.string().trim().regex(HHMM_TIME_REGEX), z.null()]).optional().default(null),
+    contentJson: z.string().trim().min(1, "contentJson is required"),
+    costCents: z.union([z.number().int().nonnegative(), z.null()]).optional().default(null),
+    // Story 10.1 - see the note on `accommodationImportSchema`: additive within v2, defaults null.
+    costOriginalAmount: costCurrencyFields.costOriginalAmount,
+    costCurrency: costCurrencyFields.costCurrency,
+    costRate: costCurrencyFields.costRate,
+    costRateDate: costCurrencyFields.costRateDate,
+    payments: z
+      .array(
+        z.object({
+          amountCents: z.number().int().nonnegative(),
+          dueDate: dateOnlySchema,
+          amountOriginal: paymentOriginalField.amountOriginal,
+        }),
+      )
+      .optional(),
+    linkUrl: urlOrNull,
+    location: z.union([locationSchema, z.null()]),
+    createdAt: isoUtcDate,
+    updatedAt: isoUtcDate,
+    images: imagesSchema,
+    documents: documentsSchema,
+  })
+  .superRefine((value, ctx) => {
+    /*
+      Story 10.1 review. Nested for the same reason the sum check below is: a `return` at the top
+      level of this `superRefine` skips `refineCostCurrency` at the end, so an activity with both a
+      time fault and a broken receipt reported only the time fault - and the second one reappeared on
+      the next import attempt. Each check's returns stay local to it.
+    */
+    const checkTimes = () => {
+      const hasFromTime = typeof value.fromTime === "string";
+      const hasToTime = typeof value.toTime === "string";
+
+      if (hasFromTime !== hasToTime) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["fromTime"],
+          message: "fromTime and toTime must both be set or both be null",
+        });
+        return;
+      }
+
+      if (value.fromTime !== null && value.toTime !== null) {
+        const fromTime = value.fromTime;
+        const toTime = value.toTime;
+        if (parseTimeToMinutes(toTime) <= parseTimeToMinutes(fromTime)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["toTime"],
+            message: "toTime must be later than fromTime",
+          });
+        }
+      }
+    };
+
+    checkTimes();
+
+    const checkPaymentsSumToCostCents = () => {
+      const payments = value.payments ?? [];
+      if (payments.length === 0) return;
+      if (value.costCents === null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["payments"],
+          message: "Payments require a costCents value",
+        });
+        return;
+      }
+      const total = payments.reduce((sum, payment) => sum + payment.amountCents, 0);
+      if (total !== value.costCents) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["payments"],
+          message: "Payments must sum to costCents",
+        });
+      }
+    };
+
+    checkPaymentsSumToCostCents();
+
+    // Story 10.1, alongside the cents check and never instead of it.
+    refineCostCurrency(value, ctx);
   });
 
 const tripDayImportSchema = z.object({

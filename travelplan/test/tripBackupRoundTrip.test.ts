@@ -565,6 +565,200 @@ describe("trip backup round trip", () => {
 
 
   /**
+   * Story 10.1 AC13, through both real routes. All five columns survive export → import, and - the
+   * load-bearing half - the archive passes `tripImportSchemas.ts`'s **own** refinements on the way
+   * back in, both the pre-existing `Payments must sum to costCents` and the new
+   * "every payment carries its original, and the originals sum to the original cost".
+   *
+   * A stay with a single payment and an activity split across two, because the two exercise
+   * different code: the single-payment stay is the one the export *synthesizes* a row for when the
+   * entry predates payment rows, and that synthesized row needs `amountOriginal` or the archive
+   * fails its own import check.
+   */
+  it("round-trips a foreign-currency stay and activity with every column intact", async () => {
+    const user = await prisma.user.create({
+      data: { email: "round-trip-currency@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const session = await createSessionJwt({ sub: user.id, role: user.role });
+
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Currency Round Trip",
+      startDate: "2026-05-01T00:00:00.000Z",
+      endDate: "2026-05-01T00:00:00.000Z",
+    });
+
+    const [sourceDay] = await prisma.tripDay.findMany({ where: { tripId: trip.id }, orderBy: { dayIndex: "asc" } });
+
+    // 100.00 USD at 1.1460 -> 8726 cents, the hand-checked figure from `convertCost.test.ts`.
+    const sourceStay = await prisma.accommodation.create({
+      data: {
+        tripDayId: sourceDay.id,
+        name: "Dockside Hotel",
+        status: "BOOKED",
+        costCents: 8726,
+        costOriginalAmount: 10000,
+        costCurrency: "USD",
+        costRate: 1.146,
+        costRateDate: "2026-09-18",
+      },
+    });
+    await prisma.costPayment.create({
+      data: {
+        accommodationId: sourceStay.id,
+        amountCents: 8726,
+        amountOriginal: 10000,
+        dueDate: "2026-05-01",
+        sortOrder: 0,
+      },
+    });
+
+    // 5000 JPY at 180.94 -> 2763 cents, split so the residual sweep is part of what round-trips.
+    const sourceItem = await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: sourceDay.id,
+        title: "Sky Tower",
+        contentJson: JSON.stringify({ type: "doc", content: [] }),
+        costCents: 2763,
+        costOriginalAmount: 500000,
+        costCurrency: "JPY",
+        costRate: 180.94,
+        costRateDate: "2026-09-18",
+      },
+    });
+    await prisma.costPayment.createMany({
+      data: [
+        { dayPlanItemId: sourceItem.id, amountCents: 1381, amountOriginal: 250000, dueDate: "2026-05-01", sortOrder: 0 },
+        { dayPlanItemId: sourceItem.id, amountCents: 1382, amountOriginal: 250000, dueDate: "2026-05-01", sortOrder: 1 },
+      ],
+    });
+
+    const exportResponse = await EXPORT(
+      new NextRequest(`http://localhost/api/trips/${trip.id}/export`, {
+        method: "GET",
+        headers: { cookie: `session=${session}` },
+      }),
+      { params: Promise.resolve({ id: trip.id }) }
+    );
+    const archive = Buffer.from(await exportResponse.arrayBuffer());
+
+    const form = new FormData();
+    form.set("file", new File([new Uint8Array(archive)], "backup.zip", { type: "application/zip" }));
+    form.set("strategy", "createNew");
+
+    const importResponse = await IMPORT(
+      new NextRequest("http://localhost/api/trips/import", {
+        method: "POST",
+        headers: { cookie: `session=${session}; csrf_token=csrf-token`, "x-csrf-token": "csrf-token" },
+        body: form,
+      })
+    );
+    const imported = (await importResponse.json()) as ApiEnvelope<ImportResponse>;
+
+    // A refinement failure surfaces as a 400 here, which is the whole point of going through the
+    // real import route rather than asserting on a hand-built manifest.
+    expect(importResponse.status).toBe(200);
+    const importedTripId = imported.data?.trip.id;
+    expect(importedTripId).toBeDefined();
+    expect(importedTripId).not.toBe(trip.id);
+
+    const restoredStay = await prisma.accommodation.findFirst({
+      where: { tripDay: { tripId: importedTripId } },
+      include: { payments: { orderBy: { sortOrder: "asc" } } },
+    });
+    expect(restoredStay).toMatchObject({
+      costCents: 8726,
+      costOriginalAmount: 10000,
+      costCurrency: "USD",
+      costRate: 1.146,
+      costRateDate: "2026-09-18",
+    });
+    expect(restoredStay?.payments.map((payment) => [payment.amountCents, payment.amountOriginal])).toEqual([
+      [8726, 10000],
+    ]);
+
+    const restoredItem = await prisma.dayPlanItem.findFirst({
+      where: { tripDay: { tripId: importedTripId } },
+      include: { payments: { orderBy: { sortOrder: "asc" } } },
+    });
+    expect(restoredItem).toMatchObject({
+      costCents: 2763,
+      costOriginalAmount: 500000,
+      costCurrency: "JPY",
+      costRate: 180.94,
+      costRateDate: "2026-09-18",
+    });
+    expect(restoredItem?.payments.map((payment) => [payment.amountCents, payment.amountOriginal])).toEqual([
+      [1381, 250000],
+      [1382, 250000],
+    ]);
+  });
+
+  /**
+   * The other half of AC13, and the one a currency story is most likely to break: a euro trip must
+   * round-trip exactly as it did before this story, with all five columns `null` rather than zero,
+   * an empty string, or a defaulted `"EUR"`.
+   */
+  it("round-trips a euro trip with every currency column still null", async () => {
+    const user = await prisma.user.create({
+      data: { email: "round-trip-euro-null@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const session = await createSessionJwt({ sub: user.id, role: user.role });
+
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Euro Round Trip",
+      startDate: "2026-05-01T00:00:00.000Z",
+      endDate: "2026-05-01T00:00:00.000Z",
+    });
+
+    const [sourceDay] = await prisma.tripDay.findMany({ where: { tripId: trip.id }, orderBy: { dayIndex: "asc" } });
+
+    // No payment rows at all: the export synthesizes one from `costCents`, which is the branch that
+    // must *not* invent an `amountOriginal` for a euro entry.
+    await prisma.accommodation.create({
+      data: { tripDayId: sourceDay.id, name: "Pension Anna", status: "PLANNED", costCents: 12050 },
+    });
+
+    const exportResponse = await EXPORT(
+      new NextRequest(`http://localhost/api/trips/${trip.id}/export`, {
+        method: "GET",
+        headers: { cookie: `session=${session}` },
+      }),
+      { params: Promise.resolve({ id: trip.id }) }
+    );
+    const archive = Buffer.from(await exportResponse.arrayBuffer());
+
+    const form = new FormData();
+    form.set("file", new File([new Uint8Array(archive)], "backup.zip", { type: "application/zip" }));
+    form.set("strategy", "createNew");
+
+    const importResponse = await IMPORT(
+      new NextRequest("http://localhost/api/trips/import", {
+        method: "POST",
+        headers: { cookie: `session=${session}; csrf_token=csrf-token`, "x-csrf-token": "csrf-token" },
+        body: form,
+      })
+    );
+    const imported = (await importResponse.json()) as ApiEnvelope<ImportResponse>;
+
+    expect(importResponse.status).toBe(200);
+    const restoredStay = await prisma.accommodation.findFirst({
+      where: { tripDay: { tripId: imported.data?.trip.id } },
+      include: { payments: true },
+    });
+    expect(restoredStay).toMatchObject({
+      costCents: 12050,
+      costOriginalAmount: null,
+      costCurrency: null,
+      costRate: null,
+      costRateDate: null,
+    });
+    expect(restoredStay?.payments).toHaveLength(1);
+    expect(restoredStay?.payments[0].amountOriginal).toBeNull();
+  });
+
+  /**
    * Story 9.1 AC8, through both real routes: documents on a stay *and* on an activity come back on
    * the same entries, with the same names, in the same order, and with the same bytes.
    *

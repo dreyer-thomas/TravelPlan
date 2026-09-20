@@ -1,6 +1,17 @@
 import { prisma } from "@/lib/db/prisma";
+import { type PaymentDetail, toPaymentDetails } from "@/lib/repositories/paymentDetail";
 import { removeTravelSegmentsReferencingItemInTransaction } from "@/lib/repositories/travelSegmentRepo";
 import { MAX_DOCUMENTS_PER_ENTRY } from "@/lib/trips/documentUploads";
+
+/**
+ * Story 10.1. `amountOriginal` is the typed amount in the entry's currency, in hundredths, and a euro
+ * row - which is every row that existed before this story - has none.
+ *
+ * Optional on the way **in** so that the dozens of existing EUR callers and fixtures stay valid
+ * unchanged, and optional on the way **out** for the same reason: see `paymentDetail.ts` for why a
+ * euro row omits the field rather than carrying `null` (AC4).
+ */
+type PaymentInput = { amountCents: number; dueDate: string; amountOriginal?: number | null };
 
 export type AccommodationDetail = {
   id: string;
@@ -9,7 +20,11 @@ export type AccommodationDetail = {
   notes: string | null;
   status: AccommodationStatus;
   costCents: number | null;
-  payments: { amountCents: number; dueDate: string }[];
+  costOriginalAmount: number | null;
+  costCurrency: string | null;
+  costRate: number | null;
+  costRateDate: string | null;
+  payments: PaymentDetail[];
   link: string | null;
   checkInTime: string | null;
   checkOutTime: string | null;
@@ -35,7 +50,11 @@ type AccommodationMutationParams = {
   name: string;
   status: AccommodationStatus;
   costCents?: number | null;
-  payments?: { amountCents: number; dueDate: string }[] | null;
+  costOriginalAmount?: number | null;
+  costCurrency?: string | null;
+  costRate?: number | null;
+  costRateDate?: string | null;
+  payments?: PaymentInput[] | null;
   link?: string | null;
   notes?: string | null;
   checkInTime?: string | null;
@@ -219,7 +238,11 @@ const toDetail = (accommodation: {
   notes: string | null;
   status: string;
   costCents: number | null;
-  payments?: { amountCents: number; dueDate: string }[];
+  costOriginalAmount: number | null;
+  costCurrency: string | null;
+  costRate: number | null;
+  costRateDate: string | null;
+  payments?: PaymentDetail[];
   link: string | null;
   locationLat: number | null;
   locationLng: number | null;
@@ -233,6 +256,10 @@ const toDetail = (accommodation: {
   notes: accommodation.notes,
   status: toStatus(accommodation.status),
   costCents: accommodation.costCents,
+  costOriginalAmount: accommodation.costOriginalAmount,
+  costCurrency: accommodation.costCurrency,
+  costRate: accommodation.costRate,
+  costRateDate: accommodation.costRateDate,
   payments: accommodation.payments ?? [],
   link: accommodation.link,
   checkInTime: accommodation.checkInTime,
@@ -268,6 +295,10 @@ export const createAccommodationForTripDay = async (
         notes: notes ?? null,
         status: toDbStatus(status),
         costCents: costCents ?? null,
+        costOriginalAmount: params.costOriginalAmount ?? null,
+        costCurrency: params.costCurrency ?? null,
+        costRate: params.costRate ?? null,
+        costRateDate: params.costRateDate ?? null,
         link: link ?? null,
         checkInTime,
         checkOutTime,
@@ -281,6 +312,10 @@ export const createAccommodationForTripDay = async (
         notes: notes ?? null,
         status: toDbStatus(status),
         costCents: costCents ?? null,
+        costOriginalAmount: params.costOriginalAmount ?? null,
+        costCurrency: params.costCurrency ?? null,
+        costRate: params.costRate ?? null,
+        costRateDate: params.costRateDate ?? null,
         link: link ?? null,
         checkInTime,
         checkOutTime,
@@ -297,6 +332,7 @@ export const createAccommodationForTripDay = async (
           data: params.payments.map((payment, index) => ({
             accommodationId: accommodation.id,
             amountCents: payment.amountCents,
+            amountOriginal: payment.amountOriginal ?? null,
             dueDate: payment.dueDate,
             sortOrder: index,
           })),
@@ -307,12 +343,12 @@ export const createAccommodationForTripDay = async (
     const payments = await tx.costPayment.findMany({
       where: { accommodationId: accommodation.id },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-      select: { amountCents: true, dueDate: true },
+      select: { amountCents: true, dueDate: true, amountOriginal: true },
     });
 
     return toDetail({
       ...accommodation,
-      payments,
+      payments: toPaymentDetails(payments),
     });
   });
 };
@@ -338,6 +374,10 @@ export const updateAccommodationForTripDay = async (
     notes: notes ?? null,
     status: toDbStatus(status),
     costCents: costCents ?? null,
+    costOriginalAmount: params.costOriginalAmount ?? null,
+    costCurrency: params.costCurrency ?? null,
+    costRate: params.costRate ?? null,
+    costRateDate: params.costRateDate ?? null,
     link: link ?? null,
     locationLat: location?.lat ?? null,
     locationLng: location?.lng ?? null,
@@ -347,6 +387,10 @@ export const updateAccommodationForTripDay = async (
     notes: string | null;
     status: "PLANNED" | "BOOKED";
     costCents: number | null;
+    costOriginalAmount: number | null;
+    costCurrency: string | null;
+    costRate: number | null;
+    costRateDate: string | null;
     link: string | null;
     locationLat: number | null;
     locationLng: number | null;
@@ -375,6 +419,7 @@ export const updateAccommodationForTripDay = async (
           data: params.payments.map((payment, index) => ({
             accommodationId: existing.id,
             amountCents: payment.amountCents,
+            amountOriginal: payment.amountOriginal ?? null,
             dueDate: payment.dueDate,
             sortOrder: index,
           })),
@@ -385,12 +430,12 @@ export const updateAccommodationForTripDay = async (
     const payments = await tx.costPayment.findMany({
       where: { accommodationId: existing.id },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-      select: { amountCents: true, dueDate: true },
+      select: { amountCents: true, dueDate: true, amountOriginal: true },
     });
 
     return toDetail({
       ...accommodation,
-      payments,
+      payments: toPaymentDetails(payments),
     });
   });
 
@@ -451,6 +496,19 @@ export const copyAccommodationFromPreviousNight = async (params: {
     notes: previousAccommodation.notes,
     status: previousAccommodation.status,
     costCents: null,
+    /*
+      Story 10.1 review. The four currency columns are nulled **explicitly**, not omitted.
+      This runs through an `upsert`, and on the `update` arm an omitted column keeps whatever the
+      target row already held - so copying onto a day that carried a foreign stay left a complete
+      receipt describing a `costCents` of `null`, which is exactly the shape `refineCostCurrency`
+      refuses ("Currency metadata requires a cost"). The stay could then never be saved from the
+      dialog again, and `getTripExportForUser` emitted it into an archive that failed its own import.
+      The copy deliberately drops the price; it must drop the price's receipt with it.
+    */
+    costOriginalAmount: null,
+    costCurrency: null,
+    costRate: null,
+    costRateDate: null,
     link: previousAccommodation.link,
     checkInTime: previousAccommodation.checkInTime,
     checkOutTime: previousAccommodation.checkOutTime,

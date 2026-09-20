@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { costCurrencyFields, paymentOriginalField, refineCostCurrency } from "@/lib/validation/costCurrencySchemas";
 import { isValidDateOnly } from "@/lib/validation/dateOnly";
 import { locationInputSchema } from "@/lib/validation/locationSchemas";
 import { isSafeExternalUrl } from "@/lib/validation/safeExternalUrl";
@@ -50,6 +51,7 @@ const dateOnlySchema = z
 const paymentSchema = z.object({
   amountCents: z.number().int().nonnegative("Cost must be zero or greater"),
   dueDate: dateOnlySchema,
+  ...paymentOriginalField,
 });
 const paymentsSchema = z.array(paymentSchema);
 
@@ -91,49 +93,62 @@ export const dayPlanItemMutationSchema = z.object({
   toTime: timeFieldSchema,
   contentJson: contentJsonSchema,
   costCents: z.number().int().nonnegative("Cost must be zero or greater").optional().nullable(),
+  ...costCurrencyFields,
   payments: paymentsSchema.optional().nullable(),
   linkUrl: linkSchema.optional().nullable(),
   location: locationInputSchema.optional(),
   bucketListItemId: z.string().trim().min(1, "Bucket list item is required").optional().nullable(),
 }).superRefine((value, context) => {
-  if (typeof value.fromTime !== "string" || typeof value.toTime !== "string") return;
-  if (toMinutes(value.toTime) <= toMinutes(value.fromTime)) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["toTime"],
-      message: "To time must be later than from time",
-    });
-  }
-  const costCents = value.costCents ?? null;
-  const payments = value.payments ?? null;
-  if (costCents === null) {
-    if (payments && payments.length > 0) {
+  /*
+    The time and cents rules, unchanged, nested so that their early returns stay local. At the top
+    level a `return` here would skip the currency rule below for every payload with a malformed time
+    or no cost - and "metadata present, costCents null" is precisely the shape that must be refused.
+  */
+  const checkTimesAndPaymentTotal = () => {
+    if (typeof value.fromTime !== "string" || typeof value.toTime !== "string") return;
+    if (toMinutes(value.toTime) <= toMinutes(value.fromTime)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["toTime"],
+        message: "To time must be later than from time",
+      });
+    }
+    const costCents = value.costCents ?? null;
+    const payments = value.payments ?? null;
+    if (costCents === null) {
+      if (payments && payments.length > 0) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["payments"],
+          message: "Payments require a total cost",
+        });
+      }
+      return;
+    }
+
+    if (!payments || payments.length === 0) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["payments"],
-        message: "Payments require a total cost",
+        message: "Payments are required when cost is set",
+      });
+      return;
+    }
+
+    const total = payments.reduce((sum, payment) => sum + payment.amountCents, 0);
+    if (total !== costCents) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["payments"],
+        message: "Payment total must match cost",
       });
     }
-    return;
-  }
+  };
 
-  if (!payments || payments.length === 0) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["payments"],
-      message: "Payments are required when cost is set",
-    });
-    return;
-  }
+  checkTimesAndPaymentTotal();
 
-  const total = payments.reduce((sum, payment) => sum + payment.amountCents, 0);
-  if (total !== costCents) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["payments"],
-      message: "Payment total must match cost",
-    });
-  }
+  // Story 10.1, additively and deliberately last - see the identical note in accommodationSchemas.ts.
+  refineCostCurrency(value, context);
 });
 
 export type DayPlanItemMutationInput = z.infer<typeof dayPlanItemMutationSchema>;

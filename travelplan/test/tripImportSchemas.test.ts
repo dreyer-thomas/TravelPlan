@@ -349,6 +349,43 @@ describe("tripImportSchemas", () => {
     expect(result.success).toBe(false);
   });
 
+  /**
+   * Story 10.1 review. The time-pair check used to `return` from the top level of the item's
+   * `superRefine`, which skipped the currency rule underneath it - so an archive activity with both
+   * faults reported only the first, and the second reappeared on the next import attempt. Each check
+   * is nested now, so its returns stay local to it.
+   */
+  it("reports a broken currency receipt alongside a one-sided time pair", () => {
+    const result = tripImportPayloadSchema.safeParse({
+      ...validPayload,
+      days: [
+        {
+          ...validPayload.days[0],
+          dayPlanItems: [
+            {
+              ...validPayload.days[0].dayPlanItems[0],
+              fromTime: "10:00",
+              toTime: null,
+              // Three of the four columns: the partial receipt `refineCostCurrency` refuses.
+              costCents: 8726,
+              costOriginalAmount: 10000,
+              costCurrency: "USD",
+              costRate: 1.146,
+            },
+          ],
+        },
+        validPayload.days[1],
+      ],
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const messages = result.error.issues.map((issue) => issue.message);
+      expect(messages).toContain("fromTime and toTime must both be set or both be null");
+      expect(messages).toContain("Currency metadata must be complete or absent");
+    }
+  });
+
   it("requires targetTripId for overwrite conflict strategy", () => {
     const result = tripImportRequestSchema.safeParse({
       payload: validPayload,

@@ -321,7 +321,12 @@ type TripDay = {
     notes: string | null;
     status: "planned" | "booked";
     costCents: number | null;
-    payments?: { amountCents: number; dueDate: string }[];
+    /** Story 10.1. All four present or all four null - the server refuses any other combination. */
+    costOriginalAmount?: number | null;
+    costCurrency?: string | null;
+    costRate?: number | null;
+    costRateDate?: string | null;
+    payments?: { amountCents: number; dueDate: string; amountOriginal?: number | null }[];
     link: string | null;
     checkInTime: string | null;
     checkOutTime: string | null;
@@ -334,7 +339,12 @@ type TripDay = {
     toTime: string | null;
     contentJson: string;
     costCents: number | null;
-    payments?: { amountCents: number; dueDate: string }[];
+    /** Story 10.1. All four present or all four null - the server refuses any other combination. */
+    costOriginalAmount?: number | null;
+    costCurrency?: string | null;
+    costRate?: number | null;
+    costRateDate?: string | null;
+    payments?: { amountCents: number; dueDate: string; amountOriginal?: number | null }[];
     linkUrl: string | null;
     location: { lat: number; lng: number; label?: string | null } | null;
     /**
@@ -367,7 +377,12 @@ type DayPlanItem = {
   toTime: string | null;
   contentJson: string;
   costCents: number | null;
-  payments?: { amountCents: number; dueDate: string }[];
+  /** Story 10.1. All four present or all four null - the server refuses any other combination. */
+  costOriginalAmount?: number | null;
+  costCurrency?: string | null;
+  costRate?: number | null;
+  costRateDate?: string | null;
+  payments?: { amountCents: number; dueDate: string; amountOriginal?: number | null }[];
   linkUrl: string | null;
   location: { lat: number; lng: number; label?: string | null } | null;
   createdAt: string;
@@ -951,6 +966,18 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
             toTime: item.toTime ?? null,
             contentJson: item.contentJson,
             costCents: typeof item.costCents === "number" ? item.costCents : null,
+            /*
+              Story 10.1. `payments` was selected by the API and dropped here, so a split schedule
+              reopened in the activity dialog as a single synthesized row - and an unchanged save
+              then silently rewrote it. Carrying the currency receipt without also carrying the rows
+              it describes would make that worse, not better: the dialog would reopen showing one
+              row's worth of a foreign total. Both go through together.
+            */
+            payments: item.payments,
+            costOriginalAmount: item.costOriginalAmount ?? null,
+            costCurrency: item.costCurrency ?? null,
+            costRate: item.costRate ?? null,
+            costRateDate: item.costRateDate ?? null,
             linkUrl: item.linkUrl,
             location: item.location,
             createdAt: item.createdAt ?? "",

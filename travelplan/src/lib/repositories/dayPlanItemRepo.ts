@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
+import { type PaymentDetail, toPaymentDetails } from "@/lib/repositories/paymentDetail";
 import {
   deleteBucketListItemForTripInTransaction,
   findBucketListItemForTripInTransaction,
@@ -15,6 +16,12 @@ import { MAX_DOCUMENTS_PER_ENTRY } from "@/lib/trips/documentUploads";
 // shared function is typed against. Every `prisma.$transaction` callback left in this file infers its
 // own client.
 
+/**
+ * Story 10.1, mirroring `accommodationRepo.ts`: optional inbound so every existing EUR caller stays
+ * valid unchanged (AC4), required outbound so a read surface cannot quietly drop it.
+ */
+type PaymentInput = { amountCents: number; dueDate: string; amountOriginal?: number | null };
+
 export type DayPlanItemDetail = {
   id: string;
   tripDayId: string;
@@ -23,7 +30,11 @@ export type DayPlanItemDetail = {
   toTime: string | null;
   contentJson: string;
   costCents: number | null;
-  payments: { amountCents: number; dueDate: string }[];
+  costOriginalAmount: number | null;
+  costCurrency: string | null;
+  costRate: number | null;
+  costRateDate: string | null;
+  payments: PaymentDetail[];
   linkUrl: string | null;
   location: { lat: number; lng: number; label: string | null } | null;
   createdAt: Date;
@@ -53,7 +64,11 @@ type DayPlanItemMutationParams = {
   toTime: string;
   contentJson: string;
   costCents?: number | null;
-  payments?: { amountCents: number; dueDate: string }[] | null;
+  costOriginalAmount?: number | null;
+  costCurrency?: string | null;
+  costRate?: number | null;
+  costRateDate?: string | null;
+  payments?: PaymentInput[] | null;
   linkUrl?: string | null;
   location?: { lat: number; lng: number; label?: string | null } | null;
 };
@@ -287,7 +302,11 @@ const toDetail = (item: {
   toTime: string | null;
   contentJson: string;
   costCents: number | null;
-  payments?: { amountCents: number; dueDate: string }[];
+  costOriginalAmount: number | null;
+  costCurrency: string | null;
+  costRate: number | null;
+  costRateDate: string | null;
+  payments?: PaymentDetail[];
   linkUrl: string | null;
   locationLat: number | null;
   locationLng: number | null;
@@ -301,6 +320,10 @@ const toDetail = (item: {
   toTime: item.toTime,
   contentJson: item.contentJson,
   costCents: item.costCents,
+  costOriginalAmount: item.costOriginalAmount,
+  costCurrency: item.costCurrency,
+  costRate: item.costRate,
+  costRateDate: item.costRateDate,
   payments: item.payments ?? [],
   linkUrl: item.linkUrl,
   location:
@@ -382,13 +405,13 @@ export const listDayPlanItemsForTripDay = async (params: {
     orderBy: { createdAt: "asc" },
     include: {
       payments: {
-        select: { amountCents: true, dueDate: true },
+        select: { amountCents: true, dueDate: true, amountOriginal: true },
         orderBy: [{ dueDate: "asc" }, { createdAt: "asc" }],
       },
     },
   });
 
-  return items.map(toDetail).sort(compareDayPlanItemsByStartTime);
+  return items.map((item) => toDetail({ ...item, payments: toPaymentDetails(item.payments) })).sort(compareDayPlanItemsByStartTime);
 };
 
 export const createDayPlanItemForTripDay = async (
@@ -409,6 +432,10 @@ export const createDayPlanItemForTripDay = async (
         toTime,
         contentJson,
         costCents: costCents ?? null,
+        costOriginalAmount: params.costOriginalAmount ?? null,
+        costCurrency: params.costCurrency ?? null,
+        costRate: params.costRate ?? null,
+        costRateDate: params.costRateDate ?? null,
         linkUrl: linkUrl ?? null,
         locationLat: location?.lat ?? null,
         locationLng: location?.lng ?? null,
@@ -423,6 +450,7 @@ export const createDayPlanItemForTripDay = async (
           data: params.payments.map((payment, index) => ({
             dayPlanItemId: item.id,
             amountCents: payment.amountCents,
+            amountOriginal: payment.amountOriginal ?? null,
             dueDate: payment.dueDate,
             sortOrder: index,
           })),
@@ -433,10 +461,10 @@ export const createDayPlanItemForTripDay = async (
     const payments = await tx.costPayment.findMany({
       where: { dayPlanItemId: item.id },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-      select: { amountCents: true, dueDate: true },
+      select: { amountCents: true, dueDate: true, amountOriginal: true },
     });
 
-    return toDetail({ ...item, payments });
+    return toDetail({ ...item, payments: toPaymentDetails(payments) });
   });
 };
 
@@ -470,6 +498,10 @@ export const convertBucketListItemToDayPlanItemForTripDay = async (
         toTime,
         contentJson,
         costCents: costCents ?? null,
+        costOriginalAmount: params.costOriginalAmount ?? null,
+        costCurrency: params.costCurrency ?? null,
+        costRate: params.costRate ?? null,
+        costRateDate: params.costRateDate ?? null,
         linkUrl: linkUrl ?? null,
         locationLat: location?.lat ?? null,
         locationLng: location?.lng ?? null,
@@ -484,6 +516,7 @@ export const convertBucketListItemToDayPlanItemForTripDay = async (
           data: params.payments.map((payment, index) => ({
             dayPlanItemId: created.id,
             amountCents: payment.amountCents,
+            amountOriginal: payment.amountOriginal ?? null,
             dueDate: payment.dueDate,
             sortOrder: index,
           })),
@@ -504,10 +537,10 @@ export const convertBucketListItemToDayPlanItemForTripDay = async (
     const payments = await tx.costPayment.findMany({
       where: { dayPlanItemId: created.id },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-      select: { amountCents: true, dueDate: true },
+      select: { amountCents: true, dueDate: true, amountOriginal: true },
     });
 
-    return { status: "created", item: toDetail({ ...created, payments }) };
+    return { status: "created", item: toDetail({ ...created, payments: toPaymentDetails(payments) }) };
   });
 };
 
@@ -540,6 +573,10 @@ export const updateDayPlanItemForTripDay = async (
         toTime,
         contentJson,
         costCents: costCents ?? null,
+        costOriginalAmount: params.costOriginalAmount ?? null,
+        costCurrency: params.costCurrency ?? null,
+        costRate: params.costRate ?? null,
+        costRateDate: params.costRateDate ?? null,
         linkUrl: linkUrl ?? null,
         locationLat: location?.lat ?? null,
         locationLng: location?.lng ?? null,
@@ -554,6 +591,7 @@ export const updateDayPlanItemForTripDay = async (
           data: params.payments.map((payment, index) => ({
             dayPlanItemId: existing.id,
             amountCents: payment.amountCents,
+            amountOriginal: payment.amountOriginal ?? null,
             dueDate: payment.dueDate,
             sortOrder: index,
           })),
@@ -564,10 +602,10 @@ export const updateDayPlanItemForTripDay = async (
     const payments = await tx.costPayment.findMany({
       where: { dayPlanItemId: existing.id },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-      select: { amountCents: true, dueDate: true },
+      select: { amountCents: true, dueDate: true, amountOriginal: true },
     });
 
-    return toDetail({ ...item, payments });
+    return toDetail({ ...item, payments: toPaymentDetails(payments) });
   });
 
   return { status: "updated", item: updated };
