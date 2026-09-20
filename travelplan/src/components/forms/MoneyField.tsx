@@ -135,7 +135,21 @@ export default function MoneyField({
 
   return (
     <Box>
-      <Box sx={{ display: "flex", alignItems: "flex-end", gap: "8px" }}>
+      {/*
+        `flex-start`, not `flex-end`.
+
+        The two columns are not the same shape: the left is label + input + `FormField`'s helper line
+        ("Optionaler Betrag (z. B. 10,00 oder 10.00)", or an error), the right is label + select and
+        nothing under it. Aligning by the *bottom* therefore pushed the whole currency column down by
+        the height of that helper line - about 50px in the German activity dialog - so `WÄHRUNG` sat
+        well below `KOSTEN` and the select's box below the amount box, although the two labels are
+        deliberately styled identically to sit on one baseline.
+
+        From the top they do sit on one baseline: both labels are 11px/0.06em with `mb: 7px`, so the
+        input and the select start at the same y and the helper line hangs below the amount alone,
+        which is where it belongs.
+      */}
+      <Box sx={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
         <Box sx={{ flex: 1, minWidth: 0 }}>{field}</Box>
         {showSelector ? (
           <Box>
