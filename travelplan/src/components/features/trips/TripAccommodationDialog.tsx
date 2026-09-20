@@ -1304,16 +1304,41 @@ export default function TripAccommodationDialog({
             revealError("costCents", `${fieldIdPrefix}-cost`);
             return;
           }
-          costOriginalAmount = costCents;
-          costCurrencyPayload = entryCurrency.currency;
-          costRatePayload = resolved.rate;
-          costRateDatePayload = resolved.rateDate;
-          costCents = converted.costCents;
-          paymentsPayload = paymentsPayload.map((payment, index) => ({
-            amountCents: converted.payments[index].amountCents,
-            dueDate: payment.dueDate,
-            amountOriginal: converted.payments[index].amountOriginal,
-          }));
+          if (converted.costCents === 0) {
+            /*
+              Code review of Story 10.2: a price of zero is a euro price.
+
+              Zero is the same figure in every currency, so there is no conversion for a receipt to
+              record - and storing one put the read surfaces into open disagreement, the day view
+              hiding a recorded `0` while the printed sheet rendered it with a receipt beneath. The
+              five columns therefore stay `null` and the entry saves as a euro zero;
+              `refineCostCurrency` refuses the other shape as a backstop.
+
+              The rows go back as euro zeroes too, with no `amountOriginal`: the reconciliation
+              invariant makes every row zero when the cost is, and a euro entry whose rows carried
+              originals is a shape that same refinement refuses.
+
+              This also catches a sub-half-cent foreign price - 0,01 at a rate of 3 converts to zero
+              euro cents - where the typed figure is lost. That is the existing rounding contract
+              rather than a new loss: the euro figure is what this entry is priced at, and it is zero.
+            */
+            costCents = 0;
+            paymentsPayload = paymentsPayload.map((payment) => ({
+              amountCents: 0,
+              dueDate: payment.dueDate,
+            }));
+          } else {
+            costOriginalAmount = costCents;
+            costCurrencyPayload = entryCurrency.currency;
+            costRatePayload = resolved.rate;
+            costRateDatePayload = resolved.rateDate;
+            costCents = converted.costCents;
+            paymentsPayload = paymentsPayload.map((payment, index) => ({
+              amountCents: converted.payments[index].amountCents,
+              dueDate: payment.dueDate,
+              amountOriginal: converted.payments[index].amountOriginal,
+            }));
+          }
         } else if (entryCurrency.hasStoredReceipt) {
           /*
             Story 10.1 review, and the one place AC9 and AC11 pull against each other.

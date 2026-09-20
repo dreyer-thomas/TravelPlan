@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { TripDayPrintPayload, TripDayPrintTimelineEntry } from "@/lib/repositories/tripRepo";
 import { formatMessage, INTL_LOCALES } from "@/i18n";
 import { useI18n } from "@/i18n/provider";
+import { formatCostOriginal } from "@/lib/trips/convertCost";
+import { formatCost } from "@/lib/trips/formatCost";
 import { parsePlanText } from "@/lib/trips/planText";
 import { collectTimelineDocuments, getPrintEntryLabel, truncateText } from "@/lib/trips/printDocuments";
 import { isTransportType, transportTypeAllowsDistance, type TransportType } from "@/lib/trips/transportTypes";
@@ -95,6 +97,47 @@ export default function TripDayPrintDocument({ payload, onReady }: TripDayPrintD
 
   const googleMapsUrl = useMemo(() => buildGoogleMapsUrl(map.points), [map.points]);
   const hasMapPoints = map.points.length > 0;
+
+  /**
+   * Story 10.2. The cost line and, beneath it, the conversion receipt.
+   *
+   * Labelled rather than bare: on paper there is no pill, no column header and no dialog to open, so
+   * the figure has to say what it is.
+   *
+   * `formatCost` is imported from `@/lib/trips/formatCost` rather than copied - this file has no local
+   * copy today and must not grow the fourth one. Whether the receipt exists is `formatCostOriginal`'s
+   * single decision, shared with the day view and the cost overview, so paper and screen cannot
+   * disagree about which entry is converted.
+   *
+   * Plain `<div>` with an inline `style` and a hex colour, matching the neighbouring secondary lines.
+   * That is this file's idiom by design: it carries no MUI and no theme tokens, because it renders
+   * into a print document. `expectNoHardcodedColour` does not cover it for the same reason.
+   */
+  const renderCost = (entry: {
+    costCents: number | null;
+    costOriginalAmount: number | null;
+    costCurrency: string | null;
+    costRate: number | null;
+  }) => {
+    if (typeof entry.costCents !== "number") return null;
+    const original = formatCostOriginal(
+      { amountOriginal: entry.costOriginalAmount, currency: entry.costCurrency, rate: entry.costRate },
+      language,
+      t("trips.money.originalCaption"),
+    );
+    return (
+      <>
+        <div style={{ fontSize: "11px", color: "#555", marginTop: "2px" }}>
+          {formatMessage(t("trips.dayPrint.cost"), { value: formatCost(entry.costCents, language) })}
+        </div>
+        {original && (
+          <div data-testid="cost-original-annotation" style={{ fontSize: "11px", color: "#777" }}>
+            {original}
+          </div>
+        )}
+      </>
+    );
+  };
 
   /**
    * Two keys rather than one, and joined by a space rather than interpolated into a third.
@@ -492,6 +535,13 @@ export default function TripDayPrintDocument({ payload, onReady }: TripDayPrintD
                           {formatMessage(t("trips.dayPrint.checkIn"), { time: stay.checkInTime })}
                         </div>
                       )}
+                      {/* `entry.kind === "currentStay"` is load-bearing, not defensive. This block draws
+                          BOTH stay kinds and separates them only inside itself, so an unconditional cost
+                          would print the same nightly rate on two consecutive days' sheets - once as
+                          tonight's stay and again as tomorrow's previous night, reading as a double
+                          charge. Tonight's stay only, matching the day view, where the previous-night
+                          card is separate JSX that renders no cost at all. */}
+                      {entry.kind === "currentStay" && renderCost(stay)}
                       {stay.notes && (
                         <div style={{ fontSize: "11px", color: "#444", marginTop: "2px" }}>
                           {truncateText(stay.notes)}
@@ -549,6 +599,7 @@ export default function TripDayPrintDocument({ payload, onReady }: TripDayPrintD
                         </div>
                       )}
                       <div style={{ fontWeight: 600, fontSize: "13px" }}>{label}</div>
+                      {renderCost(item)}
                       {description && description !== label && (
                         <div style={{ fontSize: "11px", color: "#444", marginTop: "2px" }}>{description}</div>
                       )}

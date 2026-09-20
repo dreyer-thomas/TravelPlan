@@ -35,6 +35,12 @@ const stay = (overrides: Partial<PrintStay> = {}): PrintStay => ({
   notes: null,
   status: "booked",
   costCents: null,
+  // Story 10.2 added these four to the print payload. Null here, so this file still describes exactly
+  // the days it described before - no assertion in it reads a cost, and the packet is untouched.
+  costOriginalAmount: null,
+  costCurrency: null,
+  costRate: null,
+  costRateDate: null,
   link: null,
   checkInTime: null,
   checkOutTime: null,
@@ -51,6 +57,11 @@ const item = (overrides: Partial<PrintItem> = {}): PrintItem => ({
   toTime: null,
   contentJson: '{"type":"doc","content":[]}',
   costCents: null,
+  // Story 10.2. See the `stay` factory above.
+  costOriginalAmount: null,
+  costCurrency: null,
+  costRate: null,
+  costRateDate: null,
   linkUrl: null,
   location: null,
   images: [],

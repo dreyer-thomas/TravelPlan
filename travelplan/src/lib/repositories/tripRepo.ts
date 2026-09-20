@@ -259,6 +259,16 @@ export type TripDayPrintStay = {
   notes: string | null;
   status: "planned" | "booked";
   costCents: number | null;
+  /**
+   * Story 10.2. All four present or all four null - the server refuses any other combination. The
+   * shape is `TripDaySummary`'s (`:168-205`) minus `payments`: the sheet prints what an entry cost,
+   * not when it is paid, so the relation is deliberately not pulled. `costRateDate` is a `String?`
+   * column, so it is a `string` here and not a `Date`.
+   */
+  costOriginalAmount: number | null;
+  costCurrency: string | null;
+  costRate: number | null;
+  costRateDate: string | null;
   link: string | null;
   checkInTime: string | null;
   checkOutTime: string | null;
@@ -274,6 +284,11 @@ export type TripDayPrintPlanItem = {
   toTime: string | null;
   contentJson: string;
   costCents: number | null;
+  /** Story 10.2. See `TripDayPrintStay` above for why `payments` is not carried alongside these. */
+  costOriginalAmount: number | null;
+  costCurrency: string | null;
+  costRate: number | null;
+  costRateDate: string | null;
   linkUrl: string | null;
   location: { lat: number; lng: number; label: string | null } | null;
   images: TripDayPrintImage[];
@@ -1380,6 +1395,11 @@ const PRINT_ACCOMMODATION_SELECT = {
   notes: true,
   status: true,
   costCents: true,
+  // Story 10.2: the sheet prints the cost and the receipt that explains it.
+  costOriginalAmount: true,
+  costCurrency: true,
+  costRate: true,
+  costRateDate: true,
   link: true,
   checkInTime: true,
   checkOutTime: true,
@@ -1436,6 +1456,11 @@ export const getTripDayPrintPayloadForUser = async ({
             createdAt: true,
             contentJson: true,
             costCents: true,
+            // Story 10.2: the sheet prints the cost and the receipt that explains it.
+            costOriginalAmount: true,
+            costCurrency: true,
+            costRate: true,
+            costRateDate: true,
             linkUrl: true,
             locationLat: true,
             locationLng: true,
@@ -1562,6 +1587,10 @@ export const getTripDayPrintPayloadForUser = async ({
     notes: stay.notes,
     status: stay.status === "BOOKED" ? "booked" : "planned",
     costCents: stay.costCents,
+    costOriginalAmount: stay.costOriginalAmount,
+    costCurrency: stay.costCurrency,
+    costRate: stay.costRate,
+    costRateDate: stay.costRateDate,
     link: stay.link,
     checkInTime: stay.checkInTime,
     checkOutTime: stay.checkOutTime,
@@ -1582,6 +1611,10 @@ export const getTripDayPrintPayloadForUser = async ({
       toTime: item.toTime,
       contentJson: item.contentJson,
       costCents: item.costCents,
+      costOriginalAmount: item.costOriginalAmount,
+      costCurrency: item.costCurrency,
+      costRate: item.costRate,
+      costRateDate: item.costRateDate,
       linkUrl: item.linkUrl,
       location: mapPrintLocation(item),
       images: planItemImagesById.get(item.id) ?? [],

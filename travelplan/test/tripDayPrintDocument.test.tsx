@@ -31,6 +31,12 @@ const makeStay = (overrides: Partial<PrintStay> = {}): PrintStay => ({
   notes: null,
   status: "booked",
   costCents: null,
+  // Story 10.2. Null by default, so every existing case still describes an entry with no cost and no
+  // receipt - which is what the assertions written before this story hold.
+  costOriginalAmount: null,
+  costCurrency: null,
+  costRate: null,
+  costRateDate: null,
   link: null,
   checkInTime: null,
   checkOutTime: null,
@@ -47,6 +53,11 @@ const makeItem = (overrides: Partial<PrintItem> = {}): PrintItem => ({
   toTime: "11:00",
   contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Great place" }] }] }),
   costCents: null,
+  // Story 10.2. See `makeStay` above.
+  costOriginalAmount: null,
+  costCurrency: null,
+  costRate: null,
+  costRateDate: null,
   linkUrl: null,
   location: null,
   images: [],
@@ -1059,6 +1070,134 @@ describe("TripDayPrintDocument", () => {
 
       renderSheet({ payload, onReady });
       await waitFor(() => expect(onReady).toHaveBeenCalledTimes(1));
+    });
+  });
+
+  /**
+   * Story 10.2. Two claims, and the second is the one a reader gets wrong.
+   *
+   * First: this sheet rendered no money at all before this story - it never imported `formatCost` and
+   * never read `costCents`, although the payload carried it. So AC5 adds the figure and annotates it,
+   * rather than annotating a figure that does not exist.
+   *
+   * Second: the sheet draws **both** stay kinds through one block and separates them only inside it.
+   * Rendering the cost unconditionally would print the same nightly rate on two consecutive days'
+   * sheets - once as tonight's stay, again as tomorrow's previous night - which reads as a double
+   * charge on the artefact least able to explain itself. The previous-night case below is what holds
+   * that line; without it the shared-block trap regresses in silence.
+   */
+  describe("Story 10.2 cost and conversion receipt", () => {
+    const NZD = {
+      costOriginalAmount: 20000,
+      costCurrency: "NZD",
+      costRate: 1.8563,
+      costRateDate: "2026-08-28",
+    };
+
+    it("prints the cost for tonight's stay and for a plan item", () => {
+      const payload = basePayload({
+        timeline: [
+          { kind: "planItem", item: makeItem({ costCents: 5387 }) },
+          { kind: "currentStay", stay: makeStay({ costCents: 10774 }) },
+        ],
+      });
+
+      renderSheet({ payload });
+
+      expect(screen.getByText("Cost: €53.87")).toBeInTheDocument();
+      expect(screen.getByText("Cost: €107.74")).toBeInTheDocument();
+      // A euro entry gets the figure and nothing beneath it (AC3).
+      expect(screen.queryByTestId("cost-original-annotation")).toBeNull();
+    });
+
+    it("prints the receipt beneath the cost for a converted entry", () => {
+      const payload = basePayload({
+        timeline: [
+          { kind: "planItem", item: makeItem({ costCents: 5387, ...NZD, costOriginalAmount: 10000 }) },
+          { kind: "currentStay", stay: makeStay({ costCents: 10774, ...NZD }) },
+        ],
+      });
+
+      renderSheet({ payload });
+
+      const annotations = screen.getAllByTestId("cost-original-annotation");
+      expect(annotations).toHaveLength(2);
+      expect(screen.getByText("NZ$100.00 at 1.8563/EUR")).toBeInTheDocument();
+      expect(screen.getByText("NZ$200.00 at 1.8563/EUR")).toBeInTheDocument();
+    });
+
+    it("prints neither the cost nor a receipt when costCents is null", () => {
+      // The value both existing fixtures default to, so this is also the claim that every assertion
+      // written before this story still describes the same sheet.
+      const payload = basePayload({
+        timeline: [
+          { kind: "planItem", item: makeItem() },
+          { kind: "currentStay", stay: makeStay() },
+        ],
+      });
+
+      renderSheet({ payload });
+
+      expect(screen.queryByText(/^Cost:/)).toBeNull();
+      expect(screen.queryByTestId("cost-original-annotation")).toBeNull();
+    });
+
+    it("prints no cost on the previous-night stay, even when one is recorded", () => {
+      // The shared-block trap. Tonight's stay only, matching the screen - where the previous-night
+      // card is separate JSX that renders no cost at all.
+      const payload = basePayload({
+        timeline: [
+          { kind: "previousStay", stay: makeStay({ id: "prev", name: "Airport Inn", costCents: 12000, ...NZD }) },
+          { kind: "currentStay", stay: makeStay({ id: "curr", name: "Beach Hotel", costCents: 10774, ...NZD }) },
+        ],
+      });
+
+      renderSheet({ payload });
+
+      const entries = screen.getAllByTestId("print-timeline-entry");
+      const previous = entries.find((entry) => entry.getAttribute("data-kind") === "previousStay")!;
+      const current = entries.find((entry) => entry.getAttribute("data-kind") === "currentStay")!;
+
+      expect(previous.textContent).not.toContain("Cost:");
+      expect(previous.querySelector('[data-testid="cost-original-annotation"]')).toBeNull();
+      expect(current.textContent).toContain("Cost: €107.74");
+      expect(current.querySelector('[data-testid="cost-original-annotation"]')).not.toBeNull();
+    });
+
+    it("translates the cost label and the receipt's figures into German", () => {
+      // DW-230 made the whole sheet translated; the amount, the rate and the label all move.
+      const payload = basePayload({
+        timeline: [{ kind: "currentStay", stay: makeStay({ costCents: 10774, ...NZD }) }],
+      });
+
+      renderSheet({ payload }, "de");
+
+      // Plain spaces, not the NO-BREAK SPACE `Intl` actually emits: testing-library's default
+      // normaliser collapses whitespace in the rendered text but not in the query string.
+      expect(screen.getByText("Kosten: 107,74 €")).toBeInTheDocument();
+      expect(screen.getByTestId("cost-original-annotation")).toHaveTextContent("200,00 NZ$ zu 1,8563/EUR");
+    });
+
+    it("prints a zero-exponent currency with no fraction digits", () => {
+      // The sheet is a read surface like any other, so AC1's JPY rule reaches paper too.
+      const payload = basePayload({
+        timeline: [
+          {
+            kind: "currentStay",
+            stay: makeStay({
+              costCents: 2899,
+              costOriginalAmount: 500000,
+              costCurrency: "JPY",
+              costRate: 172.5,
+              costRateDate: "2026-08-28",
+            }),
+          },
+        ],
+      });
+
+      renderSheet({ payload });
+
+      expect(screen.getByTestId("cost-original-annotation")).toHaveTextContent("¥5,000 at 172.50/EUR");
     });
   });
 });

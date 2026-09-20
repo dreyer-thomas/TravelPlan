@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { convertEntryToCents, formatForeignAmount } from "@/lib/trips/convertCost";
+import {
+  convertEntryToCents,
+  formatCostOriginal,
+  formatExchangeRate,
+  formatForeignAmount,
+} from "@/lib/trips/convertCost";
 
 describe("convertEntryToCents", () => {
   /**
@@ -105,5 +110,88 @@ describe("formatForeignAmount", () => {
 
   it("falls back to the bare number when the currency code is not one Intl knows", () => {
     expect(formatForeignAmount(10000, "ZZZ", "en")).toContain("100");
+  });
+});
+
+describe("formatExchangeRate", () => {
+  it("renders a ratio, not money - no currency symbol anywhere", () => {
+    // The rate is units of foreign currency per one euro. Attaching a symbol would claim it is a
+    // price in something, and there is no currency it could honestly wear.
+    expect(formatExchangeRate(1.8563, "en")).toBe("1.8563");
+    expect(formatExchangeRate(1.8563, "de")).toBe("1,8563");
+  });
+
+  it("keeps two digits as a floor so a round rate is not a bare 1,5", () => {
+    expect(formatExchangeRate(1.5, "en")).toBe("1.50");
+    expect(formatExchangeRate(1.5, "de")).toBe("1,50");
+  });
+
+  it("keeps five digits as a ceiling - the widest precision ECB publishes", () => {
+    expect(formatExchangeRate(1.234567, "en")).toBe("1.23457");
+    expect(formatExchangeRate(0.87543, "de")).toBe("0,87543");
+  });
+
+  it("resolves the locale through INTL_LOCALES rather than a de/en ternary", () => {
+    // DW-281: grouping separators differ per locale, so a wrong tag shows up here.
+    expect(formatExchangeRate(1234.5, "de")).toBe("1.234,50");
+    expect(formatExchangeRate(1234.5, "en")).toBe("1,234.50");
+  });
+});
+
+describe("formatCostOriginal", () => {
+  const template = "{amount} at {rate}";
+
+  it("renders the amount through formatForeignAmount and the rate beside it", () => {
+    expect(
+      formatCostOriginal({ amountOriginal: 20000, currency: "NZD", rate: 1.8563 }, "en", template),
+    ).toBe("NZ$200.00 at 1.8563");
+    expect(
+      formatCostOriginal({ amountOriginal: 20000, currency: "NZD", rate: 1.8563 }, "de", "{amount} zu {rate}"),
+      // `Intl` joins a German amount to its symbol with a NO-BREAK SPACE (U+00A0), not a plain one.
+      // Spelling it as an escape keeps the assertion readable and keeps a future editor from
+      // "fixing" an invisible character.
+    ).toBe("200,00\u00A0NZ$ zu 1,8563");
+  });
+
+  it("renders a zero-exponent currency with no fraction digits", () => {
+    // AC1: the first production caller of formatForeignAmount's non-EUR path. 5000 yen is never
+    // 5.000,00 - a price that has never existed.
+    const rendered = formatCostOriginal({ amountOriginal: 500000, currency: "JPY", rate: 172.5 }, "de", template);
+
+    expect(rendered).toBe("5.000\u00A0¥ at 172,50");
+    expect(rendered).not.toMatch(/5\.000,00/);
+  });
+
+  it("returns null when the amount is absent", () => {
+    expect(formatCostOriginal({ currency: "NZD", rate: 1.8563 }, "en", template)).toBeNull();
+    expect(formatCostOriginal({ amountOriginal: null, currency: "NZD", rate: 1.8563 }, "en", template)).toBeNull();
+    expect(
+      formatCostOriginal({ amountOriginal: Number.NaN, currency: "NZD", rate: 1.8563 }, "en", template),
+    ).toBeNull();
+  });
+
+  it("returns null when the currency is absent or empty", () => {
+    expect(formatCostOriginal({ amountOriginal: 20000, rate: 1.8563 }, "en", template)).toBeNull();
+    expect(formatCostOriginal({ amountOriginal: 20000, currency: null, rate: 1.8563 }, "en", template)).toBeNull();
+    expect(formatCostOriginal({ amountOriginal: 20000, currency: "", rate: 1.8563 }, "en", template)).toBeNull();
+  });
+
+  it("returns null for a rate that is absent, zero, negative or not finite", () => {
+    expect(formatCostOriginal({ amountOriginal: 20000, currency: "NZD" }, "en", template)).toBeNull();
+    expect(formatCostOriginal({ amountOriginal: 20000, currency: "NZD", rate: null }, "en", template)).toBeNull();
+    expect(formatCostOriginal({ amountOriginal: 20000, currency: "NZD", rate: 0 }, "en", template)).toBeNull();
+    expect(formatCostOriginal({ amountOriginal: 20000, currency: "NZD", rate: -1.5 }, "en", template)).toBeNull();
+    expect(formatCostOriginal({ amountOriginal: 20000, currency: "NZD", rate: Number.NaN }, "en", template)).toBeNull();
+    expect(
+      formatCostOriginal({ amountOriginal: 20000, currency: "NZD", rate: Number.POSITIVE_INFINITY }, "en", template),
+    ).toBeNull();
+  });
+
+  it("renders a zero amount rather than treating it as missing", () => {
+    // A recorded 0 is a fact about the entry; only absence is an absent receipt.
+    expect(formatCostOriginal({ amountOriginal: 0, currency: "USD", rate: 1.146 }, "en", template)).toBe(
+      // 1.146 keeps three digits: two is the floor, five the ceiling, and neither pads to the top.
+      "$0.00 at 1.146",
+    );
   });
 });

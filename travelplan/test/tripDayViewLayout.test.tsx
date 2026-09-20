@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import TripDayView from "@/components/features/trips/TripDayView";
 import { useEffect, type ReactNode } from "react";
 import theme from "@/theme";
@@ -8104,5 +8104,197 @@ describe("TripDayView document chips", () => {
 
     // Which roles see the item, and where it sits relative to print and the divider, is asserted by the
     // three exhaustive `dayOverflowItemNames()` cases further down rather than duplicated here.
+  });
+});
+
+/**
+ * Story 10.2. The conversion receipt on the three places this screen reads a *per-entry* cost: the
+ * activity card's pill, the stay card's status row, and the day's cost breakdown list.
+ *
+ * Every case queries `cost-original-annotation`, the one hook AC1 spells the same way on all five
+ * render sites across the three files. Querying by text instead would make "a euro day is annotated
+ * nowhere" provable on one surface and merely assumed on the rest, which is the failure this testid
+ * exists to prevent.
+ *
+ * What is **not** here: any assertion about width. jsdom lays nothing out (see the note at the Story
+ * 9.2 block above), so AC9's 290px is a browser step and a test that appeared to prove it would lie.
+ */
+describe("TripDayView conversion receipt", () => {
+  const NZD = {
+    costOriginalAmount: 20000,
+    costCurrency: "NZD",
+    costRate: 1.8563,
+    costRateDate: "2026-11-28",
+  } as const;
+
+  const dayPayload = (overrides: {
+    stayCost?: number | null;
+    stayReceipt?: typeof NZD | null;
+    itemCost?: number | null;
+    itemReceipt?: typeof NZD | null;
+  }) => ({
+    trip: {
+      id: "trip-1",
+      name: "Trip",
+      accessRole: "owner" as const,
+      startDate: "2026-12-01T00:00:00.000Z",
+      endDate: "2026-12-01T00:00:00.000Z",
+      dayCount: 1,
+      accommodationCostTotalCents: null,
+      heroImageUrl: null,
+    },
+    days: [
+      {
+        id: "day-1",
+        date: "2026-12-01T00:00:00.000Z",
+        dayIndex: 1,
+        plannedCostSubtotal: 0,
+        missingAccommodation: false,
+        missingPlan: false,
+        accommodation: {
+          id: "stay-1",
+          name: "City Hotel",
+          notes: null,
+          status: "planned" as const,
+          costCents: overrides.stayCost === undefined ? 10774 : overrides.stayCost,
+          ...(overrides.stayReceipt ?? {}),
+          link: null,
+          checkInTime: "16:00",
+          checkOutTime: "10:00",
+          location: { lat: 48.145, lng: 11.582 },
+        },
+        dayPlanItems: [
+          {
+            id: "plan-1",
+            title: "Museum title",
+            fromTime: "09:00",
+            toTime: "10:00",
+            contentJson: JSON.stringify({
+              type: "doc",
+              content: [{ type: "paragraph", content: [{ type: "text", text: "Body details" }] }],
+            }),
+            costCents: overrides.itemCost === undefined ? 10774 : overrides.itemCost,
+            ...(overrides.itemReceipt ?? {}),
+            linkUrl: null,
+            location: { lat: 48.1372, lng: 11.5756 },
+          },
+        ],
+        travelSegments: [],
+      },
+    ],
+  });
+
+  const renderDay = async (payload: ReturnType<typeof dayPayload>) => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+
+    const fetchMock = withBucketList(async (input) => {
+      const url = requestUrl(input);
+      if (url === "/api/auth/csrf") {
+        return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
+      }
+      if (url === "/api/trips/trip-1") {
+        return mockFetchResponse({ data: payload, error: null });
+      }
+      if (url.includes("/images?tripDayId=day-1")) {
+        return mockFetchResponse({ data: { images: [] }, error: null });
+      }
+      if (url === "/api/trips/trip-1/days/day-1/route") {
+        return mockFetchResponse({ data: { route: { polyline: [] } }, error: null });
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+
+    stubFetch(fetchMock);
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+    expect(await screen.findByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
+  };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("annotates a converted activity card beneath its cost pill", async () => {
+    await renderDay(dayPayload({ itemReceipt: NZD, stayCost: null }));
+
+    const card = screen.getByTestId("day-plan-item-card");
+    // The euro figure keeps the pill it has always had (AC2: prominence unchanged).
+    expect(within(card).getByTestId("day-plan-item-cost")).toHaveTextContent("€107.74");
+    expect(within(card).getByTestId("cost-original-annotation")).toHaveTextContent("NZ$200.00 at 1.8563/EUR");
+  });
+
+  it("annotates a converted stay card beneath its cost", async () => {
+    await renderDay(dayPayload({ stayReceipt: NZD, itemCost: null }));
+
+    // Two: the stay card itself, and the "Current night" row of the breakdown list below it.
+    const annotations = screen.getAllByTestId("cost-original-annotation");
+    expect(annotations.length).toBe(2);
+    expect(annotations.every((node) => node.textContent === "NZ$200.00 at 1.8563/EUR")).toBe(true);
+    expect(screen.getAllByText("€107.74").length).toBeGreaterThan(0);
+  });
+
+  it("annotates the converted row in the day cost breakdown list", async () => {
+    // `budgetEntries` dropped every currency field before this story, so this row is the one site on
+    // the screen that needed real data work rather than a render.
+    await renderDay(dayPayload({ itemReceipt: NZD, stayCost: null }));
+
+    const total = screen.getByTestId("day-cost-total");
+    const annotations = screen.getAllByTestId("cost-original-annotation");
+    // One on the activity card, one in the breakdown list.
+    expect(annotations.length).toBe(2);
+    expect(annotations.every((node) => node.textContent?.includes("NZ$200.00 at 1.8563/EUR"))).toBe(true);
+    // AC4: the total is a sum over entries that may differ in currency, so it carries none.
+    expect(within(total).queryByTestId("cost-original-annotation")).toBeNull();
+  });
+
+  it("renders no annotation element anywhere on a euro day", async () => {
+    // AC3: not an empty element, not a placeholder, not a reserved height - nothing.
+    await renderDay(dayPayload({}));
+
+    expect(screen.getByTestId("day-plan-item-cost")).toHaveTextContent("€107.74");
+    expect(screen.queryByTestId("cost-original-annotation")).toBeNull();
+  });
+
+  it("leaves both aggregates unannotated even when every entry on the day is foreign", async () => {
+    await renderDay(dayPayload({ itemReceipt: NZD, stayReceipt: NZD }));
+
+    // Three per-entry sites carry one: the activity card, the stay card, and the breakdown list's
+    // two rows - four in total.
+    expect(screen.getAllByTestId("cost-original-annotation").length).toBe(4);
+
+    // AC4, both halves: the stat strip's spend cell and the cost card's total.
+    const spendCell = screen.getByTestId("day-stat-spend-today");
+    expect(within(spendCell).queryByTestId("cost-original-annotation")).toBeNull();
+    const total = screen.getByTestId("day-cost-total");
+    expect(within(total).queryByTestId("cost-original-annotation")).toBeNull();
+  });
+
+  it("annotates a stay whose recorded cost is zero, and not an activity whose cost is zero", async () => {
+    // AC8: the annotation sits inside whichever gate renders the figure above it. The stay card uses
+    // `typeof === "number"`, so a recorded 0 prints €0.00 and takes its receipt; the activity card is
+    // a truthiness check, so a recorded 0 prints nothing and must therefore annotate nothing. An
+    // annotation with no figure above it is the defect.
+    await renderDay(dayPayload({ stayCost: 0, stayReceipt: NZD, itemCost: 0, itemReceipt: NZD }));
+
+    const card = screen.getByTestId("day-plan-item-card");
+    expect(within(card).queryByTestId("day-plan-item-cost")).toBeNull();
+    expect(within(card).queryByTestId("cost-original-annotation")).toBeNull();
+
+    expect(screen.getAllByText("€0.00").length).toBeGreaterThan(0);
+    expect(screen.getAllByTestId("cost-original-annotation").length).toBeGreaterThan(0);
+  });
+
+  it("renders no annotation when the receipt is incomplete", async () => {
+    // A rate with no currency is not a receipt. The single helper decides this, so no surface can
+    // disagree with another about it.
+    await renderDay(
+      dayPayload({
+        stayCost: null,
+        itemReceipt: { ...NZD, costCurrency: null } as unknown as typeof NZD,
+      }),
+    );
+
+    expect(screen.getByTestId("day-plan-item-cost")).toHaveTextContent("€107.74");
+    expect(screen.queryByTestId("cost-original-annotation")).toBeNull();
   });
 });

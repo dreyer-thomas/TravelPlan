@@ -20,6 +20,7 @@ import {
 import Link from "next/link";
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
+import { formatCostOriginal } from "@/lib/trips/convertCost";
 import { formatCost } from "@/lib/trips/formatCost";
 import { parsePlanText } from "@/components/features/trips/TripDayPlanItemContent";
 
@@ -49,14 +50,33 @@ type TripDay = {
     id: string;
     name: string;
     costCents: number | null;
-    payments: { amountCents: number; dueDate: string }[];
+    /*
+      Story 10.2. The API has sent all of these since 10.1 - `getTripWithDaysForUser` selects them and
+      `GET /api/trips/[id]` passes them through - but the response is cast through
+      `ApiEnvelope<TripDetail>`, so they were present at runtime and invisible to TypeScript. Widening
+      this local type is the whole of the data work here: no route, no repository and no schema changes.
+
+      `amountOriginal` sits on the payment rather than beside it because a payment row's original is
+      its own typed figure, while the currency and the rate belong to the parent entry - `cost_payments`
+      has no currency column and this story adds none.
+    */
+    costOriginalAmount?: number | null;
+    costCurrency?: string | null;
+    costRate?: number | null;
+    costRateDate?: string | null;
+    payments: { amountCents: number; dueDate: string; amountOriginal?: number | null }[];
   } | null;
   dayPlanItems: {
     id: string;
     title: string | null;
     contentJson: string;
     costCents: number | null;
-    payments: { amountCents: number; dueDate: string }[];
+    /** Story 10.2. See the accommodation block above. */
+    costOriginalAmount?: number | null;
+    costCurrency?: string | null;
+    costRate?: number | null;
+    costRateDate?: string | null;
+    payments: { amountCents: number; dueDate: string; amountOriginal?: number | null }[];
   }[];
 };
 
@@ -71,13 +91,31 @@ type TripCostOverviewProps = {
 
 type CostViewMode = "days" | "months";
 
-type DayEntry = {
+/**
+ * Story 10.2, as amended by its code review. `costOriginalAmount` is the entry's own typed figure,
+ * and it is only ever carried by a row whose `amountCents` that figure actually explains: a
+ * `DayEntry`, or a `MonthlyEntry` synthesized from an entry's own cost.
+ *
+ * A **payment row carries none of the three**. Its stored `amountCents` can differ by the residual
+ * `convertEntryToCents` sweeps into the largest row to keep `sum(payments) === costCents` exact, so
+ * the entry's figures do not divide back to it and a receipt there would contradict the number above
+ * it. Leaving the fields off is what makes that a fact about the data rather than a rule the render
+ * site has to remember - `formatCostOriginal` is still the single place that decides what their
+ * absence means, and it answers `null`.
+ */
+type CostReceipt = {
+  costOriginalAmount?: number | null;
+  costCurrency?: string | null;
+  costRate?: number | null;
+};
+
+type DayEntry = CostReceipt & {
   id: string;
   label: string;
   amountCents: number | null;
 };
 
-type MonthlyEntry = {
+type MonthlyEntry = CostReceipt & {
   id: string;
   label: string;
   amountCents: number;
@@ -118,6 +156,9 @@ const buildDayEntries = (day: TripDay, t: ReturnType<typeof useI18n>["t"]): DayE
       id: item.id,
       label: title,
       amountCents: item.costCents,
+      costOriginalAmount: item.costOriginalAmount,
+      costCurrency: item.costCurrency,
+      costRate: item.costRate,
     });
   });
 
@@ -126,6 +167,9 @@ const buildDayEntries = (day: TripDay, t: ReturnType<typeof useI18n>["t"]): DayE
       id: `current-stay-${day.accommodation.id}`,
       label: formatMessage(t("trips.dayView.budgetItemCurrentNight"), { name: day.accommodation.name }),
       amountCents: day.accommodation.costCents,
+      costOriginalAmount: day.accommodation.costOriginalAmount,
+      costCurrency: day.accommodation.costCurrency,
+      costRate: day.accommodation.costRate,
     });
   }
 
@@ -144,6 +188,21 @@ const buildMonthlyGroups = (days: TripDay[], t: ReturnType<typeof useI18n>["t"])
             id: `accommodation-payment-${day.accommodation!.id}-${index}`,
             label: day.accommodation!.name,
             amountCents: payment.amountCents,
+            /*
+              Code review of Story 10.2: **a payment row carries no receipt**, superseding the
+              original AC7.
+
+              A row's stored `amountCents` is not `round(amountOriginal / rate)`. `convertEntryToCents`
+              sweeps a signed rounding residual into the largest row so that
+              `sum(payments) === costCents` holds exactly, which is the invariant that matters - so one
+              row is routinely a cent away from what its own figures divide to. Annotating it printed
+              `NZ$50.00 at 1.8563` under `EUR 26.93` when 50.00 / 1.8563 is 26.9353: a receipt that
+              disproves the number it sits beneath, on the one surface whose purpose is to let the
+              reader check the arithmetic.
+
+              The entry-level rows below keep theirs, because there `costCents === round(original /
+              rate)` by construction and the receipt reconciles exactly.
+            */
             date: payment.dueDate,
             sortKey: `accommodation-${day.accommodation!.id}-${index}`,
           });
@@ -153,6 +212,10 @@ const buildMonthlyGroups = (days: TripDay[], t: ReturnType<typeof useI18n>["t"])
           id: `accommodation-fallback-${day.accommodation.id}`,
           label: day.accommodation.name,
           amountCents: day.accommodation.costCents,
+          // Synthesized from the entry's own cost, so its original is the entry's own too.
+          costOriginalAmount: day.accommodation.costOriginalAmount,
+          costCurrency: day.accommodation.costCurrency,
+          costRate: day.accommodation.costRate,
           date: day.date.slice(0, 10),
           sortKey: `accommodation-${day.accommodation.id}`,
         });
@@ -169,6 +232,7 @@ const buildMonthlyGroups = (days: TripDay[], t: ReturnType<typeof useI18n>["t"])
             id: `day-plan-payment-${item.id}-${paymentIndex}`,
             label: title,
             amountCents: payment.amountCents,
+            // No receipt on a payment row - see the accommodation payment branch above.
             date: payment.dueDate,
             sortKey: `day-plan-${item.id}-${paymentIndex}`,
           });
@@ -181,6 +245,9 @@ const buildMonthlyGroups = (days: TripDay[], t: ReturnType<typeof useI18n>["t"])
           id: `day-plan-fallback-${item.id}`,
           label: title,
           amountCents: item.costCents,
+          costOriginalAmount: item.costOriginalAmount,
+          costCurrency: item.costCurrency,
+          costRate: item.costRate,
           date: day.date.slice(0, 10),
           sortKey: `day-plan-${item.id}`,
         });
@@ -216,8 +283,41 @@ const buildMonthlyGroups = (days: TripDay[], t: ReturnType<typeof useI18n>["t"])
 
 export default function TripCostOverview({ tripId }: TripCostOverviewProps) {
   const { language, t } = useI18n();
+
   const theme = useTheme();
   const tokens = theme.palette.tokens;
+  /*
+    Declared *after* `tokens`, not before it. This closure dereferences `tokens.inkSoft`, and while it
+    is only invoked during JSX evaluation today, a `useMemo` or an early return that called it any
+    earlier would hit the temporal dead zone and throw at render. `TripDayView.tsx` places the same
+    helper after its own `tokens` for the same reason.
+  */
+  /*
+    Story 10.2. The conversion receipt beneath a euro figure, on the two per-entry surfaces of this
+    screen. Whether it exists at all is `formatCostOriginal`'s single decision, shared with the day
+    view and the print sheet - `null` means no element, not an empty one.
+
+    Tokens only: this file *is* covered by `expectNoHardcodedColour`, which rejects hex, the
+    `rgb()/hsl()` family and quoted named colours alike.
+  */
+  const renderCostAnnotation = (receipt: CostReceipt) => {
+    const text = formatCostOriginal(
+      { amountOriginal: receipt.costOriginalAmount, currency: receipt.costCurrency, rate: receipt.costRate },
+      language,
+      t("trips.money.originalCaption"),
+    );
+    if (!text) return null;
+    return (
+      <Typography
+        variant="body2"
+        data-testid="cost-original-annotation"
+        textAlign="right"
+        sx={{ color: tokens.inkSoft, fontVariantNumeric: "tabular-nums", overflowWrap: "anywhere" }}
+      >
+        {text}
+      </Typography>
+    );
+  };
   // The shipped `card` treatment, identical to TripOverviewMapFullPage.tsx and TripTimeline.tsx's
   // cost summary card. A Box, not a Paper: theme.ts stamps a non-token 1px border on every MuiPaper,
   // which would layer over borderStrong. 18px is --spacing-card-padding.
@@ -471,15 +571,30 @@ export default function TripCostOverview({ tripId }: TripCostOverviewProps) {
                                     <Typography variant="body2" sx={{ overflowWrap: "anywhere" }}>
                                       {entry.label}
                                     </Typography>
-                                    <Typography
-                                      variant="body2"
-                                      color={entry.amountCents === null ? "text.secondary" : "text.primary"}
-                                      textAlign="right"
-                                      sx={{ fontVariantNumeric: "tabular-nums" }}
-                                      data-testid={entry.amountCents === null ? "cost-missing" : "cost-known"}
-                                    >
-                                      {amountLabel}
-                                    </Typography>
+                                    {/* Story 10.2: a right-aligned column rather than a third grid
+                                        child - this is the `auto` cell of a `minmax(0, 1fr) auto`
+                                        grid, so a third child would start a new column, not a new
+                                        line. */}
+                                    <Box display="flex" flexDirection="column" alignItems="flex-end" sx={{ minWidth: 0 }}>
+                                      <Typography
+                                        variant="body2"
+                                        color={entry.amountCents === null ? "text.secondary" : "text.primary"}
+                                        textAlign="right"
+                                        sx={{ fontVariantNumeric: "tabular-nums" }}
+                                        data-testid={entry.amountCents === null ? "cost-missing" : "cost-known"}
+                                      >
+                                        {amountLabel}
+                                      </Typography>
+                                      {/* Inside the figure's own gate (AC8). This is the one render
+                                          site whose amount can be absent - it falls back to a dash
+                                          under `cost-missing` - and a receipt explaining a dash is
+                                          the annotation-without-a-figure case the other sites avoid
+                                          only because their amount is never null. The server's
+                                          "Currency metadata requires a cost" refinement makes the
+                                          shape unreachable today; this keeps the renderer honest
+                                          without depending on a rule in another layer. */}
+                                      {entry.amountCents === null ? null : renderCostAnnotation(entry)}
+                                    </Box>
                                   </Box>
                                 );
                               })}
@@ -543,13 +658,16 @@ export default function TripCostOverview({ tripId }: TripCostOverviewProps) {
                           <Typography variant="body2" sx={{ color: tokens.inkSoft, whiteSpace: "nowrap" }}>
                             {formatDate(entry.date)}
                           </Typography>
-                          <Typography
-                            variant="body2"
-                            textAlign="right"
-                            sx={{ whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}
-                          >
-                            {formatCost(entry.amountCents, language)}
-                          </Typography>
+                          <Box display="flex" flexDirection="column" alignItems="flex-end" sx={{ minWidth: 0 }}>
+                            <Typography
+                              variant="body2"
+                              textAlign="right"
+                              sx={{ whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}
+                            >
+                              {formatCost(entry.amountCents, language)}
+                            </Typography>
+                            {renderCostAnnotation(entry)}
+                          </Box>
                         </Box>
                       ))}
                     </Box>

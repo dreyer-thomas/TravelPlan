@@ -28,14 +28,22 @@ type TripDetailResponse = {
       id: string;
       name: string;
       costCents: number | null;
-      payments?: { amountCents: number; dueDate: string }[];
+      // Story 10.2. Optional, so every fixture written before this story still type-checks and still
+      // describes a euro entry.
+      costOriginalAmount?: number | null;
+      costCurrency?: string | null;
+      costRate?: number | null;
+      payments?: { amountCents: number; dueDate: string; amountOriginal?: number | null }[];
     } | null;
     dayPlanItems: Array<{
       id: string;
       title: string | null;
       contentJson: string;
       costCents: number | null;
-      payments?: { amountCents: number; dueDate: string }[];
+      costOriginalAmount?: number | null;
+      costCurrency?: string | null;
+      costRate?: number | null;
+      payments?: { amountCents: number; dueDate: string; amountOriginal?: number | null }[];
     }>;
   }>;
 };
@@ -425,6 +433,214 @@ describe("TripCostOverview", () => {
 
     expect(screen.getByText("No open costs scheduled yet.")).toBeInTheDocument();
     expect(screen.getByText("Trip total: €0.00")).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+});
+
+/**
+ * Story 10.2. The cost overview's two per-entry surfaces.
+ *
+ * The months tab is the interesting half: a row there is a `CostPayment`, so its original figure is
+ * `payment.amountOriginal` while the currency and the rate come from the parent entry - the schema
+ * has no currency on `cost_payments` and this story adds none. A payment row whose `amountOriginal`
+ * is absent therefore annotates nothing; it is never reconstructed by dividing, because a figure the
+ * user never typed is exactly what a receipt is supposed to rule out. `PaymentDetail.amountOriginal`
+ * is optional outbound, so absence is a normal wire state and not a fault.
+ */
+describe("TripCostOverview conversion receipt", () => {
+  const NZD = { costOriginalAmount: 20000, costCurrency: "NZD", costRate: 1.8563 };
+
+  const payload = (overrides: Partial<TripDetailResponse["days"][number]> = {}): TripDetailResponse => ({
+    trip: {
+      id: "trip-1",
+      name: "Trip",
+      startDate: "2026-12-01T00:00:00.000Z",
+      endDate: "2026-12-01T00:00:00.000Z",
+      dayCount: 1,
+      plannedCostTotal: 10774,
+      accommodationCostTotalCents: 10774,
+      heroImageUrl: null,
+    },
+    days: [
+      {
+        id: "day-1",
+        date: "2026-12-01T00:00:00.000Z",
+        dayIndex: 1,
+        note: null,
+        plannedCostSubtotal: 10774,
+        accommodation: {
+          id: "stay-1",
+          name: "Hotel One",
+          costCents: 10774,
+          payments: [{ amountCents: 10774, dueDate: "2026-12-01" }],
+        },
+        dayPlanItems: [],
+        ...overrides,
+      },
+    ],
+  });
+
+  it("annotates a converted entry in the days tab", async () => {
+    await renderOverview(
+      payload({
+        accommodation: {
+          id: "stay-1",
+          name: "Hotel One",
+          costCents: 10774,
+          ...NZD,
+          payments: [{ amountCents: 10774, dueDate: "2026-12-01", amountOriginal: 20000 }],
+        },
+      }),
+    );
+
+    expect(screen.getByTestId("cost-known")).toHaveTextContent("€107.74");
+    expect(screen.getByTestId("cost-original-annotation")).toHaveTextContent("NZ$200.00 at 1.8563/EUR");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("leaves a euro entry with no annotation element at all", async () => {
+    await renderOverview(payload());
+
+    expect(screen.getByTestId("cost-known")).toHaveTextContent("€107.74");
+    expect(screen.queryByTestId("cost-original-annotation")).toBeNull();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("never annotates a payment row, because a row's cents need not divide back to its own original", async () => {
+    /*
+      Code review of Story 10.2, superseding the original AC7.
+
+      `convertEntryToCents` sweeps a signed rounding residual into the largest row so that
+      `sum(payments) === costCents` stays exact - so a row's stored `amountCents` is routinely a cent
+      away from `round(amountOriginal / rate)`. A receipt there would contradict the figure above it.
+      This fixture is the residual case itself: 200,00 NZD at 1,8563 is 10774 cents, but the two
+      100,00 halves each convert to 5387, summing to 10774 - while the *odd* split below does not.
+    */
+    const { user } = await renderOverview(
+      payload({
+        accommodation: {
+          id: "stay-1",
+          name: "Hotel One",
+          costCents: 10774,
+          ...NZD,
+          payments: [
+            { amountCents: 5387, dueDate: "2026-12-01", amountOriginal: 10000 },
+            { amountCents: 5387, dueDate: "2026-12-15", amountOriginal: 10000 },
+          ],
+        },
+      }),
+    );
+
+    await user.click(screen.getByRole("tab", { name: "Months" }));
+
+    expect(screen.getAllByText("Hotel One").length).toBeGreaterThan(0);
+    expect(screen.queryByTestId("cost-original-annotation")).toBeNull();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("annotates no row of a split whose residual was swept, where a receipt would disprove the figure", async () => {
+    /*
+      The case the original suite could not reach: 200,00 NZD split 50,00 / 50,00 at 1,8563. The
+      entry converts to 5387 cents; each half converts to `round(5000 / 1.8563)` = 2694, summing to
+      5388, so the sweep takes a cent off the last row and the rows store 2694 and 2693. Annotating
+      them printed `NZ$50.00 at 1.8563/EUR` under *both*, although 50.00 / 1.8563 is 26.9353 - one of
+      the two figures could not be reproduced from the receipt beneath it.
+    */
+    const { user } = await renderOverview(
+      payload({
+        accommodation: {
+          id: "stay-1",
+          name: "Hotel One",
+          costCents: 5387,
+          ...NZD,
+          costOriginalAmount: 10000,
+          payments: [
+            { amountCents: 2694, dueDate: "2026-12-01", amountOriginal: 5000 },
+            { amountCents: 2693, dueDate: "2026-12-15", amountOriginal: 5000 },
+          ],
+        },
+      }),
+    );
+
+    await user.click(screen.getByRole("tab", { name: "Months" }));
+
+    expect(screen.getByText("€26.94")).toBeInTheDocument();
+    expect(screen.getByText("€26.93")).toBeInTheDocument();
+    expect(screen.queryByTestId("cost-original-annotation")).toBeNull();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("renders no annotation on a payment row whose amountOriginal is absent", async () => {
+    // Originally AC7's "never reconstructed by dividing". Now subsumed by the blanket rule above -
+    // no payment row annotates - but kept, because the absent-original wire state is a normal one
+    // (`amountOriginal` is optional outbound) and it should stay silent for either reason.
+    const { user } = await renderOverview(
+      payload({
+        accommodation: {
+          id: "stay-1",
+          name: "Hotel One",
+          costCents: 10774,
+          ...NZD,
+          payments: [{ amountCents: 10774, dueDate: "2026-12-01" }],
+        },
+      }),
+    );
+
+    await user.click(screen.getByRole("tab", { name: "Months" }));
+
+    expect(screen.getByText("Hotel One")).toBeInTheDocument();
+    expect(screen.queryByTestId("cost-original-annotation")).toBeNull();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("annotates a fallback row from the entry's own original when it has no payments", async () => {
+    const { user } = await renderOverview(
+      payload({
+        accommodation: { id: "stay-1", name: "Hotel One", costCents: 10774, ...NZD, payments: [] },
+      }),
+    );
+
+    await user.click(screen.getByRole("tab", { name: "Months" }));
+
+    expect(screen.getByTestId("cost-original-annotation")).toHaveTextContent("NZ$200.00 at 1.8563/EUR");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("never annotates an aggregate: day subtotal, month total or trip total", async () => {
+    // AC4. Each is a sum over entries that may carry different currencies, so there is no single
+    // original amount for any of them - a rule about what the annotation means, not an omission.
+    const { user } = await renderOverview(
+      payload({
+        accommodation: {
+          id: "stay-1",
+          name: "Hotel One",
+          costCents: 10774,
+          ...NZD,
+          // No payments, so the months tab synthesizes a row from the entry's own cost - which *is*
+          // annotated. That keeps a positive control in this test: the annotation is demonstrably on
+          // screen in both tabs, and still absent from every total.
+          payments: [],
+        },
+      }),
+    );
+
+    // Days tab: one annotation, on the entry - and none on the subtotal cell beside it.
+    expect(screen.getAllByTestId("cost-original-annotation")).toHaveLength(1);
+    const subtotal = screen.getByText("€107.74", { selector: "td" });
+    expect(subtotal.querySelector('[data-testid="cost-original-annotation"]')).toBeNull();
+
+    await user.click(screen.getByRole("tab", { name: "Months" }));
+
+    expect(screen.getAllByTestId("cost-original-annotation")).toHaveLength(1);
+    const tripTotal = screen.getByText("Trip total: €107.74");
+    expect(tripTotal.querySelector('[data-testid="cost-original-annotation"]')).toBeNull();
 
     vi.unstubAllGlobals();
   });

@@ -296,4 +296,95 @@ describe("GET /api/trips/[id]/days/[dayId]/print", () => {
     // Present and empty, not missing: the sheet reads it unconditionally.
     expect(stay?.stay?.documents).toEqual([]);
   });
+
+  /**
+   * Story 10.2. The print payload carried `costCents` and none of the four currency columns, and
+   * nothing in this suite asserted anything about cost at all - which is exactly how the omission
+   * would have shipped invisibly behind a sheet that renders the figure but never its receipt.
+   */
+  it("carries the four currency columns on a stay and on a plan item", async () => {
+    const user = await prisma.user.create({
+      data: { email: "print-currency@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const session = await createSessionJwt({ sub: user.id, role: user.role });
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Converted Trip",
+      startDate: "2026-09-01T00:00:00.000Z",
+      endDate: "2026-09-02T00:00:00.000Z",
+    });
+    const [, day2] = await prisma.tripDay.findMany({ where: { tripId: trip.id }, orderBy: { dayIndex: "asc" } });
+
+    await prisma.accommodation.create({
+      data: {
+        tripDayId: day2.id,
+        name: "City Hotel",
+        status: "PLANNED",
+        costCents: 10774,
+        costOriginalAmount: 20000,
+        costCurrency: "NZD",
+        costRate: 1.8563,
+        costRateDate: "2026-08-28",
+      },
+    });
+    await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: day2.id,
+        title: "Museum",
+        fromTime: "10:00",
+        contentJson: '{"type":"doc","content":[]}',
+        costCents: 5387,
+        costOriginalAmount: 10000,
+        costCurrency: "NZD",
+        costRate: 1.8563,
+        costRateDate: "2026-08-28",
+      },
+    });
+
+    const response = await GET(buildRequest(trip.id, day2.id, session), {
+      params: Promise.resolve({ id: trip.id, dayId: day2.id }),
+    });
+    type Receipt = {
+      costCents: number | null;
+      costOriginalAmount: number | null;
+      costCurrency: string | null;
+      costRate: number | null;
+      costRateDate: string | null;
+    };
+    const body = (await response.json()) as ApiEnvelope<{
+      timeline: Array<
+        | { kind: "previousStay" | "currentStay"; stay: Receipt }
+        | { kind: "planItem"; item: Receipt }
+        | { kind: "travelSegment" }
+      >;
+    }>;
+
+    expect(response.status).toBe(200);
+    const timeline = body.data!.timeline;
+
+    const stayEntry = timeline.find((entry) => entry.kind === "currentStay") as
+      | { kind: "currentStay"; stay: Receipt }
+      | undefined;
+    expect(stayEntry).toBeDefined();
+    expect(stayEntry!.stay).toMatchObject({
+      costCents: 10774,
+      costOriginalAmount: 20000,
+      costCurrency: "NZD",
+      costRate: 1.8563,
+      // A `String?` column, not a `Date` - it crosses the wire as written.
+      costRateDate: "2026-08-28",
+    });
+
+    const itemEntry = timeline.find((entry) => entry.kind === "planItem") as
+      | { kind: "planItem"; item: Receipt }
+      | undefined;
+    expect(itemEntry).toBeDefined();
+    expect(itemEntry!.item).toMatchObject({
+      costCents: 5387,
+      costOriginalAmount: 10000,
+      costCurrency: "NZD",
+      costRate: 1.8563,
+      costRateDate: "2026-08-28",
+    });
+  });
 });

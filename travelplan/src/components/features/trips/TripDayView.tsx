@@ -19,6 +19,7 @@ import {
   Typography,
   useTheme,
 } from "@mui/material";
+import type { SxProps, Theme } from "@mui/material/styles";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import FormField from "@/components/forms/FormField";
@@ -65,6 +66,7 @@ import { buildDayMapPanelData, buildTripDayMapItems } from "@/lib/trips/dayMapDa
 // Story 8.5. The same function `travelSegmentRepo.ts` decides adjacency with. This screen's activity
 // order, the legs it draws between those activities, and the pairs the API will accept are one order
 // because they are one comparator - see `dayPlanItemOrder.ts` for what happened when they were two.
+import { formatCostOriginal } from "@/lib/trips/convertCost";
 import { compareDayPlanItemsByStartTime } from "@/lib/trips/dayPlanItemOrder";
 // Story 8.5 review. The drawn-pair rule, shared with `TripTimeline` so the trip overview's coverage bar
 // and this screen's travel figure cannot disagree about one day.
@@ -828,6 +830,60 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
         maximumFractionDigits: 2,
       }).format(value / 100),
     [language],
+  );
+
+  /*
+    Story 10.2. The conversion receipt beneath a euro figure: "NZ$200.00 at 1.8563".
+
+    Whether it exists at all is `formatCostOriginal`'s decision and not this file's - three surfaces
+    render it and a fourth file does too, so a re-implemented "is this converted?" test is how a euro
+    entry ends up unannotated on one screen and annotated on another. `null` means no element, not an
+    empty one: DESIGN.md:290's no-reserved-height rule.
+
+    Style is the file's own secondary-text pattern (the orphan-segment label below is the closest
+    precedent): 11px / 600 / `tokens.inkSoft`, plus tabular figures, which DESIGN.md:241 makes a hard
+    rule for any new numeric display - and this is a number the reader is being invited to check.
+
+    No `pointerEvents`: a plain `Typography` is click-through under `overlaidContentSx`, so the card
+    stays one edit target.
+  */
+  const renderCostAnnotation = useCallback(
+    (
+      receipt: { costOriginalAmount?: number | null; costCurrency?: string | null; costRate?: number | null },
+      /*
+        `SxProps<Theme>`, not `Record<string, unknown>`. The three call sites each pass a *different*
+        override, and the comments beside them record that those differences were arrived at by
+        measuring at 390px - which is exactly the kind of hand-tuned value a silent typo would
+        discard, since an unknown key in an `sx` object simply does nothing.
+      */
+      sx?: SxProps<Theme>,
+    ) => {
+      const text = formatCostOriginal(
+        {
+          amountOriginal: receipt.costOriginalAmount,
+          currency: receipt.costCurrency,
+          rate: receipt.costRate,
+        },
+        language,
+        t("trips.money.originalCaption"),
+      );
+      if (!text) return null;
+      return (
+        <Typography
+          data-testid="cost-original-annotation"
+          sx={{
+            fontSize: 11,
+            fontWeight: 600,
+            color: tokens.inkSoft,
+            fontVariantNumeric: "tabular-nums",
+            ...sx,
+          }}
+        >
+          {text}
+        </Typography>
+      );
+    },
+    [language, t, tokens.inkSoft],
   );
 
   const resolveApiError = useCallback(
@@ -2846,8 +2902,22 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     }
   }, [day, dayNoteDraft, ensureCsrfToken, resolveApiError, t, tripId, updateLocalDayMeta]);
 
+  /*
+    Story 10.2 widened this from `{ id, label, amountCents }`. The three receipt fields are carried
+    per row because the breakdown list annotates each entry, and this object was previously the one
+    place on the screen that dropped every currency column on the way in.
+  */
+  type BudgetEntry = {
+    id: string;
+    label: string;
+    amountCents: number | null;
+    costOriginalAmount?: number | null;
+    costCurrency?: string | null;
+    costRate?: number | null;
+  };
+
   const budgetEntries = useMemo(() => {
-    const entries: { id: string; label: string; amountCents: number | null }[] = [];
+    const entries: BudgetEntry[] = [];
 
     planItems.forEach((item, index) => {
       const preview = parsePlanText(item.contentJson) || formatMessage(t("trips.dayView.budgetItemPlan"), { index: index + 1 });
@@ -2856,6 +2926,9 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
         id: item.id,
         label: title,
         amountCents: item.costCents,
+        costOriginalAmount: item.costOriginalAmount,
+        costCurrency: item.costCurrency,
+        costRate: item.costRate,
       });
     });
 
@@ -2864,16 +2937,25 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
         id: `current-stay-${currentStay.id}`,
         label: formatMessage(t("trips.dayView.budgetItemCurrentNight"), { name: currentStay.name }),
         amountCents: currentStay.costCents,
+        costOriginalAmount: currentStay.costOriginalAmount,
+        costCurrency: currentStay.costCurrency,
+        costRate: currentStay.costRate,
       });
     }
 
     return entries;
   }, [currentStay, planItems, t]);
 
+  /*
+    The predicate narrows `amountCents` and nothing else. It used to spell the whole object out, which
+    meant widening `BudgetEntry` above without widening it here would silently narrow the three new
+    fields straight back off - the rows would carry the data and the render would not see it, with the
+    compiler agreeing throughout. Written against `BudgetEntry` it cannot fall behind again.
+  */
   const knownBudgetEntries = useMemo(
     () =>
       budgetEntries.filter(
-        (entry): entry is { id: string; label: string; amountCents: number } => entry.amountCents !== null,
+        (entry): entry is BudgetEntry & { amountCents: number } => entry.amountCents !== null,
       ),
     [budgetEntries],
   );
@@ -3952,17 +4034,30 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                                     <Box sx={timePillSx}>{`${item.fromTime} - ${item.toTime}`}</Box>
                                   ) : null}
                                 </Box>
-                                <Box display="flex" alignItems="center" gap={0.75}>
-                                  {/* Truthy, not `typeof === "number"`: a recorded 0 renders nothing.
-                                      As plain 13px text a "€0.00" was a footnote; as a filled accent
-                                      pill it would be the loudest thing in the card head, announcing
-                                      a cost on an activity that has none. */}
-                                  {item.costCents ? (
-                                    <Box sx={costPillSx} data-testid="day-plan-item-cost">
-                                      {formatCost(item.costCents)}
-                                    </Box>
-                                  ) : null}
-                                  {canEditPlanning ? renderEditGlyph("day-plan-item-edit-glyph") : null}
+                                {/* Story 10.2: a column, so the receipt sits *beneath* the pill while
+                                    the edit glyph stays beside it. The head row is `1fr auto` and this
+                                    is the `auto` cell, so it is content-sized and a long annotation
+                                    squeezes the title - hence `minWidth: 0` here and
+                                    `overflowWrap: "anywhere"` on the text, rather than the `nowrap`
+                                    `costPillSx` carries for the pill's own reasons. */}
+                                <Box display="flex" flexDirection="column" alignItems="flex-end" gap={0.25} sx={{ minWidth: 0 }}>
+                                  <Box display="flex" alignItems="center" gap={0.75}>
+                                    {/* Truthy, not `typeof === "number"`: a recorded 0 renders nothing.
+                                        As plain 13px text a "€0.00" was a footnote; as a filled accent
+                                        pill it would be the loudest thing in the card head, announcing
+                                        a cost on an activity that has none. */}
+                                    {item.costCents ? (
+                                      <Box sx={costPillSx} data-testid="day-plan-item-cost">
+                                        {formatCost(item.costCents)}
+                                      </Box>
+                                    ) : null}
+                                    {canEditPlanning ? renderEditGlyph("day-plan-item-edit-glyph") : null}
+                                  </Box>
+                                  {/* Inside the pill's own gate (AC8): an annotation with no figure
+                                      above it is a defect, and this card hides a recorded 0. */}
+                                  {item.costCents
+                                    ? renderCostAnnotation(item, { overflowWrap: "anywhere", textAlign: "right" })
+                                    : null}
                                 </Box>
                               </Box>
                             ) : null}
@@ -4146,6 +4241,14 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                           <Typography sx={tlCostSx}>{formatCost(currentStay.costCents)}</Typography>
                         ) : null}
                       </Box>
+                      {/* Story 10.2: a sibling of the status row, not a child of it. The row is
+                          `flexWrap: "wrap"`, so inside it the receipt would land *beside* the amount on
+                          the same wrap line rather than beneath it. Same `typeof === "number"` gate as
+                          the figure above (AC8) - this card does print a recorded €0.00, so a €0.00
+                          entry keeps its receipt. */}
+                      {typeof currentStay.costCents === "number"
+                        ? renderCostAnnotation(currentStay, { overflowWrap: "anywhere" })
+                        : null}
                       {/* The previous-night card's twin. A copy rather than a shared helper only because
                           these two cards are duplicated wholesale in this file - their overlays, status
                           rows and media rows are each written twice as well, and one extracted helper
@@ -4239,17 +4342,31 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                         <Typography sx={{ fontSize: "12.5px", fontWeight: 600, color: tokens.ink, overflowWrap: "anywhere" }}>
                           {entry.label}
                         </Typography>
-                        <Typography
-                          sx={{
-                            fontSize: "12.5px",
-                            fontWeight: 700,
-                            color: tokens.ink,
-                            fontVariantNumeric: "tabular-nums",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {formatCost(entry.amountCents)}
-                        </Typography>
+                        {/* Story 10.2: the `li` is `space-between`, so the amount and its receipt go
+                            into a right-aligned column rather than becoming a third flex child - which
+                            would put the receipt beside the amount instead of under it. The amount
+                            keeps its `nowrap`; the annotation is the part allowed to wrap. */}
+                        <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-end", flexShrink: 0, maxWidth: "65%" }}>
+                          <Typography
+                            sx={{
+                              fontSize: "12.5px",
+                              fontWeight: 700,
+                              color: tokens.ink,
+                              fontVariantNumeric: "tabular-nums",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {formatCost(entry.amountCents)}
+                          </Typography>
+                          {/* No `minWidth: 0` on the column and no `overflowWrap: "anywhere"` here,
+                              unlike the two cards. Measured at 390px, both of those let this column
+                              shrink past its text and broke the receipt over two lines while the
+                              label beside it still had room. The label is the flexible half of this
+                              row - it already wraps anywhere - so the numbers keep one line and it
+                              yields instead. It still shrinks to its longest token rather than
+                              overflowing. */}
+                          {renderCostAnnotation(entry, { textAlign: "right" })}
+                        </Box>
                       </Box>
                     ))}
                   </Box>

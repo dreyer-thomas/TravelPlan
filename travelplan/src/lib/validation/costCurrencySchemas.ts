@@ -106,8 +106,16 @@ export const refineCostCurrency = (value: CostCurrencyCarrier, context: z.Refine
     currency, a rate and a rate date describing an absent figure is not a lesser entry - it is the
     state a dialog reaches by typing a foreign price, clearing the box, and saving. Storing it would
     reopen showing a foreign amount with no cost beside it.
+
+    Code review of Story 10.2 extended this to a stored **zero**. A price of zero is a euro price: it
+    is the same figure in every currency, so there is no conversion for a receipt to record. Leaving
+    `0` storable with metadata put the two read surfaces into open disagreement - the day view's
+    activity card hides a recorded `0` on a truthiness gate, while the print sheet's `typeof` gate
+    renders it, so the same entry printed `Kosten: 0,00 EUR` with `0,00 NZ$ zu 1,8563/EUR` beneath it
+    on paper and nothing at all on screen. Both dialogs now degrade such an entry to euro before it
+    is sent, so this refusal is the backstop rather than the thing a user meets.
   */
-  if (present === 4 && (value.costCents ?? null) === null) {
+  if (present === 4 && !(value.costCents ?? null)) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
       path: ["costCurrency"],

@@ -350,6 +350,9 @@ const en: Dictionary = {
   "trips.dayPrint.missingLocationsOne": "Route omits 1 stop with no saved location",
   "trips.dayPrint.missingLocations": "Route omits {count} stops with no saved location",
   "trips.dayPrint.itinerarySection": "Itinerary",
+  // Story 10.2: the only money the printed sheet draws. Labelled rather than bare, because on paper
+  // there is no pill, no column header and no dialog to open - the figure has to say what it is.
+  "trips.dayPrint.cost": "Cost: {value}",
   "trips.dayPrint.empty": "No details recorded for this day.",
   "trips.dayPrint.previousStay": "Previous night accommodation",
   "trips.dayPrint.currentStay": "Tonight's accommodation",
@@ -717,6 +720,23 @@ const en: Dictionary = {
   */
   "trips.money.rateRequired": "The price cannot be saved without an exchange rate. Try again in a moment, or switch the currency to EUR.",
   "trips.money.rateDateCaption": "Rate of {date}",
+  /*
+    Story 10.2. The conversion receipt beneath a euro figure on the read surfaces, and the inverse of
+    `convertedCaption` above: that one shows the euro equivalent of a foreign amount being typed into
+    a dialog, this one shows the foreign original that a stored euro figure came from. Sharing one key
+    across the two directions would freeze both wordings together, so they stay apart.
+
+    Kept to the two values the AC names - amount and rate. `costRateDate` deliberately stays in the
+    dialog: a third figure on a 290px card is the layout risk, and the date is one dialog-open away.
+
+    Code review of Story 10.2 added the `/EUR`. The stored rate is ECB's *units of foreign currency
+    per one euro*, so the reader has to divide - and "200.00 NZD at 1.8563" reads at least as easily
+    as an instruction to multiply, which yields EUR 371.26 and the conclusion that the stored figure
+    is wrong. The dialogs carry a currency selector and a rate-date caption to place the number; the
+    read surfaces and the printed sheet carry neither. `/EUR` names the denominator in four
+    characters, which is what keeps the literal wording inside the width ceiling below.
+  */
+  "trips.money.originalCaption": "{amount} at {rate}/EUR",
   "trips.stay.copyPreviousAction": "Copy previous night",
   // Story 6.13: the stay cards are their own edit target, so these name the stretched overlay rather
   // than a visible button. Add and edit are separate strings on purpose - an empty accommodation card

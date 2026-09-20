@@ -328,6 +328,9 @@ const de: Dictionary = {
   "trips.dayPrint.missingLocationsOne": "Die Route lässt 1 Station ohne gespeicherten Ort aus",
   "trips.dayPrint.missingLocations": "Die Route lässt {count} Stationen ohne gespeicherten Ort aus",
   "trips.dayPrint.itinerarySection": "Reiseverlauf",
+  // Story 10.2: der einzige Geldbetrag auf dem gedruckten Blatt - beschriftet, weil auf Papier weder
+  // Pille noch Spaltenkopf noch Dialog erklären, was die Zahl ist.
+  "trips.dayPrint.cost": "Kosten: {value}",
   "trips.dayPrint.empty": "Für diesen Tag sind keine Details erfasst.",
   "trips.dayPrint.previousStay": "Unterkunft der Vornacht",
   "trips.dayPrint.currentStay": "Unterkunft heute Nacht",
@@ -640,6 +643,10 @@ const de: Dictionary = {
   "trips.money.rateRequired":
     "Der Preis kann ohne Wechselkurs nicht gespeichert werden. Bitte gleich noch einmal versuchen oder die Währung auf EUR stellen.",
   "trips.money.rateDateCaption": "Kurs vom {date}",
+  // Story 10.2 - siehe die Anmerkung in `en.ts`: die Gegenrichtung zu `convertedCaption`, deshalb ein
+  // eigener Key und keine Wiederverwendung. Das `/EUR` kam aus dem Code-Review: der gespeicherte Kurs
+  // ist die Fremdwaehrung je einem Euro, und "200,00 NZ$ zu 1,8563" liest sich sonst als Multiplikation.
+  "trips.money.originalCaption": "{amount} zu {rate}/EUR",
   "trips.stay.copyPreviousAction": "Vorherige Nacht kopieren",
   // Story 6.13: Namen der aufgespannten Bearbeiten-Schaltfläche auf den Unterkunftskarten. Hinzufügen
   // und Bearbeiten sind bewusst getrennt - eine leere und eine gefüllte Karte klingen sonst gleich.

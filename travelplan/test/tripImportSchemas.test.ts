@@ -386,6 +386,43 @@ describe("tripImportSchemas", () => {
     }
   });
 
+  /*
+    Code review of Story 10.2. A price of zero is a euro price - the same figure in every currency,
+    with no conversion for a receipt to record. Leaving it storable put the read surfaces into open
+    disagreement: the day view's activity card hides a recorded `0` on its truthiness gate while the
+    printed sheet's `typeof` gate rendered it, so one entry printed a cost and a receipt on paper and
+    nothing at all on screen. Both dialogs degrade such an entry to euro before sending; this is the
+    backstop for every other write path, import included.
+  */
+  it("refuses a complete currency receipt on an entry whose cost is zero", () => {
+    const result = tripImportPayloadSchema.safeParse({
+      ...validPayload,
+      days: [
+        {
+          ...validPayload.days[0],
+          dayPlanItems: [
+            {
+              ...validPayload.days[0].dayPlanItems[0],
+              costCents: 0,
+              costOriginalAmount: 0,
+              costCurrency: "USD",
+              costRate: 1.146,
+              costRateDate: "2026-09-20",
+            },
+          ],
+        },
+        validPayload.days[1],
+      ],
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.map((issue) => issue.message)).toContain(
+        "Currency metadata requires a cost",
+      );
+    }
+  });
+
   it("requires targetTripId for overwrite conflict strategy", () => {
     const result = tripImportRequestSchema.safeParse({
       payload: validPayload,

@@ -3449,3 +3449,83 @@ severity: low
 summary: Run against Story 10.1's working tree the script reports "Migration immutability check passed (no migration changes)" even though `prisma/migrations/20260920120000_add_cost_currency_metadata/` is a new, unstaged folder. The check compares tracked migration files, so an untracked migration is invisible to it and the green tick says nothing about the migration the story added.
 evidence: Observed at 2026-09-20 during the code review of Story 10.1, where the story's completion notes cite the passing check as evidence for the migration. It resolves itself the moment the work is staged, so it is not a defect in the script's contract — but a developer reading a green tick before committing is being told less than they think. Closing it would mean having the script consider untracked files under `prisma/migrations/` too.
 status: open
+
+### DW-362: The offline PDF packet shows no costs, so it carries no conversion receipt
+
+source_spec: `_bmad-output/implementation-artifacts/10-2-the-rate-that-was-used.md`
+origin: story 10-2-the-rate-that-was-used, 2026-09-20
+location: `travelplan/src/lib/trips/packetPdf.ts` (`buildDocumentPacket` `:665-848`, `drawLabelPage` `:412-461`, `toWinAnsiText` `:98-143`), `travelplan/src/lib/trips/printDocuments.ts`
+severity: low
+summary: Epic 10 names the offline PDF packet as a surface that should carry the conversion receipt. It cannot today, and Story 10.2 reduced its scope to exclude it. The packet is a document merger, not a rendering of the day plan: it emits a label page plus the attached document, per document, and the only text it ever draws is four strings in `drawLabelPage` — a heading, the entry label, the file name and a failure sentence. It has no itinerary, no entries and no cost figures, so there is no converted cost in it to annotate. The receipt remains reachable on the printed day sheet, which Story 10.2's AC5 does cover.
+evidence: Verified against the working tree at `5c44eb0` while Story 10.2 was written, and re-confirmed during its implementation — `packetPdf.ts`, `printDocuments.ts` and the packet route are untouched by that story and their four suites pass unmodified. Three obstacles make this its own piece of work rather than a line of code: (1) `toWinAnsiText` replaces every character outside `0x20-0x7E` and `0xA0-0xFF` with `?`, so **both `€` and `≈` degrade to `?`** — deliberately, per the docblock at `:98-122`, because WinAnsi maps `\x80-\x9F` by different code points than Unicode and admitting them means carrying a transcoding table; money text in the packet needs that decision made first. (2) `drawLabelPage` has no `y = 0` floor check, so extra lines pushed onto a fixed-height label page are still drawn, below the paper, with no change to page count or size. (3) `printDocuments.ts` must stay free of any `"use client"` module below it because the Node route handler imports it, so threading per-entry costs through `PacketDocument` changes that contract. Closing this means deciding what the packet is for first: putting a price onto a label page whose job is to announce "this is the Hilton booking PDF" would be inventing a new content type, not satisfying an AC.
+status: open
+
+### DW-363: `formatExchangeRate`'s 2–5 digit window can truncate a rate, or print `0,00`
+
+source_spec: `_bmad-output/implementation-artifacts/10-2-the-rate-that-was-used.md`
+origin: code review of 10-2-the-rate-that-was-used, 2026-09-20
+location: `travelplan/src/lib/trips/convertCost.ts:154-158`, reached from `formatCostOriginal` `:194`
+severity: low
+summary: `formatExchangeRate` pins `minimumFractionDigits: 2` and `maximumFractionDigits: 5`, but `rateSchema` (`costCurrencySchemas.ts:31-34`) accepts any positive finite number with no bound or precision constraint, and `tripImportSchemas` reuses it. A rate of `1.23456789` displays as `1,23457`, and a rate of `1e-7` displays as the string `0,00` — a receipt that reads as a division by zero beneath a very large euro figure. `formatCostOriginal` guards `rate <= 0` but not a rate that rounds away at display precision.
+evidence: Both outputs confirmed by execution at review time (`Intl.NumberFormat` with the exact options the helper passes). Not reachable through the dialogs, which source rates from the ECB feed and land well inside the window; it needs an imported archive or a hand-edited row. Deferred rather than patched because the fix is a product decision rather than a correction — either widen the window, or return `null` for a rate that cannot be displayed at a precision that reproduces the figure, and the second changes what "a receipt exists" means.
+status: open
+
+### DW-364: A zero-exponent currency with a fractional hundredths amount misstates the original
+
+source_spec: `_bmad-output/implementation-artifacts/10-2-the-rate-that-was-used.md`
+origin: code review of 10-2-the-rate-that-was-used, 2026-09-20
+location: `travelplan/src/lib/trips/convertCost.ts:126-137` (`formatForeignAmount`)
+severity: low
+summary: `originalAmountSchema` requires a non-negative integer in hundredths and places no per-currency restriction, so `¥5000.50` stores `costOriginalAmount: 500050`. `formatForeignAmount` divides by 100 and lets `Intl` apply the currency's own fraction digits, which for JPY, KRW and ISK is zero — so the receipt renders `5.001 ¥` while the euro figure beside it was derived from ¥5000.50. The storage asymmetry is deliberate and documented (`amountOriginal` is always hundredths); the display consequence for zero-exponent currencies is not.
+evidence: Confirmed by execution at review time: `Intl.NumberFormat("de-DE", { style: "currency", currency: "JPY" }).format(5000.5)` returns `5.001 ¥`. Story 10.2's JPY test covers only a whole-yen value, so the rounding path is untested. Closing this means either refusing fractional entry for zero-exponent currencies at the dialog, or rendering the stored hundredths faithfully, which would contradict AC1's "the currency's own fraction digits" rule.
+status: open
+
+### DW-365: A long receipt breaks mid-number on the two cards and overflows in the breakdown list
+
+source_spec: `_bmad-output/implementation-artifacts/10-2-the-rate-that-was-used.md`
+origin: code review of 10-2-the-rate-that-was-used, 2026-09-20
+location: `travelplan/src/components/features/trips/TripDayView.tsx:4052` and `:4243` (`overflowWrap: "anywhere"`) versus `:4342` (`flexShrink: 0`, `maxWidth: "65%"`, no wrap override)
+severity: low
+summary: The three day-view sites resolve the width problem in opposite directions, so a long receipt fails differently depending on where it lands. On the two `tl-card`s `overflow-wrap: anywhere` permits a break inside a number, so a reader can see `IDR 10.000.` / `000 zu 17.800,00` — a mangled figure on a line whose only purpose is to be checked digit by digit. In the breakdown list the column cannot shrink and the annotation has no wrap allowance, so the same string overflows the 65% cap instead.
+evidence: `Intl` renders 10,000,000 IDR as `10.000.000 IDR` (no symbol, zero fraction digits) — confirmed by execution at review time; German makes both halves longer still. AC9 was measured in Chrome at 390px and held for the seeded values, and the breakdown-list geometry is itself the documented outcome of that pass, so this is an untested tail rather than a regression. jsdom measures nothing, so no assertion can pin it; closing it means a browser check at a large-denomination currency and probably `overflowWrap: "break-word"` on the cards so breaks land between tokens.
+status: open
+
+### DW-366: The cost overview's receipt fields are optional against a cast envelope, so a wire-shape change silently removes the annotation
+
+source_spec: `_bmad-output/implementation-artifacts/10-2-the-rate-that-was-used.md`
+origin: code review of 10-2-the-rate-that-was-used, 2026-09-20
+location: `travelplan/src/components/features/trips/TripCostOverview.tsx:53-63` and `:77-87`; same pattern at `TripDayView.tsx:326-329`, `:344-347`, `:382-385`
+severity: low
+summary: The local `TripDay` mirror declares the four currency fields as optional, and the response is cast through `ApiEnvelope<TripDetail>` rather than validated. A rename or a drop in `api/trips/[id]/route.ts` therefore type-checks on both sides and yields `undefined`, which `formatCostOriginal` turns into `null` — the receipt disappears from the whole screen with no compile error, no test failure (the fixtures supply the fields by hand) and no runtime signal. `costRateDate` is declared on the local type and never read, which is the same drift already latent.
+evidence: Read at 2026-09-20 during the code review of Story 10.2. Pre-existing pattern rather than something this story introduced — Story 10.2 was explicitly told no API or repository change was needed here, and widening the local type was the prescribed approach. The print path does not have the problem because it imports `TripDayPrintStay`/`TripDayPrintPlanItem` from the repository, which is why those four fields are non-optional; that is the shape to converge on.
+status: open
+
+### DW-367: The conversion receipt has no programmatic association with the amount it explains
+
+source_spec: `_bmad-output/implementation-artifacts/10-2-the-rate-that-was-used.md`
+origin: code review of 10-2-the-rate-that-was-used, 2026-09-20
+location: `travelplan/src/components/features/trips/TripCostOverview.tsx:565-572`, `TripDayView.tsx:863-874`, `TripDayPrintDocument.tsx:133-136`
+severity: low
+summary: The annotation is an unlabelled `Typography` or `div` adjacent to the figure, with no `aria-describedby`, no `<dl>` pairing and no visually-hidden prefix. In the cost overview both land in the same `<td>`, so a screen reader announces "Hotel One €107.74 NZ$200.00 at 1.8563" as one undifferentiated run of numbers, with nothing saying the second explains the first. The whole purpose of the feature is to disambiguate a euro figure, and the non-visual rendering is where that disambiguation is weakest.
+evidence: Read at 2026-09-20 during the code review of Story 10.2. Not a regression — the surfaces had no receipt at all before — and the visual treatment (`inkSoft`, 11px, beneath the figure) is what the story specified and what DESIGN.md describes. Closing it means choosing one association mechanism and applying it at all five sites, which is a design-system decision rather than a local fix, and it interacts with the 290px width budget AC9 was measured against.
+status: open
+
+### DW-368: AC3's "renders byte-identically" is unevidenced — the EUR-path wrappers are emitted unconditionally
+
+source_spec: `_bmad-output/implementation-artifacts/10-2-the-rate-that-was-used.md`
+origin: code review of 10-2-the-rate-that-was-used, 2026-09-20
+location: `travelplan/src/components/features/trips/TripDayView.tsx:4036` and `:4342`
+severity: low
+summary: Three of the four screen render sites wrap the existing EUR figure in a new `Box` that is emitted whether or not a receipt exists, so a euro entry's DOM is not byte-identical to `5c44eb0` and the figure's flex/grid context changes: the activity card's trailing `auto` cell gains `minWidth: 0`, and the breakdown list's amount gains `flexShrink: 0` with a `maxWidth: "65%"` cap in place of a direct `space-between` child.
+evidence: Read at 2026-09-20 during the code review of Story 10.2. Analytically the rendered result is unchanged for realistic amounts — the amount keeps `whiteSpace: "nowrap"`, whose min-content already blocked shrinking — and the story's AC9 pass measured the time pill at 96px/1 line and the card title at 290px/2 lines identically to its baseline. But that baseline was the new code with the four currency columns nulled, not the pre-story build, so nothing recorded actually compares the EUR path against `5c44eb0`. If AC3 is read strictly this needs a before/after DOM or screenshot comparison; if it is read as "no visible change", it holds.
+status: open
+
+### DW-369: AC9's 390px measurement predates the caption rewording it was meant to verify
+
+source_spec: `_bmad-output/implementation-artifacts/10-2-the-rate-that-was-used.md`
+origin: code review of 10-2-the-rate-that-was-used, 2026-09-20
+location: `travelplan/src/i18n/en.ts` and `de.ts` (`trips.money.originalCaption`), rendered at `TripDayView.tsx:4052`, `:4243`, `:4361`, `TripCostOverview.tsx`, `TripDayPrintDocument.tsx:134`
+severity: low
+summary: Story 10.2's AC9 was verified in Chrome at 390px in German and recorded in a six-row measurement table, against the caption `{amount} at {rate}`. The code review then reworded it to `{amount} at {rate}/EUR` so the receipt names the rate's denominator, which adds roughly 24px to every annotation — while the table's longest entry measured at 290px, exactly the `tl-card` content width at that viewport. The recorded pass therefore no longer covers the string that ships, and nothing has confirmed the receipt still renders on one line.
+evidence: Verified at 2026-09-20 during the code review of Story 10.2. jsdom lays nothing out, so none of the 2602 passing tests speaks to this — Task 8 made AC9 a browser step for exactly that reason, and `tripDayViewLayout.test.tsx:7727` explains why an assertion here would lie. Closing this means re-running the Task 8 pass: a real browser at 390px in German, on a day carrying a foreign stay and a long-titled foreign activity, checking that the cost stays on one line, the time pill is neither displaced nor shrunk, the card title is not squeezed and the page has no horizontal overflow; the cost overview's months tab needs the same check, since its entry grid collapses to one column at `xs`. If it does wrap, the fix is the annotation's wrapping, not the cost's. Deferred rather than done because Tommy accepted the risk when closing the review, in preference to spending the cycle re-measuring.
+status: open

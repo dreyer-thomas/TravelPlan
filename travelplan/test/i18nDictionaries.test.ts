@@ -822,6 +822,15 @@ describe("i18n dictionaries", () => {
       "trips.dayPrint.durationMinutes",
       "trips.dayPrint.documentsAppendixHeading",
       "trips.dayPrint.documentsAppendixNote",
+      /*
+        Story 10.2: the two keys the entry cards draw for money. `trips.money.originalCaption` is not
+        a `trips.dayPrint.*` key and is listed anyway, for the same reason the six
+        `trips.travelSegment.*` above it are: the criterion for this list is *drawn on the sheet*,
+        not the namespace. `renderCost` looks it up and draws its result beneath the cost line, so a
+        `t()` miss would print the raw key onto paper with the whole suite otherwise green.
+      */
+      "trips.dayPrint.cost",
+      "trips.money.originalCaption",
     ];
 
     // Iterated over the registry rather than a hardcoded [en, de], so a third locale added to
@@ -996,6 +1005,72 @@ describe("i18n dictionaries", () => {
         for (const [language, dictionary] of Object.entries(dictionaries)) {
           expect(dictionary[plural], `${plural} backing ${twin} in ${language}`).toBeDefined();
         }
+      }
+    });
+  });
+
+  /**
+   * Story 10.2. The conversion receipt - "200,00 NZD at 1,8563" - is drawn beneath a euro figure on
+   * five render sites across three files, and on a `tl-card` whose content is 290px wide at a 390px
+   * viewport (`TripDayView.tsx:110-153`).
+   *
+   * The placeholder cases are the `{count}` pattern above applied to a two-placeholder template: a
+   * caption that lost `{rate}` still reads like a sentence and silently stops saying the one thing
+   * the receipt exists to say, and the parity check cannot see it because both dictionaries would
+   * agree.
+   *
+   * The length ceiling is the stat-strip guard's reasoning (`:340-350`) applied to AC9: jsdom
+   * measures nothing, so no render test can prove the annotation fits. What *can* be pinned is the
+   * wording's budget, so a later "clearer" rewording has to argue with a test rather than quietly
+   * spend the width a browser was checked at.
+   */
+  describe("Story 10.2 conversion receipt keys", () => {
+    it.each(["trips.money.originalCaption", "trips.dayPrint.cost"])(
+      "defines %s in every language",
+      (key) => {
+        for (const [language, dictionary] of Object.entries(dictionaries)) {
+          expect(dictionary[key], `${key} missing from ${language}`).toBeTypeOf("string");
+          expect(dictionary[key]!.length, `${key} is empty in ${language}`).toBeGreaterThan(0);
+        }
+      },
+    );
+
+    it("keeps both placeholders in trips.money.originalCaption in every language", () => {
+      for (const [language, dictionary] of Object.entries(dictionaries)) {
+        expect(dictionary["trips.money.originalCaption"], `amount in ${language}`).toContain("{amount}");
+        expect(dictionary["trips.money.originalCaption"], `rate in ${language}`).toContain("{rate}");
+      }
+    });
+
+    it("keeps the {value} placeholder in trips.dayPrint.cost in every language", () => {
+      for (const [language, dictionary] of Object.entries(dictionaries)) {
+        expect(dictionary["trips.dayPrint.cost"], `value in ${language}`).toContain("{value}");
+      }
+    });
+
+    it("keeps the caption's own wording within the width AC9 was verified at", () => {
+      for (const [language, dictionary] of Object.entries(dictionaries)) {
+        // The literal text the template adds around the two figures. The figures themselves are as
+        // wide as the amount and the rate happen to be; the wording is the only part a later edit
+        // controls, and 8 characters is " at " / " zu " with room to spare.
+        const wording = dictionary["trips.money.originalCaption"]!
+          .replace("{amount}", "")
+          .replace("{rate}", "");
+        expect(
+          wording.length,
+          `${language}: "${dictionary["trips.money.originalCaption"]}" spends more width than AC9 was checked at`,
+        ).toBeLessThanOrEqual(8);
+      }
+    });
+
+    it("does not reuse the dialog's converted caption, which points the other way", () => {
+      // `trips.money.convertedCaption` shows the EUR equivalent of a foreign amount the user typed.
+      // This story shows the foreign original beneath a EUR figure. One key serving both directions
+      // would freeze either one's wording.
+      for (const [language, dictionary] of Object.entries(dictionaries)) {
+        expect(dictionary["trips.money.originalCaption"], `${language}`).not.toBe(
+          dictionary["trips.money.convertedCaption"],
+        );
       }
     });
   });

@@ -17,7 +17,7 @@
  * into one row rather than left to chance.
  */
 
-import { INTL_LOCALES, type Language } from "@/i18n";
+import { formatMessage, INTL_LOCALES, type Language } from "@/i18n";
 
 export type ConvertiblePayment = {
   /** Hundredths of the entered currency, as typed. See `toCents` for why this is not minor units. */
@@ -137,4 +137,60 @@ export const formatForeignAmount = (amountOriginal: number, currency: string, la
     */
     return new Intl.NumberFormat(INTL_LOCALES[language]).format(amount);
   }
+};
+
+/**
+ * The exchange rate as a **ratio**, never as money.
+ *
+ * No `style: "currency"`: the rate is units of foreign currency per one euro, so any symbol would
+ * claim it is a price in something, and there is no currency it could honestly wear.
+ *
+ * Two digits as a floor and five as a ceiling. Five covers the widest precision ECB publishes; two
+ * keeps a round `1.5` from printing as a bare `1,5`, which reads like a truncation of a number the
+ * reader is being asked to check.
+ *
+ * The locale comes from `INTL_LOCALES`, not from an eleventh `=== "de"` ternary (DW-281).
+ */
+export const formatExchangeRate = (rate: number, language: Language) =>
+  new Intl.NumberFormat(INTL_LOCALES[language], {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 5,
+  }).format(rate);
+
+/**
+ * The one decision, made once, about whether a stored cost has a conversion receipt to show and what
+ * that receipt says. Five render sites across three files consume it; none of them re-implements the
+ * test, which is what keeps "a euro entry is annotated nowhere" a single fact rather than five.
+ *
+ * `null` means *no annotation element at all* - not an empty string, not a reserved line
+ * (DESIGN.md:290). A receipt needs all three of its parts to be a receipt: an amount, the currency
+ * it was in, and the rate that turned it into the euro figure printed above. A rate of `0` or below
+ * is not a rate; it is the value that would have produced an Infinity on the way in.
+ *
+ * **The wording is a parameter, not a `t` lookup**, the same shape `printDocuments.ts` uses for a
+ * module a client screen and a Node route both import. It keeps this file pure and directly
+ * testable, and it keeps `@/i18n`'s dictionaries out of a helper that only needs a template string.
+ * Callers pass `t("trips.money.originalCaption")`.
+ */
+export const formatCostOriginal = (
+  receipt: { amountOriginal?: number | null; currency?: string | null; rate?: number | null },
+  language: Language,
+  template: string,
+): string | null => {
+  const { amountOriginal, currency, rate } = receipt;
+
+  if (typeof amountOriginal !== "number" || !Number.isFinite(amountOriginal)) {
+    return null;
+  }
+  if (typeof currency !== "string" || currency.length === 0) {
+    return null;
+  }
+  if (typeof rate !== "number" || !Number.isFinite(rate) || rate <= 0) {
+    return null;
+  }
+
+  return formatMessage(template, {
+    amount: formatForeignAmount(amountOriginal, currency, language),
+    rate: formatExchangeRate(rate, language),
+  });
 };

@@ -1452,16 +1452,27 @@ export default function TripDayPlanDialog({
             payments: paymentsPayload.map((payment) => ({ amountOriginal: payment.amountCents })),
             rate: resolved.rate,
           });
-          costOriginalAmount = costCentsForSave;
-          costCurrencyPayload = entryCurrency.currency;
-          costRatePayload = resolved.rate;
-          costRateDatePayload = resolved.rateDate;
-          costCentsForSave = converted.costCents;
-          paymentsPayload = paymentsPayload.map((payment, index) => ({
-            amountCents: converted.payments[index].amountCents,
-            dueDate: payment.dueDate,
-            amountOriginal: converted.payments[index].amountOriginal,
-          }));
+          if (converted.costCents === 0) {
+            // Code review of Story 10.2: a price of zero is a euro price - see the stay dialog, which
+            // carries the full reasoning. The five columns stay `null` and the rows go back as euro
+            // zeroes with no `amountOriginal`.
+            costCentsForSave = 0;
+            paymentsPayload = paymentsPayload.map((payment) => ({
+              amountCents: 0,
+              dueDate: payment.dueDate,
+            }));
+          } else {
+            costOriginalAmount = costCentsForSave;
+            costCurrencyPayload = entryCurrency.currency;
+            costRatePayload = resolved.rate;
+            costRateDatePayload = resolved.rateDate;
+            costCentsForSave = converted.costCents;
+            paymentsPayload = paymentsPayload.map((payment, index) => ({
+              amountCents: converted.payments[index].amountCents,
+              dueDate: payment.dueDate,
+              amountOriginal: converted.payments[index].amountOriginal,
+            }));
+          }
         } else if (entryCurrency.hasStoredReceipt) {
           /*
             Story 10.1 review, the same conclusion as the stay dialog and for the same reason.
