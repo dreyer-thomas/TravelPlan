@@ -78,7 +78,7 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
     return fail(apiError("not_found", "Trip not found"), 404);
   }
 
-  // Before `formData()` below - not before the buffering, which the middleware already did. Over
+  // Before `formData()` below - not before the buffering, which the proxy already did. Over
   // `proxyClientMaxBodySize` (20 MB since Story 2.34) that buffer is *truncated*, not refused, so
   // `formData()` throws and an oversized-but-intact upload becomes `invalid_form_data`. The size is
   // the real problem and this is the message that says so. See `bodyLimit.ts`.

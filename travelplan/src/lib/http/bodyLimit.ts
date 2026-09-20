@@ -4,7 +4,7 @@
  * `content-length` header never described.
  *
  * **Why this exists, and it is not memory.** Next buffers a request body in memory for every path
- * `middleware.ts`'s matcher covers and caps that buffer at `proxyClientMaxBodySize`. Over the cap it
+ * `proxy.ts`'s matcher covers and caps that buffer at `proxyClientMaxBodySize`. Over the cap it
  * does not refuse the request - it logs "Request body exceeded ..." and *truncates the stream*, so
  * `await request.formData()` then throws on a body that was intact when it left the client, and the
  * route answers `invalid_form_data` "Request body must be valid form data". That is the failure of
@@ -74,7 +74,7 @@ export type JsonBodyReadResult =
  * `JSON.parse` of a request body, refusing to accumulate more than `maxBytes` of it.
  *
  * `request.json()` reads until the stream ends and has no ceiling of its own. For
- * `/api/trips/import` that did not matter until Story 2.34: the route was in `middleware.ts`'s
+ * `/api/trips/import` that did not matter until Story 2.34: the route was in `proxy.ts`'s
  * matcher, so Next's body clone truncated anything past `proxyClientMaxBodySize` before the handler
  * ran - the "Request body exceeded 10MB" line in the 2026-08-02 note is that ceiling doing its job by
  * accident. Taking the route out of the matcher (AC4) removed it, which left the route's

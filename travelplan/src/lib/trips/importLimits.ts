@@ -12,10 +12,10 @@
  * Ceiling on an uploaded backup.
  *
  * **A policy number again, as of Story 2.34.** It used to be a memory ceiling: the import buffered
- * the whole archive four times over — Next's middleware body buffer, `request.formData()`'s `File`,
+ * the whole archive four times over — Next's proxy body buffer, `request.formData()`'s `File`,
  * the `Buffer` handed to `readZipMembers`, and every member copied out of it — so peak resident
  * memory ran roughly 3–4× the archive and this constant was really a statement about the box's RAM.
- * None of those four copies exists now: `/api/trips/import` is out of the middleware matcher, the
+ * None of those four copies exists now: `/api/trips/import` is out of the proxy matcher, the
  * body is streamed to a temp file, the ZIP is read through a file descriptor, and members are
  * materialised one at a time. **For a ZIP body**, peak memory is bounded by the largest single
  * member, and what bounds *that* is `MAX_MEMBER_UNCOMPRESSED_BYTES` (64 MB) in `zipReader.ts`,
@@ -33,7 +33,7 @@
  * it whole and again as a string. That is inherent to `JSON.parse` and is recorded as DW-142. Both
  * non-ZIP paths are at least bounded by this constant now — the `application/json` branch counts the
  * bytes it reads rather than trusting `content-length`, because taking the route out of the
- * middleware matcher removed the only ceiling that branch had.
+ * proxy matcher removed the only ceiling that branch had.
  *
  * **Kept at 300 MB anyway, for three reasons that are not RAM.** Raising it is a bigger change than
  * it looks:
@@ -53,7 +53,7 @@
  * coordinated bump of the two numbers below, not a re-architecture.
  *
  * **Two limits must agree on this route, not three.** Next's `proxyClientMaxBodySize` used to be one
- * of them, but it is a ceiling on bodies the *middleware* buffers and `/api/trips/import` is no
+ * of them, but it is a ceiling on bodies the *proxy* buffers and `/api/trips/import` is no
  * longer in the matcher, so it does not apply to an import at all — it was lowered to 20 MB on
  * 2026-08-03 for the four image upload routes it does still cover. What is left:
  *   - this constant                                  300 MB  (what the handler accepts)
@@ -61,7 +61,7 @@
  *
  * The 20 MB gap is still the multipart framing, and the outer number still has to be the larger one:
  * whatever this app refuses, it must refuse with its own `file_too_large` message rather than have
- * the proxy refuse it first with a bare 413. A raise here is still a coordinated change with nginx,
+ * nginx refuse it first with a bare 413. A raise here is still a coordinated change with nginx,
  * which is not in this repo.
  */
 export const MAX_IMPORT_PACKAGE_BYTES = 300 * 1024 * 1024;

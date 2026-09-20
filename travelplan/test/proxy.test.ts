@@ -1,12 +1,15 @@
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
-import { config, middleware } from "@/middleware";
+import { config, proxy } from "@/proxy";
 import { createSessionJwt } from "@/lib/auth/jwt";
 
-describe("middleware auth guard", () => {
+describe("proxy auth guard", () => {
   it("redirects signed-out users to /auth/login for protected routes", async () => {
     const request = new NextRequest("http://localhost/trips/123");
-    const response = await middleware(request);
+    const response = await proxy(request);
 
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe("http://localhost/auth/login");
@@ -19,7 +22,7 @@ describe("middleware auth guard", () => {
         cookie: `session=${token}`,
       },
     });
-    const response = await middleware(request);
+    const response = await proxy(request);
 
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe("http://localhost/trips");
@@ -32,7 +35,7 @@ describe("middleware auth guard", () => {
         cookie: `session=${token}`,
       },
     });
-    const response = await middleware(request);
+    const response = await proxy(request);
 
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe("http://localhost/auth/first-login-password");
@@ -40,7 +43,7 @@ describe("middleware auth guard", () => {
 
   it("keeps signed-out users on home", async () => {
     const request = new NextRequest("http://localhost/");
-    const response = await middleware(request);
+    const response = await proxy(request);
 
     expect(response.status).toBe(200);
   });
@@ -52,7 +55,7 @@ describe("middleware auth guard", () => {
         cookie: `session=${token}`,
       },
     });
-    const response = await middleware(request);
+    const response = await proxy(request);
 
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe("http://localhost/auth/first-login-password");
@@ -65,14 +68,14 @@ describe("middleware auth guard", () => {
         cookie: `session=${token}`,
       },
     });
-    const response = await middleware(request);
+    const response = await proxy(request);
 
     expect(response.status).toBe(200);
   });
 
   it("redirects signed-out users to /auth/login for the registered-users page", async () => {
     const request = new NextRequest("http://localhost/users");
-    const response = await middleware(request);
+    const response = await proxy(request);
 
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe("http://localhost/auth/login");
@@ -85,7 +88,7 @@ describe("middleware auth guard", () => {
         cookie: `session=${token}`,
       },
     });
-    const response = await middleware(request);
+    const response = await proxy(request);
 
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe("http://localhost/auth/first-login-password");
@@ -97,15 +100,16 @@ describe("middleware auth guard", () => {
    * destination itself is behind the session).
    *
    * Note what this guard does *not* do: it does not check for `ADMIN`. It cannot - `role` in the token is
-   * a seven-day snapshot (Trap 6) and Prisma does not run in the middleware's edge runtime, so the only
-   * role available here is the stale one. The admin decision is therefore made where it can be made
+   * a seven-day snapshot (Trap 6), so the only role available here is the stale one. That is still true
+   * now that Story 8.2 has put this file on the Node runtime, where Prisma would run - staleness is the
+   * reason, not runtime capability. The admin decision is therefore made where it can be made
    * live: the page is a server component that re-reads the role, and every `/api/admin/*` route calls
    * `requireAdmin`. This layer answers "is anybody signed in", which is all it is able to answer
    * honestly.
    */
   it("redirects signed-out users to /auth/login for the administration page", async () => {
     const request = new NextRequest("http://localhost/admin/users");
-    const response = await middleware(request);
+    const response = await proxy(request);
 
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe("http://localhost/auth/login");
@@ -118,7 +122,7 @@ describe("middleware auth guard", () => {
         cookie: `session=${token}`,
       },
     });
-    const response = await middleware(request);
+    const response = await proxy(request);
 
     // Story 5.2's forced password change outranks the administration surface: an admin on a temporary
     // password is exactly the account that must not be able to act before changing it.
@@ -133,7 +137,7 @@ describe("middleware auth guard", () => {
         cookie: `session=${token}`,
       },
     });
-    const response = await middleware(request);
+    const response = await proxy(request);
 
     expect(response.status).toBe(200);
   });
@@ -145,7 +149,7 @@ describe("middleware auth guard", () => {
         cookie: `session=${token}`,
       },
     });
-    const response = await middleware(request);
+    const response = await proxy(request);
     const payload = await response.json();
 
     expect(response.status).toBe(403);
@@ -154,9 +158,9 @@ describe("middleware auth guard", () => {
 });
 
 /**
- * Which paths Next will actually run the middleware for.
+ * Which paths Next will actually run the proxy for.
  *
- * Every test above calls `middleware()` directly, which says nothing about the matcher - and the
+ * Every test above calls `proxy()` directly, which says nothing about the matcher - and the
  * matcher is the whole of Story 2.34 AC4. `/api/trips/import` has to be excluded, because Next
  * buffers the request body in memory for any path it covers and that buffer is the copy the story's
  * streaming read would otherwise have been sitting behind. Everything else has to stay covered, and
@@ -165,7 +169,7 @@ describe("middleware auth guard", () => {
  * `getMiddlewareMatchers` is Next's own compiler for the `matcher` config, so this asserts against
  * what the framework will do with the strings rather than against the strings themselves.
  */
-describe("middleware matcher", () => {
+describe("proxy matcher", () => {
   // `getMiddlewareMatchers` is a build internal and is not in Next's public type declarations, so the
   // shape is asserted here rather than imported. It is the same function `next build` runs over the
   // `matcher` array, which is the only reason this test is worth anything.
@@ -217,7 +221,7 @@ describe("middleware matcher", () => {
 
   it("does not pull the registered-users api in behind the page entry", async () => {
     // `/users/:path*` guards the page. The endpoint self-guards with `requireSession` and must stay
-    // out of the matcher, or the middleware's page-redirect branch starts answering an API call.
+    // out of the matcher, or the proxy's page-redirect branch starts answering an API call.
     expect(await matches("/api/users")).toBe(false);
   });
 
@@ -235,5 +239,41 @@ describe("middleware matcher", () => {
     for (const pathname of ["/api/admin/users", "/api/admin/users/user-1", "/api/admin/trips"]) {
       expect(await matches(pathname), pathname).toBe(false);
     }
+  });
+});
+
+/**
+ * Story 8.2's review layer. Everything above this block imports `@/proxy` through the path alias and
+ * calls the export directly, which is exactly why none of it can fail for the reason this story could:
+ * the whole suite stays green at 19/19 if the file is moved off Next's convention path or the export
+ * reverts to `middleware`, because a path alias resolves either way. What breaks then is production -
+ * `ProxyMissingExportError` on the first matched request, or, if the file simply is not where the
+ * convention looks, no gate at all and every route served signed-out.
+ *
+ * So these assert the two facts Next actually reads, against the filesystem rather than the module
+ * graph. Next resolves the gate by filename (`isProxyFile`) and binds
+ * `(isProxy ? mod.proxy : mod.middleware) || mod.default` in `build/templates/middleware.js`. A merge
+ * that restores the old spelling - likely enough, given 8.2's sweep crosses in-flight branches - fails
+ * here instead of in production.
+ */
+describe("proxy file convention", () => {
+  const proxyPath = path.join(process.cwd(), "src", "proxy.ts");
+
+  it("sits at the path Next's proxy convention resolves", () => {
+    expect(existsSync(proxyPath)).toBe(true);
+  });
+
+  it("does not leave a middleware file beside it", () => {
+    // Next hard-errors (E900) when both conventions are present, so this would be a build failure
+    // rather than a silent one - but it is one `git add -A` away during the rename and cheap to pin.
+    expect(existsSync(path.join(process.cwd(), "src", "middleware.ts"))).toBe(false);
+  });
+
+  it("exports `proxy`, the named export the convention requires", async () => {
+    // Source text, not the imported binding: the binding above is satisfied by any export named
+    // `proxy` anywhere, whereas Next reads this declaration out of this file.
+    const source = await readFile(proxyPath, "utf8");
+    expect(source).toMatch(/export\s+const\s+proxy\s*=/);
+    expect(source).not.toMatch(/export\s+const\s+middleware\s*=/);
   });
 });

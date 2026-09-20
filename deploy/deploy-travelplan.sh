@@ -68,6 +68,21 @@ fi
 echo "==> Applying migrations"
 npx prisma migrate deploy
 
+# `.next` wird VOR dem Build geloescht, und das ist kein Aufraeumen - es schliesst
+# ein Fail-Open. Seit Story 8.2 heisst der Auth-Gate `src/proxy.ts`, und Next baut
+# diese Konvention als Node-Middleware: `loadNodeMiddleware()` laedt
+# `.next/server/middleware.js` per require und verschluckt ENOENT und
+# MODULE_NOT_FOUND still (`next-server.js:1065-1079`). Fehlt das Modul, liefert
+# `getMiddleware()` undefined, `handleCatchallMiddlewareRequest` ruft
+# `handleFinished()` - und die Anfrage laeuft OHNE Session-Pruefung weiter.
+# Ein abgebrochener Build, der `functions-config-manifest.json` schon geschrieben
+# hat und `server/middleware.js` noch nicht, hinterlaesst genau diesen Zustand:
+# die App laeuft, `is-active` meldet gruen, und jede Route ist offen. Der ERR-Trap
+# oben startet den Dienst genau auf so einem halben Build wieder. Inkrementell zu
+# bauen spart hier weniger, als ein ungeschuetzter Server kostet.
+echo "==> Removing previous build output"
+rm -rf .next
+
 echo "==> Building app"
 npm run build
 
@@ -87,6 +102,23 @@ if ! systemctl is-active --quiet "$SERVICE"; then
   exit 1
 fi
 
+# `is-active` sagt nur, dass der Prozess laeuft - nicht, dass er noch bewacht wird.
+# Genau das ist die Luecke oben: ein Server ohne geladene Middleware ist aus Sicht
+# von systemd tadellos. Also einmal wirklich anklopfen. `/trips` ist im Matcher von
+# `src/proxy.ts`, und ohne Cookie muss der Gate mit 307 auf /auth/login umleiten.
+# Kommt stattdessen 200, laeuft die App ohne Auth und der Deploy ist ein Vorfall,
+# kein Erfolg - deshalb Abbruch mit Meldung statt einer Zeile im Log.
+echo "==> Verifying the session gate is live"
+GATE_STATUS=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+  "http://127.0.0.1:3001/trips" || echo "000")
+if [ "$GATE_STATUS" != "307" ]; then
+  echo "!! SESSION GATE NOT ACTIVE: anonymous GET /trips answered $GATE_STATUS, expected 307." >&2
+  echo "!! The app is serving protected routes without authentication. Stopping $SERVICE." >&2
+  sudo systemctl stop "$SERVICE" || true
+  sudo journalctl -u "$SERVICE" -n 40 --no-pager >&2
+  exit 1
+fi
+echo "==> Session gate confirmed (anonymous /trips -> $GATE_STATUS)"
 
 sudo systemctl --no-pager --full status "$SERVICE" || true
 echo "==> Deploy finished: $(date -Is)"

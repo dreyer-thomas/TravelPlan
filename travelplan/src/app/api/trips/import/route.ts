@@ -296,13 +296,13 @@ const readRequestBody = async (
 
 export const POST = async (request: NextRequest) => {
   // Session first, then CSRF, and that order is the wire behaviour rather than a preference. This
-  // route is deliberately outside `middleware.ts`'s matcher (Story 2.34 AC4) - Next buffers the
+  // route is deliberately outside `proxy.ts`'s matcher (Story 2.34 AC4) - Next buffers the
   // request body in memory for any path the matcher covers, which would have defeated the streaming
-  // read below - and the middleware ran *before* any handler, so an unauthenticated request has
+  // read below - and the proxy ran *before* any handler, so an unauthenticated request has
   // always been answered `unauthorized` 401 whatever its CSRF token looked like. Running
   // `validateCsrf` first would have turned that into `csrf_invalid` 403 for every signed-out caller,
   // which is a change to the API nobody asked for. `requireSession` answers `unauthorized` 401 and
-  // `password_change_required` 403, exactly as the middleware did.
+  // `password_change_required` 403, exactly as the proxy did.
   const auth = await requireSession(request);
   if (auth.response) {
     return auth.response;

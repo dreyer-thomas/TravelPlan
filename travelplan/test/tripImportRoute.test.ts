@@ -644,7 +644,7 @@ describe("POST /api/trips/import", () => {
       expect(noCsrf.status).toBe(403);
       expect(noCsrfPayload.error?.code).toBe("csrf_invalid");
 
-      // Signed out and no token either - the shape the middleware used to answer, and it answered
+      // Signed out and no token either - the shape the proxy used to answer, and it answered
       // 401. The session guard therefore has to run first, or a signed-out caller is told its CSRF
       // token is wrong instead of that it is not signed in.
       const noSessionNoCsrf = await POST(buildMultipartRequest(v2Package()));
@@ -774,16 +774,16 @@ describe("POST /api/trips/import", () => {
   });
 
   /**
-   * Story 2.34 took `/api/trips/import` out of `middleware.ts`'s matcher, because Next buffers the
+   * Story 2.34 took `/api/trips/import` out of `proxy.ts`'s matcher, because Next buffers the
    * body in memory for every path the matcher covers and that copy would have survived everything
    * else the story does. The 401 and the 403 it used to produce are now the route's own job.
    *
-   * Neither of these sends a CSRF pair, and that is the point: the middleware ran before any handler,
+   * Neither of these sends a CSRF pair, and that is the point: the proxy ran before any handler,
    * so what it answered a request with no token and no session was 401, not 403. `requireSession`
    * therefore has to run before `validateCsrf` in the route, and a test that supplied a valid token
    * to make the assertion hold would be pinning the workaround instead of the behaviour.
    */
-  describe("self-guards without the middleware", () => {
+  describe("self-guards without the proxy", () => {
     it("answers 401 unauthorized for a request with no session and no csrf token", async () => {
       for (const response of [
         await POST(buildRequest({ payload: VALID_PAYLOAD })),
@@ -802,7 +802,7 @@ describe("POST /api/trips/import", () => {
       });
       const session = await createSessionJwt({ sub: user.id, role: user.role, mustChangePassword: true });
 
-      // No CSRF pair here either: the flagged session is what the middleware answered on, ahead of
+      // No CSRF pair here either: the flagged session is what the proxy answered on, ahead of
       // anything the route would have checked.
       for (const response of [
         await POST(buildRequest({ payload: VALID_PAYLOAD }, { session })),

@@ -321,7 +321,7 @@ describe("/api/trips/[id]/day-plan-items/documents", () => {
   });
 
   /**
-   * The `declaredBodyExceedsFileLimit` path: these routes fall inside the middleware matcher, so Next
+   * The `declaredBodyExceedsFileLimit` path: these routes fall inside the proxy matcher, so Next
    * truncates a body over `proxyClientMaxBodySize` rather than refusing it, and without the pre-check
    * an intact 25 MB ticket is answered `invalid_form_data` - "this file is damaged" for a file that is
    * fine. The assertion is on the message, not merely on the 400.

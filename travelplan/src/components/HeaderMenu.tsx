@@ -16,7 +16,7 @@ type HeaderMenuProps = {
    * there.
    *
    * Defaulted so that `/page.tsx` does not have to make a claim it has no reason to resolve: the marketing
-   * home page is reached **anonymously only**, because `middleware.ts` redirects any session at `/` to
+   * home page is reached **anonymously only**, because `proxy.ts` redirects any session at `/` to
    * `/trips`. (An earlier version of this comment said "anonymous and signed-in visitors", which would have
    * made the default a bug rather than a convenience - `headerMenuAdminEntry.test.tsx` has it right.)
    */

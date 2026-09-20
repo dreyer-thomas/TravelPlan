@@ -37,7 +37,7 @@ classification:
   domain: travel_planning_private
   complexity: high
   projectContext: greenfield
-lastEdited: '2026-02-12'
+lastEdited: '2026-09-20'
 editHistory:
   - date: '2026-02-12'
     changes: 'Aligned PRD to BMAD structure, resolved performance target conflict, added transport/maps MVP scope, added restore/import, contributor role, and password reset, clarified GDPR and accessibility requirements.'
@@ -47,6 +47,8 @@ editHistory:
     changes: 'Removed FR31 (comments/suggestions) — comments and voting feature discontinued per product decision.'
   - date: '2026-08-05'
     changes: 'Added FR38-FR40 (travel documents on stays and activities, plus an offline document packet); annotated NFR2 to state that uploaded media files are in scope. See Sprint Change Proposal 2026-08-05.'
+  - date: '2026-09-20'
+    changes: 'Added FR41 (foreign-currency cost entry converted to EUR at the ECB daily reference rate). EUR remains the single stored currency and the basis of every total, budget figure and export. See Sprint Change Proposal 2026-09-20.'
 ---
 
 # Product Requirements Document - TravelPlan
@@ -251,6 +253,7 @@ TravelPlan is a web SPA targeting Chrome/Safari on desktop and mobile/tablet.
 - FR22: Users can see a total of planned costs entered so far.
 - FR23: Users can set a total trip budget.
 - FR24: Users can see remaining budget (budget runway) based on planned costs.
+- FR41: Users can enter a cost in a foreign currency and have the app convert it to EUR using a published daily exchange rate. EUR remains the stored value and the basis of every total, budget figure and export; the entered amount, its currency and the rate used are kept alongside it so the converted figure can be explained and corrected.
 
 ### Transport & Routing
 

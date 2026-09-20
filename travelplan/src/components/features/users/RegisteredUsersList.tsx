@@ -55,7 +55,7 @@ export default function RegisteredUsersList() {
             case "forbidden":
               setState({ status: "blocked" });
               break;
-            // The session died between the page render and this fetch - the middleware guards the
+            // The session died between the page render and this fetch - the proxy guards the
             // navigation, not the XHR that follows it. "Please refresh" would be a dead end, so say
             // what every other client in the app says for these two codes.
             case "unauthorized":

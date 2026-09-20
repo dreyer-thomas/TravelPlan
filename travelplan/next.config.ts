@@ -3,8 +3,8 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   experimental: {
     /**
-     * Ceiling on a request body that passes through the middleware, which `middleware.ts`'s
-     * matcher applies to every `/api/trips/*` route **except** `/api/trips/import`.
+     * Ceiling on a request body that passes through `proxy.ts`, whose matcher applies to every
+     * `/api/trips/*` route **except** `/api/trips/import`.
      *
      * Next buffers such a body in memory before the handler runs and caps that buffer at **10 MB**
      * by default. That default is what truncated a 13.4 MB photo-bearing import mid-body on
@@ -40,12 +40,13 @@ const nextConfig: NextConfig = {
      * smaller buffer — see `src/lib/http/bodyLimit.ts`. That guard is what makes 20 MB safe to keep.
      *
      * The reverse proxy's `client_max_body_size 320m` stays where it is regardless: the import still
-     * passes through nginx even though it no longer passes through the middleware, and 320m is what
+     * passes through nginx even though it no longer passes through `proxy.ts`, and 320m is what
      * lets a 300 MB backup reach this app to be accepted or refused with its own message. See
      * `importLimits.ts`.
      *
-     * Note the key: Next's own oversize warning still names `middlewareClientMaxBodySize`,
-     * which is deprecated in this version. `proxyClientMaxBodySize` is the current one.
+     * Note the key: Next's own oversize warning still names `middlewareClientMaxBodySize`, which is
+     * deprecated in this version. `proxyClientMaxBodySize` below is the current one, and has been
+     * since before Story 8.2 renamed the file - the config option was ahead of the file convention.
      */
     proxyClientMaxBodySize: "20mb",
   },

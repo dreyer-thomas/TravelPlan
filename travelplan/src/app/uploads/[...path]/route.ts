@@ -22,16 +22,20 @@ import { getTripUploadDir, isSafeMediaSegment } from "@/lib/trips/uploadPaths";
  * catch-all sits exactly where the static server used to and the database, the four upload routes and
  * every component are untouched.
  *
- * **This handler self-guards and is deliberately absent from `middleware.ts`'s matcher.** That
+ * **This handler self-guards and is deliberately absent from `proxy.ts`'s matcher.** That
  * matcher is a closed list (`/`, `/trips/:path*`, `/users/:path*`, `/admin/:path*`, `/api/trips`,
  * `/api/trips/:path((?!import/?$).*)`, `/auth/first-login-password`) and adding `/uploads` to it
- * would re-run a session check in the edge runtime for every thumbnail on the page while still
- * leaving the trip-level decision here, because Prisma does not run there. It is the same pattern
- * `middleware.ts` already documents for `/api/admin/*` and `/api/users`, and CVE-2025-29927 - a
+ * would re-run a session check for every thumbnail on the page while still leaving the trip-level
+ * decision here, because a session cookie alone cannot answer "may this account read this trip".
+ * It is the same pattern
+ * `proxy.ts` already documents for `/api/admin/*` and `/api/users`, and CVE-2025-29927 - a
  * middleware authorisation bypass via a spoofable `x-middleware-subrequest` header - is the general
  * argument for keeping an authorisation decision inside the handler that owns it. Verified against
- * `src/middleware.ts`; Story 8.2 renames that file to `src/proxy.ts` and pins the matcher
- * character-for-character, so the reasoning carries over to either filename unchanged.
+ * `src/proxy.ts`, which Story 8.2 renamed from `src/middleware.ts` with the matcher pinned
+ * character-for-character: `/uploads` is absent from the matcher on both sides, so the containment
+ * argument carries over unchanged. The *runtime* did not carry over - the `proxy` convention always
+ * builds to Node - but that changes nothing here, because what puts this decision in the handler is
+ * trip-level authorisation, not runtime capability.
  */
 
 // `node:fs` and `node:stream`.

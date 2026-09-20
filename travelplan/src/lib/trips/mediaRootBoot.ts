@@ -6,11 +6,20 @@ import { getMediaRoot } from "./uploadPaths";
  * The startup validation for the media root. **Node runtime only.**
  *
  * This lives apart from `uploadPaths.ts` for one concrete reason, learned the hard way: it needs
- * `node:fs`, and `uploadPaths.ts` is reachable from the edge runtime. Adding a top-level
- * `import fs from "node:fs"` there put `node:fs` into the edge bundle, and every request matched by
- * `middleware.ts` answered 500 with `Native module not found: node:fs` - the app's own home page
- * among them. Keeping the `fs` dependency in a module that only `instrumentation.ts` imports, behind a
- * `NEXT_RUNTIME` check, is what stops that recurring. Do not import this from anything else.
+ * `node:fs`, and back when the request gate was `src/middleware.ts` it ran as an edge function, where
+ * `node:fs` does not exist. Adding a top-level `import fs from "node:fs"` to `uploadPaths.ts` put
+ * `node:fs` into the edge bundle, and every matched request answered 500 with
+ * `Native module not found: node:fs` - the app's own home page among them.
+ *
+ * **That incident is no longer reproducible, and nothing enforces this split any more.** Story 8.2
+ * renamed the gate to `src/proxy.ts`, and Next's `proxy` convention always builds to Node - `entries.js`
+ * routes `isProxyFile` to `onServer()` with no edge branch - so there is no longer an edge bundle
+ * reachable from `uploadPaths.ts` to poison. A top-level `fs` import there would now build, test and
+ * serve perfectly cleanly. The separation is therefore kept on purpose rather than held in place by a
+ * failing build: the only entry point still compiled for the edge is `instrumentation.ts`, which imports
+ * this module dynamically behind a `NEXT_RUNTIME` check precisely so that stays true. Do not import this
+ * from anything else, and do not read a green suite as evidence the split is unnecessary - since 8.2 the
+ * suite cannot see it either.
  *
  * **Why a boot check and not only the per-call throw in `getMediaRoot`.** `getMediaRoot` is read per
  * call, deliberately, and every one of its callers sits inside a request handler - so on its own it

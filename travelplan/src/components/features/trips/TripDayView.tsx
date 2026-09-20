@@ -2965,7 +2965,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
             reportPacketError(t("trips.documents.packetTooMany"));
             break;
           // Both codes, one message, exactly as `AdminUsersList` and `RegisteredUsersList` already do it:
-          // the middleware answers every `/api/trips/*` request from a must-change-password session with
+          // the proxy answers every `/api/trips/*` request from a must-change-password session with
           // a 403 `password_change_required`, and it guards the navigation, not the XHR that follows it.
           // Left in the default branch it becomes "please try again", which is the same retry-a-permanent-
           // condition advice `too_many_documents` above exists to avoid.

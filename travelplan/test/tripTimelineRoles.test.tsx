@@ -555,7 +555,7 @@ describe("TripTimeline role gating", () => {
   });
 
   it("tells an expired session apart from a generic export failure", async () => {
-    // A tab left open past session expiry: middleware answers 401 `unauthorized` for every
+    // A tab left open past session expiry: proxy answers 401 `unauthorized` for every
     // `/api/trips/*` request. Reporting "please try again" there sends the user to press a button
     // that can never work; the envelope code is read so they are told to sign in instead.
     const fetchMock = stubDetailFetch(

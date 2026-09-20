@@ -124,7 +124,7 @@ describe("RegisteredUsersList", () => {
 
       renderWithProviders(<RegisteredUsersList />);
 
-      // The session died after the page loaded, so the middleware never saw the request. "Please
+      // The session died after the page loaded, so the proxy never saw the request. "Please
       // refresh" would send the user around a loop that cannot end.
       expect(await screen.findByText("Authentication required. Please sign in.")).toBeInTheDocument();
       expect(screen.queryByText("Unable to load registered users. Please refresh.")).toBeNull();

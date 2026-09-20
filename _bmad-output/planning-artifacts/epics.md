@@ -52,6 +52,7 @@ FR35: Trip owners can view a list of all registered users in the system, to help
 FR38: Users can attach documents (PDF or image files) to an accommodation entry and to a day plan item.
 FR39: Users can see attached documents on the entry in the day timeline, open them, and delete them from the entry's dialog.
 FR40: Users can produce an offline document packet as a single PDF containing a day's attached documents.
+FR41: Users can enter a cost in a foreign currency and have the app convert it to EUR using a published daily exchange rate. EUR remains the stored value and the basis of every total, budget figure and export; the entered amount, its currency and the rate used are kept alongside it so the converted figure can be explained and corrected.
 
 ### NonFunctional Requirements
 
@@ -122,6 +123,7 @@ FR35: Epic 5 - Sharing & Light Contribution
 FR38: Epic 9 - Travel Documents
 FR39: Epic 9 - Travel Documents
 FR40: Epic 9 - Travel Documents
+FR41: Epic 10 - Costs in Another Currency
 
 ## Epic List
 
@@ -160,6 +162,10 @@ The maintainer can keep the runtime, toolchain, and accumulated technical debt c
 ### Epic 9: Travel Documents
 Users can keep tickets and booking confirmations as the original files on the stay or activity they belong to, see and open them from the day timeline, and take them offline as one PDF.
 **FRs covered:** FR38, FR39, FR40
+
+### Epic 10: Costs in Another Currency
+Users can type a price in the currency it was quoted in and have the app convert it to EUR, keeping what was entered and the rate that was applied so the stored figure stays explainable.
+**FRs covered:** FR41
 
 ## Epic 1: Secure Access & Personal Workspace
 
@@ -779,7 +785,7 @@ So that the size of a restorable backup is a policy decision rather than a funct
 
 **FRs covered:** FR34 (backup restore) — the same capability, made to scale; no format, schema or UI change
 
-**Context:** The import buffers the archive four times over. Next buffers the body for the middleware (`/api/trips/:path*` is in `middleware.ts:66`'s matcher), `request.formData()` materialises it again as a `File`, `readZipMembers(bytes)` (`importPackage.ts:89`) takes it as one `Buffer`, and each extracted member is copied out of that with `Buffer.from(raw)`. Peak resident memory runs roughly 3–4× the archive.
+**Context:** The import buffers the archive four times over. Next buffers the body for the proxy (`/api/trips/:path*` is in `proxy.ts`'s matcher), `request.formData()` materialises it again as a `File`, `readZipMembers(bytes)` (`importPackage.ts:89`) takes it as one `Buffer`, and each extracted member is copied out of that with `Buffer.from(raw)`. Peak resident memory runs roughly 3–4× the archive.
 
 Measured on 2026-08-02: the production trips hold **113 MB** and **217 MB** of photos, and a STORE-only archive is essentially the sum of those bytes. At the original 100 MB ceiling neither was restorable. The ceiling was raised to 300 MB as a stopgap — with 2.9 GB available on a 3.8 GB box and no swap, a 217 MB import peaks around 700–870 MB, which fits but does not scale. At roughly 600 MB the peak would exceed the box no matter what the constant says.
 
@@ -3349,3 +3355,112 @@ Two approaches were rejected. Rendering the whole day plan server-side through h
 **Given** `pdf-lib` is a new dependency
 **When** it is added
 **Then** it is a runtime dependency of the server only, the 0-vulnerability audit gate stays green, and a real multi-page ticket PDF plus a portrait phone photo are both verified in the merged output — page count, orientation, and legibility, on screen
+
+## Epic 10: Costs in Another Currency
+
+Users can type a price in the currency it was quoted in and have the app convert it to EUR, keeping what was entered and the rate that was applied so the stored figure stays explainable.
+
+### Story 10.1: A Price in Another Currency
+
+As someone planning a trip outside the euro area,
+I want to type a price in the currency the booking site quoted,
+So that I stop running every number through a converter in another tab before I can enter it.
+
+**FRs covered:** FR41
+
+**Depends on:** nothing.
+
+**Context:** Every cost field is EUR by unstated convention — no control, no column, no stored currency. For the New Zealand trip the PRD uses as its primary journey, that means hand-converting every hotel and every activity, and storing a number that can no longer be checked against what was quoted. `184,06` records neither that it was `200,00 NZD` nor which rate produced it, so a wrong conversion is indistinguishable from a right one.
+
+The design is decided by an invariant that already exists: `sum(payments.amountCents) === costCents` is enforced as exact integer equality in `accommodationSchemas.ts:92`, `dayPlanItemSchemas.ts:129`, and again on import at `tripImportSchemas.ts:381`. Two independently rounded conversions can miss each other by a cent; two conversions at rates fetched on different days miss by more, and the save is refused — or succeeds locally and fails on restore. So the currency is chosen **once per entry**, not once per field, and one rate converts the cost and all its payment rows in a single submit. Four money fields (stay cost, stay payment amount, activity cost, activity payment amount — the list Story 6.27 fixed together), two selectors.
+
+Putting the currency and rate on the parent entry rather than the payment row makes this structural rather than conventional: the schema cannot express two rates on one entry, so no later change can quietly reintroduce the drift.
+
+The rate source is the ECB's own daily reference file — keyless, ~3 KB, all 30 rates, published against EUR, which is the base this app already stores in. It is reached through a session-gated server-side proxy of the same shape as `api/geocode/route.ts`, whose comment already argues the courtesy-caching case for the app's other keyless public API.
+
+**Acceptance Criteria:**
+
+**Given** an accommodation and a day plan item
+**When** the schema gains currency metadata
+**Then** `Accommodation` and `DayPlanItem` each carry nullable `costOriginalAmount`, `costCurrency`, `costRate` and `costRateDate`, `CostPayment` carries a nullable `amountOriginal`, and a migration is added with no backfill — `NULL` is the correct and complete description of every existing row
+
+**Given** the currency and rate live on the parent entry and only the amount on the payment row
+**When** a reviewer asks whether two rates can apply within one entry
+**Then** the schema is the answer: it cannot express that state
+
+**Given** the accommodation dialog and the activity dialog
+**When** a currency other than EUR is selected
+**Then** one selector governs that entry's cost field and every one of its payment rows, and the 31 options are EUR first, then the ECB's 30 by code
+
+**Given** EUR is selected, which is the default
+**Then** no rate is fetched, no metadata is written, and the stored result is byte-for-byte what the same input stores today
+
+**Given** amounts typed in a foreign currency
+**When** the form is submitted
+**Then** the payment-sum check runs **in the entered currency, before conversion**, so a mismatch is reported in the numbers the user typed rather than in converted cents
+
+**Given** a valid foreign-currency entry
+**When** it converts
+**Then** one rate serves the whole submit, `costCents = round(costOriginalAmount / rate)`, each payment converts by that same rate, and the residual `costCents - sum(converted payments)` is applied to the largest payment, ties broken toward the last — so the sum invariant holds by construction and the server schema is satisfied without being relaxed
+
+**Given** the ECB publishes units of foreign currency per one euro
+**When** the conversion is implemented
+**Then** the rate is stored exactly as published, un-inverted, so it can be checked against the ECB's own page, and a test asserts one hand-checked figure end to end — a round-trip test alone would pass with the direction reversed, which is the single likeliest silent error in this story
+
+**Given** `costOriginalAmount` stores the typed value multiplied by 100 regardless of the currency's ISO 4217 exponent
+**When** a currency without a minor unit is used
+**Then** `¥5000` stores as `500000` and the conversion stays one integer division — no exponent table is shipped for a problem `Intl.NumberFormat` already solves at display time
+
+**Given** the rate lookup fails — network error, non-200, unparseable XML — or a currency is not among the 30
+**Then** the field degrades to plain EUR entry with an inline notice, never a blocking error and never a silent zero, and the notice uses the caption-plus-icon treatment rather than the `input` error state, because the field is not invalid
+
+**Given** rates publish once daily around 16:00 CET
+**When** several dialogs are opened in a session
+**Then** the proxy serves a cached document rather than one outbound request per open, and the weekend needs no special case — the daily file continues to serve the last TARGET working day's rates with that date attached, which is what `costRateDate` records
+
+**Given** an entry saved in a foreign currency
+**When** it is reopened
+**Then** the dialog shows the original amount and currency, not the EUR figure, and saving with nothing changed leaves the stored values and the metadata untouched — it does not silently re-convert at today's rate, and it does not drop the receipt
+
+**Given** currencies without a minor unit, such as JPY and KRW
+**When** a foreign amount is rendered
+**Then** it renders through `Intl.NumberFormat` with that currency's own fraction digits, never through `formatCentsAsAmount`, whose fixed two decimals and documented `=== "de"` separator shortcut are correct only for the EUR field it was written for
+
+**Given** the v2 backup archive
+**When** a trip is exported and restored
+**Then** all five new columns survive the round trip, and the import schema's own `Payments must sum to costCents` check still passes on converted data
+
+**Given** both dictionaries
+**When** the field ships
+**Then** `en.ts` and `de.ts` carry every new string — the selector label, the converted caption, the rate-unavailable notice — and no key is added to one dictionary only
+
+### Story 10.2: The Rate That Was Used, Where the Cost Is Read
+
+As someone reviewing a plan weeks after entering it,
+I want to see that 184,06 € was 200,00 NZD at a stated rate,
+So that I can tell a correct conversion from a wrong one without opening the dialog.
+
+**FRs covered:** FR41 (the explainability half)
+
+**Depends on:** Story 10.1.
+
+**Context:** Story 10.1 stores the receipt; without this story it is only visible to someone reading the database. The metadata exists precisely so a figure can be checked and corrected, and a figure nobody can see is not checkable.
+
+Scope is display only — no new storage, no new lookup, no change to any total. Every figure on every surface stays EUR; the original is an annotation beneath it, in `{colors.ink-soft}`, never a second number competing with the first.
+
+**Acceptance Criteria:**
+
+**Given** an entry converted from a foreign currency
+**When** its cost is shown on the day timeline `tl-card` and in the cost overview
+**Then** the EUR figure keeps its existing prominence and tabular figures, and the original amount, currency and rate appear as secondary text beneath it
+
+**Given** an entry entered directly in EUR
+**Then** nothing is added — no empty annotation, no placeholder, no layout shift against today's rendering
+
+**Given** the printed day plan and the offline PDF packet
+**When** a converted cost appears
+**Then** the annotation prints with it, because the printed plan is the artefact most likely to be read away from the app
+
+**Given** the `card` and `tl-card` components at 390px
+**When** the annotation is added
+**Then** it does not push a cost onto a second line or displace the time pill, and the layout is verified at that width rather than assumed

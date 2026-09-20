@@ -8064,7 +8064,7 @@ describe("TripDayView document chips", () => {
     });
 
     it("maps a forced password change to the sign-in message rather than telling the user to retry", async () => {
-      // The middleware answers every `/api/trips/*` request from a must-change-password session with a 403
+      // The proxy answers every `/api/trips/*` request from a must-change-password session with a 403
       // `password_change_required`, and it guards the navigation rather than the XHR that follows it - so a
       // day screen already on the page can produce this code. Left in the default branch it becomes
       // "Please try again", which is advice for a condition no retry can fix.

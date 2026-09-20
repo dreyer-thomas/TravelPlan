@@ -10,7 +10,7 @@ export const runtime = "nodejs";
 /**
  * The system-wide account list, for trip owners deciding who to invite.
  *
- * Two guards, both of which have to live here. `requireSession` because the middleware matcher is
+ * Two guards, both of which have to live here. `requireSession` because the proxy matcher is
  * `/api/trips`-scoped and does not cover this path, so nothing upstream produces the `unauthorized`
  * 401 or the `password_change_required` 403. `hasAnyOwnedTrip` because this is the only read in the
  * app that leaves the caller's own trip graph - a signed-in account with no trip of its own, and a

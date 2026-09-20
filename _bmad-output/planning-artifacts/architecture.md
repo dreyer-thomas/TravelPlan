@@ -381,7 +381,7 @@ travelplan/
 │   │   └── slices/
 │   │       ├── tripSlice.ts
 │   │       └── uiSlice.ts
-│   ├── middleware.ts
+│   ├── proxy.ts
 │   └── types/
 └── tests/
     ├── api/
@@ -442,7 +442,7 @@ travelplan/
 
 - **Viewer/Light Contributor (FR22-FR24)**
   - Auth roles: `src/lib/auth/*`
-  - API guards: `src/middleware.ts`
+  - API guards: `src/proxy.ts`
 
 - **Data Safety (FR25)**
   - Export route: `src/app/api/trips/[id]/export/route.ts`
@@ -456,6 +456,7 @@ travelplan/
 **External Integrations:**
 - Maps (future): `components/features/trips/` and `components/features/days/`
 - Routing (future): server integration in `lib/services/maps.ts`
+- Exchange rates: ECB `eurofxref-daily.xml`, reached through the session-gated proxy at `app/api/exchange-rates/route.ts` and cached in-process. Keyless and EUR-based; adds no dependency, no secret and no deployment step. Failure is non-blocking — the cost field degrades to plain EUR entry. See FR41 and Sprint Change Proposal 2026-09-20.
 
 **Data Flow:**
 - UI submits -> server action / API -> repository -> Prisma -> SQLite

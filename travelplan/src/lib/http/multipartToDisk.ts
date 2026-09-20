@@ -34,7 +34,7 @@ import type { FileHandle } from "node:fs/promises";
  *   2026-08-03: `maxFileBytes` bounds only the part named `filePartName`, so a part carrying any
  *   other `filename` was drained unbounded, and so were the preamble and the epilogue. The route's
  *   `content-length` pre-check is not a substitute - a `Transfer-Encoding: chunked` request simply
- *   omits the header - and since Story 2.34 took `/api/trips/import` out of the middleware matcher,
+ *   omits the header - and since Story 2.34 took `/api/trips/import` out of the proxy matcher,
  *   Next's `proxyClientMaxBodySize` does not bound it either. Nothing else was left.
  */
 

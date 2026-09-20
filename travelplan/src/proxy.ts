@@ -6,11 +6,16 @@ import { getRequestSession } from "@/lib/auth/sessionGuard";
  * Story 5.10 added `/admin`, extending this predicate rather than adding a third branch below - the
  * treatment a signed-out or password-flagged caller gets is identical for all three page trees.
  *
- * **This does not check for `ADMIN`, and cannot.** Two reasons, both structural: the role in the session
+ * **This does not check for `ADMIN`, and cannot.** The reason is structural: the role in the session
  * token is a seven-day snapshot (`createSessionJwt({ sub, role })`), so a promotion or a revocation is
- * invisible here; and Prisma does not run in the edge runtime this file executes in, so there is no way
- * to read the live value. Rather than gate on a stale claim, the admin decision is made in the two
- * places that can make it honestly - `/admin/users/page.tsx` is a server component that re-reads the
+ * invisible here.
+ *
+ * There used to be a second reason - that Prisma could not run in the edge runtime this file executed
+ * in - and Story 8.2 removed it. Next's `proxy` convention always builds to the Node runtime, so Prisma
+ * *would* run here now. **The decision stands on the snapshot argument alone, which is the load-bearing
+ * half.** Do not read "Prisma works here" as permission to move the admin gate up into this file: it
+ * would gate on a claim that can be seven days stale. Rather than gate on a stale claim, the admin
+ * decision is made in the two places that can make it honestly - `/admin/users/page.tsx` is a server component that re-reads the
  * role, and every `/api/admin/*` route calls `requireAdmin`. What this layer answers is "is anybody
  * signed in", which is what it is able to answer.
  */
@@ -31,7 +36,7 @@ const isProtectedApiPath = (pathname: string) => pathname.startsWith("/api/trips
 const isHomePath = (pathname: string) => pathname === "/";
 const isForcedPasswordChangePath = (pathname: string) => pathname === "/auth/first-login-password";
 
-export const middleware = async (request: NextRequest) => {
+export const proxy = async (request: NextRequest) => {
   const { pathname } = request.nextUrl;
   const session = await getRequestSession(request);
 
@@ -100,13 +105,13 @@ export const middleware = async (request: NextRequest) => {
  * Only that one path is excluded. `/api/trips` itself is listed separately because `:path` requires a
  * segment, and every other `/api/trips/*` route stays guarded here. The import route self-guards with
  * `requireSession`, which returns the same `unauthorized` 401 and `password_change_required` 403 this
- * middleware does - `tripImportRoute.test.ts` asserts both, and `middleware.test.ts` asserts that the
+ * proxy does - `tripImportRoute.test.ts` asserts both, and `proxy.test.ts` asserts that the
  * matcher still covers its siblings, because "the exclusion quietly widened" is the way this breaks.
  *
  * The `/?` in the negative lookahead is not decoration: `(?!import$)` excluded `/api/trips/import`
  * and left `/api/trips/import/` matched, which is the same route with the same body and would have
  * been buffered after all. Run through Next's own `getMiddlewareMatchers`, both spellings are now
- * excluded, and `middleware.test.ts` pins both.
+ * excluded, and `proxy.test.ts` pins both.
  */
 export const config = {
   matcher: [

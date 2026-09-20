@@ -9,7 +9,7 @@ import {
  * The two body-size guards, without a route around them.
  *
  * Both exist because of what Story 2.34 changed about where request bodies are buffered: taking
- * `/api/trips/import` out of `middleware.ts`'s matcher removed Next's implicit ceiling from its JSON
+ * `/api/trips/import` out of `proxy.ts`'s matcher removed Next's implicit ceiling from its JSON
  * branch, and lowering `proxyClientMaxBodySize` from 320 MB to 20 MB moved the truncation cliff down
  * onto the four image upload routes that are still matched. Neither guard can be proven through a
  * route without uploading hundreds of megabytes, which is why they are unit-tested here.

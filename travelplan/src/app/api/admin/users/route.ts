@@ -22,9 +22,10 @@ export const runtime = "nodejs";
  * The administration list: every account, and what each can reach (Story 5.10, AC3).
  *
  * `requireAdmin` rather than `requireSession` + `hasAnyOwnedTrip`, and that substitution is the story
- * (AC1, Trap 2). The middleware does not cover `/api/admin/*` - it cannot decide `ADMIN` in the edge
- * runtime, where Prisma does not run and the token's role is a seven-day snapshot - so this route
- * self-guards and gets the live role.
+ * (AC1, Trap 2). The proxy does not cover `/api/admin/*` - it cannot decide `ADMIN`, because the only
+ * role it could read is the token's seven-day snapshot - so this route self-guards and gets the live
+ * role. (Since Story 8.2 the proxy runs on Node, so Prisma would work there. The snapshot is still the
+ * reason, and it is reason enough.)
  *
  * The trip list rides along in the same response. The attach action needs it, it is small, and a second
  * endpoint would double the request count on a page that is one list.

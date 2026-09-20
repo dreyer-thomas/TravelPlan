@@ -37,8 +37,8 @@ type RouteContext = {
  * and pass in test, which is the worst of both. `resolveStoredMediaPath` maps the stored URL back onto a
  * file and the containment layers below are what make that safe.
  *
- * The guard chain is `requireSession` → params → `hasTripReadAccess`, and the middleware's session gate
- * (`middleware.ts`) sits in front of all of it. Both layers are required; every sibling route does both.
+ * The guard chain is `requireSession` → params → `hasTripReadAccess`, and the proxy's session gate
+ * (`proxy.ts`) sits in front of all of it. Both layers are required; every sibling route does both.
  * Read access, not ownership: a viewer who can open the day can take its documents offline.
  *
  * **The packet speaks the language the request arrived in (DW-230).** It comes off the `lang` cookie, which

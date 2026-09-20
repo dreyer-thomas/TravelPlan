@@ -480,7 +480,7 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
   // ceiling to revisit if exports ever grow into the hundreds of megabytes.
   //
   // No CSRF token: this app validates CSRF per-route inside the mutating handlers rather than in
-  // middleware, and this GET has no `validateCsrf` call. (`middleware.ts` checks the session cookie
+  // `proxy.ts`, and this GET has no `validateCsrf` call. (`proxy.ts` checks the session cookie
   // and nothing else.)
   const handleExport = async () => {
     setExportErrorKey(null);
@@ -496,7 +496,7 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
       if (!response.ok) {
         // Read the envelope rather than reporting one sentence for every failure. Two of these are
         // states where "please try again" is actively wrong advice: an expired session (401, from
-        // middleware) and a trip that was deleted or was never yours (404) both repeat forever, and
+        // `proxy.ts`) and a trip that was deleted or was never yours (404) both repeat forever, and
         // only the first has a way out. Existing keys, deliberately - no new i18n contract for a
         // control whose own strings are the only ones this story adds.
         const body = (await response.json().catch(() => null)) as ApiEnvelope<unknown> | null;

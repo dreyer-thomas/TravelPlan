@@ -76,7 +76,7 @@ describe("HeaderMenu administration entry", () => {
   });
 
   it("shows a caller who passes no isAdmin at all the menu unchanged", async () => {
-    // The prop is optional so the marketing home page, which the middleware only ever shows to anonymous
+    // The prop is optional so the marketing home page, which the proxy only ever shows to anonymous
     // visitors, does not have to resolve a role it has no reason to. The default has to be the safe one.
     await openMenu({ isAuthenticated: true });
 

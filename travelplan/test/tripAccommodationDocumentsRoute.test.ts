@@ -338,7 +338,7 @@ describe("/api/trips/[id]/accommodations/documents", () => {
 
   /**
    * The `declaredBodyExceedsFileLimit` path, and the reason it exists at all: these routes fall
-   * inside the middleware matcher, so Next *truncates* a body over `proxyClientMaxBodySize` rather
+   * inside the proxy matcher, so Next *truncates* a body over `proxyClientMaxBodySize` rather
    * than refusing it. Without the pre-check `request.formData()` throws and an intact 25 MB ticket is
    * answered `invalid_form_data` - "this file is damaged" for a file that is fine. The assertion is
    * therefore on the *message*, not merely on the 400.

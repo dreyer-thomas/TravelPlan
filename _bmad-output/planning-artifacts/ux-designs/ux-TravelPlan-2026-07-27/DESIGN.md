@@ -188,6 +188,15 @@ components:
     radius: '{rounded.DEFAULT}'
     bg: '{colors.card}'
     border: '{colors.border-strong}'
+  money-field:
+    minHeight: 44px
+    currencySelectWidth: 92px
+    gap: 8px
+    captionGap: 6px
+    captionSize: '{typography.body-sm}'
+    captionColor: '{colors.ink-soft}'
+    noticeColor: '{colors.warn}'
+    noticeIconSize: 14px
   tab:
     minHeight: 44px
     radius: '{rounded.DEFAULT}'
@@ -276,6 +285,14 @@ Two corner rules coexist deliberately: **photography is always sharp** ({rounded
   **`close`** — the first documented instance. Top right of a dialog's title row, vertically centred on the title's first line, glyph `✕`, {colors.ink-soft}. It closes without committing: the same outcome the footer's `Abbrechen` used to carry, moved out of the footer and shortened to a glyph. Every dialog has exactly one. See EXPERIENCE.md.State Patterns for what it must do when the form behind it is dirty.
 
 - **input / select** — Text input: {components.input.minHeight} tall, {rounded.DEFAULT} radius, {components.input.border} border, {components.input.bg} background, {colors.ink-muted} placeholder. Three states, all from the Form-Bausteine swatch sheet: default; focus ({components.input.focusBorder} 2px border + `{components.input.focusRing}` outer ring, background lifts to {colors.card}); error (border → {components.input.errorBorder}, a close terracotta variant of {colors.warn-border}, background → {components.input.errorBg}), always paired with an inline error line below in {colors.warn} with a small alert icon — never color alone. Select: same {components.select.minHeight}/radius, {components.select.bg} background, 700-weight value text, trailing chevron.
+- **money-field** — A cost amount and the currency it is quoted in, as one field: the standard `input` ({components.money-field.minHeight}, {rounded.DEFAULT}) with a trailing `select` of {components.money-field.currencySelectWidth} carrying the currency code, separated by {components.money-field.gap}. The select defaults to EUR and is the **entry's** control, not the field's — one selector governs a stay's cost and every one of its payment rows, so a payment row renders the amount input alone. This is not a layout preference: `sum(payments) === cost` is enforced as exact integer equality server-side, and two rates within one entry cannot be relied on to satisfy it.
+
+  Beneath the field, a single caption line at {components.money-field.captionGap} spacing in {components.money-field.captionColor}, showing the converted EUR figure. It is present only when the currency is not EUR — an EUR field renders exactly as it does today, with no empty slot and no reserved height.
+
+  **The rate-unavailable state is a notice, not an error.** It uses the same caption slot in {components.money-field.noticeColor} with the small alert icon the `input` error line carries, and leaves border and background at their default values. The `input` error treatment ({components.input.errorBorder} + {components.input.errorBg}) is reserved for a value the user must fix; an unreachable rate feed is not that — the field is valid, it is simply EUR now, and painting it as an error would ask the user to correct something they did not get wrong.
+
+  The converted caption is a compared numeric value and therefore takes tabular figures, per the hard rule in Typography. A foreign amount is rendered through `Intl.NumberFormat` with its own currency's fraction digits — JPY and KRW have none, and two forced decimals would render `¥5000` as a price it never was.
+
 - **checkbox** — {components.checkbox.boxSize} square visible box ({components.checkbox.boxRadius} radius, {colors.border-strong} border unchecked, {colors.accent} fill + white check glyph checked), inside a {components.checkbox.rowMinHeight}-tall clickable row — the whole row (box + label), not just the box, is the touch target.
 - **candidate-list** — The list of places a location search came back with, under the place field on all four surfaces that have one (trip create — twice, activity dialog, accommodation dialog, bucket-list panel). A {typography.label-caps} heading naming the count ("Ort auswählen (5)"), then one full-width, left-aligned, {components.button.minHeight} row per candidate. **The label is the content** — the same rule `doc-chip` states: a place name is the only thing distinguishing "Sky Tower, Auckland" from "Sky Tower, Ho Chi Minh City", so the row carries the geocoder's full display name and nothing else.
 

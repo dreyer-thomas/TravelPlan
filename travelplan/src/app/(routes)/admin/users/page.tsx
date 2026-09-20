@@ -14,15 +14,17 @@ import { verifySessionJwt } from "@/lib/auth/jwt";
  * when being refused is an ordinary outcome for an ordinary signed-in user.
  *
  * Here it is not. `/admin/users` is not a page a non-admin has any business seeing the frame of, and the
- * middleware cannot decide it - `role` in the session token is a seven-day snapshot and Prisma does not
- * run in the edge runtime. A server component can, so it does, and the answer is the live one.
+ * proxy cannot decide it - `role` in the session token is a seven-day snapshot, so a promotion or a
+ * revocation is invisible there. (Since Story 8.2 the proxy runs on Node, where Prisma works; the
+ * obstacle is staleness, not capability.) A server component can, so it does, and the answer is the
+ * live one.
  *
  * `notFound()` rather than a redirect or a rendered "forbidden" panel: to an account that is not an
  * administrator, this route does not exist. That is also why the component below still handles its own
  * `forbidden` state - the role can be revoked between this render and the fetch that follows it, and the
  * API remains the authority.
  *
- * The session itself is not re-checked for existence here; the middleware has already redirected a
+ * The session itself is not re-checked for existence here; the proxy has already redirected a
  * signed-out visitor to `/auth/login` and a password-flagged one to the forced change. What is left for
  * this file is the role.
  */

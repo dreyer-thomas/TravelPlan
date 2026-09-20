@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
  *
  * `authenticated` is DW-128's carrier and nothing more. `HeaderMenu` refetches this route every time the
  * menu opens, so a tab left open past session expiry needs one boolean to stop offering "All trips" into a
- * middleware bounce - and this route is the request it was already making. The entry proposed reading a
+ * proxy bounce - and this route is the request it was already making. The entry proposed reading a
  * `401` from here instead, which cannot work: there is no session requirement to fail. Probing a protected
  * route (`/api/trips`) was the other candidate and was rejected - it runs a full trips query and returns
  * every trip's name, dates and cost totals to answer one boolean.
@@ -22,7 +22,7 @@ export const dynamic = "force-dynamic";
  * `AppHeader.resolveAuthState` means by `isAuthenticated`: a `session` cookie `verifySessionJwt` accepts.
  * That is "there is a session", not "that session can reach every row of the menu" - a
  * `mustChangePassword` caller has one and is still bounced off `/trips`. Reporting them signed out would
- * take the sign-out row away from the population that most needs a way back out, and `middleware.ts` sends
+ * take the sign-out row away from the population that most needs a way back out, and `proxy.ts` sends
  * them to `/auth/first-login-password`, which renders no `AppHeader` at all.
  *
  * `Vary: Cookie` because the body is no longer the same for every caller. `Cache-Control: no-store` below

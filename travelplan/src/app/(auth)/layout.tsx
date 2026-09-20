@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
  * topbar (Story 7.6, AC3).
  *
  * Route groups do not appear in the URL, so `/auth/login` … `/auth/first-login-password` are
- * unchanged and `middleware.ts`'s URL-based matcher keeps working untouched.
+ * unchanged and `proxy.ts`'s URL-based matcher keeps working untouched.
  *
  * No `<html>`/`<body>` here — `src/app/layout.tsx` still owns those, `I18nProvider` and
  * `ThemeRegistry`.
