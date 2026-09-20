@@ -24,13 +24,24 @@ describe("MoneyField", () => {
     expect(screen.queryByLabelText("Currency")).not.toBeInTheDocument();
   });
 
-  it("offers EUR first and then the ECB codes in published order", () => {
+  it("offers EUR first and then the ECB codes alphabetically", () => {
+    /*
+      Sorted at the selector, not in the constant: `ECB_CURRENCIES` stays a faithful mirror of the
+      feed document. The published order is four alphabetical blocks - the two majors, EU non-euro
+      members, other European, then the rest - which reads as almost-sorted and puts `NZD`
+      twenty-fifth of twenty-nine. Derived from the constant rather than hardcoded, because the list
+      is a moving target: BGN left on euro accession, HRK before it.
+    */
     renderField({ currency: "EUR", onCurrencyChange: () => {}, currencyLabel: "Currency" });
 
     fireEvent.mouseDown(screen.getByLabelText("Currency"));
     const options = within(screen.getByRole("listbox")).getAllByRole("option");
+    const codes = options.map((option) => option.textContent);
 
-    expect(options.map((option) => option.textContent)).toEqual(["EUR", ...ECB_CURRENCIES]);
+    expect(codes).toEqual(["EUR", ...[...ECB_CURRENCIES].sort()]);
+    // EUR leads regardless of where it would sort, and the tail really is in order.
+    expect(codes[0]).toBe("EUR");
+    expect(codes.slice(1)).toEqual([...codes.slice(1)].sort());
   });
 
   it("reports the selected code to its owner", () => {

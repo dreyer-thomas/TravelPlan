@@ -202,6 +202,36 @@ describe("theme token contract", () => {
    * idiomatic and misses an iPhone in landscape at ~932px), and neither mistake shows up on a desktop
    * browser or in any other test.
    */
+  /*
+    The currency combobox stood ~21px taller than the amount input beside it in `MoneyField`, and the
+    cause was a `minHeight: 44` on this slot rather than on the root.
+
+    The slot is the `Select`'s display `div`, whose classes include `MuiInputBase-input`, so it takes
+    MUI's `boxSizing: "content-box"` for that slot - unlike `MuiOutlinedInput.root`, which is
+    `border-box`. Under `content-box` a 44px minimum is the *content* height and the outlined
+    variant's 16.5px top and bottom padding lands on top of it: 44 + 33 = 77px, against the input's
+    1.4375em + 33 = 56px. The number looks like the 44px touch target and behaves like something else.
+
+    Asserted on the theme object because jsdom lays nothing out - it computes no box model, so no
+    render test here can compare two heights. What is checkable is that the slot does not reacquire a
+    vertical minimum, which is the single line that caused it.
+  */
+  it("sets no content-box vertical minimum on the Select display slot", () => {
+    const select = theme.components?.MuiSelect?.styleOverrides?.select as
+      | Record<string, unknown>
+      | undefined;
+
+    expect(select).toBeDefined();
+    expect(select?.minHeight).toBeUndefined();
+    expect(select?.height).toBeUndefined();
+
+    // The touch floor belongs on the border-box root, and is still there.
+    const root = theme.components?.MuiOutlinedInput?.styleOverrides?.root as
+      | Record<string, unknown>
+      | undefined;
+    expect(root?.minHeight).toBe(44);
+  });
+
   it("keeps every editable control at or above the font size iOS Safari zooms below", () => {
     const TOUCH = "@media (hover: none) and (pointer: coarse)";
 

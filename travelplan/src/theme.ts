@@ -497,7 +497,20 @@ const theme = createTheme({
     MuiSelect: {
       styleOverrides: {
         select: {
-          minHeight: 44,
+          /*
+            **No `minHeight` here.** It used to carry `minHeight: 44`, matching the root's, and it made
+            the currency combobox stand ~21px taller than the amount input beside it in `MoneyField`.
+
+            The trap is the box model, not the number. This slot is the `Select`'s display `div`, and
+            its classes include `MuiInputBase-input` - so it inherits MUI's `boxSizing: "content-box"`
+            for that slot, unlike the root, which is `border-box`. Under `content-box` a 44px minimum
+            is the *content* height and the outlined variant's 16.5px top and bottom padding is added
+            on top of it: 44 + 33 = 77px, against the input's own 1.4375em content + 33 = 56px.
+
+            The 44px touch floor is not lost by removing it. `MuiOutlinedInput.root` above sets
+            `minHeight: 44` on the border-box root, which is the element that actually has to meet the
+            target, and it measures 56px in practice anyway.
+          */
           borderRadius: 6,
           backgroundColor: colors.card,
           display: "flex",

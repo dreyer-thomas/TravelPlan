@@ -8,6 +8,22 @@ import { WarningTriangleIcon } from "@/components/features/trips/TripIcons";
 import { ECB_CURRENCIES } from "@/lib/rates/exchangeRateService";
 
 /**
+ * The selector's codes, sorted.
+ *
+ * `ECB_CURRENCIES` deliberately keeps the order the ECB publishes - it mirrors the feed document,
+ * and that constant is the one place in the codebase that knows its shape - so the sort happens here
+ * rather than there. The published order is four blocks, each alphabetical inside itself (the two
+ * majors, then EU non-euro members, then other European, then the rest of the world), which reads as
+ * almost-sorted and is worse than either: `GBP` lands in the middle and `NZD` is the twenty-fifth of
+ * twenty-nine. Someone opening a 92px menu is looking for a code they already know, not comparing it
+ * against ecb.europa.eu.
+ *
+ * Computed once at module scope: the list only changes when the constant does, and re-sorting on
+ * every render of every money field would be work for nothing.
+ */
+const CURRENCY_OPTIONS = [...ECB_CURRENCIES].sort();
+
+/**
  * A cost amount and the currency it is quoted in, as one field.
  *
  * Composes `FormField` rather than re-styling an input: the 44px height, the `cardAlt` fill, the
@@ -156,12 +172,12 @@ export default function MoneyField({
             >
               {/*
                 EUR first and outside the list, because it is not one of the twenty-nine: the ECB
-                document quotes every rate *against* the euro, so it has no row of its own. Then the
-                codes in the order ECB publishes them, which is neither alphabetical nor by volume but
-                is the order a user comparing against ecb.europa.eu will see.
+                document quotes every rate *against* the euro, so it has no row of its own - and
+                because it is this field's default, which belongs at the top whatever the rest do.
+                Then the codes alphabetically; see `CURRENCY_OPTIONS`.
               */}
               <MenuItem value="EUR">EUR</MenuItem>
-              {ECB_CURRENCIES.map((code) => (
+              {CURRENCY_OPTIONS.map((code) => (
                 <MenuItem key={code} value={code}>
                   {code}
                 </MenuItem>
