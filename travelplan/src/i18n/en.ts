@@ -709,6 +709,8 @@ const en: Dictionary = {
   "trips.dayChange.reordered": "Order changed",
   "trips.dayChange.itemsMovedOne": "1 activity moved",
   "trips.dayChange.itemsMoved": "{count} activities moved",
+  "trips.dayChange.itemsMovedOnDayOne": "1 activity moved on day {day}",
+  "trips.dayChange.itemsMovedOnDay": "{count} activities moved on day {day}",
   "trips.dayChange.checkInWarning": "You will reach your stay after its {time} check-in.",
   "trips.dayChange.legsRemovedOne": "1 travel leg removed",
   "trips.dayChange.legsRemoved": "{count} travel legs removed",

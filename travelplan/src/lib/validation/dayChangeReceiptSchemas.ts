@@ -180,6 +180,25 @@ const editedSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("deleted"), previous: deletedSnapshotSchema }).strict(),
   // Story 11.3. Additive, so `version` stays 2; `dayPlanChangeRepo.ts` checks both ids are in `movedItems`.
   z.object({ kind: z.literal("reordered"), itemId: idSchema, neighbourId: idSchema }).strict(),
+  // Story 11.4. Additive too; `dayPlanChangeRepo.ts` checks the leg row and the stay against the day.
+  z.object({ kind: z.literal("legCreated"), segmentId: idSchema, updatedAt: isoDateSchema }).strict(),
+  z
+    .object({
+      kind: z.literal("legUpdated"),
+      segmentId: idSchema,
+      updatedAt: isoDateSchema,
+      previous: travelSegmentRowSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("stayCheckOutChanged"),
+      accommodationId: idSchema,
+      updatedAt: isoDateSchema,
+      previousUpdatedAt: isoDateSchema,
+      previousCheckOutTime: nullableText(),
+    })
+    .strict(),
 ]);
 
 /** Story 11.2. Times are stored text (an import may hold odd ones); the stamps are what undo compares. */

@@ -3607,3 +3607,25 @@ severity: low
 summary: The client offers a move whenever both rows have a `fromTime`. The server also refuses with `not_reorderable` for the predecessor-side tie, an unreadable start, or an overnight `toTime` that would go below 00:00. The user sees "The view has been refreshed" and the same offer again, every time.
 evidence: Read at 2026-10-11 during the code review of Story 11.3. All three shapes need imported data or three rows with the same start in a specific `createdAt` order. A fix would hide the move on the client (duplicating the planner's checks) or use a distinct message for a refusal that won't change.
 status: open
+
+## Deferred from: code review of 11-4-when-the-journey-takes-longer (2026-10-11)
+
+### DW-377: On a cross-day receipt, the check-in warning does not name the pushed day
+
+source_spec: `_bmad-output/implementation-artifacts/11-4-when-the-journey-takes-longer.md`
+origin: code review of 11-4-when-the-journey-takes-longer, 2026-10-11
+location: `travelplan/src/lib/trips/dayChangeReceipt.ts:313` (`checkInWarningText`), `travelplan/src/components/features/trips/TripDayView.tsx` (notice summary)
+severity: low
+summary: A later check-out on day N pushes day N+1, and the receipt may carry that day's `checkInWarning`. `otherDayIndex` reaches only the moved-count text. So when the notice is viewed on day N, "You will reach your stay after its {time} check-in." reads as if it were about day N's stay.
+evidence: Read at 2026-10-11 during the code review of Story 11.4. In today's UI, check-out can be edited only from the pushed day (11.4 Read-this-first §1), so `tripDayId !== day.id` is reachable only through the API. Resolve this together with the open question of whether the current-stay dialog should get a check-out field.
+status: open
+
+### DW-378: A check-out that pushes another day past midnight does not name that day
+
+source_spec: `_bmad-output/implementation-artifacts/11-4-when-the-journey-takes-longer.md`
+origin: code review of 11-4-when-the-journey-takes-longer, 2026-10-11
+location: `travelplan/src/lib/http/dayPlanPushResponses.ts` (`pastMidnightResponse`), `travelplan/src/components/features/trips/TripAccommodationDialog.tsx:1560`
+severity: low
+summary: `409 day_plan_past_midnight` carries only `itemId` and `itemTitle`. When the blocking activity is on the next day, the stay dialog names the activity but not the day.
+evidence: Read at 2026-10-11 during the code review of Story 11.4. The cause is the same as DW-377: API-only today, because the check-out is edited from the pushed day itself. Deferred with the same UX question.
+status: open

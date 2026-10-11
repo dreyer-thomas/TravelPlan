@@ -41,6 +41,13 @@ import {
  * activities that traded places are both in `movedItems`, so phases 1 and 2 check and restore them with
  * every pushed one, and restoring their times restores the order phase 3 relies on.
  *
+ * Story 11.4 adds the leg and check-out kinds. `legCreated` deletes the leg and `legUpdated` writes its
+ * previous row back in full; both are conditional on the leg's post-write stamp, and the receipt's own
+ * leg is left out of the post-condition's protected set (it is drawn before the undo and is the very row
+ * the undo deletes or rewrites). `stayCheckOutChanged` puts back only the check-out and the stay's
+ * `updatedAt`, conditional on the stamp, and only for the stay of the night before the receipt's (pushed)
+ * day. None of them ever removed a leg, so a non-empty `removedTravelSegments` is a forgery.
+ *
  * Any failure throws `UndoStaleError`, which rolls the transaction back and maps to `stale`. A `P2002`
  * while recreating a row maps there too: someone drew a new leg for the same pair, or reused the id.
  *
@@ -120,16 +127,30 @@ const findInvalidity = (receipt: DayChangeReceipt, tripId: string): string | nul
 
   // Story 11.2: the push never moves the edited activity, and moves each other one at most once.
   // Story 11.3: a reorder's two activities are the exception; both must be listed as moved.
+  // Story 11.4: a leg or check-out save edits no activity, so only the activity kinds have an edited id.
   const movedIds = new Set<string>();
-  const editedId = edited.kind === "deleted" ? edited.previous.id : edited.itemId;
+  const editedId =
+    edited.kind === "deleted"
+      ? edited.previous.id
+      : edited.kind === "created" || edited.kind === "updated"
+        ? edited.itemId
+        : null;
   for (const moved of receipt.movedItems) {
     if (movedIds.has(moved.itemId)) return "duplicate moved item";
-    if (edited.kind !== "reordered" && moved.itemId === editedId) return "edited item listed as moved";
+    if (editedId !== null && moved.itemId === editedId) return "edited item listed as moved";
     movedIds.add(moved.itemId);
   }
   if (edited.kind === "reordered") {
     if (edited.itemId === edited.neighbourId) return "reordered with itself";
     if (!movedIds.has(edited.itemId) || !movedIds.has(edited.neighbourId)) return "reordered pair not listed as moved";
+  }
+
+  if (edited.kind === "legCreated" || edited.kind === "legUpdated" || edited.kind === "stayCheckOutChanged") {
+    if (receipt.removedTravelSegments.length > 0) return "side effect a leg or stay save never has";
+  }
+  if (edited.kind === "legUpdated") {
+    if (edited.previous.id !== edited.segmentId) return "snapshot of another leg";
+    if (edited.previous.tripDayId !== tripDayId) return "leg on another day";
   }
 
   if (receipt.consumedBucketListItem) {
@@ -162,38 +183,80 @@ const undoInTransaction = async (tx: TransactionClient, tripId: string, receipt:
   // is what the post-condition protects.
   const drawnBeforeUndo = await readDrawnSegmentKeysInTransaction(tx, tripId, tripDayId);
   const receiptLegIds = new Set(receipt.removedTravelSegments.map((leg) => leg.id));
+  // Story 11.4: the leg a leg save wrote is the undo's own to delete or rewrite, not one it must protect.
+  if (edited.kind === "legCreated" || edited.kind === "legUpdated") receiptLegIds.add(edited.segmentId);
   const protectedLegs = (await tx.travelSegment.findMany({ where: { tripDayId } })).filter(
     (leg) => !receiptLegIds.has(leg.id) && drawnBeforeUndo.has(buildStoredSegmentPairKey(leg)),
   );
 
-  // Phase 1: staleness, before any write.
-  if (edited.kind === "created") {
-    const item = await tx.dayPlanItem.findFirst({ where: { id: edited.itemId, tripDayId } });
-    if (!item || !sameInstant(item.updatedAt, edited.updatedAt)) throw new UndoStaleError("created item changed");
-    // Media and legs on a freshly created item can only come from later edits; deleting them would
-    // overwrite those edits.
-    const [images, documents, legs] = await Promise.all([
-      tx.dayPlanItemImage.count({ where: { dayPlanItemId: item.id } }),
-      tx.dayPlanItemDocument.count({ where: { dayPlanItemId: item.id } }),
-      tx.travelSegment.count({
-        where: {
-          OR: [
-            { fromItemType: "DAY_PLAN_ITEM", fromItemId: item.id },
-            { toItemType: "DAY_PLAN_ITEM", toItemId: item.id },
-          ],
-        },
-      }),
-    ]);
-    if (images > 0 || documents > 0 || legs > 0) throw new UndoStaleError("created item gained media or legs");
-  } else if (edited.kind === "updated") {
-    const item = await tx.dayPlanItem.findFirst({ where: { id: edited.itemId, tripDayId }, select: { updatedAt: true } });
-    if (!item || !sameInstant(item.updatedAt, edited.updatedAt)) throw new UndoStaleError("updated item changed");
-  } else if (edited.kind === "deleted") {
-    if (await tx.dayPlanItem.findUnique({ where: { id: edited.previous.id }, select: { id: true } })) {
-      throw new UndoStaleError("deleted item exists again");
+  // Phase 1: staleness, before any write. One branch per kind; none falls into another's.
+  switch (edited.kind) {
+    case "created": {
+      const item = await tx.dayPlanItem.findFirst({ where: { id: edited.itemId, tripDayId } });
+      if (!item || !sameInstant(item.updatedAt, edited.updatedAt)) throw new UndoStaleError("created item changed");
+      // Media and legs on a freshly created item can only come from later edits; deleting them would
+      // overwrite those edits.
+      const [images, documents, legs] = await Promise.all([
+        tx.dayPlanItemImage.count({ where: { dayPlanItemId: item.id } }),
+        tx.dayPlanItemDocument.count({ where: { dayPlanItemId: item.id } }),
+        tx.travelSegment.count({
+          where: {
+            OR: [
+              { fromItemType: "DAY_PLAN_ITEM", fromItemId: item.id },
+              { toItemType: "DAY_PLAN_ITEM", toItemId: item.id },
+            ],
+          },
+        }),
+      ]);
+      if (images > 0 || documents > 0 || legs > 0) throw new UndoStaleError("created item gained media or legs");
+      break;
+    }
+    case "updated": {
+      const item = await tx.dayPlanItem.findFirst({ where: { id: edited.itemId, tripDayId }, select: { updatedAt: true } });
+      if (!item || !sameInstant(item.updatedAt, edited.updatedAt)) throw new UndoStaleError("updated item changed");
+      break;
+    }
+    case "deleted":
+      if (await tx.dayPlanItem.findUnique({ where: { id: edited.previous.id }, select: { id: true } })) {
+        throw new UndoStaleError("deleted item exists again");
+      }
+      break;
+    case "reordered":
+      // No edited-item check: both of its rows are checked as moved items below.
+      break;
+    case "legCreated":
+    case "legUpdated": {
+      const segment = await tx.travelSegment.findFirst({
+        where: { id: edited.segmentId, tripDayId },
+        select: { updatedAt: true },
+      });
+      if (!segment || !sameInstant(segment.updatedAt, edited.updatedAt)) throw new UndoStaleError("leg changed");
+      break;
+    }
+    case "stayCheckOutChanged": {
+      // The stay must be last night's for the pushed day (the nearest lower `dayIndex`, the timeline's
+      // rule): a receipt naming any other stay is not something a check-out save ever returned.
+      const stay = await tx.accommodation.findFirst({
+        where: { id: edited.accommodationId, tripDay: { tripId } },
+        select: { updatedAt: true, tripDayId: true },
+      });
+      if (!stay || !sameInstant(stay.updatedAt, edited.updatedAt)) throw new UndoStaleError("stay changed");
+      const pushedDay = await tx.tripDay.findFirst({ where: { id: tripDayId, tripId }, select: { dayIndex: true } });
+      const previousDay = pushedDay
+        ? await tx.tripDay.findFirst({
+            where: { tripId, dayIndex: { lt: pushedDay.dayIndex } },
+            orderBy: [{ dayIndex: "desc" }, { date: "desc" }],
+            select: { id: true },
+          })
+        : null;
+      if (!previousDay || previousDay.id !== stay.tripDayId) throw new UndoStaleError("stay is not last night's");
+      break;
+    }
+    default: {
+      const unhandled: never = edited;
+      throw new Error(`Unhandled receipt kind: ${String(unhandled)}`);
     }
   }
-  // A `reordered` receipt has no edited-item check: both of its rows are checked as moved items below.
   for (const moved of receipt.movedItems) {
     const item = await tx.dayPlanItem.findFirst({ where: { id: moved.itemId, tripDayId }, select: { updatedAt: true } });
     if (!item || !sameInstant(item.updatedAt, moved.updatedAt)) throw new UndoStaleError("moved item changed");
@@ -210,33 +273,73 @@ const undoInTransaction = async (tx: TransactionClient, tripId: string, receipt:
     if (existing) throw new UndoStaleError("bucket-list row exists again");
   }
 
-  // Phase 2: the reverse. Items first, legs last.
-  if (edited.kind === "created") {
-    const deleted = await deleteDayPlanItemInTransaction(tx, { tripId, tripDayId, itemId: edited.itemId });
-    // The staleness check refused any leg referencing the item, so the delete's own sweeps find nothing;
-    // if they did, it would be a leg the undo must not take (the post-condition's rule, stated early).
-    if (deleted.status !== "deleted" || deleted.removedTravelSegments.length > 0) {
-      throw new UndoStaleError("created item could not be removed cleanly");
+  // Phase 2: the reverse. Items first, legs last. One branch per kind again.
+  switch (edited.kind) {
+    case "created": {
+      const deleted = await deleteDayPlanItemInTransaction(tx, { tripId, tripDayId, itemId: edited.itemId });
+      // The staleness check refused any leg referencing the item, so the delete's own sweeps find nothing;
+      // if they did, it would be a leg the undo must not take (the post-condition's rule, stated early).
+      if (deleted.status !== "deleted" || deleted.removedTravelSegments.length > 0) {
+        throw new UndoStaleError("created item could not be removed cleanly");
+      }
+      if (receipt.consumedBucketListItem) {
+        await tx.tripBucketListItem.create({ data: receipt.consumedBucketListItem });
+      }
+      break;
     }
-    if (receipt.consumedBucketListItem) {
-      await tx.tripBucketListItem.create({ data: receipt.consumedBucketListItem });
+    case "updated": {
+      // Conditional on the `updatedAt` just checked, so nothing can slip in between check and write.
+      const restored = await tx.dayPlanItem.updateMany({
+        where: { id: edited.itemId, tripDayId, updatedAt: edited.updatedAt },
+        data: itemColumns(edited.previous),
+      });
+      if (restored.count !== 1) throw new UndoStaleError("updated item changed");
+      await restorePayments(tx, edited.previous);
+      break;
     }
-  } else if (edited.kind === "updated") {
-    // Conditional on the `updatedAt` just checked, so nothing can slip in between check and write.
-    const restored = await tx.dayPlanItem.updateMany({
-      where: { id: edited.itemId, tripDayId, updatedAt: edited.updatedAt },
-      data: itemColumns(edited.previous),
-    });
-    if (restored.count !== 1) throw new UndoStaleError("updated item changed");
-    await restorePayments(tx, edited.previous);
-  } else if (edited.kind === "deleted") {
-    const { images, documents, ...snapshot } = edited.previous;
-    await tx.dayPlanItem.create({ data: itemColumns(snapshot) });
-    await restorePayments(tx, snapshot);
-    if (images.length > 0) await tx.dayPlanItemImage.createMany({ data: images });
-    if (documents.length > 0) await tx.dayPlanItemDocument.createMany({ data: documents });
+    case "deleted": {
+      const { images, documents, ...snapshot } = edited.previous;
+      await tx.dayPlanItem.create({ data: itemColumns(snapshot) });
+      await restorePayments(tx, snapshot);
+      if (images.length > 0) await tx.dayPlanItemImage.createMany({ data: images });
+      if (documents.length > 0) await tx.dayPlanItemDocument.createMany({ data: documents });
+      break;
+    }
+    case "reordered":
+      // No edited-item write: both of its rows are restored as moved items below.
+      break;
+    case "legCreated": {
+      const removed = await tx.travelSegment.deleteMany({
+        where: { id: edited.segmentId, tripDayId, updatedAt: edited.updatedAt },
+      });
+      if (removed.count !== 1) throw new UndoStaleError("leg changed");
+      break;
+    }
+    case "legUpdated": {
+      const { id: _id, ...columns } = edited.previous;
+      void _id;
+      // Every column, stamps included, so the row reads exactly as before the save.
+      const restored = await tx.travelSegment.updateMany({
+        where: { id: edited.segmentId, tripDayId, updatedAt: edited.updatedAt },
+        data: columns,
+      });
+      if (restored.count !== 1) throw new UndoStaleError("leg changed");
+      break;
+    }
+    case "stayCheckOutChanged": {
+      // Only what caused the push: the check-out and its stamp. Every other saved field is kept.
+      const restored = await tx.accommodation.updateMany({
+        where: { id: edited.accommodationId, updatedAt: edited.updatedAt },
+        data: { checkOutTime: edited.previousCheckOutTime, updatedAt: edited.previousUpdatedAt },
+      });
+      if (restored.count !== 1) throw new UndoStaleError("stay changed");
+      break;
+    }
+    default: {
+      const unhandled: never = edited;
+      throw new Error(`Unhandled receipt kind: ${String(unhandled)}`);
+    }
   }
-  // A `reordered` receipt has no edited-item write: both of its rows are restored as moved items below.
 
   // Story 11.2: each pushed activity back where it was, conditional on the stamp phase 1 just checked.
   for (const moved of receipt.movedItems) {
@@ -258,6 +361,11 @@ const undoInTransaction = async (tx: TransactionClient, tripId: string, receipt:
     if (!drawnAfterUndo.has(buildStoredSegmentPairKey(leg))) {
       throw new UndoStaleError("restored leg would not be drawn");
     }
+  }
+  // A leg save that re-pointed the leg leaves its old endpoints unguarded: a later delete of one of them
+  // sweeps nothing (the leg no longer names it), and writing `previous` back would store an orphan.
+  if (edited.kind === "legUpdated" && !drawnAfterUndo.has(buildStoredSegmentPairKey(edited.previous))) {
+    throw new UndoStaleError("restored leg would not be drawn");
   }
   if (protectedLegs.length > 0) {
     const stillThere = new Set(

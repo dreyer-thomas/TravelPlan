@@ -12,6 +12,16 @@ import {
   type DaySegmentEndpointType,
 } from "@/lib/trips/daySegmentPairs";
 import type { TransportType } from "@/lib/trips/transportTypes";
+import {
+  applyPushMovesInTransaction,
+  buildReceipt,
+  findCheckInWarningInTransaction,
+  planPushFromInTransaction,
+  type PlannedPush,
+} from "@/lib/repositories/dayPlanPushTransaction";
+import type { DayChangeEdited, DayChangeReceipt, MovedItemRow } from "@/lib/trips/dayChangeReceipt";
+import { timeToMinutes, type PushLeg, type PushStart } from "@/lib/trips/dayPlanPush";
+import { resolveCheckOutTime } from "@/lib/trips/stayTimes";
 
 /**
  * Declared per repository, as `dayPlanItemRepo.ts` and `bucketListRepo.ts` do. There is no shared
@@ -38,11 +48,15 @@ export type TravelSegmentDetail = {
   updatedAt: Date;
 };
 
+/** Story 11.4: the walk a leg save runs refused (nothing was written), naming the activity. */
+type TravelSegmentPastMidnight = { status: "past_midnight"; item: { id: string; title: string | null } };
+
 export type TravelSegmentUpdateResult =
   | { status: "not_found" }
   | { status: "missing" }
   | { status: "not_adjacent" }
-  | { status: "updated"; segment: TravelSegmentDetail };
+  | TravelSegmentPastMidnight
+  | { status: "updated"; segment: TravelSegmentDetail; receipt: DayChangeReceipt };
 
 export type TravelSegmentDeleteResult =
   | { status: "not_found" }
@@ -53,7 +67,8 @@ export type TravelSegmentCreateResult =
   | { status: "not_found" }
   | { status: "missing" }
   | { status: "not_adjacent" }
-  | { status: "created"; segment: TravelSegmentDetail };
+  | TravelSegmentPastMidnight
+  | { status: "created"; segment: TravelSegmentDetail; receipt: DayChangeReceipt };
 
 type TravelSegmentItemTypeInput = "accommodation" | "dayPlanItem";
 
@@ -199,12 +214,12 @@ const findTripDayForTripWriter = async (userId: string, tripId: string, tripDayI
   });
 
 /**
- * Story 11.1. The endpoint-ordering core of `buildSegmentTimeline`, through a transaction client so a
+ * Story 11.1. The endpoint-ordering core of the timeline, through a transaction client so a
  * day-plan write can read the day it is about to change — and the day it has just changed — inside its
  * own `prisma.$transaction`. A read through the global client there would not see the write's own rows.
  *
- * No writer clause: every caller has already passed one (the write paths, and `buildSegmentTimeline`
- * below). The order is the one the day view draws: last night's stay (the nearest lower `dayIndex`), the
+ * No writer clause: every caller has already passed one. (Story 11.4 removed `buildSegmentTimeline`,
+ * the global-client wrapper the adjacency check used: that check now reads through the save's own `tx`.) The order is the one the day view draws: last night's stay (the nearest lower `dayIndex`), the
  * day's activities by `compareDayPlanItemsByStartTime`, this night's stay. `null` when the day is not on
  * the trip.
  */
@@ -253,16 +268,6 @@ export const buildSegmentTimelineInTransaction = async (
   }
 
   return timeline;
-};
-
-const buildSegmentTimeline = async (
-  userId: string,
-  tripId: string,
-  tripDayId: string,
-): Promise<SegmentTimelineItem[] | null> => {
-  const writable = await findTripDayForTripWriter(userId, tripId, tripDayId);
-  if (!writable) return null;
-  return buildSegmentTimelineInTransaction(prisma, tripId, tripDayId);
 };
 
 /**
@@ -326,12 +331,17 @@ export const sweepNoLongerDrawnSegmentsInTransaction = async (
   return swept;
 };
 
+/**
+ * Story 8.5's adjacency rule. Story 11.4 reads it through the save's own transaction, so the walk plans
+ * against the same day the rule accepted; the writer clause has already run outside, first.
+ */
 const ensureSegmentItemsExist = async (
+  tx: TransactionClient,
   params: TravelSegmentMutationParams,
 ): Promise<"ok" | "missing" | "not_adjacent"> => {
-  const { userId, tripId, tripDayId, fromItemType, fromItemId, toItemType, toItemId } = params;
+  const { tripId, tripDayId, fromItemType, fromItemId, toItemType, toItemId } = params;
 
-  const timeline = await buildSegmentTimeline(userId, tripId, tripDayId);
+  const timeline = await buildSegmentTimelineInTransaction(tx, tripId, tripDayId);
   if (!timeline) return "missing";
 
   const fromIndex = timeline.findIndex((item) => item.id === fromItemId && item.type === fromItemType);
@@ -342,6 +352,63 @@ const ensureSegmentItemsExist = async (
   if (toIndex !== fromIndex + 1) return "not_adjacent";
 
   return "ok";
+};
+
+/**
+ * Story 11.4 (FR42). Where a leg save starts the walk, or `null` for no walk. The pair is adjacent (the
+ * caller checked), so a leg from a stay to an activity leaves last night's stay (timeline index 0, the
+ * only stay an activity can follow) and arrives at the day's first activity. A leg to a stay (tonight's)
+ * never pushes. An unreadable stored check-out walks nothing, as an unreadable time does in the walk.
+ */
+const findLegPushStartInTransaction = async (
+  tx: TransactionClient,
+  params: TravelSegmentMutationParams,
+): Promise<PushStart | null> => {
+  if (params.toItemType !== "dayPlanItem") return null;
+  if (params.fromItemType === "dayPlanItem") return { kind: "afterItem", itemId: params.fromItemId };
+
+  const stay = await tx.accommodation.findUnique({ where: { id: params.fromItemId }, select: { checkOutTime: true } });
+  const minute = timeToMinutes(resolveCheckOutTime(stay?.checkOutTime));
+  if (minute === null) return null;
+  return { kind: "afterCheckOut", minute, legMinutes: params.durationMinutes };
+};
+
+/** The leg as the walk sees it after the save, when it joins two activities. */
+const pushLegOf = (params: TravelSegmentMutationParams): PushLeg | undefined =>
+  params.fromItemType === "dayPlanItem" && params.toItemType === "dayPlanItem"
+    ? { fromItemId: params.fromItemId, toItemId: params.toItemId, durationMinutes: params.durationMinutes }
+    : undefined;
+
+/**
+ * Plans a leg save's walk, or plans nothing when `start` is `null`. A refusal comes back before the
+ * transaction's first write.
+ */
+const planLegPushInTransaction = async (
+  tx: TransactionClient,
+  params: TravelSegmentMutationParams,
+  start: PushStart | null,
+  replaceSegmentId?: string,
+): Promise<PlannedPush | TravelSegmentPastMidnight | null> => {
+  if (!start) return null;
+  return planPushFromInTransaction(tx, params.tripDayId, start, { replaceSegmentId, leg: pushLegOf(params) });
+};
+
+/** The moves and the check-in warning for a planned walk; both empty when no walk ran. */
+const applyLegPushInTransaction = async (
+  tx: TransactionClient,
+  tripDayId: string,
+  planned: PlannedPush | null,
+  edited: DayChangeEdited,
+  now: Date,
+): Promise<DayChangeReceipt> => {
+  let movedItems: MovedItemRow[] = [];
+  let checkInWarning;
+  if (planned) {
+    movedItems = await applyPushMovesInTransaction(tx, tripDayId, planned, now);
+    checkInWarning = await findCheckInWarningInTransaction(tx, tripDayId, planned);
+  }
+  // A leg save never changes the order, so 11.1's sweep has nothing to remove (rule 12).
+  return buildReceipt(tripDayId, edited, [], movedItems, { checkInWarning });
 };
 
 /**
@@ -364,7 +431,7 @@ const ensureSegmentItemsExist = async (
  * tidies up after one kind of removal but not another, which is the defect AC6 exists to close.
  *
  * The day ids are the caller's because the two types have different reach: an activity can only be an
- * endpoint on its own day, while `buildSegmentTimeline` above offers day N's accommodation as the
+ * endpoint on its own day, while `buildSegmentTimelineInTransaction` above offers day N's accommodation as the
  * leading endpoint of day N+1, so the stay path passes the whole trip's days. See the Design Notes in
  * the story spec.
  *
@@ -414,6 +481,11 @@ export const listTravelSegmentsForTripDay = async (params: {
   return segments.map(toDetail);
 };
 
+/**
+ * Story 11.4: a new leg pushes the day from where it starts (`findLegPushStartInTransaction`). Adjacency,
+ * plan, write and moves are one transaction; a refusal writes nothing, and a `P2002` (the pair already has
+ * a leg) still propagates for the route's `409 travel_segment_exists`. The receipt is always returned.
+ */
 export const createTravelSegmentForTripDay = async (
   params: TravelSegmentMutationParams,
 ): Promise<TravelSegmentCreateResult> => {
@@ -421,25 +493,38 @@ export const createTravelSegmentForTripDay = async (
   const tripDay = await findTripDayForTripWriter(userId, tripId, tripDayId);
   if (!tripDay) return { status: "not_found" };
 
-  const itemStatus = await ensureSegmentItemsExist(params);
-  if (itemStatus === "missing") return { status: "missing" };
-  if (itemStatus === "not_adjacent") return { status: "not_adjacent" };
+  return prisma.$transaction(async (tx): Promise<TravelSegmentCreateResult> => {
+    const itemStatus = await ensureSegmentItemsExist(tx, params);
+    if (itemStatus === "missing") return { status: "missing" };
+    if (itemStatus === "not_adjacent") return { status: "not_adjacent" };
 
-  const segment = await prisma.travelSegment.create({
-    data: {
+    const planned = await planLegPushInTransaction(tx, params, await findLegPushStartInTransaction(tx, params));
+    if (planned && "status" in planned) return planned;
+
+    const now = new Date();
+    const segment = await tx.travelSegment.create({
+      data: {
+        tripDayId,
+        fromItemType: toPrismaItemType(fromItemType),
+        fromItemId,
+        toItemType: toPrismaItemType(toItemType),
+        toItemId,
+        transportType: toPrismaTransportType(transportType),
+        durationMinutes: params.durationMinutes,
+        distanceKm: params.distanceKm ?? null,
+        linkUrl: params.linkUrl ?? null,
+      },
+    });
+
+    const receipt = await applyLegPushInTransaction(
+      tx,
       tripDayId,
-      fromItemType: toPrismaItemType(fromItemType),
-      fromItemId,
-      toItemType: toPrismaItemType(toItemType),
-      toItemId,
-      transportType: toPrismaTransportType(transportType),
-      durationMinutes: params.durationMinutes,
-      distanceKm: params.distanceKm ?? null,
-      linkUrl: params.linkUrl ?? null,
-    },
+      planned,
+      { kind: "legCreated", segmentId: segment.id, updatedAt: segment.updatedAt },
+      now,
+    );
+    return { status: "created", segment: toDetail(segment), receipt };
   });
-
-  return { status: "created", segment: toDetail(segment) };
 };
 
 export const updateTravelSegmentForTripDay = async (
@@ -449,33 +534,60 @@ export const updateTravelSegmentForTripDay = async (
   const tripDay = await findTripDayForTripWriter(userId, tripId, tripDayId);
   if (!tripDay) return { status: "not_found" };
 
-  const existing = await prisma.travelSegment.findFirst({
-    where: { id: segmentId, tripDayId },
+  return prisma.$transaction(async (tx): Promise<TravelSegmentUpdateResult> => {
+    // Inside: it is the receipt's `previous`, and must be the row the write replaces.
+    const existing = await tx.travelSegment.findFirst({
+      where: { id: segmentId, tripDayId },
+    });
+
+    if (!existing) {
+      return { status: "missing" };
+    }
+
+    const itemStatus = await ensureSegmentItemsExist(tx, params);
+    if (itemStatus === "missing") return { status: "missing" };
+    if (itemStatus === "not_adjacent") return { status: "not_adjacent" };
+
+    // Story 11.4 AC5: only new endpoints or a longer leg can push. A shorter leg, or a change of mode,
+    // distance or link alone, walks nothing, so a day that already overlaps is not pushed by it.
+    const endpointsChanged =
+      existing.fromItemType !== toPrismaItemType(fromItemType) ||
+      existing.fromItemId !== fromItemId ||
+      existing.toItemType !== toPrismaItemType(toItemType) ||
+      existing.toItemId !== toItemId;
+    const pushes = endpointsChanged || params.durationMinutes > existing.durationMinutes;
+    const planned = await planLegPushInTransaction(
+      tx,
+      params,
+      pushes ? await findLegPushStartInTransaction(tx, params) : null,
+      segmentId,
+    );
+    if (planned && "status" in planned) return planned;
+
+    const now = new Date();
+    const updated = await tx.travelSegment.update({
+      where: { id: segmentId },
+      data: {
+        fromItemType: toPrismaItemType(fromItemType),
+        fromItemId,
+        toItemType: toPrismaItemType(toItemType),
+        toItemId,
+        transportType: toPrismaTransportType(transportType),
+        durationMinutes: params.durationMinutes,
+        distanceKm: params.distanceKm ?? null,
+        linkUrl: params.linkUrl ?? null,
+      },
+    });
+
+    const receipt = await applyLegPushInTransaction(
+      tx,
+      tripDayId,
+      planned,
+      { kind: "legUpdated", segmentId, updatedAt: updated.updatedAt, previous: existing },
+      now,
+    );
+    return { status: "updated", segment: toDetail(updated), receipt };
   });
-
-  if (!existing) {
-    return { status: "missing" };
-  }
-
-  const itemStatus = await ensureSegmentItemsExist(params);
-  if (itemStatus === "missing") return { status: "missing" };
-  if (itemStatus === "not_adjacent") return { status: "not_adjacent" };
-
-  const updated = await prisma.travelSegment.update({
-    where: { id: segmentId },
-    data: {
-      fromItemType: toPrismaItemType(fromItemType),
-      fromItemId,
-      toItemType: toPrismaItemType(toItemType),
-      toItemId,
-      transportType: toPrismaTransportType(transportType),
-      durationMinutes: params.durationMinutes,
-      distanceKm: params.distanceKm ?? null,
-      linkUrl: params.linkUrl ?? null,
-    },
-  });
-
-  return { status: "updated", segment: toDetail(updated) };
 };
 
 export const deleteTravelSegmentForTripDay = async (

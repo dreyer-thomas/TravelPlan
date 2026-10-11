@@ -803,7 +803,7 @@ export const tripImportPayloadSchema = z.object({
      * misfiled reference the payload states plainly, not the missing one AC2 drops.
      *
      * **What "any earlier one" costs, stated rather than discovered.** The live app only ever *writes*
-     * a distance-1 reference: `buildSegmentTimeline` (`travelSegmentRepo.ts`) offers the immediately
+     * a distance-1 reference: `buildSegmentTimelineInTransaction` (`travelSegmentRepo.ts`) offers the immediately
      * preceding day's accommodation and nothing further back, and `TripDayView` draws only endpoint
      * pairs that timeline contains. So a restored distance-2-or-more reference is a row the timeline
      * will not draw and `ensureSegmentItemsExist` answers `missing` for. **Story 8.5 changed what that

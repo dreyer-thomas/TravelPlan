@@ -21,6 +21,13 @@
  * so it names the two activities that traded places and lists both of them in `movedItems` (with every
  * activity the walk pushed after them). Undo restores them through the same moved-items path and has no
  * edited-item write. The union grew additively, so the version stays 2.
+ *
+ * Story 11.4 adds three more, again additively: a leg save (`legCreated`, `legUpdated` with the full row
+ * it replaced) and a later check-out of last night's stay (`stayCheckOutChanged`). Their only side effect
+ * is the push, so `removedTravelSegments` is always empty for them. A check-out change pushes the *next*
+ * day, so its `tripDayId` is the pushed day, not the stay's. Undo puts back only the check-out and the
+ * stay's `updatedAt` (*revert only what caused the side effect*): a save that also renamed the stay keeps
+ * the new name and gets its old stamp back, which is the accepted cost of that rule.
  */
 
 import { formatMessage } from "@/i18n";
@@ -115,7 +122,19 @@ export type DayChangeEdited<T extends Date | string = Date> =
   | { kind: "updated"; itemId: string; updatedAt: T; previous: DayPlanItemSnapshot<T> }
   | { kind: "deleted"; previous: DeletedDayPlanItemSnapshot<T> }
   /** Story 11.3. `itemId` is the activity the user moved; both rows are always in `movedItems`. */
-  | { kind: "reordered"; itemId: string; neighbourId: string };
+  | { kind: "reordered"; itemId: string; neighbourId: string }
+  /** Story 11.4. A new leg; `updatedAt` is its post-write stamp. */
+  | { kind: "legCreated"; segmentId: string; updatedAt: T }
+  /** Story 11.4. `previous` is the whole stored row before the write, stamps included. */
+  | { kind: "legUpdated"; segmentId: string; updatedAt: T; previous: TravelSegmentRow<T> }
+  /** Story 11.4. `previousCheckOutTime` is the stored value, not the resolved one. */
+  | {
+      kind: "stayCheckOutChanged";
+      accommodationId: string;
+      updatedAt: T;
+      previousUpdatedAt: T;
+      previousCheckOutTime: string | null;
+    };
 
 /**
  * Story 11.2. An activity the push rule moved: its times before the change, and its `updatedAt` before
@@ -194,6 +213,23 @@ const mapReceipt = <A extends Date | string, B extends Date | string>(
     case "reordered":
       edited = { ...receipt.edited };
       break;
+    case "legCreated":
+      edited = { ...receipt.edited, updatedAt: convert(receipt.edited.updatedAt) };
+      break;
+    case "legUpdated":
+      edited = {
+        ...receipt.edited,
+        updatedAt: convert(receipt.edited.updatedAt),
+        previous: mapStamps(receipt.edited.previous, convert),
+      };
+      break;
+    case "stayCheckOutChanged":
+      edited = {
+        ...receipt.edited,
+        updatedAt: convert(receipt.edited.updatedAt),
+        previousUpdatedAt: convert(receipt.edited.previousUpdatedAt),
+      };
+      break;
     default: {
       const unhandled: never = receipt.edited;
       throw new Error(`Unhandled receipt kind: ${String(unhandled)}`);
@@ -235,10 +271,14 @@ export const receiptHasSideEffects = <T extends Date | string>(receipt: DayChang
  * The notice's summary line. One part per kind of side effect, joined with `" · "`. The singular has
  * its own key because `formatMessage` has no plural rules (the `statusGap`/`statusGapOne` convention).
  * A reorder leads with "order changed", and its moved count leaves out the pair, which that part covers.
+ *
+ * Story 11.4 AC11: `otherDayIndex` is set when the receipt's day is not the one being viewed (a
+ * check-out change that pushed the next day); the moved part then names that day.
  */
 export const summarizeDayChangeReceipt = <T extends Date | string>(
   receipt: DayChangeReceipt<T>,
   t: (key: string) => string,
+  options: { otherDayIndex?: number } = {},
 ): string => {
   const parts: string[] = [];
   const { edited } = receipt;
@@ -248,7 +288,14 @@ export const summarizeDayChangeReceipt = <T extends Date | string>(
     movedItems = movedItems.filter((row) => row.itemId !== edited.itemId && row.itemId !== edited.neighbourId);
   }
   const movedCount = movedItems.length;
-  if (movedCount === 1) {
+  const { otherDayIndex } = options;
+  if (otherDayIndex !== undefined && movedCount > 0) {
+    parts.push(
+      movedCount === 1
+        ? formatMessage(t("trips.dayChange.itemsMovedOnDayOne"), { day: otherDayIndex })
+        : formatMessage(t("trips.dayChange.itemsMovedOnDay"), { count: movedCount, day: otherDayIndex }),
+    );
+  } else if (movedCount === 1) {
     parts.push(t("trips.dayChange.itemsMovedOne"));
   } else if (movedCount > 1) {
     parts.push(formatMessage(t("trips.dayChange.itemsMoved"), { count: movedCount }));

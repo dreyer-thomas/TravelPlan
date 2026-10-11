@@ -12,6 +12,8 @@ import {
   updateDayPlanItemForTripDay,
 } from "@/lib/repositories/dayPlanItemRepo";
 import { undoDayPlanChangeForTrip } from "@/lib/repositories/dayPlanChangeRepo";
+import { createTravelSegmentForTripDay, updateTravelSegmentForTripDay } from "@/lib/repositories/travelSegmentRepo";
+import { updateAccommodationForTripDay } from "@/lib/repositories/accommodationRepo";
 import { toDayChangeReceiptWire, type DayChangeReceiptWire } from "@/lib/trips/dayChangeReceipt";
 import { signDayChangeReceipt } from "@/lib/trips/dayChangeReceiptSignature";
 import { routeContext } from "./helpers/routeContext";
@@ -845,6 +847,299 @@ describe("POST /api/trips/[id]/day-plan-changes/undo (Story 11.1)", () => {
       const { movedItems: _moved, ...v1 } = receipt;
       void _moved;
       await expectRejected(trip.id, session, { ...v1, version: 1 });
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Story 11.4 AC9/AC10: the leg and check-out kinds, through the same undo.
+
+describe("undo takes back a leg or check-out push (Story 11.4)", () => {
+  beforeEach(resetDatabase);
+
+  /** `databaseState` plus the stays and days, which a check-out undo touches. */
+  const fullState = async () => ({
+    ...(await databaseState()),
+    stays: await prisma.accommodation.findMany({ orderBy: { id: "asc" } }),
+    days: await prisma.tripDay.findMany({ orderBy: { id: "asc" } }),
+  });
+
+  /** Day 1 with last night's stay (check-out 09:00), day 2 with A, B, C where a 90 min A→B pushes B and C. */
+  const seedLegDay = async (email: string) => {
+    const user = await createUser(email);
+    const { trip, day: stayDay } = await createTrip(user.id);
+    const day = await prisma.tripDay.create({
+      data: { tripId: trip.id, date: new Date("2026-11-06T00:00:00.000Z"), dayIndex: 2 },
+    });
+    const stay = await prisma.accommodation.create({
+      data: { tripDayId: stayDay.id, name: "Glenfern", status: "PLANNED", checkOutTime: "09:00", createdAt: PAST, updatedAt: PAST },
+    });
+    const a = await createItem(day.id, "A", "09:30", "10:00");
+    const b = await createItem(day.id, "B", "10:30", "11:30");
+    const c = await createItem(day.id, "C", "11:30", "12:00");
+    const session = await createSessionJwt({ sub: user.id, role: user.role });
+    return { user, trip, stayDay, day, stay, a, b, c, session };
+  };
+
+  const legParams = (seeded: Awaited<ReturnType<typeof seedLegDay>>, durationMinutes: number) => ({
+    userId: seeded.user.id,
+    tripId: seeded.trip.id,
+    tripDayId: seeded.day.id,
+    fromItemType: "dayPlanItem" as const,
+    fromItemId: seeded.a.id,
+    toItemType: "dayPlanItem" as const,
+    toItemId: seeded.b.id,
+    transportType: "walking" as const,
+    durationMinutes,
+    distanceKm: 1.75,
+    linkUrl: "https://maps.example.com/leg",
+  });
+
+  const createdLeg = async (seeded: Awaited<ReturnType<typeof seedLegDay>>) => {
+    const result = await createTravelSegmentForTripDay(legParams(seeded, 90));
+    if (result.status !== "created") throw new Error("setup");
+    expect(result.receipt.movedItems).toHaveLength(2);
+    return result.receipt;
+  };
+
+  const updatedLeg = async (seeded: Awaited<ReturnType<typeof seedLegDay>>) => {
+    const leg = await createLeg(seeded.day.id, seeded.a.id, seeded.b.id);
+    const result = await updateTravelSegmentForTripDay({ ...legParams(seeded, 90), segmentId: leg.id });
+    if (result.status !== "updated") throw new Error("setup");
+    expect(result.receipt.movedItems).toHaveLength(2);
+    return { leg, receipt: result.receipt };
+  };
+
+  /** A check-out-only PATCH: the stay's other columns are written back as they were. */
+  const laterCheckOut = async (seeded: Awaited<ReturnType<typeof seedLegDay>>, name = "Glenfern") => {
+    const result = await updateAccommodationForTripDay({
+      userId: seeded.user.id,
+      tripId: seeded.trip.id,
+      tripDayId: seeded.stayDay.id,
+      name,
+      status: "planned",
+      checkOutTime: "10:00",
+    });
+    if (result.status !== "updated" || !result.receipt) throw new Error("setup");
+    expect(result.receipt.movedItems.length).toBeGreaterThan(0);
+    return result.receipt;
+  };
+
+  it("undoes a leg create: the leg is gone and every moved row is identical", async () => {
+    const seeded = await seedLegDay("undo-leg-create@example.com");
+    const before = await fullState();
+    const receipt = await createdLeg(seeded);
+
+    expect(await undoDayPlanChangeForTrip({ userId: seeded.user.id, tripId: seeded.trip.id, receipt })).toEqual({ status: "undone" });
+    expect(await fullState()).toEqual(before);
+  });
+
+  it("undoes a leg update: the full previous row comes back, updatedAt included", async () => {
+    const seeded = await seedLegDay("undo-leg-update@example.com");
+    const stored = await createLeg(seeded.day.id, seeded.a.id, seeded.b.id);
+    const before = await fullState();
+    const result = await updateTravelSegmentForTripDay({ ...legParams(seeded, 90), segmentId: stored.id });
+    if (result.status !== "updated") throw new Error("setup");
+
+    expect(
+      await undoDayPlanChangeForTrip({ userId: seeded.user.id, tripId: seeded.trip.id, receipt: result.receipt }),
+    ).toEqual({ status: "undone" });
+    const after = await fullState();
+    expect(after.legs.find((row) => row.id === stored.id)?.updatedAt.getTime()).toBe(PAST.getTime());
+    expect(after).toEqual(before);
+  });
+
+  it("undoes a check-out-only save: the stay and the pushed day read exactly as before", async () => {
+    const seeded = await seedLegDay("undo-checkout@example.com");
+    const before = await fullState();
+    const receipt = await laterCheckOut(seeded);
+    expect(receipt.tripDayId).toBe(seeded.day.id);
+
+    expect(await undoDayPlanChangeForTrip({ userId: seeded.user.id, tripId: seeded.trip.id, receipt })).toEqual({ status: "undone" });
+    expect(await fullState()).toEqual(before);
+  });
+
+  it("keeps the stay's other saved fields and restores only the check-out", async () => {
+    const seeded = await seedLegDay("undo-checkout-name@example.com");
+    const receipt = await laterCheckOut(seeded, "Glenfern Villas");
+
+    expect(await undoDayPlanChangeForTrip({ userId: seeded.user.id, tripId: seeded.trip.id, receipt })).toEqual({ status: "undone" });
+    expect(await prisma.accommodation.findUniqueOrThrow({ where: { id: seeded.stay.id } })).toMatchObject({
+      name: "Glenfern Villas",
+      checkOutTime: "09:00",
+      updatedAt: PAST,
+    });
+  });
+
+  it("refuses when the leg, the stay or a moved activity changed since, and writes nothing", async () => {
+    const legSeed = await seedLegDay("undo-stale-leg@example.com");
+    const { leg, receipt: legReceipt } = await updatedLeg(legSeed);
+    await tick();
+    await prisma.travelSegment.update({ where: { id: leg.id }, data: { transportType: "CYCLING" } });
+    let before = await fullState();
+    expect(await undoDayPlanChangeForTrip({ userId: legSeed.user.id, tripId: legSeed.trip.id, receipt: legReceipt })).toEqual({
+      status: "stale",
+    });
+    expect(await fullState()).toEqual(before);
+
+    await resetDatabase();
+    const staySeed = await seedLegDay("undo-stale-stay@example.com");
+    const stayReceipt = await laterCheckOut(staySeed);
+    await tick();
+    await prisma.accommodation.update({ where: { id: staySeed.stay.id }, data: { notes: "later edit" } });
+    before = await fullState();
+    expect(await undoDayPlanChangeForTrip({ userId: staySeed.user.id, tripId: staySeed.trip.id, receipt: stayReceipt })).toEqual({
+      status: "stale",
+    });
+    expect(await fullState()).toEqual(before);
+
+    await resetDatabase();
+    const movedSeed = await seedLegDay("undo-stale-moved@example.com");
+    const movedReceipt = await createdLeg(movedSeed);
+    await tick();
+    await prisma.dayPlanItem.update({ where: { id: movedSeed.c.id }, data: { title: "C edited" } });
+    before = await fullState();
+    expect(await undoDayPlanChangeForTrip({ userId: movedSeed.user.id, tripId: movedSeed.trip.id, receipt: movedReceipt })).toEqual({
+      status: "stale",
+    });
+    expect(await fullState()).toEqual(before);
+
+    await resetDatabase();
+    const movedStaySeed = await seedLegDay("undo-stale-checkout-moved@example.com");
+    const movedStayReceipt = await laterCheckOut(movedStaySeed);
+    const movedId = movedStayReceipt.movedItems[0]!.itemId;
+    await tick();
+    await prisma.dayPlanItem.update({ where: { id: movedId }, data: { title: "edited since" } });
+    before = await fullState();
+    expect(
+      await undoDayPlanChangeForTrip({ userId: movedStaySeed.user.id, tripId: movedStaySeed.trip.id, receipt: movedStayReceipt }),
+    ).toEqual({ status: "stale" });
+    expect(await fullState()).toEqual(before);
+  });
+
+  it("refuses to restore a re-pointed leg whose old endpoint has been deleted since, and writes nothing", async () => {
+    const seeded = await seedLegDay("undo-leg-repointed@example.com");
+    const stored = await createLeg(seeded.day.id, seeded.a.id, seeded.b.id);
+    const result = await updateTravelSegmentForTripDay({
+      ...legParams(seeded, 90),
+      fromItemId: seeded.b.id,
+      toItemId: seeded.c.id,
+      segmentId: stored.id,
+    });
+    if (result.status !== "updated") throw new Error("setup");
+    // The leg now names B→C, so deleting A sweeps nothing and leaves the leg's stamp untouched.
+    await prisma.dayPlanItem.delete({ where: { id: seeded.a.id } });
+    const before = await fullState();
+
+    expect(
+      await undoDayPlanChangeForTrip({ userId: seeded.user.id, tripId: seeded.trip.id, receipt: result.receipt }),
+    ).toEqual({ status: "stale" });
+    expect(await fullState()).toEqual(before);
+  });
+
+  it("refuses a check-out receipt naming a stay other than last night's as stale", async () => {
+    const seeded = await seedLegDay("undo-checkout-other-stay@example.com");
+    const receipt = await laterCheckOut(seeded);
+    if (receipt.edited.kind !== "stayCheckOutChanged") throw new Error("setup");
+    // Tonight's stay on the pushed day, stamped to match the receipt so only the "which night" rule refuses it.
+    const tonight = await prisma.accommodation.create({
+      data: { tripDayId: seeded.day.id, name: "Tonight", updatedAt: receipt.edited.updatedAt },
+    });
+    const before = await fullState();
+
+    const result = await postUndo(
+      seeded.trip.id,
+      seeded.session,
+      signDayChangeReceipt(
+        toDayChangeReceiptWire({ ...receipt, edited: { ...receipt.edited, accommodationId: tonight.id } }),
+        { tripId: seeded.trip.id, userId: seeded.user.id },
+      ),
+    );
+
+    expect(result.status).toBe(409);
+    expect(result.body.error?.code).toBe("undo_stale");
+    expect(await fullState()).toEqual(before);
+  });
+
+  it("undoes a leg receipt through the route", async () => {
+    const seeded = await seedLegDay("undo-leg-route@example.com");
+    const before = await fullState();
+    const receipt = await createdLeg(seeded);
+
+    const result = await postUndo(
+      seeded.trip.id,
+      seeded.session,
+      signDayChangeReceipt(toDayChangeReceiptWire(receipt), { tripId: seeded.trip.id, userId: seeded.user.id }),
+    );
+
+    expect(result.status).toBe(200);
+    expect(await fullState()).toEqual(before);
+  });
+
+  describe("tampered leg and check-out receipts are 400 and write nothing (AC10)", () => {
+    const forgedLeg = (tripDayId: string): DayChangeReceiptWire["removedTravelSegments"][number] => ({
+      id: "leg-forged",
+      tripDayId,
+      fromItemType: "DAY_PLAN_ITEM",
+      fromItemId: "x",
+      toItemType: "DAY_PLAN_ITEM",
+      toItemId: "y",
+      transportType: "CAR",
+      durationMinutes: 10,
+      distanceKm: 1,
+      linkUrl: null,
+      createdAt: PAST.toISOString(),
+      updatedAt: PAST.toISOString(),
+    });
+    const forgedIdea = (tripId: string) => ({
+      id: "idea-forged",
+      tripId,
+      title: "Idea",
+      description: null,
+      positionText: null,
+      locationLat: null,
+      locationLng: null,
+      locationLabel: null,
+      createdAt: PAST.toISOString(),
+      updatedAt: PAST.toISOString(),
+    });
+
+    const expectForgeryRejected = async (seeded: Awaited<ReturnType<typeof seedLegDay>>, wire: DayChangeReceiptWire) => {
+      const before = await fullState();
+      const result = await postUndo(
+        seeded.trip.id,
+        seeded.session,
+        signDayChangeReceipt(wire, { tripId: seeded.trip.id, userId: seeded.user.id }),
+      );
+      expect(result.status).toBe(400);
+      expect(result.body.error?.code).toBe("validation_error");
+      expect(await fullState()).toEqual(before);
+    };
+
+    it("refuses a leg receipt with a removed leg or a consumed idea", async () => {
+      const seeded = await seedLegDay("tamper-leg-extras@example.com");
+      const wire = toDayChangeReceiptWire(await createdLeg(seeded));
+      await expectForgeryRejected(seeded, { ...wire, removedTravelSegments: [forgedLeg(seeded.day.id)] });
+      await expectForgeryRejected(seeded, { ...wire, consumedBucketListItem: forgedIdea(seeded.trip.id) });
+    });
+
+    it("refuses a legUpdated whose previous row is another leg or on another day", async () => {
+      const seeded = await seedLegDay("tamper-leg-previous@example.com");
+      const { receipt } = await updatedLeg(seeded);
+      const wire = toDayChangeReceiptWire(receipt);
+      if (wire.edited.kind !== "legUpdated") throw new Error("setup");
+      await expectForgeryRejected(seeded, { ...wire, edited: { ...wire.edited, previous: { ...wire.edited.previous, id: "leg-other" } } });
+      await expectForgeryRejected(seeded, {
+        ...wire,
+        edited: { ...wire.edited, previous: { ...wire.edited.previous, tripDayId: seeded.stayDay.id } },
+      });
+    });
+
+    it("refuses a check-out receipt with a removed leg or a consumed idea", async () => {
+      const seeded = await seedLegDay("tamper-checkout-extras@example.com");
+      const wire = toDayChangeReceiptWire(await laterCheckOut(seeded));
+      await expectForgeryRejected(seeded, { ...wire, removedTravelSegments: [forgedLeg(seeded.day.id)] });
+      await expectForgeryRejected(seeded, { ...wire, consumedBucketListItem: forgedIdea(seeded.trip.id) });
     });
   });
 });

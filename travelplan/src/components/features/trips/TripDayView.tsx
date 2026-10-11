@@ -87,6 +87,7 @@ import {
 import { documentDisplayName } from "@/lib/trips/documentUploads";
 import { IMAGE_UPLOAD_ACCEPT, isSupportedImageUpload } from "@/lib/trips/imageUploads";
 import { transportTypeAllowsDistance, type TransportType } from "@/lib/trips/transportTypes";
+import { DEFAULT_CHECK_IN_TIME, DEFAULT_CHECK_OUT_TIME, resolveStayTime } from "@/lib/trips/stayTimes";
 
 type ApiEnvelope<T> = {
   data: T | null;
@@ -753,8 +754,6 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   const [pendingOrphanRemovals, setPendingOrphanRemovals] = useState<string[]>([]);
   const handledDeepLinkRef = useRef<string | null>(null);
   const scrollRestoreKey = useMemo(() => `trip-day-scroll:${tripId}:${dayId}`, [dayId, tripId]);
-  const defaultCheckInTime = "16:00";
-  const defaultCheckOutTime = "10:00";
   // `isOwner` used to sit beside this and is gone as of Story 5.13: its last three readers (the day-image
   // menu item, the bucket-list fetch and the bucket-list panel) all moved to `canEditPlanning`, and this
   // screen now holds nothing that is the owner's alone.
@@ -1157,36 +1156,6 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     setSegmentDialogOpen(true);
   };
 
-  const handleTravelSegmentSaved = (segment: TravelSegment) => {
-    setDayChange(null);
-    setTravelSegments((current) => {
-      const index = current.findIndex((item) => item.id === segment.id);
-      if (index >= 0) {
-        const next = [...current];
-        next[index] = segment;
-        return next;
-      }
-      return [...current, segment];
-    });
-    setDay((current) =>
-      current
-        ? { ...current, travelSegments: [...(current.travelSegments ?? []).filter((item) => item.id !== segment.id), segment] }
-        : current,
-    );
-    setDetail((current) => {
-      if (!current || !day) return current;
-      return {
-        ...current,
-        days: current.days.map((entry) =>
-          entry.id === day.id
-            ? { ...entry, travelSegments: [...(entry.travelSegments ?? []).filter((item) => item.id !== segment.id), segment] }
-            : entry,
-        ),
-      };
-    });
-    setSegmentDialogOpen(false);
-  };
-
   /**
    * Story 8.5 AC6. Removes one orphaned leg through the `DELETE` the route has always accepted.
    *
@@ -1371,6 +1340,47 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     },
     [canEditPlanning],
   );
+
+  /**
+   * Story 11.4: a leg save may have pushed the day, so it hands over its receipt like every other day
+   * write. The leg itself is merged locally as before; when activities moved, the day is reloaded so
+   * their new times (the server's, never computed here) show.
+   */
+  const handleTravelSegmentSaved = async (segment: TravelSegment, receipt: SignedDayChangeReceiptWire | null) => {
+    const requestedDayId = dayId;
+    takeDayChangeReceipt(receipt);
+    setTravelSegments((current) => {
+      const index = current.findIndex((item) => item.id === segment.id);
+      if (index >= 0) {
+        const next = [...current];
+        next[index] = segment;
+        return next;
+      }
+      return [...current, segment];
+    });
+    setDay((current) =>
+      current
+        ? { ...current, travelSegments: [...(current.travelSegments ?? []).filter((item) => item.id !== segment.id), segment] }
+        : current,
+    );
+    setDetail((current) => {
+      if (!current || !day) return current;
+      return {
+        ...current,
+        days: current.days.map((entry) =>
+          entry.id === day.id
+            ? { ...entry, travelSegments: [...(entry.travelSegments ?? []).filter((item) => item.id !== segment.id), segment] }
+            : entry,
+        ),
+      };
+    });
+    setSegmentDialogOpen(false);
+    // Story 11.4: the save moved activities, which the local merge above cannot show. The reload comes
+    // after the merge so it is the last write, and only while this is still the day the save was on.
+    if (receipt?.movedItems.length && currentDayIdRef.current === requestedDayId) {
+      await loadDay({ silent: true });
+    }
+  };
 
   // Claimed synchronously, before any await: two clicks inside one tick both see `status: "ready"` in
   // their closure, and only a ref can tell the second one the first is already on its way.
@@ -2078,8 +2088,6 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     void loadImages();
   }, [day, planItems, previousDay, tripId]);
 
-  const resolveStayTime = (value: string | null | undefined, fallback: string) =>
-    value && value.trim() ? value : fallback;
   const previousStay = previousDay?.accommodation ?? null;
   const currentStay = day?.accommodation ?? null;
   const canCopyPreviousStay = Boolean(previousStay && !currentStay);
@@ -2144,12 +2152,11 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
             type: "accommodation",
             label: previousStay.name,
             location: previousStay.location ?? null,
-            endTime: resolveStayTime(previousStay.checkOutTime, defaultCheckOutTime),
+            endTime: resolveStayTime(previousStay.checkOutTime, DEFAULT_CHECK_OUT_TIME),
           }
         : null,
-    // `resolveStayTime` is a pure local helper over its two arguments and is left out of the list for
-    // the same reason `staySegments` below leaves it out.
-    [defaultCheckOutTime, previousStay],
+    // `resolveStayTime` and the default are module imports (`stayTimes.ts`, Story 11.4) and need no entry.
+    [previousStay],
   );
   const currentStaySegment = useMemo<SegmentItem | null>(
     () =>
@@ -2187,7 +2194,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
    * for a leg with no row on screen and no control anywhere that could remove it. One array feeds the
    * render, the drawn-key set and the orphan split, so they cannot drift apart again.
    *
-   * The order matches the server's `buildSegmentTimeline` (`travelSegmentRepo.ts`) endpoint for
+   * The order matches the server's `buildSegmentTimelineInTransaction` (`travelSegmentRepo.ts`) endpoint for
    * endpoint: `previousDay` is `orderedDays[currentIndex - 1]`, chronological, against the
    * repository's nearest-lower `dayIndex`, and `planItems` was sorted with the very comparator that
    * repository sorts with (`loadDay`).
@@ -2273,11 +2280,11 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     () =>
       buildStaySegments({
         previousStay: previousStay
-          ? { checkOutTime: resolveStayTime(previousStay.checkOutTime, defaultCheckOutTime) }
+          ? { checkOutTime: resolveStayTime(previousStay.checkOutTime, DEFAULT_CHECK_OUT_TIME) }
           : null,
-        currentStay: currentStay ? { checkInTime: resolveStayTime(currentStay.checkInTime, defaultCheckInTime) } : null,
+        currentStay: currentStay ? { checkInTime: resolveStayTime(currentStay.checkInTime, DEFAULT_CHECK_IN_TIME) } : null,
       }),
-    [currentStay, defaultCheckInTime, defaultCheckOutTime, previousStay],
+    [currentStay, previousStay],
   );
   const planItemSegments = useMemo(
     () =>
@@ -2294,7 +2301,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     if (!drawnSegments.length) return [];
     const accommodationEndTimes: Record<string, string | null | undefined> = {};
     if (previousStay) {
-      accommodationEndTimes[previousStay.id] = resolveStayTime(previousStay.checkOutTime, defaultCheckOutTime);
+      accommodationEndTimes[previousStay.id] = resolveStayTime(previousStay.checkOutTime, DEFAULT_CHECK_OUT_TIME);
     }
     const planItemEndTimes: Record<string, string | null | undefined> = {};
     for (const item of planItems) {
@@ -2375,11 +2382,11 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   // pill says so rather than presenting resolveStayTime's 16:00/10:00 fallback as a recorded fact -
   // the stat strip already refuses to, and the two must not contradict each other two cards apart.
   const previousStayRange = previousStay
-    ? `00:00 - ${resolveStayTime(previousStay.checkOutTime, defaultCheckOutTime)}`
+    ? `00:00 - ${resolveStayTime(previousStay.checkOutTime, DEFAULT_CHECK_OUT_TIME)}`
     : null;
   const previousStayRangeIsAssumed = Boolean(previousStay && !previousStay.checkOutTime?.trim());
   const currentStayRange = currentStay
-    ? `${resolveStayTime(currentStay.checkInTime, defaultCheckInTime)} - 24:00`
+    ? `${resolveStayTime(currentStay.checkInTime, DEFAULT_CHECK_IN_TIME)} - 24:00`
     : null;
   const currentStayRangeIsAssumed = Boolean(currentStay && !currentStay.checkInTime?.trim());
   const hasDayImage = Boolean(day?.imageUrl && day.imageUrl.trim().length > 0);
@@ -3777,7 +3784,14 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                       ? t("trips.dayChange.undoStale")
                       : dayChange.status === "unavailable"
                         ? t("trips.dayChange.undoUnavailable")
-                        : summarizeDayChangeReceipt(dayChange.receipt, t)
+                        : summarizeDayChangeReceipt(dayChange.receipt, t, {
+                            // Story 11.4 AC11: a receipt for another day (a check-out that pushed the
+                            // next day) names that day; an unknown day falls back to the plain summary.
+                            otherDayIndex:
+                              day && dayChange.receipt.tripDayId !== day.id
+                                ? detail?.days.find((entry) => entry.id === dayChange.receipt.tripDayId)?.dayIndex
+                                : undefined,
+                          })
                   }
                   // Story 11.2 AC9: the check-in warning goes with the receipt's own summary, so it leaves
                   // when the summary is replaced by a stale or unavailable message.
@@ -4689,8 +4703,8 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
             stayType="current"
             day={day}
             onClose={() => setStayOpen(false)}
-            onSaved={() => {
-              setDayChange(null);
+            onSaved={(receipt) => {
+              takeDayChangeReceipt(receipt);
               setStayOpen(false);
               loadDay();
             }}
@@ -4703,8 +4717,9 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
             stayType="previous"
             day={previousDay}
             onClose={() => setPreviousStayOpen(false)}
-            onSaved={() => {
-              setDayChange(null);
+            onSaved={(receipt) => {
+              // Story 11.4: a later check-out pushes this day; the receipt says so.
+              takeDayChangeReceipt(receipt);
               setPreviousStayOpen(false);
               loadDay();
             }}
@@ -4724,8 +4739,8 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
               setActiveSegmentFrom(null);
               setActiveSegmentTo(null);
             }}
-            onSaved={(segment) => {
-              handleTravelSegmentSaved(segment);
+            onSaved={(segment, receipt) => {
+              void handleTravelSegmentSaved(segment, receipt);
               setActiveSegment(null);
               setActiveSegmentFrom(null);
               setActiveSegmentTo(null);

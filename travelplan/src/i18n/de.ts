@@ -644,6 +644,8 @@ const de: Dictionary = {
   "trips.dayChange.reordered": "Reihenfolge geändert",
   "trips.dayChange.itemsMovedOne": "1 Aktivität verschoben",
   "trips.dayChange.itemsMoved": "{count} Aktivitäten verschoben",
+  "trips.dayChange.itemsMovedOnDayOne": "1 Aktivität an Tag {day} verschoben",
+  "trips.dayChange.itemsMovedOnDay": "{count} Aktivitäten an Tag {day} verschoben",
   "trips.dayChange.checkInWarning": "Die Ankunft in der Unterkunft liegt nach dem Check-in um {time}.",
   "trips.dayChange.legsRemovedOne": "1 Fahrt entfernt",
   "trips.dayChange.legsRemoved": "{count} Fahrten entfernt",

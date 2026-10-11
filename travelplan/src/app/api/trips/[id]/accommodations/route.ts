@@ -10,6 +10,9 @@ import {
 } from "@/lib/repositories/accommodationRepo";
 import { accommodationDeleteSchema, accommodationMutationSchema } from "@/lib/validation/accommodationSchemas";
 import { requireSession } from "@/lib/auth/sessionGuard";
+import { dayChangedResponse, pastMidnightResponse, withPushConflict } from "@/lib/http/dayPlanPushResponses";
+import { toDayChangeReceiptWire } from "@/lib/trips/dayChangeReceipt";
+import { signDayChangeReceipt } from "@/lib/trips/dayChangeReceiptSignature";
 
 type RouteContext = {
   params: Promise<{
@@ -148,7 +151,9 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
         }
       : null;
 
-  const accommodationResult = await updateAccommodationForTripDay({
+  // Story 11.4 (FR42): a later check-out pushes the next day. The answer then carries the signed receipt;
+  // the walk's refusals are the activity writes' own `409`s. POST and the copy route never push.
+  const attempt = await withPushConflict(() => updateAccommodationForTripDay({
     userId,
     tripId,
     tripDayId: parsed.data.tripDayId,
@@ -166,7 +171,11 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
     checkInTime: hasCheckInTime ? parsed.data.checkInTime ?? null : undefined,
     checkOutTime: hasCheckOutTime ? parsed.data.checkOutTime ?? null : undefined,
     location: normalizedLocation,
-  });
+  }));
+  if ("conflict" in attempt) {
+    return dayChangedResponse();
+  }
+  const accommodationResult = attempt.result;
 
   if (accommodationResult.status === "not_found") {
     return fail(apiError("not_found", "Trip day not found"), 404);
@@ -176,7 +185,16 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
     return fail(apiError("not_found", "Accommodation not found"), 404);
   }
 
-  return ok({ accommodation: accommodationResult.accommodation });
+  if (accommodationResult.status === "past_midnight") {
+    return pastMidnightResponse(accommodationResult.item);
+  }
+
+  return ok({
+    accommodation: accommodationResult.accommodation,
+    ...(accommodationResult.receipt
+      ? { receipt: signDayChangeReceipt(toDayChangeReceiptWire(accommodationResult.receipt), { tripId, userId }) }
+      : {}),
+  });
 };
 
 export const DELETE = async (request: NextRequest, context: RouteContext) => {

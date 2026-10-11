@@ -1887,4 +1887,118 @@ describe("TripDayTravelSegmentDialog", () => {
       vi.unstubAllGlobals();
     });
   });
+
+  /**
+   * Story 11.4. A leg save can push the day: the dialog hands the signed receipt over, and the push's two
+   * refusals are translated (not the server's English) with the dialog left open.
+   */
+  describe("story 11.4: the leg save's receipt and push refusals", () => {
+    const editedSegment = {
+      id: "segment-1",
+      fromItemType: "dayPlanItem" as const,
+      fromItemId: "item-1",
+      toItemType: "accommodation" as const,
+      toItemId: "stay-1",
+      transportType: "walking" as const,
+      durationMinutes: 45,
+      distanceKm: null,
+      linkUrl: null,
+    };
+
+    const stubRefusal = (error: { code: string; message: string; details?: unknown }) =>
+      stubFetch(async (input) => {
+        if (String(input).includes("/api/auth/csrf")) return csrfResponse;
+        return { ok: false, status: 409, json: async () => ({ data: null, error }) };
+      });
+
+    it("passes the receipt to onSaved", async () => {
+      const receipt = { version: 2, tripDayId: "day-1", movedItems: [], signature: "a".repeat(64) };
+      stubFetch(async (input) => {
+        if (String(input).includes("/api/auth/csrf")) return csrfResponse;
+        return { ok: true, status: 200, json: async () => ({ data: { segment: { id: "segment-1" }, receipt }, error: null }) };
+      });
+      const onSaved = vi.fn();
+
+      render(
+        <I18nProvider initialLanguage="en">
+          <TripDayTravelSegmentDialog {...baseProps} segment={editedSegment} onSaved={onSaved} />
+        </I18nProvider>,
+      );
+      fireEvent.click(await screen.findByRole("button", { name: "OK" }));
+
+      await waitFor(() => expect(onSaved).toHaveBeenCalledWith({ id: "segment-1" }, receipt));
+    });
+
+    it("passes null when the answer carries no receipt", async () => {
+      stubSaveFetch();
+      const onSaved = vi.fn();
+
+      render(
+        <I18nProvider initialLanguage="en">
+          <TripDayTravelSegmentDialog {...baseProps} segment={editedSegment} onSaved={onSaved} />
+        </I18nProvider>,
+      );
+      fireEvent.click(await screen.findByRole("button", { name: "OK" }));
+
+      await waitFor(() => expect(onSaved).toHaveBeenCalledWith({ id: "segment-1" }, null));
+    });
+
+    it("names the activity a push past midnight would move, and stays open", async () => {
+      stubRefusal({
+        code: "day_plan_past_midnight",
+        message: "The change would push an activity past midnight",
+        details: { itemId: "item-9", itemTitle: "Late show" },
+      });
+      const onSaved = vi.fn();
+
+      render(
+        <I18nProvider initialLanguage="de">
+          <TripDayTravelSegmentDialog {...baseProps} segment={editedSegment} onSaved={onSaved} />
+        </I18nProvider>,
+      );
+      fireEvent.click(await screen.findByRole("button", { name: "OK" }));
+
+      expect(
+        await screen.findByText(de["trips.plan.pastMidnight"].replace("{title}", "Late show")),
+      ).toBeInTheDocument();
+      expect(screen.queryByText("The change would push an activity past midnight")).not.toBeInTheDocument();
+      expect(onSaved).not.toHaveBeenCalled();
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+    });
+
+    it("falls back to the untitled name for an activity without a title", async () => {
+      stubRefusal({
+        code: "day_plan_past_midnight",
+        message: "The change would push an activity past midnight",
+        details: { itemId: "item-9", itemTitle: null },
+      });
+
+      render(
+        <I18nProvider initialLanguage="en">
+          <TripDayTravelSegmentDialog {...baseProps} segment={editedSegment} />
+        </I18nProvider>,
+      );
+      fireEvent.click(await screen.findByRole("button", { name: "OK" }));
+
+      expect(
+        await screen.findByText(en["trips.plan.pastMidnight"].replace("{title}", en["trips.plan.untitledActivity"])),
+      ).toBeInTheDocument();
+    });
+
+    it("says the day changed meanwhile, and stays open", async () => {
+      stubRefusal({ code: "day_plan_changed", message: "The day was changed by another write" });
+      const onSaved = vi.fn();
+
+      render(
+        <I18nProvider initialLanguage="en">
+          <TripDayTravelSegmentDialog {...baseProps} segment={editedSegment} onSaved={onSaved} />
+        </I18nProvider>,
+      );
+      fireEvent.click(await screen.findByRole("button", { name: "OK" }));
+
+      expect(await screen.findByText(en["trips.plan.dayChangedConflict"])).toBeInTheDocument();
+      expect(onSaved).not.toHaveBeenCalled();
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+    });
+  });
 });

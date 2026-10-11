@@ -4,6 +4,7 @@ import {
   buildTravelSegments,
   type TripDayGanttSegment,
 } from "@/components/features/trips/TripDayGanttSegments";
+import { DEFAULT_CHECK_IN_TIME, DEFAULT_CHECK_OUT_TIME, resolveStayTime } from "@/lib/trips/stayTimes";
 
 type OverviewStay = {
   id: string;
@@ -33,16 +34,13 @@ type BuildOverviewGanttSegmentsInput = {
   defaultCheckInTime?: string;
 };
 
-const resolveStayTime = (value: string | null | undefined, fallback: string) =>
-  value && value.trim() ? value : fallback;
-
 export const buildOverviewGanttSegments = ({
   previousStay,
   currentStay,
   planItems,
   travelSegments,
-  defaultCheckOutTime = "10:00",
-  defaultCheckInTime = "16:00",
+  defaultCheckOutTime = DEFAULT_CHECK_OUT_TIME,
+  defaultCheckInTime = DEFAULT_CHECK_IN_TIME,
 }: BuildOverviewGanttSegmentsInput): TripDayGanttSegment[] => {
   const staySegments = buildStaySegments({
     previousStay: previousStay

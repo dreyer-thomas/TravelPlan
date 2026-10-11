@@ -16,7 +16,9 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
+import { formatMessage } from "@/i18n";
 import { useI18n } from "@/i18n/provider";
+import type { SignedDayChangeReceiptWire } from "@/lib/trips/dayChangeReceipt";
 import {
   transportTypeAllowsDistance,
   transportTypeRequiresDistance,
@@ -89,7 +91,8 @@ type TripDayTravelSegmentDialogProps = {
   segment: TravelSegment | null;
   prefillRouteOnOpen?: boolean;
   onClose: () => void;
-  onSaved: (segment: TravelSegment) => void;
+  /** Story 11.4: the save's signed change receipt (the leg may have pushed the day), `null` if none came. */
+  onSaved: (segment: TravelSegment, receipt: SignedDayChangeReceiptWire | null) => void;
 };
 
 /** What the two duration boxes hold. Strings, because they are what the user is mid-way through typing. */
@@ -589,7 +592,10 @@ export default function TripDayTravelSegmentDialog({
         body: JSON.stringify(isEditing ? { ...payload, segmentId: segment?.id } : payload),
       });
 
-      const body = (await response.json()) as ApiEnvelope<{ segment: TravelSegment }>;
+      const body = (await response.json()) as ApiEnvelope<{
+        segment: TravelSegment;
+        receipt?: SignedDayChangeReceiptWire;
+      }>;
       if (!response.ok || body.error || !body.data?.segment) {
         // Story 8.5 AC7. The `409` is correct and stays: `@@unique([tripDayId, fromItemType,
         // fromItemId, toItemType, toItemId])` really does already hold this pair. What the user read
@@ -605,11 +611,25 @@ export default function TripDayTravelSegmentDialog({
           setServerError(t("trips.travelSegment.existsHint"));
           return;
         }
+        // Story 11.4: the leg's push refusals, in the plan dialog's words. The dialog stays open on both.
+        if (body.error?.code === "day_plan_past_midnight") {
+          const details = (body.error.details ?? {}) as { itemTitle?: string | null };
+          setServerError(
+            formatMessage(t("trips.plan.pastMidnight"), {
+              title: details.itemTitle?.trim() || t("trips.plan.untitledActivity"),
+            }),
+          );
+          return;
+        }
+        if (body.error?.code === "day_plan_changed") {
+          setServerError(t("trips.plan.dayChangedConflict"));
+          return;
+        }
         setServerError(body.error?.message ?? t("trips.travelSegment.saveError"));
         return;
       }
 
-      onSaved(body.data.segment);
+      onSaved(body.data.segment, body.data.receipt ?? null);
     } catch {
       setServerError(t("trips.travelSegment.saveError"));
     } finally {

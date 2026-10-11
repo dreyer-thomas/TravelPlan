@@ -31,6 +31,7 @@ import FullscreenPhotoViewer from "@/components/ui/FullscreenPhotoViewer";
 import { WarningTriangleIcon } from "@/components/features/trips/TripIcons";
 import LocationCandidateList from "@/components/features/trips/LocationCandidateList";
 import { formatMessage, type Language } from "@/i18n";
+import type { SignedDayChangeReceiptWire } from "@/lib/trips/dayChangeReceipt";
 import { useI18n } from "@/i18n/provider";
 import {
   DOCUMENT_LIMIT_ERROR_MESSAGE,
@@ -44,6 +45,7 @@ import { convertEntryToCents, formatForeignAmount } from "@/lib/trips/convertCos
 import { formatCentsAsAmount, parseAmountToCents } from "@/lib/trips/parseAmount";
 import { formatCoordinateLabel, parseLocationInput } from "@/lib/trips/parseLocationInput";
 import { isSafeExternalUrl } from "@/lib/validation/safeExternalUrl";
+import { DEFAULT_CHECK_IN_TIME, DEFAULT_CHECK_OUT_TIME } from "@/lib/trips/stayTimes";
 
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 type ApiEnvelope<T> = {
@@ -341,7 +343,11 @@ type TripAccommodationDialogProps = {
   stayType: "previous" | "current";
   day: TripDay | null;
   onClose: () => void;
-  onSaved: () => void;
+  /**
+   * Story 11.4: a PATCH that made the check-out later may have pushed the next day; its signed receipt
+   * comes here. `null` for every other save, and for a delete.
+   */
+  onSaved: (receipt: SignedDayChangeReceiptWire | null) => void;
   /**
    * Story 11.1 AC7: called after each successful media write in this dialog (stay image or document,
    * upload or delete). Those are writes on the day the view cannot see, and every write ends the undo
@@ -349,9 +355,6 @@ type TripAccommodationDialogProps = {
    */
   onDayWrite?: () => void;
 };
-
-const DEFAULT_CHECK_IN = "16:00";
-const DEFAULT_CHECK_OUT = "10:00";
 
 const toDateOnly = (value?: string | null) => {
   if (!value) return new Date().toISOString().slice(0, 10);
@@ -586,8 +589,9 @@ export default function TripAccommodationDialog({
       costCents: seedCostBox(day?.accommodation, language),
       costCurrency: day?.accommodation?.costCurrency ?? "EUR",
       link: day?.accommodation?.link ?? "",
-      checkInTime: day?.accommodation?.checkInTime ?? DEFAULT_CHECK_IN,
-      checkOutTime: day?.accommodation?.checkOutTime ?? DEFAULT_CHECK_OUT,
+      // Story 11.4: the shared defaults, so the dialog shows the time the server pushes from.
+      checkInTime: day?.accommodation?.checkInTime ?? DEFAULT_CHECK_IN_TIME,
+      checkOutTime: day?.accommodation?.checkOutTime ?? DEFAULT_CHECK_OUT_TIME,
       paymentMode: day?.accommodation?.payments && day.accommodation.payments.length > 1 ? "split" : "single",
       payments: buildDefaultPayments({
         payments: day?.accommodation?.payments,
@@ -1456,7 +1460,10 @@ export default function TripAccommodationDialog({
         body: JSON.stringify(payload),
       });
 
-      const body = (await response.json()) as ApiEnvelope<{ accommodation: { id: string } }>;
+      const body = (await response.json()) as ApiEnvelope<{
+        accommodation: { id: string };
+        receipt?: SignedDayChangeReceiptWire;
+      }>;
 
       if (!response.ok || body.error) {
         if (body.error?.code === "validation_error" && body.error.details) {
@@ -1546,11 +1553,26 @@ export default function TripAccommodationDialog({
           return;
         }
 
+        // Story 11.4: a later check-out's push refusals, in the plan dialog's words. The dialog stays open.
+        if (body.error?.code === "day_plan_past_midnight") {
+          const details = (body.error.details ?? {}) as { itemTitle?: string | null };
+          setServerError(
+            formatMessage(t("trips.plan.pastMidnight"), {
+              title: details.itemTitle?.trim() || t("trips.plan.untitledActivity"),
+            }),
+          );
+          return;
+        }
+        if (body.error?.code === "day_plan_changed") {
+          setServerError(t("trips.plan.dayChangedConflict"));
+          return;
+        }
+
         setServerError(resolveApiError(body.error?.code, t("trips.stay.error")));
         return;
       }
 
-      onSaved();
+      onSaved(body.data?.receipt ?? null);
     } catch {
       setServerError(t("trips.stay.error"));
     }
@@ -1589,7 +1611,7 @@ export default function TripAccommodationDialog({
         return;
       }
 
-      onSaved();
+      onSaved(null);
     } catch {
       setServerError(t("errors.csrfMissing"));
     } finally {

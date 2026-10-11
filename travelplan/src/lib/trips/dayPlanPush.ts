@@ -30,6 +30,11 @@
  * have fitted or been pushed onto the tie itself (ruled in the Story 11.2 code review; see `planDayPush`).
  *
  * A retime whose times equal the stored ones (a title or notes save) plans nothing.
+ *
+ * Story 11.4 gives the walk a third entry point, `planDayPushFrom`, for the two changes that are not an
+ * activity: a leg save (the walk starts at the activity the leg leaves) and last night's check-out (the
+ * walk starts at a zero-length stand-in for the check-out). `planDayPush` (11.2) and `planDayReorder`
+ * (11.3) are the other two; all three share `walkFrom`.
  */
 
 import { compareDayPlanItemsByStartTime } from "@/lib/trips/dayPlanItemOrder";
@@ -42,7 +47,11 @@ export type PushItem = {
   createdAt: Date | string;
 };
 
-/** A stored `DAY_PLAN_ITEM → DAY_PLAN_ITEM` leg. Legs to or from a stay never take part in the walk. */
+/**
+ * A stored `DAY_PLAN_ITEM → DAY_PLAN_ITEM` leg. Legs to or from a stay never take part in
+ * `planDayPush`/`planDayReorder`; `planDayPushFrom`'s `afterCheckOut` carries the stay leg as a number
+ * (11.2 narrowed by 11.4).
+ */
 export type PushLeg = { fromItemId: string; toItemId: string; durationMinutes: number };
 
 export type PushEdit =
@@ -327,4 +336,58 @@ export const planDayReorder = (input: {
     itemId,
     neighbourId: neighbour.id,
   };
+};
+
+/** Story 11.4. Where `planDayPushFrom` starts the walk. */
+export type PushStart =
+  /** A leg A→B: walk from A; `legs` already holds the leg's new duration. */
+  | { kind: "afterItem"; itemId: string }
+  /** Last night's stay: the day's first activity may start no earlier than `minute + legMinutes`. */
+  | { kind: "afterCheckOut"; minute: number; legMinutes: number };
+
+/**
+ * Stands in for last night's check-out while the walk runs, the `NEW_ITEM_ID` idiom: no stored leg can
+ * name it, and it never leaves this function.
+ */
+const CHECK_OUT_ID = "\u0000checkout";
+
+/**
+ * Story 11.4 (FR42). The walk from something that is not an edited activity: a leg save, or a later
+ * check-out of last night's stay. Nothing is re-sorted and nothing is refused on order, so the answer is
+ * only ever `ok` or `past_midnight`.
+ *
+ * - `afterItem`: the walk starts at that activity. An untimed or unreadable one gives it nothing to
+ *   start from, so nothing moves. Throws when the activity is not on the day; the repository checks first.
+ * - `afterCheckOut`: a zero-length stand-in at `minute` is put before the day's first row, with
+ *   `legMinutes` as its leg to that row, and the walk starts there. `startMoved` is `false`, so the tie
+ *   guard never applies to the stand-in. An untimed first row stops the walk at once.
+ */
+export const planDayPushFrom = (input: { items: PushItem[]; legs: PushLeg[]; start: PushStart }): PushPlan => {
+  const { items, legs, start } = input;
+  const order = [...items].sort(compareDayPlanItemsByStartTime);
+  const legMinutes = buildLegMinutes(legs);
+
+  if (start.kind === "afterItem") {
+    const index = order.findIndex((entry) => entry.id === start.itemId);
+    if (index < 0) {
+      throw new Error("planDayPushFrom: the activity is not on the day");
+    }
+    const walked = walkFrom(order, index, legMinutes, false);
+    if (walked.status === "past_midnight") return walked;
+    return { status: "ok", order, moves: walked.moves };
+  }
+
+  if (order.length === 0) return { status: "ok", order, moves: [] };
+  const checkOut: PushItem = {
+    id: CHECK_OUT_ID,
+    title: null,
+    fromTime: minutesToTime(start.minute),
+    toTime: null,
+    createdAt: new Date(0),
+  };
+  legMinutes.set(legKey(CHECK_OUT_ID, order[0].id), start.legMinutes);
+  const withCheckOut = [checkOut, ...order];
+  const walked = walkFrom(withCheckOut, 0, legMinutes, false);
+  if (walked.status === "past_midnight") return walked;
+  return { status: "ok", order: withCheckOut.slice(1), moves: walked.moves };
 };

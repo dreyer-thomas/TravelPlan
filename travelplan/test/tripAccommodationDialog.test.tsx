@@ -9,6 +9,8 @@ import TripAccommodationDialog, {
   STAY_TAB_IDS,
 } from "@/components/features/trips/TripAccommodationDialog";
 import { useI18n } from "@/i18n/provider";
+import de from "@/i18n/de";
+import en from "@/i18n/en";
 import { DOCUMENT_UPLOAD_ACCEPT } from "@/lib/trips/documentUploads";
 import { mockFetchResponse, requestUrl, stubFetch } from "./helpers/mockFetch";
 import { Providers } from "./helpers/renderWithProviders";
@@ -2739,6 +2741,134 @@ describe("TripAccommodationDialog", () => {
       expect(saves[0].costCurrency).toBeNull();
       expect(saves[0].costOriginalAmount).toBeNull();
       expect(saves[0].payments).toEqual([{ amountCents: 10000, dueDate: "2026-11-01" }]);
+    });
+  });
+
+  /**
+   * Story 11.4. A later check-out (from the previous-night dialog) can push this day: the dialog hands
+   * the signed receipt over, and the push's refusals are translated with the dialog left open.
+   */
+  describe("Story 11.4 — the check-out save's receipt and push refusals", () => {
+    const previousDay = {
+      id: "day-0",
+      date: "2026-10-31T00:00:00.000Z",
+      dayIndex: 0,
+      accommodation: {
+        id: "stay-0",
+        name: "Previous Hotel",
+        notes: null,
+        status: "planned" as const,
+        costCents: null,
+        link: null,
+        checkInTime: null,
+        checkOutTime: "09:00",
+        location: null,
+      },
+    };
+
+    const stubSave = (response: { body: unknown; status?: number }) =>
+      stubFetch(
+        vi.fn(async (input: RequestInfo | URL) => {
+          if (requestUrl(input).includes("/api/auth/csrf")) {
+            return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
+          }
+          return mockFetchResponse(response.body, { status: response.status ?? 200 });
+        }),
+      );
+
+    const renderPrevious = (language: "en" | "de", onSaved: (receipt: unknown) => void) =>
+      render(
+        <Providers language={language}>
+          <TripAccommodationDialog
+            open
+            tripId="trip-1"
+            stayType="previous"
+            day={previousDay}
+            onClose={() => undefined}
+            onSaved={onSaved}
+          />
+        </Providers>,
+      );
+
+    it("passes the receipt to onSaved", async () => {
+      const receipt = { version: 2, tripDayId: "day-1", movedItems: [], signature: "a".repeat(64) };
+      stubSave({ body: { data: { accommodation: { id: "stay-0" }, receipt }, error: null } });
+      const onSaved = vi.fn();
+
+      renderPrevious("en", onSaved);
+      fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+
+      await waitFor(() => expect(onSaved).toHaveBeenCalledWith(receipt));
+    });
+
+    it("passes null when the answer carries no receipt", async () => {
+      stubSave({ body: { data: { accommodation: { id: "stay-0" } }, error: null } });
+      const onSaved = vi.fn();
+
+      renderPrevious("en", onSaved);
+      fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+
+      await waitFor(() => expect(onSaved).toHaveBeenCalledWith(null));
+    });
+
+    it("names the activity a push past midnight would move, and stays open", async () => {
+      stubSave({
+        status: 409,
+        body: {
+          data: null,
+          error: {
+            code: "day_plan_past_midnight",
+            message: "The change would push an activity past midnight",
+            details: { itemId: "item-9", itemTitle: "Spätvorstellung" },
+          },
+        },
+      });
+      const onSaved = vi.fn();
+
+      renderPrevious("de", onSaved);
+      fireEvent.click(screen.getByRole("button", { name: "Unterkunft speichern" }));
+
+      expect(await screen.findByText(de["trips.plan.pastMidnight"].replace("{title}", "Spätvorstellung"))).toBeInTheDocument();
+      expect(screen.queryByText("The change would push an activity past midnight")).not.toBeInTheDocument();
+      expect(onSaved).not.toHaveBeenCalled();
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+    });
+
+    it("names an untitled activity with the untitled fallback", async () => {
+      stubSave({
+        status: 409,
+        body: {
+          data: null,
+          error: {
+            code: "day_plan_past_midnight",
+            message: "The change would push an activity past midnight",
+            details: { itemId: "item-9", itemTitle: "  " },
+          },
+        },
+      });
+
+      renderPrevious("en", vi.fn());
+      fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+
+      expect(
+        await screen.findByText(en["trips.plan.pastMidnight"].replace("{title}", en["trips.plan.untitledActivity"])),
+      ).toBeInTheDocument();
+    });
+
+    it("says the day changed meanwhile, and stays open", async () => {
+      stubSave({
+        status: 409,
+        body: { data: null, error: { code: "day_plan_changed", message: "The day was changed by another write" } },
+      });
+      const onSaved = vi.fn();
+
+      renderPrevious("en", onSaved);
+      fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
+
+      expect(await screen.findByText(en["trips.plan.dayChangedConflict"])).toBeInTheDocument();
+      expect(screen.queryByText("The day was changed by another write")).not.toBeInTheDocument();
+      expect(onSaved).not.toHaveBeenCalled();
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
     });
   });
 });

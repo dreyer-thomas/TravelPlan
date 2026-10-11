@@ -14,25 +14,19 @@ import {
   sweepNoLongerDrawnSegmentsInTransaction,
   type TransactionClient,
 } from "@/lib/repositories/travelSegmentRepo";
-import type {
-  DayChangeCheckInWarning,
-  DayChangeEdited,
-  DayChangeReceipt,
-  DeletedDayPlanItemSnapshot,
-  MovedItemRow,
-  TravelSegmentRow,
-  TripBucketListItemRow,
-} from "@/lib/trips/dayChangeReceipt";
+import type { DayChangeReceipt, DeletedDayPlanItemSnapshot, TravelSegmentRow } from "@/lib/trips/dayChangeReceipt";
+import { planDayPush, planDayReorder, type PushEdit, type ReorderDirection } from "@/lib/trips/dayPlanPush";
+// Story 11.4: the push's transaction helpers moved to their own module so the leg and stay writes can
+// share them without an import cycle. The two names other modules import from here are re-exported.
 import {
-  activityEndMinutes,
-  planDayPush,
-  planDayReorder,
-  timeToMinutes,
-  type PushEdit,
-  type PushItem,
-  type PushMove,
-  type ReorderDirection,
-} from "@/lib/trips/dayPlanPush";
+  applyPushMovesInTransaction,
+  buildReceipt,
+  DayPlanChangedError,
+  findCheckInWarningInTransaction,
+  readPushInputInTransaction,
+  type DayPlanPushRefusal,
+  type PlannedPush,
+} from "@/lib/repositories/dayPlanPushTransaction";
 import { MAX_DOCUMENTS_PER_ENTRY } from "@/lib/trips/documentUploads";
 // Story 11.2 (`DW-216`): the last private copy of the order rule is gone; this file sorts with the
 // canonical comparator, as the push walk does.
@@ -72,25 +66,7 @@ export type DayPlanItemDetail = {
  */
 export type DayPlanItemCreateResult = { item: DayPlanItemDetail; receipt: DayChangeReceipt };
 
-/**
- * Story 11.2. The push rule's two refusals (`dayPlanPush.ts`), decided before the first write of the
- * transaction, so a refused change writes nothing: no row, no swept leg, no consumed idea.
- */
-export type DayPlanPushRefusal =
-  | { status: "before_predecessor"; predecessor: { id: string; title: string | null; fromTime: string } }
-  | { status: "past_midnight"; item: { id: string; title: string | null } };
-
-/**
- * Story 11.2. A pushed activity changed between the transaction's read and its conditional write: another
- * write slipped in. Thrown inside the transaction so all of it rolls back; the route maps it to
- * `409 day_plan_changed`.
- */
-export class DayPlanChangedError extends Error {
-  constructor() {
-    super("A pushed activity changed during the write");
-    this.name = "DayPlanChangedError";
-  }
-}
+export { DayPlanChangedError, type DayPlanPushRefusal };
 
 export type DayPlanItemUpdateResult =
   | { status: "not_found" }
@@ -437,50 +413,11 @@ const toDocumentDetail = (item: {
 const paymentSnapshotOrder = [{ sortOrder: "asc" as const }, { createdAt: "asc" as const }];
 const mediaSnapshotOrder = [{ sortOrder: "asc" as const }, { createdAt: "asc" as const }];
 
-const buildReceipt = (
-  tripDayId: string,
-  edited: DayChangeEdited,
-  removedTravelSegments: TravelSegmentRow[],
-  movedItems: MovedItemRow[],
-  extras: { consumedBucketListItem?: TripBucketListItemRow; checkInWarning?: DayChangeCheckInWarning } = {},
-): DayChangeReceipt => ({
-  version: 2,
-  tripDayId,
-  edited,
-  removedTravelSegments,
-  movedItems,
-  ...(extras.consumedBucketListItem ? { consumedBucketListItem: extras.consumedBucketListItem } : {}),
-  ...(extras.checkInWarning ? { checkInWarning: extras.checkInWarning } : {}),
-});
-
 /**
  * Stands in for the id of an activity that does not exist yet, while its create is being planned. No
  * stored leg can name it, which is exactly right: a new activity has no legs.
  */
 const NEW_ITEM_ID = "\u0000new";
-
-type PlannedPush = {
-  order: PushItem[];
-  moves: PushMove[];
-  /** The `updatedAt` each row had when the plan was read: the condition its move is written under. */
-  readUpdatedAt: Map<string, Date>;
-};
-
-/**
- * The day's activities (with the `updatedAt` each move is written under) and its activity-to-activity
- * legs, read through `tx`: the walk's whole input. Shared by the push (Story 11.2) and the reorder (11.3).
- */
-const readPushInputInTransaction = (tx: TransactionClient, tripDayId: string) =>
-  Promise.all([
-    tx.dayPlanItem.findMany({
-      where: { tripDayId },
-      select: { id: true, title: true, fromTime: true, toTime: true, createdAt: true, updatedAt: true },
-    }),
-    tx.travelSegment.findMany({
-      where: { tripDayId, fromItemType: "DAY_PLAN_ITEM", toItemType: "DAY_PLAN_ITEM" },
-      select: { fromItemId: true, toItemId: true, durationMinutes: true },
-    }),
-  ]);
 
 /**
  * Story 11.2 AC11. Reads the day's activities and its activity-to-activity legs through `tx` and plans
@@ -500,83 +437,6 @@ const planPushInTransaction = async (
     moves: plan.moves,
     readUpdatedAt: new Map(items.map((item) => [item.id, item.updatedAt])),
   };
-};
-
-/**
- * Writes each move conditionally on the `updatedAt` the plan read, all stamped with the transaction's
- * one `now`. A miss means another write got in between: throw, and the whole change rolls back.
- */
-const applyPushMovesInTransaction = async (
-  tx: TransactionClient,
-  tripDayId: string,
-  planned: PlannedPush,
-  now: Date,
-): Promise<MovedItemRow[]> => {
-  const movedItems: MovedItemRow[] = [];
-  for (const move of planned.moves) {
-    const previousUpdatedAt = planned.readUpdatedAt.get(move.itemId);
-    if (!previousUpdatedAt) throw new DayPlanChangedError();
-    const written = await tx.dayPlanItem.updateMany({
-      where: { id: move.itemId, tripDayId, updatedAt: previousUpdatedAt },
-      data: { fromTime: move.fromTime, toTime: move.toTime, updatedAt: now },
-    });
-    if (written.count !== 1) throw new DayPlanChangedError();
-    movedItems.push({
-      itemId: move.itemId,
-      previousFromTime: move.previousFromTime,
-      previousToTime: move.previousToTime,
-      previousUpdatedAt,
-      updatedAt: now,
-    });
-  }
-  return movedItems;
-};
-
-/**
- * Story 11.2 AC9. Only after a change that moved something, and only against an explicit check-in: the
- * 16:00 default lives in the client and never warns. The last timed activity's end, plus the stored leg
- * from it to the night's stay when that leg is drawn (the activity is the day's last, with no untimed
- * one after it), compared in plain minutes; the sum may pass midnight and is never formatted.
- */
-const findCheckInWarningInTransaction = async (
-  tx: TransactionClient,
-  tripDayId: string,
-  planned: PlannedPush,
-): Promise<DayChangeCheckInWarning | undefined> => {
-  if (planned.moves.length === 0) return undefined;
-
-  const day = await tx.tripDay.findUnique({
-    where: { id: tripDayId },
-    select: { accommodation: { select: { id: true, checkInTime: true } } },
-  });
-  const stay = day?.accommodation;
-  const checkInTime = stay?.checkInTime?.trim();
-  if (!stay || !checkInTime) return undefined;
-  const checkInMinutes = timeToMinutes(checkInTime);
-  if (checkInMinutes === null) return undefined;
-
-  const timed = planned.order.filter((item) => Boolean(item.fromTime));
-  const last = timed.at(-1);
-  if (!last) return undefined;
-  const lastEnd = activityEndMinutes(last);
-  if (lastEnd === null) return undefined;
-
-  let arrival = lastEnd;
-  if (planned.order.at(-1) === last) {
-    const legToStay = await tx.travelSegment.findFirst({
-      where: {
-        tripDayId,
-        fromItemType: "DAY_PLAN_ITEM",
-        fromItemId: last.id,
-        toItemType: "ACCOMMODATION",
-        toItemId: stay.id,
-      },
-      select: { durationMinutes: true },
-    });
-    arrival += legToStay?.durationMinutes ?? 0;
-  }
-
-  return arrival > checkInMinutes ? { accommodationId: stay.id, checkInTime } : undefined;
 };
 
 export type DayPlanItemInTransactionDeleteResult =

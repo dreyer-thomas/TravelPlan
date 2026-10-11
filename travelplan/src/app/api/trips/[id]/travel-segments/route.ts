@@ -16,6 +16,17 @@ import {
   travelSegmentUpdateSchema,
 } from "@/lib/validation/travelSegmentSchemas";
 import { requireSession } from "@/lib/auth/sessionGuard";
+import { dayChangedResponse, pastMidnightResponse, withPushConflict } from "@/lib/http/dayPlanPushResponses";
+import { toDayChangeReceiptWire } from "@/lib/trips/dayChangeReceipt";
+import { signDayChangeReceipt } from "@/lib/trips/dayChangeReceiptSignature";
+
+/**
+ * Story 11.4 (FR42) narrows Story 11.2 AC14: a leg save (POST, PATCH) now runs the push walk from where
+ * the leg starts, and answers with the signed change receipt beside the segment, always. Its refusals
+ * are the activity writes' own: `409 day_plan_past_midnight` (nothing written) and `409 day_plan_changed`
+ * (a pushed activity changed during the write; everything rolled back). `409 travel_segment_exists` is
+ * unchanged. DELETE never pushes.
+ */
 
 type RouteContext = {
   params: Promise<{
@@ -117,7 +128,7 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
 
   let segmentResult;
   try {
-    segmentResult = await createTravelSegmentForTripDay({
+    const attempt = await withPushConflict(() => createTravelSegmentForTripDay({
       userId,
       tripId,
       tripDayId: parsed.data.tripDayId,
@@ -129,7 +140,11 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
       durationMinutes: parsed.data.durationMinutes,
       distanceKm: parsed.data.distanceKm ?? null,
       linkUrl: linkUrl && linkUrl.length > 0 ? linkUrl : null,
-    });
+    }));
+    if ("conflict" in attempt) {
+      return dayChangedResponse();
+    }
+    segmentResult = attempt.result;
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       return fail(apiError("travel_segment_exists", "Travel segment already exists"), 409);
@@ -145,6 +160,9 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
   }
   if (segmentResult.status === "not_adjacent") {
     return fail(apiError("validation_error", "Travel segment must connect adjacent items"), 400);
+  }
+  if (segmentResult.status === "past_midnight") {
+    return pastMidnightResponse(segmentResult.item);
   }
 
   const segment = segmentResult.segment;
@@ -164,6 +182,7 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
       createdAt: segment.createdAt.toISOString(),
       updatedAt: segment.updatedAt.toISOString(),
     },
+    receipt: signDayChangeReceipt(toDayChangeReceiptWire(segmentResult.receipt), { tripId, userId }),
   });
 };
 
@@ -200,7 +219,7 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
 
   let updated;
   try {
-    updated = await updateTravelSegmentForTripDay({
+    const attempt = await withPushConflict(() => updateTravelSegmentForTripDay({
       userId,
       tripId,
       tripDayId: parsed.data.tripDayId,
@@ -213,7 +232,11 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
       durationMinutes: parsed.data.durationMinutes,
       distanceKm: parsed.data.distanceKm ?? null,
       linkUrl: linkUrl && linkUrl.length > 0 ? linkUrl : null,
-    });
+    }));
+    if ("conflict" in attempt) {
+      return dayChangedResponse();
+    }
+    updated = attempt.result;
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       return fail(apiError("travel_segment_exists", "Travel segment already exists"), 409);
@@ -233,6 +256,10 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
     return fail(apiError("validation_error", "Travel segment must connect adjacent items"), 400);
   }
 
+  if (updated.status === "past_midnight") {
+    return pastMidnightResponse(updated.item);
+  }
+
   return ok({
     segment: {
       id: updated.segment.id,
@@ -248,6 +275,7 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
       createdAt: updated.segment.createdAt.toISOString(),
       updatedAt: updated.segment.updatedAt.toISOString(),
     },
+    receipt: signDayChangeReceipt(toDayChangeReceiptWire(updated.receipt), { tripId, userId }),
   });
 };
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { compareDayPlanItemsByStartTime } from "@/lib/trips/dayPlanItemOrder";
 import {
   planDayPush,
+  planDayPushFrom,
   planDayReorder,
   type PushItem,
   type PushLeg,
@@ -525,5 +526,156 @@ describe("planDayReorder", () => {
       });
     }
     expect(checked).toBeGreaterThan(100);
+  });
+});
+
+/**
+ * Story 11.4 AC13. The walk's third entry point: a leg save (from the activity before it, or from last
+ * night's check-out) and a later check-out. No second walk; the same rule from a different start.
+ */
+describe("planDayPushFrom", () => {
+  it("absorbs a longer leg into slack", () => {
+    const plan = planDayPushFrom({
+      items: workedDay(),
+      legs: [leg("b", "c", 25)],
+      start: { kind: "afterItem", itemId: "b" },
+    });
+    expect(okPlan(plan).moves).toEqual([]);
+  });
+
+  it("pushes a chain from a longer leg and stops at the first activity that fits", () => {
+    const plan = planDayPushFrom({
+      items: workedDay(),
+      legs: [leg("a", "b", 90), leg("c", "d", 120)],
+      start: { kind: "afterItem", itemId: "a" },
+    });
+    expect(times(plan)).toEqual(["a 09:00–10:00", "b 11:30–12:30", "c 12:30–13:30", "d 16:00–17:00"]);
+    expect(okPlan(plan).moves.map((move) => move.itemId)).toEqual(["b", "c"]);
+  });
+
+  it("never moves anything earlier for a shorter leg", () => {
+    const plan = planDayPushFrom({
+      items: [item("a", "09:00", "10:00"), item("b", "12:00", "13:00")],
+      legs: [leg("a", "b", 5)],
+      start: { kind: "afterItem", itemId: "a" },
+    });
+    expect(okPlan(plan).moves).toEqual([]);
+  });
+
+  it("moves nothing from an untimed activity", () => {
+    const plan = planDayPushFrom({
+      items: [item("a", "09:00", "10:00"), item("u", null, null), item("v", null, null)],
+      legs: [leg("u", "v", 600)],
+      start: { kind: "afterItem", itemId: "u" },
+    });
+    expect(okPlan(plan).moves).toEqual([]);
+  });
+
+  it("moves nothing for a leg that arrives at an untimed activity", () => {
+    const plan = planDayPushFrom({
+      items: [item("a", "09:00", "10:00"), item("u", null, null)],
+      legs: [leg("a", "u", 600)],
+      start: { kind: "afterItem", itemId: "a" },
+    });
+    expect(okPlan(plan).moves).toEqual([]);
+  });
+
+  it("throws for an activity that is not on the day", () => {
+    expect(() =>
+      planDayPushFrom({ items: workedDay(), legs: [], start: { kind: "afterItem", itemId: "nope" } }),
+    ).toThrow();
+  });
+
+  it("pushes the first activity from a stored check-out plus the stay leg", () => {
+    const plan = planDayPushFrom({
+      items: workedDay(),
+      legs: [],
+      start: { kind: "afterCheckOut", minute: 8 * 60, legMinutes: 90 },
+    });
+    expect(times(plan)).toEqual(["a 09:30–10:30", "b 10:30–11:30", "c 12:00–13:00", "d 16:00–17:00"]);
+    expect(okPlan(plan).moves).toEqual([
+      { itemId: "a", previousFromTime: "09:00", previousToTime: "10:00", fromTime: "09:30", toTime: "10:30" },
+    ]);
+  });
+
+  it("pushes from the default check-out the repository resolved, the same way", () => {
+    // 10:00 is `DEFAULT_CHECK_OUT_TIME`; the planner only ever sees minutes.
+    const plan = planDayPushFrom({
+      items: [item("f", "10:30", "11:00")],
+      legs: [],
+      start: { kind: "afterCheckOut", minute: 10 * 60, legMinutes: 45 },
+    });
+    expect(times(plan)).toEqual(["f 10:45–11:15"]);
+  });
+
+  it("pushes from a later check-out alone, without a leg", () => {
+    const plan = planDayPushFrom({
+      items: workedDay(),
+      legs: [],
+      start: { kind: "afterCheckOut", minute: 9 * 60 + 15, legMinutes: 0 },
+    });
+    expect(times(plan)[0]).toBe("a 09:15–10:15");
+    expect(okPlan(plan).moves.map((move) => move.itemId)).toEqual(["a"]);
+  });
+
+  it("moves nothing when the first activity already starts after the check-out and leg", () => {
+    const plan = planDayPushFrom({
+      items: workedDay(),
+      legs: [],
+      start: { kind: "afterCheckOut", minute: 7 * 60, legMinutes: 60 },
+    });
+    expect(okPlan(plan).moves).toEqual([]);
+    expect(okPlan(plan).order.map((entry) => entry.id)).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it("moves nothing when the day's first activity is untimed", () => {
+    const plan = planDayPushFrom({
+      items: [item("u", null, null)],
+      legs: [],
+      start: { kind: "afterCheckOut", minute: 20 * 60, legMinutes: 60 },
+    });
+    expect(okPlan(plan).moves).toEqual([]);
+    expect(okPlan(plan).order.map((entry) => entry.id)).toEqual(["u"]);
+  });
+
+  it("moves nothing on a day without activities", () => {
+    const plan = planDayPushFrom({ items: [], legs: [], start: { kind: "afterCheckOut", minute: 600, legMinutes: 0 } });
+    expect(okPlan(plan)).toEqual({ status: "ok", order: [], moves: [] });
+  });
+
+  it("refuses past midnight and names the activity", () => {
+    const plan = planDayPushFrom({
+      items: [item("a", "09:00", "10:00"), item("late", "22:00", "23:30")],
+      legs: [],
+      start: { kind: "afterCheckOut", minute: 21 * 60, legMinutes: 120 },
+    });
+    expect(plan).toEqual({ status: "past_midnight", item: { id: "a", title: "A" } });
+  });
+
+  it("refuses past midnight on a row the leg pushes further on", () => {
+    const plan = planDayPushFrom({
+      items: [item("a", "09:00", "10:00"), item("late", "22:00", "23:30")],
+      legs: [leg("a", "late", 12 * 60 + 30)],
+      start: { kind: "afterItem", itemId: "a" },
+    });
+    expect(plan).toEqual({ status: "past_midnight", item: { id: "late", title: "LATE" } });
+  });
+
+  it("runs Tommy's case: check-out 09:00, a 3 h 15 min drive, then the walk continues", () => {
+    const plan = planDayPushFrom({
+      items: [item("fantail", "12:10", "13:10"), item("haast", "13:30", "14:00"), item("dinner", "18:00", "19:00")],
+      legs: [leg("fantail", "haast", 30)],
+      start: { kind: "afterCheckOut", minute: 9 * 60, legMinutes: 195 },
+    });
+    expect(times(plan)).toEqual(["fantail 12:15–13:15", "haast 13:45–14:15", "dinner 18:00–19:00"]);
+    expect(okPlan(plan).moves.map((move) => move.itemId)).toEqual(["fantail", "haast"]);
+  });
+
+  it("never lets the check-out stand-in leak into the plan", () => {
+    const plan = okPlan(
+      planDayPushFrom({ items: workedDay(), legs: [], start: { kind: "afterCheckOut", minute: 600, legMinutes: 0 } }),
+    );
+    expect(plan.order.every((entry) => entry.id !== "\u0000checkout")).toBe(true);
+    expect(plan.order).toHaveLength(4);
   });
 });

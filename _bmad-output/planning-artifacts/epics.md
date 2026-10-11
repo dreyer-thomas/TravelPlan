@@ -53,7 +53,7 @@ FR38: Users can attach documents (PDF or image files) to an accommodation entry 
 FR39: Users can see attached documents on the entry in the day timeline, open them, and delete them from the entry's dialog.
 FR40: Users can produce an offline document packet as a single PDF containing a day's attached documents.
 FR41: Users can enter a cost in a foreign currency and have the app convert it to EUR using a published daily exchange rate. EUR remains the stored value and the basis of every total, budget figure and export; the entered amount, its currency and the rate used are kept alongside it so the converted figure can be explained and corrected.
-FR42: When users insert, retime or extend an activity, later activities on that day move back only as far as needed to start after the previous activity ends plus the travel time between them, keeping their order and duration; gaps are never closed automatically. Travel legs whose two endpoints are no longer consecutive are removed, and the whole change, including every moved activity and removed leg, can be undone.
+FR42: When users insert, retime or extend an activity, lengthen a travel leg, or move the previous night's check-out later, later activities on that day move back only as far as needed to start after the previous activity (or the check-out) ends plus the travel time between them, keeping their order and duration; gaps are never closed automatically. Travel legs whose two endpoints are no longer consecutive are removed, and the whole change, including every moved activity and removed leg, can be undone.
 FR43: Users can move an activity one place earlier or later within its day, with the times of the swapped pair and the activities after them recalculated under the same rule.
 
 ### NonFunctional Requirements
@@ -172,7 +172,7 @@ Users can type a price in the currency it was quoted in and have the app convert
 **FRs covered:** FR41
 
 ### Epic 11: Day Plans That Recalculate Themselves
-Users can change one time on a day and have the rest of the day follow — later activities pushed back as far as needed, travel legs that no longer fit removed, the order changed only when they ask — and take the whole change back in one step.
+Users can change one time on a day — an activity, a travel leg or the morning's check-out — and have the rest of the day follow — later activities pushed back as far as needed, travel legs that no longer fit removed, the order changed only when they ask — and take the whole change back in one step.
 **FRs covered:** FR42, FR43
 
 ## Epic 1: Secure Access & Personal Workspace
@@ -3549,6 +3549,8 @@ So that I do not have to retime the rest of the day one entry at a time, working
 
 A third ruling, that **a time edit keeps the order**, means no `sortOrder` column is needed. Every push leaves the timed activities with non-decreasing start times, so the existing comparator still yields the right order after every write. A time that would put an activity before its predecessor's start is refused rather than read as a reorder. Reordering belongs to Story 11.3.
 
+*Narrowed by Story 11.4 (2026-10-11): leg saves and a later check-out of the previous night's stay now run the same walk; the travel-segment routes are no longer excluded.*
+
 **Acceptance Criteria:**
 
 **Given** a timed activity that is created, retimed or extended
@@ -3632,3 +3634,56 @@ So that I can change the order of my day without retyping both sets of times.
 
 **Given** both dictionaries
 **Then** `en.ts` and `de.ts` carry the new strings
+
+### Story 11.4: When the Journey Takes Longer
+
+As someone who finds out a drive takes longer than I planned, or that I leave the hotel later,
+I want the activities after it pushed back just as far as they have to go,
+So that my day never shows me arriving somewhere after I am supposed to be there.
+
+**FRs covered:** FR42 (legs and check-out)
+
+**Depends on:** Stories 11.1, 11.2 and 11.3. It reuses the walk, the receipt, the undo endpoint, the `action-notice` and the midnight refusal; it builds no second copy of any of them.
+
+**Context:** 11.2 ran the walk only from an edited activity and left the travel-segment routes and the stays out (11.2 AC14, `dayPlanPush.ts:45`). In use, a leg made longer left the next activity overlapping the journey (Tommy, 2026-10-11: Glenfern Villas check-out 09:00 → car 3 h 15 min → Fantail Falls still at 12:10). Rulings: a leg's leaving end is the previous activity's end or, for the previous night's stay, its check-out (stored, or the 10:00 default the timeline already draws); creating or copying a stay never pushes; undo of a check-out change reverts the check-out time and the moves, not the rest of the stay save.
+
+**Acceptance Criteria:**
+
+**Given** a leg between two activities
+**When** it is created, or saved with a longer duration or different endpoints
+**Then** the walk from Story 11.2 runs from the activity it arrives at, whose earliest start is the leaving activity's end plus the leg's duration; slack absorbs it, the walk stops at the first activity that fits, and untimed activities are skipped
+
+**Given** a leg from the previous night's stay to the day's first timed activity
+**When** it is created or saved
+**Then** that activity's earliest start is the stay's check-out plus the leg's duration, where the check-out is the stored `checkOutTime` or, if none is stored, the same 10:00 default the timeline draws (one shared constant for client and server)
+
+**Given** a stay whose check-out is changed on an update
+**When** it is saved
+**Then** the walk runs on the next trip day from its first timed activity, whose earliest start is the new check-out plus the stored leg from the stay to it (or the check-out alone); the last night of a trip pushes nothing
+
+**Given** a stay that is created or copied from the previous night
+**Then** nothing is pushed
+
+**Given** a shorter leg, a deleted leg, an earlier check-out, or a leg that arrives at tonight's stay
+**Then** no activity moves
+
+**Given** a push from a leg or check-out that would move any activity past `23:59`
+**Then** nothing is written — neither the leg nor the stay — and the leg dialog or the stay dialog shows 11.2's message naming the activity that would not fit
+
+**Given** an activity edit (Story 11.2)
+**Then** the stay is still not part of its walk: a first activity moved before the check-out is accepted, as an overlap with a predecessor's end is today
+
+**Given** a leg or check-out save that moved activities
+**Then** it returns a change receipt (version 2) with a new `edited` kind (`legCreated`, `legUpdated` with the leg's previous row, or `stayCheckOutChanged` with the previous check-out), every moved activity in `movedItems`, no removed legs, and 11.2's check-in warning when it applies; the `action-notice` appears with the count
+
+**Given** *Rückgängig* on such a notice
+**Then** one transaction restores every moved activity and the leg (deleted if created, its previous row if updated) or the previous check-out time, and the day reads exactly as before (whole-DB `toEqual`, including `updatedAt`); the stay's other saved fields are kept; if any named row changed since, undo is refused as `409 undo_stale`
+
+**Given** a check-out edit made from the stay's own day that pushed the next day
+**Then** the notice appears on the day where the save was made, names the pushed day in its summary, and *Rückgängig* works from there
+
+**Given** the recalculation
+**Then** it runs in the repository inside the leg or stay write's own transaction, through one new entry point over 11.2's extracted walk, unit-tested for: a longer leg absorbed by slack; a chain push from a leg; a stay leg with a stored and with a default check-out; a later check-out with and without a leg; an earlier check-out moving nothing; the midnight refusal
+
+**Given** both dictionaries
+**Then** `en.ts` and `de.ts` carry the new strings, including the notice summary that names another day

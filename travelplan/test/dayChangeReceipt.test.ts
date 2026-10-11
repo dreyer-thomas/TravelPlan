@@ -163,6 +163,61 @@ describe("dayChangeReceipt, reordered (Story 11.3)", () => {
   });
 });
 
+describe("dayChangeReceipt, leg and check-out kinds (Story 11.4)", () => {
+  const withEdited = (edited: DayChangeReceipt["edited"], movedItems: MovedItemRow[] = []): DayChangeReceipt => ({
+    version: 2,
+    tripDayId: "day-1",
+    edited,
+    removedTravelSegments: [],
+    movedItems,
+  });
+  const kinds: DayChangeReceipt["edited"][] = [
+    { kind: "legCreated", segmentId: "s1", updatedAt: at("2026-03-01T00:00:00.101Z") },
+    { kind: "legUpdated", segmentId: "s1", updatedAt: at("2026-03-01T00:00:00.102Z"), previous: { ...leg("s1"), tripDayId: "day-1" } },
+    {
+      kind: "stayCheckOutChanged",
+      accommodationId: "stay-1",
+      updatedAt: at("2026-03-01T00:00:00.103Z"),
+      previousUpdatedAt: at("2026-02-01T00:00:00.104Z"),
+      previousCheckOutTime: null,
+    },
+  ];
+
+  it("round-trips all three kinds through the wire form, and the schema accepts them", () => {
+    for (const edited of kinds) {
+      const receipt = withEdited(edited, [moved("item-2")]);
+      const wire = toDayChangeReceiptWire(receipt);
+      expect(wire.version).toBe(2);
+      expect(fromDayChangeReceiptWire(wire)).toEqual(receipt);
+      expect(dayChangeReceiptSchema.safeParse(signDayChangeReceipt(wire, BINDING)).success).toBe(true);
+    }
+  });
+
+  it("refuses each kind with an unknown key", () => {
+    for (const edited of kinds) {
+      const wire = signDayChangeReceipt(toDayChangeReceiptWire(withEdited(edited)), BINDING);
+      expect(dayChangeReceiptSchema.safeParse({ ...wire, edited: { ...wire.edited, itemId: "x" } }).success).toBe(false);
+    }
+  });
+
+  it("has side effects only when something moved", () => {
+    for (const edited of kinds) {
+      expect(receiptHasSideEffects(withEdited(edited))).toBe(false);
+      expect(receiptHasSideEffects(withEdited(edited, [moved("item-2")]))).toBe(true);
+    }
+  });
+
+  it("names the pushed day when it is another day, singular and plural, in both languages", () => {
+    const one = withEdited(kinds[2], [moved("item-2")]);
+    const three = withEdited(kinds[2], [moved("item-2"), moved("item-3"), moved("item-4")]);
+    expect(summarizeDayChangeReceipt(one, dictionary(de), { otherDayIndex: 5 })).toBe("1 Aktivität an Tag 5 verschoben");
+    expect(summarizeDayChangeReceipt(three, dictionary(de), { otherDayIndex: 5 })).toBe("3 Aktivitäten an Tag 5 verschoben");
+    expect(summarizeDayChangeReceipt(one, dictionary(en), { otherDayIndex: 5 })).toBe("1 activity moved on day 5");
+    expect(summarizeDayChangeReceipt(three, dictionary(en), { otherDayIndex: 5 })).toBe("3 activities moved on day 5");
+    expect(summarizeDayChangeReceipt(three, dictionary(en))).toBe("3 activities moved");
+  });
+});
+
 describe("dayChangeReceipt (Story 11.1)", () => {
   it("has side effects exactly when a leg was removed", () => {
     expect(receiptHasSideEffects(receiptWith([]))).toBe(false);

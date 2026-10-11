@@ -1,6 +1,20 @@
 import { prisma } from "@/lib/db/prisma";
 import { type PaymentDetail, toPaymentDetails } from "@/lib/repositories/paymentDetail";
-import { removeTravelSegmentsReferencingItemInTransaction } from "@/lib/repositories/travelSegmentRepo";
+import {
+  removeTravelSegmentsReferencingItemInTransaction,
+  type TransactionClient,
+} from "@/lib/repositories/travelSegmentRepo";
+import {
+  applyPushMovesInTransaction,
+  buildReceipt,
+  findCheckInWarningInTransaction,
+  planPushFromInTransaction,
+  type PlannedPush,
+} from "@/lib/repositories/dayPlanPushTransaction";
+import type { DayChangeReceipt } from "@/lib/trips/dayChangeReceipt";
+import { compareDayPlanItemsByStartTime } from "@/lib/trips/dayPlanItemOrder";
+import { timeToMinutes } from "@/lib/trips/dayPlanPush";
+import { resolveCheckOutTime } from "@/lib/trips/stayTimes";
 import { MAX_DOCUMENTS_PER_ENTRY } from "@/lib/trips/documentUploads";
 
 /**
@@ -33,10 +47,15 @@ export type AccommodationDetail = {
 
 export type AccommodationStatus = "planned" | "booked";
 
+/**
+ * Story 11.4: `receipt` is present exactly when the update ran the walk on the next day (a later resolved
+ * check-out, and a next day exists); `past_midnight` is that walk's refusal, with nothing written.
+ */
 export type AccommodationUpdateResult =
   | { status: "not_found" }
   | { status: "missing" }
-  | { status: "updated"; accommodation: AccommodationDetail };
+  | { status: "past_midnight"; item: { id: string; title: string | null } }
+  | { status: "updated"; accommodation: AccommodationDetail; receipt?: DayChangeReceipt };
 
 export type AccommodationCopyResult =
   | { status: "not_found" }
@@ -353,6 +372,64 @@ export const createAccommodationForTripDay = async (
   });
 };
 
+/**
+ * Story 11.4 (FR42, rule 10). A later check-out pushes the *next* trip day: the smallest `dayIndex` above
+ * the stay's (the inverse of the timeline's nearest-lower rule), from its first timed activity. That
+ * activity may start no earlier than the new check-out plus the stored leg from the stay to it when that
+ * leg is drawn (the activity is first in the day's order), or the check-out alone.
+ *
+ * `null` means no walk: the PATCH has no `checkOutTime`, either resolved check-out is unreadable, the new
+ * one is not later, or there is no next day (the last night). An earlier or unchanged check-out is gated
+ * here, not left to the walk, so a day that already overlaps is never pushed by a save that did not
+ * touch it.
+ */
+const planCheckOutPushInTransaction = async (
+  tx: TransactionClient,
+  params: { tripId: string; checkOutTime: string | null | undefined },
+  existing: { id: string; checkOutTime: string | null; tripDayId: string },
+): Promise<
+  | { status: "planned"; nextDayId: string; planned: PlannedPush }
+  | { status: "past_midnight"; item: { id: string; title: string | null } }
+  | null
+> => {
+  if (params.checkOutTime === undefined) return null;
+  const previous = timeToMinutes(resolveCheckOutTime(existing.checkOutTime));
+  const next = timeToMinutes(resolveCheckOutTime(params.checkOutTime));
+  if (previous === null || next === null || next <= previous) return null;
+
+  const stayDay = await tx.tripDay.findUnique({ where: { id: existing.tripDayId }, select: { dayIndex: true } });
+  if (!stayDay) return null;
+  const nextDay = await tx.tripDay.findFirst({
+    where: { tripId: params.tripId, dayIndex: { gt: stayDay.dayIndex } },
+    orderBy: [{ dayIndex: "asc" }, { date: "asc" }],
+    select: { id: true, dayPlanItems: { select: { id: true, fromTime: true, createdAt: true } } },
+  });
+  if (!nextDay) return null;
+
+  // Untimed rows sort last, so an untimed first row means the day has nothing to push (AC3): no walk,
+  // no receipt.
+  const first = [...nextDay.dayPlanItems].sort(compareDayPlanItemsByStartTime)[0];
+  if (!first?.fromTime) return null;
+
+  // The stay leg counts only when it is drawn: it arrives at the first row of the day's order. A stored
+  // leg to any other activity is an orphan the timeline does not draw.
+  const leg = await tx.travelSegment.findFirst({
+    where: {
+      tripDayId: nextDay.id,
+      fromItemType: "ACCOMMODATION",
+      fromItemId: existing.id,
+      toItemType: "DAY_PLAN_ITEM",
+      toItemId: first.id,
+    },
+    select: { durationMinutes: true },
+  });
+  const legMinutes = leg?.durationMinutes ?? 0;
+
+  const planned = await planPushFromInTransaction(tx, nextDay.id, { kind: "afterCheckOut", minute: next, legMinutes });
+  if ("status" in planned) return planned;
+  return { status: "planned", nextDayId: nextDay.id, planned };
+};
+
 export const updateAccommodationForTripDay = async (
   params: AccommodationMutationParams,
 ): Promise<AccommodationUpdateResult> => {
@@ -360,11 +437,6 @@ export const updateAccommodationForTripDay = async (
   const tripDay = await findTripDayForTripWriter(userId, tripId, tripDayId);
   if (!tripDay) {
     return { status: "not_found" };
-  }
-
-  const existing = await prisma.accommodation.findUnique({ where: { tripDayId } });
-  if (!existing) {
-    return { status: "missing" };
   }
 
   const { status, costCents, link } = params;
@@ -406,7 +478,18 @@ export const updateAccommodationForTripDay = async (
     data.checkOutTime = params.checkOutTime;
   }
 
-  const updated = await prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx): Promise<AccommodationUpdateResult> => {
+    // Story 11.4: read inside, because the previous check-out and stamp go into the receipt.
+    const existing = await tx.accommodation.findUnique({ where: { tripDayId } });
+    if (!existing) {
+      return { status: "missing" };
+    }
+
+    // Decided before any write, so a refusal leaves nothing to roll back.
+    const push = await planCheckOutPushInTransaction(tx, { tripId, checkOutTime: params.checkOutTime }, existing);
+    if (push?.status === "past_midnight") return push;
+
+    const now = new Date();
     const accommodation = await tx.accommodation.update({
       where: { id: existing.id },
       data,
@@ -433,13 +516,33 @@ export const updateAccommodationForTripDay = async (
       select: { amountCents: true, dueDate: true, amountOriginal: true },
     });
 
-    return toDetail({
+    const detail = toDetail({
       ...accommodation,
       payments: toPaymentDetails(payments),
     });
-  });
+    if (!push) {
+      return { status: "updated", accommodation: detail };
+    }
 
-  return { status: "updated", accommodation: updated };
+    const { nextDayId, planned } = push;
+    const movedItems = await applyPushMovesInTransaction(tx, nextDayId, planned, now);
+    const checkInWarning = await findCheckInWarningInTransaction(tx, nextDayId, planned);
+    // A check-out never changes an order, so 11.1's sweep has nothing to remove (rule 12).
+    const receipt = buildReceipt(
+      nextDayId,
+      {
+        kind: "stayCheckOutChanged",
+        accommodationId: existing.id,
+        updatedAt: accommodation.updatedAt,
+        previousUpdatedAt: existing.updatedAt,
+        previousCheckOutTime: existing.checkOutTime,
+      },
+      [],
+      movedItems,
+      { checkInWarning },
+    );
+    return { status: "updated", accommodation: detail, receipt };
+  });
 };
 
 export const copyAccommodationFromPreviousNight = async (params: {
@@ -542,7 +645,7 @@ export const copyAccommodationFromPreviousNight = async (params: {
  * merely-non-adjacent case, which keeps its row and surfaces it (see `TripDayView`'s orphaned legs).
  *
  * **The sweep is scoped to the trip's days, not to this one.** An activity can only be an endpoint on
- * its own day; a stay cannot. `buildSegmentTimeline` (`travelSegmentRepo.ts`) offers day N's
+ * its own day; a stay cannot. `buildSegmentTimelineInTransaction` (`travelSegmentRepo.ts`) offers day N's
  * accommodation as the leading endpoint of day N+1, so `[tripDayId]` alone would leave the next day's
  * `stay → firstActivity` row behind — the same defect, one day over — and older rows can sit on any
  * later day. Endpoint ids are cuids, so a trip-wide `in` cannot reach another trip's rows.
