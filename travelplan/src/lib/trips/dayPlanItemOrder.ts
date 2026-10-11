@@ -27,9 +27,9 @@
  *
  * Scope, stated so it is not misread as an invariant, and corrected in review: `tripRepo.ts` held a
  * third byte-identical copy — the one that ordered both the day payload and the print payload — and it
- * imports this module now, so the print payload is covered by the same rule through it. Exactly **one**
- * private copy survives, `dayPlanItemRepo.ts`'s (`DW-216`), and retiring it is deliberately not this
- * story.
+ * imports this module now, so the print payload is covered by the same rule through it. The last
+ * private copy, `dayPlanItemRepo.ts`'s (`DW-216`), was retired by Story 11.2, whose push walk orders the
+ * day with this function too. There are no copies left.
  */
 
 export type DayPlanItemOrderable = {

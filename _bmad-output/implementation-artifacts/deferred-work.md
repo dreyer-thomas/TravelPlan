@@ -1378,7 +1378,8 @@ location: `travelplan/src/lib/repositories/dayPlanItemRepo.ts`, `travelplan/src/
 severity: low
 summary: `DayPlanItem` has no `sortOrder` column; its order is `fromTime` → `createdAt` → `id`, expressed three times in three files. Story 6.23's AC7 (where a moved activity lands) rests entirely on those three staying identical, and the story's tests reach the ordering only through `listDayPlanItemsForTripDay` — the order the user actually sees comes from `getTripWithDaysForUser`.
 evidence: All three copies read during this review. Pre-existing duplication; recorded now because Story 6.23 made a *correctness claim* depend on it rather than just a display detail. The fix is one exported comparator plus a test that pins the rendering path's ordering, not just the repository's.
-status: open
+status: done 2026-10-11
+resolution: resolved by Story 11.2 (`11-2-the-rest-of-the-day-moves-back-with-it`). Story 8.5 had already extracted the canonical `compareDayPlanItemsByStartTime` into `src/lib/trips/dayPlanItemOrder.ts` and pointed `tripRepo.ts` and `travelSegmentRepo.ts` at it, leaving `dayPlanItemRepo.ts`'s private copy as the last one. Story 11.2 deleted it: `listDayPlanItemsForTripDay` and the new push walk (`src/lib/trips/dayPlanPush.ts`) both sort with the canonical comparator, and `test/dayPlanChangePush.test.ts` pins the list's order. No copies remain.
 
 ### DW-217: Every `formatCost` copy hardcodes EUR, and no trip carries a currency
 
@@ -1807,6 +1808,7 @@ decision: 2026-08-08 Read the row and emit RFC 5987 filename* — Look the store
 origin: Story 9.1 review (`spec-9-1-documents-on-stays-and-activities`), 2026-08-06
 location: `travelplan/src/lib/trips/uploadPaths.ts` (the entry media directories), `accommodationRepo.ts` / `dayPlanItemRepo.ts` (the entity deletes), `prisma/schema.prisma` (`ON DELETE CASCADE` on all four media tables)
 reason: The row cascade is declared and tested, but no delete path touches the filesystem: the only unlink for a document is the documents route's own `DELETE`, and the only unlink for a gallery image is the images route's. Delete the stay instead of the document and the file stays under `…/accommodations/<stay>/documents/` for good — invisible to export (no row references it), invisible to the serve route's authorisation model (no row, no read path), and invisible to any cleanup pass, because there is none. Pre-existing for photos since the galleries shipped; documents make it heavier rather than new, at up to 10 MB per file. `uploadPaths.ts`'s own docblock advertises the `documents/` subdirectory as what makes "a document … removed, counted or archived without first consulting the database" possible — the separation is in place and the walker that would use it was never written. `DW-181`'s production audit already found six image rows pointing at absent files; this is the same accounting problem in the other direction.
+  **Story 11.1, 2026-10-10: the activity half is now load-bearing.** Undoing an activity delete (`POST /api/trips/{id}/day-plan-changes/undo`, `dayPlanChangeRepo.ts`) recreates the deleted `DayPlanItemImage` and `DayPlanItemDocument` rows with their original URLs, and those rows only work because the item delete never unlinked the files. So the fix this entry asks for must not simply add an unlink to `deleteDayPlanItemForTripDay`: either the unlink waits until the undo window has closed (it is client-side and unbounded, so a server-side grace period or a walker run against rows rather than against the delete), or undo of a delete must refuse when a restored row's file is gone. The same will hold for any future undo of a stay delete.
 status: open
 
 ### DW-188: The gallery and document creates read the count and the last `sortOrder` outside a transaction, so two concurrent uploads collide on the unique index
@@ -3528,4 +3530,80 @@ location: `travelplan/src/i18n/en.ts` and `de.ts` (`trips.money.originalCaption`
 severity: low
 summary: Story 10.2's AC9 was verified in Chrome at 390px in German and recorded in a six-row measurement table, against the caption `{amount} at {rate}`. The code review then reworded it to `{amount} at {rate}/EUR` so the receipt names the rate's denominator, which adds roughly 24px to every annotation — while the table's longest entry measured at 290px, exactly the `tl-card` content width at that viewport. The recorded pass therefore no longer covers the string that ships, and nothing has confirmed the receipt still renders on one line.
 evidence: Verified at 2026-09-20 during the code review of Story 10.2. jsdom lays nothing out, so none of the 2602 passing tests speaks to this — Task 8 made AC9 a browser step for exactly that reason, and `tripDayViewLayout.test.tsx:7727` explains why an assertion here would lie. Closing this means re-running the Task 8 pass: a real browser at 390px in German, on a day carrying a foreign stay and a long-titled foreign activity, checking that the cost stays on one line, the time pill is neither displaced nor shrunk, the card title is not squeezed and the page has no horizontal overflow; the cost overview's months tab needs the same check, since its entry grid collapses to one column at `xs`. If it does wrap, the fix is the annotation's wrapping, not the cost's. Deferred rather than done because Tommy accepted the risk when closing the review, in preference to spending the cycle re-measuring.
+status: open
+
+## Deferred from: code review of 11-1-travel-legs-that-leave-with-their-place-in-the-day (2026-10-10)
+
+### DW-370: Undo staleness is keyed on millisecond `updatedAt` — same-millisecond writes are indistinguishable
+
+source_spec: `_bmad-output/implementation-artifacts/11-1-travel-legs-that-leave-with-their-place-in-the-day.md`
+origin: code review of 11-1-travel-legs-that-leave-with-their-place-in-the-day, 2026-10-10
+location: `travelplan/src/lib/repositories/dayPlanChangeRepo.ts:149`, `:167`, `:199`
+severity: low
+summary: The undo's staleness check (and the conditional `updateMany` restore) compares the item's `updatedAt` by epoch milliseconds, as the story's Dev Notes prescribe. A later edit that lands in the same millisecond as the change it follows leaves the same stamp, so the undo cannot see it and overwrites it — breaking AC6's "an undo never overwrites a later edit" in that window. The test suite needs a 5 ms `tick()` before its later PATCH precisely because of this.
+evidence: Read at 2026-10-10 during the code review of Story 11.1. Requires two writers on one item within 1 ms, so practically unreachable for this app's users; closing it needs a monotonic version column (a schema change, which the story ruled out). Revisit if Story 11.2's `movedItems` makes multi-row receipts common.
+status: open
+
+## Deferred from: code review of 11-2-the-rest-of-the-day-moves-back-with-it (2026-10-11)
+
+### DW-371: The push walk stops at an unreadable start and treats an overnight pair as zero-length
+
+source_spec: `_bmad-output/implementation-artifacts/11-2-the-rest-of-the-day-moves-back-with-it.md`
+origin: code review of 11-2-the-rest-of-the-day-moves-back-with-it, 2026-10-11
+location: `travelplan/src/lib/trips/dayPlanPush.ts:92-97`, `:150`
+severity: low
+summary: `planDayPush` breaks the walk when either side's time cannot be parsed, so later overlapping rows are not pushed. An overnight pair such as 22:00–01:00 counts as ending at its start, so the next row is pushed only onto that start and overlaps it. Neither case is named in AC1/AC2.
+evidence: Read at 2026-10-11 during the code review of Story 11.2. Both shapes exist only in imported or pre-validation rows: `dayPlanItemMutationSchema` requires a readable `fromTime < toTime` on every API write. Stopping is the conservative choice. Closing this needs a ruling on how legacy shapes are walked (refuse, clamp to 23:59, or leave as is).
+status: open
+
+### DW-372: Undo of a push can restore a moved activity on top of one created after it
+
+source_spec: `_bmad-output/implementation-artifacts/11-2-the-rest-of-the-day-moves-back-with-it.md`
+origin: code review of 11-2-the-rest-of-the-day-moves-back-with-it, 2026-10-11
+location: `travelplan/src/lib/repositories/dayPlanChangeRepo.ts` (phase 1 staleness, phase 2 restore)
+severity: low
+summary: Staleness covers only the rows the receipt lists. If B was pushed 10:00→11:00 and the user then creates C at 10:00–10:30, which fits without touching B, undo puts B back at 10:00–11:00. B overlaps C, and on equal starts B's older `createdAt` sorts it first. The phase-3 post-condition only protects drawn legs.
+evidence: Read at 2026-10-11 during the code review of Story 11.2. Overlaps are allowed across the app (AC5, AC14), and undo is offered only while the notice is still showing, so the window is small. A fix would need undo to re-run the walk or to refuse when the day gained rows, and both are design decisions.
+status: open
+
+### DW-373: A lost write race returns 500 rather than `409 day_plan_changed`
+
+source_spec: `_bmad-output/implementation-artifacts/11-2-the-rest-of-the-day-moves-back-with-it.md`
+origin: code review of 11-2-the-rest-of-the-day-moves-back-with-it, 2026-10-11
+location: `travelplan/src/app/api/trips/[id]/day-plan-items/route.ts` (`withPushConflict`)
+severity: low
+summary: Only `DayPlanChangedError`, raised when a conditional move write hits count 0, maps to 409. A concurrent writer on SQLite would more likely surface as a Prisma transaction error (P2034/P2028) or SQLITE_BUSY, which goes to the generic 500. The conflict test simulates the race inside one transaction.
+evidence: Read at 2026-10-11 during the code review of Story 11.2. The app runs single-process on synchronous better-sqlite3 (see `src/app/api/auth/register/route.ts`), so interactive transactions are serialised and the race is not reachable today. Revisit if the driver or deployment changes.
+status: open
+
+## Deferred from: code review of 11-3-one-place-earlier-one-place-later (2026-10-11)
+
+### DW-374: A late write response can overwrite the receipt of a newer write
+
+source_spec: `_bmad-output/implementation-artifacts/11-3-one-place-earlier-one-place-later.md`
+origin: code review of 11-3-one-place-earlier-one-place-later, 2026-10-11
+location: `travelplan/src/components/features/trips/TripDayView.tsx:1484` (`handleReorderPlan`), and the other write handlers
+severity: low
+summary: `reorderInFlightRef` blocks only a second reorder. While one is in flight, the edit dialog, delete and leg saves still work. If the reorder response lands after one of those, `takeDayChangeReceipt` replaces the newer receipt with the reorder's, and two `loadDay` calls race, so the older response can win.
+evidence: Read at 2026-10-11 during the code review of Story 11.3. Reaching it needs a slow network and a second write inside the window. The other write handlers in the view have the same shape, so a fix (a write-generation counter on the receipt and on `loadDay`) belongs to the view, not to this story.
+status: open
+
+### DW-375: A refused write discards the earlier undo receipt
+
+source_spec: `_bmad-output/implementation-artifacts/11-3-one-place-earlier-one-place-later.md`
+origin: code review of 11-3-one-place-earlier-one-place-later, 2026-10-11
+location: `travelplan/src/components/features/trips/TripDayView.tsx:1467`, and every handler that calls `setDayChange(null)` up front
+severity: low
+summary: The handlers clear the earlier receipt before sending (11.1 AC7). When the server refuses (409) or the request fails, nothing was written, yet the earlier change's undo, and any legs it would restore, is gone.
+evidence: Read at 2026-10-11 during the code review of Story 11.3. This is the established contract across all write handlers, and the 11.3 spec repeats it. Changing it means restoring the receipt on every non-ok branch, which is a UX decision for Tommy.
+status: open
+
+### DW-376: The activity menu offers a move the server will always refuse
+
+source_spec: `_bmad-output/implementation-artifacts/11-3-one-place-earlier-one-place-later.md`
+origin: code review of 11-3-one-place-earlier-one-place-later, 2026-10-11
+location: `travelplan/src/components/features/trips/TripDayView.tsx:4238` (`canMoveUp`/`canMoveDown`), `travelplan/src/lib/trips/dayPlanPush.ts` (`planDayReorder`)
+severity: low
+summary: The client offers a move whenever both rows have a `fromTime`. The server also refuses with `not_reorderable` for the predecessor-side tie, an unreadable start, or an overnight `toTime` that would go below 00:00. The user sees "The view has been refreshed" and the same offer again, every time.
+evidence: Read at 2026-10-11 during the code review of Story 11.3. All three shapes need imported data or three rows with the same start in a specific `createdAt` order. A fix would hide the move on the client (duplicating the planner's checks) or use a distinct message for a refusal that won't change.
 status: open

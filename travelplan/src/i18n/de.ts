@@ -598,6 +598,20 @@ const de: Dictionary = {
   "trips.plan.initError": "Plan-Editor konnte nicht initialisiert werden. Bitte aktualisieren.",
   "trips.plan.loadError": "Plan-Elemente konnten nicht geladen werden.",
   "trips.plan.saveError": "Plan-Element konnte nicht gespeichert werden. Bitte erneut versuchen.",
+  // Story 11.2: die beiden Ablehnungen der Schieberegel und der Konflikt, wenn eine andere Änderung
+  // dazwischenkam. „Nach oben“ ist der Menüpunkt aus Story 11.3.
+  "trips.plan.beforePredecessor": "Beginnt vor „{title}“. Eine Zeitänderung ändert die Reihenfolge nicht – nutze „Nach oben“.",
+  "trips.plan.pastMidnight": "„{title}“ würde über Mitternacht hinaus verschoben. Nichts wurde gespeichert.",
+  "trips.plan.dayChangedConflict": "Der Tag wurde gerade geändert. Bitte erneut speichern.",
+  "trips.plan.untitledActivity": "Aktivität ohne Titel",
+  // Story 11.3: das Überlaufmenü einer Aktivität und die Ablehnungen der Umsortierung.
+  "trips.plan.moveUp": "Nach oben",
+  "trips.plan.moveDown": "Nach unten",
+  "trips.plan.itemActionsAria": "Weitere Aktionen für {title}",
+  "trips.plan.itemActionsMenu": "Aktionen für den Planpunkt",
+  "trips.plan.reorderStale": "Der Tag wurde gerade geändert – die Reihenfolge wurde nicht geändert.",
+  "trips.plan.reorderUnavailable": "Diese Aktivität lässt sich hier nicht verschieben. Die Ansicht wurde aktualisiert.",
+  "trips.plan.reorderError": "Reihenfolge konnte nicht geändert werden – bitte erneut versuchen.",
   "trips.plan.deleteError": "Plan-Element konnte nicht gelöscht werden. Bitte erneut versuchen.",
   "trips.plan.editItemMissing": "Zu bearbeitender Planpunkt fehlt.",
   // Story 6.23 — siehe en.ts. `trips.dayTransfer.*` bleibt der Ganztagestransfer.
@@ -620,6 +634,24 @@ const de: Dictionary = {
   "trips.plan.moveSuccess": "Aktivität auf {day} verschoben.",
   "trips.plan.moveSuccessWithSegment": "Aktivität auf {day} verschoben. 1 Reiseabschnitt entfernt.",
   "trips.plan.moveSuccessWithSegments": "Aktivität auf {day} verschoben. {count} Reiseabschnitte entfernt.",
+  // Story 11.1: die `action-notice` nach einer Änderung mit Nebenwirkungen. „Fahrt“ wie in der
+  // Gantt-Legende, wie DESIGN.md und der Änderungsvorschlag es festlegen; die älteren Schlüssel oben
+  // sagen „Reiseabschnitt“ und bleiben unverändert. Eigener Schlüssel für den Singular, weil
+  // `formatMessage` keine Pluralregeln kennt („1 Fahrten entfernt“ wäre ein sichtbarer Fehler).
+  // Story 11.2: verschobene Aktivitäten stehen vor den Fahrten. Eigener Singular-Schlüssel aus demselben
+  // Grund wie bei `legsRemovedOne` („1 Aktivitäten verschoben“ wäre ein sichtbarer Fehler).
+  // Story 11.3: eine Umsortierung beginnt die Zusammenfassung damit.
+  "trips.dayChange.reordered": "Reihenfolge geändert",
+  "trips.dayChange.itemsMovedOne": "1 Aktivität verschoben",
+  "trips.dayChange.itemsMoved": "{count} Aktivitäten verschoben",
+  "trips.dayChange.checkInWarning": "Die Ankunft in der Unterkunft liegt nach dem Check-in um {time}.",
+  "trips.dayChange.legsRemovedOne": "1 Fahrt entfernt",
+  "trips.dayChange.legsRemoved": "{count} Fahrten entfernt",
+  "trips.dayChange.undo": "Rückgängig",
+  "trips.dayChange.dismiss": "Hinweis schließen",
+  "trips.dayChange.undoStale": "Der Tag wurde seitdem geändert – die Änderung lässt sich nicht mehr rückgängig machen.",
+  "trips.dayChange.undoError": "Rückgängig fehlgeschlagen – bitte erneut versuchen.",
+  "trips.dayChange.undoUnavailable": "Diese Änderung lässt sich nicht mehr rückgängig machen.",
   "trips.payments.title": "Zahlungsplan",
   "trips.payments.payAllNow": "Alles sofort zahlen",
   "trips.payments.split": "In mehrere Zahlungen aufteilen",

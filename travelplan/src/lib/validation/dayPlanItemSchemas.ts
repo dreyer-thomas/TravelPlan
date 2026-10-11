@@ -166,6 +166,15 @@ export const dayPlanItemDeleteSchema = z.object({
 
 export type DayPlanItemDeleteInput = z.infer<typeof dayPlanItemDeleteSchema>;
 
+/** Story 11.3. *Nach oben* / *Nach unten*; the server finds the neighbour itself. */
+export const dayPlanItemReorderSchema = z.object({
+  tripDayId: z.string().trim().min(1, "Trip day is required"),
+  itemId: z.string().trim().min(1, "Day plan item is required"),
+  direction: z.enum(["up", "down"]),
+});
+
+export type DayPlanItemReorderInput = z.infer<typeof dayPlanItemReorderSchema>;
+
 /**
  * Story 6.23. Deliberately its own schema rather than a third `operation` on
  * `dayActivityTransferSchema` below: that schema's two operations are whole-day and its "move"

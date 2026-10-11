@@ -16,6 +16,9 @@ import {
   dayPlanItemUpdateSchema,
 } from "@/lib/validation/dayPlanItemSchemas";
 import { requireSession } from "@/lib/auth/sessionGuard";
+import { toDayChangeReceiptWire } from "@/lib/trips/dayChangeReceipt";
+import { signDayChangeReceipt } from "@/lib/trips/dayChangeReceiptSignature";
+import { dayChangedResponse, pushRefusalResponse, withPushConflict } from "@/lib/http/dayPlanPushResponses";
 
 type RouteContext = {
   params: Promise<{
@@ -151,27 +154,36 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
     location: normalizedLocation,
   };
 
-  const item = bucketListItemId
-    ? await convertBucketListItemToDayPlanItemForTripDay({
-        ...mutationParams,
-        bucketListItemId,
-      })
-    : await createDayPlanItemForTripDay(mutationParams);
+  const attempt = bucketListItemId
+    ? await withPushConflict(() =>
+        convertBucketListItemToDayPlanItemForTripDay({
+          ...mutationParams,
+          bucketListItemId,
+        }),
+      )
+    : await withPushConflict(() => createDayPlanItemForTripDay(mutationParams));
+  if ("conflict" in attempt) {
+    return dayChangedResponse();
+  }
+  const created = attempt.result;
 
-  if (!item) {
+  if (!created) {
     return fail(apiError("not_found", "Trip day not found"), 404);
   }
 
-  if ("status" in item) {
-    if (item.status === "not_found") {
+  if ("status" in created) {
+    if (created.status === "not_found") {
       return fail(apiError("not_found", "Trip day not found"), 404);
     }
-    if (item.status === "bucket_missing") {
+    if (created.status === "bucket_missing") {
       return fail(apiError("not_found", "Bucket list item not found"), 404);
+    }
+    if (created.status === "before_predecessor" || created.status === "past_midnight") {
+      return pushRefusalResponse(created);
     }
   }
 
-  const resolvedItem = "status" in item ? item.item : item;
+  const resolvedItem = created.item;
 
   return ok({
     dayPlanItem: {
@@ -191,6 +203,9 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
       location: resolvedItem.location,
       createdAt: resolvedItem.createdAt.toISOString(),
     },
+    // Story 11.1 AC2: always present, even when the write swept nothing. `dayPlanItem` is unchanged.
+    // Signed for this trip and this user, so the undo route can refuse anything it did not issue.
+    receipt: signDayChangeReceipt(toDayChangeReceiptWire(created.receipt), { tripId, userId }),
   });
 };
 
@@ -234,7 +249,7 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
         }
       : null;
 
-  const updated = await updateDayPlanItemForTripDay({
+  const attempt = await withPushConflict(() => updateDayPlanItemForTripDay({
     userId,
     tripId,
     tripDayId: parsed.data.tripDayId,
@@ -252,7 +267,11 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
     payments: parsed.data.payments ?? null,
     linkUrl: linkUrl && linkUrl.length > 0 ? linkUrl : null,
     location: normalizedLocation,
-  });
+  }));
+  if ("conflict" in attempt) {
+    return dayChangedResponse();
+  }
+  const updated = attempt.result;
 
   if (updated.status === "not_found") {
     return fail(apiError("not_found", "Trip day not found"), 404);
@@ -260,6 +279,10 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
 
   if (updated.status === "missing") {
     return fail(apiError("not_found", "Day plan item not found"), 404);
+  }
+
+  if (updated.status === "before_predecessor" || updated.status === "past_midnight") {
+    return pushRefusalResponse(updated);
   }
 
   return ok({
@@ -280,6 +303,7 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
       location: updated.item.location,
       createdAt: updated.item.createdAt.toISOString(),
     },
+    receipt: signDayChangeReceipt(toDayChangeReceiptWire(updated.receipt), { tripId, userId }),
   });
 };
 
@@ -328,5 +352,10 @@ export const DELETE = async (request: NextRequest, context: RouteContext) => {
   // The ids are load-bearing, not decoration: `handleDeletePlan` removes the item optimistically and
   // never reloads the day, so without them the client would keep the deleted segments in state and
   // "Fahrzeit" would go on counting their minutes for the rest of the session.
-  return ok({ deleted: true, removedTravelSegmentIds: deleted.removedTravelSegmentIds });
+  // Story 11.1: the list now includes the legs the delete un-drew as well as those referencing the item.
+  return ok({
+    deleted: true,
+    removedTravelSegmentIds: deleted.removedTravelSegmentIds,
+    receipt: signDayChangeReceipt(toDayChangeReceiptWire(deleted.receipt), { tripId, userId }),
+  });
 };

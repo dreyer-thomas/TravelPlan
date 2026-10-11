@@ -5,16 +5,42 @@ import {
   findBucketListItemForTripInTransaction,
 } from "@/lib/repositories/bucketListRepo";
 // Story 8.5 (`DW-215`): the segment sweep this file used to own privately now serves both members of
-// `TravelSegmentItemType` and lives beside the rows it deletes. Passing `"DAY_PLAN_ITEM"` at the two
-// call sites below is the whole of what changed here — the behaviour, the return shape and
-// `removedTravelSegmentIds` are the ones Story 6.23 shipped.
-import { removeTravelSegmentsReferencingItemInTransaction } from "@/lib/repositories/travelSegmentRepo";
+// `TravelSegmentItemType` and lives beside the rows it deletes. Story 11.1 made it return full rows (for
+// the change receipt) and added the sweep of legs a write un-draws; the delete's `removedTravelSegmentIds`
+// now lists both sets, while the move's still lists only the referencing legs, as Story 6.23 shipped.
+import {
+  readDrawnSegmentKeysInTransaction,
+  removeTravelSegmentsReferencingItemInTransaction,
+  sweepNoLongerDrawnSegmentsInTransaction,
+  type TransactionClient,
+} from "@/lib/repositories/travelSegmentRepo";
+import type {
+  DayChangeCheckInWarning,
+  DayChangeEdited,
+  DayChangeReceipt,
+  DeletedDayPlanItemSnapshot,
+  MovedItemRow,
+  TravelSegmentRow,
+  TripBucketListItemRow,
+} from "@/lib/trips/dayChangeReceipt";
+import {
+  activityEndMinutes,
+  planDayPush,
+  planDayReorder,
+  timeToMinutes,
+  type PushEdit,
+  type PushItem,
+  type PushMove,
+  type ReorderDirection,
+} from "@/lib/trips/dayPlanPush";
 import { MAX_DOCUMENTS_PER_ENTRY } from "@/lib/trips/documentUploads";
+// Story 11.2 (`DW-216`): the last private copy of the order rule is gone; this file sorts with the
+// canonical comparator, as the push walk does.
+import { compareDayPlanItemsByStartTime } from "@/lib/trips/dayPlanItemOrder";
 
-// The `TransactionClient` alias that stood here went with the segment sweep it existed for: its only
-// reader was that helper's `tx` parameter, and the copy in `travelSegmentRepo.ts` is now the one the
-// shared function is typed against. Every `prisma.$transaction` callback left in this file infers its
-// own client.
+// `TransactionClient` is `travelSegmentRepo.ts`'s alias, exported for Story 11.1: this file's one
+// named transaction helper (`deleteDayPlanItemInTransaction`, shared with undo) is typed against it.
+// Every inline `prisma.$transaction` callback still infers its own client.
 
 /**
  * Story 10.1, mirroring `accommodationRepo.ts`: optional inbound so every existing EUR caller stays
@@ -40,20 +66,56 @@ export type DayPlanItemDetail = {
   createdAt: Date;
 };
 
+/**
+ * Story 11.1: every create, update and delete of an activity also returns its change receipt
+ * (`dayChangeReceipt.ts`) — always, even when nothing was swept, so the route never has to guess.
+ */
+export type DayPlanItemCreateResult = { item: DayPlanItemDetail; receipt: DayChangeReceipt };
+
+/**
+ * Story 11.2. The push rule's two refusals (`dayPlanPush.ts`), decided before the first write of the
+ * transaction, so a refused change writes nothing: no row, no swept leg, no consumed idea.
+ */
+export type DayPlanPushRefusal =
+  | { status: "before_predecessor"; predecessor: { id: string; title: string | null; fromTime: string } }
+  | { status: "past_midnight"; item: { id: string; title: string | null } };
+
+/**
+ * Story 11.2. A pushed activity changed between the transaction's read and its conditional write: another
+ * write slipped in. Thrown inside the transaction so all of it rolls back; the route maps it to
+ * `409 day_plan_changed`.
+ */
+export class DayPlanChangedError extends Error {
+  constructor() {
+    super("A pushed activity changed during the write");
+    this.name = "DayPlanChangedError";
+  }
+}
+
 export type DayPlanItemUpdateResult =
   | { status: "not_found" }
   | { status: "missing" }
-  | { status: "updated"; item: DayPlanItemDetail };
+  | DayPlanPushRefusal
+  | { status: "updated"; item: DayPlanItemDetail; receipt: DayChangeReceipt };
+
+/** Story 11.3. *Nach oben* / *Nach unten*; refusals are decided before the transaction's first write. */
+export type DayPlanItemReorderResult =
+  | { status: "not_found" }
+  | { status: "missing" }
+  | { status: "not_reorderable" }
+  | { status: "past_midnight"; item: { id: string; title: string | null } }
+  | { status: "reordered"; receipt: DayChangeReceipt };
 
 export type DayPlanItemDeleteResult =
   | { status: "not_found" }
   | { status: "missing" }
-  | { status: "deleted"; removedTravelSegmentIds: string[] };
+  | { status: "deleted"; removedTravelSegmentIds: string[]; receipt: DayChangeReceipt };
 
 export type DayPlanItemConversionResult =
   | { status: "not_found" }
   | { status: "bucket_missing" }
-  | { status: "created"; item: DayPlanItemDetail };
+  | DayPlanPushRefusal
+  | { status: "created"; item: DayPlanItemDetail; receipt: DayChangeReceipt };
 
 type DayPlanItemMutationParams = {
   userId: string;
@@ -371,22 +433,201 @@ const toDocumentDetail = (item: {
   updatedAt: item.updatedAt,
 });
 
-const compareDayPlanItemsByStartTime = (
-  left: { fromTime: string | null; createdAt: Date; id: string },
-  right: { fromTime: string | null; createdAt: Date; id: string },
-) => {
-  const leftHasStart = Boolean(left.fromTime);
-  const rightHasStart = Boolean(right.fromTime);
-  if (leftHasStart && rightHasStart) {
-    if (left.fromTime !== right.fromTime) return left.fromTime!.localeCompare(right.fromTime!);
-  } else if (leftHasStart !== rightHasStart) {
-    return leftHasStart ? -1 : 1;
+/** Payments in the order PATCH wrote them (`sortOrder`), which is the order undo writes them back in. */
+const paymentSnapshotOrder = [{ sortOrder: "asc" as const }, { createdAt: "asc" as const }];
+const mediaSnapshotOrder = [{ sortOrder: "asc" as const }, { createdAt: "asc" as const }];
+
+const buildReceipt = (
+  tripDayId: string,
+  edited: DayChangeEdited,
+  removedTravelSegments: TravelSegmentRow[],
+  movedItems: MovedItemRow[],
+  extras: { consumedBucketListItem?: TripBucketListItemRow; checkInWarning?: DayChangeCheckInWarning } = {},
+): DayChangeReceipt => ({
+  version: 2,
+  tripDayId,
+  edited,
+  removedTravelSegments,
+  movedItems,
+  ...(extras.consumedBucketListItem ? { consumedBucketListItem: extras.consumedBucketListItem } : {}),
+  ...(extras.checkInWarning ? { checkInWarning: extras.checkInWarning } : {}),
+});
+
+/**
+ * Stands in for the id of an activity that does not exist yet, while its create is being planned. No
+ * stored leg can name it, which is exactly right: a new activity has no legs.
+ */
+const NEW_ITEM_ID = "\u0000new";
+
+type PlannedPush = {
+  order: PushItem[];
+  moves: PushMove[];
+  /** The `updatedAt` each row had when the plan was read: the condition its move is written under. */
+  readUpdatedAt: Map<string, Date>;
+};
+
+/**
+ * The day's activities (with the `updatedAt` each move is written under) and its activity-to-activity
+ * legs, read through `tx`: the walk's whole input. Shared by the push (Story 11.2) and the reorder (11.3).
+ */
+const readPushInputInTransaction = (tx: TransactionClient, tripDayId: string) =>
+  Promise.all([
+    tx.dayPlanItem.findMany({
+      where: { tripDayId },
+      select: { id: true, title: true, fromTime: true, toTime: true, createdAt: true, updatedAt: true },
+    }),
+    tx.travelSegment.findMany({
+      where: { tripDayId, fromItemType: "DAY_PLAN_ITEM", toItemType: "DAY_PLAN_ITEM" },
+      select: { fromItemId: true, toItemId: true, durationMinutes: true },
+    }),
+  ]);
+
+/**
+ * Story 11.2 AC11. Reads the day's activities and its activity-to-activity legs through `tx` and plans
+ * the push. Called before the transaction's first write, so a refusal leaves nothing to roll back.
+ */
+const planPushInTransaction = async (
+  tx: TransactionClient,
+  tripDayId: string,
+  edit: PushEdit,
+): Promise<PlannedPush | DayPlanPushRefusal> => {
+  const [items, legs] = await readPushInputInTransaction(tx, tripDayId);
+
+  const plan = planDayPush({ items, legs, edit });
+  if (plan.status !== "ok") return plan;
+  return {
+    order: plan.order,
+    moves: plan.moves,
+    readUpdatedAt: new Map(items.map((item) => [item.id, item.updatedAt])),
+  };
+};
+
+/**
+ * Writes each move conditionally on the `updatedAt` the plan read, all stamped with the transaction's
+ * one `now`. A miss means another write got in between: throw, and the whole change rolls back.
+ */
+const applyPushMovesInTransaction = async (
+  tx: TransactionClient,
+  tripDayId: string,
+  planned: PlannedPush,
+  now: Date,
+): Promise<MovedItemRow[]> => {
+  const movedItems: MovedItemRow[] = [];
+  for (const move of planned.moves) {
+    const previousUpdatedAt = planned.readUpdatedAt.get(move.itemId);
+    if (!previousUpdatedAt) throw new DayPlanChangedError();
+    const written = await tx.dayPlanItem.updateMany({
+      where: { id: move.itemId, tripDayId, updatedAt: previousUpdatedAt },
+      data: { fromTime: move.fromTime, toTime: move.toTime, updatedAt: now },
+    });
+    if (written.count !== 1) throw new DayPlanChangedError();
+    movedItems.push({
+      itemId: move.itemId,
+      previousFromTime: move.previousFromTime,
+      previousToTime: move.previousToTime,
+      previousUpdatedAt,
+      updatedAt: now,
+    });
+  }
+  return movedItems;
+};
+
+/**
+ * Story 11.2 AC9. Only after a change that moved something, and only against an explicit check-in: the
+ * 16:00 default lives in the client and never warns. The last timed activity's end, plus the stored leg
+ * from it to the night's stay when that leg is drawn (the activity is the day's last, with no untimed
+ * one after it), compared in plain minutes; the sum may pass midnight and is never formatted.
+ */
+const findCheckInWarningInTransaction = async (
+  tx: TransactionClient,
+  tripDayId: string,
+  planned: PlannedPush,
+): Promise<DayChangeCheckInWarning | undefined> => {
+  if (planned.moves.length === 0) return undefined;
+
+  const day = await tx.tripDay.findUnique({
+    where: { id: tripDayId },
+    select: { accommodation: { select: { id: true, checkInTime: true } } },
+  });
+  const stay = day?.accommodation;
+  const checkInTime = stay?.checkInTime?.trim();
+  if (!stay || !checkInTime) return undefined;
+  const checkInMinutes = timeToMinutes(checkInTime);
+  if (checkInMinutes === null) return undefined;
+
+  const timed = planned.order.filter((item) => Boolean(item.fromTime));
+  const last = timed.at(-1);
+  if (!last) return undefined;
+  const lastEnd = activityEndMinutes(last);
+  if (lastEnd === null) return undefined;
+
+  let arrival = lastEnd;
+  if (planned.order.at(-1) === last) {
+    const legToStay = await tx.travelSegment.findFirst({
+      where: {
+        tripDayId,
+        fromItemType: "DAY_PLAN_ITEM",
+        fromItemId: last.id,
+        toItemType: "ACCOMMODATION",
+        toItemId: stay.id,
+      },
+      select: { durationMinutes: true },
+    });
+    arrival += legToStay?.durationMinutes ?? 0;
   }
 
-  const leftTime = left.createdAt.getTime();
-  const rightTime = right.createdAt.getTime();
-  if (leftTime !== rightTime) return leftTime - rightTime;
-  return left.id.localeCompare(right.id);
+  return arrival > checkInMinutes ? { accommodationId: stay.id, checkInTime } : undefined;
+};
+
+export type DayPlanItemInTransactionDeleteResult =
+  | { status: "missing" }
+  | { status: "deleted"; previous: DeletedDayPlanItemSnapshot; removedTravelSegments: TravelSegmentRow[] };
+
+/**
+ * Story 11.1. The body of an activity delete, through `tx`, so the undo of a *create*
+ * (`dayPlanChangeRepo.ts`) deletes through exactly the path `DELETE` does (AC5).
+ *
+ * It snapshots the item with everything its cascade takes — payments, image rows, document rows — so the
+ * undo of a delete can bring all of them back; the files themselves stay on disk because this delete has
+ * never unlinked them (see the story's *Read this first* §2, and the ledger entry recorded there). Then
+ * it deletes the item, the legs referencing it (Story 6.23), and the legs its absence un-draws (11.1),
+ * and returns the union of the two leg sets once each.
+ *
+ * Like the move below, the existence check *is* the write: `deleteMany` scoped by `[id, tripDayId]`.
+ */
+export const deleteDayPlanItemInTransaction = async (
+  tx: TransactionClient,
+  params: { tripId: string; tripDayId: string; itemId: string },
+): Promise<DayPlanItemInTransactionDeleteResult> => {
+  const { tripId, tripDayId, itemId } = params;
+  const previous = await tx.dayPlanItem.findFirst({
+    where: { id: itemId, tripDayId },
+    include: {
+      payments: { orderBy: paymentSnapshotOrder },
+      images: { orderBy: mediaSnapshotOrder },
+      documents: { orderBy: mediaSnapshotOrder },
+    },
+  });
+  if (!previous) {
+    return { status: "missing" };
+  }
+
+  const drawnBefore = await readDrawnSegmentKeysInTransaction(tx, tripId, tripDayId);
+  const deleted = await tx.dayPlanItem.deleteMany({ where: { id: itemId, tripDayId } });
+  if (deleted.count !== 1) {
+    return { status: "missing" };
+  }
+  const referencing = await removeTravelSegmentsReferencingItemInTransaction(
+    tx,
+    [tripDayId],
+    "DAY_PLAN_ITEM",
+    itemId,
+  );
+  const swept = await sweepNoLongerDrawnSegmentsInTransaction(tx, { tripId, tripDayId, drawnBefore });
+
+  const removedIds = new Set(referencing.map((segment) => segment.id));
+  const removedTravelSegments = [...referencing, ...swept.filter((segment) => !removedIds.has(segment.id))];
+  return { status: "deleted", previous, removedTravelSegments };
 };
 
 export const listDayPlanItemsForTripDay = async (params: {
@@ -414,9 +655,10 @@ export const listDayPlanItemsForTripDay = async (params: {
   return items.map((item) => toDetail({ ...item, payments: toPaymentDetails(item.payments) })).sort(compareDayPlanItemsByStartTime);
 };
 
+/** `null` is "not your day", as before; a refusal carries a `status`, a success does not. */
 export const createDayPlanItemForTripDay = async (
   params: DayPlanItemMutationParams,
-): Promise<DayPlanItemDetail | null> => {
+): Promise<DayPlanItemCreateResult | DayPlanPushRefusal | null> => {
   const { userId, tripId, tripDayId, contentJson, costCents, linkUrl, location, fromTime, toTime } = params;
   const tripDay = await findTripDayForTripWriter(userId, tripId, tripDayId);
   if (!tripDay) {
@@ -424,6 +666,17 @@ export const createDayPlanItemForTripDay = async (
   }
 
   return prisma.$transaction(async (tx) => {
+    // Story 11.2: the push is planned first, so a refusal returns before anything is written. The new
+    // row's `createdAt` is not known yet; `now` sorts it last among equal starts, where a fresh row sorts.
+    const now = new Date();
+    const planned = await planPushInTransaction(tx, tripDayId, {
+      kind: "insert",
+      item: { id: NEW_ITEM_ID, title: params.title.trim(), fromTime, toTime, createdAt: now },
+    });
+    if ("status" in planned) return planned;
+
+    // Story 11.1: what the day drew before this write, read through `tx` before anything changes.
+    const drawnBefore = await readDrawnSegmentKeysInTransaction(tx, tripId, tripDayId);
     const item = await tx.dayPlanItem.create({
       data: {
         tripDayId,
@@ -458,13 +711,26 @@ export const createDayPlanItemForTripDay = async (
       }
     }
 
+    const movedItems = await applyPushMovesInTransaction(tx, tripDayId, planned, now);
+    const removed = await sweepNoLongerDrawnSegmentsInTransaction(tx, { tripId, tripDayId, drawnBefore });
+    const checkInWarning = await findCheckInWarningInTransaction(tx, tripDayId, planned);
+
     const payments = await tx.costPayment.findMany({
       where: { dayPlanItemId: item.id },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
       select: { amountCents: true, dueDate: true, amountOriginal: true },
     });
 
-    return toDetail({ ...item, payments: toPaymentDetails(payments) });
+    return {
+      item: toDetail({ ...item, payments: toPaymentDetails(payments) }),
+      receipt: buildReceipt(
+        tripDayId,
+        { kind: "created", itemId: item.id, updatedAt: item.updatedAt },
+        removed,
+        movedItems,
+        { checkInWarning },
+      ),
+    };
   });
 };
 
@@ -487,8 +753,20 @@ export const convertBucketListItemToDayPlanItemForTripDay = async (
     });
 
     if (!bucketItem) {
-      return { status: "bucket_missing" };
+      return { status: "bucket_missing" as const };
     }
+
+    // Story 11.2: planned before the create and before the idea is deleted, so a refusal leaves it in place.
+    const now = new Date();
+    const planned = await planPushInTransaction(tx, tripDayId, {
+      kind: "insert",
+      item: { id: NEW_ITEM_ID, title: params.title.trim(), fromTime, toTime, createdAt: now },
+    });
+    if ("status" in planned) return planned;
+
+    // Story 11.1: the idea as it was, so undoing the conversion brings it back rather than destroying it.
+    const consumedBucketListItem = await tx.tripBucketListItem.findUniqueOrThrow({ where: { id: bucketItem.id } });
+    const drawnBefore = await readDrawnSegmentKeysInTransaction(tx, tripId, tripDayId);
 
     const created = await tx.dayPlanItem.create({
       data: {
@@ -534,13 +812,27 @@ export const convertBucketListItemToDayPlanItemForTripDay = async (
       throw new Error("Bucket list item deletion failed");
     }
 
+    const movedItems = await applyPushMovesInTransaction(tx, tripDayId, planned, now);
+    const removed = await sweepNoLongerDrawnSegmentsInTransaction(tx, { tripId, tripDayId, drawnBefore });
+    const checkInWarning = await findCheckInWarningInTransaction(tx, tripDayId, planned);
+
     const payments = await tx.costPayment.findMany({
       where: { dayPlanItemId: created.id },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
       select: { amountCents: true, dueDate: true, amountOriginal: true },
     });
 
-    return { status: "created", item: toDetail({ ...created, payments: toPaymentDetails(payments) }) };
+    return {
+      status: "created" as const,
+      item: toDetail({ ...created, payments: toPaymentDetails(payments) }),
+      receipt: buildReceipt(
+        tripDayId,
+        { kind: "created", itemId: created.id, updatedAt: created.updatedAt },
+        removed,
+        movedItems,
+        { consumedBucketListItem, checkInWarning },
+      ),
+    };
   });
 };
 
@@ -553,18 +845,31 @@ export const updateDayPlanItemForTripDay = async (
     return { status: "not_found" };
   }
 
-  const existing = await prisma.dayPlanItem.findFirst({
-    where: {
-      id: itemId,
+  // Story 11.1: the read moved inside the transaction. It is now the receipt's "previous state", and a
+  // snapshot taken outside would let a concurrent write slip in between it and the write it describes.
+  const outcome = await prisma.$transaction(async (tx) => {
+    const existing = await tx.dayPlanItem.findFirst({
+      where: { id: itemId, tripDayId },
+      include: { payments: { orderBy: paymentSnapshotOrder } },
+    });
+    if (!existing) {
+      return null;
+    }
+
+    // Story 11.2: an already-timed activity is retimed in place (and may be refused for starting before
+    // its predecessor); an untimed one given a time is inserted where it sorts. Planned before any write.
+    const now = new Date();
+    const planned = await planPushInTransaction(
+      tx,
       tripDayId,
-    },
-  });
+      existing.fromTime
+        ? { kind: "retime", itemId: existing.id, fromTime, toTime }
+        : { kind: "insert", item: { id: existing.id, title: title.trim(), fromTime, toTime, createdAt: existing.createdAt } },
+    );
+    if ("status" in planned) return planned;
 
-  if (!existing) {
-    return { status: "missing" };
-  }
+    const drawnBefore = await readDrawnSegmentKeysInTransaction(tx, tripId, tripDayId);
 
-  const updated = await prisma.$transaction(async (tx) => {
     const item = await tx.dayPlanItem.update({
       where: { id: existing.id },
       data: {
@@ -599,16 +904,38 @@ export const updateDayPlanItemForTripDay = async (
       }
     }
 
+    const movedItems = await applyPushMovesInTransaction(tx, tripDayId, planned, now);
+    const removed = await sweepNoLongerDrawnSegmentsInTransaction(tx, { tripId, tripDayId, drawnBefore });
+    const checkInWarning = await findCheckInWarningInTransaction(tx, tripDayId, planned);
+
     const payments = await tx.costPayment.findMany({
       where: { dayPlanItemId: existing.id },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
       select: { amountCents: true, dueDate: true, amountOriginal: true },
     });
 
-    return toDetail({ ...item, payments: toPaymentDetails(payments) });
+    // `item` is the row as the update left it; replacing payments does not touch the item's own
+    // `updatedAt`, so this is the post-write value undo compares against.
+    return {
+      item: toDetail({ ...item, payments: toPaymentDetails(payments) }),
+      receipt: buildReceipt(
+        tripDayId,
+        { kind: "updated", itemId: item.id, updatedAt: item.updatedAt, previous: existing },
+        removed,
+        movedItems,
+        { checkInWarning },
+      ),
+    };
   });
 
-  return { status: "updated", item: updated };
+  if (!outcome) {
+    return { status: "missing" };
+  }
+  if ("status" in outcome) {
+    return outcome;
+  }
+
+  return { status: "updated", item: outcome.item, receipt: outcome.receipt };
 };
 
 export const deleteDayPlanItemForTripDay = async (
@@ -621,30 +948,80 @@ export const deleteDayPlanItemForTripDay = async (
   }
 
   // Story 6.23 AC6: one transaction, so a delete can never leave the day with segments pointing at
-  // an activity that is gone. Like the move below, the existence check *is* the write — `deleteMany`
-  // scoped by `[id, tripDayId]` cannot race a concurrent delete into a P2025 the way a bare
-  // `delete({ where: { id } })` after a separate `findFirst` can. The delete runs before the sweep so
-  // that a "missing" outcome touches nothing; the segments have no FK to the item, so neither order
-  // cascades.
-  const outcome = await prisma.$transaction(async (tx) => {
-    const deleted = await tx.dayPlanItem.deleteMany({ where: { id: itemId, tripDayId } });
-    if (deleted.count !== 1) {
-      return { status: "missing" as const };
-    }
-    const removed = await removeTravelSegmentsReferencingItemInTransaction(
-      tx,
-      [tripDayId],
-      "DAY_PLAN_ITEM",
-      itemId,
-    );
-    return { status: "deleted" as const, removedTravelSegmentIds: removed };
-  });
+  // an activity that is gone. The body is `deleteDayPlanItemInTransaction` (Story 11.1), so the undo of
+  // a create deletes through the same core. The delete runs before the sweeps so that a "missing"
+  // outcome touches nothing; the segments have no FK to the item, so neither order cascades.
+  const outcome = await prisma.$transaction((tx) => deleteDayPlanItemInTransaction(tx, { tripId, tripDayId, itemId }));
 
   if (outcome.status === "missing") {
     return { status: "missing" };
   }
 
-  return { status: "deleted", removedTravelSegmentIds: outcome.removedTravelSegmentIds };
+  // `removedTravelSegmentIds` lists *every* removed leg, referencing or swept, so the client's local
+  // filter after an optimistic delete stays correct (AC2).
+  return {
+    status: "deleted",
+    removedTravelSegmentIds: outcome.removedTravelSegments.map((segment) => segment.id),
+    // Story 11.2 AC3: a delete never pulls anything forward, so nothing moved.
+    receipt: buildReceipt(tripDayId, { kind: "deleted", previous: outcome.previous }, outcome.removedTravelSegments, []),
+  };
+};
+
+/**
+ * Story 11.3 (FR43). *Nach oben* / *Nach unten*: the activity and its timed neighbour in `direction`
+ * trade places (`planDayReorder`), and the 11.2 walk pushes what follows. Not called "swap": that name
+ * belongs to `swapDayPlanItemsBetweenTripDays`, the whole-day transfer.
+ *
+ * The neighbour is decided here, inside the transaction, from the day as stored; the client's view only
+ * decides which controls it offers. Everything is read and planned before the first write, so a refusal
+ * writes nothing. The writes are the push's own: each time conditional on the `updatedAt` the plan read
+ * (`DayPlanChangedError` rolls the whole change back), then 11.1's sweep of every leg the new order no
+ * longer draws. Nothing creates or reverses a leg.
+ */
+export const reorderDayPlanItemForTripDay = async (params: {
+  userId: string;
+  tripId: string;
+  tripDayId: string;
+  itemId: string;
+  direction: ReorderDirection;
+}): Promise<DayPlanItemReorderResult> => {
+  const { userId, tripId, tripDayId, itemId, direction } = params;
+  const tripDay = await findTripDayForTripWriter(userId, tripId, tripDayId);
+  if (!tripDay) {
+    return { status: "not_found" };
+  }
+
+  return prisma.$transaction(async (tx): Promise<DayPlanItemReorderResult> => {
+    const [items, legs] = await readPushInputInTransaction(tx, tripDayId);
+    if (!items.some((item) => item.id === itemId)) {
+      return { status: "missing" };
+    }
+
+    const plan = planDayReorder({ items, legs, itemId, direction });
+    if (plan.status !== "ok") return plan;
+    const planned: PlannedPush = {
+      order: plan.order,
+      moves: plan.moves,
+      readUpdatedAt: new Map(items.map((item) => [item.id, item.updatedAt])),
+    };
+
+    const now = new Date();
+    const drawnBefore = await readDrawnSegmentKeysInTransaction(tx, tripId, tripDayId);
+    const movedItems = await applyPushMovesInTransaction(tx, tripDayId, planned, now);
+    const removed = await sweepNoLongerDrawnSegmentsInTransaction(tx, { tripId, tripDayId, drawnBefore });
+    const checkInWarning = await findCheckInWarningInTransaction(tx, tripDayId, planned);
+
+    return {
+      status: "reordered",
+      receipt: buildReceipt(
+        tripDayId,
+        { kind: "reordered", itemId: plan.itemId, neighbourId: plan.neighbourId },
+        removed,
+        movedItems,
+        { checkInWarning },
+      ),
+    };
+  });
 };
 
 /**
@@ -702,7 +1079,7 @@ export const moveDayPlanItemToTripDay = async (
       "DAY_PLAN_ITEM",
       itemId,
     );
-    return { status: "moved" as const, removedTravelSegmentIds: removed };
+    return { status: "moved" as const, removedTravelSegmentIds: removed.map((segment) => segment.id) };
   });
 
   if (outcome.status === "missing") {

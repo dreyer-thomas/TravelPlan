@@ -1638,4 +1638,123 @@ describe("/api/trips/[id]/day-plan-items", () => {
       expect(payload.error?.code).toBe("not_found");
     });
   });
+
+  /**
+   * Story 11.1 AC2. All three writes answer with a `receipt` beside their existing keys — always, even
+   * when nothing was swept — and DELETE's `removedTravelSegmentIds` lists every removed leg.
+   */
+  it("returns a change receipt on POST, PATCH and DELETE beside the existing keys", async () => {
+    const user = await prisma.user.create({
+      data: { email: "plan-route-receipt@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const token = await createSessionJwt({ sub: user.id, role: user.role });
+    const trip = await prisma.trip.create({
+      data: {
+        userId: user.id,
+        name: "Receipts",
+        startDate: new Date("2026-12-01T00:00:00.000Z"),
+        endDate: new Date("2026-12-01T00:00:00.000Z"),
+      },
+    });
+    const day = await prisma.tripDay.create({
+      data: { tripId: trip.id, date: new Date("2026-12-01T00:00:00.000Z"), dayIndex: 1 },
+    });
+    const url = `http://localhost/api/trips/${trip.id}/day-plan-items`;
+
+    const createdResponse = await POST(
+      buildRequest(url, {
+        method: "POST",
+        session: token,
+        csrf: "csrf-token",
+        body: JSON.stringify({
+          tripDayId: day.id,
+          title: "Museum",
+          fromTime: "09:00",
+          toTime: "10:00",
+          contentJson: sampleDoc("Museum"),
+        }),
+      }),
+      routeContext(trip.id),
+    );
+    const created = (await createdResponse.json()) as ApiEnvelope<{
+      dayPlanItem: { id: string };
+      receipt: { tripDayId: string; edited: { kind: string }; removedTravelSegments: unknown[] };
+    }>;
+    expect(createdResponse.status).toBe(200);
+    expect(created.data?.dayPlanItem.id).toBeTruthy();
+    expect(created.data?.receipt).toMatchObject({ version: 2, tripDayId: day.id, edited: { kind: "created" }, movedItems: [] });
+    expect(created.data?.receipt.removedTravelSegments).toEqual([]);
+    const itemId = created.data!.dayPlanItem.id;
+
+    const later = await prisma.dayPlanItem.create({
+      data: { tripDayId: day.id, title: "Park", fromTime: "15:00", toTime: "16:00", contentJson: sampleDoc("Park") },
+    });
+    const leg = await prisma.travelSegment.create({
+      data: {
+        tripDayId: day.id,
+        fromItemType: "DAY_PLAN_ITEM",
+        fromItemId: itemId,
+        toItemType: "DAY_PLAN_ITEM",
+        toItemId: later.id,
+        transportType: "CAR",
+        durationMinutes: 20,
+      },
+    });
+
+    const patchedResponse = await PATCH(
+      buildRequest(url, {
+        method: "PATCH",
+        session: token,
+        csrf: "csrf-token",
+        body: JSON.stringify({
+          tripDayId: day.id,
+          itemId,
+          title: "Museum",
+          fromTime: "17:00",
+          toTime: "18:00",
+          contentJson: sampleDoc("Museum"),
+        }),
+      }),
+      routeContext(trip.id),
+    );
+    const patched = (await patchedResponse.json()) as ApiEnvelope<{
+      dayPlanItem: { id: string; fromTime: string };
+      receipt: {
+        edited: { kind: string };
+        removedTravelSegments: { id: string }[];
+        movedItems: { itemId: string; previousFromTime: string; previousUpdatedAt: string }[];
+      };
+    }>;
+    expect(patchedResponse.status).toBe(200);
+    expect(patched.data?.dayPlanItem.fromTime).toBe("17:00");
+    expect(patched.data?.receipt.edited.kind).toBe("updated");
+    // Story 11.2 supersedes 11.1's form of this step, where the retime past Park reordered the day and
+    // swept the leg. A retime now keeps its place: Museum stays first, Park is pushed to 18:20 (Museum's
+    // end plus the 20-minute leg), and the leg, still drawn, stays.
+    expect(patched.data?.receipt.removedTravelSegments).toEqual([]);
+    expect(patched.data?.receipt.movedItems.map((row) => [row.itemId, row.previousFromTime])).toEqual([[later.id, "15:00"]]);
+    // The wire form: dates as ISO strings.
+    expect(patched.data?.receipt.movedItems[0].previousUpdatedAt).toBe(later.updatedAt.toISOString());
+    expect((await prisma.dayPlanItem.findUniqueOrThrow({ where: { id: later.id } })).fromTime).toBe("18:20");
+
+    const deletedResponse = await DELETE(
+      buildRequest(url, {
+        method: "DELETE",
+        session: token,
+        csrf: "csrf-token",
+        body: JSON.stringify({ tripDayId: day.id, itemId }),
+      }),
+      routeContext(trip.id),
+    );
+    const deleted = (await deletedResponse.json()) as ApiEnvelope<{
+      deleted: boolean;
+      removedTravelSegmentIds: string[];
+      receipt: { edited: { kind: string } };
+    }>;
+    expect(deletedResponse.status).toBe(200);
+    expect(deleted.data?.deleted).toBe(true);
+    // The leg the retime used to sweep is still there, so deleting its start removes it now.
+    expect(deleted.data?.removedTravelSegmentIds).toEqual([leg.id]);
+    expect(deleted.data?.receipt.edited.kind).toBe("deleted");
+  });
 });

@@ -658,6 +658,19 @@ const en: Dictionary = {
   "trips.plan.initError": "Unable to initialize plan editor. Please refresh.",
   "trips.plan.loadError": "Unable to load plan items.",
   "trips.plan.saveError": "Plan item update failed. Please try again.",
+  // Story 11.2. "Move up" must match Story 11.3's menu item when it ships.
+  "trips.plan.beforePredecessor": "Starts before \"{title}\". A time change keeps the order – use \"Move up\".",
+  "trips.plan.pastMidnight": "\"{title}\" would be pushed past midnight. Nothing was saved.",
+  "trips.plan.dayChangedConflict": "The day was just changed. Please save again.",
+  "trips.plan.untitledActivity": "Untitled activity",
+  // Story 11.3: an activity's overflow menu and the reorder refusals.
+  "trips.plan.moveUp": "Move up",
+  "trips.plan.moveDown": "Move down",
+  "trips.plan.itemActionsAria": "More actions for {title}",
+  "trips.plan.itemActionsMenu": "Plan item actions",
+  "trips.plan.reorderStale": "The day was just changed – the order was not changed.",
+  "trips.plan.reorderUnavailable": "This activity cannot be moved here. The view has been refreshed.",
+  "trips.plan.reorderError": "Could not change the order – please try again.",
   "trips.plan.deleteError": "Plan item removal failed. Please try again.",
   "trips.plan.editItemMissing": "Missing plan item to edit.",
   // Story 6.23 — moving one activity to another day, from the activity dialog's footer. Distinct
@@ -690,6 +703,20 @@ const en: Dictionary = {
   "trips.plan.moveSuccess": "Activity moved to {day}.",
   "trips.plan.moveSuccessWithSegment": "Activity moved to {day}. 1 travel segment removed.",
   "trips.plan.moveSuccessWithSegments": "Activity moved to {day}. {count} travel segments removed.",
+  // Story 11.1: the `action-notice` after a change with side effects. The singular is its own key, as
+  // every count-bearing string here is - `formatMessage` has no plural support.
+  // Story 11.3: a reorder's summary leads with this.
+  "trips.dayChange.reordered": "Order changed",
+  "trips.dayChange.itemsMovedOne": "1 activity moved",
+  "trips.dayChange.itemsMoved": "{count} activities moved",
+  "trips.dayChange.checkInWarning": "You will reach your stay after its {time} check-in.",
+  "trips.dayChange.legsRemovedOne": "1 travel leg removed",
+  "trips.dayChange.legsRemoved": "{count} travel legs removed",
+  "trips.dayChange.undo": "Undo",
+  "trips.dayChange.dismiss": "Dismiss notice",
+  "trips.dayChange.undoStale": "The day has changed since – this change can no longer be undone.",
+  "trips.dayChange.undoError": "Undo failed – please try again.",
+  "trips.dayChange.undoUnavailable": "This change can no longer be undone.",
   "trips.payments.title": "Payment schedule",
   "trips.payments.payAllNow": "Pay all now",
   "trips.payments.split": "Split into multiple payments",

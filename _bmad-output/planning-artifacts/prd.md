@@ -37,7 +37,7 @@ classification:
   domain: travel_planning_private
   complexity: high
   projectContext: greenfield
-lastEdited: '2026-09-20'
+lastEdited: '2026-10-10'
 editHistory:
   - date: '2026-02-12'
     changes: 'Aligned PRD to BMAD structure, resolved performance target conflict, added transport/maps MVP scope, added restore/import, contributor role, and password reset, clarified GDPR and accessibility requirements.'
@@ -247,6 +247,8 @@ TravelPlan is a web SPA targeting Chrome/Safari on desktop and mobile/tablet.
 - FR19: Users can add rich text notes to a day plan.
 - FR20: Users can add links to a day plan.
 - FR21: Users can edit or clear a day plan.
+- FR42: When users insert, retime or extend an activity, later activities on that day move back only as far as needed to start after the previous activity ends plus the travel time between them, keeping their order and duration; gaps are never closed automatically. Travel legs whose two endpoints are no longer consecutive are removed, and the whole change, including every moved activity and removed leg, can be undone. **(Added 2026-10-10 — see Sprint Change Proposal 2026-10-10)**
+- FR43: Users can move an activity one place earlier or later within its day, with the times of the swapped pair and the activities after them recalculated under the same rule. **(Added 2026-10-10)**
 
 ### Budget Awareness (MVP-light)
 

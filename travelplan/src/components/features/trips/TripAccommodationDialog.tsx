@@ -342,6 +342,12 @@ type TripAccommodationDialogProps = {
   day: TripDay | null;
   onClose: () => void;
   onSaved: () => void;
+  /**
+   * Story 11.1 AC7: called after each successful media write in this dialog (stay image or document,
+   * upload or delete). Those are writes on the day the view cannot see, and every write ends the undo
+   * window — the same hook `TripDayPlanDialog` has.
+   */
+  onDayWrite?: () => void;
 };
 
 const DEFAULT_CHECK_IN = "16:00";
@@ -439,6 +445,7 @@ export default function TripAccommodationDialog({
   day,
   onClose,
   onSaved,
+  onDayWrite,
 }: TripAccommodationDialogProps) {
   const { t, language } = useI18n();
   // Unique `htmlFor`/`id` prefix: this dialog is mounted twice on the day view (current night and
@@ -1711,6 +1718,7 @@ export default function TripAccommodationDialog({
           return;
         }
         uploaded.push(body.data.image);
+        onDayWrite?.();
       }
       setGalleryImages((current) => [...current, ...uploaded]);
       setGalleryFiles([]);
@@ -1753,6 +1761,7 @@ export default function TripAccommodationDialog({
         return;
       }
       setGalleryImages((current) => current.filter((image) => image.id !== imageId));
+      onDayWrite?.();
     } catch {
       setServerError(resolveApiError(undefined, t("trips.stay.deleteError")));
     } finally {
@@ -1834,6 +1843,7 @@ export default function TripAccommodationDialog({
         }
         const uploadedDocument = body.data.document;
         setDocuments((current) => [...current, uploadedDocument]);
+        onDayWrite?.();
       }
 
       setDocumentFiles(failedAtIndex === -1 ? [] : documentFiles.slice(failedAtIndex));
@@ -1880,6 +1890,7 @@ export default function TripAccommodationDialog({
       // effect calls `document.getElementById`), and a parameter shadowing it is a trap for whoever
       // adds a focus or measurement call inside one of these callbacks next.
       setDocuments((current) => current.filter((documentRow) => documentRow.id !== documentId));
+      onDayWrite?.();
     } catch {
       setServerError(resolveApiError(undefined, t("trips.documents.deleteError")));
     } finally {

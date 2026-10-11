@@ -53,6 +53,8 @@ FR38: Users can attach documents (PDF or image files) to an accommodation entry 
 FR39: Users can see attached documents on the entry in the day timeline, open them, and delete them from the entry's dialog.
 FR40: Users can produce an offline document packet as a single PDF containing a day's attached documents.
 FR41: Users can enter a cost in a foreign currency and have the app convert it to EUR using a published daily exchange rate. EUR remains the stored value and the basis of every total, budget figure and export; the entered amount, its currency and the rate used are kept alongside it so the converted figure can be explained and corrected.
+FR42: When users insert, retime or extend an activity, later activities on that day move back only as far as needed to start after the previous activity ends plus the travel time between them, keeping their order and duration; gaps are never closed automatically. Travel legs whose two endpoints are no longer consecutive are removed, and the whole change, including every moved activity and removed leg, can be undone.
+FR43: Users can move an activity one place earlier or later within its day, with the times of the swapped pair and the activities after them recalculated under the same rule.
 
 ### NonFunctional Requirements
 
@@ -124,6 +126,8 @@ FR38: Epic 9 - Travel Documents
 FR39: Epic 9 - Travel Documents
 FR40: Epic 9 - Travel Documents
 FR41: Epic 10 - Costs in Another Currency
+FR42: Epic 11 - Day Plans That Recalculate Themselves
+FR43: Epic 11 - Day Plans That Recalculate Themselves
 
 ## Epic List
 
@@ -166,6 +170,10 @@ Users can keep tickets and booking confirmations as the original files on the st
 ### Epic 10: Costs in Another Currency
 Users can type a price in the currency it was quoted in and have the app convert it to EUR, keeping what was entered and the rate that was applied so the stored figure stays explainable.
 **FRs covered:** FR41
+
+### Epic 11: Day Plans That Recalculate Themselves
+Users can change one time on a day and have the rest of the day follow — later activities pushed back as far as needed, travel legs that no longer fit removed, the order changed only when they ask — and take the whole change back in one step.
+**FRs covered:** FR42, FR43
 
 ## Epic 1: Secure Access & Personal Workspace
 
@@ -3220,6 +3228,8 @@ Three entries produce such rows and one is the cost of living with them. The sto
 **When** an activity is inserted between them, retimed so the order changes, or moved away
 **Then** the segment survives with its mode, duration and distance intact — it is not silently deleted
 
+> **Superseded 2026-10-10 by Story 11.1** (Sprint Change Proposal 2026-10-10). A leg left non-adjacent by a create, update or delete on its day is now deleted in the same transaction, and the change is reversible through undo. AC1, AC3, AC4 and AC5 remain in force.
+
 **Given** a segment whose endpoints exist but are no longer adjacent
 **When** the day is opened
 **Then** it appears as an orphaned leg showing what it records, with a control that removes it, and the day's travel-time total counts only the legs the timeline actually draws
@@ -3464,3 +3474,161 @@ Scope is display only — no new storage, no new lookup, no change to any total.
 **Given** the `card` and `tl-card` components at 390px
 **When** the annotation is added
 **Then** it does not push a cost onto a second line or displace the time pill, and the layout is verified at that width rather than assumed
+
+## Epic 11: Day Plans That Recalculate Themselves
+
+Users can change one time on a day and have the rest of the day follow — later activities pushed back as far as needed, travel legs that no longer fit removed, the order changed only when they ask — and take the whole change back in one step.
+
+### Story 11.1: Travel Legs That Leave With Their Place in the Day
+
+As someone rearranging a day,
+I want travel legs that no longer connect two consecutive stops to disappear on their own,
+So that I stop deleting them one by one from the orphan list, without losing the ability to take the change back.
+
+**FRs covered:** FR42 (leg removal and undo)
+
+**Depends on:** nothing. Supersedes Story 8.5's AC2.
+
+**Context:** Story 8.5 keeps a leg whose endpoints still exist but are no longer adjacent, on the grounds that its mode, duration and distance are measured rather than derivable. In use, such a leg is never revived: it describes a trip between two places that are no longer consecutive, and the user deletes it every time from the *Verwaiste Reiseabschnitte* list, one confirmation per leg. This story deletes those legs in the same transaction as the change that orphaned them, and answers 8.5's concern with undo instead of retention.
+
+The undo mechanism, a *change receipt* returned by the write and an endpoint that applies it in reverse, is built here because this is the first story that deletes something as a side effect. Stories 11.2 and 11.3 add to the same receipt rather than building their own.
+
+**Acceptance Criteria:**
+
+**Given** a day whose activities A and B are joined by a leg
+**When** an activity is created with a time between them, an activity is retimed so the order changes, an activity's times are cleared, or an activity is deleted
+**Then** every leg on that day whose endpoint pair is no longer consecutive in the resulting timeline, including legs to or from the day's stays, is deleted in the same transaction as the change
+
+**Given** a create, update or delete on a day plan item
+**When** it succeeds
+**Then** the response carries, alongside today's payload, a change receipt listing: every leg it deleted as a full row, the previous state of the edited item (or that it was created), and the `updatedAt` of every row it touched
+
+**Given** a change whose receipt is not empty
+**When** the day view receives it
+**Then** an `action-notice` appears below the day hero summarising what happened beyond the edit itself (e.g. "1 Fahrt entfernt"), with correct German number agreement, a *Rückgängig* action and a close control, and it does not auto-dismiss
+
+**Given** a change whose receipt is empty
+**Then** no notice appears, which is today's behaviour exactly
+
+**Given** an `action-notice`
+**When** *Rückgängig* is activated
+**Then** one request restores the whole change in one transaction: the edited item returns to its previous state (or, if it was created, is deleted through the existing delete path, which cleans up its legs and media), and every deleted leg is recreated with its original id, mode, duration, distance and link
+
+**Given** a receipt
+**When** any row it touched has changed since it was issued
+**Then** undo is refused, nothing is written, and the notice says the day has changed since — an undo must never overwrite a later edit
+
+**Given** an `action-notice`
+**When** it is closed, the user leaves the day, or another write is made on that day
+**Then** the receipt is discarded; it is held in client state only and never persisted
+
+**Given** a viewer without planning rights
+**Then** no notice and no undo control is ever shown to them, and the undo endpoint refuses them with the same check as the other planning writes
+
+**Given** the orphan list from Story 8.5
+**When** this story ships
+**Then** the list and its remove control remain, unchanged, for orphans that still arrive by other routes — a restored backup (8.5 AC5), shrinking a trip's dates (DW-318) — and for rows already in the database
+
+**Given** moving an activity to another day (Stories 6.7, 6.23)
+**Then** its behaviour is unchanged and it is not routed through the receipt
+
+**Given** both dictionaries
+**Then** `en.ts` and `de.ts` carry every new string, and no key is added to one dictionary only
+
+### Story 11.2: The Rest of the Day Moves Back With It
+
+As someone inserting a stop or letting an activity run longer,
+I want every later activity pushed back just as far as it has to go,
+So that I do not have to retime the rest of the day one entry at a time, working out the travel time in my head.
+
+**FRs covered:** FR42 (push rule)
+
+**Depends on:** Story 11.1, whose change receipt this story extends. Bundles DW-216.
+
+**Context:** The day's order is derived from `fromTime` alone (`dayPlanItemOrder.ts:67-86`), and no write changes more than one row (`dayPlanItemRepo.ts:547-612`). This story makes a time change recalculate the day on the server, inside the same transaction. Two rulings by Tommy shape it. First, **push only as far as needed**: slack before the next activity absorbs the change, and the push stops at the first activity that already fits. Second, **never pull forward**: gaps may be deliberate and are never closed.
+
+A third ruling, that **a time edit keeps the order**, means no `sortOrder` column is needed. Every push leaves the timed activities with non-decreasing start times, so the existing comparator still yields the right order after every write. A time that would put an activity before its predecessor's start is refused rather than read as a reorder. Reordering belongs to Story 11.3.
+
+**Acceptance Criteria:**
+
+**Given** a timed activity that is created, retimed or extended
+**When** it is saved
+**Then** the following timed activities are walked in order, and each is moved to start no earlier than the previous one's end plus the duration of the drawn leg between them (or the previous end if there is none), keeping its duration
+
+**Given** that walk
+**When** an activity already starts at or after its earliest allowed start
+**Then** the walk stops there, and no activity after it moves
+
+**Given** an activity that is shortened, moved later with slack to spare, or deleted
+**Then** no other activity moves earlier — gaps are never closed
+
+**Given** untimed activities on the day
+**Then** they are skipped by the walk and never acquire a time
+
+**Given** a timed activity whose new start would fall before its timed predecessor's start
+**When** it is saved
+**Then** the save is refused with a message naming the predecessor and pointing to *Nach oben* — a time edit never changes the order
+
+**Given** a timed activity whose new start falls after its successor's start
+**Then** the save is accepted, the activity keeps its place, and the successor and everything after it are pushed
+
+**Given** a new activity, or an untimed one given a time
+**Then** it is placed where its start sorts, and the walk runs from it — insertion is the one time edit that sets a position
+
+**Given** a push that would move any activity's `toTime` past `23:59`
+**Then** nothing is written, and the dialog names the activity that would not fit — `HH:MM` cannot represent the next day, and clamping would silently change durations
+
+**Given** a push after which the last timed activity's end plus the leg to the night's stay passes that stay's explicit `checkInTime`
+**Then** the change is saved, and the `action-notice` carries a warning line in `{colors.warn}`; an assumed check-in time never triggers it
+
+**Given** a change that moved other activities
+**Then** the change receipt lists each moved activity with its previous `fromTime` and `toTime`, the notice reports how many were moved ("3 Aktivitäten verschoben"), and *Rückgängig* restores them together with everything Story 11.1 already restores
+
+**Given** the recalculation
+**Then** it runs in the repository inside the edit's own transaction, reading the day's rows within that transaction, and the client renders the server's result rather than computing times itself
+
+**Given** DW-216, a private copy of the order comparator in `dayPlanItemRepo.ts`
+**Then** the walk uses the canonical `compareDayPlanItemsByStartTime`, and the private copy is removed
+
+**Given** the push rule
+**Then** it is implemented as a pure function over the day's timeline, with unit tests covering: slack absorbed with no push; a chain push; a push stopping mid-day; untimed activities skipped; a leg's duration counted; the midnight refusal; and the predecessor refusal
+
+### Story 11.3: One Place Earlier, One Place Later
+
+As someone who decides two stops would be better the other way round,
+I want to move an activity up or down one place,
+So that I can change the order of my day without retyping both sets of times.
+
+**FRs covered:** FR43
+
+**Depends on:** Stories 11.1 and 11.2. It reuses the leg removal, the receipt and the push rule unchanged.
+
+**Context:** Since Story 11.2, a time edit never changes the order, so this is the way to reorder a day. Tommy's ruling is to start with *Nach oben / Nach unten* in the activity's menu, swapping with the neighbour. Drag and drop is not in scope.
+
+**Acceptance Criteria:**
+
+**Given** a timed activity with a timed neighbour above it
+**When** *Nach oben* is chosen from its menu
+**Then** it takes its neighbour's start time and keeps its own duration, the neighbour follows immediately after it and keeps its own duration, and the push rule from Story 11.2 runs from the neighbour — the day's start and both durations are preserved, slack between the pair is absorbed, and slack after it is kept
+
+**Given** a timed activity with a timed neighbour below it
+**When** *Nach unten* is chosen
+**Then** the same swap applies in the other direction
+
+**Given** the swap
+**Then** every leg that is no longer between consecutive endpoints, including the leg between the two swapped activities, is deleted as in Story 11.1 — a leg is not reversed automatically
+
+**Given** the first timed activity of the day, the last timed activity, or an untimed activity
+**Then** the control that has no timed neighbour in its direction is not offered — the order of untimed activities carries no time meaning and is not reorderable
+
+**Given** a swap that would push any activity past `23:59`
+**Then** nothing is written and the reason is shown, as in Story 11.2
+
+**Given** a completed swap
+**Then** the `action-notice` appears with the swap's receipt, and *Rückgängig* restores both times, every pushed activity and every deleted leg in one step
+
+**Given** the activity's overflow menu
+**Then** the two new items follow the existing menu conventions (44px row floor, the `'&&'` specificity fix from DW-180), and are shown only to users with planning rights
+
+**Given** both dictionaries
+**Then** `en.ts` and `de.ts` carry the new strings

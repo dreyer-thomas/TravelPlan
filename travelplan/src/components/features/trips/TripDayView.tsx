@@ -25,6 +25,7 @@ import { useSearchParams } from "next/navigation";
 import FormField from "@/components/forms/FormField";
 import PhotoUploadField from "@/components/forms/PhotoUploadField";
 import DialogShell, { useOpenInstanceKey } from "@/components/ui/DialogShell";
+import ActionNotice from "@/components/ui/ActionNotice";
 import { DialogTitleWithClose } from "@/components/ui/DialogCloseButton";
 import DiscardChangesDialog, { useDiscardGuard } from "@/components/ui/DiscardChangesDialog";
 import DocChip from "@/components/ui/DocChip";
@@ -44,6 +45,7 @@ import {
   HERO_SCRIM,
   HouseIcon,
   MoreHorizontalIcon,
+  MoreVerticalIcon,
   ON_PHOTO_CHROME,
   PencilIcon,
   TrashIcon,
@@ -67,6 +69,12 @@ import { buildDayMapPanelData, buildTripDayMapItems } from "@/lib/trips/dayMapDa
 // order, the legs it draws between those activities, and the pairs the API will accept are one order
 // because they are one comparator - see `dayPlanItemOrder.ts` for what happened when they were two.
 import { formatCostOriginal } from "@/lib/trips/convertCost";
+import {
+  checkInWarningText,
+  receiptHasSideEffects,
+  summarizeDayChangeReceipt,
+  type SignedDayChangeReceiptWire,
+} from "@/lib/trips/dayChangeReceipt";
 import { compareDayPlanItemsByStartTime } from "@/lib/trips/dayPlanItemOrder";
 // Story 8.5 review. The drawn-pair rule, shared with `TripTimeline` so the trip overview's coverage bar
 // and this screen's travel figure cannot disagree about one day.
@@ -663,10 +671,28 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     documents: GalleryDocument[];
     ownerKey: string | null;
   } | null>(null);
+  // Story 11.3. The one shared activity overflow menu (the `documentMenu` pattern: one mount, driven by
+  // which card opened it). What it may offer is decided when it opens, from the day as rendered; the
+  // server decides again on the request.
+  const [planItemMenu, setPlanItemMenu] = useState<{
+    anchorEl: HTMLElement;
+    itemId: string;
+    canMoveUp: boolean;
+    canMoveDown: boolean;
+  } | null>(null);
   // Story 6.23 AC4. A success line, not an error: a move deletes travel segments the user typed, so
   // it may not succeed in silence. It outlives the dialog on purpose — the dialog closes, and the
   // sentence has to land somewhere the user is actually looking.
   const [planMoveNotice, setPlanMoveNotice] = useState<string | null>(null);
+  // Story 11.1. The last save's change receipt, while its undo window is open. Client state only and
+  // never persisted (AC7): closing the notice, leaving the day, unmounting or any other write on the
+  // day ends the window, and a later save's receipt replaces this one.
+  // `stale`: the day moved on (409). `unavailable`: the server refused the receipt outright (400/404) —
+  // retrying can never succeed, so the action is withdrawn just the same.
+  const [dayChange, setDayChange] = useState<{
+    receipt: SignedDayChangeReceiptWire;
+    status: "ready" | "pending" | "stale" | "unavailable";
+  } | null>(null);
   const [transferMode, setTransferMode] = useState<DayActivityTransferMode | null>(null);
   const [transferTargetDayId, setTransferTargetDayId] = useState("");
   const [transferSubmitting, setTransferSubmitting] = useState(false);
@@ -696,10 +722,14 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   if (dayMenuDayId !== dayId) {
     setDayMenuDayId(dayId);
     setDayMenuAnchor(null);
+    // Story 11.3: the activity menu anchors on a card of the day being left.
+    setPlanItemMenu(null);
     // Story 6.23. Same trigger, same prescription: the move notice is about a move made *from this
     // day*, so navigating to a sibling has to drop it or it reads as something that just happened
     // here. It cannot key off `day?.id`, which the reload after a move leaves unchanged.
     setPlanMoveNotice(null);
+    // Story 11.1 AC7: a receipt is about this day; another day must not offer to undo it.
+    setDayChange(null);
   }
   const planItemsRef = useRef<DayPlanItem[]>([]);
   // Story 8.5. `handleRemoveOrphanSegment`'s rollback snapshot, kept the way `planItemsRef` keeps
@@ -741,6 +771,16 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   // firing at all - it returned 403 and could flash a permission error on a panel she is not meant to
   // see - which DW-243 names as part of the defect, so the delay is the fix rather than a side effect.
   const canEditPlanning = canTripAccessRoleWrite(detail?.trip.accessRole);
+  // Story 11.1 AC8: a receipt is held only while the viewer may write. Rights that drop after a save end
+  // the undo window outright rather than merely hiding it, so they cannot bring it back by returning.
+  if (dayChange && !canEditPlanning) {
+    setDayChange(null);
+  }
+  // Story 11.3: its trigger unmounts with the rights, so the menu must not stay open on a detached anchor.
+  if (planItemMenu && !canEditPlanning) {
+    setPlanItemMenu(null);
+  }
+  const undoWithdrawn = dayChange?.status === "stale" || dayChange?.status === "unavailable";
 
   // Story 6.15: the hero overflow used to hold one ungated item (print), so the trigger could be
   // unconditional by inheritance. It now holds three gating levels at once, so "does anything
@@ -1118,6 +1158,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
   };
 
   const handleTravelSegmentSaved = (segment: TravelSegment) => {
+    setDayChange(null);
     setTravelSegments((current) => {
       const index = current.findIndex((item) => item.id === segment.id);
       if (index >= 0) {
@@ -1183,6 +1224,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
       if (!removedSegment) return;
 
       pendingOrphanRemovalsRef.current.add(segmentId);
+      setDayChange(null);
       setPendingOrphanRemovals((current) => (current.includes(segmentId) ? current : [...current, segmentId]));
 
       const dayId = day.id;
@@ -1318,6 +1360,168 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     setPlanDialogMode("add");
   };
 
+  /**
+   * Story 11.1. Holds a save's receipt only when it reports side effects and the viewer may write —
+   * otherwise there is nothing to show (AC4) or no one to show it to (AC8) — and always replaces
+   * whatever receipt was held before.
+   */
+  const takeDayChangeReceipt = useCallback(
+    (receipt: SignedDayChangeReceiptWire | null) => {
+      setDayChange(canEditPlanning && receipt && receiptHasSideEffects(receipt) ? { receipt, status: "ready" } : null);
+    },
+    [canEditPlanning],
+  );
+
+  // Claimed synchronously, before any await: two clicks inside one tick both see `status: "ready"` in
+  // their closure, and only a ref can tell the second one the first is already on its way.
+  const undoInFlightRef = useRef(false);
+
+  /**
+   * Story 11.1 AC5/AC6. Sends the receipt back and lets the server take the whole change back in one
+   * transaction. Every state write below is conditional on the held receipt still being *this* one, so
+   * a notice closed, or replaced by a later save, while the request was in flight stays closed.
+   */
+  const handleUndoDayChange = useCallback(async () => {
+    if (!canEditPlanning || !dayChange || dayChange.status !== "ready") return;
+    if (undoInFlightRef.current) return;
+    undoInFlightRef.current = true;
+
+    const { receipt } = dayChange;
+    const requestedDayId = dayId;
+    const ifStillHeld = (
+      next: { receipt: SignedDayChangeReceiptWire; status: "ready" | "stale" | "unavailable" } | null,
+    ) =>
+      setDayChange((current) => (current?.receipt === receipt ? next : current));
+    setDayChange({ receipt, status: "pending" });
+    setError(null);
+
+    try {
+      const token = await ensureCsrfToken();
+      const response = await fetch(`/api/trips/${tripId}/day-plan-changes/undo`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "x-csrf-token": token,
+        },
+        body: JSON.stringify({ receipt }),
+      });
+      const body = (await response.json()) as ApiEnvelope<{ undone: boolean }>;
+      const undone = response.ok && !body.error;
+      // The bucket list is the trip's, not the day's: a restored idea belongs in it whichever day the
+      // user is on by now.
+      if (undone && receipt.consumedBucketListItem) {
+        loadBucketListItems();
+      }
+      // A response for a day the user has already left is about nothing else on screen.
+      if (currentDayIdRef.current !== requestedDayId) return;
+
+      if (undone) {
+        ifStillHeld(null);
+        loadDay({ silent: true });
+        return;
+      }
+      if (response.status === 409 && body.error?.code === "undo_stale") {
+        // The day moved on: say so, withdraw the action, keep close, and show the day as it is now.
+        ifStillHeld({ receipt, status: "stale" });
+        loadDay({ silent: true });
+        return;
+      }
+      if (response.status === 400 || response.status === 404) {
+        // Refused, not failed: the receipt or the user's rights will not change on a retry.
+        ifStillHeld({ receipt, status: "unavailable" });
+        loadDay({ silent: true });
+        return;
+      }
+      ifStillHeld({ receipt, status: "ready" });
+      setError(resolveApiError(body.error?.code, t("trips.dayChange.undoError")));
+    } catch {
+      if (currentDayIdRef.current !== requestedDayId) return;
+      ifStillHeld({ receipt, status: "ready" });
+      setError(resolveApiError("network_error", t("trips.dayChange.undoError")));
+    } finally {
+      undoInFlightRef.current = false;
+    }
+  }, [canEditPlanning, dayChange, dayId, ensureCsrfToken, loadBucketListItems, loadDay, resolveApiError, t, tripId]);
+
+  // Claimed synchronously, as `undoInFlightRef` is: a second click in the same tick would send a second
+  // reorder, and that one would swap the pair straight back.
+  const reorderInFlightRef = useRef(false);
+
+  /**
+   * Story 11.3. *Nach oben* / *Nach unten*. Not optimistic and no client-side time arithmetic: the server
+   * decides the neighbour and the times, and the day is reloaded to show what it wrote. A refusal reloads
+   * first and sets its message after, because `loadDay` clears the error as its first act.
+   */
+  const handleReorderPlan = useCallback(
+    async (itemId: string, direction: "up" | "down") => {
+      // Close-before-act (Story 5.11): the menu is gone before anything is sent, whatever happens next.
+      setPlanItemMenu(null);
+      if (!canEditPlanning || !day) return;
+      if (reorderInFlightRef.current) return;
+      reorderInFlightRef.current = true;
+
+      setError(null);
+      setPlanMoveNotice(null);
+      // Story 11.1 AC7: a write on the day ends the earlier undo window; this one's receipt opens the next.
+      setDayChange(null);
+      const requestedDayId = day.id;
+
+      try {
+        const token = await ensureCsrfToken();
+        const response = await fetch(`/api/trips/${tripId}/day-plan-items/reorder`, {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            "x-csrf-token": token,
+          },
+          body: JSON.stringify({ tripDayId: day.id, itemId, direction }),
+        });
+        const body = (await response.json()) as ApiEnvelope<{ receipt?: SignedDayChangeReceiptWire }>;
+        if (currentDayIdRef.current !== requestedDayId) return;
+
+        if (response.ok && !body.error) {
+          takeDayChangeReceipt(body.data?.receipt ?? null);
+          await loadDay({ silent: true });
+          return;
+        }
+
+        const code = body.error?.code;
+        if (response.status === 409 && code === "day_plan_past_midnight") {
+          const details = body.error?.details as { itemTitle?: string | null } | undefined;
+          const title = details?.itemTitle?.trim() || t("trips.plan.untitledActivity");
+          await loadDay({ silent: true });
+          setError(formatMessage(t("trips.plan.pastMidnight"), { title }));
+          return;
+        }
+        if (response.status === 409 && code === "day_plan_changed") {
+          await loadDay({ silent: true });
+          setError(t("trips.plan.reorderStale"));
+          return;
+        }
+        if (response.status === 409 && code === "day_plan_not_reorderable") {
+          await loadDay({ silent: true });
+          setError(t("trips.plan.reorderUnavailable"));
+          return;
+        }
+        if (response.status === 404) {
+          // The activity was deleted elsewhere: reload so its card and menu go, then say so.
+          await loadDay({ silent: true });
+          setError(resolveApiError(code, t("trips.plan.reorderError")));
+          return;
+        }
+        setError(resolveApiError(code, t("trips.plan.reorderError")));
+      } catch {
+        if (currentDayIdRef.current !== requestedDayId) return;
+        setError(resolveApiError("network_error", t("trips.plan.reorderError")));
+      } finally {
+        reorderInFlightRef.current = false;
+      }
+    },
+    [canEditPlanning, day, ensureCsrfToken, loadDay, resolveApiError, t, takeDayChangeReceipt, tripId],
+  );
+
   const handleDeletePlan = useCallback(
     async (itemId: string) => {
       if (!day) return false;
@@ -1331,6 +1535,10 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
       setPlanItems((current) => current.filter((item) => item.id !== itemId));
       setError(null);
       setPlanMoveNotice(null);
+      // Story 11.1 AC7: a write on the day ends the earlier undo window at once, so its Undo cannot race
+      // this delete; the delete's own receipt, if any, opens the next one below.
+      setDayChange(null);
+      const requestedDayId = day.id;
 
       try {
         const token = await ensureCsrfToken();
@@ -1347,6 +1555,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
         const body = (await response.json()) as ApiEnvelope<{
           deleted: boolean;
           removedTravelSegmentIds?: string[];
+          receipt?: SignedDayChangeReceiptWire;
         }>;
         if (!response.ok || body.error) {
           if (removedItem) {
@@ -1367,6 +1576,12 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
           const removed = new Set(removedSegmentIds);
           setTravelSegments((current) => current.filter((segment) => !removed.has(segment.id)));
         }
+        // Story 11.1: added on success only — the optimistic removal and its rollback above are as
+        // they were. The new receipt replaces any earlier one, unless the user has left the day while
+        // the delete was in flight: a receipt is about its own day (AC7).
+        if (currentDayIdRef.current === requestedDayId) {
+          takeDayChangeReceipt(body.data?.receipt ?? null);
+        }
         return true;
       } catch {
         if (removedItem) {
@@ -1380,7 +1595,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
         return false;
       }
     },
-    [day, ensureCsrfToken, resolveApiError, t, tripId],
+    [day, ensureCsrfToken, resolveApiError, t, takeDayChangeReceipt, tripId],
   );
 
   const handlePlanDialogClose = () => {
@@ -1389,8 +1604,9 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     setPlanDialogPrefill(null);
   };
 
-  const handlePlanDialogSaved = () => {
+  const handlePlanDialogSaved = (receipt: SignedDayChangeReceiptWire | null) => {
     const shouldReloadBucket = Boolean(planDialogPrefill?.bucketListItemId);
+    takeDayChangeReceipt(receipt);
     setPlanDialogMode(null);
     setSelectedPlanItem(null);
     setPlanDialogPrefill(null);
@@ -1488,6 +1704,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     setTransferSubmitting(true);
     setError(null);
     setPlanMoveNotice(null);
+    setDayChange(null);
 
     try {
       const token = await ensureCsrfToken();
@@ -1560,6 +1777,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
       if (!canEditPlanning) return { moved: false, message: t("trips.plan.moveError") };
 
       setPlanMoveNotice(null);
+      setDayChange(null);
 
       try {
         const token = await ensureCsrfToken();
@@ -1870,6 +2088,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
 
     setCopyingStay(true);
     setError(null);
+    setDayChange(null);
     const dayIdForCopy = day.id;
 
     try {
@@ -2767,6 +2986,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
 
     setDayImageSaving(true);
     setError(null);
+    setDayChange(null);
 
     try {
       const token = await ensureCsrfToken();
@@ -2866,6 +3086,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
 
     setDayImageSaving(true);
     setError(null);
+    setDayChange(null);
 
     try {
       const token = await ensureCsrfToken();
@@ -3534,6 +3755,42 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
               </Box>
             </Box>
 
+            {/*
+              Story 11.1 — the `action-notice`. DESIGN.md puts it directly below the hero and above the
+              stat strip; the coverage panel sits between those two here, so it goes inside the frame
+              right after the hero, in a band with that panel's responsive inline padding, where it is in
+              view without scrolling. Withheld from a viewer entirely (AC8).
+            */}
+            {dayChange && canEditPlanning ? (
+              <Box
+                sx={{
+                  backgroundColor: tokens.card,
+                  padding: {
+                    xs: `16px ${HERO_PADDING_INLINE.xs}px 0`,
+                    md: `16px ${HERO_PADDING_INLINE.md}px 0`,
+                  },
+                }}
+              >
+                <ActionNotice
+                  summary={
+                    dayChange.status === "stale"
+                      ? t("trips.dayChange.undoStale")
+                      : dayChange.status === "unavailable"
+                        ? t("trips.dayChange.undoUnavailable")
+                        : summarizeDayChangeReceipt(dayChange.receipt, t)
+                  }
+                  // Story 11.2 AC9: the check-in warning goes with the receipt's own summary, so it leaves
+                  // when the summary is replaced by a stale or unavailable message.
+                  warning={undoWithdrawn ? undefined : checkInWarningText(dayChange.receipt, t)}
+                  actionLabel={undoWithdrawn ? undefined : t("trips.dayChange.undo")}
+                  onAction={undoWithdrawn ? undefined : handleUndoDayChange}
+                  actionPending={dayChange.status === "pending"}
+                  onClose={() => setDayChange(null)}
+                  closeLabel={t("trips.dayChange.dismiss")}
+                />
+              </Box>
+            ) : null}
+
             <Box
               sx={{
                 backgroundColor: tokens.card,
@@ -3981,6 +4238,12 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                     const segmentItem = timelineEndpoints[endpointIndex];
                     const nextSegmentItem = timelineEndpoints[endpointIndex + 1] ?? null;
                     const itemImages = planItemImagesById[item.id] ?? [];
+                    // Story 11.3 AC4. `planItems` is in the canonical order the server reorders by, so the
+                    // neighbours here are the server's. Timed is `fromTime` alone, the comparator's test,
+                    // not the time pill's `fromTime && toTime`.
+                    const canMoveUp = Boolean(item.fromTime) && index > 0 && Boolean(planItems[index - 1].fromTime);
+                    const canMoveDown = Boolean(item.fromTime) && Boolean(planItems[index + 1]?.fromTime);
+                    const showItemMenu = canEditPlanning && (canMoveUp || canMoveDown);
                     // Every child of the head row is conditional, so the row itself has to be too.
                     const showCardHead = Boolean((item.fromTime && item.toTime) || item.costCents || canEditPlanning);
 
@@ -4052,6 +4315,26 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                                       </Box>
                                     ) : null}
                                     {canEditPlanning ? renderEditGlyph("day-plan-item-edit-glyph") : null}
+                                    {/* Story 11.3. A real `<button>`, so `overlaidContentSx` hands it its
+                                        clicks back and the edit overlay beneath never fires - no
+                                        `stopPropagation`. Absent when it would open an empty menu (AC4).
+                                        44x44 spelled out (the theme's IconButton carries no geometry);
+                                        the negative block margin keeps the head row as tall as before. */}
+                                    {showItemMenu ? (
+                                      <IconButton
+                                        data-testid="day-plan-item-overflow"
+                                        aria-label={formatMessage(t("trips.plan.itemActionsAria"), { title: capLabel(title) })}
+                                        aria-haspopup="menu"
+                                        aria-expanded={planItemMenu?.itemId === item.id}
+                                        aria-controls={planItemMenu?.itemId === item.id ? "day-plan-item-overflow-menu" : undefined}
+                                        onClick={(event) =>
+                                          setPlanItemMenu({ anchorEl: event.currentTarget, itemId: item.id, canMoveUp, canMoveDown })
+                                        }
+                                        sx={{ width: 44, height: 44, my: "-10px", color: tokens.inkMuted }}
+                                      >
+                                        <MoreVerticalIcon />
+                                      </IconButton>
+                                    ) : null}
                                   </Box>
                                   {/* Inside the pill's own gate (AC8): an annotation with no figure
                                       above it is a defect, and this card hides a recorded 0. */}
@@ -4407,9 +4690,11 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
             day={day}
             onClose={() => setStayOpen(false)}
             onSaved={() => {
+              setDayChange(null);
               setStayOpen(false);
               loadDay();
             }}
+            onDayWrite={() => setDayChange(null)}
           />
           <TripAccommodationDialog
             key={`previous-stay-${previousStayDialogKey}`}
@@ -4419,9 +4704,11 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
             day={previousDay}
             onClose={() => setPreviousStayOpen(false)}
             onSaved={() => {
+              setDayChange(null);
               setPreviousStayOpen(false);
               loadDay();
             }}
+            onDayWrite={() => setDayChange(null)}
           />
           <TripDayTravelSegmentDialog
             key={`segment-${segmentDialogKey}`}
@@ -4459,6 +4746,7 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
             onMove={canEditPlanning ? handleMovePlanItem : undefined}
             onClose={handlePlanDialogClose}
             onSaved={handlePlanDialogSaved}
+            onDayWrite={() => setDayChange(null)}
           />
           <Dialog open={transferMode !== null} onClose={transferGuard.requestClose} fullWidth maxWidth="sm">
             <DialogTitleWithClose
@@ -4641,6 +4929,28 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                 <Typography>{documentDisplayName(documentRow.fileName)}</Typography>
               </MenuItem>
             ))}
+          </Menu>
+          {/* Story 11.3. The activity overflow menu, one mount for every card. Items carry no `aria-label`:
+              the visible label is the name (WCAG 2.5.3), as the day hero menu rules. */}
+          <Menu
+            id="day-plan-item-overflow-menu"
+            anchorEl={planItemMenu?.anchorEl ?? null}
+            open={Boolean(planItemMenu)}
+            onClose={() => setPlanItemMenu(null)}
+            anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+            transformOrigin={{ vertical: "top", horizontal: "right" }}
+            slotProps={{ list: { "aria-label": t("trips.plan.itemActionsMenu") } }}
+          >
+            {planItemMenu?.canMoveUp ? (
+              <MenuItem onClick={() => handleReorderPlan(planItemMenu.itemId, "up")} sx={DAY_MENU_ITEM_SX}>
+                {t("trips.plan.moveUp")}
+              </MenuItem>
+            ) : null}
+            {planItemMenu?.canMoveDown ? (
+              <MenuItem onClick={() => handleReorderPlan(planItemMenu.itemId, "down")} sx={DAY_MENU_ITEM_SX}>
+                {t("trips.plan.moveDown")}
+              </MenuItem>
+            ) : null}
           </Menu>
           {/* Story 6.25 AC1 — a read-only popup, no footer, so the `✕` is its only visible dismissal. */}
           <Dialog open={Boolean(mapDialogItem)} onClose={() => setMapDialogItem(null)} fullWidth maxWidth="sm">

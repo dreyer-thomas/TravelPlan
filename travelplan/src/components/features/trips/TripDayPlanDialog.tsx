@@ -33,6 +33,7 @@ import DialogShell from "@/components/ui/DialogShell";
 import { DialogTitleWithClose } from "@/components/ui/DialogCloseButton";
 import DiscardChangesDialog, { useDiscardGuard } from "@/components/ui/DiscardChangesDialog";
 import FullscreenPhotoViewer from "@/components/ui/FullscreenPhotoViewer";
+import type { SignedDayChangeReceiptWire } from "@/lib/trips/dayChangeReceipt";
 import { TrashIcon, WarningTriangleIcon } from "@/components/features/trips/TripIcons";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -388,7 +389,16 @@ type TripDayPlanDialogProps = {
   /** The caller owns the request and the success message; a failure comes back with its own text. */
   onMove?: (itemId: string, targetTripDayId: string) => Promise<PlanItemMoveOutcome>;
   onClose: () => void;
-  onSaved: () => void;
+  /**
+   * Story 11.1: the save's change receipt rides along, so the day view can offer to take back what the
+   * save did besides (`null` when the response carried none).
+   */
+  onSaved: (receipt: SignedDayChangeReceiptWire | null) => void;
+  /**
+   * Story 11.1 AC7: called after each successful media write in this dialog (image or document, upload
+   * or delete). Those are writes on the day the view cannot see, and every write ends the undo window.
+   */
+  onDayWrite?: () => void;
 };
 
 const emptyDoc = {
@@ -622,6 +632,7 @@ export default function TripDayPlanDialog({
   onMove,
   onClose,
   onSaved,
+  onDayWrite,
 }: TripDayPlanDialogProps) {
   const { t, language } = useI18n();
   /**
@@ -1598,7 +1609,7 @@ export default function TripDayPlanDialog({
         body: JSON.stringify(payload),
       });
 
-      const body = (await response.json()) as ApiEnvelope<{ dayPlanItem: DayPlanItem }>;
+      const body = (await response.json()) as ApiEnvelope<{ dayPlanItem: DayPlanItem; receipt?: SignedDayChangeReceiptWire }>;
 
       if (!response.ok || body.error) {
         if (body.error?.code === "validation_error" && body.error.details) {
@@ -1641,12 +1652,33 @@ export default function TripDayPlanDialog({
           return;
         }
 
+        // Story 11.2: the push rule's refusals name another activity, so they need its title from
+        // `details`; an imported row may have none. The dialog stays open on all three.
+        const pushDetails = (body.error?.details ?? {}) as { predecessorTitle?: string | null; itemTitle?: string | null };
+        const activityTitle = (value: string | null | undefined) => value?.trim() || t("trips.plan.untitledActivity");
+        if (body.error?.code === "day_plan_before_predecessor") {
+          const nextErrors: PlanFieldErrors = {
+            fromTime: formatMessage(t("trips.plan.beforePredecessor"), { title: activityTitle(pushDetails.predecessorTitle) }),
+          };
+          setFieldErrors(nextErrors);
+          revealFirstError({ fieldErrors: nextErrors, paymentError: null, paymentRowErrors: [] });
+          return;
+        }
+        if (body.error?.code === "day_plan_past_midnight") {
+          setServerError(formatMessage(t("trips.plan.pastMidnight"), { title: activityTitle(pushDetails.itemTitle) }));
+          return;
+        }
+        if (body.error?.code === "day_plan_changed") {
+          setServerError(t("trips.plan.dayChangedConflict"));
+          return;
+        }
+
         const fallback = mode === "edit" ? t("trips.plan.saveError") : t("trips.plan.saveError");
         setServerError(resolveApiError(body.error?.code, fallback));
         return;
       }
 
-      onSaved();
+      onSaved(body.data?.receipt ?? null);
     } catch {
       setServerError(t("trips.plan.saveError"));
     } finally {
@@ -1997,6 +2029,7 @@ export default function TripDayPlanDialog({
         }
         const uploadedImage = body.data.image;
         setGalleryImages((current) => [...current, uploadedImage]);
+        onDayWrite?.();
       }
 
       if (failedAtIndex === -1) {
@@ -2044,6 +2077,7 @@ export default function TripDayPlanDialog({
         return;
       }
       setGalleryImages((current) => current.filter((image) => image.id !== imageId));
+      onDayWrite?.();
     } catch {
       setServerError(resolveApiError(undefined, t("trips.plan.saveError")));
     } finally {
@@ -2120,6 +2154,7 @@ export default function TripDayPlanDialog({
         }
         const uploadedDocument = body.data.document;
         setDocuments((current) => [...current, uploadedDocument]);
+        onDayWrite?.();
       }
 
       setDocumentFiles(failedAtIndex === -1 ? [] : documentFiles.slice(failedAtIndex));
@@ -2167,6 +2202,7 @@ export default function TripDayPlanDialog({
       // effect calls `document.getElementById`), and a parameter shadowing it is a trap for whoever
       // adds a focus or measurement call inside one of these callbacks next.
       setDocuments((current) => current.filter((documentRow) => documentRow.id !== documentId));
+      onDayWrite?.();
     } catch {
       setServerError(resolveApiError(undefined, t("trips.documents.deleteError")));
     } finally {

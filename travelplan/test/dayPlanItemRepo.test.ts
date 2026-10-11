@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { createDayPlanItemExpectingSuccess } from "./helpers/createDayPlanItem";
 import { prisma } from "@/lib/db/prisma";
 import {
   convertBucketListItemToDayPlanItemForTripDay,
-  createDayPlanItemForTripDay,
   deleteDayPlanItemForTripDay,
   listDayPlanItemsForTripDay,
   moveDayPlanItemsBetweenTripDays,
@@ -10,6 +10,7 @@ import {
   swapDayPlanItemsBetweenTripDays,
   updateDayPlanItemForTripDay,
 } from "@/lib/repositories/dayPlanItemRepo";
+import { undoDayPlanChangeForTrip } from "@/lib/repositories/dayPlanChangeRepo";
 
 const createUser = async (email: string) =>
   prisma.user.create({
@@ -108,7 +109,7 @@ describe("dayPlanItemRepo", () => {
     const user = await createUser("plan-owner@example.com");
     const { trip, day } = await createTripWithDay(user.id);
 
-    const item = await createDayPlanItemForTripDay({
+    const item = await createDayPlanItemExpectingSuccess({
       userId: user.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -122,21 +123,21 @@ describe("dayPlanItemRepo", () => {
     });
 
     expect(item).not.toBeNull();
-    expect(item?.tripDayId).toBe(day.id);
-    expect(item?.title).toBe("Morning walk");
-    expect(item?.fromTime).toBe("08:30");
-    expect(item?.toTime).toBe("09:30");
-    expect(item?.contentJson).toContain("Morning walk");
-    expect(item?.costCents).toBe(1250);
-    expect(item?.linkUrl).toBe("https://example.com/plan");
-    expect(item?.location).toEqual({ lat: 48.1372, lng: 11.5756, label: "Museum" });
+    expect(item?.item.tripDayId).toBe(day.id);
+    expect(item?.item.title).toBe("Morning walk");
+    expect(item?.item.fromTime).toBe("08:30");
+    expect(item?.item.toTime).toBe("09:30");
+    expect(item?.item.contentJson).toContain("Morning walk");
+    expect(item?.item.costCents).toBe(1250);
+    expect(item?.item.linkUrl).toBe("https://example.com/plan");
+    expect(item?.item.location).toEqual({ lat: 48.1372, lng: 11.5756, label: "Museum" });
   });
 
   it("replaces payment rows when updating a day plan item", async () => {
     const user = await createUser("plan-payments@example.com");
     const { trip, day } = await createTripWithDay(user.id);
 
-    const created = await createDayPlanItemForTripDay({
+    const created = await createDayPlanItemExpectingSuccess({
       userId: user.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -153,15 +154,15 @@ describe("dayPlanItemRepo", () => {
       location: null,
     });
 
-    expect(created?.payments).toHaveLength(2);
-    const existingPayments = await prisma.costPayment.findMany({ where: { dayPlanItemId: created?.id } });
+    expect(created?.item.payments).toHaveLength(2);
+    const existingPayments = await prisma.costPayment.findMany({ where: { dayPlanItemId: created?.item.id } });
     expect(existingPayments).toHaveLength(2);
 
     const updated = await updateDayPlanItemForTripDay({
       userId: user.id,
       tripId: trip.id,
       tripDayId: day.id,
-      itemId: created!.id,
+      itemId: created!.item.id,
       title: "Tickets",
       fromTime: "10:00",
       toTime: "11:00",
@@ -174,7 +175,7 @@ describe("dayPlanItemRepo", () => {
 
     expect(updated.status).toBe("updated");
     const refreshedPayments = await prisma.costPayment.findMany({
-      where: { dayPlanItemId: created?.id },
+      where: { dayPlanItemId: created?.item.id },
       orderBy: { dueDate: "asc" },
     });
     expect(refreshedPayments).toHaveLength(1);
@@ -186,7 +187,7 @@ describe("dayPlanItemRepo", () => {
     const user = await createUser("plan-payment-order@example.com");
     const { trip, day } = await createTripWithDay(user.id);
 
-    const created = await createDayPlanItemForTripDay({
+    const created = await createDayPlanItemExpectingSuccess({
       userId: user.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -203,7 +204,7 @@ describe("dayPlanItemRepo", () => {
       location: null,
     });
 
-    expect(created?.payments).toEqual([
+    expect(created?.item.payments).toEqual([
       { amountCents: 1000, dueDate: "2026-11-01" },
       { amountCents: 2000, dueDate: "2026-11-01" },
     ]);
@@ -212,7 +213,7 @@ describe("dayPlanItemRepo", () => {
       userId: user.id,
       tripId: trip.id,
       tripDayId: day.id,
-      itemId: created!.id,
+      itemId: created!.item.id,
       title: "Tickets",
       fromTime: "10:00",
       toTime: "11:00",
@@ -1201,20 +1202,18 @@ describe("dayPlanItemRepo", () => {
   });
 
   /**
-   * Story 8.5 AC3 — the decision this story **declines**, pinned so a later tidy-up cannot make it by
-   * accident.
+   * Story 8.5 AC3 — **superseded by Story 11.1** (the epic's AC2 of 8.5; see
+   * `sprint-change-proposal-2026-10-10.md`). This case used to pin that the neighbours' leg *survives* an
+   * insertion and a retime and is listed as an orphan. 11.1 reverses that on the user's own report: the
+   * orphan list turned every rearrangement into a round of manual deletions. The leg now leaves in the
+   * write's own transaction, and what made 8.5 decline the deletion — mode, duration and distance are the
+   * user's measurements — is answered by the receipt instead: it carries the row in full, and undo puts
+   * it back byte for byte. Rewritten deliberately; this is the one sanctioned expectation change.
    *
-   * `DW-148` carries a 2026-08-08 decision that "a segment whose endpoints are no longer adjacent is
-   * deleted". Story 8.5 supersedes it on Story 6.23's own grounds: transport mode, duration and
-   * distance are the user's measurements, none of them is derivable, and destroying them the moment
-   * someone merely inserts or retimes an activity is the same mistake as fabricating a segment,
-   * pointing the other way. The row is kept and surfaced as an orphaned leg instead (`TripDayView`).
-   *
-   * Two producers in one case, because they are the same event seen twice: the insertion changes the
-   * order, and so does the retime. Neither may touch the segment, and neither may create one.
+   * Still true from 6.23: nothing is *fabricated*. The new neighbours are never joined.
    */
-  it("keeps a neighbours' segment intact when an activity is inserted between them or one is retimed", async () => {
-    const user = await createUser("plan-insert-keeps-segment@example.com");
+  it("removes the neighbours' leg when an activity is inserted between them, and undo brings it back identical", async () => {
+    const user = await createUser("plan-insert-sweeps-segment@example.com");
     const { trip, day } = await createTripWithDay(user.id);
 
     const first = await prisma.dayPlanItem.create({
@@ -1239,7 +1238,7 @@ describe("dayPlanItemRepo", () => {
 
     // The insertion, as a user reaches it: a new activity whose time falls between the two, created
     // last. There is no "insert at position" anywhere in this app — this is what insertion *is*.
-    const created = await createDayPlanItemForTripDay({
+    const created = await createDayPlanItemExpectingSuccess({
       userId: user.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -1251,32 +1250,16 @@ describe("dayPlanItemRepo", () => {
       linkUrl: null,
     });
     expect(created).not.toBeNull();
+    if (!created) return;
 
-    // The retime: moving B earlier changes the order again without changing what the leg records.
-    const updated = await updateDayPlanItemForTripDay({
-      userId: user.id,
-      tripId: trip.id,
-      tripDayId: day.id,
-      itemId: second.id,
-      title: "B",
-      fromTime: "11:00",
-      toTime: "11:30",
-      contentJson: sampleDoc("B"),
-      costCents: null,
-      linkUrl: null,
-    });
-    expect(updated.status).toBe("updated");
+    // Gone, and nothing fabricated in its place: no A→M, no M→B.
+    expect(await prisma.travelSegment.findMany({ where: { tripDayId: day.id } })).toEqual([]);
+    // The receipt carries the row in full — mode, duration, distance and both stamps.
+    expect(created.receipt.removedTravelSegments).toEqual([leg]);
 
-    // Nothing deleted and nothing fabricated: still exactly the one row, with the user's own numbers.
-    const segments = await prisma.travelSegment.findMany({ where: { tripDayId: day.id } });
-    expect(segments).toHaveLength(1);
-    expect(segments[0]).toMatchObject({
-      id: leg.id,
-      fromItemId: first.id,
-      toItemId: second.id,
-      transportType: "CAR",
-      durationMinutes: 40,
-      distanceKm: 12,
-    });
+    const undone = await undoDayPlanChangeForTrip({ userId: user.id, tripId: trip.id, receipt: created.receipt });
+    expect(undone).toEqual({ status: "undone" });
+    expect(await prisma.travelSegment.findMany({ where: { tripDayId: day.id } })).toEqual([leg]);
+    expect(await prisma.dayPlanItem.findUnique({ where: { id: created.item.id } })).toBeNull();
   });
 });

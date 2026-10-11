@@ -197,6 +197,10 @@ components:
     captionColor: '{colors.ink-soft}'
     noticeColor: '{colors.warn}'
     noticeIconSize: 14px
+  action-notice:
+    padding: '{spacing.card-padding}'
+    gap: 8px
+    actionMinHeight: '{components.button.minHeight}'
   tab:
     minHeight: 44px
     radius: '{rounded.DEFAULT}'
@@ -292,6 +296,12 @@ Two corner rules coexist deliberately: **photography is always sharp** ({rounded
   **The rate-unavailable state is a notice, not an error.** It uses the same caption slot in {components.money-field.noticeColor} with the small alert icon the `input` error line carries, and leaves border and background at their default values. The `input` error treatment ({components.input.errorBorder} + {components.input.errorBg}) is reserved for a value the user must fix; an unreachable rate feed is not that — the field is valid, it is simply EUR now, and painting it as an error would ask the user to correct something they did not get wrong.
 
   The converted caption is a compared numeric value and therefore takes tabular figures, per the hard rule in Typography. A foreign amount is rendered through `Intl.NumberFormat` with its own currency's fraction digits — JPY and KRW have none, and two forced decimals would render `¥5000` as a price it never was.
+
+- **action-notice** — Feedback for a save that did more than the user typed: a {rounded.md} {colors.card} panel with a {colors.border-strong} border, placed directly below the day hero (Screen B) and above the stat strip, never inside a dialog — the dialog that caused it has already closed. One summary line in {colors.ink} ("3 Aktivitäten verschoben · 1 Fahrt entfernt", with correct German number agreement as `trip-status` requires), an optional warning line in {colors.warn} with the small alert icon, then a trailing text `button` ("Rückgängig") and the `close` icon-button.
+
+  **It is not an error and does not borrow the error treatment.** The save succeeded; the notice reports consequences and offers their reversal. It appears only when there were consequences — a save with none shows nothing, so the notice cannot become wallpaper.
+
+  **It does not auto-dismiss.** Its action is the only way to take the change back, so it stays until the user closes it, leaves the day, or makes another write on that day. Each of those ends the undo window as well.
 
 - **checkbox** — {components.checkbox.boxSize} square visible box ({components.checkbox.boxRadius} radius, {colors.border-strong} border unchecked, {colors.accent} fill + white check glyph checked), inside a {components.checkbox.rowMinHeight}-tall clickable row — the whole row (box + label), not just the box, is the touch target.
 - **candidate-list** — The list of places a location search came back with, under the place field on all four surfaces that have one (trip create — twice, activity dialog, accommodation dialog, bucket-list panel). A {typography.label-caps} heading naming the count ("Ort auswählen (5)"), then one full-width, left-aligned, {components.button.minHeight} row per candidate. **The label is the content** — the same rule `doc-chip` states: a place name is the only thing distinguishing "Sky Tower, Auckland" from "Sky Tower, Ho Chi Minh City", so the row carries the geocoder's full display name and nothing else.

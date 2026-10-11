@@ -159,6 +159,7 @@ npx create-next-app@latest travelplan
 - **Validation:** Zod schemas in API layer (`zod` `4.1.11`)
 - **Error Format:** Standard `{ error: { code, message, details } }` envelope
 - **Rate Limiting Scope:** Auth endpoints only
+- **Day recalculation receipts (2026-10-10, Epic 11):** Writes that recalculate a day (day plan item create, update, delete, and in-day move) return `{ data: { item, receipt } }`, where `receipt` lists the rows the write changed as a side effect, with their prior state. `POST /api/trips/{id}/day-plan-changes/undo` applies a receipt in reverse in one transaction and refuses (409) if any row it names has changed since. Receipts are client-held and never persisted. Order remains derived from `fromTime`; no `sortOrder` column.
 
 ### Frontend Architecture
 

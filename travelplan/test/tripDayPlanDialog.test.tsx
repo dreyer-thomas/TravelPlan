@@ -1813,6 +1813,97 @@ describe("TripDayPlanDialog", () => {
   });
 
   /**
+   * Story 11.2 AC5/AC8. The push rule's refusals name another activity, so the dialog needs that
+   * activity's title from `error.details`. Each one keeps the dialog open and never reports a save.
+   */
+  describe("push rule refusals (Story 11.2)", () => {
+    const renderRefusing = async (error: { code: string; message: string; details?: unknown }) => {
+      const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
+      const fetchMock = vi.fn(async (input: RequestInfo) => {
+        const url = typeof input === "string" ? input : input.url;
+        if (url.includes("/api/auth/csrf")) {
+          return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
+        }
+        return mockFetchResponse({ data: null, error }, { status: 409 });
+      });
+      stubFetch(fetchMock);
+      const onSaved = vi.fn();
+      const onClose = vi.fn();
+
+      render(
+        <Providers language="en">
+          <TripDayPlanDialog
+            open
+            mode="add"
+            tripId="trip-1"
+            day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
+            item={null}
+            onClose={onClose}
+            onSaved={onSaved}
+          />
+        </Providers>,
+      );
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Lunch" } });
+      fireEvent.click(screen.getByRole("button", { name: "OK" }));
+      return { onSaved, onClose };
+    };
+
+    it("shows day_plan_before_predecessor on the start field, naming the predecessor", async () => {
+      const { onSaved, onClose } = await renderRefusing({
+        code: "day_plan_before_predecessor",
+        message: "Start is before the previous activity",
+        details: { predecessorId: "item-b", predecessorTitle: "Museum", predecessorFromTime: "10:30" },
+      });
+
+      await waitFor(() =>
+        expect(screen.getByText('Starts before "Museum". A time change keeps the order – use "Move up".')).toBeInTheDocument(),
+      );
+      expect(screen.getByLabelText("From")).toHaveAttribute("aria-invalid", "true");
+      // Still open: the form is there to correct, and nothing asked to close it.
+      expect(screen.getByRole("button", { name: "OK" })).toBeInTheDocument();
+      expect(onSaved).not.toHaveBeenCalled();
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it("shows day_plan_past_midnight in the banner, naming the activity", async () => {
+      const { onSaved, onClose } = await renderRefusing({
+        code: "day_plan_past_midnight",
+        message: "The change would push an activity past midnight",
+        details: { itemId: "item-c", itemTitle: "Night bus" },
+      });
+
+      await waitFor(() =>
+        expect(screen.getByText('"Night bus" would be pushed past midnight. Nothing was saved.')).toBeInTheDocument(),
+      );
+      expect(screen.getByRole("button", { name: "OK" })).toBeInTheDocument();
+      expect(onSaved).not.toHaveBeenCalled();
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it("names an untitled activity as such", async () => {
+      const { onSaved } = await renderRefusing({
+        code: "day_plan_past_midnight",
+        message: "The change would push an activity past midnight",
+        details: { itemId: "item-c", itemTitle: null },
+      });
+
+      await waitFor(() =>
+        expect(screen.getByText('"Untitled activity" would be pushed past midnight. Nothing was saved.')).toBeInTheDocument(),
+      );
+      expect(onSaved).not.toHaveBeenCalled();
+    });
+
+    it("asks to save again after day_plan_changed", async () => {
+      const { onSaved } = await renderRefusing({ code: "day_plan_changed", message: "The day was changed by another write" });
+
+      await waitFor(() => expect(screen.getByText("The day was just changed. Please save again.")).toBeInTheDocument());
+      expect(onSaved).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
    * A tab marker is global chrome, unlike the inline message it replaces as the primary signal. If it
    * outlives the fix, the tab bar tells the user there is a problem on a tab where there is none.
    */

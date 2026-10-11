@@ -135,3 +135,5 @@ No new dependency, no migration, no schema change — the `@@unique` constraint 
 ### File List
 
 ### Change Log
+
+- 2026-10-10: AC3 (the epic's AC2: "a segment whose endpoints are no longer adjacent is kept, not deleted") is **superseded by Story 11.1** (`11-1-travel-legs-that-leave-with-their-place-in-the-day.md`, Sprint Change Proposal 2026-10-10). Legs un-drawn by an activity create, update or delete now leave in the same transaction and come back through the change receipt's undo; the orphan list (AC4–AC6) stays for pre-existing orphans.

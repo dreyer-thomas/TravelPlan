@@ -1,10 +1,16 @@
 import { prisma } from "@/lib/db/prisma";
 import type { TravelSegmentItemType, TravelTransportType } from "@/generated/prisma/enums";
+import type { TravelSegment } from "@/generated/prisma/client";
 // Story 8.5: the adjacency rule below used to sort with a private copy of this comparator, while the
 // screen that draws the same day's legs read the API's `createdAt` order. Two orders, one of which
 // decides what the server accepts and the other what the user sees. Now one module owns the rule and
 // `TripDayView.tsx` imports the same function — see `dayPlanItemOrder.ts` for why that mattered.
 import { compareDayPlanItemsByStartTime } from "@/lib/trips/dayPlanItemOrder";
+import {
+  buildDaySegmentPairKey,
+  buildDrawnDaySegmentPairKeys,
+  type DaySegmentEndpointType,
+} from "@/lib/trips/daySegmentPairs";
 import type { TransportType } from "@/lib/trips/transportTypes";
 
 /**
@@ -12,7 +18,7 @@ import type { TransportType } from "@/lib/trips/transportTypes";
  * repository module in this project and inventing one to hold a four-word type alias would be a
  * larger change than the one Story 8.5 is making.
  */
-type TransactionClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+export type TransactionClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 
 /** Lowercase wire vocabulary for `TravelTransportType`, mirroring `TravelSegmentItemTypeInput`. */
 export type TransportTypeInput = TransportType;
@@ -104,7 +110,11 @@ const toPrismaTransportType = (value: TransportTypeInput): TravelTransportType =
   }
 };
 
-const fromPrismaItemType = (value: TravelSegmentItemType): TravelSegmentItemTypeInput =>
+/**
+ * Stored discriminator → timeline vocabulary. Exported for Story 11.1: the sweep keys stored rows with
+ * it so they match the timeline's keys, and a wrong mapping there would sweep every leg or none.
+ */
+export const fromPrismaItemType = (value: TravelSegmentItemType): DaySegmentEndpointType =>
   value === "ACCOMMODATION" ? "accommodation" : "dayPlanItem";
 
 const fromPrismaTransportType = (value: TravelTransportType): TransportTypeInput => {
@@ -188,19 +198,23 @@ const findTripDayForTripWriter = async (userId: string, tripId: string, tripDayI
     select: { id: true },
   });
 
-const buildSegmentTimeline = async (
-  userId: string,
+/**
+ * Story 11.1. The endpoint-ordering core of `buildSegmentTimeline`, through a transaction client so a
+ * day-plan write can read the day it is about to change — and the day it has just changed — inside its
+ * own `prisma.$transaction`. A read through the global client there would not see the write's own rows.
+ *
+ * No writer clause: every caller has already passed one (the write paths, and `buildSegmentTimeline`
+ * below). The order is the one the day view draws: last night's stay (the nearest lower `dayIndex`), the
+ * day's activities by `compareDayPlanItemsByStartTime`, this night's stay. `null` when the day is not on
+ * the trip.
+ */
+export const buildSegmentTimelineInTransaction = async (
+  tx: TransactionClient,
   tripId: string,
   tripDayId: string,
 ): Promise<SegmentTimelineItem[] | null> => {
-  const day = await prisma.tripDay.findFirst({
-    where: {
-      id: tripDayId,
-      tripId,
-      trip: {
-        OR: [{ userId }, { members: { some: { userId, role: "CONTRIBUTOR" } } }],
-      },
-    },
+  const day = await tx.tripDay.findFirst({
+    where: { id: tripDayId, tripId },
     select: {
       id: true,
       dayIndex: true,
@@ -213,7 +227,7 @@ const buildSegmentTimeline = async (
 
   if (!day) return null;
 
-  const previousDay = await prisma.tripDay.findFirst({
+  const previousDay = await tx.tripDay.findFirst({
     where: {
       tripId,
       dayIndex: { lt: day.dayIndex },
@@ -241,6 +255,77 @@ const buildSegmentTimeline = async (
   return timeline;
 };
 
+const buildSegmentTimeline = async (
+  userId: string,
+  tripId: string,
+  tripDayId: string,
+): Promise<SegmentTimelineItem[] | null> => {
+  const writable = await findTripDayForTripWriter(userId, tripId, tripDayId);
+  if (!writable) return null;
+  return buildSegmentTimelineInTransaction(prisma, tripId, tripDayId);
+};
+
+/**
+ * Story 11.1. The keys of the pairs a day's timeline draws right now, read through `tx`. The rule itself
+ * is `daySegmentPairs.ts`'s, the one the day view and the overview already share — not a fourth copy.
+ * An unknown day draws nothing.
+ */
+export const readDrawnSegmentKeysInTransaction = async (
+  tx: TransactionClient,
+  tripId: string,
+  tripDayId: string,
+): Promise<Set<string>> => buildDrawnDaySegmentPairKeys((await buildSegmentTimelineInTransaction(tx, tripId, tripDayId)) ?? []);
+
+/** The pair key of a stored row, in the timeline's vocabulary. */
+export const buildStoredSegmentPairKey = (segment: {
+  fromItemType: TravelSegmentItemType;
+  fromItemId: string;
+  toItemType: TravelSegmentItemType;
+  toItemId: string;
+}) =>
+  buildDaySegmentPairKey(
+    fromPrismaItemType(segment.fromItemType),
+    segment.fromItemId,
+    fromPrismaItemType(segment.toItemType),
+    segment.toItemId,
+  );
+
+/**
+ * Story 11.1 AC1, superseding Story 8.5 AC3. Deletes every leg on the day that the change *un-drew*: its
+ * pair was consecutive before the change (`drawnBefore`, read by the caller through `tx` before it
+ * mutated) and is not consecutive after it. Returns the deleted rows in full, for the change receipt.
+ *
+ * **A leg that was already undrawn before the change is left alone.** A restored backup, `DW-318`'s other
+ * routes or older rows can leave orphans this change did not make; Story 8.5's orphan list is how their
+ * owner removes them, and sweeping them here would destroy measurements on the strength of an unrelated
+ * edit.
+ *
+ * Like `removeTravelSegmentsReferencingItemInTransaction`, it never heals: nothing joins the new
+ * neighbours, because mode, duration and distance are the user's knowledge (Story 6.23's rule).
+ */
+export const sweepNoLongerDrawnSegmentsInTransaction = async (
+  tx: TransactionClient,
+  params: { tripId: string; tripDayId: string; drawnBefore: ReadonlySet<string> },
+): Promise<TravelSegment[]> => {
+  const { tripId, tripDayId, drawnBefore } = params;
+  if (drawnBefore.size === 0) return [];
+
+  const drawnAfter = await readDrawnSegmentKeysInTransaction(tx, tripId, tripDayId);
+  const segments = await tx.travelSegment.findMany({
+    where: { tripDayId },
+    orderBy: { createdAt: "asc" },
+  });
+  const swept = segments.filter((segment) => {
+    const key = buildStoredSegmentPairKey(segment);
+    return drawnBefore.has(key) && !drawnAfter.has(key);
+  });
+
+  if (swept.length === 0) return [];
+
+  await tx.travelSegment.deleteMany({ where: { id: { in: swept.map((segment) => segment.id) } } });
+  return swept;
+};
+
 const ensureSegmentItemsExist = async (
   params: TravelSegmentMutationParams,
 ): Promise<"ok" | "missing" | "not_adjacent"> => {
@@ -261,8 +346,9 @@ const ensureSegmentItemsExist = async (
 
 /**
  * Story 6.23, AC4/AC6, generalised by Story 8.5 (`DW-215`). Deletes every travel segment on
- * `tripDayIds` that points at `itemId` **as `itemType`**, and returns the ids it deleted so the
- * caller can report them.
+ * `tripDayIds` that points at `itemId` **as `itemType`**, and returns the deleted rows in full (Story
+ * 11.1: the change receipt carries them so undo can recreate them) — callers that only report ids map
+ * them.
  *
  * `TravelSegment` has **no foreign key to either endpoint** — `fromItemId`/`toItemId` are plain
  * strings paired with a `fromItemType`/`toItemType` discriminator, and the only cascade is on
@@ -291,7 +377,7 @@ export const removeTravelSegmentsReferencingItemInTransaction = async (
   tripDayIds: string[],
   itemType: TravelSegmentItemType,
   itemId: string,
-): Promise<string[]> => {
+): Promise<TravelSegment[]> => {
   const segments = await tx.travelSegment.findMany({
     where: {
       tripDayId: { in: tripDayIds },
@@ -300,7 +386,6 @@ export const removeTravelSegmentsReferencingItemInTransaction = async (
         { toItemType: itemType, toItemId: itemId },
       ],
     },
-    select: { id: true },
     orderBy: { createdAt: "asc" },
   });
 
@@ -308,9 +393,8 @@ export const removeTravelSegmentsReferencingItemInTransaction = async (
     return [];
   }
 
-  const removedIds = segments.map((segment) => segment.id);
-  await tx.travelSegment.deleteMany({ where: { id: { in: removedIds } } });
-  return removedIds;
+  await tx.travelSegment.deleteMany({ where: { id: { in: segments.map((segment) => segment.id) } } });
+  return segments;
 };
 
 export const listTravelSegmentsForTripDay = async (params: {
