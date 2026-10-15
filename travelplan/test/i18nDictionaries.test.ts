@@ -3,6 +3,8 @@ import en from "@/i18n/en";
 import de from "@/i18n/de";
 import { dictionaries } from "@/i18n";
 import { toWinAnsiText } from "@/lib/trips/packetPdf";
+import { TRANSPORT_TYPES } from "@/lib/trips/transportTypes";
+import { travelSegmentRouteLookupModeSchema } from "@/lib/validation/travelSegmentRouteLookupSchemas";
 
 describe("i18n dictionaries", () => {
   it("exports dictionary objects for en and de", () => {
@@ -215,6 +217,26 @@ describe("i18n dictionaries", () => {
       expect(helper).not.toMatch(/nur für Auto|car only|car-only/i);
       for (const mode of language === "en" ? ["car", "walking", "cycling"] : ["Auto", "zu Fuß", "Fahrrad"]) {
         expect(helper).toContain(mode);
+      }
+    });
+
+    /**
+     * Story 6.31 / AC5. The helper used to list the manual modes ("Ship and flight are entered
+     * manually"), which stopped being true the moment train and bus arrived. It now covers every
+     * non-importing mode generically, so it must not name any of them: a named one is a list that the
+     * next mode will make wrong again. The manual modes are derived (every mode the route lookup does
+     * not accept), and matched as whole words, so "Bus" is not found inside an unrelated word.
+     */
+    it.each(["en", "de"] as const)("names no individual manual mode in the %s manual-mode helper", (language) => {
+      const dictionary = language === "en" ? en : de;
+      const helper = dictionary["trips.travelSegment.googleMapsManualModeHelper"];
+      const routable: readonly string[] = travelSegmentRouteLookupModeSchema.options;
+      const manualModes = TRANSPORT_TYPES.filter((mode) => !routable.includes(mode));
+      expect(manualModes).toEqual(expect.arrayContaining(["ship", "flight", "train", "bus"]));
+      for (const mode of manualModes) {
+        const label = dictionary[`trips.travelSegment.transport.${mode}`];
+        const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        expect(helper).not.toMatch(new RegExp(`(?<!\\p{L})${escaped}(?!\\p{L})`, "iu"));
       }
     });
   });
@@ -797,14 +819,13 @@ describe("i18n dictionaries", () => {
      * `trips.travelSegment.transport.cycling` on paper with the whole suite green, because the parity test
      * is equally satisfied by *both* dictionaries dropping it and the render tests only cover three of the
      * five modes per language.
+     *
+     * Story 6.31: the transport keys are built from `TRANSPORT_TYPES` rather than listed, so the next mode
+     * added there is checked here without anyone remembering this list.
      */
     const DAY_PRINT_KEYS = [
       "trips.travelSegment.kmSuffix",
-      "trips.travelSegment.transport.car",
-      "trips.travelSegment.transport.ship",
-      "trips.travelSegment.transport.flight",
-      "trips.travelSegment.transport.walking",
-      "trips.travelSegment.transport.cycling",
+      ...TRANSPORT_TYPES.map((mode) => `trips.travelSegment.transport.${mode}`),
       "trips.dayPrint.metaTitle",
       "trips.dayPrint.dayHeading",
       "trips.dayPrint.routeSection",

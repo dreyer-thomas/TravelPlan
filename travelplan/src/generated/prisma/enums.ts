@@ -55,7 +55,9 @@ export const TravelTransportType = {
   SHIP: 'SHIP',
   FLIGHT: 'FLIGHT',
   WALKING: 'WALKING',
-  CYCLING: 'CYCLING'
+  CYCLING: 'CYCLING',
+  TRAIN: 'TRAIN',
+  BUS: 'BUS'
 } as const
 
 export type TravelTransportType = (typeof TravelTransportType)[keyof typeof TravelTransportType]

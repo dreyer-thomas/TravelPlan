@@ -57,7 +57,7 @@ export const travelSegmentMutationSchema = z
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["distanceKm"],
-        message: "Distance is only allowed for car, walking and cycling travel",
+        message: "Distance is not allowed for ship and flight travel",
       });
     }
   });

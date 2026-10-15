@@ -32,13 +32,13 @@ const IMAGE_SETTLE_TIMEOUT_CEILING_MS = 40000;
 /**
  * The dictionary key each transport type is named by, not the name itself (DW-230).
  *
- * The five keys already existed for the travel-segment dialog and the day view, so this sheet joins them
+ * The keys already existed for the travel-segment dialog and the day view, so this sheet joins them
  * rather than adding a second spelling of "Car" that could drift out of step with the one on screen for
  * the same segment.
  *
- * A `transportType` outside these five still prints raw, exactly as before. That branch matters: the value
- * comes out of the database and `tripImportSchemas.ts` does not constrain it to the five, so a restored
- * backup can carry anything - and `t()` returns the *key* for a miss, which would put
+ * A `transportType` outside `TRANSPORT_TYPES` still prints raw, exactly as before. That branch matters: the
+ * value comes out of a bare `TEXT` column with no CHECK constraint, so a row can carry anything - and
+ * `t()` returns the *key* for a miss, which would put
  * `trips.travelSegment.transport.hovercraft` on a printed page. Membership is therefore checked before the
  * lookup rather than leaning on a `??` fallback that a missing dictionary entry never reaches.
  *
@@ -56,6 +56,8 @@ const TRANSPORT_LABEL_KEYS: Record<TransportType, string> = {
   flight: "trips.travelSegment.transport.flight",
   walking: "trips.travelSegment.transport.walking",
   cycling: "trips.travelSegment.transport.cycling",
+  train: "trips.travelSegment.transport.train",
+  bus: "trips.travelSegment.transport.bus",
 };
 
 const GOOGLE_MAPS_MAX_STOPS = 9;
@@ -441,7 +443,7 @@ export default function TripDayPrintDocument({ payload, onReady }: TripDayPrintD
               // Membership first, then `t()`. See `TRANSPORT_LABEL_KEYS`: an unknown type must print raw,
               // and `t()` hands back the key itself for a miss, which would print the key on paper. The
               // check is the shared `isTransportType` rather than a local one, so this sheet and every
-              // other surface answer "is this one of the five" the same way.
+              // other surface answer "is this a known mode" the same way.
               const transport = isTransportType(seg.transportType)
                 ? t(TRANSPORT_LABEL_KEYS[seg.transportType])
                 : seg.transportType;

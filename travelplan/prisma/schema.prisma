@@ -47,13 +47,16 @@ enum TravelSegmentItemType {
 // SQLite has no native enum. `travel_segments.transport_type` is a plain TEXT column with no CHECK
 // constraint (see 20260301105118_add_travel_segments), so widening this enum is a client-side change
 // only and emits no DDL - `prisma migrate diff` against the migrations directory stays empty for
-// this table. Every stored row keeps its value; the two new members are purely additive.
+// this table. Every stored row keeps its value; every member added since the original CAR, SHIP and
+// FLIGHT (WALKING and CYCLING in Story 6.16, TRAIN and BUS in Story 6.31) is purely additive.
 enum TravelTransportType {
   CAR
   SHIP
   FLIGHT
   WALKING
   CYCLING
+  TRAIN
+  BUS
 }
 
 model User {

@@ -3629,3 +3629,25 @@ severity: low
 summary: `409 day_plan_past_midnight` carries only `itemId` and `itemTitle`. When the blocking activity is on the next day, the stay dialog names the activity but not the day.
 evidence: Read at 2026-10-11 during the code review of Story 11.4. The cause is the same as DW-377: API-only today, because the check-out is edited from the pushed day itself. Deferred with the same UX question.
 status: open
+
+## Deferred from: code review of 6-31-train-and-bus-as-travel-modes (2026-10-16)
+
+### DW-379: Rolling back past 6.31 breaks every trip that holds a train or bus leg
+
+source_spec: `_bmad-output/implementation-artifacts/6-31-train-and-bus-as-travel-modes.md`
+origin: code review of 6-31-train-and-bus-as-travel-modes, 2026-10-16
+location: `travelplan/src/lib/repositories/travelSegmentRepo.ts:148` (`fromPrismaTransportType`), `travelplan/src/lib/repositories/tripRepo.ts:1781` (`toExportTransportType`), `travelplan/prisma/schema.prisma:47`
+severity: low
+summary: `transport_type` is plain TEXT, so a pre-6.31 build will start against a database that already holds TRAIN/BUS rows. Its exhaustive mappers then throw "Unhandled travel transport type", and that trip's day view and export answer 500 instead of degrading one leg. The schema comment's "purely additive" holds only going forward.
+evidence: Read at 2026-10-16 during the code review of Story 6.31. This is the same one-way trade Story 6.16 made for WALKING/CYCLING. The deploy script has no automated rollback (see DW-333), so it matters only on a manual downgrade. A fix would be either a documented "no rollback once used" note, or a reverse script that rewrites the rows first.
+status: open
+
+### DW-380: Switching a leg to ship or flight silently drops a typed distance
+
+source_spec: `_bmad-output/implementation-artifacts/6-31-train-and-bus-as-travel-modes.md`
+origin: code review of 6-31-train-and-bus-as-travel-modes, 2026-10-16
+location: `travelplan/src/components/features/trips/TripDayTravelSegmentDialog.tsx:345` (`handleTransportTypeChange`), and the save path that nulls a distance the mode does not allow
+severity: low
+summary: A user types a distance on a train, bus, walking or cycling leg (not one prefilled by route import), switches it to Ship or Flight, and saves. The distance field disappears and the stored kilometres are discarded on save with no notice.
+evidence: Read at 2026-10-16 during the code review of Story 6.31. This has been the behaviour since Story 6.16 for walking/cycling; 6.31 adds two more modes from which it can be reached. A fix would show a helper ("the distance will be dropped") or keep the value until the user saves on a mode that cannot carry it.
+status: open

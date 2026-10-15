@@ -331,6 +331,19 @@ describe("dayChangeReceipt (Story 11.1)", () => {
     expect(dayChangeReceiptSchema.safeParse(withMode("CAR")).success).toBe(true);
   });
 
+  // Story 6.31 / AC7 (H2): the receipt schema is derived from `TRANSPORT_TYPES`, so the new modes are
+  // accepted in their stored spelling and refused in the wire one, like every other mode.
+  it("accepts a stored TRAIN or BUS leg and refuses the lowercase spelling", () => {
+    const wire = signDayChangeReceipt(toDayChangeReceiptWire(receiptWith([leg("s1")])), BINDING);
+    const withMode = (transportType: string) => ({
+      ...wire,
+      removedTravelSegments: [{ ...wire.removedTravelSegments[0], transportType }],
+    });
+    expect(dayChangeReceiptSchema.safeParse(withMode("TRAIN")).success).toBe(true);
+    expect(dayChangeReceiptSchema.safeParse(withMode("BUS")).success).toBe(true);
+    expect(dayChangeReceiptSchema.safeParse(withMode("train")).success).toBe(false);
+  });
+
   it("caps the number of legs a receipt may carry", () => {
     const sign = (count: number) =>
       signDayChangeReceipt(

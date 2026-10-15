@@ -1781,6 +1781,10 @@ const toExportTransportType = (value: TravelTransportType): TransportTypeInput =
       return "walking";
     case "CYCLING":
       return "cycling";
+    case "TRAIN":
+      return "train";
+    case "BUS":
+      return "bus";
     default: {
       // Exhaustive: a new `TravelTransportType` member must not be exported under an existing
       // spelling. Story 2.32 remaps by this vocabulary, so a silent mislabel would restore the
@@ -2402,6 +2406,10 @@ const toPrismaTransportType = (value: TransportTypeInput): TravelTransportType =
       return "WALKING";
     case "cycling":
       return "CYCLING";
+    case "train":
+      return "TRAIN";
+    case "bus":
+      return "BUS";
     default: {
       // Exhaustive for the same reason as the export direction: a `default` would have restored
       // every mode added after FLIGHT as a flight.

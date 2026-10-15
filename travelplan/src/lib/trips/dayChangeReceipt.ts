@@ -9,8 +9,9 @@
  *
  * No Prisma import on purpose. The day view imports this module for `receiptHasSideEffects` and the
  * summary, and the client bundle must not pull the generated client in. The enum vocabularies below are
- * the stored (uppercase) spellings, spelled out as literals; `dayChangeReceiptSchemas.ts` is what holds
- * a wire receipt to them.
+ * the stored (uppercase) spellings: the endpoint type spelled out as literals, the transport type derived
+ * from the dependency-free `transportTypes.ts`; `dayChangeReceiptSchemas.ts` is what holds a wire receipt
+ * to them.
  *
  * Story 11.2 (version 2) adds the activities the push rule moved (`movedItems`, each with the times and
  * `updatedAt` it had before, so undo can put it back byte for byte) and the optional check-in warning,
@@ -31,9 +32,12 @@
  */
 
 import { formatMessage } from "@/i18n";
+import type { TransportType } from "@/lib/trips/transportTypes";
 
 export type DayChangeEndpointType = "ACCOMMODATION" | "DAY_PLAN_ITEM";
-export type DayChangeTransportType = "CAR" | "SHIP" | "FLIGHT" | "WALKING" | "CYCLING";
+// Derived from the one vocabulary rather than spelled out, so a mode added there (Story 6.31 added
+// TRAIN and BUS) reaches the receipt type without a second list to forget.
+export type DayChangeTransportType = Uppercase<TransportType>;
 
 /** `Date` on the server, ISO string on the wire. Every row's only timestamps are these two. */
 type Stamped<T extends Date | string> = { createdAt: T; updatedAt: T };

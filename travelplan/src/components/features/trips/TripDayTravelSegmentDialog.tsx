@@ -44,7 +44,8 @@ type SegmentItem = {
 /**
  * The modes a router can answer for, and the Google `travelmode` each maps onto. Ship and flight are
  * absent on purpose - Google has no equivalent - so they fall through to the manual path instead of
- * producing an error.
+ * producing an error. Train and bus are absent too, by Tommy's ruling on Story 6.31: no automatic route
+ * import for either, so they take the same manual path.
  */
 const GOOGLE_TRAVEL_MODE_BY_TRANSPORT = {
   car: "driving",
@@ -56,6 +57,23 @@ type RoutableTransportType = keyof typeof GOOGLE_TRAVEL_MODE_BY_TRANSPORT;
 
 const isRoutableTransportType = (value: TransportType): value is RoutableTransportType =>
   value in GOOGLE_TRAVEL_MODE_BY_TRANSPORT;
+
+/**
+ * The `travelmode` for the plain Maps *link* only, which is wider than the router gate above. Story
+ * 6.31 review (Tommy, 2026-10-16): a train or bus leg opens Google's `transit` directions, which show
+ * real connections, while still importing nothing. Kept as a separate map so the link can never widen
+ * `isRoutableTransportType` by accident. Ship and flight stay absent: Google has no mode for them.
+ */
+const GOOGLE_LINK_MODE_BY_TRANSPORT = {
+  ...GOOGLE_TRAVEL_MODE_BY_TRANSPORT,
+  train: "transit",
+  bus: "transit",
+} as const satisfies Partial<Record<TransportType, string>>;
+
+const googleLinkModeFor = (value: TransportType): string | undefined =>
+  value in GOOGLE_LINK_MODE_BY_TRANSPORT
+    ? GOOGLE_LINK_MODE_BY_TRANSPORT[value as keyof typeof GOOGLE_LINK_MODE_BY_TRANSPORT]
+    : undefined;
 
 // The distance rule itself lives in `@/lib/trips/transportTypes` alongside the enum, so the form and
 // the schema that will judge its payload cannot drift apart.
@@ -185,8 +203,9 @@ const buildGoogleMapsLink = (from: SegmentItem | null, to: SegmentItem | null, t
   const destination = buildLocationParam(to?.location ?? null);
   if (!origin || !destination) return null;
   const params = new URLSearchParams({ api: "1", origin, destination });
-  if (transportType && isRoutableTransportType(transportType)) {
-    params.set("travelmode", GOOGLE_TRAVEL_MODE_BY_TRANSPORT[transportType]);
+  const travelmode = transportType ? googleLinkModeFor(transportType) : undefined;
+  if (travelmode) {
+    params.set("travelmode", travelmode);
   }
   return `https://www.google.com/maps/dir/?${params.toString()}`;
 };
@@ -449,7 +468,8 @@ export default function TripDayTravelSegmentDialog({
   const handleGoogleMapsRoute = useCallback(async () => {
     if (!mapsLink) return;
     // Point the fallback link at the mode being imported, so the link is right even on the paths
-    // that return below without a route (ship and flight, no locations, no route for this mode).
+    // that return below without a route (ship, flight, train and bus, no locations, no route for
+    // this mode).
     const modeAwareMapsLink = buildGoogleMapsLink(fromItem, toItem, transportType) ?? mapsLink;
     setLinkUrl(modeAwareMapsLink);
     seededLinkRef.current = modeAwareMapsLink;
@@ -458,8 +478,8 @@ export default function TripDayTravelSegmentDialog({
     setRouteHelper(null);
 
     if (!isRoutableTransportType(transportType)) {
-      // Ship and flight: no router has a profile for them, so this is the manual path by design and
-      // must never read as an error.
+      // Ship, flight, train and bus: no router has a profile for them (train and bus by ruling, Story
+      // 6.31), so this is the manual path by design and must never read as an error.
       // Story 6.17 review: in the *add* dialog this exact sentence is already standing under the
       // form as `staticRouteHelper`, so setting it here too rendered the longest surviving helper
       // twice - roughly four extra wrapped lines in the dialog this story exists to fit onto a
@@ -641,13 +661,14 @@ export default function TripDayTravelSegmentDialog({
    * The standing helper under the form, as opposed to `routeHelper`, which is the Alert a route
    * attempt leaves behind. `null` for the whole common case — see the comment at its render site.
    *
-   * DW-114/DW-115: routability is tested before `mapsLink`, not after — ship/flight can never import
-   * a route regardless of whether both neighbours have a location, so "add a location" is never the
-   * right advice for them. `isEditing` only gates the non-routable arm: there, `handleGoogleMapsRoute`
-   * (`:465`) sets the identical sentence as a `routeHelper` Alert once "Plan" is pressed, so this arm
-   * stays silent to avoid doubling it up — when `mapsLink` is also absent, "Plan" is disabled and
-   * that Alert can never fire either, which is a known, pre-existing gap (deferred, not part of this
-   * fix). The routable arm has no such Alert to defer to, so it renders in both add and edit mode.
+   * DW-114/DW-115: routability is tested before `mapsLink`, not after — the non-routable modes (ship,
+   * flight, train, bus) can never import a route regardless of whether both neighbours have a
+   * location, so "add a location" is never the right advice for them. `isEditing` only gates the
+   * non-routable arm: there, `handleGoogleMapsRoute` sets the identical sentence as a `routeHelper`
+   * Alert once "Plan" is pressed, so this arm stays silent to avoid doubling it up — when `mapsLink`
+   * is also absent, "Plan" is disabled and that Alert can never fire either, which is a known,
+   * pre-existing gap (deferred, not part of this fix). The routable arm has no such Alert to defer
+   * to, so it renders in both add and edit mode.
    */
   const staticRouteHelper = !isRoutableTransportType(transportType)
     ? isEditing
@@ -719,6 +740,8 @@ export default function TripDayTravelSegmentDialog({
               <MenuItem value="car">{t("trips.travelSegment.transport.car")}</MenuItem>
               <MenuItem value="walking">{t("trips.travelSegment.transport.walking")}</MenuItem>
               <MenuItem value="cycling">{t("trips.travelSegment.transport.cycling")}</MenuItem>
+              <MenuItem value="train">{t("trips.travelSegment.transport.train")}</MenuItem>
+              <MenuItem value="bus">{t("trips.travelSegment.transport.bus")}</MenuItem>
               <MenuItem value="ship">{t("trips.travelSegment.transport.ship")}</MenuItem>
               <MenuItem value="flight">{t("trips.travelSegment.transport.flight")}</MenuItem>
             </Select>

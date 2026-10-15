@@ -423,7 +423,7 @@ const de: Dictionary = {
   "trips.travelSegment.googleMapsUnavailableHelper":
     "Füge beiden Nachbareinträgen einen Ort hinzu.",
   "trips.travelSegment.googleMapsManualModeHelper":
-    "Der automatische Routenimport deckt Auto, zu Fuß und Fahrrad ab. Schiff und Flug trägst du manuell ein.",
+    "Der Routenimport deckt Auto, zu Fuß und Fahrrad ab. Alle anderen Verkehrsmittel trägst du manuell ein.",
   "trips.travelSegment.googleMapsNoRouteForMode":
     "Für diese Reiseart gibt es zwischen diesen beiden Orten keine Route. Trage Dauer und Entfernung manuell ein.",
   "trips.travelSegment.googleMapsFallbackActive":
@@ -463,6 +463,8 @@ const de: Dictionary = {
   "trips.travelSegment.transport.flight": "Flug",
   "trips.travelSegment.transport.walking": "Zu Fuß",
   "trips.travelSegment.transport.cycling": "Fahrrad",
+  "trips.travelSegment.transport.train": "Bahn",
+  "trips.travelSegment.transport.bus": "Bus",
   "trips.dayImage.title": "Tagesbild",
   "trips.dayImage.empty": "Noch kein Tagesbild ausgewählt.",
   "trips.dayImage.editAction": "Tagesdetails bearbeiten",

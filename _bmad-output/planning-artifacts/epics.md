@@ -2684,6 +2684,63 @@ The second nobody had noticed until a person used it: under German the cost fiel
 **Then** the cent value is identical, and the dialog reports no unsaved changes
 
 
+### Story 6.31: Train and Bus as Travel Modes
+
+As a trip planner,
+I want to record a leg as taken by train or by bus,
+So that a rail or coach journey no longer has to be filed as car, ship or flight.
+
+**FRs covered:** None new — extends the mode set of the existing travel segments, exactly as Story 6.16 did
+
+**Depends on:** nothing. Story 6.16 built the single vocabulary this story widens.
+
+**Context:** Tommy noticed on 2026-10-15 that there is no train. `TRANSPORT_TYPES` in `src/lib/trips/transportTypes.ts` is `car | ship | flight | walking | cycling`, and `TravelTransportType` in `prisma/schema.prisma` matches it. A rail leg today has to be recorded as one of those or not at all.
+
+Story 6.16 made this cheap. `transport_type` is a plain `TEXT` column on SQLite with no CHECK constraint, so widening the Prisma enum emits **no DDL** and no migration. Every enum-to-string mapper is exhaustive with a `never` guard (`transportIconFor`, `TRANSPORT_LABEL_KEYS`, the repository mappers), so a missed mapper fails to compile. Not every list is typed that way, though. These are hand-written literal lists that the compiler will **not** flag:
+- `DayChangeTransportType` in `dayChangeReceipt.ts`
+- the import schema's `z.enum` in `tripImportSchemas.ts`
+- the `<MenuItem>` list in `TripDayTravelSegmentDialog.tsx`
+
+These lists are where a half-done version ships green.
+
+Three rulings by Tommy on 2026-10-15:
+1. Train and bus are **two separate modes**, not one "public transport" mode.
+2. Distance is **allowed but optional** for both, the same rule as walking and cycling.
+3. Neither mode gets **automatic route import**. Both stay manual, like ship and flight. A road router's answer for a bus is not the timetable's answer, and a transit lookup depends on departure times and changes. If it is wanted later, it is a story of its own.
+
+**Acceptance Criteria:**
+
+**Given** the mode set is `car`, `ship`, `flight`, `walking`, `cycling`
+**When** it is extended
+**Then** `train` and `bus` (`TRAIN` and `BUS` in the Prisma enum) are available wherever a transport type is chosen, labelled "Bahn" and "Bus" in German and "Train" and "Bus" in English
+**And** every existing segment keeps its type, the change is additive only, and `check:migrations` stays clean with no new migration
+
+**Given** `transportIconFor` returns one glyph per mode behind a `never` guard
+**When** the new modes land
+**Then** each has its own glyph in `TripIcons.tsx`, consistent with the existing stroke set, and neither falls back to the car glyph
+
+**Given** the distance rule lives once in `transportTypes.ts`
+**When** a train or bus leg is saved
+**Then** a distance is accepted but not required, exactly as for walking and cycling, and the day view and the print document show it when present
+
+**Given** automatic route import covers car, walking and cycling
+**When** a train or bus leg is edited
+**Then** no import is offered, and the leg is timed by hand like ship and flight
+**And** the helper text that names the importable modes stays accurate in both languages, still naming car, walking and cycling, now with train and bus among the manual ones
+**And** the route-lookup schema and the OSRM profile map are **not** widened
+
+**Given** the coverage bar, the Gantt segments, the day's travel total and the day-plan push (Epic 11) all read travel segments
+**When** a leg goes by train or bus
+**Then** each surface treats it as travel exactly like the other modes: no new segment kind, no new colour, no special case
+
+**Given** the export/import format and the day-change receipt carry the transport type
+**When** a backup is written or read, or a day change that involves such a leg is undone
+**Then** `train` and `bus` round-trip, and a backup containing them imports cleanly
+
+**Given** the hand-written lists that the compiler does not check
+**When** the change is reviewed
+**Then** a test pins each of them to `TRANSPORT_TYPES` (or derives them from it), so a sixth and seventh mode cannot again be missed silently
+
 ## Epic 7: Visual Redesign — Light Cockpit System
 
 Users experience the approved `DESIGN.md`/`EXPERIENCE.md` visual system across every screen instead of the current inconsistent styling. Source of truth: `_bmad-output/planning-artifacts/ux-designs/ux-TravelPlan-2026-07-27/DESIGN.md`, `EXPERIENCE.md`, and `mockups/*.html`. This epic re-skins existing, already-shipped screens — it does not add product capability, so no new FRs are introduced.

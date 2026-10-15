@@ -118,6 +118,10 @@ const toPrismaTransportType = (value: TransportTypeInput): TravelTransportType =
       return "WALKING";
     case "cycling":
       return "CYCLING";
+    case "train":
+      return "TRAIN";
+    case "bus":
+      return "BUS";
     default: {
       const unhandled: never = value;
       throw new Error(`Unhandled travel transport type: ${String(unhandled)}`);
@@ -144,6 +148,10 @@ const fromPrismaTransportType = (value: TravelTransportType): TransportTypeInput
       return "walking";
     case "CYCLING":
       return "cycling";
+    case "TRAIN":
+      return "train";
+    case "BUS":
+      return "bus";
     default: {
       const unhandled: never = value;
       throw new Error(`Unhandled travel transport type: ${String(unhandled)}`);

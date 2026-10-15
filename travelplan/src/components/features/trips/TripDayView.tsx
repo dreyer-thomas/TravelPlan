@@ -2395,8 +2395,9 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
       if (!segment) return t("trips.travelSegment.addPrompt");
       const transport = t(`trips.travelSegment.transport.${segment.transportType}`);
       const duration = formatDurationMinutes(segment.durationMinutes);
-      // Walking and cycling may carry a distance too (Story 6.16 / AC6); ship and flight still
-      // cannot, so a stored value on them would be data the schema forbids and is not shown.
+      // Walking and cycling (Story 6.16 / AC6) and train and bus (Story 6.31) may carry a distance
+      // too; ship and flight still cannot, so a stored value on them would be data the schema
+      // forbids and is not shown.
       const distance =
         transportTypeAllowsDistance(segment.transportType) && typeof segment.distanceKm === "number"
           ? `${segment.distanceKm} ${t("trips.travelSegment.kmSuffix")}`

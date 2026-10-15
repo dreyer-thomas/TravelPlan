@@ -414,6 +414,115 @@ describe("trip backup round trip", () => {
   });
 
   /**
+   * Story 6.31 / AC7 (H1). Before this story the import schema still listed the modes by hand, so a
+   * backup holding a train leg exported fine and was then refused on import with a 400 - with `tsc`
+   * green, because the narrower literal union still fits the import mapper's parameter type.
+   *
+   * The train leg keeps a distance and the bus leg does not: both are allowed for these modes.
+   */
+  it("round-trips train and bus travel segments", async () => {
+    const user = await prisma.user.create({
+      data: { email: "round-trip-rail@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const session = await createSessionJwt({ sub: user.id, role: user.role });
+
+    const { trip: sourceTrip } = await createTripWithDays({
+      userId: user.id,
+      name: "Rail Round Trip",
+      startDate: "2026-10-01T00:00:00.000Z",
+      endDate: "2026-10-01T00:00:00.000Z",
+    });
+    const [sourceDay] = await prisma.tripDay.findMany({ where: { tripId: sourceTrip.id } });
+
+    const sourceStay = await prisma.accommodation.create({
+      data: { tripDayId: sourceDay.id, name: "Trailhead Lodge", status: "PLANNED" },
+    });
+    const firstStop = await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: sourceDay.id,
+        title: "Viewpoint",
+        contentJson: JSON.stringify({ type: "doc", content: [] }),
+      },
+    });
+    const secondStop = await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: sourceDay.id,
+        title: "Lake",
+        contentJson: JSON.stringify({ type: "doc", content: [] }),
+      },
+    });
+
+    await prisma.travelSegment.create({
+      data: {
+        tripDayId: sourceDay.id,
+        fromItemType: "ACCOMMODATION",
+        fromItemId: sourceStay.id,
+        toItemType: "DAY_PLAN_ITEM",
+        toItemId: firstStop.id,
+        transportType: "BUS",
+        durationMinutes: 45,
+        distanceKm: null,
+      },
+    });
+    await prisma.travelSegment.create({
+      data: {
+        tripDayId: sourceDay.id,
+        fromItemType: "DAY_PLAN_ITEM",
+        fromItemId: firstStop.id,
+        toItemType: "DAY_PLAN_ITEM",
+        toItemId: secondStop.id,
+        transportType: "TRAIN",
+        durationMinutes: 120,
+        distanceKm: 120,
+      },
+    });
+
+    const exportResponse = await EXPORT(
+      new NextRequest(`http://localhost/api/trips/${sourceTrip.id}/export`, {
+        method: "GET",
+        headers: { cookie: `session=${session}` },
+      }),
+      { params: Promise.resolve({ id: sourceTrip.id }) }
+    );
+    expect(exportResponse.status).toBe(200);
+    const archive = Buffer.from(await exportResponse.arrayBuffer());
+
+    const form = new FormData();
+    form.set("file", new File([new Uint8Array(archive)], "backup.zip", { type: "application/zip" }));
+    form.set("strategy", "createNew");
+
+    const importResponse = await IMPORT(
+      new NextRequest("http://localhost/api/trips/import", {
+        method: "POST",
+        headers: { cookie: `session=${session}; csrf_token=csrf-token`, "x-csrf-token": "csrf-token" },
+        body: form,
+      })
+    );
+    const imported = (await importResponse.json()) as ApiEnvelope<ImportResponse>;
+
+    expect(importResponse.status).toBe(200);
+    expect(imported.error).toBeNull();
+    expect(imported.data?.travelSegmentCount).toBe(2);
+
+    const newTripId = imported.data!.trip.id;
+    const [newDay] = await prisma.tripDay.findMany({ where: { tripId: newTripId } });
+    const newSegments = await prisma.travelSegment.findMany({
+      where: { tripDayId: newDay.id },
+      orderBy: { durationMinutes: "asc" },
+    });
+
+    expect(newSegments.map((segment) => segment.transportType)).toEqual(["BUS", "TRAIN"]);
+    expect(newSegments[0].distanceKm).toBeNull();
+    expect(newSegments[1].distanceKm).toBe(120);
+    // Endpoints are remapped onto the restored rows, not left pointing at the source trip's.
+    const sourceIds = [sourceStay.id, firstStop.id, secondStop.id];
+    for (const segment of newSegments) {
+      expect(sourceIds).not.toContain(segment.fromItemId);
+      expect(sourceIds).not.toContain(segment.toItemId);
+    }
+  });
+
+  /**
    * The other direction of AC7, and the one that could actually regress: a backup written *before*
    * this story - so carrying only CAR / SHIP / FLIGHT - must still import cleanly. The change to the
    * import schema is accept-more, so this is a guard against someone later "tidying" the enum into

@@ -441,7 +441,7 @@ const en: Dictionary = {
   "trips.travelSegment.googleMapsUnavailableHelper":
     "Add a location to both adjacent items.",
   "trips.travelSegment.googleMapsManualModeHelper":
-    "Automatic route import covers car, walking and cycling. Ship and flight are entered manually.",
+    "Automatic route import covers car, walking and cycling. Every other mode is entered manually.",
   "trips.travelSegment.googleMapsNoRouteForMode":
     "No route is available for this travel mode between these two places. Enter the duration and distance manually.",
   "trips.travelSegment.googleMapsFallbackActive":
@@ -498,6 +498,8 @@ const en: Dictionary = {
   "trips.travelSegment.transport.flight": "Flight",
   "trips.travelSegment.transport.walking": "Walking",
   "trips.travelSegment.transport.cycling": "Cycling",
+  "trips.travelSegment.transport.train": "Train",
+  "trips.travelSegment.transport.bus": "Bus",
   "trips.dayImage.title": "Day image",
   "trips.dayImage.empty": "No day image selected yet.",
   "trips.dayImage.editAction": "Edit day details",

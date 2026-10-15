@@ -8,6 +8,7 @@ import TripDayTravelSegmentDialog from "@/components/features/trips/TripDayTrave
 import { I18nProvider } from "@/i18n/provider";
 import de from "@/i18n/de";
 import en from "@/i18n/en";
+import { TRANSPORT_TYPES } from "@/lib/trips/transportTypes";
 import theme from "@/theme";
 
 /**
@@ -49,6 +50,9 @@ const baseProps = {
  * only one of its four call sites actually had.
  */
 const ROUTE_IMPORT_FAILED = "Route import failed. Enter duration and distance manually.";
+
+/** Story 6.31 / AC5: the manual-mode helper, now generic over every non-importing mode. */
+const MANUAL_HELPER_EN = "Automatic route import covers car, walking and cycling. Every other mode is entered manually.";
 
 /**
  * Story 6.17 deleted `trips.travelSegment.googleMapsFallbackHelper` outright. These are the exact
@@ -725,7 +729,7 @@ describe("TripDayTravelSegmentDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Plan" }));
 
     const manualHelper =
-      "Automatic route import covers car, walking and cycling. Ship and flight are entered manually.";
+      "Automatic route import covers car, walking and cycling. Every other mode is entered manually.";
     // Exactly one copy - see "does not repeat the manual-mode helper" below.
     await waitFor(() => {
       expect(screen.getByText(manualHelper)).toBeInTheDocument();
@@ -734,6 +738,254 @@ describe("TripDayTravelSegmentDialog", () => {
     expect(
       screen.queryByText(ROUTE_IMPORT_FAILED),
     ).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  // --- Story 6.31: train and bus ---------------------------------------------------------------
+
+  /**
+   * AC8. The menu is a hand-written `<MenuItem>` list (its order is deliberate and is not the array
+   * order), so nothing makes it follow `TRANSPORT_TYPES`. Compared as a set: a mode added to the
+   * vocabulary but not offered here fails, and so does an option the vocabulary does not know.
+   */
+  it("offers exactly the modes in TRANSPORT_TYPES", async () => {
+    stubCsrfOnlyFetch();
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayTravelSegmentDialog {...baseProps} />
+      </I18nProvider>,
+    );
+
+    await openTransportMenu();
+    const options = await screen.findAllByRole("option");
+    const offered = options.map((option) => option.getAttribute("data-value"));
+
+    expect(new Set(offered)).toEqual(new Set(TRANSPORT_TYPES));
+    expect(offered).toHaveLength(TRANSPORT_TYPES.length);
+
+    vi.unstubAllGlobals();
+  });
+
+  it("orders the modes ground first, then train and bus, then the long-haul pair", async () => {
+    stubCsrfOnlyFetch();
+
+    render(
+      <I18nProvider initialLanguage="de">
+        <TripDayTravelSegmentDialog {...baseProps} />
+      </I18nProvider>,
+    );
+
+    fireEvent.mouseDown(await screen.findByLabelText("Transport"));
+    const options = await screen.findAllByRole("option");
+
+    expect(options.map((option) => option.textContent)).toEqual([
+      "Auto",
+      "Zu Fuß",
+      "Fahrrad",
+      "Bahn",
+      "Bus",
+      "Schiff",
+      "Flug",
+    ]);
+
+    vi.unstubAllGlobals();
+  });
+
+  /** AC3 in the UI: the distance field is offered for train, and an empty one saves. */
+  it("saves a train segment without a distance", async () => {
+    const fetchMock = stubSaveFetch();
+
+    const onSaved = vi.fn();
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayTravelSegmentDialog {...baseProps} onSaved={onSaved} />
+      </I18nProvider>,
+    );
+
+    await openTransportMenu();
+    fireEvent.click(await screen.findByRole("option", { name: "Train" }));
+
+    expect(await screen.findByLabelText("Distance (km, optional)")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "OK" }));
+
+    await waitFor(() => {
+      expect(onSaved).toHaveBeenCalled();
+    });
+
+    const saveCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith("/travel-segments"));
+    const body = JSON.parse(String((saveCall?.[1] as RequestInit).body));
+    expect(body.transportType).toBe("train");
+    expect(body.distanceKm).toBeNull();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps the distance a bus segment was given", async () => {
+    const fetchMock = stubSaveFetch();
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayTravelSegmentDialog {...baseProps} />
+      </I18nProvider>,
+    );
+
+    await openTransportMenu();
+    fireEvent.click(await screen.findByRole("option", { name: "Bus" }));
+    fireEvent.change(await screen.findByLabelText("Distance (km, optional)"), { target: { value: "35" } });
+    fireEvent.click(screen.getByRole("button", { name: "OK" }));
+
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/travel-segments"))).toBe(true);
+    });
+    const saveCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith("/travel-segments"));
+    const body = JSON.parse(String((saveCall?.[1] as RequestInit).body));
+    expect(body.transportType).toBe("bus");
+    expect(body.distanceKm).toBe(35);
+
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * AC4. No route import for either mode (Tommy's ruling): "Plan" asks no router and shows the
+   * manual-mode helper instead of an error. The Maps link still opens Google's `transit` directions
+   * (code review, 2026-10-16): a link is not an import.
+   */
+  it.each(["Train", "Bus"])("asks no router for a %s leg and explains the manual path", async (label) => {
+    const fetchMock = stubCsrfOnlyFetch();
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayTravelSegmentDialog {...baseProps} {...placedItems(baseProps)} />
+      </I18nProvider>,
+    );
+
+    await openTransportMenu();
+    fireEvent.click(await screen.findByRole("option", { name: label }));
+
+    // Adding: the helper is the standing one, before anything is pressed.
+    await waitFor(() => {
+      expect(screen.getByText(MANUAL_HELPER_EN)).toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect((screen.getByDisplayValue(/google\.com\/maps\/dir/) as HTMLInputElement).value).toContain(
+        "travelmode=transit",
+      );
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Plan" }));
+
+    // Exactly one copy, and no error.
+    await waitFor(() => {
+      expect(screen.getAllByText(MANUAL_HELPER_EN)).toHaveLength(1);
+    });
+    expect(screen.queryByText(ROUTE_IMPORT_FAILED)).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("route-preview"))).toBe(false);
+
+    vi.unstubAllGlobals();
+  });
+
+  /** AC4: editing a train leg, "Plan" explains the manual path as an alert, as for ship and flight. */
+  it("explains the manual path as an alert when editing a train leg", async () => {
+    const fetchMock = stubCsrfOnlyFetch();
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayTravelSegmentDialog
+          {...baseProps}
+          {...placedItems(baseProps)}
+          segment={{
+            id: "segment-1",
+            fromItemType: "dayPlanItem",
+            fromItemId: "item-1",
+            toItemType: "accommodation",
+            toItemId: "stay-1",
+            transportType: "train",
+            durationMinutes: 120,
+            distanceKm: 120,
+            linkUrl: "https://example.com/old-link",
+          }}
+        />
+      </I18nProvider>,
+    );
+
+    expect(await screen.findByRole("button", { name: "Plan" })).toBeInTheDocument();
+    expect(screen.queryByText(MANUAL_HELPER_EN)).not.toBeInTheDocument();
+    // The stored distance is shown, since train allows one.
+    expect(screen.getByLabelText("Distance (km, optional)")).toHaveValue("120");
+
+    fireEvent.click(screen.getByRole("button", { name: "Plan" }));
+
+    await waitFor(() => {
+      expect(screen.getByText(MANUAL_HELPER_EN)).toBeInTheDocument();
+    });
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("route-preview"))).toBe(false);
+
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * AC4: a car leg prefilled from a route and then switched to train goes back to the values the
+   * dialog opened with, exactly as a switch to ship does - a car route is not a train's.
+   */
+  it("discards an imported car route when the mode changes to train", async () => {
+    const fetchMock = stubFetch(async (input) => {
+      if (String(input).includes("/api/auth/csrf")) return csrfResponse;
+      if (String(input).includes("route-preview")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: {
+              route: {
+                durationSeconds: 2700,
+                distanceMeters: 6200,
+                polyline: [
+                  [52.52, 13.405],
+                  [48.137, 11.575],
+                ],
+              },
+            },
+            error: null,
+          }),
+        };
+      }
+      return { ok: true, status: 200, json: async () => ({ data: { segment: { id: "segment-1" } }, error: null }) };
+    });
+
+    render(
+      <I18nProvider initialLanguage="en">
+        <TripDayTravelSegmentDialog {...baseProps} {...placedItems(baseProps)} />
+      </I18nProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Plan" }));
+    await waitFor(() => {
+      expectDuration("0", "45");
+    });
+    expect(screen.getByDisplayValue("6.2")).toBeInTheDocument();
+
+    await openTransportMenu();
+    fireEvent.click(await screen.findByRole("option", { name: "Train" }));
+
+    await waitFor(() => {
+      expectDuration("0", "30");
+    });
+    expect(screen.queryByDisplayValue("6.2")).not.toBeInTheDocument();
+    expect(screen.queryByText("Route details were prefilled from Maps.")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "OK" }));
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/travel-segments"))).toBe(true);
+    });
+    const saveCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith("/travel-segments"));
+    const body = JSON.parse(String((saveCall?.[1] as RequestInit).body));
+    expect(body.transportType).toBe("train");
+    expect(body.distanceKm).toBeNull();
+    // The restored link is re-pointed at the new mode: transit, not the import's driving directions.
+    expect(String(body.linkUrl ?? "")).toContain("travelmode=transit");
 
     vi.unstubAllGlobals();
   });
@@ -1177,7 +1429,7 @@ describe("TripDayTravelSegmentDialog", () => {
     fireEvent.click(await screen.findByRole("option", { name: "Flug" }));
 
     const manualHelper =
-      "Der automatische Routenimport deckt Auto, zu Fuß und Fahrrad ab. Schiff und Flug trägst du manuell ein.";
+      "Der Routenimport deckt Auto, zu Fuß und Fahrrad ab. Alle anderen Verkehrsmittel trägst du manuell ein.";
     // `getByText`, not `getAllByText`: exactly one copy. The standing helper and the Alert that
     // "Plan" leaves behind used to carry this same sentence at the same time.
     // Story 6.16's AC5 - that this wording names the modes that do import and never claims
@@ -1208,7 +1460,7 @@ describe("TripDayTravelSegmentDialog", () => {
     fireEvent.click(await screen.findByRole("option", { name: "Ship" }));
 
     const manualHelper =
-      "Automatic route import covers car, walking and cycling. Ship and flight are entered manually.";
+      "Automatic route import covers car, walking and cycling. Every other mode is entered manually.";
     expect(screen.getByText(manualHelper)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Plan" }));
@@ -1248,7 +1500,7 @@ describe("TripDayTravelSegmentDialog", () => {
     );
 
     const manualHelper =
-      "Automatic route import covers car, walking and cycling. Ship and flight are entered manually.";
+      "Automatic route import covers car, walking and cycling. Every other mode is entered manually.";
     expect(await screen.findByRole("button", { name: "Plan" })).toBeInTheDocument();
     expect(screen.queryByText(manualHelper)).not.toBeInTheDocument();
 
@@ -1269,10 +1521,15 @@ describe("TripDayTravelSegmentDialog", () => {
    * trip this. Both languages, matching this file's convention for helper-text assertions.
    */
   it.each([
-    ["Ship", "en", "Automatic route import covers car, walking and cycling. Ship and flight are entered manually.", "Add a location to both adjacent items."],
-    ["Flight", "en", "Automatic route import covers car, walking and cycling. Ship and flight are entered manually.", "Add a location to both adjacent items."],
-    ["Schiff", "de", "Der automatische Routenimport deckt Auto, zu Fuß und Fahrrad ab. Schiff und Flug trägst du manuell ein.", "Füge beiden Nachbareinträgen einen Ort hinzu."],
-    ["Flug", "de", "Der automatische Routenimport deckt Auto, zu Fuß und Fahrrad ab. Schiff und Flug trägst du manuell ein.", "Füge beiden Nachbareinträgen einen Ort hinzu."],
+    ["Ship", "en", "Automatic route import covers car, walking and cycling. Every other mode is entered manually.", "Add a location to both adjacent items."],
+    ["Flight", "en", "Automatic route import covers car, walking and cycling. Every other mode is entered manually.", "Add a location to both adjacent items."],
+    ["Schiff", "de", "Der Routenimport deckt Auto, zu Fuß und Fahrrad ab. Alle anderen Verkehrsmittel trägst du manuell ein.", "Füge beiden Nachbareinträgen einen Ort hinzu."],
+    ["Flug", "de", "Der Routenimport deckt Auto, zu Fuß und Fahrrad ab. Alle anderen Verkehrsmittel trägst du manuell ein.", "Füge beiden Nachbareinträgen einen Ort hinzu."],
+    // Story 6.31 / AC4: train and bus take the same non-routable path as ship and flight.
+    ["Train", "en", "Automatic route import covers car, walking and cycling. Every other mode is entered manually.", "Add a location to both adjacent items."],
+    ["Bus", "en", "Automatic route import covers car, walking and cycling. Every other mode is entered manually.", "Add a location to both adjacent items."],
+    ["Bahn", "de", "Der Routenimport deckt Auto, zu Fuß und Fahrrad ab. Alle anderen Verkehrsmittel trägst du manuell ein.", "Füge beiden Nachbareinträgen einen Ort hinzu."],
+    ["Bus", "de", "Der Routenimport deckt Auto, zu Fuß und Fahrrad ab. Alle anderen Verkehrsmittel trägst du manuell ein.", "Füge beiden Nachbareinträgen einen Ort hinzu."],
   ] as const)(
     "shows the manual-mode helper, not the unavailable one, for %s with an unplaced neighbour (%s)",
     async (label, language, manualHelper, unavailableHelper) => {

@@ -615,6 +615,27 @@ describe("POST /api/trips/[id]/day-plan-changes/undo (Story 11.1)", () => {
     expect(await databaseState()).toEqual(before);
   });
 
+  /**
+   * Story 6.31 / AC7 (H2). A swept train leg travels in the receipt in its stored spelling, comes back
+   * through the wire schema and is restored identical. A mode the receipt type or schema did not know
+   * would fail here as a 400 rather than an undo.
+   */
+  it("undoes a change whose receipt holds a swept TRAIN leg", async () => {
+    const { user, trip, day, ab } = await seedDay("route-undo-train@example.com");
+    await prisma.travelSegment.update({ where: { id: ab.id }, data: { transportType: "TRAIN", updatedAt: PAST } });
+    const session = await createSessionJwt({ sub: user.id, role: user.role });
+    const before = await databaseState();
+
+    const { receipt } = await createThroughRoute(trip.id, day.id, session);
+    expect(receipt.removedTravelSegments).toHaveLength(1);
+    expect(receipt.removedTravelSegments[0].transportType).toBe("TRAIN");
+
+    const result = await postUndo(trip.id, session, receipt);
+    expect(result).toEqual({ status: 200, body: { data: { undone: true }, error: null } });
+    expect(await databaseState()).toEqual(before);
+    expect((await prisma.travelSegment.findUnique({ where: { id: ab.id } }))?.transportType).toBe("TRAIN");
+  });
+
   it("answers 409 undo_stale when the day has moved on", async () => {
     const { user, trip, day } = await seedDay("route-stale@example.com");
     const session = await createSessionJwt({ sub: user.id, role: user.role });

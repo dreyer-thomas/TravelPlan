@@ -9,6 +9,7 @@ import {
   MAX_IMPORT_WARNINGS,
   MAX_SUPPORTED_FORMAT_VERSION,
 } from "@/lib/trips/importLimits";
+import { TRANSPORT_TYPES } from "@/lib/trips/transportTypes";
 import { costCurrencyFields, paymentOriginalField, refineCostCurrency } from "@/lib/validation/costCurrencySchemas";
 import { isValidDateOnly } from "@/lib/validation/dateOnly";
 import { isSafeExternalUrl } from "@/lib/validation/safeExternalUrl";
@@ -288,10 +289,12 @@ const travelSegmentImportSchema = z
     fromItemId: z.string().trim().min(1),
     toItemType: z.enum(["accommodation", "dayPlanItem"]),
     toItemId: z.string().trim().min(1),
-    // Story 6.16 widened this. It is an *accept-more* change, so every backup written before that
-    // story still parses; only the reverse (a v2 backup carrying "walking"/"cycling" opened by a
-    // pre-6.16 build) is unsupported, which the story accepts.
-    transportType: z.enum(["car", "ship", "flight", "walking", "cycling"]),
+    // Derived from the one vocabulary, so a mode added there is importable without a second list to
+    // forget (Story 6.31 found this one still hand-written). Every widening - walking and cycling in
+    // 6.16, train and bus in 6.31 - is an *accept-more* change, so every older backup still parses;
+    // only the reverse (a backup carrying a newer mode opened by an older build) is refused, which
+    // both stories accept.
+    transportType: z.enum(TRANSPORT_TYPES),
     durationMinutes: z.number().int().positive(),
     // `positive`, not `nonnegative`: `travelSegmentMutationSchema` rejects `0`, so a zero-distance
     // row imported here could never be saved again from the dialog that owns it.

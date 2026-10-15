@@ -9,6 +9,7 @@ export const travelSegmentRouteLookupParamsSchema = z.object({
 /**
  * Only the modes a router can actually answer for. Ship and flight are absent on purpose: there is
  * no equivalent profile, so they never reach this endpoint and keep using the manual path instead.
+ * Train and bus (Story 6.31) are absent for the same reason, and by ruling: no route import.
  *
  * Optional and defaulted to `car` so links and callers written before Story 6.16 keep working.
  */

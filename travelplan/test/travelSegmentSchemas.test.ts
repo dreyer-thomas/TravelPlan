@@ -77,7 +77,35 @@ describe("travelSegmentMutationSchema", () => {
     for (const transportType of ["ship", "flight"] as const) {
       const result = travelSegmentMutationSchema.safeParse({ ...basePayload, transportType, distanceKm: 12 });
       expect(result.success).toBe(false);
-      expect(result.error?.issues[0]?.message).toBe("Distance is only allowed for car, walking and cycling travel");
+      expect(result.error?.issues[0]?.message).toBe("Distance is not allowed for ship and flight travel");
+    }
+  });
+
+  // --- Story 6.31: train and bus ---------------------------------------------------------------
+
+  it("accepts train and bus as transport types", () => {
+    for (const transportType of ["train", "bus"] as const) {
+      const result = travelSegmentMutationSchema.safeParse({ ...basePayload, transportType, distanceKm: null });
+      expect(result.success).toBe(true);
+      expect(result.data?.transportType).toBe(transportType);
+    }
+  });
+
+  /**
+   * AC3. Rail kilometres are rarely known but worth keeping when they are, so a distance is allowed on
+   * both modes and required on neither.
+   */
+  it("allows but does not require a distance for train and bus", () => {
+    for (const transportType of ["train", "bus"] as const) {
+      expect(travelSegmentMutationSchema.safeParse({ ...basePayload, transportType, distanceKm: null }).success).toBe(
+        true,
+      );
+      expect(
+        travelSegmentMutationSchema.safeParse({ ...basePayload, transportType, distanceKm: undefined }).success,
+      ).toBe(true);
+      expect(travelSegmentMutationSchema.safeParse({ ...basePayload, transportType, distanceKm: 120 }).success).toBe(
+        true,
+      );
     }
   });
 });

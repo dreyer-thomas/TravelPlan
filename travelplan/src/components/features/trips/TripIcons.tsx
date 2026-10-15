@@ -1,5 +1,6 @@
 import { SvgIcon } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material/styles";
+import type { TransportType } from "@/lib/trips/transportTypes";
 
 /**
  * Shared presentational primitives for the redesigned trip surfaces (Epic 7).
@@ -450,13 +451,68 @@ export function BikeIcon({ sx }: IconProps) {
   );
 }
 
+// Story 6.31. Both are front-on, so they must differ in outline rather than in viewpoint: the train is a
+// rounded cab with a split windscreen standing on two splayed legs to the rails; the bus is a taller,
+// squarer box with a full-width window band and two short wheel stubs. Neither shares the car's
+// low roofline, so at 14 px a bus does not read as a car.
+export function TrainIcon({ sx }: IconProps) {
+  return (
+    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={[{ fontSize: 14 }, ...(Array.isArray(sx) ? sx : [sx])]}>
+      <path
+        d="M9 3h6a4 4 0 0 1 4 4v6a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3V7a4 4 0 0 1 4-4Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M5 10h14M12 3v7"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M8.5 13h.01M15.5 13h.01" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
+      <path
+        d="m8 16-2 5M16 16l2 5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </SvgIcon>
+  );
+}
+
+export function BusIcon({ sx }: IconProps) {
+  return (
+    <SvgIcon aria-hidden viewBox="0 0 24 24" sx={[{ fontSize: 14 }, ...(Array.isArray(sx) ? sx : [sx])]}>
+      <path
+        d="M6 3h12a2 2 0 0 1 2 2v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a2 2 0 0 1 2-2Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M4 7h16M4 12h16" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
+      <path d="M7.5 15h.01M16.5 15h.01" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
+      <path d="M7 18v2M17 18v2" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
+    </SvgIcon>
+  );
+}
+
 /**
- * The union is widened rather than backed by a default branch: the `never` assignment below turns a
- * newly added `transportType` member into a compile error here instead of letting it inherit the car
- * glyph silently. `CarIcon` after it is unreachable for any value the type admits and exists only so
- * a row that bypassed validation renders instead of crashing the timeline.
+ * Typed against the shared `TransportType` rather than a hand-written union (Story 6.31), and backed by
+ * no default branch: the `never` assignment below turns a mode newly added to `TRANSPORT_TYPES` into a
+ * compile error here instead of letting it inherit the car glyph silently. `CarIcon` after it is
+ * unreachable for any value the type admits and exists only so a row that bypassed validation renders
+ * instead of crashing the timeline.
  */
-export function transportIconFor(transportType: "car" | "ship" | "flight" | "walking" | "cycling") {
+export function transportIconFor(transportType: TransportType) {
   switch (transportType) {
     case "car":
       return CarIcon;
@@ -468,6 +524,10 @@ export function transportIconFor(transportType: "car" | "ship" | "flight" | "wal
       return WalkIcon;
     case "cycling":
       return BikeIcon;
+    case "train":
+      return TrainIcon;
+    case "bus":
+      return BusIcon;
   }
 
   const unhandled: never = transportType;

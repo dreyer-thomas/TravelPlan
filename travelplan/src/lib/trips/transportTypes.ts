@@ -12,21 +12,31 @@
  * `travelSegmentSchemas.ts` into the browser bundle to reach a string array would drag zod with it.
  */
 
-export const TRANSPORT_TYPES = ["car", "ship", "flight", "walking", "cycling"] as const;
+export const TRANSPORT_TYPES = ["car", "ship", "flight", "walking", "cycling", "train", "bus"] as const;
 
 export type TransportType = (typeof TRANSPORT_TYPES)[number];
 
 /**
- * Story 6.16 / AC6, stated once. Distance is *allowed* for every ground mode and *required* for car
- * alone.
+ * The distance rule for every mode, stated once.
  *
- * Requiring it for the new modes would turn a two-minute walk between two adjacent stops into a form
- * error over a number nobody has. Forbidding it - the rule ship and flight live under - would throw
- * away the 40 km of a cycled leg, and would make the route import for those modes pointless, since it
- * prefills exactly duration *and* distance. Allowed-but-optional is the only rule that keeps both
- * cases usable. Car keeps its stricter rule untouched.
+ * - **Car** requires a distance. That rule predates every other mode and is untouched.
+ * - **Walking and cycling** (Story 6.16 / AC6) allow one and do not require it. Requiring it would turn
+ *   a two-minute walk between adjacent stops into a form error over a number nobody has; forbidding
+ *   it would throw away the 40 km of a cycled leg, and would make the route import for those modes
+ *   pointless, since it prefills exactly duration *and* distance.
+ * - **Train and bus** (Story 6.31, Tommy's ruling of 2026-10-15) allow one and do not require it.
+ *   Rail and coach kilometres are rarely known, but worth keeping when they are. Neither mode has a
+ *   route import, so the number is only ever typed in.
+ * - **Ship and flight** do not allow one. Those are the only two modes the rule forbids, which is why
+ *   the schema's error message names them rather than the modes that are allowed.
  */
-export const TRANSPORT_TYPES_ALLOWING_DISTANCE = ["car", "walking", "cycling"] as const satisfies readonly TransportType[];
+export const TRANSPORT_TYPES_ALLOWING_DISTANCE = [
+  "car",
+  "walking",
+  "cycling",
+  "train",
+  "bus",
+] as const satisfies readonly TransportType[];
 
 export const TRANSPORT_TYPES_REQUIRING_DISTANCE = ["car"] as const satisfies readonly TransportType[];
 

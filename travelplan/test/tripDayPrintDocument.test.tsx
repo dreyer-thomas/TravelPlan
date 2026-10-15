@@ -464,6 +464,39 @@ describe("TripDayPrintDocument", () => {
     expect(screen.getByText(/Walking · 25m · 2 km/)).toBeInTheDocument();
   });
 
+  // Story 6.31 / AC3: train and bus allow a distance and require none, and the sheet names them through
+  // the dictionary rather than printing the raw mode (DW-230's fallback only applies to unknown modes).
+  it("prints a train leg with its distance", () => {
+    const payload = basePayload({
+      timeline: [
+        {
+          kind: "travelSegment",
+          segment: { ...makeSegment(), transportType: "train", durationMinutes: 120, distanceKm: 120 },
+        },
+      ],
+    });
+
+    renderSheet({ payload });
+
+    expect(screen.getByText(/Train · 2h · 120 km/)).toBeInTheDocument();
+  });
+
+  it("prints a bus leg without a distance", () => {
+    const payload = basePayload({
+      timeline: [
+        {
+          kind: "travelSegment",
+          segment: { ...makeSegment(), transportType: "bus", durationMinutes: 45, distanceKm: null },
+        },
+      ],
+    });
+
+    renderSheet({ payload });
+
+    expect(screen.getByText(/Bus · 45m/)).toBeInTheDocument();
+    expect(screen.queryByText(/Bus · 45m ·/)).not.toBeInTheDocument();
+  });
+
   it("hides an imported flight's distance, which the day view already refuses to show", () => {
     const payload = basePayload({
       timeline: [

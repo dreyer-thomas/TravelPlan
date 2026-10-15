@@ -4,6 +4,7 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import TripDayView from "@/components/features/trips/TripDayView";
+import { CarIcon } from "@/components/features/trips/TripIcons";
 import { useEffect, type ReactNode } from "react";
 import theme from "@/theme";
 import { mockFetchResponse, requestUrl, stubFetch } from "./helpers/mockFetch";
@@ -4878,6 +4879,159 @@ describe("TripDayView layout", () => {
     expect(screen.getByText("Travel")).toBeInTheDocument();
     expect(screen.queryByText("Walking", { selector: "span" })).not.toBeInTheDocument();
     expect(screen.queryByText("Cycling", { selector: "span" })).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * Story 6.31 / AC2, AC3 and AC6 on one render, in German so the "Bahn" label is the one checked.
+   *
+   * AC2: train and bus each get their own glyph - different from each other and from car's, since a
+   * bus that read as a car at 14 px is exactly the failure the AC names.
+   * AC3: a train leg with a distance shows it; a bus leg without one shows none.
+   * AC6: both roll into the day's travel total, and the coverage legend still says "Travel" once.
+   */
+  it("renders train and bus segments with their own glyphs and rolls them into the travel total", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const fetchMock = withBucketList(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/day-plan-items/images") || url.includes("/accommodations/images")) {
+        return mockFetchResponse({ data: { images: [] }, error: null });
+      }
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            accessRole: "owner",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-02T00:00:00.000Z",
+            dayCount: 2,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
+          },
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: {
+                id: "stay-prev",
+                name: "Prev Stay",
+                notes: null,
+                status: "planned",
+                costCents: null,
+                link: null,
+                checkInTime: null,
+                checkOutTime: "09:00",
+                location: null,
+              },
+              dayPlanItems: [],
+            },
+            {
+              id: "day-2",
+              date: "2026-12-02T00:00:00.000Z",
+              dayIndex: 2,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: false,
+              accommodation: null,
+              dayPlanItems: [
+                {
+                  id: "item-1",
+                  title: "Morning",
+                  fromTime: "10:00",
+                  toTime: "11:00",
+                  contentJson: JSON.stringify({
+                    type: "doc",
+                    content: [{ type: "paragraph", content: [{ type: "text", text: "Plan" }] }],
+                  }),
+                  costCents: null,
+                  linkUrl: null,
+                  location: null,
+                },
+                {
+                  id: "item-2",
+                  title: "Noon",
+                  fromTime: "13:00",
+                  toTime: "14:00",
+                  contentJson: JSON.stringify({
+                    type: "doc",
+                    content: [{ type: "paragraph", content: [{ type: "text", text: "Plan 2" }] }],
+                  }),
+                  costCents: null,
+                  linkUrl: null,
+                  location: null,
+                },
+              ],
+              travelSegments: [
+                {
+                  id: "segment-train",
+                  fromItemType: "accommodation",
+                  fromItemId: "stay-prev",
+                  toItemType: "dayPlanItem",
+                  toItemId: "item-1",
+                  transportType: "train",
+                  durationMinutes: 120,
+                  distanceKm: 120,
+                  linkUrl: null,
+                },
+                {
+                  id: "segment-bus",
+                  fromItemType: "dayPlanItem",
+                  fromItemId: "item-1",
+                  toItemType: "dayPlanItem",
+                  toItemId: "item-2",
+                  transportType: "bus",
+                  durationMinutes: 45,
+                  distanceKm: null,
+                  linkUrl: null,
+                },
+              ],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
+
+    stubFetch(fetchMock);
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-2" />, { language: "de" });
+
+    await screen.findByRole("heading", { name: "Tag 2", level: 5 });
+
+    const segments = screen.getAllByTestId("travel-segment");
+    const trainSegment = segments.find((segment) => segment.getAttribute("data-to-id") === "item-1");
+    const busSegment = segments.find((segment) => segment.getAttribute("data-to-id") === "item-2");
+    expect(trainSegment).toBeTruthy();
+    expect(busSegment).toBeTruthy();
+
+    // AC2 - distinct glyphs, compared by markup since they are `aria-hidden` decoration.
+    const trainGlyph = (trainSegment as HTMLElement).querySelector("svg");
+    const busGlyph = (busSegment as HTMLElement).querySelector("svg");
+    expect(trainGlyph).toBeTruthy();
+    expect(busGlyph).toBeTruthy();
+    expect(trainGlyph?.innerHTML).not.toBe(busGlyph?.innerHTML);
+    const carGlyph = renderWithProviders(<CarIcon />).container.querySelector("svg");
+    expect(carGlyph).toBeTruthy();
+    expect(trainGlyph?.innerHTML).not.toBe(carGlyph?.innerHTML);
+    expect(busGlyph?.innerHTML).not.toBe(carGlyph?.innerHTML);
+
+    // AC3 - the train's distance is shown; the bus has none to show.
+    expect(within(trainSegment as HTMLElement).getByText(/^Bahn · .+ · 120 km$/)).toBeInTheDocument();
+    expect(within(busSegment as HTMLElement).getByText(/^Bus · [^·]+$/)).toBeInTheDocument();
+
+    // AC6 - both roll into the day's travel total (120 + 45).
+    expect(within(screen.getByTestId("day-stat-travel-time")).getByText("2h 45m")).toBeInTheDocument();
+    // AC6 - four kinds, one "Fahrt" (German "Travel"), no per-mode legend entries.
+    expect(screen.getByText("Fahrt")).toBeInTheDocument();
+    expect(screen.queryByText("Bahn", { selector: "span" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Bus", { selector: "span" })).not.toBeInTheDocument();
 
     vi.unstubAllGlobals();
   });
