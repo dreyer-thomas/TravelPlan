@@ -3735,4 +3735,5 @@ location: `travelplan/src/app/api/trips/[id]/days/[dayId]/suggestions/route.ts`
 severity: low
 summary: Task 7's manual call against the Neuseeland trip was not made; only the image step ran live (5/5 places got 3 pictures in 1.9 s). The 78 s total against the 90 s proxy timeout is therefore unmeasured.
 evidence: Run it the next time the API key is available and record the timings in the story.
-status: open
+status: done 2026-10-16
+resolution: Story 12.3 Task 7. Tommy ran one real search from the dialog on the dev server: about 15 s from *Suchen* to cards with text and pictures, far inside the 78 s budget and nginx's 90 s timeout. One run, timed by hand, not a distribution.

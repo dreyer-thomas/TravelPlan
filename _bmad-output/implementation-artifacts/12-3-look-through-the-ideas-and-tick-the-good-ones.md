@@ -4,7 +4,7 @@ baseline_commit: 3140a60 (plus the uncommitted Story 12.2 working tree; commit 1
 
 # Story 12.3: Look Through the Ideas and Tick the Good Ones
 
-Status: in-progress
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -127,7 +127,16 @@ Each item was checked, and each one changes what a task asks for.
 - [x] **Task 6: i18n and docs (AC: 9, 10)**
   - [x] 6.1 Keys under `trips.suggestions.*` in both dictionaries (flat dotted keys, as in the rest of the files). German first, as listed in *Copy* below.
   - [x] 6.2 `docs/deployment-configuration.md`, *AI day suggestions* section: one sentence that the browser loads the thumbnails with `no-referrer`, so Wikimedia sees members' IP addresses but not which page they came from, and that the app sets no CSP, so nothing needs adding. Then mark **DW-387** `status: resolved (Story 12.3)` in `deferred-work.md`, with a one-line note.
-- [ ] **Task 7: Gates and a browser check.** `npm test`, `npx tsc --noEmit`, `npm run lint`, `npm run check:migrations`, `next build` (proves no `server-only` import leaked into the client dialog). Then, in a browser at 390 px and at desktop width: full-screen on the phone with the footer reachable, the header buttons wrapping cleanly, a real or mocked result list scrolling, and thumbnails loading. Record what was checked. With Tommy's key available, run one real search and note the time it took (this also closes the measurement half of DW-388, so record it there).
+- [x] **Task 7: Gates and a browser check.** `npm test`, `npx tsc --noEmit`, `npm run lint`, `npm run check:migrations`, `next build` (proves no `server-only` import leaked into the client dialog). Then, in a browser at 390 px and at desktop width: full-screen on the phone with the footer reachable, the header buttons wrapping cleanly, a real or mocked result list scrolling, and thumbnails loading. Record what was checked. With Tommy's key available, run one real search and note the time it took (this also closes the measurement half of DW-388, so record it there).
+
+### Review Findings
+
+Code review 2026-10-16 (Blind Hunter, Edge Case Hunter, Acceptance Auditor) on `08e7cbc`: 0 decision-needed, 4 patch, 0 defer, 25 dismissed (server already validates the response and `durationMinutes` 10–600, thumbnails are deduplicated by file name, "up to a minute" and the cleared list on error are the spec's own choices, no `viewport-fit=cover` so safe-area insets do not apply, a "prompt too long" server reply cannot happen behind the 500-character field cap).
+
+- [x] [Review][Patch] The results group loses its accessible name during a repeat search: `resultsText` is `""` while `searching`, but the old list (`role="group" aria-labelledby`) is still on screen. Keep the last count while the stale list is shown [travelplan/src/components/features/trips/TripDaySuggestionsDialog.tsx:253]
+- [x] [Review][Patch] Thumbnail alt text keeps "n of total" from before failed pictures were removed, and an all-failed strip keeps its empty `mt` box. Number only the visible pictures and return `null` when none load [travelplan/src/components/features/trips/TripDaySuggestionsDialog.tsx:557]
+- [x] [Review][Patch] The wish field hard-codes `maxLength: 500` beside the comment that says the client uses the server's own rule. Take it from `suggestionsRequestSchema.shape.prompt.maxLength` [travelplan/src/components/features/trips/TripDaySuggestionsDialog.tsx:340]
+- [x] [Review][Patch] The abort test's final `waitFor(... suggestions-error toBeNull)` passes on its first poll, so it cannot catch an error banner that shows up late after an abort. Let the aborted fetch settle (release or reject the hanging promise) before asserting [travelplan/test/tripDaySuggestionsDialog.test.tsx:192]
 
 ## Dev Notes
 
@@ -246,7 +255,7 @@ Claude Opus 5.5 (claude-opus-5-5), via bmad-dev-story, 2026-10-16.
   4. *Übernehmen* `disabled={searching}` only: 1 red (`onApply` case).
 - First DialogShell attempt used per-property breakpoint objects with `borderRadius: { xs: 0, sm: undefined }`. That leaves the radius at 0 on every width (the `xs` rule is `min-width: 0` and nothing overrides it), so it became one `theme.breakpoints.down("sm")` block that restates nothing at `sm`+.
 - Gates: 188 files / 3097 tests, `tsc --noEmit` 0, lint 0 errors / 80 warnings (baseline unchanged), `check:migrations` passes, `next build` succeeds (no `server-only` import reached the client dialog).
-- Not done (Task 7): the in-browser check at 390 px and desktop, and the real-key search with timing (DW-388). The dev database holds only real accounts. Signing in would have meant resetting a password or inserting a user into Tommy's dev DB, which the agent did not do unasked.
+- Task 7 manual check (Tommy, 2026-10-16, desktop, dev server, real key): one real search took **about 15 s** and returned cards with text and pictures. **The 390 px check was not done.** Tommy accepted the phone layout unchecked ("wird schon passen"). It can be checked without a phone in DevTools device mode at 390 px. The jsdom test only proves the phone-only CSS rule exists, not how it looks.
 
 ### Completion Notes List
 
@@ -260,7 +269,7 @@ Claude Opus 5.5 (claude-opus-5-5), via bmad-dev-story, 2026-10-16.
 - Mode toggle follows the auth-tabs pattern: `paperOuter` track, 4 px padding, 44 px options, `card` active fill. MUI's shadow literal is not repeated, so no colour literal is added.
 - The 16 px iOS input rule applies to the multiline field as well: the theme sets it on the `MuiInputBase` input slot, which the `<textarea>` also is.
 - The five existing `test/tripDayView*.test.tsx` files are unedited and green. The new entry suite stubs the three authoring dialogs (their rich-text editor does not run in jsdom) and renders the real suggestion dialog.
-- DW-387 is closed (`deferred-work.md`), and the docs gained the `no-referrer` / no-CSP paragraph. DW-388 stays open until the real-key search is run.
+- DW-387 is closed (`deferred-work.md`), and the docs gained the `no-referrer` / no-CSP paragraph. DW-388 is closed: the real-key search took about 15 s, far inside the 90 s proxy timeout.
 
 ### File List
 
@@ -285,3 +294,5 @@ Modified:
 
 - 2026-10-16: Tasks 1–6 implemented and tested: DialogShell full-screen option, duration formatter, suggestion dialog, day-view entry point, i18n, docs and DW-387. Task 0 (commit 12.2) and the manual half of Task 7 (browser check, real-key search) are open, so the story stays in-progress.
 - 2026-10-16: Task 0 closed: 12.2 committed as `072fe85`. Only the manual half of Task 7 is open.
+- 2026-10-16: Task 7 closed: a real search took about 15 s (DW-388 closed). The 390 px layout is unchecked, accepted by Tommy. Status → review.
+- 2026-10-16: Code review (3 layers): 4 low patches applied (results group keeps its name during a repeat search, thumbnail alt counts only visible pictures and an all-failed strip goes, wish maxLength from the schema, abort test now lets the fetch settle), 25 dismissed. Status → done.
