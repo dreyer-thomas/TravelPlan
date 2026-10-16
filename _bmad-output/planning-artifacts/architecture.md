@@ -158,7 +158,7 @@ npx create-next-app@latest travelplan
 - **API Style:** REST
 - **Validation:** Zod schemas in API layer (`zod` `4.1.11`)
 - **Error Format:** Standard `{ error: { code, message, details } }` envelope
-- **Rate Limiting Scope:** Auth endpoints only
+- **Rate Limiting Scope:** Auth endpoints, plus a per-user daily limit on AI suggestion searches (Epic 12)
 - **Day recalculation receipts (2026-10-10, Epic 11):** Writes that recalculate a day (day plan item create, update, delete, and in-day move; travel segment create and update; accommodation update when its check-out changes, which recalculates the *next* day) return their usual payload plus `receipt` (day plan item writes as `{ data: { item, receipt } }`), where `receipt` lists the rows the write changed as a side effect, with their prior state. `POST /api/trips/{id}/day-plan-changes/undo` applies a receipt in reverse in one transaction and refuses (409) if any row it names has changed since. Receipts are client-held and never persisted. Order remains derived from `fromTime`; no `sortOrder` column.
 
 ### Frontend Architecture
@@ -458,6 +458,8 @@ travelplan/
 - Maps (future): `components/features/trips/` and `components/features/days/`
 - Routing (future): server integration in `lib/services/maps.ts`
 - Exchange rates: ECB `eurofxref-daily.xml`, reached through the session-gated proxy at `app/api/exchange-rates/route.ts` and cached in-process. Keyless and EUR-based; adds no dependency, no secret and no deployment step. Failure is non-blocking — the cost field degrades to plain EUR entry. See FR41 and Sprint Change Proposal 2026-09-20.
+- AI suggestions (2026-10-16, Epic 12): Anthropic Claude via `@anthropic-ai/sdk`, called only from the server (`lib/ai/`). Key in `ANTHROPIC_API_KEY`, model in `ANTHROPIC_MODEL`; absent key = feature off. Structured output validated with Zod; server-side web search tool enabled (max 5 per request); coordinates re-verified via Nominatim. Paid per call by the operator; per-user daily limit `AI_SUGGESTIONS_DAILY_LIMIT` (in-memory). See FR44–FR45
+- Wikimedia (Wikipedia page images, Commons geosearch): keyless image lookup for suggestions; images copied into media storage on apply (no attribution kept — private app)
 
 **Data Flow:**
 - UI submits -> server action / API -> repository -> Prisma -> SQLite

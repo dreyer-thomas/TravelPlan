@@ -37,7 +37,7 @@ classification:
   domain: travel_planning_private
   complexity: high
   projectContext: greenfield
-lastEdited: '2026-10-11'
+lastEdited: '2026-10-16'
 editHistory:
   - date: '2026-02-12'
     changes: 'Aligned PRD to BMAD structure, resolved performance target conflict, added transport/maps MVP scope, added restore/import, contributor role, and password reset, clarified GDPR and accessibility requirements.'
@@ -49,6 +49,8 @@ editHistory:
     changes: 'Added FR38-FR40 (travel documents on stays and activities, plus an offline document packet); annotated NFR2 to state that uploaded media files are in scope. See Sprint Change Proposal 2026-08-05.'
   - date: '2026-09-20'
     changes: 'Added FR41 (foreign-currency cost entry converted to EUR at the ECB daily reference rate). EUR remains the single stored currency and the basis of every total, budget figure and export. See Sprint Change Proposal 2026-09-20.'
+  - date: '2026-10-16'
+    changes: 'Added FR44-FR45 (AI suggestions for a day, applied as ordered activities with travel legs) and a domain note on data sent to the AI provider. See Sprint Change Proposal 2026-10-16.'
 ---
 
 # Product Requirements Document - TravelPlan
@@ -165,6 +167,7 @@ TravelPlan is a free, private, day-by-day travel planning web app that makes gap
 - Map integration for overall trip visualization and day-plan mapping.
 - Ability to start a trip plan using Google search (start + destination).
 - Calendar/email integrations are explicitly not required at this stage.
+- AI provider (Anthropic Claude, with its web search tool) for day suggestions, operator-paid via a server-side key. Requests contain place names and coordinates, the user's free-text wish and existing activity titles — no account or member data. **(Added 2026-10-16)**
 
 ### Risk Mitigations
 
@@ -290,6 +293,11 @@ TravelPlan is a web SPA targeting Chrome/Safari on desktop and mobile/tablet.
 - FR38: Users can attach documents (PDF or image files) to an accommodation entry and to a day plan item.
 - FR39: Users can see attached documents on the entry in the day timeline, open them, and delete them from the entry's dialog.
 - FR40: Users can produce an offline document packet as a single PDF containing a day's attached documents.
+
+### AI Day Suggestions
+
+- FR44: Users who can plan a trip can ask an AI for activity suggestions for a day, describing in free text what they want to do and choosing car, walking or cycling. Each suggestion shows a title, a description, up to three images, a location and a typical visit duration. The day's start and end places are used as context. The feature is available only when the operator has configured an AI provider key. **(Added 2026-10-16 — see Sprint Change Proposal 2026-10-16)**
+- FR45: Users can select any number of suggestions and apply them in one step. The selected suggestions become activities in visiting order along the day's route, with times chained from the morning's check-out (or after the day's last activity), and travel legs between them in the chosen mode. The whole application can be undone in one step. **(Added 2026-10-16)**
 
 ## Non-Functional Requirements
 

@@ -22,6 +22,10 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.join(rootDir, "src"),
+      // Story 12.1. `src/lib/ai/*` imports "server-only" so a client import fails the Next build. Its
+      // default export condition throws by design; Next resolves the `react-server` one (an empty
+      // module) for server code, and the tests run as server code, so they get the same empty module.
+      "server-only": path.join(rootDir, "node_modules/server-only/empty.js"),
     },
   },
 });

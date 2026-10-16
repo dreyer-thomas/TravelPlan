@@ -62,8 +62,9 @@ the *next* major, so it is documented as it was actually performed.
 
 ## Environment configuration
 
-The source tree reads five variables. Three fail loudly when unset; two fall back silently, and those
-are the ones to watch. Full table in
+The source tree reads eight variables. Three fail loudly when unset; two fall back silently, and those
+are the ones to watch. The other three (Story 12.1) configure the optional AI day suggestions, which are
+simply off without a key. Full table in
 [deployment-configuration.md](deployment-configuration.md#environment-variables).
 
 | Variable | Notes |
@@ -73,6 +74,9 @@ are the ones to watch. Full table in
 | `JWT_SECRET` | Session signing key. |
 | `APP_BASE_URL` | Public origin for password-reset email links. **Silently defaults to `http://localhost:3000`** — unset in production, every reset email is unusable and nothing logs it. |
 | `OSRM_BASE_URL` | Optional. Route geometry; defaults to the public OSRM instance. |
+| `ANTHROPIC_API_KEY` | Optional. Turns on the AI day suggestions; **every search is paid by the operator**. A secret — see the warning in the configuration guide. |
+| `ANTHROPIC_MODEL` | Optional. Model for the suggestions; defaults to `claude-sonnet-5-5`. |
+| `AI_SUGGESTIONS_DAILY_LIMIT` | Optional. Searches per user per server-local day; defaults to `20`. |
 
 ### The media root
 

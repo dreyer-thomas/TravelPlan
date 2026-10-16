@@ -3775,6 +3775,132 @@ export const getDayRoutePointsForUser = async ({
   return points;
 };
 
+/**
+ * What the AI day-suggestion request is told about a day (Story 12.1): its date, where it starts, where it
+ * ends and which activities it already has - and nothing else. No trip name, no member, no note, cost or
+ * link is selected here, so none can leak into the prompt by accident.
+ *
+ * A dedicated loader rather than `getDayRoutePointsForUser` widened: that one returns bare coordinates
+ * (the model needs names to search for) and has no trip-start fallback, and its shape is pinned by the
+ * route map. The previous-day rule is the same one, though - the nearest **lower `dayIndex`**, not
+ * `dayIndex - 1`, so a trip with a deleted day still finds the last night's stay.
+ *
+ * A place counts only if it has coordinates or a name; a blank stay with neither (an "open day") says
+ * nothing about where the day starts, so day N falls through to the trip's start location exactly as day 1
+ * does. The date is the UTC date part: day dates are stored at UTC midnight (`createTripWithDays`), so this
+ * cannot shift the day.
+ */
+export type DaySuggestionPlace = {
+  label: string;
+  lat: number | null;
+  lng: number | null;
+};
+
+export type DaySuggestionContext = {
+  date: string;
+  start: DaySuggestionPlace | null;
+  end: DaySuggestionPlace | null;
+  existingTitles: string[];
+};
+
+const toSuggestionPlace = (parts: Array<string | null | undefined>, lat: number | null, lng: number | null) => {
+  const label = parts
+    .map((part) => part?.trim() ?? "")
+    .filter((part) => part.length > 0)
+    .join(", ");
+  const hasCoordinates = lat !== null && lng !== null;
+  if (!label && !hasCoordinates) {
+    return null;
+  }
+  return {
+    label,
+    lat: hasCoordinates ? lat : null,
+    lng: hasCoordinates ? lng : null,
+  } satisfies DaySuggestionPlace;
+};
+
+const stayToSuggestionPlace = (
+  stay: { name: string; locationLabel: string | null; locationLat: number | null; locationLng: number | null } | null | undefined,
+) => (stay ? toSuggestionPlace([stay.name, stay.locationLabel], stay.locationLat, stay.locationLng) : null);
+
+export const getDaySuggestionContextForUser = async ({
+  userId,
+  tripId,
+  dayId,
+}: {
+  userId: string;
+  tripId: string;
+  dayId: string;
+}): Promise<DaySuggestionContext | null> => {
+  const staySelect = {
+    name: true,
+    locationLabel: true,
+    locationLat: true,
+    locationLng: true,
+  } as const;
+
+  const day = await prisma.tripDay.findFirst({
+    where: {
+      id: dayId,
+      tripId,
+      trip: {
+        OR: [{ userId }, { members: { some: { userId } } }],
+      },
+    },
+    select: {
+      date: true,
+      dayIndex: true,
+      trip: {
+        select: {
+          startLocationLabel: true,
+          startLocationLat: true,
+          startLocationLng: true,
+        },
+      },
+      accommodation: { select: staySelect },
+      dayPlanItems: {
+        select: {
+          id: true,
+          title: true,
+          fromTime: true,
+          createdAt: true,
+        },
+      },
+    },
+  });
+
+  if (!day) {
+    return null;
+  }
+
+  const previousDay = await prisma.tripDay.findFirst({
+    where: {
+      tripId,
+      dayIndex: { lt: day.dayIndex },
+    },
+    orderBy: [{ dayIndex: "desc" }, { date: "desc" }],
+    select: {
+      accommodation: { select: staySelect },
+    },
+  });
+
+  const start =
+    stayToSuggestionPlace(previousDay?.accommodation) ??
+    toSuggestionPlace([day.trip.startLocationLabel], day.trip.startLocationLat, day.trip.startLocationLng);
+
+  const existingTitles = [...day.dayPlanItems]
+    .sort(compareDayPlanItemsByStartTime)
+    .map((item) => item.title?.trim() ?? "")
+    .filter((title) => title.length > 0);
+
+  return {
+    date: day.date.toISOString().slice(0, 10),
+    start,
+    end: stayToSuggestionPlace(day.accommodation),
+    existingTitles,
+  };
+};
+
 export const updateTripHeroImageForUser = async ({
   userId,
   tripId,

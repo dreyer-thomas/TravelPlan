@@ -475,6 +475,8 @@ type TripDetail = {
 type TripDayViewProps = {
   tripId: string;
   dayId: string;
+  // Whether the AI day-suggestion search is configured (Story 12.1); unused until Story 12.3 shows the dialog.
+  aiSuggestionsEnabled?: boolean;
 };
 
 const compareTripDaysChronologically = (left: TripDay, right: TripDay) => {

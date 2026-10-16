@@ -3651,3 +3651,45 @@ severity: low
 summary: A user types a distance on a train, bus, walking or cycling leg (not one prefilled by route import), switches it to Ship or Flight, and saves. The distance field disappears and the stored kilometres are discarded on save with no notice.
 evidence: Read at 2026-10-16 during the code review of Story 6.31. This has been the behaviour since Story 6.16 for walking/cycling; 6.31 adds two more modes from which it can be reached. A fix would show a helper ("the distance will be dropped") or keep the value until the user saves on a mode that cannot carry it.
 status: open
+
+## Deferred from: code review of 12-1-ask-claude-what-the-day-could-hold (2026-10-16)
+
+### DW-381: Rate-limit store never prunes expired keys
+
+source_spec: `_bmad-output/implementation-artifacts/12-1-ask-claude-what-the-day-could-hold.md`
+origin: code review of 12-1-ask-claude-what-the-day-could-hold, 2026-10-16
+location: `travelplan/src/lib/security/rateLimit.ts:16` (`checkRateLimit`), `travelplan/src/lib/ai/dailyLimit.ts:30`
+severity: low
+summary: `checkRateLimit` replaces an expired entry only when the same key comes back. The AI daily limit puts the date in the key, so yesterday's entry is never looked up again, and the process keeps one entry per user per day until it restarts.
+evidence: Read at 2026-10-16 during the code review of Story 12.1. The store is pre-existing; 12.1 is its first caller with a key that never repeats. The growth is tiny for this user base. A fix would sweep entries with `resetAt <= now` on insert.
+status: open
+
+### DW-382: Suggestion verification accepts a city centroid as a match
+
+source_spec: `_bmad-output/implementation-artifacts/12-1-ask-claude-what-the-day-could-hold.md`
+origin: code review of 12-1-ask-claude-what-the-day-could-hold, 2026-10-16
+location: `travelplan/src/lib/ai/verifySuggestions.ts:95` (`closestWithin`)
+severity: low
+summary: If Nominatim returns only a broad match (a city or district) within 2 km of the model's point, the suggestion is marked `verified` and its coordinates move to the centroid, which can move a pin that was correct.
+evidence: Read at 2026-10-16 during the code review of Story 12.1. The 2 km rule follows the spec (D3). A fix would also require a specific result (`class`/`type`/`place_rank`) or a match on the label's first part.
+status: open
+
+### DW-383: Answer extraction under Shape B and repeated pause_turn
+
+source_spec: `_bmad-output/implementation-artifacts/12-1-ask-claude-what-the-day-could-hold.md`
+origin: code review of 12-1-ask-claude-what-the-day-could-hold, 2026-10-16
+location: `travelplan/src/lib/ai/daySuggestionService.ts:62` (`SERVER_TOOL_BLOCK_TYPES`), `:144`, `:135`
+severity: low
+summary: Without `output_config.format` (Shape B), a ```json fence or a lead-in sentence makes `JSON.parse` fail a good answer, and server-tool block types outside the set (dynamic-filtering code execution) could leave non-answer text in the answer. A second `pause_turn` resume sends `[user, assistant, assistant]`, which has not been checked against the real API.
+evidence: Read at 2026-10-16 during the code review of Story 12.1. Only relevant if the Task 1.2 spike shows the format is refused or pauses happen twice; settle it with that spike. **Update, same day:** the spike showed the format is accepted, so the Shape B half no longer applies. What remains is the second `pause_turn` resume, which the manual call did not hit.
+status: open
+
+### DW-384: `npm run audit:check` fails on 23 findings that predate Story 12.1
+
+source_spec: `_bmad-output/implementation-artifacts/12-1-ask-claude-what-the-day-could-hold.md`
+origin: code review of 12-1-ask-claude-what-the-day-could-hold, 2026-10-16 (Tommy waived AC10 for 12.1)
+location: `travelplan/package.json`, the audit allowlist used by `npm run audit:check`
+severity: medium
+summary: The audit gate fails with 23 findings that are not suppressed (next, @tiptap, sharp and others). None come from `@anthropic-ai/sdk` or `server-only`, which 12.1 added. Every story whose gates include `audit:check` will stay red until this is fixed.
+evidence: Reason for deferring: the findings came before this story, and dependency upkeep belongs in Epic 8 (Maintenance & Infrastructure). Story 12.1's Debug Log records the failing run.
+status: open

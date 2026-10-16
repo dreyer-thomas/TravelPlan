@@ -10,9 +10,11 @@ Still not written down anywhere: **how new code reaches the server.** See
 
 ## Environment variables
 
-These are the five variables the source tree reads (`grep -r 'process\.env\.' travelplan/src`, excluding
-`NODE_ENV`). Two of the five have silent fallbacks, which is worth more attention than the three that
-fail loudly: a variable that defaults to something plausible is one nobody discovers is unset.
+These are the eight variables the source tree reads (`grep -r 'process\.env\.' travelplan/src`, excluding
+`NODE_ENV`). Two of the first five have silent fallbacks, which is worth more attention than the three that
+fail loudly: a variable that defaults to something plausible is one nobody discovers is unset. The last
+three (Story 12.1) belong to the optional AI day suggestions and are read only in `src/lib/ai/config.ts`.
+`travelplan/.env.example` lists all eight without values.
 
 | Variable | Required | Notes |
 |---|---|---|
@@ -21,6 +23,41 @@ fail loudly: a variable that defaults to something plausible is one nobody disco
 | `JWT_SECRET` | Yes | Session signing key (HS256). |
 | `APP_BASE_URL` | **In practice yes** | Origin used to build the link in password-reset emails (`password-reset/request/route.ts:53`). **Falls back to `http://localhost:3000` with no warning**, so if it is unset in production every reset email links to localhost and the flow is unusable, with nothing in any log to say why. Set it to the public origin. **This was unset in production until 2026-08-12** — the failure predicted in this row had been live for the entire life of the deployment, and was found by enumerating the service's environment during Story 8.1 rather than by anybody reporting a broken email. It is now `https://plan.dreyer-travels.de`. |
 | `OSRM_BASE_URL` | No | Route-geometry service. Defaults to the public `https://routing.openstreetmap.de`; set it only to point at a self-hosted deployment. |
+| `ANTHROPIC_API_KEY` | No (feature off without it) | Claude API key for the AI day suggestions. Unset or blank, the feature is off: the search endpoint answers `503 ai_unavailable` and the day page is told the capability is missing. **A secret** — see the warning below. |
+| `ANTHROPIC_MODEL` | No | Model for the suggestions. Defaults to `claude-sonnet-5-5`. |
+| `AI_SUGGESTIONS_DAILY_LIMIT` | No | Searches per user per server-local day. Defaults to `20`; a missing, non-numeric or non-positive value also means `20`. The count is kept in process memory, so a restart resets it. |
+
+### AI day suggestions: cost and data
+
+**Every search is paid by the operator, per call** — model tokens plus a per-search web-search fee, and
+one search can run up to five web searches. The daily per-user limit above is a guard against runaway
+use, not a budget: **the spend limit set in the Anthropic console is the real cost cap**, so set one
+before adding the key.
+
+What leaves the server on each search is exactly this, and nothing else: the day's date, the start and
+end places (stay names, address labels and coordinates — or the trip's start location), the traveller's
+free-text wish, the travel mode, and the titles of the day's existing activities. No user account,
+email, trip name, member list, note, cost or link field is sent. That is a promise about **fields**, not
+about what people type into them: a stay called "Airbnb – Müller family", an address label or a wish
+that names someone goes to Anthropic as written, and may end up in web-search queries. The suggested
+places are then checked against Nominatim (OpenStreetMap), one lookup per second across the whole
+server, under the `User-Agent` `TravelPlan/0.1 suggestions`.
+
+**One search can take about 70 seconds**: up to 60 s for the model call with its web searches, then up
+to 10 s of place checks. nginx's default `proxy_read_timeout` is 60 s, which would cut the user off with
+a gateway error after the search has already counted against their daily limit. Raise it for this path:
+
+```nginx
+location ~ ^/api/trips/[^/]+/days/[^/]+/suggestions$ {
+    proxy_pass http://127.0.0.1:3001;
+    proxy_read_timeout 90s;
+    # … the same proxy_set_header lines as `location /`
+}
+```
+
+`AI_SUGGESTIONS_DAILY_LIMIT` and `ANTHROPIC_MODEL` also fail quietly. A non-numeric limit becomes 20,
+and a mistyped model name makes every search fail with a generic `502 ai_failed` that still uses up a
+search; the log line then shows `upstream: "APIError"` with `status: 404`.
 
 ### `MEDIA_STORAGE_ROOT`
 
@@ -185,6 +222,9 @@ Environment="JWT_SECRET=…"
 Environment="DATABASE_URL=file:/home/app/apps/TravelPlan/travelplan/prisma/prod.db"
 Environment="MEDIA_STORAGE_ROOT=/var/lib/travelplan/media"
 Environment="APP_BASE_URL=https://plan.dreyer-travels.de"
+# Optional, Story 12.1 - AI day suggestions are off without the key.
+Environment="ANTHROPIC_API_KEY=…"
+Environment="AI_SUGGESTIONS_DAILY_LIMIT=20"
 
 Environment=PATH=/opt/node-24/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ExecStart=/opt/node-24/bin/npm start
@@ -210,10 +250,16 @@ Three things about it are load-bearing:
 
 ### Secrets in the unit are readable by every local user
 
-`JWT_SECRET` is an inline `Environment=` value. **`systemctl show -p Environment TravelPlan` returns
-it to any unprivileged local account**, because the value is served from the systemd manager over
-D-Bus rather than read from the file — so tightening the unit file's permissions does not help. Unit
-files are also mode `644` by default, so `systemctl cat` exposes it as well.
+`JWT_SECRET` — and `ANTHROPIC_API_KEY`, once it is set — are inline `Environment=` values.
+**`systemctl show -p Environment TravelPlan` returns them to any unprivileged local account**, because
+the values are served from the systemd manager over D-Bus rather than read from the file — so
+tightening the unit file's permissions does not help. Unit files are also mode `644` by default, so
+`systemctl cat` exposes them as well.
+
+The API key is a different kind of secret from the session key: whoever reads it can spend the
+operator's money on the Claude API until the console spend limit stops them, without touching this
+application at all. The accepted risk below was decided for `JWT_SECRET`; adding the key is a reasonable
+moment to reconsider the `EnvironmentFile=` move.
 
 **This is an accepted risk, not an outstanding recommendation.** The decision was taken on 2026-08-15
 (`DW-331`): the inline `Environment=` values stay as they are. The host has two accounts that matter —

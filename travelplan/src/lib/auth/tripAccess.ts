@@ -1,6 +1,7 @@
 import { apiError } from "@/lib/errors/apiError";
 import { fail } from "@/lib/http/response";
 import { prisma } from "@/lib/db/prisma";
+import { isAdminUser } from "@/lib/auth/adminAccess";
 import {
   canTripAccessRoleManageTrip,
   canTripAccessRoleRead,
@@ -122,6 +123,45 @@ export const refuseUnlessTripWriter = async (userId: string, tripId: string, not
   }
 
   return null;
+};
+
+/**
+ * The gate for the AI day-suggestion search (Story 12.1): `refuseUnlessTripWriter`'s answers, with one
+ * more caller let through - an ADMIN who can at least read the trip.
+ *
+ * Ruling R2 says an administrator may search, and the obvious reading is "on every trip". It is not
+ * what this does, deliberately. Every trip and day read in this app filters on "owner or member"
+ * (`getTripAccessForUser` above, `getTripDayByIdForUser` and the day loaders in `tripRepo.ts`), so an
+ * admin who is not on a trip gets a 404 from all of them and the day page never shows them that trip.
+ * The only admin the UI can put in front of the search button is one who was invited to the trip, and
+ * as a viewer - a writer is already admitted on their role. Letting an admin through on *any* trip would
+ * need member-unfiltered loaders and would open, through the API only, trips the UI never shows; it
+ * would also break Story 8.3's rule that a non-participant learns nothing about a trip's existence.
+ *
+ * So: not a participant (an admin included) -> `404`, a writer -> through, a viewer -> through only if
+ * they are an admin, else the same `403` `refuseUnlessTripWriter` gives. One `getTripAccessForUser` call
+ * and, for viewers only, one `isAdminUser` lookup - the role is read from the database, never the
+ * token, for the reason `requireAdmin` gives.
+ *
+ * Named for who it admits rather than a verb because the route it guards writes nothing: it is a
+ * `POST` only because it spends the operator's money.
+ */
+export const refuseUnlessTripPlannerOrAdminReader = async (userId: string, tripId: string, notFoundMessage: string) => {
+  const access = await getTripAccessForUser(userId, tripId);
+
+  if (!access) {
+    return fail(apiError("not_found", notFoundMessage), 404);
+  }
+
+  if (canTripAccessRoleWrite(access.accessRole)) {
+    return null;
+  }
+
+  if (canTripAccessRoleRead(access.accessRole) && (await isAdminUser(userId))) {
+    return null;
+  }
+
+  return fail(apiError("forbidden", "Trip write access required"), 403);
 };
 
 /**

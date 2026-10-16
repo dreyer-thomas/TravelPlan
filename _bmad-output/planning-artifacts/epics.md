@@ -128,6 +128,8 @@ FR40: Epic 9 - Travel Documents
 FR41: Epic 10 - Costs in Another Currency
 FR42: Epic 11 - Day Plans That Recalculate Themselves
 FR43: Epic 11 - Day Plans That Recalculate Themselves
+FR44: Epic 12 - AI Suggestions for the Day
+FR45: Epic 12 - AI Suggestions for the Day
 
 ## Epic List
 
@@ -174,6 +176,10 @@ Users can type a price in the currency it was quoted in and have the app convert
 ### Epic 11: Day Plans That Recalculate Themselves
 Users can change one time on a day — an activity, a travel leg or the morning's check-out — and have the rest of the day follow — later activities pushed back as far as needed, travel legs that no longer fit removed, the order changed only when they ask — and take the whole change back in one step.
 **FRs covered:** FR42, FR43
+
+### Epic 12: AI Suggestions for the Day
+Users who plan a trip can describe what they want from a day, get AI suggestions for stops between the morning's stay and the evening's, pick the ones they like, and have them placed on the day in visiting order with times and travel legs — undoable in one step.
+**FRs covered:** FR44, FR45
 
 ## Epic 1: Secure Access & Personal Workspace
 
@@ -3744,3 +3750,154 @@ So that my day never shows me arriving somewhere after I am supposed to be there
 
 **Given** both dictionaries
 **Then** `en.ts` and `de.ts` carry the new strings, including the notice summary that names another day
+
+## Epic 12: AI Suggestions for the Day
+Users who plan a trip can describe what they want from a day, get AI suggestions for stops between the morning's stay and the evening's, pick the ones they like, and have them placed on the day in visiting order with times and travel legs — undoable in one step.
+**FRs covered:** FR44, FR45
+```
+
+**New section at the end of the file:**
+
+---
+
+## Epic 12: AI Suggestions for the Day
+
+Users who plan a trip can describe what they want from a day, get AI suggestions for stops between the morning's stay and the evening's, pick the ones they like, and have them placed on the day in visiting order with times and travel legs, undoable in one step.
+
+### Story 12.1: Ask Claude What the Day Could Hold
+
+As someone planning a day,
+I want the app to ask an AI for stops that fit my wish, my mode of travel and the day's route,
+So that I start from concrete ideas instead of a blank day.
+
+**FRs covered:** FR44 (search, without images and UI)
+
+**Depends on:** nothing.
+
+**Acceptance Criteria:**
+
+**Given** `ANTHROPIC_API_KEY` is set in the server environment
+**When** a user with planning rights on the trip (owner, contributor) or an ADMIN posts `{ prompt, mode: "car" | "walking" | "cycling" }` to `POST /api/trips/[id]/days/[dayId]/suggestions`
+**Then** the server calls Claude through `@anthropic-ai/sdk`, using the model from `ANTHROPIC_MODEL` (default `claude-sonnet-5-5`) Claude's server-side web search tool (`max_uses` 5), and Zod-validated structured output. It returns 3–8 suggestions, each with `title`, `description` (plain text, at most about 600 characters), `locationLabel`, `lat`, `lng`, `durationMinutes` and an optional `wikiTitle` hint.
+
+**Given** the request context
+**Then** it contains the day's date, the start place (the previous night's stay, or the trip's start location if there is none), the end place (the day's stay, or none), the free-text wish, the mode with its meaning (walking or cycling means stops reachable on foot or by bike from start or end), and the titles of the day's existing activities so they are not suggested again. It contains no user, email or member data.
+
+**Given** a suggestion
+**When** its `locationLabel` is geocoded through the existing Nominatim integration and the result lies within 2 km of the AI's coordinates
+**Then** the verified coordinates replace the AI's and the suggestion is `verified: true`. Otherwise it keeps the AI's coordinates with `verified: false`.
+
+**Given** a viewer without planning rights
+**Then** the endpoint refuses with the same check as other planning writes.
+
+**Given** the key is not set
+**Then** the endpoint answers `503` with code `ai_unavailable`, and a capability flag the day page can read reports the feature as off.
+
+**Given** a user has made `AI_SUGGESTIONS_DAILY_LIMIT` searches (default 20) since midnight server time
+**Then** further searches answer `429` with code `ai_limit_reached`. The count is kept in memory per process.
+
+**Given** Claude times out (60 s, web search included), errors, or returns output that fails validation
+**Then** the endpoint answers with the standard error envelope and code `ai_failed`, and nothing is written.
+
+**Given** the change ships
+**Then** `.env.example` and `docs/deployment-guide.md` document the three variables, the key never reaches the client bundle or logs, and tests cover the permission check, the missing key, the limit, the verification threshold and invalid model output (with the SDK mocked).
+
+### Story 12.2: Pictures for Each Suggestion
+
+As someone choosing between suggestions,
+I want two or three small pictures of each place,
+So that I can judge it at a glance.
+
+**FRs covered:** FR44 (images)
+
+**Depends on:** 12.1.
+
+**Acceptance Criteria:**
+
+**Given** a suggestion from 12.1
+**Then** the server looks up up to 3 images on Wikimedia (the Wikipedia page images for `wikiTitle`/`title`, then Commons geosearch within 1 km of the coordinates). It returns for each image a thumbnail URL (at most 320 px wide) and the original URL. No author or licence data is kept. It never uses image URLs produced by the AI.
+
+**Given** no image is found or Wikimedia fails
+**Then** the suggestion is returned without images, and the search as a whole does not fail.
+
+**Given** the lookups
+**Then** they run in parallel with a total budget of 8 s, and requests send a descriptive `User-Agent` as Wikimedia's API policy requires.
+
+**Given** tests
+**Then** the lookup order, the 3-image cap, the missing-image case and the timeout are covered with Wikimedia mocked.
+
+### Story 12.3: Look Through the Ideas and Tick the Good Ones
+
+As someone planning a day,
+I want a dialog where I describe the day, see the suggestions as cards and tick the ones I want,
+So that I can choose calmly before anything is added to my plan.
+
+**FRs covered:** FR44 (UI)
+
+**Depends on:** 12.1, 12.2.
+
+**Acceptance Criteria:**
+
+**Given** the feature is on and the user may plan the trip
+**Then** the day view shows an *Ideen finden* action next to the existing "add activity" action. It is never shown to viewers or when the feature is off.
+
+**Given** the dialog opens
+**Then** it shows the day's start and end (read-only), a multi-line field "Was willst du heute erleben?", a mode toggle (Auto / Zu Fuß / Fahrrad, default Auto) and a *Suchen* button. It is full-screen on phones and follows the existing dialog pattern.
+
+**Given** a search is running
+**Then** the button shows progress, the inputs are locked, and the dialog can still be closed.
+
+**Given** results
+**Then** each suggestion is a card with a checkbox, title, description, up to 3 small thumbnails, place label, typical duration ("ca. 1½ h") and, for `verified: false`, a visible *Ort nicht bestätigt* marker. A small map preview is not required.
+
+**Given** the user changes the wish or mode and searches again
+**Then** the list is replaced and earlier ticks are cleared.
+
+**Given** at least one card is ticked
+**Then** *Übernehmen (n)* is enabled. With none ticked it is disabled. (Applying is Story 12.4. Until then the button can be hidden behind the same flag.)
+
+**Given** an error code from 12.1 (`ai_failed`, `ai_limit_reached`)
+**Then** a German or English message appears in the dialog, and the inputs stay filled.
+
+**Given** both dictionaries
+**Then** `en.ts` and `de.ts` carry every new string.
+
+### Story 12.4: Take Them Over in Visiting Order
+
+As someone who has picked the ideas they like,
+I want them added as activities in the order I would visit them, with times and travel legs,
+So that the day is planned in one step and I can take it back if it is wrong.
+
+**FRs covered:** FR45
+
+**Depends on:** 12.3; Epic 11 receipts (Story 11.1).
+
+**Acceptance Criteria:**
+
+**Given** n ticked suggestions
+**When** *Übernehmen* is pressed
+**Then** they are ordered along the day's route. If start and end differ, they are sorted by their projection onto the start→end line. If they are equal or there is no end, the order is a nearest-neighbour tour from the start.
+
+**Given** the ordered list
+**Then** the time chain starts at the start stay's `checkOutTime` (09:00 if empty). If the day already has activities with times, it starts after the last one ends. Each activity gets `fromTime` = previous end plus the OSRM travel time from the previous point in the chosen mode, and `toTime` = `fromTime` + `durationMinutes`, rounded up to 5 minutes.
+
+**Given** the dialog before applying
+**Then** it shows the computed order and times as a preview. If the last activity would end after 23:59, a warning is shown and applying is still allowed.
+
+**Given** applying
+**Then** in one transaction: each suggestion becomes a `DayPlanItem` with title, description as Tiptap paragraphs, verified location and times. A `TravelSegment` is created between each pair of consecutive new activities, and from the previous point (stay or last existing activity) to the first one, in the chosen mode (`CAR`, `WALKING`, `CYCLING`) with OSRM duration and distance.
+
+**Given** images
+**Then** each is downloaded server-side into `MEDIA_STORAGE_ROOT` through the existing upload path and size limit, and linked as `DayPlanItemImage`. A failed download skips that image and does not block the apply.
+
+**Given** OSRM is unavailable
+**Then** activities are still created, legs are created without duration and distance, and the chain assumes 0 minutes of travel.
+
+**Given** the apply succeeds
+**Then** it returns a receipt (Story 11.1). The `action-notice` reads e.g. "4 Aktivitäten und 4 Fahrten hinzugefügt", and *Rückgängig* removes every created activity, leg and image file in one step.
+
+**Given** a viewer
+**Then** the apply endpoint refuses them like other planning writes.
+
+**Given** tests
+**Then** they cover the ordering for both cases, the time chain from check-out, from 09:00 and after existing activities, the OSRM fallback, a failed image download, and undo.
