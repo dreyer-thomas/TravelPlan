@@ -90,8 +90,11 @@ export const timeToMinutes = (value: string | null): number | null => {
   return hours * 60 + minutes;
 };
 
-/** Zero-padded `HH:MM`. Only called for values the midnight check has already bounded. */
-const minutesToTime = (value: number): string =>
+/**
+ * Zero-padded `HH:MM`. Only called for values the midnight check has already bounded. Exported for Story
+ * 12.4's time chain (`suggestionPlan.ts`), so there is one formatter.
+ */
+export const minutesToTime = (value: number): string =>
   `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
 
 const isTimed = (item: PushItem) => Boolean(item.fromTime);

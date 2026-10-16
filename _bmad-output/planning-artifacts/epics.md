@@ -3879,10 +3879,10 @@ So that the day is planned in one step and I can take it back if it is wrong.
 **Then** they are ordered along the day's route. If start and end differ, they are sorted by their projection onto the start→end line. If they are equal or there is no end, the order is a nearest-neighbour tour from the start.
 
 **Given** the ordered list
-**Then** the time chain starts at the start stay's `checkOutTime` (09:00 if empty). If the day already has activities with times, it starts after the last one ends. Each activity gets `fromTime` = previous end plus the OSRM travel time from the previous point in the chosen mode, and `toTime` = `fromTime` + `durationMinutes`, rounded up to 5 minutes.
+**Then** the time chain starts at the start stay's `checkOutTime`; when that is empty, at the timeline's default check-out (10:00), and with no start stay at all (the trip's first day) at 09:00 (amended 2026-10-16, Tommy's ruling). If the day already has activities with times, it starts after the last one ends. Each activity gets `fromTime` = previous end plus the OSRM travel time from the previous point in the chosen mode, and `toTime` = `fromTime` + `durationMinutes`, rounded up to 5 minutes.
 
 **Given** the dialog before applying
-**Then** it shows the computed order and times as a preview. If the last activity would end after 23:59, a warning is shown and applying is still allowed.
+**Then** it shows the computed order and times as a preview. If an activity would end after 23:59, a warning is shown and applying is still allowed; that activity and every later one are added without times, because a time past 23:59 cannot be stored (amended 2026-10-16).
 
 **Given** applying
 **Then** in one transaction: each suggestion becomes a `DayPlanItem` with title, description as Tiptap paragraphs, verified location and times. A `TravelSegment` is created between each pair of consecutive new activities, and from the previous point (stay or last existing activity) to the first one, in the chosen mode (`CAR`, `WALKING`, `CYCLING`) with OSRM duration and distance.
@@ -3891,7 +3891,7 @@ So that the day is planned in one step and I can take it back if it is wrong.
 **Then** each is downloaded server-side into `MEDIA_STORAGE_ROOT` through the existing upload path and size limit, and linked as `DayPlanItemImage`. A failed download skips that image and does not block the apply.
 
 **Given** OSRM is unavailable
-**Then** activities are still created, legs are created without duration and distance, and the chain assumes 0 minutes of travel.
+**Then** activities are still created, the legs OSRM gave no value for are not created (a leg's duration cannot be empty; the user can add it later in the leg dialog), and the chain assumes 0 minutes of travel there (amended 2026-10-16).
 
 **Given** the apply succeeds
 **Then** it returns a receipt (Story 11.1). The `action-notice` reads e.g. "4 Aktivitäten und 4 Fahrten hinzugefügt", and *Rückgängig* removes every created activity, leg and image file in one step.
@@ -3900,4 +3900,4 @@ So that the day is planned in one step and I can take it back if it is wrong.
 **Then** the apply endpoint refuses them like other planning writes.
 
 **Given** tests
-**Then** they cover the ordering for both cases, the time chain from check-out, from 09:00 and after existing activities, the OSRM fallback, a failed image download, and undo.
+**Then** they cover the ordering for both cases, the time chain from check-out, from the 10:00 default, from 09:00 on a first day and after existing activities, the OSRM fallback, a failed image download, and undo.

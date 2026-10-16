@@ -131,7 +131,18 @@ export const findCheckInWarningInTransaction = async (
   planned: PlannedPush,
 ): Promise<DayChangeCheckInWarning | undefined> => {
   if (planned.moves.length === 0) return undefined;
+  return findCheckInWarningForOrderInTransaction(tx, tripDayId, planned.order);
+};
 
+/**
+ * The comparison itself, over the day's final order (timed then untimed). Story 12.4 calls it directly:
+ * an apply of suggestions moves nothing, but the activities it appends can reach the stay too late.
+ */
+export const findCheckInWarningForOrderInTransaction = async (
+  tx: TransactionClient,
+  tripDayId: string,
+  order: PushItem[],
+): Promise<DayChangeCheckInWarning | undefined> => {
   const day = await tx.tripDay.findUnique({
     where: { id: tripDayId },
     select: { accommodation: { select: { id: true, checkInTime: true } } },
@@ -142,14 +153,14 @@ export const findCheckInWarningInTransaction = async (
   const checkInMinutes = timeToMinutes(checkInTime);
   if (checkInMinutes === null) return undefined;
 
-  const timed = planned.order.filter((item) => Boolean(item.fromTime));
+  const timed = order.filter((item) => Boolean(item.fromTime));
   const last = timed.at(-1);
   if (!last) return undefined;
   const lastEnd = activityEndMinutes(last);
   if (lastEnd === null) return undefined;
 
   let arrival = lastEnd;
-  if (planned.order.at(-1) === last) {
+  if (order.at(-1) === last) {
     const legToStay = await tx.travelSegment.findFirst({
       where: {
         tripDayId,

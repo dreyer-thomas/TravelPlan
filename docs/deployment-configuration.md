@@ -58,6 +58,16 @@ IP address but not which page of the app they came from. The app sets no Content
 there is no `img-src` list to extend; if you add a CSP in front of the app, allow `thumb.wikimedia.org`
 and `upload.wikimedia.org` as image sources.
 
+Taking ticked suggestions over (Story 12.4) is two requests, and neither calls Claude or counts against
+the daily limit. The **preview** asks OSRM once for the whole chain of stops in the search's travel mode
+(one request per click, as FOSSGIS's fair-use rule asks), at most 8 s. The **apply** asks OSRM nothing:
+it writes the legs the preview showed. It downloads the chosen pictures on the server, from
+`thumb.wikimedia.org` (the 1920 px, 1280 px and 250 px thumbnails) and `upload.wikimedia.org` (the original),
+**without following redirects**, at most **5 MB** per picture, and keeps only bytes that are a JPEG, PNG
+or WebP by their signature; four at a time, at most 15 s in all. A picture that fails is left out and
+logged by host only. Both requests stay well inside nginx's default 60 s, so they need no `location` of
+their own.
+
 **One search can take about 80 seconds**: up to 60 s for the model call with its web searches, then up
 to 10 s of place checks, then up to 8 s of picture lookups — at most 78 s. nginx's default
 `proxy_read_timeout` is 60 s, which would cut the user off with a gateway error after the search has

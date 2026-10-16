@@ -57,7 +57,11 @@ export const truncateOnWordBoundary = (text: string, max = DESCRIPTION_MAX_LENGT
   return `${cut}…`;
 };
 
-const suggestionSchema = z.object({
+/**
+ * One suggestion's fields and their bounds. Exported for Story 12.4, whose apply request carries the ticked
+ * suggestions back and re-validates them with exactly these bounds (`daySuggestionApplySchemas.ts`).
+ */
+export const suggestionSchema = z.object({
   title: z.string().trim().min(1).max(120),
   description: z
     .string()

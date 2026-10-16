@@ -4790,8 +4790,9 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
             onSaved={handlePlanDialogSaved}
             onDayWrite={() => setDayChange(null)}
           />
-          {/* Story 12.3. No `onApply` yet: the dialog then shows the selection count without an apply
-              button, and Story 12.4 adds the handler. */}
+          {/* Story 12.4. The dialog previews and applies on its own and hands over the receipt; like a
+              plan dialog save (`handlePlanDialogSaved`), the day reloads and the notice offers the undo.
+              Only a writer gets the handler, so a viewer's dialog has no apply button. */}
           <TripDaySuggestionsDialog
             key={`suggest-${suggestionsDialogKey}`}
             open={suggestionsOpen}
@@ -4802,6 +4803,16 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
             start={previousStay ? { label: stayRouteLabel(previousStay) } : null}
             end={currentStay ? { label: stayRouteLabel(currentStay) } : null}
             ensureCsrfToken={ensureCsrfToken}
+            onApplied={
+              canEditPlanning
+                ? (receipt) => {
+                    takeDayChangeReceipt(receipt);
+                    setPlanMoveNotice(null);
+                    setSuggestionsOpen(false);
+                    void loadDay();
+                  }
+                : undefined
+            }
           />
           <Dialog open={transferMode !== null} onClose={transferGuard.requestClose} fullWidth maxWidth="sm">
             <DialogTitleWithClose

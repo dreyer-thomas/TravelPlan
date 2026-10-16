@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import type { NextRequest } from "next/server";
 import { apiError } from "@/lib/errors/apiError";
 import { fail, ok } from "@/lib/http/response";
@@ -5,6 +6,8 @@ import { hasTripOwnerOrContributorAccess } from "@/lib/auth/tripAccess";
 import { CSRF_COOKIE_NAME, validateCsrf } from "@/lib/security/csrf";
 import { requireSession } from "@/lib/auth/sessionGuard";
 import { undoDayPlanChangeForTrip } from "@/lib/repositories/dayPlanChangeRepo";
+import { removeManagedMediaFile } from "@/lib/trips/mediaCleanup";
+import { getDayPlanItemImageUploadDir } from "@/lib/trips/uploadPaths";
 import { fromDayChangeReceiptWire } from "@/lib/trips/dayChangeReceipt";
 import { verifyDayChangeReceipt } from "@/lib/trips/dayChangeReceiptSignature";
 import { dayChangeUndoSchema } from "@/lib/validation/dayChangeReceiptSchemas";
@@ -19,6 +22,11 @@ import { dayChangeUndoSchema } from "@/lib/validation/dayChangeReceiptSchemas";
  * issue for this trip and this user, or one altered since, is a `400` before anything reads it (AC12).
  * The repository adds the writer clause on the day and the ownership checks on every row (`invalid` →
  * 400), then staleness (`409 undo_stale`).
+ *
+ * Story 12.4: undoing an apply of suggestions deletes image rows whose files nothing else names. They are
+ * unlinked here, after the transaction has committed and only for the rows it read, each confined to its
+ * activity's own directory, and then that directory itself once it is empty. A failed unlink is logged
+ * and never turns the undo into an error.
  */
 
 type RouteContext = {
@@ -89,8 +97,22 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
         return fail(apiError("validation_error", "Invalid change receipt"), 400);
       case "stale":
         return fail(apiError("undo_stale", "The day has changed since this change was made"), 409);
-      case "undone":
+      case "undone": {
+        const removedFiles = result.removedImageFiles ?? [];
+        for (const file of removedFiles) {
+          await removeManagedMediaFile({
+            storedUrl: file.imageUrl,
+            allowedDir: getDayPlanItemImageUploadDir(tripId, receipt.tripDayId, file.dayPlanItemId),
+            context: "day-plan-changes undo",
+          });
+        }
+        // Then each activity's own directory, which nothing names any more. `rmdir` only removes an
+        // empty one, so anything else found there stays; failures are not the user's problem.
+        for (const itemId of new Set(removedFiles.map((file) => file.dayPlanItemId))) {
+          await fs.rmdir(getDayPlanItemImageUploadDir(tripId, receipt.tripDayId, itemId)).catch(() => undefined);
+        }
         return ok({ undone: true });
+      }
       default: {
         const unhandled: never = result;
         throw new Error(`Unhandled undo result: ${String(unhandled)}`);

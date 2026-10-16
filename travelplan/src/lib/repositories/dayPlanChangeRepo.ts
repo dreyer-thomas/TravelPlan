@@ -48,6 +48,14 @@ import {
  * `updatedAt`, conditional on the stamp, and only for the stay of the night before the receipt's (pushed)
  * day. None of them ever removed a leg, so a non-empty `removedTravelSegments` is a forgery.
  *
+ * Story 12.4 adds `suggestionsApplied`: the activities, legs and image rows one apply of picked
+ * suggestions created. Phase 1 refuses when any of them changed or gained something the apply did not
+ * create (an image, a document, a leg); phase 2 deletes the legs, then the activities through the same
+ * delete as the other kinds, then restores the legs the apply swept. The image *files* go only after the
+ * transaction commits, and only those of the rows read inside it (the route does that): nothing else can
+ * point at them, because the activities they belonged to are gone (unlike a deleted item, whose undo
+ * recreates rows that point at its files - DW-187 stays as it is).
+ *
  * Any failure throws `UndoStaleError`, which rolls the transaction back and maps to `stale`. A `P2002`
  * while recreating a row maps there too: someone drew a new leg for the same pair, or reused the id.
  *
@@ -55,11 +63,15 @@ import {
  * the endpoint must be no more powerful than the write endpoints it reverses.
  */
 
+/** Story 12.4. An image row the undo deleted: its file is the route's to remove after the commit. */
+export type UndoneImageFile = { dayPlanItemId: string; imageUrl: string };
+
 export type DayPlanChangeUndoResult =
   | { status: "not_found" }
   | { status: "invalid"; reason: string }
   | { status: "stale" }
-  | { status: "undone" };
+  /** `removedImageFiles` only when the undo deleted image rows (Story 12.4); every other kind answers as before. */
+  | { status: "undone"; removedImageFiles?: UndoneImageFile[] };
 
 export class UndoStaleError extends Error {
   constructor(reason: string) {
@@ -153,6 +165,15 @@ const findInvalidity = (receipt: DayChangeReceipt, tripId: string): string | nul
     if (edited.previous.tripDayId !== tripDayId) return "leg on another day";
   }
 
+  if (edited.kind === "suggestionsApplied") {
+    // An apply only appends: it never moves an existing activity.
+    if (receipt.movedItems.length > 0) return "side effect an apply never has";
+    if (new Set(edited.items.map((item) => item.itemId)).size !== edited.items.length) return "duplicate item";
+    if (new Set(edited.segments.map((segment) => segment.segmentId)).size !== edited.segments.length) return "duplicate leg";
+    if (edited.segments.some((segment) => legIds.has(segment.segmentId))) return "leg both created and removed";
+    if (new Set(edited.imageIds).size !== edited.imageIds.length) return "duplicate image";
+  }
+
   if (receipt.consumedBucketListItem) {
     // Only a create can consume an idea; any other pairing is not something a write ever returned.
     if (edited.kind !== "created") return "bucket-list row on a non-create";
@@ -176,7 +197,63 @@ const restorePayments = async (tx: TransactionClient, snapshot: DayPlanItemSnaps
   }
 };
 
-const undoInTransaction = async (tx: TransactionClient, tripId: string, receipt: DayChangeReceipt) => {
+/**
+ * Story 12.4, phase 1 for `suggestionsApplied`. Every created activity and leg must still be on the day with
+ * the stamp the apply gave it, and nothing may have been added to the activities since: no image the apply
+ * did not create, no document, no leg it did not create. Returns the image rows phase 2 will take with
+ * the activities, read here, inside the transaction, so the files removed later are the rows' own.
+ */
+const checkSuggestionsAppliedInTransaction = async (
+  tx: TransactionClient,
+  tripDayId: string,
+  edited: Extract<DayChangeReceipt["edited"], { kind: "suggestionsApplied" }>,
+): Promise<UndoneImageFile[]> => {
+  const itemIds = edited.items.map((item) => item.itemId);
+  const segmentIds = new Set(edited.segments.map((segment) => segment.segmentId));
+
+  const items = await tx.dayPlanItem.findMany({ where: { id: { in: itemIds }, tripDayId }, select: { id: true, updatedAt: true } });
+  const itemStamps = new Map(items.map((item) => [item.id, item.updatedAt]));
+  for (const item of edited.items) {
+    const stamp = itemStamps.get(item.itemId);
+    if (!stamp || !sameInstant(stamp, item.updatedAt)) throw new UndoStaleError("applied item changed");
+  }
+
+  const segments = await tx.travelSegment.findMany({
+    where: { id: { in: [...segmentIds] }, tripDayId },
+    select: { id: true, updatedAt: true },
+  });
+  const segmentStamps = new Map(segments.map((segment) => [segment.id, segment.updatedAt]));
+  for (const segment of edited.segments) {
+    const stamp = segmentStamps.get(segment.segmentId);
+    if (!stamp || !sameInstant(stamp, segment.updatedAt)) throw new UndoStaleError("applied leg changed");
+  }
+
+  const [images, documents, referencing] = await Promise.all([
+    tx.dayPlanItemImage.findMany({ where: { dayPlanItemId: { in: itemIds } }, select: { id: true, dayPlanItemId: true, imageUrl: true } }),
+    tx.dayPlanItemDocument.count({ where: { dayPlanItemId: { in: itemIds } } }),
+    tx.travelSegment.findMany({
+      where: {
+        OR: [
+          { fromItemType: "DAY_PLAN_ITEM", fromItemId: { in: itemIds } },
+          { toItemType: "DAY_PLAN_ITEM", toItemId: { in: itemIds } },
+        ],
+      },
+      select: { id: true },
+    }),
+  ]);
+  const receiptImageIds = new Set(edited.imageIds);
+  if (images.some((image) => !receiptImageIds.has(image.id))) throw new UndoStaleError("applied item gained an image");
+  if (documents > 0) throw new UndoStaleError("applied item gained a document");
+  if (referencing.some((leg) => !segmentIds.has(leg.id))) throw new UndoStaleError("applied item gained a leg");
+
+  return images.map((image) => ({ dayPlanItemId: image.dayPlanItemId, imageUrl: image.imageUrl }));
+};
+
+const undoInTransaction = async (
+  tx: TransactionClient,
+  tripId: string,
+  receipt: DayChangeReceipt,
+): Promise<UndoneImageFile[]> => {
   const { tripDayId, edited } = receipt;
 
   // What the day draws before the undo, and which of its legs the receipt does not own. The second set
@@ -185,11 +262,14 @@ const undoInTransaction = async (tx: TransactionClient, tripId: string, receipt:
   const receiptLegIds = new Set(receipt.removedTravelSegments.map((leg) => leg.id));
   // Story 11.4: the leg a leg save wrote is the undo's own to delete or rewrite, not one it must protect.
   if (edited.kind === "legCreated" || edited.kind === "legUpdated") receiptLegIds.add(edited.segmentId);
+  // Story 12.4: the legs an apply created are the undo's own to delete.
+  if (edited.kind === "suggestionsApplied") edited.segments.forEach((segment) => receiptLegIds.add(segment.segmentId));
   const protectedLegs = (await tx.travelSegment.findMany({ where: { tripDayId } })).filter(
     (leg) => !receiptLegIds.has(leg.id) && drawnBeforeUndo.has(buildStoredSegmentPairKey(leg)),
   );
 
   // Phase 1: staleness, before any write. One branch per kind; none falls into another's.
+  let removedImageFiles: UndoneImageFile[] = [];
   switch (edited.kind) {
     case "created": {
       const item = await tx.dayPlanItem.findFirst({ where: { id: edited.itemId, tripDayId } });
@@ -252,6 +332,9 @@ const undoInTransaction = async (tx: TransactionClient, tripId: string, receipt:
       if (!previousDay || previousDay.id !== stay.tripDayId) throw new UndoStaleError("stay is not last night's");
       break;
     }
+    case "suggestionsApplied":
+      removedImageFiles = await checkSuggestionsAppliedInTransaction(tx, tripDayId, edited);
+      break;
     default: {
       const unhandled: never = edited;
       throw new Error(`Unhandled receipt kind: ${String(unhandled)}`);
@@ -262,7 +345,8 @@ const undoInTransaction = async (tx: TransactionClient, tripId: string, receipt:
     if (!item || !sameInstant(item.updatedAt, moved.updatedAt)) throw new UndoStaleError("moved item changed");
   }
   if (receipt.removedTravelSegments.length > 0) {
-    const existing = await tx.travelSegment.count({ where: { id: { in: [...receiptLegIds] } } });
+    const removedLegIds = receipt.removedTravelSegments.map((leg) => leg.id);
+    const existing = await tx.travelSegment.count({ where: { id: { in: removedLegIds } } });
     if (existing > 0) throw new UndoStaleError("removed leg exists again");
   }
   if (receipt.consumedBucketListItem) {
@@ -335,6 +419,24 @@ const undoInTransaction = async (tx: TransactionClient, tripId: string, receipt:
       if (restored.count !== 1) throw new UndoStaleError("stay changed");
       break;
     }
+    case "suggestionsApplied": {
+      // The legs first, each conditional on the stamp just checked, then the activities. With their legs
+      // gone and no other leg naming them (phase 1), the deletes find nothing more to sweep; if they did,
+      // it would be a leg the undo must not take.
+      for (const segment of edited.segments) {
+        const removed = await tx.travelSegment.deleteMany({
+          where: { id: segment.segmentId, tripDayId, updatedAt: segment.updatedAt },
+        });
+        if (removed.count !== 1) throw new UndoStaleError("applied leg changed");
+      }
+      for (const item of edited.items) {
+        const deleted = await deleteDayPlanItemInTransaction(tx, { tripId, tripDayId, itemId: item.itemId });
+        if (deleted.status !== "deleted" || deleted.removedTravelSegments.length > 0) {
+          throw new UndoStaleError("applied item could not be removed cleanly");
+        }
+      }
+      break;
+    }
     default: {
       const unhandled: never = edited;
       throw new Error(`Unhandled receipt kind: ${String(unhandled)}`);
@@ -379,6 +481,8 @@ const undoInTransaction = async (tx: TransactionClient, tripId: string, receipt:
       }
     }
   }
+
+  return removedImageFiles;
 };
 
 export const undoDayPlanChangeForTrip = async (params: {
@@ -399,13 +503,14 @@ export const undoDayPlanChangeForTrip = async (params: {
   const invalidity = findInvalidity(receipt, tripId);
   if (invalidity) return { status: "invalid", reason: invalidity };
 
+  let removedImageFiles: UndoneImageFile[];
   try {
-    await prisma.$transaction((tx) => undoInTransaction(tx, tripId, receipt));
+    removedImageFiles = await prisma.$transaction((tx) => undoInTransaction(tx, tripId, receipt));
   } catch (error) {
     if (error instanceof UndoStaleError) return { status: "stale" };
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return { status: "stale" };
     throw error;
   }
 
-  return { status: "undone" };
+  return removedImageFiles.length > 0 ? { status: "undone", removedImageFiles } : { status: "undone" };
 };

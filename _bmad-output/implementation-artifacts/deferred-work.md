@@ -3714,7 +3714,8 @@ location: `travelplan/src/lib/validation/daySuggestionSchemas.ts` (`isWikimediaU
 severity: medium
 summary: The guard checks scheme, host, port and credentials only. When Story 12.4 downloads `originalUrl`, a default `fetch` follows redirects, which could leave `upload.wikimedia.org`. 12.4 must use `redirect: "manual"` (or re-check every hop), and must bound the response size and check its content type.
 evidence: Raised in the 12.2 review. Nothing downloads yet, so this is a requirement for 12.4 rather than a live defect.
-status: open
+status: done 2026-10-16
+resolution: Story 12.4. `suggestionImageDownload.ts` fetches with `redirect: "manual"` and treats any status but 200 (3xx included) as a failure, reads the body with a counting reader cancelled past 5 MB, and keeps only bytes that `sniffPhotoContentType` recognises (the extension comes from the bytes). Every candidate URL passes its guard before any request. Pinned in `test/suggestionImageDownload.test.ts`; removing `redirect: "manual"` turns a test red.
 
 ### DW-387: Hotlinked Wikimedia thumbnails expose members to a third party
 

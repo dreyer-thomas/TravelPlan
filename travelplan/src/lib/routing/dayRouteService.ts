@@ -3,10 +3,21 @@ export type RoutingPoint = {
   lng: number;
 };
 
+/** Story 12.4. One leg between two consecutive requested points; `null` where OSRM sent no usable number. */
+export type DayRouteLeg = {
+  distanceMeters: number | null;
+  durationSeconds: number | null;
+};
+
 export type DayRouteResult = {
   polyline: [number, number][];
   distanceMeters: number | null;
   durationSeconds: number | null;
+  /**
+   * Story 12.4, additive. One entry per pair of consecutive points, present only when OSRM answered with
+   * exactly that many legs. Every caller before 12.4 reads only the totals.
+   */
+  legs?: DayRouteLeg[];
 };
 
 /**
@@ -64,6 +75,7 @@ type OsrmRoute = {
   };
   distance?: number;
   duration?: number;
+  legs?: Array<{ distance?: unknown; duration?: unknown }>;
 };
 
 type OsrmResponse = {
@@ -97,6 +109,17 @@ const metersBetween = (a: RoutingPoint, b: RoutingPoint) => {
   const x = toRadians(wrapLongitudeDelta(b.lng - a.lng)) * Math.cos(meanLat);
   const y = toRadians(b.lat - a.lat);
   return EARTH_RADIUS_METERS * Math.sqrt(x * x + y * y);
+};
+
+const toNonNegativeNumber = (value: unknown): number | null =>
+  typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+
+const toLegs = (route: OsrmRoute, pointCount: number): DayRouteLeg[] | undefined => {
+  if (!Array.isArray(route.legs) || route.legs.length !== pointCount - 1) return undefined;
+  return route.legs.map((leg) => ({
+    distanceMeters: toNonNegativeNumber(leg?.distance),
+    durationSeconds: toNonNegativeNumber(leg?.duration),
+  }));
 };
 
 const toPolyline = (coordinates: [number, number][]) =>
@@ -191,10 +214,12 @@ export const getDayRouteFromOsrm = async ({
       throw new DayRouteError("routing_no_route", "No route available for this travel mode");
     }
 
+    const legs = toLegs(route, points.length);
     return {
       polyline,
       distanceMeters: typeof route.distance === "number" && Number.isFinite(route.distance) && route.distance >= 0 ? route.distance : null,
       durationSeconds: typeof route.duration === "number" && Number.isFinite(route.duration) && route.duration >= 0 ? route.duration : null,
+      ...(legs ? { legs } : {}),
     };
   } catch (error) {
     if (error instanceof DayRouteError) {

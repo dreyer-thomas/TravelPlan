@@ -608,4 +608,56 @@ describe("dayRouteService", () => {
       }),
     ).rejects.toMatchObject(expected);
   });
+
+  // --- Story 12.4: per-leg values, added for the suggestion chain ------------------------------
+
+  const threePointRoute = (legs?: unknown) =>
+    (async () => ({
+      ok: true,
+      json: async () => ({
+        code: "Ok",
+        routes: [
+          {
+            geometry: { coordinates: [[11.7861, 48.3538], [11.5756, 48.1372], [11.582, 48.145]] },
+            distance: 30000,
+            duration: 2000,
+            ...(legs === undefined ? {} : { legs }),
+          },
+        ],
+      }),
+    })) as unknown as typeof fetch;
+
+  const threePoints = [
+    { lat: 48.3538, lng: 11.7861 },
+    { lat: 48.1372, lng: 11.5756 },
+    { lat: 48.145, lng: 11.582 },
+  ];
+
+  it("returns each leg's distance and duration when OSRM sends them", async () => {
+    const result = await getDayRouteFromOsrm({
+      points: threePoints,
+      fetchImpl: threePointRoute([
+        { distance: 28000, duration: 1700 },
+        { distance: 2000, duration: "300" },
+      ]),
+    });
+    expect(result.legs).toEqual([
+      { distanceMeters: 28000, durationSeconds: 1700 },
+      { distanceMeters: 2000, durationSeconds: null },
+    ]);
+    expect(result.distanceMeters).toBe(30000);
+  });
+
+  it("leaves `legs` out when OSRM sends none", async () => {
+    const result = await getDayRouteFromOsrm({ points: threePoints, fetchImpl: threePointRoute() });
+    expect(result).not.toHaveProperty("legs");
+  });
+
+  it("leaves `legs` out when their count does not match the points", async () => {
+    const result = await getDayRouteFromOsrm({
+      points: threePoints,
+      fetchImpl: threePointRoute([{ distance: 30000, duration: 2000 }]),
+    });
+    expect(result).not.toHaveProperty("legs");
+  });
 });

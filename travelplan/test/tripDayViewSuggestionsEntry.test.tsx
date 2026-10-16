@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TripDayView from "@/components/features/trips/TripDayView";
@@ -12,7 +12,7 @@ import { renderWithProviders } from "./helpers/renderWithProviders";
  * Story 12.3 AC1 and AC8. *Ideen finden* in the day view's timeline header: shown to an owner or a
  * contributor when the AI search is configured, absent for a viewer and when it is not, and it opens
  * the real suggestion dialog with the day's stays as start and end. The harness follows
- * `tripDayViewDayChange.test.tsx`.
+ * `tripDayViewDayChange.test.tsx`. Story 12.4 adds the apply: its receipt reaches the day-change notice.
  */
 
 // The three authoring dialogs carry the rich-text editor, which does not run in jsdom. None of them is
@@ -176,9 +176,9 @@ describe("TripDayView: Find ideas entry (Story 12.3)", () => {
     const route = within(dialog).getByTestId("suggestions-route");
     expect(route).toHaveTextContent("Hotel Ribeira · Ribeira, Porto");
     expect(route).toHaveTextContent(en["trips.suggestions.endNone"]);
-    // Story 12.4 has not wired the apply yet, so the footer only counts.
+    // Story 12.4 wired the apply: the footer counts and offers it, disabled until something is ticked.
     expect(within(dialog).getByText(en["trips.suggestions.selectedNone"])).toBeInTheDocument();
-    expect(within(dialog).queryByRole("button", { name: /^Add \(/ })).toBeNull();
+    expect(within(dialog).getByRole("button", { name: "Add (0)" })).toBeDisabled();
   });
 
   it("starts each open fresh", async () => {
@@ -193,5 +193,73 @@ describe("TripDayView: Find ideas entry (Story 12.3)", () => {
 
     await user.click(await screen.findByRole("button", { name: en["trips.suggestions.openAction"] }));
     expect(await screen.findByLabelText(en["trips.suggestions.promptLabel"])).toHaveValue("");
+  });
+
+  it("takes an applied receipt: closes the dialog, reloads the day and offers the undo in the notice", async () => {
+    const user = userEvent.setup();
+    const receipt = {
+      version: 2,
+      tripDayId: "day-2",
+      edited: {
+        kind: "suggestionsApplied",
+        items: [{ itemId: "new-1", updatedAt: "2026-12-02T10:00:00.000Z" }],
+        segments: [{ segmentId: "leg-1", updatedAt: "2026-12-02T10:00:00.000Z" }],
+        imageIds: [],
+      },
+      removedTravelSegments: [],
+      movedItems: [],
+      signature: "a".repeat(64),
+    };
+    const idea = {
+      title: "Old Harbour",
+      description: "Walk the quay.",
+      locationLabel: "Harbour, Porto",
+      lat: 41.14,
+      lng: -8.61,
+      durationMinutes: 90,
+      verified: true,
+      images: [],
+    };
+    const fetchMock = stubDay("owner");
+    const dayFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/suggestions/preview")) {
+        return mockFetchResponse({
+          data: {
+            order: [0],
+            rows: [{ fromTime: "10:15", toTime: "11:45" }],
+            legs: [{ durationMinutes: 12, distanceKm: 3 }],
+            basis: { afterItemId: null, startTime: "10:00" },
+            overflow: false,
+            routingUnavailable: false,
+            origin: { kind: "stay", label: "Hotel Ribeira" },
+          },
+          error: null,
+        });
+      }
+      if (url.endsWith("/suggestions/apply")) return mockFetchResponse({ data: { receipt }, error: null });
+      if (url.endsWith("/suggestions")) return mockFetchResponse({ data: { suggestions: [idea] }, error: null });
+      return dayFetch(input);
+    });
+    await renderDay(true);
+    await user.click(findIdeasButton()!);
+    const dialog = await screen.findByRole("dialog", { name: en["trips.suggestions.dialogTitle"] });
+    await user.type(within(dialog).getByLabelText(en["trips.suggestions.promptLabel"]), "Harbour");
+    await user.click(within(dialog).getByRole("button", { name: en["trips.suggestions.search"] }));
+    await user.click(await within(dialog).findByText("Old Harbour"));
+    await user.click(within(dialog).getByRole("button", { name: "Add (1)" }));
+    await within(dialog).findByTestId("suggestions-preview");
+    const dayLoadsBefore = fetchMock.mock.calls.filter(([input]) => requestUrl(input).endsWith("/api/trips/trip-1")).length;
+
+    await user.click(within(dialog).getByRole("button", { name: en["trips.suggestions.confirmApply"] }));
+
+    expect(await screen.findByText("1 activity and 1 travel leg added")).toBeInTheDocument();
+    // The dialog's exit transition keeps the page aria-hidden for a moment.
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: en["trips.suggestions.dialogTitle"] })).toBeNull());
+    expect(await screen.findByRole("button", { name: en["trips.dayChange.undo"] })).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([input]) => requestUrl(input).endsWith("/api/trips/trip-1")).length).toBeGreaterThan(
+      dayLoadsBefore,
+    );
   });
 });

@@ -389,3 +389,66 @@ describe("dayChangeReceipt (Story 11.1)", () => {
     expect(fromPrismaItemType("DAY_PLAN_ITEM")).toBe("dayPlanItem");
   });
 });
+
+describe("dayChangeReceipt, suggestionsApplied (Story 12.4)", () => {
+  const applied = (itemCount: number, legCount: number, removed: TravelSegmentRow[] = []): DayChangeReceipt => ({
+    version: 2,
+    tripDayId: "day-1",
+    edited: {
+      kind: "suggestionsApplied",
+      items: Array.from({ length: itemCount }, (_value, index) => ({
+        itemId: `item-${index}`,
+        updatedAt: at(`2026-03-01T00:00:00.${String(100 + index).padStart(3, "0")}Z`),
+      })),
+      segments: Array.from({ length: legCount }, (_value, index) => ({
+        segmentId: `seg-${index}`,
+        updatedAt: at(`2026-03-01T00:00:00.${String(200 + index).padStart(3, "0")}Z`),
+      })),
+      imageIds: ["img-1", "img-2"],
+    },
+    removedTravelSegments: removed,
+    movedItems: [],
+  });
+
+  it("always has side effects", () => {
+    expect(receiptHasSideEffects(applied(1, 0))).toBe(true);
+  });
+
+  it("round-trips through the wire form at version 2, and the schema accepts it", () => {
+    const receipt = applied(3, 2, [leg("s1")]);
+    const wire = toDayChangeReceiptWire(receipt);
+    expect(wire.version).toBe(2);
+    expect(fromDayChangeReceiptWire(wire)).toEqual(receipt);
+    expect(dayChangeReceiptSchema.safeParse(signDayChangeReceipt(wire, BINDING)).success).toBe(true);
+  });
+
+  it("refuses an unknown key, no items, more than 8 items, more than 24 images, an overlong id", () => {
+    const wire = signDayChangeReceipt(toDayChangeReceiptWire(applied(2, 1)), BINDING);
+    if (wire.edited.kind !== "suggestionsApplied") throw new Error("fixture");
+    const edited = wire.edited;
+    const parse = (next: unknown) => dayChangeReceiptSchema.safeParse({ ...wire, edited: next }).success;
+    expect(parse({ ...edited, extra: 1 })).toBe(false);
+    expect(parse({ ...edited, items: [] })).toBe(false);
+    expect(parse({ ...edited, items: Array.from({ length: 9 }, () => edited.items[0]) })).toBe(false);
+    expect(parse({ ...edited, segments: Array.from({ length: 9 }, () => edited.segments[0]) })).toBe(false);
+    expect(parse({ ...edited, imageIds: Array.from({ length: 25 }, (_v, i) => `img-${i}`) })).toBe(false);
+    expect(parse({ ...edited, imageIds: ["x".repeat(129)] })).toBe(false);
+    expect(parse({ ...edited, items: [{ ...edited.items[0], title: "x" }] })).toBe(false);
+  });
+
+  it("says how many activities and legs were added, singular and plural, in both languages", () => {
+    expect(summarizeDayChangeReceipt(applied(1, 0), dictionary(de))).toBe("1 Aktivität hinzugefügt");
+    expect(summarizeDayChangeReceipt(applied(4, 0), dictionary(de))).toBe("4 Aktivitäten hinzugefügt");
+    expect(summarizeDayChangeReceipt(applied(4, 3), dictionary(de))).toBe("4 Aktivitäten und 3 Fahrten hinzugefügt");
+    expect(summarizeDayChangeReceipt(applied(1, 1), dictionary(de))).toBe("1 Aktivität und 1 Fahrt hinzugefügt");
+    expect(summarizeDayChangeReceipt(applied(1, 0), dictionary(en))).toBe("1 activity added");
+    expect(summarizeDayChangeReceipt(applied(2, 1), dictionary(en))).toBe("2 activities and 1 travel leg added");
+    expect(summarizeDayChangeReceipt(applied(3, 2), dictionary(en))).toBe("3 activities and 2 travel legs added");
+  });
+
+  it("adds the removed-leg fragment after the added part", () => {
+    expect(summarizeDayChangeReceipt(applied(2, 2, [leg("s1")]), dictionary(de))).toBe(
+      "2 Aktivitäten und 2 Fahrten hinzugefügt · 1 Fahrt entfernt",
+    );
+  });
+});

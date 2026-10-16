@@ -218,9 +218,15 @@ export default function FullscreenPhotoViewer({ open, images, startIndex, onClos
             src={current.imageUrl}
             alt={current.alt}
             sx={{
-              maxWidth: "100%",
-              maxHeight: "100%",
-              // Never cropped.
+              // The box fills the whole area inside the chrome's padding and the photo is fitted into it
+              // (never cropped). Not `max-width`/`max-height` around the intrinsic size: Safari showed
+              // Wikimedia JPEGs downloaded by Story 12.4 at about a twelfth of their real 1920/1280 px,
+              // while the same markup in WebKit and Chrome, and the user's own photos in Safari, were
+              // fine. Filling makes the size independent of what the browser takes the intrinsic size to
+              // be. A photo smaller than the screen is now scaled up to it, which is the trade.
+              width: "100%",
+              height: "100%",
+              minHeight: 0,
               objectFit: "contain",
               display: "block",
             }}

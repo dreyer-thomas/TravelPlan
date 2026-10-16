@@ -3,24 +3,17 @@ import { requireSession } from "@/lib/auth/sessionGuard";
 import { hasTripReadAccess } from "@/lib/auth/tripAccess";
 import { apiError } from "@/lib/errors/apiError";
 import { fail, ok } from "@/lib/http/response";
-import { DayRouteError, getDayRouteFromOsrm, type RoutingProfile } from "@/lib/routing/dayRouteService";
+import { DayRouteError, getDayRouteFromOsrm } from "@/lib/routing/dayRouteService";
+import { SUGGESTION_MODE_ROUTING } from "@/lib/trips/suggestionPlan";
 import {
   travelSegmentRouteLookupParamsSchema,
   travelSegmentRouteLookupQuerySchema,
-  type TravelSegmentRouteLookupMode,
 } from "@/lib/validation/travelSegmentRouteLookupSchemas";
 
 type RouteContext = {
   params: Promise<{
     id?: string;
   }>;
-};
-
-/** Travel mode (the app's vocabulary) to OSRM profile. Kept here so the wire never leaks OSRM's. */
-const ROUTING_PROFILE_BY_MODE: Record<TravelSegmentRouteLookupMode, RoutingProfile> = {
-  car: "driving",
-  walking: "walking",
-  cycling: "cycling",
 };
 
 export const GET = async (request: NextRequest, context: RouteContext) => {
@@ -60,7 +53,9 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
         { lat: parsedQuery.data.originLat, lng: parsedQuery.data.originLng },
         { lat: parsedQuery.data.destinationLat, lng: parsedQuery.data.destinationLng },
       ],
-      profile: ROUTING_PROFILE_BY_MODE[parsedQuery.data.mode],
+      // Travel mode (the app's vocabulary) to OSRM profile, so the wire never leaks OSRM's. Story 12.4
+      // shares the map with the suggestion legs.
+      profile: SUGGESTION_MODE_ROUTING[parsedQuery.data.mode].profile,
     });
 
     return ok({ route });

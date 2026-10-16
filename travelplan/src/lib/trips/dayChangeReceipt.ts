@@ -29,6 +29,10 @@
  * day, so its `tripDayId` is the pushed day, not the stay's. Undo puts back only the check-out and the
  * stay's `updatedAt` (*revert only what caused the side effect*): a save that also renamed the stay keeps
  * the new name and gets its old stamp back, which is the accepted cost of that rule.
+ *
+ * Story 12.4 adds `suggestionsApplied`: the activities, legs and image rows one apply of picked AI
+ * suggestions created, each activity and leg with its post-write `updatedAt`. Undo removes all of them
+ * (and the image files) in one request and restores any leg the apply swept. Additive, so still version 2.
  */
 
 import { formatMessage } from "@/i18n";
@@ -138,6 +142,13 @@ export type DayChangeEdited<T extends Date | string = Date> =
       updatedAt: T;
       previousUpdatedAt: T;
       previousCheckOutTime: string | null;
+    }
+  /** Story 12.4. Everything one apply of picked suggestions created; `updatedAt` is each row's post-write stamp. */
+  | {
+      kind: "suggestionsApplied";
+      items: { itemId: string; updatedAt: T }[];
+      segments: { segmentId: string; updatedAt: T }[];
+      imageIds: string[];
     };
 
 /**
@@ -234,6 +245,14 @@ const mapReceipt = <A extends Date | string, B extends Date | string>(
         previousUpdatedAt: convert(receipt.edited.previousUpdatedAt),
       };
       break;
+    case "suggestionsApplied":
+      edited = {
+        kind: "suggestionsApplied",
+        items: receipt.edited.items.map((item) => ({ ...item, updatedAt: convert(item.updatedAt) })),
+        segments: receipt.edited.segments.map((segment) => ({ ...segment, updatedAt: convert(segment.updatedAt) })),
+        imageIds: [...receipt.edited.imageIds],
+      };
+      break;
     default: {
       const unhandled: never = receipt.edited;
       throw new Error(`Unhandled receipt kind: ${String(unhandled)}`);
@@ -266,10 +285,30 @@ export const fromDayChangeReceiptWire = (receipt: DayChangeReceiptWire): DayChan
 
 /**
  * A removed leg (Story 11.1) or a moved activity (Story 11.2). The check-in warning only follows a move.
- * A reorder (Story 11.3) always has side effects: it changes two activities' times by itself.
+ * A reorder (Story 11.3) always has side effects: it changes two activities' times by itself. So does an
+ * apply of suggestions (Story 12.4): it writes several rows at once, and its notice is the only undo.
  */
 export const receiptHasSideEffects = <T extends Date | string>(receipt: DayChangeReceipt<T>): boolean =>
-  receipt.edited.kind === "reordered" || receipt.removedTravelSegments.length > 0 || receipt.movedItems.length > 0;
+  receipt.edited.kind === "reordered" ||
+  receipt.edited.kind === "suggestionsApplied" ||
+  receipt.removedTravelSegments.length > 0 ||
+  receipt.movedItems.length > 0;
+
+/** Story 12.4. "4 activities and 3 travel legs added", or "1 activity added" when no leg was created. */
+const summarizeSuggestionsApplied = (itemCount: number, legCount: number, t: (key: string) => string) => {
+  if (legCount === 0) {
+    return itemCount === 1
+      ? t("trips.dayChange.activitiesAddedOne")
+      : formatMessage(t("trips.dayChange.activitiesAdded"), { count: itemCount });
+  }
+  const activities =
+    itemCount === 1
+      ? t("trips.dayChange.activityCountOne")
+      : formatMessage(t("trips.dayChange.activityCount"), { count: itemCount });
+  const legs =
+    legCount === 1 ? t("trips.dayChange.legCountOne") : formatMessage(t("trips.dayChange.legCount"), { count: legCount });
+  return formatMessage(t("trips.dayChange.activitiesAndLegsAdded"), { activities, legs });
+};
 
 /**
  * The notice's summary line. One part per kind of side effect, joined with `" · "`. The singular has
@@ -287,6 +326,9 @@ export const summarizeDayChangeReceipt = <T extends Date | string>(
   const parts: string[] = [];
   const { edited } = receipt;
   let movedItems = receipt.movedItems;
+  if (edited.kind === "suggestionsApplied") {
+    parts.push(summarizeSuggestionsApplied(edited.items.length, edited.segments.length, t));
+  }
   if (edited.kind === "reordered") {
     parts.push(t("trips.dayChange.reordered"));
     movedItems = movedItems.filter((row) => row.itemId !== edited.itemId && row.itemId !== edited.neighbourId);

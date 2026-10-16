@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { DayChangeTransportType } from "@/lib/trips/dayChangeReceipt";
 import { isTransportType } from "@/lib/trips/transportTypes";
+import { MAX_SUGGESTIONS } from "@/lib/validation/daySuggestionSchemas";
 import { isSafeExternalUrl } from "@/lib/validation/safeExternalUrl";
 import { isSafeStoredImageUrl, MAX_STORED_IMAGE_URL_LENGTH } from "@/lib/validation/safeStoredImageUrl";
 
@@ -35,6 +36,9 @@ const MAX_URL_LENGTH = 2000;
 const MAX_LEGS = 1000;
 const MAX_PAYMENTS = 1000;
 const MAX_MEDIA = 1000;
+/** Story 12.4: `MAX_SUGGESTIONS` and the three pictures a suggestion carries. */
+const MAX_APPLIED_SUGGESTIONS = MAX_SUGGESTIONS;
+const MAX_IMAGES_PER_APPLIED_SUGGESTION = 3;
 
 const idSchema = z.string().min(1).max(MAX_ID_LENGTH);
 const nullableText = () => z.string().nullable();
@@ -197,6 +201,21 @@ const editedSchema = z.discriminatedUnion("kind", [
       updatedAt: isoDateSchema,
       previousUpdatedAt: isoDateSchema,
       previousCheckOutTime: nullableText(),
+    })
+    .strict(),
+  // Story 12.4. Additive; the bounds are what one apply can create (8 suggestions, a leg into each, 3
+  // pictures each). `dayPlanChangeRepo.ts` checks every row against the day.
+  z
+    .object({
+      kind: z.literal("suggestionsApplied"),
+      items: z
+        .array(z.object({ itemId: idSchema, updatedAt: isoDateSchema }).strict())
+        .min(1)
+        .max(MAX_APPLIED_SUGGESTIONS),
+      segments: z
+        .array(z.object({ segmentId: idSchema, updatedAt: isoDateSchema }).strict())
+        .max(MAX_APPLIED_SUGGESTIONS),
+      imageIds: z.array(idSchema).max(MAX_APPLIED_SUGGESTIONS * MAX_IMAGES_PER_APPLIED_SUGGESTION),
     })
     .strict(),
 ]);

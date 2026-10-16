@@ -32,3 +32,21 @@ export const parsePlanText = (value: string) => {
     return "";
   }
 };
+
+/**
+ * Story 12.4. The reverse direction for plain text: a TipTap document with one paragraph per non-empty
+ * line, as the editor would store it. Used for the description of an applied AI suggestion, which arrives
+ * as plain text on the server, where the client-side builders do not run. Text that is empty after
+ * trimming gives one empty paragraph; callers pass non-empty text, which `contentJson`'s rule requires.
+ */
+export const plainTextToTiptapDoc = (text: string): string => {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  const content =
+    lines.length > 0
+      ? lines.map((line) => ({ type: "paragraph", content: [{ type: "text", text: line }] }))
+      : [{ type: "paragraph" }];
+  return JSON.stringify({ type: "doc", content });
+};
