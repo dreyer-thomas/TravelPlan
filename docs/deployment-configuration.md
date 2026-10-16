@@ -53,6 +53,10 @@ and `upload.wikimedia.org` (originals). The **browser** loads the thumbnails dir
 suggestions (from Story 12.3), and the server downloads the chosen ones on *Übernehmen* (Story 12.4).
 So outbound HTTPS to these four hosts must be allowed, alongside Nominatim, OSRM and `api.anthropic.com`.
 No key is needed, and a Wikimedia failure only leaves the pictures out; the search still succeeds.
+The browser loads those thumbnails with `referrerPolicy="no-referrer"`, so Wikimedia sees each member's
+IP address but not which page of the app they came from. The app sets no Content Security Policy, so
+there is no `img-src` list to extend; if you add a CSP in front of the app, allow `thumb.wikimedia.org`
+and `upload.wikimedia.org` as image sources.
 
 **One search can take about 80 seconds**: up to 60 s for the model call with its web searches, then up
 to 10 s of place checks, then up to 8 s of picture lookups — at most 78 s. nginx's default

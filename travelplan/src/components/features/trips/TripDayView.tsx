@@ -59,6 +59,7 @@ import TripDayMapPanel, {
 import TripDayBucketListPanel from "@/components/features/trips/TripDayBucketListPanel";
 import TripDayPlanDialog, { type PlanItemMoveOutcome } from "@/components/features/trips/TripDayPlanDialog";
 import TripDayTravelSegmentDialog from "@/components/features/trips/TripDayTravelSegmentDialog";
+import TripDaySuggestionsDialog from "@/components/features/trips/TripDaySuggestionsDialog";
 import { MiniImageStrip, PlanItemRichContent, isSafeLink, parsePlanText, toViewerImages } from "@/components/features/trips/TripDayPlanItemContent";
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
@@ -475,8 +476,14 @@ type TripDetail = {
 type TripDayViewProps = {
   tripId: string;
   dayId: string;
-  // Whether the AI day-suggestion search is configured (Story 12.1); unused until Story 12.3 shows the dialog.
+  // Whether the AI day-suggestion search is configured (Story 12.1). Shows *Ideen finden* (Story 12.3).
   aiSuggestionsEnabled?: boolean;
+};
+
+// Story 12.3. The suggestion dialog's start and end line: the stay's name, and its place when known.
+const stayRouteLabel = (stay: { name: string; location?: { label?: string | null } | null }) => {
+  const place = stay.location?.label?.trim();
+  return place && place !== stay.name ? `${stay.name} · ${place}` : stay.name;
 };
 
 const compareTripDaysChronologically = (left: TripDay, right: TripDay) => {
@@ -567,7 +574,7 @@ const parsePolyline = (value: unknown): [number, number][] => {
     .map((point) => [point[0], point[1]]);
 };
 
-export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
+export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = false }: TripDayViewProps) {
   const { language, t } = useI18n();
   const theme = useTheme();
   const tokens = theme.palette.tokens;
@@ -637,6 +644,9 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     planDialogMode !== null,
     selectedPlanItem?.id ?? planDialogPrefill?.bucketListItemId ?? "add",
   );
+  // Story 12.3. Keyed like the four above, so every open starts with an empty wish and no results.
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  const suggestionsDialogKey = useOpenInstanceKey(suggestionsOpen);
   const [copyingStay, setCopyingStay] = useState(false);
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
   const [dayMetaOpen, setDayMetaOpen] = useState(false);
@@ -1315,6 +1325,11 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
     setPlanDialogPrefill(null);
     setSelectedPlanItem(null);
     setPlanDialogMode("add");
+  };
+
+  const handleOpenSuggestions = () => {
+    if (!canEditPlanning || !aiSuggestionsEnabled) return;
+    setSuggestionsOpen(true);
   };
 
   const handleOpenEditPlan = (item: DayPlanItem) => {
@@ -4104,15 +4119,24 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
                 <Typography variant="labelCaps" component="h6" sx={{ color: tokens.inkSoft }}>
                   {t("trips.dayView.timelineTitle")}
                 </Typography>
-                {/* One action, no wrapper. This header carried four buttons and wrapped to a second
+                {/* At most two actions. This header once carried four buttons and wrapped to a second
                     line on a phone: Story 6.13 took the stay control out once both stay cards became
                     their own edit targets, and Story 6.15 took move and swap into the hero overflow.
-                    What is left is the one action that belongs in a section header, because it
-                    creates what the section lists. */}
+                    What stays is what belongs in a section header because it creates what the section
+                    lists: adding an activity, and (Story 12.3, only when the AI search is configured)
+                    finding ideas, which 12.4 turns into activities. They share one wrapping group, so
+                    on a phone they drop below the title together rather than one at a time. */}
                 {canEditPlanning ? (
-                  <Button size="small" variant="outlined" onClick={handleOpenAddPlan}>
-                    {t("trips.plan.addPrimaryAction")}
-                  </Button>
+                  <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+                    <Button size="small" variant="outlined" onClick={handleOpenAddPlan}>
+                      {t("trips.plan.addPrimaryAction")}
+                    </Button>
+                    {aiSuggestionsEnabled ? (
+                      <Button size="small" variant="outlined" onClick={handleOpenSuggestions}>
+                        {t("trips.suggestions.openAction")}
+                      </Button>
+                    ) : null}
+                  </Box>
                 ) : null}
               </Box>
               {!dayHasTimelineContent && (
@@ -4765,6 +4789,19 @@ export default function TripDayView({ tripId, dayId }: TripDayViewProps) {
             onClose={handlePlanDialogClose}
             onSaved={handlePlanDialogSaved}
             onDayWrite={() => setDayChange(null)}
+          />
+          {/* Story 12.3. No `onApply` yet: the dialog then shows the selection count without an apply
+              button, and Story 12.4 adds the handler. */}
+          <TripDaySuggestionsDialog
+            key={`suggest-${suggestionsDialogKey}`}
+            open={suggestionsOpen}
+            onClose={() => setSuggestionsOpen(false)}
+            tripId={tripId}
+            dayId={day.id}
+            dayLabel={formatMessage(t("trips.plan.title"), { index: day.dayIndex })}
+            start={previousStay ? { label: stayRouteLabel(previousStay) } : null}
+            end={currentStay ? { label: stayRouteLabel(currentStay) } : null}
+            ensureCsrfToken={ensureCsrfToken}
           />
           <Dialog open={transferMode !== null} onClose={transferGuard.requestClose} fullWidth maxWidth="sm">
             <DialogTitleWithClose

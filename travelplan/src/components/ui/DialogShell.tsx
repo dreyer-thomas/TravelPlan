@@ -101,6 +101,19 @@ export type DialogShellProps = {
    * the exemptions recorded in Story 6.25.
    */
   closeLabel: string;
+  /**
+   * Story 12.3. Below `sm` the paper fills the screen: no margin, no radius, no border, full height,
+   * with the body scrolling between a pinned head and footer. Built for the AI-suggestion dialog, a
+   * list of up to eight picture cards that a centred 520 px box crops to a sliver on a 390 px phone.
+   * At `sm` and up nothing changes.
+   *
+   * Pure sx breakpoints, never `useMediaQuery` and never MUI's `fullScreen` prop: a breakpoint may
+   * decide which subtree mounts, but not how a mounted element is styled (see the footer below and
+   * `TripTimeline.tsx`'s `isTwoColumnLayout`). EXPERIENCE.md has no mobile mock of a dialog, so the
+   * phone layout is this prop's own reading, checked in a browser rather than in jsdom, which cannot
+   * resolve breakpoints. Off by default, so every other consumer renders exactly as before.
+   */
+  fullScreenOnPhone?: boolean;
 };
 
 export default function DialogShell({
@@ -114,8 +127,10 @@ export default function DialogShell({
   footerSx,
   disableDismiss = false,
   closeLabel,
+  fullScreenOnPhone = false,
 }: DialogShellProps) {
-  const { tokens } = useTheme().palette;
+  const theme = useTheme();
+  const { tokens } = theme.palette;
   const headId = useId();
   const titleId = useId();
 
@@ -175,6 +190,22 @@ export default function DialogShell({
             width: "100%",
             maxWidth: width,
             border: `1px solid ${tokens.borderStrong}`,
+            // One media block below `sm` rather than per-property breakpoint objects, so nothing at
+            // `sm` and up is restated: the theme's dialog radius and MUI's own margin and max height
+            // stay exactly theirs. An `{ xs: 0, sm: undefined }` object would leave the radius at 0
+            // on every width, because the `xs` rule is `min-width: 0` and nothing overrides it.
+            ...(fullScreenOnPhone
+              ? {
+                  [theme.breakpoints.down("sm")]: {
+                    m: 0,
+                    maxWidth: "100%",
+                    height: "100%",
+                    maxHeight: "100%",
+                    borderRadius: 0,
+                    border: "none",
+                  },
+                }
+              : {}),
           },
         },
       }}

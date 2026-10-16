@@ -3724,7 +3724,8 @@ location: `docs/deployment-configuration.md` (AI day suggestions section); Story
 severity: low
 summary: From 12.3 the browser loads thumbnails straight from `thumb.wikimedia.org`, which sends each member's IP and possibly the Referer to Wikimedia. 12.3 should set `referrerPolicy="no-referrer"` on the `<img>`, add the host to any CSP `img-src`, and mention it in the docs next to the Anthropic privacy note.
 evidence: Raised in the 12.2 review. Hotlinking was chosen under D4; this covers only the privacy hygiene that goes with it.
-status: open
+status: done 2026-10-16
+resolution: Story 12.3. Every thumbnail `<img>` in `TripDaySuggestionsDialog.tsx` carries `referrerPolicy="no-referrer"` (pinned by `test/tripDaySuggestionsDialog.test.tsx`, mutation-checked), so Wikimedia sees the member's IP address but not the page they came from. The app sets no CSP anywhere (`next.config.ts`, `src/proxy.ts`, the nginx config in the docs), so there is no `img-src` to extend; `docs/deployment-configuration.md` says both.
 
 ### DW-388: 12.2 end-to-end timing with a real key not measured
 
