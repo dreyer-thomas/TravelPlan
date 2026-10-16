@@ -14,15 +14,22 @@ import {
  * Wikimedia API answer; the model has no URL field to fill (`modelSuggestionsSchema`). No author or
  * licence is kept, because the app is private and the pictures are shown only to the trip's members.
  *
- * **After verification, on its point.** Commons geosearch within 1 km is only as good as the point it is
- * given, and verification replaces the model's point with the geocoder's when it finds the place. So the
- * route runs model, then verification, then this. Where verification found nothing, the model's point is
- * used anyway: skipping those would leave most cards bare (4 of 5 in the first real call).
+ * **After verification, on its point.** The Commons search is bounded to 3 km around the point, which is
+ * only as good as the point it is given, and verification replaces the model's point with the geocoder's
+ * when it finds the place. So the route runs model, then verification, then this. Where verification found
+ * nothing, the model's point is used anyway: skipping those would leave most cards bare (4 of 5 in the
+ * first real call).
  *
  * **Two sources, in a fixed order.** The English Wikipedia article's lead image first (`wikiTitle`, then
- * `title` if that found nothing), then Commons files near the point, nearest first. One article has one
- * lead image, so geosearch supplies the rest; `prop=images` is not used because it returns every flag,
- * icon and map on the page.
+ * `title` if that found nothing), then Commons files that match the place's **name** near its point, in
+ * search rank. One article has one lead image, so the search supplies the rest; `prop=images` is not used
+ * because it returns every flag, icon and map on the page.
+ *
+ * **By name, not by distance alone.** Until 2026-10-16 the rest came from Commons geosearch: any geotagged
+ * file within 1 km, nearest first. Next to trails, beaches and parks the nearest files are mostly
+ * naturalists' close-ups (insects, fungi, seedlings), and the cards showed beetles instead of the place
+ * (Tommy, on the Neuseeland trip). A full-text search for the name with `nearcoord:` keeps the files
+ * local and about the place; a card with no match stays short of pictures rather than showing a beetle.
  *
  * **250 px thumbnails.** Since January 2026 Wikimedia serves only standard widths (…, 120, 250, 330, …),
  * rounds any other width up, and rejects a hotlinked non-standard one. The cards want at most 320 px, so
@@ -42,17 +49,20 @@ import {
 export const THUMBNAIL_WIDTH = 250;
 /** Two or three pictures to judge a place at a glance (FR44); more would crowd the card. */
 export const MAX_IMAGES_PER_SUGGESTION = 3;
-/** About a city block's walk around the point; wider brings in the next district's landmarks. */
-export const GEOSEARCH_RADIUS_METERS = 1000;
+/**
+ * Around the point, for the name search: wide enough for a park, a beach or a trail whose photos are taken
+ * along it, and the name keeps the next district's landmarks out.
+ */
+export const COMMONS_SEARCH_RADIUS_KM = 3;
 /** Enough candidates to survive the MIME filter and the deduplication and still fill three slots. */
-export const GEOSEARCH_LIMIT = 10;
+export const COMMONS_SEARCH_LIMIT = 10;
 /** The image step's share of the reverse proxy's 90 s: model 60 s + verification 10 s + this = 78 s. */
 export const IMAGE_LOOKUP_BUDGET_MS = 8000;
 /** What the media pipeline and every browser handle. Commons namespace 6 also holds PDFs, SVGs, audio and video. */
 export const ALLOWED_IMAGE_MIME = ["image/jpeg", "image/png", "image/webp"] as const;
 /** English, because the prompt asks the model for the English article's title (`prompt.ts`). */
 export const WIKIPEDIA_API = "https://en.wikipedia.org/w/api.php";
-/** Commons holds the files every Wikipedia uses, so its geosearch finds pictures of places with no article. */
+/** Commons holds the files every Wikipedia uses, so its search finds pictures of places with no article. */
 export const COMMONS_API = "https://commons.wikimedia.org/w/api.php";
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "0.0.0.0"]);
@@ -97,7 +107,7 @@ const isObject = (value: unknown): value is Record<string, unknown> => Boolean(v
 const isAllowedMime = (mime: unknown): mime is string =>
   typeof mime === "string" && (ALLOWED_IMAGE_MIME as readonly string[]).includes(mime);
 
-// Pageimages gives `Foo bar.jpg`, geosearch `File:Foo bar.jpg`, either may already use underscores.
+// Pageimages gives `Foo bar.jpg`, the Commons search `File:Foo bar.jpg`, either may already use underscores.
 const toFileKey = (name: string) => `File:${name.trim().replace(/^File:/, "").replace(/ /g, "_")}`;
 
 /** The answer's JSON, or `null` for anything else - a non-OK status, a network failure, an abort, bad JSON. */
@@ -196,20 +206,36 @@ export const fetchPageImage = async ({ title, ...deps }: RequestDeps & { title: 
   return { fileName: toFileKey(page.pageimage), thumbnailUrl, originalUrl, mime };
 };
 
-/** Commons files within 1 km of the point, nearest first. Never throws. */
-export const fetchNearbyCommonsImages = async ({
+/*
+  The name as plain search words. Everything but letters, digits, spaces and apostrophes becomes a space:
+  CirrusSearch reads `"`, `:`, a leading `-` and the like as syntax, and the name is the model's text, so
+  it could otherwise add a keyword of its own (`insource:`, `-nearcoord:`) to the query.
+*/
+const searchWordsOf = (name: string) =>
+  name
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/[^\p{L}\p{N}\s']/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+/** Commons bitmaps matching `name` within 3 km of the point, best match first. Never throws. */
+export const fetchNamedCommonsImages = async ({
+  name,
   lat,
   lng,
   ...deps
-}: RequestDeps & { lat: number; lng: number }): Promise<Candidate[]> => {
+}: RequestDeps & { name: string; lat: number; lng: number }): Promise<Candidate[]> => {
+  const words = searchWordsOf(name);
+  if (!words) {
+    return [];
+  }
   const body = await getJson(
     COMMONS_API,
     {
-      generator: "geosearch",
-      ggscoord: `${lat}|${lng}`,
-      ggsradius: String(GEOSEARCH_RADIUS_METERS),
-      ggsnamespace: "6",
-      ggslimit: String(GEOSEARCH_LIMIT),
+      generator: "search",
+      gsrsearch: `${words} filetype:bitmap nearcoord:${COMMONS_SEARCH_RADIUS_KM}km,${lat},${lng}`,
+      gsrnamespace: "6",
+      gsrlimit: String(COMMONS_SEARCH_LIMIT),
       prop: "imageinfo",
       iiprop: "url|mime|size",
       iiurlwidth: String(THUMBNAIL_WIDTH),
@@ -233,15 +259,15 @@ export const fetchNearbyCommonsImages = async ({
     const index = typeof row.index === "number" ? row.index : Number.POSITIVE_INFINITY;
     return [{ index, candidate: { fileName: toFileKey(row.title), thumbnailUrl, originalUrl, mime: info.mime } }];
   });
-  // With `formatversion=2`, `query.pages` is a list in page-id order, not distance order; the
-  // generator's `index` (from -1 upwards on the live API) is the distance rank.
+  // With `formatversion=2`, `query.pages` is a list in page-id order, not rank order; the generator's
+  // `index` (from 1 upwards on the live API) is the search rank.
   return rows.sort((a, b) => a.index - b.index).map((row) => row.candidate);
 };
 
 // Wikipedia titles are case-sensitive after the first letter, so only spacing is ignored.
 const normaliseTitle = (title: string | undefined) => (title ?? "").trim().replace(/\s+/g, " ");
 
-/** One suggestion's pictures: lead image first, then nearby Commons files, deduplicated, at most 3. */
+/** One suggestion's pictures: lead image first, then Commons files named like it, deduplicated, at most 3. */
 export const findSuggestionImages = async (
   suggestion: VerifiedDaySuggestion,
   deps: RequestDeps,
@@ -258,14 +284,15 @@ export const findSuggestionImages = async (
     return fetchPageImage({ title, ...deps });
   };
 
-  const [pageImage, nearby] = await Promise.all([
+  // The article's name where there is one (its disambiguator is dropped as a search word), else the card's.
+  const [pageImage, named] = await Promise.all([
     pageImageChain(),
-    fetchNearbyCommonsImages({ lat: suggestion.lat, lng: suggestion.lng, ...deps }),
+    fetchNamedCommonsImages({ name: wikiTitle || title, lat: suggestion.lat, lng: suggestion.lng, ...deps }),
   ]);
 
   const seen = new Set<string>();
   const images: SuggestionImage[] = [];
-  for (const candidate of [...(pageImage ? [pageImage] : []), ...nearby]) {
+  for (const candidate of [...(pageImage ? [pageImage] : []), ...named]) {
     if (images.length >= MAX_IMAGES_PER_SUGGESTION) {
       break;
     }

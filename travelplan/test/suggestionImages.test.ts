@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mockFetchResponse, requestUrl } from "./helpers/mockFetch";
 import {
   attachSuggestionImages,
-  fetchNearbyCommonsImages,
+  fetchNamedCommonsImages,
   fetchPageImage,
   findSuggestionImages,
   getWikimediaUserAgent,
@@ -13,7 +13,7 @@ import type { VerifiedDaySuggestion } from "@/lib/validation/daySuggestionSchema
  * Story 12.2, AC7. Wikimedia is faked through the injected `fetchImpl`, which routes on the host and on
  * `generator`/`prop`. Fixture rows follow the live `formatversion=2` answers (checked 2026-10-16):
  * thumbnails on `thumb.wikimedia.org`, originals on `upload.wikimedia.org`, both with `utm_*` queries,
- * and geosearch `index` starting at -1.
+ * and the search generator's `index` starting at 1.
  */
 
 const thumb = (file: string) =>
@@ -43,15 +43,15 @@ type Handler = (url: URL, init?: RequestInit) => Promise<Response>;
 
 const ok = (body: unknown) => mockFetchResponse(body);
 
-/** A fake that routes Wikipedia page-image requests to `page` and Commons geosearch requests to `geo`. */
-const fakeWikimedia = ({ page, geo }: { page?: Handler; geo?: Handler }) =>
+/** A fake that routes Wikipedia page-image requests to `page` and Commons search requests to `commons`. */
+const fakeWikimedia = ({ page, commons }: { page?: Handler; commons?: Handler }) =>
   vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(requestUrl(input));
     if (url.hostname === "en.wikipedia.org" && url.searchParams.get("prop") === "pageimages|pageprops") {
       return page ? page(url, init) : ok({ batchcomplete: true });
     }
-    if (url.hostname === "commons.wikimedia.org" && url.searchParams.get("generator") === "geosearch") {
-      return geo ? geo(url, init) : ok({ batchcomplete: true });
+    if (url.hostname === "commons.wikimedia.org" && url.searchParams.get("generator") === "search") {
+      return commons ? commons(url, init) : ok({ batchcomplete: true });
     }
     throw new Error(`unexpected request ${url.href}`);
   });
@@ -63,7 +63,7 @@ const hang: Handler = (_url, init) =>
   });
 
 const pageAnswer = (row: unknown) => ok({ batchcomplete: true, query: { pages: [row] } });
-const geoAnswer = (rows: unknown[]) => ok({ batchcomplete: true, query: { pages: rows } });
+const commonsAnswer = (rows: unknown[]) => ok({ batchcomplete: true, query: { pages: rows } });
 
 const suggestion = (overrides: Partial<VerifiedDaySuggestion> = {}): VerifiedDaySuggestion => ({
   title: "Neues Museum",
@@ -217,14 +217,14 @@ describe("fetchPageImage", () => {
   });
 });
 
-describe("fetchNearbyCommonsImages", () => {
-  it("asks Commons for files within 1000 m with the exact parameters, nearest first by index", async () => {
+describe("fetchNamedCommonsImages", () => {
+  it("searches Commons for the name within 3 km with the exact parameters, best match first by index", async () => {
     const fetchImpl = fakeWikimedia({
-      // `formatversion=2` returns the pages out of distance order; `index` carries it.
-      geo: async () => geoAnswer([commonsRow("Third.jpg", 1), commonsRow("First.jpg", -1), commonsRow("Second.jpg", 0)]),
+      // `formatversion=2` returns the pages out of rank order; `index` carries it.
+      commons: async () => commonsAnswer([commonsRow("Third.jpg", 3), commonsRow("First.jpg", 1), commonsRow("Second.jpg", 2)]),
     });
 
-    const candidates = await fetchNearbyCommonsImages({ lat: 52.520611, lng: 13.397799, ...deps(fetchImpl) });
+    const candidates = await fetchNamedCommonsImages({ name: "Neues Museum", lat: 52.520611, lng: 13.397799, ...deps(fetchImpl) });
 
     expect(candidates.map((candidate) => candidate.fileName)).toEqual(["File:First.jpg", "File:Second.jpg", "File:Third.jpg"]);
     expect(candidates[0]).toEqual({
@@ -240,11 +240,10 @@ describe("fetchNearbyCommonsImages", () => {
       action: "query",
       format: "json",
       formatversion: "2",
-      generator: "geosearch",
-      ggscoord: "52.520611|13.397799",
-      ggsradius: "1000",
-      ggsnamespace: "6",
-      ggslimit: "10",
+      generator: "search",
+      gsrsearch: "Neues Museum filetype:bitmap nearcoord:3km,52.520611,13.397799",
+      gsrnamespace: "6",
+      gsrlimit: "10",
       prop: "imageinfo",
       iiprop: "url|mime|size",
       iiurlwidth: "250",
@@ -252,10 +251,29 @@ describe("fetchNearbyCommonsImages", () => {
     expect(init).toMatchObject({ method: "GET", cache: "no-store", headers: { "User-Agent": "TravelPlan/test" } });
   });
 
+  it("searches plain words only: syntax, quotes, a leading minus and the disambiguator become spaces", async () => {
+    const fetchImpl = fakeWikimedia({});
+
+    await fetchNamedCommonsImages({ name: ' Hobbiton "Movie" Set (film location) -insource:x | Bag-End ', lat: 1, lng: 2, ...deps(fetchImpl) });
+    await fetchNamedCommonsImages({ name: "Lake Wakatipu's shore, Queenstown", lat: 1, lng: 2, ...deps(fetchImpl) });
+
+    const searches = fetchImpl.mock.calls.map(([input]) => new URL(requestUrl(input)).searchParams.get("gsrsearch"));
+    expect(searches).toEqual([
+      "Hobbiton Movie Set insource x Bag End filetype:bitmap nearcoord:3km,1,2",
+      "Lake Wakatipu's shore Queenstown filetype:bitmap nearcoord:3km,1,2",
+    ]);
+  });
+
+  it("asks nothing for a name with no words left", async () => {
+    const fetchImpl = fakeWikimedia({});
+    expect(await fetchNamedCommonsImages({ name: " (x) -- : ", lat: 1, lng: 2, ...deps(fetchImpl) })).toEqual([]);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("keeps only JPEG, PNG and WebP", async () => {
     const fetchImpl = fakeWikimedia({
-      geo: async () =>
-        geoAnswer([
+      commons: async () =>
+        commonsAnswer([
           commonsRow("A.jpg", 0),
           commonsRow("Plan.pdf", 1, "application/pdf"),
           commonsRow("Map.svg", 2, "image/svg+xml"),
@@ -266,7 +284,7 @@ describe("fetchNearbyCommonsImages", () => {
           commonsRow("C.webp", 7, "image/webp"),
         ]),
     });
-    const candidates = await fetchNearbyCommonsImages({ lat: 1, lng: 2, ...deps(fetchImpl) });
+    const candidates = await fetchNamedCommonsImages({ name: "Neues Museum", lat: 1, lng: 2, ...deps(fetchImpl) });
     expect(candidates.map((candidate) => candidate.mime)).toEqual(["image/jpeg", "image/png", "image/webp"]);
   });
 
@@ -281,9 +299,9 @@ describe("fetchNearbyCommonsImages", () => {
     offHost.imageinfo[0].url = "https://evil.example.com/Evil.jpg";
     const offHostThumb = commonsRow("EvilThumb.jpg", 2);
     offHostThumb.imageinfo[0].thumburl = "http://thumb.wikimedia.org/x.jpg";
-    const fetchImpl = fakeWikimedia({ geo: async () => geoAnswer([noThumb, offHost, offHostThumb, wideNoThumb]) });
+    const fetchImpl = fakeWikimedia({ commons: async () => commonsAnswer([noThumb, offHost, offHostThumb, wideNoThumb]) });
 
-    const candidates = await fetchNearbyCommonsImages({ lat: 1, lng: 2, ...deps(fetchImpl) });
+    const candidates = await fetchNamedCommonsImages({ name: "Neues Museum", lat: 1, lng: 2, ...deps(fetchImpl) });
 
     expect(candidates).toEqual([
       { fileName: "File:Tiny.jpg", thumbnailUrl: original("Tiny.jpg"), originalUrl: original("Tiny.jpg"), mime: "image/jpeg" },
@@ -291,8 +309,8 @@ describe("fetchNearbyCommonsImages", () => {
   });
 
   it("answers [] for no results (a body without `query`)", async () => {
-    const fetchImpl = fakeWikimedia({ geo: async () => ok({ batchcomplete: true }) });
-    expect(await fetchNearbyCommonsImages({ lat: 1, lng: 2, ...deps(fetchImpl) })).toEqual([]);
+    const fetchImpl = fakeWikimedia({ commons: async () => ok({ batchcomplete: true }) });
+    expect(await fetchNamedCommonsImages({ name: "Neues Museum", lat: 1, lng: 2, ...deps(fetchImpl) })).toEqual([]);
   });
 
   it("answers [] and never throws on a non-OK status, a thrown fetch, bad JSON or an odd shape", async () => {
@@ -306,24 +324,24 @@ describe("fetchNearbyCommonsImages", () => {
       async () => ok({ query: { pages: {} } }),
       async () => ok({ query: { pages: [null, "row", { title: "File:X.jpg", imageinfo: "nope" }, { imageinfo: [null] }] } }),
     ];
-    for (const geo of handlers) {
-      const fetchImpl = fakeWikimedia({ geo });
-      await expect(fetchNearbyCommonsImages({ lat: 1, lng: 2, ...deps(fetchImpl) })).resolves.toEqual([]);
+    for (const commons of handlers) {
+      const fetchImpl = fakeWikimedia({ commons });
+      await expect(fetchNamedCommonsImages({ name: "Neues Museum", lat: 1, lng: 2, ...deps(fetchImpl) })).resolves.toEqual([]);
     }
   });
 
   it("keeps a valid row among broken ones", async () => {
-    const fetchImpl = fakeWikimedia({ geo: async () => geoAnswer([null, "row", commonsRow("Good.jpg", 3)]) });
-    const candidates = await fetchNearbyCommonsImages({ lat: 1, lng: 2, ...deps(fetchImpl) });
+    const fetchImpl = fakeWikimedia({ commons: async () => commonsAnswer([null, "row", commonsRow("Good.jpg", 3)]) });
+    const candidates = await fetchNamedCommonsImages({ name: "Neues Museum", lat: 1, lng: 2, ...deps(fetchImpl) });
     expect(candidates.map((candidate) => candidate.fileName)).toEqual(["File:Good.jpg"]);
   });
 });
 
 describe("findSuggestionImages", () => {
-  it("puts the lead image first, then the nearest Commons files, cut to 3 of 5", async () => {
+  it("puts the lead image first, then the best Commons matches, cut to 3 of 5", async () => {
     const fetchImpl = fakeWikimedia({
       page: async () => pageAnswer(pageRow("Lead.jpg")),
-      geo: async () => geoAnswer(["G1.jpg", "G2.jpg", "G3.jpg", "G4.jpg"].map((file, index) => commonsRow(file, index))),
+      commons: async () => commonsAnswer(["G1.jpg", "G2.jpg", "G3.jpg", "G4.jpg"].map((file, index) => commonsRow(file, index))),
     });
 
     const images = await findSuggestionImages(suggestion(), deps(fetchImpl));
@@ -333,10 +351,10 @@ describe("findSuggestionImages", () => {
     expect(Object.keys(images[0]).sort()).toEqual(["originalUrl", "thumbnailUrl"]);
   });
 
-  it("deduplicates the lead image when it is also a geosearch hit (spaces vs underscores)", async () => {
+  it("deduplicates the lead image when it is also a Commons hit (spaces vs underscores)", async () => {
     const fetchImpl = fakeWikimedia({
       page: async () => pageAnswer(pageRow("Berlin_Neues_Museum_001.JPG")),
-      geo: async () => geoAnswer([commonsRow("Berlin_Neues_Museum_001.JPG", -1), commonsRow("Other.jpg", 0)]),
+      commons: async () => commonsAnswer([commonsRow("Berlin_Neues_Museum_001.JPG", -1), commonsRow("Other.jpg", 0)]),
     });
 
     const images = await findSuggestionImages(suggestion(), deps(fetchImpl));
@@ -390,6 +408,18 @@ describe("findSuggestionImages", () => {
     expect(pageCalls).toHaveLength(2);
   });
 
+  it("searches Commons for the article's name without its disambiguator, else for the card's title", async () => {
+    const fetchImpl = fakeWikimedia({ page: async () => pageAnswer({ ns: 0, title: "x", missing: true }) });
+
+    await findSuggestionImages(suggestion({ title: "Egyptian treasures", wikiTitle: "Neues Museum (Berlin)" }), deps(fetchImpl));
+    await findSuggestionImages(suggestion(), deps(fetchImpl));
+
+    const searches = fetchImpl.mock.calls
+      .map(([input]) => new URL(requestUrl(input)).searchParams.get("gsrsearch"))
+      .filter((search) => search !== null);
+    expect(searches.map((search) => search.split(" filetype:")[0])).toEqual(["Neues Museum", "Neues Museum"]);
+  });
+
   it("uses title alone when there is no wikiTitle", async () => {
     const fetchImpl = fakeWikimedia({ page: async () => pageAnswer({ ns: 0, title: "x", missing: true }) });
 
@@ -404,12 +434,12 @@ describe("findSuggestionImages", () => {
   it("answers [] when neither source has a usable image", async () => {
     const fetchImpl = fakeWikimedia({
       page: async () => pageAnswer({ ns: 0, title: "x", missing: true }),
-      geo: async () => ok({ batchcomplete: true }),
+      commons: async () => ok({ batchcomplete: true }),
     });
     expect(await findSuggestionImages(suggestion(), deps(fetchImpl))).toEqual([]);
   });
 
-  it("keeps the geosearch images when the page image fails, and the page image when geosearch fails", async () => {
+  it("keeps the Commons images when the page image fails, and the page image when Commons fails", async () => {
     const failures: Handler[] = [
       async () => mockFetchResponse({}, { status: 500 }),
       async () => {
@@ -418,15 +448,15 @@ describe("findSuggestionImages", () => {
       async () => mockFetchResponse(undefined, { json: async () => JSON.parse("nope") }),
     ];
     for (const failure of failures) {
-      const pageDown = fakeWikimedia({ page: failure, geo: async () => geoAnswer([commonsRow("G1.jpg", 0)]) });
+      const pageDown = fakeWikimedia({ page: failure, commons: async () => commonsAnswer([commonsRow("G1.jpg", 0)]) });
       expect(files(await findSuggestionImages(suggestion(), deps(pageDown)))).toEqual(["G1.jpg"]);
 
-      const geoDown = fakeWikimedia({ page: async () => pageAnswer(pageRow("Lead.jpg")), geo: failure });
-      expect(files(await findSuggestionImages(suggestion(), deps(geoDown)))).toEqual(["Lead.jpg"]);
+      const commonsDown = fakeWikimedia({ page: async () => pageAnswer(pageRow("Lead.jpg")), commons: failure });
+      expect(files(await findSuggestionImages(suggestion(), deps(commonsDown)))).toEqual(["Lead.jpg"]);
     }
   });
 
-  it("runs the page-image chain and the geosearch concurrently", async () => {
+  it("runs the page-image chain and the Commons search concurrently", async () => {
     let releasePage: () => void = () => {};
     const pageGate = new Promise<void>((resolve) => {
       releasePage = resolve;
@@ -436,7 +466,7 @@ describe("findSuggestionImages", () => {
         await pageGate;
         return pageAnswer(pageRow("Lead.jpg"));
       },
-      geo: async () => geoAnswer([commonsRow("G1.jpg", 0)]),
+      commons: async () => commonsAnswer([commonsRow("G1.jpg", 0)]),
     });
 
     const pending = findSuggestionImages(suggestion(), deps(fetchImpl));
@@ -462,7 +492,7 @@ describe("attachSuggestionImages", () => {
   it("logs one line per search naming the failures by status and class only, and nothing when all answer", async () => {
     const failing = fakeWikimedia({
       page: async () => mockFetchResponse({}, { status: 429 }),
-      geo: async () => {
+      commons: async () => {
         throw new TypeError("fetch failed: secret detail");
       },
     });
@@ -489,8 +519,8 @@ describe("attachSuggestionImages", () => {
         url.searchParams.get("titles") === "Neues Museum"
           ? pageAnswer(pageRow("Lead.jpg"))
           : pageAnswer({ ns: 0, title: "x", missing: true }),
-      geo: async (url) =>
-        url.searchParams.get("ggscoord") === "52.520611|13.397799" ? geoAnswer([commonsRow("G1.jpg", 0)]) : ok({}),
+      commons: async (url) =>
+        url.searchParams.get("gsrsearch")?.endsWith("nearcoord:3km,52.520611,13.397799") ? commonsAnswer([commonsRow("G1.jpg", 0)]) : ok({}),
     });
     const input = [suggestion(), suggestion({ title: "Elsewhere", lat: 1, lng: 2, verified: false, wikiTitle: "Nope" })];
 
@@ -509,7 +539,7 @@ describe("attachSuggestionImages", () => {
   });
 
   it("starts every suggestion's lookups at once", async () => {
-    const fetchImpl = fakeWikimedia({ page: hang, geo: hang });
+    const fetchImpl = fakeWikimedia({ page: hang, commons: hang });
     const controller = new AbortController();
 
     const pending = attachSuggestionImages([suggestion(), suggestion({ title: "B" }), suggestion({ title: "C" })], {
@@ -524,7 +554,7 @@ describe("attachSuggestionImages", () => {
 
   it("keeps what arrived within the 8 s budget and aborts the rest", async () => {
     vi.useFakeTimers();
-    const fetchImpl = fakeWikimedia({ page: hang, geo: async () => geoAnswer([commonsRow("G1.jpg", 0)]) });
+    const fetchImpl = fakeWikimedia({ page: hang, commons: async () => commonsAnswer([commonsRow("G1.jpg", 0)]) });
 
     let settled = false;
     const pending = attachSuggestionImages([suggestion()], { fetchImpl: fetchImpl as unknown as typeof fetch }).then(
@@ -553,7 +583,7 @@ describe("attachSuggestionImages", () => {
 
   it("aborts the lookups when the client goes away, without waiting for the budget", async () => {
     vi.useFakeTimers();
-    const fetchImpl = fakeWikimedia({ page: hang, geo: hang });
+    const fetchImpl = fakeWikimedia({ page: hang, commons: hang });
     const controller = new AbortController();
 
     let settled = false;
