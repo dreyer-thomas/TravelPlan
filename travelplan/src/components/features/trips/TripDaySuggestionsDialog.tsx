@@ -250,8 +250,9 @@ export default function TripDaySuggestionsDialog({
         ? t("trips.suggestions.selectedOne")
         : formatMessage(t("trips.suggestions.selected"), { count: tickedCount });
 
+  // Kept while a repeat search runs: the old list is still on screen, and the heading is its name.
   const resultsText =
-    status === "results"
+    status === "results" || (searching && suggestions.length > 0)
       ? suggestions.length === 1
         ? t("trips.suggestions.resultsOne")
         : formatMessage(t("trips.suggestions.results"), { count: suggestions.length })
@@ -337,7 +338,7 @@ export default function TripDaySuggestionsDialog({
             disabled={searching}
             error={Boolean(promptError)}
             helperText={promptError ?? undefined}
-            slotProps={{ htmlInput: { maxLength: 500 } }}
+            slotProps={{ htmlInput: { maxLength: suggestionsRequestSchema.shape.prompt.maxLength ?? undefined } }}
           />
 
           <ToggleButtonGroup
@@ -557,26 +558,28 @@ function UnverifiedPlaceGlyph() {
 function SuggestionThumbnails({ title, images }: { title: string; images: DaySuggestion["images"] }) {
   const { t } = useI18n();
   const [failed, setFailed] = useState<Set<number>>(() => new Set());
-  const shown = images.slice(0, 3);
-  if (shown.length === 0) return null;
+  // A failed picture leaves the count too, so "image n of total" always describes what is on screen.
+  const visible = images
+    .slice(0, 3)
+    .map((image, index) => ({ image, index }))
+    .filter(({ index }) => !failed.has(index));
+  if (visible.length === 0) return null;
 
   return (
     <Box sx={{ display: "flex", gap: "6px", mt: 0.5 }}>
-      {shown.map((image, index) =>
-        failed.has(index) ? null : (
-          <Box
-            key={image.thumbnailUrl}
-            component="img"
-            src={image.thumbnailUrl}
-            alt={formatMessage(t("trips.suggestions.imageAlt"), { title, n: index + 1, total: shown.length })}
-            referrerPolicy="no-referrer"
-            loading="lazy"
-            decoding="async"
-            onError={() => setFailed((current) => new Set(current).add(index))}
-            sx={{ flex: "0 0 56px", width: 56, height: 56, objectFit: "cover", borderRadius: 0, display: "block" }}
-          />
-        ),
-      )}
+      {visible.map(({ image, index }, position) => (
+        <Box
+          key={image.thumbnailUrl}
+          component="img"
+          src={image.thumbnailUrl}
+          alt={formatMessage(t("trips.suggestions.imageAlt"), { title, n: position + 1, total: visible.length })}
+          referrerPolicy="no-referrer"
+          loading="lazy"
+          decoding="async"
+          onError={() => setFailed((current) => new Set(current).add(index))}
+          sx={{ flex: "0 0 56px", width: 56, height: 56, objectFit: "cover", borderRadius: 0, display: "block" }}
+        />
+      ))}
     </Box>
   );
 }

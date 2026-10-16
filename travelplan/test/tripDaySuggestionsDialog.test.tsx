@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import DialogShell from "@/components/ui/DialogShell";
@@ -189,7 +189,11 @@ describe("TripDaySuggestionsDialog", () => {
     expect(signal?.aborted).toBe(true);
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(screen.queryByText("Discard changes?")).toBeNull();
-    await waitFor(() => expect(screen.queryByTestId("suggestions-error")).toBeNull());
+    // Let the aborted fetch settle first, so a banner raised by its rejection would already be showing.
+    await act(async () => {
+      await hanging.mock.mock.results[0]?.value.catch(() => undefined);
+    });
+    expect(screen.queryByTestId("suggestions-error")).toBeNull();
   });
 
   it("aborts a running search when the dialog unmounts", async () => {
@@ -268,6 +272,21 @@ describe("TripDaySuggestionsDialog", () => {
 
     await waitFor(() => expect(within(card).getAllByRole("img")).toHaveLength(2));
     expect(within(card).getByRole("checkbox", { name: "Old Harbour" })).toBeInTheDocument();
+    // The count describes what is left on screen.
+    within(card)
+      .getAllByRole("img")
+      .forEach((image, index) => expect(image).toHaveAttribute("alt", `Photo of Old Harbour, image ${index + 1} of 2`));
+
+    // With every picture gone, the strip itself goes.
+    within(card)
+      .getAllByRole("img")
+      .forEach((image) => image.dispatchEvent(new Event("error")));
+    await waitFor(() => expect(within(card).queryAllByRole("img")).toHaveLength(0));
+  });
+
+  it("caps the wish at the server schema's maximum", () => {
+    renderDialog();
+    expect(screen.getByLabelText("What would you like to do today?")).toHaveAttribute("maxlength", "500");
   });
 
   it("marks only the unverified suggestion", async () => {
@@ -334,6 +353,8 @@ describe("TripDaySuggestionsDialog", () => {
     const staleCards = screen.getAllByTestId("suggestion-card");
     expect(staleCards).toHaveLength(3);
     staleCards.forEach((card) => expect(within(card).getByRole("checkbox")).toBeDisabled());
+    // The stale list keeps its name while it is still on screen.
+    expect(screen.getByRole("group", { name: "3 ideas found" })).toBeInTheDocument();
 
     release(ok([suggestion({ title: "Port Wine Cellar" }), suggestion({ title: "Bridge Climb" })]));
     expect(await screen.findByText("2 ideas found")).toBeInTheDocument();
