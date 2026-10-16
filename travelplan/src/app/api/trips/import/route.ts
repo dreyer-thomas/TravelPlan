@@ -44,8 +44,8 @@ export const runtime = "nodejs";
  * describes the *whole body*, while `MAX_IMPORT_PACKAGE_BYTES` is the ceiling on the *file part* -
  * which is what `readMultipartToDisk` counts and what the dialog tells the user. Comparing the two
  * directly made a backup of exactly the permitted size fail for its own framing: the browser adds two
- * delimiters, a `content-disposition` line and the `strategy` and `targetTripId` fields, so a 300 MB
- * archive declares 300 MB plus a few hundred bytes and was refused unread. `bodyLimit.ts` already
+ * delimiters, a `content-disposition` line and the `strategy` and `targetTripId` fields, so a full-size
+ * archive declares the ceiling plus a few hundred bytes and was refused unread. `bodyLimit.ts` already
  * exports the allowance for precisely this, and the four image upload routes already apply it. There
  * is no allowance on the JSON branch because a JSON body has no framing - `content-length` there is
  * the payload.

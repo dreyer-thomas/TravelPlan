@@ -292,8 +292,9 @@ service running `next start` behind nginx. Nothing here is containerised.
 Single Linux host, `arm64`, host name `Travelblog` — named after the *other* application that shares
 it. Both applications run as the `app` user under system-level systemd units. `next start -p 3001 -H
 127.0.0.1` binds loopback only; nginx terminates TLS and proxies. `next.config.ts` documents the
-required nginx `client_max_body_size 320m`, which is what lets a large trip backup reach the import
-route to be accepted or refused on its own terms.
+required nginx `client_max_body_size 620m` (320m until 2026-10-16, when the import ceiling went from
+300 to 600 MB), which is what lets a large trip backup reach the import route to be accepted or
+refused on its own terms.
 
 See [deployment-guide.md](deployment-guide.md#the-server-in-one-place) for the full table of paths,
 versions and unit names.

@@ -35,8 +35,9 @@
  * bytes it reads rather than trusting `content-length`, because taking the route out of the
  * proxy matcher removed the only ceiling that branch had.
  *
- * **Kept at 300 MB anyway, for three reasons that are not RAM.** Raising it is a bigger change than
- * it looks:
+ * **600 MB since 2026-10-16**, when a 344 MB production backup could not be restored: the export has
+ * no ceiling, so a growing trip had simply outgrown the import's. It is still a policy number, kept
+ * finite for three reasons that are not RAM, and raising it is a bigger change than it looks:
  *
  *   1. *Temp-file disk.* Each concurrent import occupies its own upload's worth of `/tmp` for the
  *      duration of the request, and that space is shared with everything else on the box.
@@ -49,22 +50,23 @@
  *
  * What it does *not* protect against any more is the process being killed. The 2026-08-02 note that
  * "at ~600 MB the peak would exceed the box regardless of this constant" is obsolete — the peak no
- * longer tracks the archive at all. Should a real backup ever exceed 300 MB, the change is a
- * coordinated bump of the two numbers below, not a re-architecture.
+ * longer tracks the archive at all. Should a real backup ever exceed 600 MB, the change is a
+ * coordinated bump of the two numbers below - plus `MAX_TOTAL_UNCOMPRESSED_BYTES` in `zipReader.ts`,
+ * which has to stay above this one - not a re-architecture.
  *
  * **Two limits must agree on this route, not three.** Next's `proxyClientMaxBodySize` used to be one
  * of them, but it is a ceiling on bodies the *proxy* buffers and `/api/trips/import` is no
  * longer in the matcher, so it does not apply to an import at all — it was lowered to 20 MB on
  * 2026-08-03 for the four image upload routes it does still cover. What is left:
- *   - this constant                                  300 MB  (what the handler accepts)
- *   - the reverse proxy's `client_max_body_size`     320m    (nginx defaults to 1 MB)
+ *   - this constant                                  600 MB  (what the handler accepts)
+ *   - the reverse proxy's `client_max_body_size`     620m    (nginx defaults to 1 MB)
  *
  * The 20 MB gap is still the multipart framing, and the outer number still has to be the larger one:
  * whatever this app refuses, it must refuse with its own `file_too_large` message rather than have
  * nginx refuse it first with a bare 413. A raise here is still a coordinated change with nginx,
  * which is not in this repo.
  */
-export const MAX_IMPORT_PACKAGE_BYTES = 300 * 1024 * 1024;
+export const MAX_IMPORT_PACKAGE_BYTES = 600 * 1024 * 1024;
 
 /**
  * Ceiling on one restored photo: the **maximum** of the four upload routes' own
@@ -122,15 +124,17 @@ export const MAX_IMPORT_MEDIA_WRITES = 5000;
  * per-photo ceiling is still ~75 GB from a package that cannot itself exceed `MAX_IMPORT_PACKAGE_BYTES`.
  * Only a byte cap closes that, because only it prices a reference by what the reference actually costs.
  *
- * Ten times `MAX_IMPORT_PACKAGE_BYTES`. A backup's *distinct* photo and document bytes are bounded
- * by the package, so a legitimate restore writes roughly what it carries; the only way past that is
- * real dedup, one file genuinely occupying many slots. 10x leaves that far more headroom than any
- * real trip needs while turning the worst case from "fills the disk" into a bounded 1 GB.
+ * 3 GB. A backup's *distinct* photo and document bytes are bounded by the package, so a legitimate
+ * restore writes roughly what it carries; the only way past that is real dedup, one file genuinely
+ * occupying many slots. This was ten times `MAX_IMPORT_PACKAGE_BYTES` until the package ceiling went
+ * from 300 to 600 MB on 2026-10-16; it is a literal now so that raise did not silently double the
+ * worst-case disk write to 6 GB. 5x the largest package is still far more headroom than any real trip
+ * needs, and the worst case stays "a bounded 3 GB" rather than "fills the disk".
  *
- * Summed over both pools by `validatePackageMedia`, for the reason above: two caps of 1 GB apiece
- * are a 2 GB worst case wearing the label of a 1 GB one.
+ * Summed over both pools by `validatePackageMedia`, for the reason above: two caps of 3 GB apiece
+ * are a 6 GB worst case wearing the label of a 3 GB one.
  */
-export const MAX_IMPORT_MEDIA_TOTAL_BYTES = 10 * MAX_IMPORT_PACKAGE_BYTES;
+export const MAX_IMPORT_MEDIA_TOTAL_BYTES = 3 * 1024 * 1024 * 1024;
 
 /**
  * The newest package format this app can read.

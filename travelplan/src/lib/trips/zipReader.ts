@@ -166,7 +166,10 @@ const FLAG_ENCRYPTED = 0x0001;
  * allows" instead of a size error. Found and fixed by Story 2.34, which raised this constant to
  * 400 MB after measuring the 217 MB backup against it by hand.
  *
- * 400 MB is a third of headroom over the largest package the route will accept, which is enough that
+ * Raised again to 800 MB on 2026-10-16, together with the package ceiling's 300 → 600 MB for a 344 MB
+ * production backup - the same pairing, done at once this time rather than one ceiling later.
+ *
+ * 800 MB is a third of headroom over the largest package the route will accept, which is enough that
  * no legitimate, incompressible backup can trip it, while a bomb - which expands by 100× or 1000×,
  * not by 1.3× - still fails on the central directory before a byte is inflated. This is a cap on the
  * *archive*, though, and on its own it says nothing about one allocation: see
@@ -176,7 +179,7 @@ const FLAG_ENCRYPTED = 0x0001;
  * `tripImportPackage.test.ts` asserts it stays above `MAX_IMPORT_PACKAGE_BYTES`, because the two
  * drifting apart is exactly how the 217 MB trip came to be rejected by a limit nobody had raised.
  */
-export const MAX_TOTAL_UNCOMPRESSED_BYTES = 400 * 1024 * 1024;
+export const MAX_TOTAL_UNCOMPRESSED_BYTES = 800 * 1024 * 1024;
 
 /**
  * Ceiling on **one** member, applied to both of its declared sizes - the largest single allocation

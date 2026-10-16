@@ -51,8 +51,10 @@ the *next* major, so it is documented as it was actually performed.
 - SQLite on disk, via `@prisma/adapter-better-sqlite3`. Single-process — `next start` must not be run
   as a multi-instance cluster against one database file.
 - A reverse proxy. `npm start` is `next start -p 3001 -H 127.0.0.1`, bound to loopback.
-  `next.config.ts` documents an nginx `client_max_body_size 320m`, which is what lets a large trip
-  backup reach the import route to be accepted or refused on its own terms.
+  `next.config.ts` documents an nginx `client_max_body_size 620m` (320m until 2026-10-16, when the
+  import ceiling went from 300 to 600 MB), which is what lets a large trip backup reach the import
+  route to be accepted or refused on its own terms. **Raise it on the server before deploying the
+  600 MB ceiling**, or a backup over 320 MB gets a bare 413 from nginx.
 - **The proxy must not serve `/uploads/` itself.** Uploaded media is authorised by a route handler, so
   a `location` block that answers those paths from disk bypasses the session check entirely and
   publishes every trip photo. This was live until 2026-08-05. Full detail and the one-line check in

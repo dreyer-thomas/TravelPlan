@@ -395,7 +395,7 @@ describe("readZipMembers", () => {
     expect(() =>
       readZipMembers(archive, { maxTotalUncompressedBytes: 1024 }),
     ).toThrow(ZipReadError);
-    expect(MAX_TOTAL_UNCOMPRESSED_BYTES).toBe(400 * 1024 * 1024);
+    expect(MAX_TOTAL_UNCOMPRESSED_BYTES).toBe(800 * 1024 * 1024);
   });
 
   it("rejects a single member that declares more than the per-member cap, at open time", () => {
