@@ -4,7 +4,7 @@ baseline_commit: 62cb7b7
 
 # Story 12.4: Take Them Over in Visiting Order
 
-Status: in-progress
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -102,7 +102,7 @@ Every item was checked against the code, and each one changes what a task asks f
   - [x] 8.8 `test/tripDayViewSuggestionsEntry.test.tsx` (added case): an applied receipt shows the notice text and the undo button. The five other `tripDayView*.test.tsx` files stay unedited and green.
   - [x] 8.9 Mutation discipline: drop `redirect: "manual"`; skip the basis re-check; use the current toggle instead of `searchedMode`; omit file unlinking in undo; round with `Math.round`. Each must turn a test red. Record them in the Debug Log.
 - [x] **Task 9: Docs and ledger.** `docs/deployment-configuration.md` *AI day suggestions*: on apply the server downloads from `thumb.wikimedia.org` and `upload.wikimedia.org` (no redirects, 5 MB cap) and calls OSRM once. Mark **DW-386** resolved. Amend epics.md Story 12.4's AC text for items 1–3 once Tommy confirms (*Questions*).
-- [ ] **Task 10: Gates and a real run.** All gates. Then, with Tommy, one real search plus apply on a test trip: check order, times, legs, pictures on the activities, the notice, and *Rückgängig* (activities, legs and the files under `MEDIA_STORAGE_ROOT` gone). Check the preview step at 390 px in DevTools device mode.
+- [x] **Task 10: Gates and a real run.** All gates. Then, with Tommy, one real search plus apply on a test trip: check order, times, legs, pictures on the activities, the notice, and *Rückgängig* (activities, legs and the files under `MEDIA_STORAGE_ROOT` gone). Check the preview step at 390 px in DevTools device mode.
 
 ## Dev Notes
 
@@ -220,7 +220,7 @@ Claude Opus 5.5 (claude-opus-5-5), via bmad-dev-story, 2026-10-16.
   - `suggestionSchema` in `daySuggestionSchemas.ts` is now exported, so the apply schema derives its bounds from it (12.3 review's single-source rule).
 - `tripDayViewSuggestionsEntry.test.tsx` had one assertion pinning "Story 12.4 has not wired the apply yet" (no *Add* button); it now asserts *Add (0)* disabled. The five other `tripDayView*.test.tsx` files are unedited.
 - DW-386 closed. Docs: one paragraph in *AI day suggestions* on what preview and apply send and download.
-- **Open, not done:** Task 10's real search + apply + undo with Tommy, including the 390 px check of the preview step. The story therefore stays **in-progress**.
+- Task 10: real search, apply and *Rückgängig* done by Tommy in Safari on the dev server, files checked on disk. **The 390 px check of the preview step was not done**; Tommy accepted it unchecked ("passt schon"), as in 12.3.
 
 ### File List
 
@@ -270,3 +270,4 @@ Modified:
 - 2026-10-16: After Tommy's test run: the pictures on the added activities looked small in the fullscreen viewer, which never scales a photo up. All 16 stored files were 1280 px wide. The download now tries the 1920 px thumbnail first, then 1280 px, the original and 250 px (`WIDE_THUMBNAIL_WIDTHS`). An unrequested enlargement of the dialog thumbnails and of the timeline photo strip, made while the request was misunderstood, was reverted.
 - 2026-10-16: Tommy's Safari showed every photo in the fullscreen viewer far too small (about 1/12 of its size), his own photos included once he looked. Not reproducible in Chrome or Playwright WebKit with the real markup. `FullscreenPhotoViewer` now gives the image the whole area inside its padding and fits it with `object-fit: contain`, so the size no longer depends on the intrinsic size the browser computes; photos smaller than the screen are scaled up. Outside this story's scope, done at Tommy's request.
 - 2026-10-16: Real run by Tommy (Task 10): several searches and applies on the Neuseeland trip, pictures, legs and notice as expected; *Rückgängig* removed both activities and their files (checked on disk). On his request the undo route now also removes each activity's then-empty image directory (`rmdir`, never recursive), pinned in `suggestionsApplyUndo.test.ts`. Full suite before that last change: 192 files / 3170 tests; the undo suites after it: 55 green. Still open: the 390 px check of the preview step.
+- 2026-10-16: The 10 image folders his test activities left behind (8 deleted one by one, 2 emptied by undo) were removed on Tommy's request; only folders under that day whose id has no row. 390 px accepted unchecked. Status → review.
