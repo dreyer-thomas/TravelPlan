@@ -13,6 +13,8 @@ vi.mock("@/lib/trips/suggestionImageDownload", async () => {
 });
 
 import { prisma } from "@/lib/db/prisma";
+import { applySuggestionsForTripDay } from "@/lib/repositories/daySuggestionApplyRepo";
+import type { SuggestionMode } from "@/lib/validation/daySuggestionSchemas";
 import { DayRouteError, getDayRouteFromOsrm } from "@/lib/routing/dayRouteService";
 import { downloadSuggestionImages } from "@/lib/trips/suggestionImageDownload";
 import { resolveStoredMediaPath } from "@/lib/trips/uploadPaths";
@@ -84,7 +86,7 @@ afterEach(() => {
 
 describe("POST …/suggestions/preview and …/apply (Story 12.4)", () => {
   it("orders the stops along the way, chains the times from last night's check-out and shows the legs", async () => {
-    const { trip, day2, session } = await seedTrip();
+    const { trip, day2, westStay, session } = await seedTrip();
     vi.mocked(getDayRouteFromOsrm).mockResolvedValue(osrmLegs([12, 8449], [7, 1200]));
 
     const preview = await postPreview(trip.id, day2.id, session, { mode: "walking", suggestions: [museum, harbour] });
@@ -101,7 +103,12 @@ describe("POST …/suggestions/preview and …/apply (Story 12.4)", () => {
         { durationMinutes: 12, distanceKm: 8.4 },
         { durationMinutes: 7, distanceKm: 1.2 },
       ],
-      basis: { afterItemId: null, startTime: "09:30" },
+      basis: {
+        afterItemId: null,
+        startTime: "09:30",
+        // No activity yet, the first leg leaves last night's stay, the stops are ordered from it, tonight's stay ends the day.
+        fingerprint: `items:0|from:accommodation:${westStay.id}@41.15,-8.65|order:41.15,-8.65|end:41.15,-8.6`,
+      },
       overflow: false,
       routingUnavailable: false,
       origin: { kind: "stay", label: "Hotel Ribeira" },
@@ -201,6 +208,25 @@ describe("POST …/suggestions/preview and …/apply (Story 12.4)", () => {
     const created = await prisma.dayPlanItem.findFirstOrThrow({ where: { title: "Old Harbour" } });
     const [leg] = await prisma.travelSegment.findMany();
     expect(leg).toMatchObject({ fromItemType: "DAY_PLAN_ITEM", fromItemId: lunch.id, toItemId: created.id, transportType: "CAR" });
+  });
+
+  it("starts at the latest end on the day, with the first leg still from the timeline's last activity", async () => {
+    const { trip, day2, session } = await seedTrip();
+    await createActivity(day2.id, "Day tour", "09:00", "18:00", { lat: 41.16, lng: -8.62 });
+    const coffee = await createActivity(day2.id, "Coffee", "10:00", "11:00", { lat: 41.15, lng: -8.64 });
+    vi.mocked(getDayRouteFromOsrm).mockResolvedValue(osrmLegs([3, 900]));
+
+    const preview = await postPreview(trip.id, day2.id, session, { mode: "car", suggestions: [harbour] });
+
+    // Not 11:05: the tour runs until 18:00. The timeline still draws coffee as the new stop's neighbour.
+    expect(preview.body.data).toMatchObject({
+      rows: [{ fromTime: "18:05", toTime: "19:35" }],
+      basis: { afterItemId: coffee.id, startTime: "18:00" },
+      origin: { kind: "activity", label: "Coffee" },
+    });
+    expect(vi.mocked(getDayRouteFromOsrm).mock.calls[0][0].points[0]).toEqual({ lat: 41.15, lng: -8.64 });
+    await postApply(trip.id, day2.id, session, applyBodyFrom("car", [harbour], preview.body.data!));
+    expect((await prisma.travelSegment.findFirstOrThrow()).fromItemId).toBe(coffee.id);
   });
 
   it("has no first leg after a last timed activity without a place, and orders from last night's stay", async () => {
@@ -365,6 +391,85 @@ describe("POST …/suggestions/preview and …/apply (Story 12.4)", () => {
     expect(fs.readdirSync(process.env.MEDIA_STORAGE_ROOT!, { recursive: true }).length).toBe(filesBefore);
   });
 
+  it("refuses a second apply of the same preview even when all its activities were untimed", async () => {
+    const { trip, day2, session } = await seedTrip();
+    await createActivity(day2.id, "Dinner", "20:00", "23:30", { lat: 41.15, lng: -8.64 });
+    vi.mocked(getDayRouteFromOsrm).mockResolvedValue(osrmLegs([5, 1000]));
+    const preview = await postPreview(trip.id, day2.id, session, { mode: "walking", suggestions: [harbour] });
+    expect(preview.body.data?.rows).toEqual([null]);
+    const body = applyBodyFrom("walking", [harbour], preview.body.data!);
+
+    expect((await postApply(trip.id, day2.id, session, body)).status).toBe(200);
+    const again = await postApply(trip.id, day2.id, session, body);
+
+    expect(again.status).toBe(409);
+    expect(await prisma.dayPlanItem.count({ where: { title: "Old Harbour" } })).toBe(1);
+  });
+
+  it("refuses with 409 when the first leg's origin moved or tonight's stay changed since the preview", async () => {
+    const { trip, day2, eastStay, session } = await seedTrip();
+    const lunch = await createActivity(day2.id, "Lunch", "12:00", "13:00", { lat: 41.15, lng: -8.64 });
+    vi.mocked(getDayRouteFromOsrm).mockResolvedValue(osrmLegs([3, 900]));
+
+    const first = await postPreview(trip.id, day2.id, session, { mode: "car", suggestions: [harbour] });
+    // Same times, another place: the preview's first leg no longer leaves from where lunch is.
+    await prisma.dayPlanItem.update({ where: { id: lunch.id }, data: { locationLat: 41.2, locationLng: -8.7 } });
+    expect((await postApply(trip.id, day2.id, session, applyBodyFrom("car", [harbour], first.body.data!))).status).toBe(409);
+
+    const second = await postPreview(trip.id, day2.id, session, { mode: "car", suggestions: [harbour] });
+    await prisma.accommodation.update({ where: { id: eastStay.id }, data: { locationLat: 41.1, locationLng: -8.5 } });
+    expect((await postApply(trip.id, day2.id, session, applyBodyFrom("car", [harbour], second.body.data!))).status).toBe(409);
+    expect(await prisma.dayPlanItem.count()).toBe(1);
+  });
+
+  it("writes nothing for a viewer even past the route, through the repository's own writer clause", async () => {
+    const { trip, day2, session } = await seedTrip();
+    vi.mocked(getDayRouteFromOsrm).mockResolvedValue(osrmLegs([12, 8449]));
+    const preview = await postPreview(trip.id, day2.id, session, { mode: "walking", suggestions: [harbour] });
+    const viewer = await addMember(trip.id, "VIEWER");
+
+    const receipt = await applySuggestionsForTripDay({
+      userId: viewer.user.id,
+      tripId: trip.id,
+      tripDayId: day2.id,
+      mode: "walking",
+      suggestions: [harbour],
+      legs: preview.body.data!.legs,
+      basis: preview.body.data!.basis,
+      images: [[]],
+    });
+
+    expect(receipt).toBeNull();
+    expect(await prisma.dayPlanItem.count()).toBe(0);
+  });
+
+  it("removes the written pictures and their activity directories when the transaction fails", async () => {
+    const { user, trip, day2, session } = await seedTrip();
+    vi.mocked(getDayRouteFromOsrm).mockResolvedValue(osrmLegs([12, 8449]));
+    const preview = await postPreview(trip.id, day2.id, session, { mode: "walking", suggestions: [harbour] });
+    const before = await databaseState();
+    const entries = () => fs.readdirSync(process.env.MEDIA_STORAGE_ROOT!, { recursive: true }).map(String);
+    const entriesBefore = new Set(entries());
+
+    // A mode no schema admits: the leg create throws after the pictures are written.
+    await expect(
+      applySuggestionsForTripDay({
+        userId: user.id,
+        tripId: trip.id,
+        tripDayId: day2.id,
+        mode: "boat" as SuggestionMode,
+        suggestions: [harbour],
+        legs: preview.body.data!.legs,
+        basis: preview.body.data!.basis,
+        images: [[{ bytes: JPEG, contentType: "image/jpeg" }]],
+      }),
+    ).rejects.toThrow();
+
+    expect(await databaseState()).toEqual(before);
+    // No picture and no directory named after the rolled-back activity; the shared trip/day ones may stay.
+    expect(entries().filter((entry) => !entriesBefore.has(entry) && /day-plan-items[\\/]./.test(entry))).toEqual([]);
+  });
+
   it("refuses a viewer and an ADMIN viewer with 403, a stranger with 404 and a missing CSRF token with 403", async () => {
     const { trip, day2, session } = await seedTrip();
     vi.mocked(getDayRouteFromOsrm).mockResolvedValue(osrmLegs([12, 8449]));
@@ -397,7 +502,7 @@ describe("POST …/suggestions/preview and …/apply (Story 12.4)", () => {
 
   it("refuses a body with a suggestion out of bounds, legs that do not match, or a car leg without a distance", async () => {
     const { trip, day2, session } = await seedTrip();
-    const basis = { afterItemId: null, startTime: "09:30" };
+    const basis = { afterItemId: null, startTime: "09:30", fingerprint: "items:0" };
     const leg = { durationMinutes: 5, distanceKm: 1 };
     const refused = async (body: unknown) => (await postApply(trip.id, day2.id, session, body)).status;
     expect(await refused({ mode: "car", suggestions: [{ ...harbour, durationMinutes: 601 }], legs: [leg], basis })).toBe(400);

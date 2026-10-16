@@ -230,7 +230,7 @@ describe("TripDayView: Find ideas entry (Story 12.3)", () => {
             order: [0],
             rows: [{ fromTime: "10:15", toTime: "11:45" }],
             legs: [{ durationMinutes: 12, distanceKm: 3 }],
-            basis: { afterItemId: null, startTime: "10:00" },
+            basis: { afterItemId: null, startTime: "10:00", fingerprint: "items:0" },
             overflow: false,
             routingUnavailable: false,
             origin: { kind: "stay", label: "Hotel Ribeira" },

@@ -37,11 +37,15 @@ import type { SuggestionMode } from "@/lib/validation/daySuggestionSchemas";
  * check-out, and the apply needs both. The day is read through the writer clause, as every planning write
  * reads it.
  *
- * **What the plan starts from** (the *basis*). The chain starts after the last timed activity, or at last
- * night's check-out (10:00 when none is stored, the time the timeline draws), or at 09:00 on a day with
- * no stay the night before. Apply re-reads the basis
- * inside its transaction and refuses with `DayPlanChangedError` (`409 day_plan_changed`) when it moved,
- * so a day that changed after the preview is never written to with the preview's times.
+ * **What the plan starts from** (the *basis*). The chain starts when the last timed activity has ended
+ * (the latest end on the day, so no new stop overlaps a long one that started earlier), or at last night's
+ * check-out (10:00 when none is stored, the time the timeline draws), or at 09:00 on a
+ * day with no stay the night before. The basis also carries a fingerprint of everything else the preview
+ * planned from: how many activities the day has, where the first leg leaves from, the point the stops
+ * are ordered from and tonight's stay. Apply re-reads it inside its transaction and refuses with
+ * `DayPlanChangedError` (`409 day_plan_changed`) when any of it moved, so a day that changed after the
+ * preview is never written to with the preview's times or legs, and a repeated apply (a retry after a
+ * lost answer, a second tab) is refused even when all its activities were untimed.
  *
  * **The transaction** follows the Epic 11 writes: drawn keys before, the creates, the sweep of any leg the
  * new activities now sit inside (typically last activity → tonight's stay), the check-in warning, the
@@ -52,10 +56,13 @@ import type { SuggestionMode } from "@/lib/validation/daySuggestionSchemas";
  * **Files.** The pictures were downloaded before (network I/O cannot sit inside a SQLite transaction);
  * each one is written after its activity exists, because the path names the activity. Every written
  * path is collected, and all of them are removed if the transaction throws: the import's own
- * write-then-roll-back.
+ * write-then-roll-back. The activity directories created for them go too, once empty.
  */
 
 type BasisReader = Pick<TransactionClient, "tripDay">;
+
+/** The writer clause of `findTripDayForTripWriter`, so a viewer gets nothing to plan from or write to. */
+const writerTrip = (userId: string) => ({ OR: [{ userId }, { members: { some: { userId, role: "CONTRIBUTOR" as const } } }] });
 
 type PlanStay = { id: string; name: string; checkOutTime: string | null; point: GeoPoint | null };
 
@@ -65,17 +72,27 @@ export type SuggestionPlanContext = {
   /** Tonight's stay; only its point matters. */
   end: GeoPoint | null;
   tripStart: { label: string | null; point: GeoPoint | null };
-  lastTimed: { id: string; title: string | null; point: GeoPoint | null; endMinute: number } | null;
+  /** The last timed activity in the timeline's order: the first stop's neighbour, where its leg leaves. */
+  lastTimed: { id: string; title: string | null; point: GeoPoint | null } | null;
+  /** The latest end of any timed activity, where the chain starts; `null` with none. */
+  timedEndMinute: number | null;
+  /** Every activity on the day, timed or not: a repeated apply of untimed ones still changes it. */
+  itemCount: number;
 };
 
 const pointOf = (lat: number | null, lng: number | null): GeoPoint | null =>
   lat !== null && lng !== null ? { lat, lng } : null;
 
-/** The day's plan context, read through `client` (the global client, or a transaction's). */
-const readPlanContext = async (client: BasisReader, tripId: string, tripDayId: string): Promise<SuggestionPlanContext | null> => {
+/** The day's plan context for a writer, read through `client` (the global client, or a transaction's). */
+const readPlanContext = async (
+  client: BasisReader,
+  userId: string,
+  tripId: string,
+  tripDayId: string,
+): Promise<SuggestionPlanContext | null> => {
   const stay = { select: { id: true, name: true, checkOutTime: true, locationLat: true, locationLng: true } } as const;
   const day = await client.tripDay.findFirst({
-    where: { id: tripDayId, tripId },
+    where: { id: tripDayId, tripId, trip: writerTrip(userId) },
     select: {
       id: true,
       dayIndex: true,
@@ -95,11 +112,14 @@ const readPlanContext = async (client: BasisReader, tripId: string, tripDayId: s
   });
   const previous = previousDay?.accommodation ?? null;
 
-  // The last timed activity in the timeline's order; one whose start cannot be read is not timed here.
+  // The last timed activity in the timeline's order is the first stop's neighbour; the chain starts at the
+  // latest end, which a long activity that started earlier may hold. One whose start cannot be read is
+  // not timed here.
   const timed = [...day.dayPlanItems]
     .sort(compareDayPlanItemsByStartTime)
     .filter((item) => Boolean(item.fromTime) && activityEndMinutes(item) !== null);
   const last = timed.at(-1) ?? null;
+  const ends = timed.map((item) => activityEndMinutes(item) as number);
 
   return {
     tripDayId: day.id,
@@ -112,39 +132,30 @@ const readPlanContext = async (client: BasisReader, tripId: string, tripDayId: s
       point: pointOf(day.trip.startLocationLat, day.trip.startLocationLng),
     },
     lastTimed: last
-      ? { id: last.id, title: last.title, point: pointOf(last.locationLat, last.locationLng), endMinute: activityEndMinutes(last) as number }
+      ? { id: last.id, title: last.title, point: pointOf(last.locationLat, last.locationLng) }
       : null,
+    timedEndMinute: ends.length > 0 ? Math.max(...ends) : null,
+    itemCount: day.dayPlanItems.length,
   };
 };
 
-/** The writer clause of `findTripDayForTripWriter`, so a viewer gets nothing to plan from. */
-export const loadSuggestionPlanContextForWriter = async (
+/** Through the writer clause, so a viewer gets nothing to plan from. */
+export const loadSuggestionPlanContextForWriter = (
   userId: string,
   tripId: string,
   tripDayId: string,
-): Promise<SuggestionPlanContext | null> => {
-  const writable = await prisma.tripDay.findFirst({
-    where: { id: tripDayId, tripId, trip: { OR: [{ userId }, { members: { some: { userId, role: "CONTRIBUTOR" } } }] } },
-    select: { id: true },
-  });
-  if (!writable) return null;
-  return readPlanContext(prisma, tripId, tripDayId);
-};
+): Promise<SuggestionPlanContext | null> => readPlanContext(prisma, userId, tripId, tripDayId);
 
 /**
- * Where the chain starts (AC2): the last timed activity's end; else last night's check-out (stored, or the
+ * Where the chain starts (AC2): the latest end of any timed activity; else last night's check-out (stored, or the
  * timeline's 10:00 default); else, with no stay last night, 09:00 (ruling 1c).
  */
 export const planStartMinute = (context: SuggestionPlanContext): number => {
-  if (context.lastTimed) return context.lastTimed.endMinute;
+  if (context.timedEndMinute !== null) return context.timedEndMinute;
   if (!context.previousStay) return timeToMinutes(DAY_START_WITHOUT_STAY) as number;
   return timeToMinutes(resolveCheckOutTime(context.previousStay.checkOutTime)) ?? (timeToMinutes(DEFAULT_CHECK_OUT_TIME) as number);
 };
 
-export const planBasis = (context: SuggestionPlanContext): SuggestionPlanBasis => ({
-  afterItemId: context.lastTimed?.id ?? null,
-  startTime: minutesToTime(planStartMinute(context)),
-});
 
 /**
  * The point the stops are ordered from (AC1): the last timed activity's place, else last night's stay,
@@ -170,6 +181,35 @@ export const planOrigin = (context: SuggestionPlanContext): SuggestionPreviewOri
   return { kind: "none", label: null };
 };
 
+const pointKey = (point: GeoPoint | null) => (point ? `${point.lat},${point.lng}` : "-");
+
+/** The first leg's `from` end as apply would store it; `null` when nothing can carry a leg (trip start). */
+const planFirstLegFrom = (context: SuggestionPlanContext) =>
+  context.lastTimed
+    ? { type: "dayPlanItem" as const, id: context.lastTimed.id }
+    : context.previousStay
+      ? { type: "accommodation" as const, id: context.previousStay.id }
+      : null;
+
+/**
+ * Item 9. What the plan was computed on. `afterItemId` and `startTime` decide the times; the fingerprint
+ * covers the rest the preview read: the day's activity count, the first leg's `from` end and point, the
+ * ordering origin and tonight's stay.
+ */
+export const planBasis = (context: SuggestionPlanContext): SuggestionPlanBasis => {
+  const from = planFirstLegFrom(context);
+  return {
+    afterItemId: context.lastTimed?.id ?? null,
+    startTime: minutesToTime(planStartMinute(context)),
+    fingerprint: [
+      `items:${context.itemCount}`,
+      `from:${from ? `${from.type}:${from.id}` : "-"}@${pointKey(planFirstLegPoint(context))}`,
+      `order:${pointKey(planOrderingOrigin(context))}`,
+      `end:${pointKey(context.end)}`,
+    ].join("|"),
+  };
+};
+
 const toPrismaTransport = (mode: SuggestionMode) => {
   const transport = SUGGESTION_MODE_ROUTING[mode].transport;
   // The three search modes; `TravelTransportType` spells them in capitals.
@@ -177,6 +217,7 @@ const toPrismaTransport = (mode: SuggestionMode) => {
 };
 
 export type ApplySuggestionsParams = {
+  userId: string;
   tripId: string;
   tripDayId: string;
   mode: SuggestionMode;
@@ -193,20 +234,22 @@ export type ApplySuggestionsParams = {
 const APPLY_TRANSACTION_TIMEOUT_MS = 20000;
 
 const sameBasis = (left: SuggestionPlanBasis, right: SuggestionPlanBasis) =>
-  left.afterItemId === right.afterItemId && left.startTime === right.startTime;
+  left.afterItemId === right.afterItemId && left.startTime === right.startTime && left.fingerprint === right.fingerprint;
 
 /**
  * AC4. Writes every activity, its pictures and the drawn legs in one transaction, and returns the receipt.
- * `null` when the day is not on the trip (the route has checked the writer role already).
+ * `null` when the day is not on the trip or the user cannot write to it (the route checked the role
+ * already; the writer clause here is the planning writes' own).
  */
 export const applySuggestionsForTripDay = async (params: ApplySuggestionsParams): Promise<DayChangeReceipt | null> => {
-  const { tripId, tripDayId, mode, suggestions, legs, basis, images } = params;
+  const { userId, tripId, tripDayId, mode, suggestions, legs, basis, images } = params;
   const writtenFiles: string[] = [];
+  const createdDirs = new Set<string>();
 
   try {
     return await prisma.$transaction(
       async (tx) => {
-        const context = await readPlanContext(tx, tripId, tripDayId);
+        const context = await readPlanContext(tx, userId, tripId, tripDayId);
         if (!context) return null;
         if (!sameBasis(planBasis(context), basis)) throw new DayPlanChangedError();
 
@@ -247,6 +290,7 @@ export const applySuggestionsForTripDay = async (params: ApplySuggestionsParams)
               taken,
             );
             await fs.mkdir(path.dirname(placement.filePath), { recursive: true });
+            createdDirs.add(path.dirname(placement.filePath));
             await fs.writeFile(placement.filePath, image.bytes);
             writtenFiles.push(placement.filePath);
             const row = await tx.dayPlanItemImage.create({
@@ -262,11 +306,7 @@ export const applySuggestionsForTripDay = async (params: ApplySuggestionsParams)
         // The legs the preview knew, each only where the final timeline draws it.
         const timeline = (await buildSegmentTimelineInTransaction(tx, tripId, tripDayId)) ?? [];
         const drawnAfter = buildDrawnDaySegmentPairKeys(timeline);
-        const firstFrom = context.lastTimed
-          ? { type: "dayPlanItem" as const, id: context.lastTimed.id }
-          : context.previousStay
-            ? { type: "accommodation" as const, id: context.previousStay.id }
-            : null;
+        const firstFrom = planFirstLegFrom(context);
         const segments: { segmentId: string; updatedAt: Date }[] = [];
         for (const [index, leg] of legs.entries()) {
           if (!leg) continue;
@@ -314,6 +354,10 @@ export const applySuggestionsForTripDay = async (params: ApplySuggestionsParams)
     );
   } catch (error) {
     await removeWrittenPhotos(writtenFiles);
+    // `rmdir` removes only an empty directory; each one is named after an activity that was rolled back.
+    for (const dir of createdDirs) {
+      await fs.rmdir(dir).catch(() => undefined);
+    }
     throw error;
   }
 };

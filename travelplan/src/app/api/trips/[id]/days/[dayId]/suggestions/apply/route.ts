@@ -86,7 +86,7 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
       suggestions.map((suggestion) => suggestion.images),
       { signal: request.signal },
     );
-    const receipt = await applySuggestionsForTripDay({ tripId, tripDayId: dayId, mode, suggestions, legs, basis, images });
+    const receipt = await applySuggestionsForTripDay({ userId, tripId, tripDayId: dayId, mode, suggestions, legs, basis, images });
     if (!receipt) {
       return fail(apiError("not_found", "Trip day not found"), 404);
     }

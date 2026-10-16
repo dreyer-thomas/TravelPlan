@@ -3879,13 +3879,13 @@ So that the day is planned in one step and I can take it back if it is wrong.
 **Then** they are ordered along the day's route. If start and end differ, they are sorted by their projection onto the start→end line. If they are equal or there is no end, the order is a nearest-neighbour tour from the start.
 
 **Given** the ordered list
-**Then** the time chain starts at the start stay's `checkOutTime`; when that is empty, at the timeline's default check-out (10:00), and with no start stay at all (the trip's first day) at 09:00 (amended 2026-10-16, Tommy's ruling). If the day already has activities with times, it starts after the last one ends. Each activity gets `fromTime` = previous end plus the OSRM travel time from the previous point in the chosen mode, and `toTime` = `fromTime` + `durationMinutes`, rounded up to 5 minutes.
+**Then** the time chain starts at the start stay's `checkOutTime`; when that is empty, at the timeline's default check-out (10:00), and with no start stay at all (the trip's first day) at 09:00 (amended 2026-10-16, Tommy's ruling). If the day already has activities with times, it starts after the one that ends last (amended 2026-10-16, code review). Each activity gets `fromTime` = previous end plus the OSRM travel time from the previous point in the chosen mode, and `toTime` = `fromTime` + `durationMinutes`, rounded up to 5 minutes.
 
 **Given** the dialog before applying
 **Then** it shows the computed order and times as a preview. If an activity would end after 23:59, a warning is shown and applying is still allowed; that activity and every later one are added without times, because a time past 23:59 cannot be stored (amended 2026-10-16).
 
 **Given** applying
-**Then** in one transaction: each suggestion becomes a `DayPlanItem` with title, description as Tiptap paragraphs, verified location and times. A `TravelSegment` is created between each pair of consecutive new activities, and from the previous point (stay or last existing activity) to the first one, in the chosen mode (`CAR`, `WALKING`, `CYCLING`) with OSRM duration and distance.
+**Then** in one transaction: each suggestion becomes a `DayPlanItem` with title, description as Tiptap paragraphs, verified location and times. A `TravelSegment` is created between each pair of consecutive new activities, and from the previous point (stay or last existing activity) to the first one, in the chosen mode (`CAR`, `WALKING`, `CYCLING`) with OSRM duration and distance. A leg is created only where the resulting timeline draws it, so no leg sits under an untimed activity sorting between two new ones; from the trip's start point (no stay last night) the travel time counts in the chain, but no leg is stored, and the preview says so (amended 2026-10-16, code review).
 
 **Given** images
 **Then** each is downloaded server-side into `MEDIA_STORAGE_ROOT` through the existing upload path and size limit, and linked as `DayPlanItemImage`. A failed download skips that image and does not block the apply.

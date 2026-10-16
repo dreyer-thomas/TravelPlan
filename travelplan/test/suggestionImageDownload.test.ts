@@ -7,7 +7,7 @@ import {
 
 /**
  * Story 12.4 AC5, items 13–15 and DW-386. The server downloads a ticked suggestion's pictures: the
- * 1280 px thumbnail first, then the original, then the 250 px thumbnail; never following a redirect,
+ * 1920 px thumbnail first, then 1280 px, the original and the 250 px thumbnail; never following a redirect,
  * never past 5 MB, never anything that is not a JPEG, PNG or WebP by its bytes.
  */
 

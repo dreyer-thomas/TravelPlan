@@ -4,7 +4,7 @@ baseline_commit: 62cb7b7
 
 # Story 12.4: Take Them Over in Visiting Order
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -40,7 +40,7 @@ Every item was checked against the code, and each one changes what a task asks f
 10. **OSRM has no per-leg helper.** `getDayRouteFromOsrm` (`src/lib/routing/dayRouteService.ts:113-123`) takes n points but returns one total; its `OsrmRoute` type (:61-67) ignores `legs[]`. **Additively** parse `routes[0].legs[i].duration/distance` and return an optional `legs: Array<{ distanceMeters: number | null; durationSeconds: number | null }>` on `DayRouteResult`. Keep every existing field and behaviour; `test/dayRouteService.test.ts`, `test/tripDayRoute.test.ts` and `test/travelSegmentRoutePreview.test.ts` stay green unedited. Any `DayRouteError` (including `routing_no_route` for one unreachable pair) means **all** legs unknown: no per-pair retry, by the fair-use rule.
 11. **Leg values follow the leg dialog's rounding.** Minutes = `Math.max(1, Math.round(durationSeconds / 60))`, km rounded to 0.1, and a zero duration or zero distance counts as no route (`TripDayTravelSegmentDialog.tsx:535-549`). Map the mode `car → driving / CAR`, `walking → walking / WALKING`, `cycling → cycling / CYCLING`. The map exists only privately in `travel-segments/route-preview/route.ts:20-24`; export one shared constant from a pure module and use it in both places.
 12. **Appending can remove a leg.** Legs are drawn only between consecutive timeline entries (`src/lib/trips/daySegmentPairs.ts:44-73`). If the last existing activity has a leg to tonight's stay, the new activities sit between them, so that leg is no longer drawn. Run the Epic 11 pattern inside the transaction: `readDrawnSegmentKeysInTransaction` before, `sweepNoLongerDrawnSegmentsInTransaction` after (`TSR:319-340`), then `findCheckInWarningInTransaction` (`dayPlanPushTransaction.ts:128-167`), then `buildReceipt` (:52-66). The swept leg lands in `removedTravelSegments`, the notice mentions it, and undo restores it. 11.1's rule "nothing creates a leg except undo" (11-1 story :338) gets a **deliberate exception** here: R7. Do **not** create a leg from the last new activity to tonight's stay; the epic does not ask for one.
-13. **Images: the original is usually too big.** Commons originals are often 10–50 MB; the limit is 5 MB (`day-plan-items/images/route.ts:27`). Wikimedia serves only standard thumbnail widths (12-2 :183: …, 960, **1280**, 1920). **Default per image, first success wins:**
+13. **Images: the original is usually too big.** *(After the real run the 1920 px thumbnail is tried before the 1280 px one; see the Change Log.)* Commons originals are often 10–50 MB; the limit is 5 MB (`day-plan-items/images/route.ts:27`). Wikimedia serves only standard thumbnail widths (12-2 :183: …, 960, **1280**, 1920). **Default per image, first success wins:**
     1. the 1280 px thumbnail, derived from `thumbnailUrl` by replacing the `250px-` prefix of the **last path segment** (keep the query string). Only when `thumbnailUrl` has the `/thumb/…/250px-<name>` form; a ≤ 250 px source has no such form (12-2 Deviation 1);
     2. `originalUrl`;
     3. `thumbnailUrl` itself (250 px, always small).
@@ -103,6 +103,25 @@ Every item was checked against the code, and each one changes what a task asks f
   - [x] 8.9 Mutation discipline: drop `redirect: "manual"`; skip the basis re-check; use the current toggle instead of `searchedMode`; omit file unlinking in undo; round with `Math.round`. Each must turn a test red. Record them in the Debug Log.
 - [x] **Task 9: Docs and ledger.** `docs/deployment-configuration.md` *AI day suggestions*: on apply the server downloads from `thumb.wikimedia.org` and `upload.wikimedia.org` (no redirects, 5 MB cap) and calls OSRM once. Mark **DW-386** resolved. Amend epics.md Story 12.4's AC text for items 1–3 once Tommy confirms (*Questions*).
 - [x] **Task 10: Gates and a real run.** All gates. Then, with Tommy, one real search plus apply on a test trip: check order, times, legs, pictures on the activities, the notice, and *Rückgängig* (activities, legs and the files under `MEDIA_STORAGE_ROOT` gone). Check the preview step at 390 px in DevTools device mode.
+
+### Review Findings
+
+Code review 2026-10-16 (Blind Hunter, Edge Case Hunter, Acceptance Auditor) over `62cb7b7..58b647c`.
+
+- [x] [Review][Patch] The first leg from the trip's start is counted in the times but never stored: keep it in the chain and mark it in the preview as not saved as a leg (Tommy, 2026-10-16: option b) [`daySuggestionApplyRepo.ts:160-164`, `:265-274`; `TripDaySuggestionsDialog.tsx` preview step]
+- [x] [Review][Patch] The chain starts after the activity that starts last, not the one that ends last: start after the latest end (Tommy, 2026-10-16: option a). Applied as: the times start at the latest end (`timedEndMinute`); the first leg, the ordering origin and `afterItemId` stay with the timeline's last entry, because that is the neighbour the timeline draws and a leg from the long activity would never be drawn [`daySuggestionApplyRepo.ts:99-102`]
+- [x] [Review][Patch] Closing the dialog during *Hinzufügen* commits the change but drops the receipt (no notice, no undo, no `loadDay`); block closing while `planBusy === "apply"` [`TripDaySuggestionsDialog.tsx:135-142`]
+- [x] [Review][Patch] The basis is too narrow: a retried or second-tab apply whose rows are all untimed passes it again (duplicate activities), and a changed origin location, swapped previous stay or changed tonight's stay is not noticed; extend `SuggestionPlanBasis` (e.g. day item count, first-leg origin id+point, end point) [`daySuggestionApplyRepo.ts:195`, `:211`]
+- [x] [Review][Patch] The apply transaction reads the day without the writer clause (item 18, Task 5.1); only the route guards it [`daySuggestionApplyRepo.ts:209`]
+- [x] [Review][Patch] A failed re-preview after `409 day_plan_changed` leaves the stale preview with *Hinzufügen* enabled, so each click is another 409; drop the stale preview (back to the choice step with the error) [`TripDaySuggestionsDialog.tsx:374-377`]
+- [x] [Review][Patch] A search can be started while the preview is in flight; the late preview then opens for the replaced list. Gate the search submit on `planBusy` [`TripDaySuggestionsDialog.tsx:536`]
+- [x] [Review][Patch] A rolled-back apply leaves the `day-plan-items/<id>/` directories it created; `rmdir` them in the catch after `removeWrittenPhotos` [`daySuggestionApplyRepo.ts:249`, `:315-317`]
+- [x] [Review][Patch] `mapPlanError` shows "server error" for `not_found` (day deleted meanwhile) and `validation_error`; map them [`TripDaySuggestionsDialog.tsx:282-293`]
+- [x] [Review][Patch] Stale wording after the 1920 px change: the module doc still reasons "the viewer never scales a photo up" (it now does), the test header says "1280 px first", and item 13 / *Questions* 4 still say 1280 first [`suggestionImageDownload.ts:17-21`]
+- [x] [Review][Patch] epics.md Story 12.4 still says a leg is created "between each pair of consecutive new activities"; amend it to "where the timeline draws it" as the code and Completion Notes do [`_bmad-output/planning-artifacts/epics.md`]
+- [x] [Review][Defer] No rate limit on preview (OSRM) and apply (up to 96 Wikimedia fetches) for a scripted writer [`suggestions/preview/route.ts:117`, `apply/route.ts:85`] — deferred, DW-389
+- [x] [Review][Defer] Apply downloads (up to ~120 MB buffered) before the cheap basis check, so a stale apply pays the full download [`apply/route.ts:84-89`] — deferred, DW-390
+- [x] [Review][Defer] The preview's OSRM call is not cancelled when the client aborts; `getDayRouteFromOsrm` takes no external signal [`suggestions/preview/route.ts:117-121`] — deferred, DW-391
 
 ## Dev Notes
 
@@ -174,7 +193,7 @@ Updated: `dayRouteService.ts`, `dayPlanPush.ts` (export `minutesToTime`), `planT
 1. **Start at 10:00, not 09:00 (item 1).** The timeline already shows 10:00 as the default check-out. Recommendation: 10:00, and correct the epic.
 2. **Past midnight (item 2).** The time format cannot hold it. Default: those activities are added without times. Alternative: leave them out of the apply. Recommendation: without times, because nothing ticked gets lost.
 3. **Legs when OSRM is down (item 3).** Default: no leg is created. Alternative: a migration making `durationMinutes` nullable, which touches the leg dialog, the timeline and Epic 11's push. Recommendation: no leg; the user can draw it later in the leg dialog, which fetches the route itself.
-4. **Pictures at 1280 px (item 13).** Default: the 1280 px Wikimedia thumbnail, falling back to the original and then to the 250 px one. That means downloads also come from `thumb.wikimedia.org`. Recommendation: yes; originals would mostly exceed 5 MB.
+4. **Pictures at 1280 px (item 13).** *(Superseded after the real run: 1920 px is tried first, then 1280 px; see the Change Log.)* Default: the 1280 px Wikimedia thumbnail, falling back to the original and then to the 250 px one. That means downloads also come from `thumb.wikimedia.org`. Recommendation: yes; originals would mostly exceed 5 MB.
 
 ### References
 
@@ -271,3 +290,4 @@ Modified:
 - 2026-10-16: Tommy's Safari showed every photo in the fullscreen viewer far too small (about 1/12 of its size), his own photos included once he looked. Not reproducible in Chrome or Playwright WebKit with the real markup. `FullscreenPhotoViewer` now gives the image the whole area inside its padding and fits it with `object-fit: contain`, so the size no longer depends on the intrinsic size the browser computes; photos smaller than the screen are scaled up. Outside this story's scope, done at Tommy's request.
 - 2026-10-16: Real run by Tommy (Task 10): several searches and applies on the Neuseeland trip, pictures, legs and notice as expected; *Rückgängig* removed both activities and their files (checked on disk). On his request the undo route now also removes each activity's then-empty image directory (`rmdir`, never recursive), pinned in `suggestionsApplyUndo.test.ts`. Full suite before that last change: 192 files / 3170 tests; the undo suites after it: 55 green. Still open: the 390 px check of the preview step.
 - 2026-10-16: The 10 image folders his test activities left behind (8 deleted one by one, 2 emptied by undo) were removed on Tommy's request; only folders under that day whose id has no row. 390 px accepted unchecked. Status → review.
+- 2026-10-16: Code review (3 layers): 2 decisions (1b, 2a) and 9 patches applied, 3 deferred (DW-389–391), 12 dismissed. Basis gains a `fingerprint` (item count, first-leg origin and point, ordering origin, tonight's stay), so a repeated all-untimed apply and a moved origin answer 409; apply reads through the writer clause; the chain starts at the latest end on the day; the trip-start leg says "not saved as a leg"; the dialog cannot be closed during apply, starts no search while busy, drops a stale preview when the re-preview fails, and maps `not_found`/`validation_error`; a rolled-back apply removes its activity directories; epics.md amended. 192 files / 3180 tests, tsc 0, lint 0/80; 8 mutations each turn a test red.

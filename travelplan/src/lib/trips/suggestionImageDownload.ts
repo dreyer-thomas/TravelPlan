@@ -16,8 +16,9 @@ import {
  * - **Which file.** Commons originals are often 10–50 MB, over the 5 MB limit of the image upload route.
  *   Wikimedia serves only standard thumbnail widths, so the first attempts are the 1920 px and 1280 px
  *   ones, derived from the 250 px `thumbnailUrl` by swapping the width in its last path segment. 1920
- *   comes first because the fullscreen viewer never scales a photo up: at 1280 px the pictures stayed
- *   visibly smaller than the user's own photos (Tommy, 2026-10-16). Then the original, then the 250 px
+ *   comes first because at 1280 px the pictures looked visibly smaller than the user's own photos in the
+ *   fullscreen viewer (Tommy, 2026-10-16); the viewer now fills its area, so the wider file is what keeps
+ *   them sharp there. Then the original, then the 250 px
  *   thumbnail itself, which is always small. A source narrower than a width answers that attempt with an
  *   error, which simply falls through.
  * - **Which hosts.** The URLs come back from the client, so each one passes its guard before any request

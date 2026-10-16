@@ -1,5 +1,6 @@
 # generated: 2026-03-01 13:08:00 CET
-# last_updated: 2026-10-16 (12-4-take-them-over-in-visiting-order IN-PROGRESS -> REVIEW. Tommy ruled 1c (09:00 only without a stay last night), 2 yes, 3A, 4 yes; epics.md amended. Real run in Safari: apply and undo work, files and emptied folders removed. Pictures now 1920 px first; FullscreenPhotoViewer fills its area (Safari showed every photo ~1/12 size). 390 px accepted unchecked. Commit e8dcafd.)
+# last_updated: 2026-10-16 (12-4-take-them-over-in-visiting-order REVIEW -> DONE via bmad-code-review. Tommy ruled 1b (trip-start leg shown as not saved) and 2a (chain starts at the latest end). 11 patches applied: basis fingerprint (409 on repeat/moved origin), writer clause in the apply repo, no close during apply, stale preview dropped, search gated, error mapping, rollback dirs, docs. DW-389-391 deferred. 192 files / 3180 tests, tsc 0, lint 0/80.)
+# previously: 2026-10-16 (12-4-take-them-over-in-visiting-order IN-PROGRESS -> REVIEW. Tommy ruled 1c (09:00 only without a stay last night), 2 yes, 3A, 4 yes; epics.md amended. Real run in Safari: apply and undo work, files and emptied folders removed. Pictures now 1920 px first; FullscreenPhotoViewer fills its area (Safari showed every photo ~1/12 size). 390 px accepted unchecked. Commit e8dcafd.)
 # previously: 2026-10-16 (12-4-take-them-over-in-visiting-order IN-PROGRESS via bmad-dev-story. Tasks 0-8 done: preview + apply routes (one OSRM call, legs parsed additively), suggestionsApplied receipt with undo that unlinks files after commit, dialog preview step with searchedMode, DW-386 closed. 192 files / 3170 tests, tsc 0, lint 0/80, check:migrations passes, next build ok. Open: epics.md amendment (Questions 1-3) and Task 10 real run + 390 px check with Tommy.)
 # previously: 2026-10-16 (12-4-take-them-over-in-visiting-order ready-for-dev -> in-progress via bmad-dev-story.)
 # previously: 2026-10-16 (12-4-take-them-over-in-visiting-order CONTEXTED via bmad-create-story, backlog -> ready-for-dev. Read-first items: default check-out 10:00 not 09:00; times past 23:59 cannot be stored, overflowing activities are created untimed; leg durationMinutes is NOT NULL, so unknown legs are not created (no migration); a new receipt kind suggestionsApplied (one id per created receipt today, and created-undo refuses media/legs); undo unlinks image files after commit; dialog onApply becomes onApplied and must send the searched mode; preview + apply endpoints with one OSRM call (legs[] parsed additively); images: 1280 px thumb -> original -> 250 px, redirect manual, 5 MB cap, sniffed (closes DW-386). Four questions for Tommy, defaults applied.)
@@ -261,5 +262,5 @@ development_status:
   12-1-ask-claude-what-the-day-could-hold: done
   12-2-pictures-for-each-suggestion: done
   12-3-look-through-the-ideas-and-tick-the-good-ones: done
-  12-4-take-them-over-in-visiting-order: review
+  12-4-take-them-over-in-visiting-order: done
   epic-12-retrospective: optional

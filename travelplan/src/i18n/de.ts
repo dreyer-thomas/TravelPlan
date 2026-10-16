@@ -695,6 +695,8 @@ const de: Dictionary = {
   "trips.suggestions.previewFromTripStart": "Ab Startort der Reise",
   "trips.suggestions.legSummary": "{minutes} min · {km} km",
   "trips.suggestions.legUnknown": "Fahrzeit unbekannt",
+  "trips.suggestions.legNotSaved": "wird nicht als Fahrt gespeichert",
+  "trips.suggestions.errorDayNotFound": "Diesen Tag gibt es nicht mehr.",
   "trips.suggestions.untimed": "ohne Uhrzeit",
   "trips.suggestions.overflowWarning": "Das geht über Mitternacht hinaus. Was nicht mehr passt, wird ohne Uhrzeit angelegt.",
   "trips.suggestions.routingUnavailable": "Die Fahrzeiten ließen sich gerade nicht berechnen. Die Aktivitäten werden ohne Fahrten angelegt.",

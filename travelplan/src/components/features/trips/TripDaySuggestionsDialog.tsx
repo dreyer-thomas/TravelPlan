@@ -41,7 +41,11 @@ import type { SuggestionPreview } from "@/lib/validation/daySuggestionApplySchem
  *   and the legs, and shows them as a second step; *Hinzufügen* writes exactly that and hands the receipt
  *   to `onApplied`. *Zurück zur Auswahl* returns with the ticks intact. Both requests carry the mode the
  *   list was searched with (`searchedMode`), not whatever the toggle shows by then. A day that changed
- *   in between (`409 day_plan_changed`) is previewed again with a short note.
+ *   in between (`409 day_plan_changed`) is previewed again with a short note; if that preview fails, the
+ *   stale one is dropped and the dialog returns to the choice with the error.
+ * - **No closing while *Hinzufügen* runs.** The server commits whatever the client does, so an apply
+ *   aborted by a close would land without its receipt: no notice, no undo, no reload. ✕, Escape and the
+ *   backdrop are disabled until it answers. No search starts while a preview or apply is in flight.
  * - **Abort on close.** The route forwards the request's signal to the model call and both lookup
  *   steps, so closing the dialog stops paying for an answer nobody will read. An aborted search shows
  *   no error and sets no state. The preview and apply requests are aborted the same way.
@@ -139,7 +143,8 @@ export default function TripDaySuggestionsDialog({
   };
 
   // Only ticks are worth a question: an unticked list, or a search still running, closes silently.
-  const guard = useDiscardGuard(ticked.size > 0, closeAndAbort, false);
+  const applying = planBusy === "apply";
+  const guard = useDiscardGuard(ticked.size > 0, closeAndAbort, applying);
 
   const mapErrorCode = (status: number, code: string | undefined, promptNamed: boolean): string | null => {
     switch (code) {
@@ -168,7 +173,7 @@ export default function TripDaySuggestionsDialog({
 
   const handleSearch = async (event?: FormEvent) => {
     event?.preventDefault();
-    if (searching) return;
+    if (searching || planBusy) return;
 
     // The server's own rule, so the two can never disagree about what counts as empty.
     const parsedPrompt = suggestionsRequestSchema.shape.prompt.safeParse(prompt);
@@ -287,6 +292,11 @@ export default function TripDaySuggestionsDialog({
         return t("errors.unauthorized");
       case "csrf_invalid":
         return t("errors.csrfInvalid");
+      case "not_found":
+        return t("trips.suggestions.errorDayNotFound");
+      case "validation_error":
+      case "invalid_json":
+        return t("errors.invalidJson");
       default:
         return t("errors.server");
     }
@@ -339,6 +349,11 @@ export default function TripDaySuggestionsDialog({
     const data = result.data as SuggestionPreview | undefined;
     if (!result.ok || !data || !Array.isArray(data.order)) {
       showPlanError(result.ok ? undefined : result.code);
+      // After a 409 the preview on screen is known to be stale; *Hinzufügen* must not send it again.
+      if (afterChange) {
+        setPreview(null);
+        setStep("choose");
+      }
       return;
     }
     setPreview({ ...data, picked });
@@ -428,6 +443,7 @@ export default function TripDaySuggestionsDialog({
         closeLabel={t("common.close")}
         fullScreenOnPhone
         footer={footer}
+        disableDismiss={applying}
         footerSx={{ justifyContent: onApplied ? "space-between" : "flex-start" }}
       >
         {step === "preview" && preview ? (
@@ -535,7 +551,7 @@ export default function TripDaySuggestionsDialog({
             <Button
               type="submit"
               variant="outlined"
-              disabled={searching}
+              disabled={searching || planBusy !== null}
               startIcon={searching ? <CircularProgress size={16} color="inherit" /> : undefined}
             >
               {searching ? t("trips.suggestions.searching") : t("trips.suggestions.search")}
@@ -762,6 +778,9 @@ function SuggestionPreviewStep({
         : null;
   // With no point to start from there is no first leg to show.
   const showFirstLeg = preview.origin.kind !== "none";
+  // From the trip's start the leg counts in the times, but nothing on the day can carry it, so it is not
+  // stored; say so rather than let the notice count one leg fewer than this list shows.
+  const firstLegNotSaved = preview.origin.kind === "tripStart";
 
   const legText = (leg: PreviewState["legs"][number]) =>
     leg
@@ -808,7 +827,9 @@ function SuggestionPreviewStep({
                   data-testid="suggestions-preview-leg"
                   sx={{ color: tokens.inkSoft, fontSize: 12.5, pl: 1.5, fontVariantNumeric: "tabular-nums" }}
                 >
-                  {legText(leg)}
+                  {position === 0 && firstLegNotSaved && leg
+                    ? `${legText(leg)} · ${t("trips.suggestions.legNotSaved")}`
+                    : legText(leg)}
                 </Typography>
               ) : null}
               <Box

@@ -3738,3 +3738,35 @@ summary: Task 7's manual call against the Neuseeland trip was not made; only the
 evidence: Run it the next time the API key is available and record the timings in the story.
 status: done 2026-10-16
 resolution: Story 12.3 Task 7. Tommy ran one real search from the dialog on the dev server: about 15 s from *Suchen* to cards with text and pictures, far inside the 78 s budget and nginx's 90 s timeout. One run, timed by hand, not a distribution.
+
+## Deferred from: code review of 12-4-take-them-over-in-visiting-order (2026-10-16)
+
+### DW-389: No rate limit on the suggestion preview (OSRM) and apply (Wikimedia downloads)
+
+source_spec: `_bmad-output/implementation-artifacts/12-4-take-them-over-in-visiting-order.md`
+origin: code review of 12-4-take-them-over-in-visiting-order, 2026-10-16
+location: `travelplan/src/app/api/trips/[id]/days/[dayId]/suggestions/preview/route.ts:117`; `.../suggestions/apply/route.ts:85`
+severity: medium
+summary: The preview calls OSRM once per request and counts against no limit; an apply can trigger up to 24 pictures × 4 candidates = 96 server-side Wikimedia fetches under the app's User-Agent. A scripted writer could loop either without bound (FOSSGIS fair use, Wikimedia UA block).
+evidence: Writers only, and the leg dialog's route preview has the same shape today. A per-user limit like the AI suggestions' daily counter would cover both.
+status: open
+
+### DW-390: Apply downloads pictures before the basis check
+
+source_spec: `_bmad-output/implementation-artifacts/12-4-take-them-over-in-visiting-order.md`
+origin: code review of 12-4-take-them-over-in-visiting-order, 2026-10-16
+location: `travelplan/src/app/api/trips/[id]/days/[dayId]/suggestions/apply/route.ts:84-89`
+severity: low
+summary: A stale apply (409) still spends up to 15 s and up to 8 × 3 × 5 MB of buffered downloads before the transaction refuses it. A cheap basis read before downloading would skip most of that; the in-transaction check stays the authority.
+evidence: Raised by the 12.4 review; only costs time and memory, never writes.
+status: open
+
+### DW-391: The suggestion preview's OSRM call outlives an aborted request
+
+source_spec: `_bmad-output/implementation-artifacts/12-4-take-them-over-in-visiting-order.md`
+origin: code review of 12-4-take-them-over-in-visiting-order, 2026-10-16
+location: `travelplan/src/app/api/trips/[id]/days/[dayId]/suggestions/preview/route.ts:117-121`; `travelplan/src/lib/routing/dayRouteService.ts`
+severity: low
+summary: `getDayRouteFromOsrm` takes no external `AbortSignal`, so closing the dialog aborts only the browser fetch; the server holds the OSRM request for up to 8 s.
+evidence: Pre-existing service shape; passing `request.signal` needs a service parameter.
+status: open

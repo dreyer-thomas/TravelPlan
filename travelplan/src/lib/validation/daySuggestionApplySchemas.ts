@@ -54,6 +54,8 @@ export const suggestionPlanBasisSchema = z
   .object({
     afterItemId: z.string().min(1).max(128).nullable(),
     startTime: z.string().regex(TIME_PATTERN),
+    /** Opaque to the client: the rest of what the preview read (`planBasis`). */
+    fingerprint: z.string().min(1).max(512),
   })
   .strict();
 

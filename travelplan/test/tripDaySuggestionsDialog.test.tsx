@@ -54,7 +54,7 @@ const previewData = (overrides: Partial<SuggestionPreview> = {}): SuggestionPrev
   order: [1, 0],
   rows: [{ fromTime: "09:45", toTime: "11:45" }, null],
   legs: [{ durationMinutes: 12, distanceKm: 8.4 }, null],
-  basis: { afterItemId: null, startTime: "09:30" },
+  basis: { afterItemId: null, startTime: "09:30", fingerprint: "items:0|from:accommodation:stay-1@41.15,-8.65|order:41.15,-8.65|end:-" },
   overflow: true,
   routingUnavailable: false,
   origin: { kind: "stay", label: "Hotel Ribeira" },
@@ -660,6 +660,47 @@ describe("TripDaySuggestionsDialog preview and apply (Story 12.4)", () => {
     expect(within(step).queryByTestId("suggestions-overflow")).toBeNull();
   });
 
+  it("says the first leg from the trip's start is not saved, and only that one", async () => {
+    const user = userEvent.setup();
+    routes({
+      preview: () =>
+        previewReply({
+          origin: { kind: "tripStart", label: "Porto Airport" },
+          overflow: false,
+          legs: [
+            { durationMinutes: 25, distanceKm: 18 },
+            { durationMinutes: 7, distanceKm: 1.2 },
+          ],
+          rows: [
+            { fromTime: "09:25", toTime: "11:25" },
+            { fromTime: "11:35", toTime: "13:05" },
+          ],
+        }),
+    });
+    renderDialog({ onApplied: vi.fn() });
+    const step = await openPreview(user);
+    const rows = within(step).getAllByTestId("suggestions-preview-row");
+    expect(rows[0]).toHaveTextContent("25 min · 18 km · not saved as a leg");
+    expect(rows[1]).toHaveTextContent("7 min · 1.2 km");
+    expect(rows[1]).not.toHaveTextContent("not saved");
+  });
+
+  it("starts no search while the preview is being calculated", async () => {
+    const user = userEvent.setup();
+    const hanging = hangingFetch();
+    const fetchMock = routes({ preview: (init) => hanging.mock("/preview", init) });
+    renderDialog({ onApplied: vi.fn() });
+    await typeWishAndSearch(user);
+    const cards = await screen.findAllByTestId("suggestion-card");
+    await user.click(within(cards[0]).getByText("Old Harbour"));
+    await user.click(screen.getByRole("button", { name: "Add (1)" }));
+    await waitFor(() => expect(hanging.mock).toHaveBeenCalledTimes(1));
+
+    expect(screen.getByRole("button", { name: "Search" })).toBeDisabled();
+    await user.type(screen.getByLabelText("What would you like to do today?"), "{Enter}");
+    expect(callsTo(fetchMock, "/suggestions")).toHaveLength(1);
+  });
+
   it("goes back to the selection with the ticks intact", async () => {
     const user = userEvent.setup();
     routes();
@@ -716,6 +757,23 @@ describe("TripDaySuggestionsDialog preview and apply (Story 12.4)", () => {
     expect(screen.getByRole("progressbar")).toBeInTheDocument();
   });
 
+  it("cannot be closed while the apply runs, so its receipt is never lost", async () => {
+    const user = userEvent.setup();
+    const hanging = hangingFetch();
+    routes({ apply: (init) => hanging.mock("/apply", init) });
+    const { onClose } = renderDialog({ onApplied: vi.fn() });
+    await openPreview(user);
+
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    await waitFor(() => expect(hanging.mock).toHaveBeenCalledTimes(1));
+
+    expect(screen.getByRole("button", { name: "Close" })).toBeDisabled();
+    await user.keyboard("{Escape}");
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Discard changes" })).toBeNull();
+    expect(hanging.mock.mock.calls[0]?.[1]?.signal?.aborted).toBe(false);
+  });
+
   it("previews again with a note when the day changed since the preview", async () => {
     const user = userEvent.setup();
     const fetchMock = routes({
@@ -735,12 +793,36 @@ describe("TripDaySuggestionsDialog preview and apply (Story 12.4)", () => {
     expect(screen.queryByTestId("suggestions-error")).toBeNull();
   });
 
+  it("drops the stale preview and returns to the selection when the re-preview after a change fails", async () => {
+    const user = userEvent.setup();
+    let previews = 0;
+    const fetchMock = routes({
+      preview: () => {
+        previews += 1;
+        return previews === 1
+          ? previewReply()
+          : mockFetchResponse({ data: null, error: { code: "server_error", message: "boom" } }, { status: 500 });
+      },
+      apply: () => mockFetchResponse({ data: null, error: { code: "day_plan_changed", message: "changed" } }, { status: 409 }),
+    });
+    renderDialog({ onApplied: vi.fn() });
+    await openPreview(user);
+
+    await user.click(screen.getByRole("button", { name: "Add" }));
+
+    expect(await screen.findByTestId("suggestions-error")).toHaveTextContent("Something went wrong. Please try again.");
+    expect(screen.queryByTestId("suggestions-preview")).toBeNull();
+    expect(screen.getAllByRole("checkbox").map((box) => (box as HTMLInputElement).checked)).toEqual([true, false, true]);
+    expect(callsTo(fetchMock, "/apply")).toHaveLength(1);
+  });
+
   it.each([
     ["forbidden", 403, "Your role on this trip does not allow this action."],
     ["unauthorized", 401, "Authentication required. Please sign in."],
     ["csrf_invalid", 403, "Invalid security token. Please refresh and try again."],
     ["server_error", 500, "Something went wrong. Please try again."],
-    ["validation_error", 400, "Something went wrong. Please try again."],
+    ["validation_error", 400, "Request could not be processed. Please try again."],
+    ["not_found", 404, "This day no longer exists."],
   ])("maps a failed preview (%s) to the warn banner and keeps the ticks", async (code, status, text) => {
     const user = userEvent.setup();
     routes({ preview: () => mockFetchResponse({ data: null, error: { code, message: code } }, { status }) });
