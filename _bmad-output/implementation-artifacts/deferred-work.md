@@ -3693,3 +3693,45 @@ severity: medium
 summary: The audit gate fails with 23 findings that are not suppressed (next, @tiptap, sharp and others). None come from `@anthropic-ai/sdk` or `server-only`, which 12.1 added. Every story whose gates include `audit:check` will stay red until this is fixed.
 evidence: Reason for deferring: the findings came before this story, and dependency upkeep belongs in Epic 8 (Maintenance & Infrastructure). Story 12.1's Debug Log records the failing run.
 status: open
+
+## Deferred from: code review of 12-2-pictures-for-each-suggestion (2026-10-16)
+
+### DW-385: Wikimedia User-Agent contact can leak an internal address or carry no contact
+
+source_spec: `_bmad-output/implementation-artifacts/12-2-pictures-for-each-suggestion.md`
+origin: code review of 12-2-pictures-for-each-suggestion, 2026-10-16
+location: `travelplan/src/lib/ai/suggestionImages.ts:55-74` (`LOCAL_HOSTS`, `getWikimediaUserAgent`)
+severity: low
+summary: Only loopback and `0.0.0.0` are treated as non-public. An `APP_BASE_URL` such as `http://192.168.1.5:3000`, `*.local` or a single-label host is therefore sent to Wikimedia as the contact. The fallback `self-hosted; no public URL` contains no contact at all, and the production origin is a login-gated app rather than a contact page.
+evidence: Production uses `https://plan.dreyer-travels.de`, so nothing leaks there today. Possible fix: treat RFC1918, link-local and `.local`/single-label hosts as non-public, or add an optional contact email.
+status: open
+
+### DW-386: SSRF guard for 12.4's server-side download does not cover redirects
+
+source_spec: `_bmad-output/implementation-artifacts/12-2-pictures-for-each-suggestion.md`
+origin: code review of 12-2-pictures-for-each-suggestion, 2026-10-16
+location: `travelplan/src/lib/validation/daySuggestionSchemas.ts` (`isWikimediaUploadUrl`)
+severity: medium
+summary: The guard checks scheme, host, port and credentials only. When Story 12.4 downloads `originalUrl`, a default `fetch` follows redirects, which could leave `upload.wikimedia.org`. 12.4 must use `redirect: "manual"` (or re-check every hop), and must bound the response size and check its content type.
+evidence: Raised in the 12.2 review. Nothing downloads yet, so this is a requirement for 12.4 rather than a live defect.
+status: open
+
+### DW-387: Hotlinked Wikimedia thumbnails expose members to a third party
+
+source_spec: `_bmad-output/implementation-artifacts/12-2-pictures-for-each-suggestion.md`
+origin: code review of 12-2-pictures-for-each-suggestion, 2026-10-16
+location: `docs/deployment-configuration.md` (AI day suggestions section); Story 12.3 card rendering
+severity: low
+summary: From 12.3 the browser loads thumbnails straight from `thumb.wikimedia.org`, which sends each member's IP and possibly the Referer to Wikimedia. 12.3 should set `referrerPolicy="no-referrer"` on the `<img>`, add the host to any CSP `img-src`, and mention it in the docs next to the Anthropic privacy note.
+evidence: Raised in the 12.2 review. Hotlinking was chosen under D4; this covers only the privacy hygiene that goes with it.
+status: open
+
+### DW-388: 12.2 end-to-end timing with a real key not measured
+
+source_spec: `_bmad-output/implementation-artifacts/12-2-pictures-for-each-suggestion.md`
+origin: code review of 12-2-pictures-for-each-suggestion, 2026-10-16
+location: `travelplan/src/app/api/trips/[id]/days/[dayId]/suggestions/route.ts`
+severity: low
+summary: Task 7's manual call against the Neuseeland trip was not made; only the image step ran live (5/5 places got 3 pictures in 1.9 s). The 78 s total against the 90 s proxy timeout is therefore unmeasured.
+evidence: Run it the next time the API key is available and record the timings in the story.
+status: open

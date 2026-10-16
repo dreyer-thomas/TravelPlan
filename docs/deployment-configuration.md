@@ -21,7 +21,7 @@ three (Story 12.1) belong to the optional AI day suggestions and are read only i
 | `MEDIA_STORAGE_ROOT` | **Yes, in production** | Absolute path to the directory that holds uploaded media. See below. |
 | `DATABASE_URL` | Yes | SQLite connection string, e.g. `file:/absolute/path/prisma/dev.db`. In production it is `file:/home/app/apps/TravelPlan/travelplan/prisma/prod.db` — **inside the application tree**, which is the same hazard this file spends several paragraphs warning about for media, except that nothing validates it at startup. A deploy that replaces the tree rather than updating it in place destroys production data. Tracked as `DW-328`. |
 | `JWT_SECRET` | Yes | Session signing key (HS256). |
-| `APP_BASE_URL` | **In practice yes** | Origin used to build the link in password-reset emails (`password-reset/request/route.ts:53`). **Falls back to `http://localhost:3000` with no warning**, so if it is unset in production every reset email links to localhost and the flow is unusable, with nothing in any log to say why. Set it to the public origin. **This was unset in production until 2026-08-12** — the failure predicted in this row had been live for the entire life of the deployment, and was found by enumerating the service's environment during Story 8.1 rather than by anybody reporting a broken email. It is now `https://plan.dreyer-travels.de`. |
+| `APP_BASE_URL` | **In practice yes** | Origin used to build the link in password-reset emails (`password-reset/request/route.ts:53`). **Falls back to `http://localhost:3000` with no warning**, so if it is unset in production every reset email links to localhost and the flow is unusable, with nothing in any log to say why. Set it to the public origin. From Story 12.2 it is also the contact named in the `User-Agent` of the Wikimedia picture lookups (see *AI day suggestions* below). **This was unset in production until 2026-08-12** — the failure predicted in this row had been live for the entire life of the deployment, and was found by enumerating the service's environment during Story 8.1 rather than by anybody reporting a broken email. It is now `https://plan.dreyer-travels.de`. |
 | `OSRM_BASE_URL` | No | Route-geometry service. Defaults to the public `https://routing.openstreetmap.de`; set it only to point at a self-hosted deployment. |
 | `ANTHROPIC_API_KEY` | No (feature off without it) | Claude API key for the AI day suggestions. Unset or blank, the feature is off: the search endpoint answers `503 ai_unavailable` and the day page is told the capability is missing. **A secret** — see the warning below. |
 | `ANTHROPIC_MODEL` | No | Model for the suggestions. Defaults to `claude-sonnet-5-5`. |
@@ -43,9 +43,21 @@ that names someone goes to Anthropic as written, and may end up in web-search qu
 places are then checked against Nominatim (OpenStreetMap), one lookup per second across the whole
 server, under the `User-Agent` `TravelPlan/0.1 suggestions`.
 
-**One search can take about 70 seconds**: up to 60 s for the model call with its web searches, then up
-to 10 s of place checks. nginx's default `proxy_read_timeout` is 60 s, which would cut the user off with
-a gateway error after the search has already counted against their daily limit. Raise it for this path:
+Finally each suggestion gets up to three pictures from Wikimedia (Story 12.2): the server asks
+`en.wikipedia.org` for the article's lead image (sending the suggestion's title) and
+`commons.wikimedia.org` for files near its coordinates, all at once, under the `User-Agent`
+`TravelPlan/0.1 (suggestion images; <contact>)`. Wikimedia's access policy asks for a contact, and the
+contact is **`APP_BASE_URL`** when it is a public URL, otherwise the words "self-hosted; no public URL" —
+one more reason to set it. The pictures themselves are served from `thumb.wikimedia.org` (thumbnails)
+and `upload.wikimedia.org` (originals). The **browser** loads the thumbnails directly when it shows the
+suggestions (from Story 12.3), and the server downloads the chosen ones on *Übernehmen* (Story 12.4).
+So outbound HTTPS to these four hosts must be allowed, alongside Nominatim, OSRM and `api.anthropic.com`.
+No key is needed, and a Wikimedia failure only leaves the pictures out; the search still succeeds.
+
+**One search can take about 80 seconds**: up to 60 s for the model call with its web searches, then up
+to 10 s of place checks, then up to 8 s of picture lookups — at most 78 s. nginx's default
+`proxy_read_timeout` is 60 s, which would cut the user off with a gateway error after the search has
+already counted against their daily limit. Raise it for this path:
 
 ```nginx
 location ~ ^/api/trips/[^/]+/days/[^/]+/suggestions$ {

@@ -131,9 +131,60 @@ export const suggestionsResponseSchema = z.object({
 export type ModelDaySuggestion = z.infer<typeof suggestionSchema>;
 
 /**
- * The API shape (`200 { data: { suggestions: DaySuggestion[] } }`), consumed by Stories 12.2–12.4.
- * `verified` says whether a geocoder found the place within 2 km of where the model put it; when it did,
- * `lat`/`lng` are the geocoder's. There is deliberately no `id`: the dialog can key on the index, and
+ * What verification (`verifySuggestions.ts`) hands on: the model's suggestion, plus whether a geocoder
+ * found the place within 2 km of where the model put it. When it did, `lat`/`lng` are the geocoder's.
+ * A type of its own so the image step (Story 12.2) is the only one that can turn it into a `DaySuggestion`.
+ */
+export type VerifiedDaySuggestion = ModelDaySuggestion & { verified: boolean };
+
+/**
+ * Story 12.2. One picture of a suggested place, both URLs from a Wikimedia API answer and never from the
+ * model. `thumbnailUrl` is 250 px wide (the original when the source is narrower) and passes
+ * `isWikimediaThumbnailUrl`; `originalUrl` is the full file, passes `isWikimediaUploadUrl`, and is what
+ * Story 12.4 downloads. No author, licence or file page is kept (D4).
+ */
+export type SuggestionImage = { thumbnailUrl: string; originalUrl: string };
+
+/**
+ * The API shape (`200 { data: { suggestions: DaySuggestion[] } }`), consumed by Stories 12.3 and 12.4.
+ * `verified` is verification's (above). `images` holds up to three pictures of the place, always present
+ * and possibly empty (Story 12.2). There is deliberately no `id`: the dialog can key on the index, and
  * Story 12.4 receives the ticked objects back in its own request body.
  */
-export type DaySuggestion = ModelDaySuggestion & { verified: boolean };
+export type DaySuggestion = VerifiedDaySuggestion & { images: SuggestionImage[] };
+
+/** Scheme, exact host, no port, no credentials: the rules both Wikimedia URL guards below share. */
+const isHttpsUrlOnHost = (value: string, hosts: readonly string[]) => {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      hosts.includes(url.hostname) &&
+      url.port === "" &&
+      url.username === "" &&
+      url.password === ""
+    );
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Story 12.2. True only for an `https://upload.wikimedia.org/…` URL with no port and no credentials.
+ *
+ * The image step drops any Wikimedia answer that fails it, and Story 12.4 runs it again on its request
+ * body before downloading `originalUrl` on the server: that URL comes back from the client, so without
+ * this check the download would fetch whatever a crafted request named (SSRF). Pure and not
+ * `server-only`, because both the route input and (from 12.3) client code import this module.
+ */
+export const isWikimediaUploadUrl = (value: string): boolean => isHttpsUrlOnHost(value, ["upload.wikimedia.org"]);
+
+/**
+ * Story 12.2. The check for `thumbnailUrl`. The story was written for `upload.wikimedia.org` alone, but
+ * both APIs now hand thumbnails out on `thumb.wikimedia.org` (checked against the live API, 2026-10-16),
+ * so the upload check would have dropped every one. The upload host stays allowed because a source
+ * narrower than 250 px comes back with its original as the thumbnail. Kept apart from
+ * `isWikimediaUploadUrl` so the check on what Story 12.4 downloads does not widen with it.
+ */
+export const isWikimediaThumbnailUrl = (value: string): boolean =>
+  isHttpsUrlOnHost(value, ["thumb.wikimedia.org", "upload.wikimedia.org"]);

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
+  isWikimediaThumbnailUrl,
+  isWikimediaUploadUrl,
   modelSuggestionsSchema,
   suggestionsRequestSchema,
   suggestionsResponseSchema,
@@ -141,5 +143,72 @@ describe("modelSuggestionsSchema", () => {
     const json = JSON.stringify(z.toJSONSchema(modelSuggestionsSchema));
     expect(json).not.toContain("minimum");
     expect(json).not.toContain("maximum");
+  });
+
+  // Story 12.2, AC3: image URLs come only from Wikimedia, so the model has nowhere to put one.
+  it("has no URL or image field for the model to fill", () => {
+    const keys = Object.keys(modelSuggestionsSchema.shape.suggestions.element.shape);
+    expect(keys.length).toBeGreaterThan(0);
+    for (const key of keys) {
+      expect(key.toLowerCase()).not.toContain("url");
+      expect(key.toLowerCase()).not.toContain("image");
+    }
+  });
+});
+
+describe("isWikimediaUploadUrl", () => {
+  it("accepts a real Wikimedia original, as the APIs return it", () => {
+    expect(isWikimediaUploadUrl("https://upload.wikimedia.org/wikipedia/commons/a/a1/Neues_Museum.jpg")).toBe(true);
+    expect(
+      isWikimediaUploadUrl(
+        "https://upload.wikimedia.org/wikipedia/commons/a/a1/Neues_Museum.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects another scheme, a look-alike host, credentials, a port, another Wikimedia host and a non-URL", () => {
+    for (const url of [
+      "http://upload.wikimedia.org/wikipedia/commons/a/a1/X.jpg",
+      "https://upload.wikimedia.org.evil.com/wikipedia/commons/a/a1/X.jpg",
+      "https://user:pw@upload.wikimedia.org/wikipedia/commons/a/a1/X.jpg",
+      "https://user@upload.wikimedia.org/wikipedia/commons/a/a1/X.jpg",
+      "https://upload.wikimedia.org:8443/wikipedia/commons/a/a1/X.jpg",
+      "https://commons.wikimedia.org/wiki/File:X.jpg",
+      "not a url",
+      "",
+    ]) {
+      expect(isWikimediaUploadUrl(url), url).toBe(false);
+    }
+  });
+});
+
+// Since 2026 the API hands thumbnails out on thumb.wikimedia.org; a narrow source's thumbnail is its original.
+describe("isWikimediaThumbnailUrl", () => {
+  it("accepts the thumb host and the upload host", () => {
+    expect(
+      isWikimediaThumbnailUrl(
+        "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/dd/X.JPG/250px-X.JPG?utm_source=en.wikipedia.org",
+      ),
+    ).toBe(true);
+    expect(isWikimediaThumbnailUrl("https://upload.wikimedia.org/wikipedia/commons/d/dd/X.JPG")).toBe(true);
+  });
+
+  it("rejects the same things the upload check does", () => {
+    for (const url of [
+      "http://thumb.wikimedia.org/wikipedia/commons/thumb/d/dd/X.JPG/250px-X.JPG",
+      "https://thumb.wikimedia.org.evil.com/X.JPG",
+      "https://user:pw@thumb.wikimedia.org/X.JPG",
+      "https://user@thumb.wikimedia.org/X.JPG",
+      "https://thumb.wikimedia.org:8443/X.JPG",
+      "https://commons.wikimedia.org/wiki/File:X.jpg",
+      "not a url",
+      "",
+    ]) {
+      expect(isWikimediaThumbnailUrl(url), url).toBe(false);
+    }
+  });
+
+  it("keeps the upload check to the upload host", () => {
+    expect(isWikimediaUploadUrl("https://thumb.wikimedia.org/wikipedia/commons/thumb/d/dd/X.JPG/250px-X.JPG")).toBe(false);
   });
 });

@@ -6,7 +6,7 @@ import {
   type GeocodingCandidate,
   type NominatimThrottle,
 } from "@/lib/geocoding/nominatim";
-import type { DaySuggestion, ModelDaySuggestion } from "@/lib/validation/daySuggestionSchemas";
+import type { ModelDaySuggestion, VerifiedDaySuggestion } from "@/lib/validation/daySuggestionSchemas";
 
 /**
  * Story 12.1, AC4. Checks each suggested place against Nominatim, and where a candidate lies within 2 km
@@ -74,10 +74,10 @@ export const verifySuggestionLocations = async (
     budgetMs?: number;
     perRequestTimeoutMs?: number;
   } = {},
-): Promise<DaySuggestion[]> => {
+): Promise<VerifiedDaySuggestion[]> => {
   const budgetEndsAt = now() + budgetMs;
   let stopped = false;
-  const results: DaySuggestion[] = [];
+  const results: VerifiedDaySuggestion[] = [];
 
   for (const suggestion of suggestions) {
     const slotAt = stopped || signal?.aborted ? null : throttle.book(now(), budgetEndsAt - MIN_LOOKUP_MS);

@@ -11,6 +11,7 @@ import { isAiSuggestionsEnabled } from "@/lib/ai/config";
 import { consumeDailySearch } from "@/lib/ai/dailyLimit";
 import { AiSuggestionError, requestDaySuggestions } from "@/lib/ai/daySuggestionService";
 import { verifySuggestionLocations } from "@/lib/ai/verifySuggestions";
+import { attachSuggestionImages } from "@/lib/ai/suggestionImages";
 
 /**
  * Story 12.1. `POST` a wish and a travel mode, get back 3–8 suggested stops for the day.
@@ -26,7 +27,10 @@ import { verifySuggestionLocations } from "@/lib/ai/verifySuggestions";
  * it was paid for.
  *
  * Verification against Nominatim follows the model call and can take up to ten seconds on top of it
- * (`verifySuggestions.ts`). No `maxDuration` is exported: the app is self-hosted and sets none anywhere.
+ * (`verifySuggestions.ts`); the Wikimedia image lookups follow verification, on its points, and take up
+ * to eight more (`suggestionImages.ts`, Story 12.2). With the model's 60 s that is at most 78 s, inside
+ * the reverse proxy's 90 s read timeout (`docs/deployment-configuration.md`). No `maxDuration` is
+ * exported: the app is self-hosted and sets none anywhere.
  */
 
 export const runtime = "nodejs";
@@ -104,7 +108,15 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
       mode: parsedBody.data.mode,
       signal: request.signal,
     });
-    return ok({ suggestions: await verifySuggestionLocations(suggestions, { signal: request.signal }) });
+    const verified = await verifySuggestionLocations(suggestions, { signal: request.signal });
+    // `attachSuggestionImages` answers `images: []` on any failure, its own bugs included. This catch keeps
+    // that true at the route too, so an image problem can never reach the catch below and turn a paid
+    // answer into a 500 (AC7).
+    const withImages = await attachSuggestionImages(verified, { signal: request.signal }).catch((error: unknown) => {
+      console.warn("day suggestions: image step failed", { name: error instanceof Error ? error.name : typeof error });
+      return verified.map((suggestion) => ({ ...suggestion, images: [] }));
+    });
+    return ok({ suggestions: withImages });
   } catch (error) {
     // Class names and an HTTP status only: never the message, which can carry upstream text, and never
     // the prompt or the key. `upstream` names the SDK error behind an `ai_failed`, so a timeout, an

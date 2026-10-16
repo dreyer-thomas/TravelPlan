@@ -74,7 +74,7 @@ simply off without a key. Full table in
 | `MEDIA_STORAGE_ROOT` | Absolute path to the uploaded-media directory. **The server refuses to start without it** — it answers `500` to every request rather than exiting, so health-check for `200` on a real route, not for an open port. |
 | `DATABASE_URL` | `file:` URL to the SQLite database. |
 | `JWT_SECRET` | Session signing key. |
-| `APP_BASE_URL` | Public origin for password-reset email links. **Silently defaults to `http://localhost:3000`** — unset in production, every reset email is unusable and nothing logs it. |
+| `APP_BASE_URL` | Public origin for password-reset email links, and the contact in the Wikimedia picture lookups' `User-Agent`. **Silently defaults to `http://localhost:3000`** — unset in production, every reset email is unusable and nothing logs it. |
 | `OSRM_BASE_URL` | Optional. Route geometry; defaults to the public OSRM instance. |
 | `ANTHROPIC_API_KEY` | Optional. Turns on the AI day suggestions; **every search is paid by the operator**. A secret — see the warning in the configuration guide. |
 | `ANTHROPIC_MODEL` | Optional. Model for the suggestions; defaults to `claude-sonnet-5-5`. |

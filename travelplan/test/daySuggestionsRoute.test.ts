@@ -21,9 +21,18 @@ vi.mock("@/lib/ai/verifySuggestions", async () => {
   };
 });
 
+vi.mock("@/lib/ai/suggestionImages", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/ai/suggestionImages")>("@/lib/ai/suggestionImages");
+  return {
+    ...actual,
+    attachSuggestionImages: vi.fn(),
+  };
+});
+
 import Anthropic from "@anthropic-ai/sdk";
 import { AiSuggestionError, requestDaySuggestions } from "@/lib/ai/daySuggestionService";
 import { verifySuggestionLocations } from "@/lib/ai/verifySuggestions";
+import { attachSuggestionImages } from "@/lib/ai/suggestionImages";
 
 const actualService = await vi.importActual<typeof import("@/lib/ai/daySuggestionService")>("@/lib/ai/daySuggestionService");
 const actualVerify = await vi.importActual<typeof import("@/lib/ai/verifySuggestions")>("@/lib/ai/verifySuggestions");
@@ -146,6 +155,10 @@ describe("POST /api/trips/[id]/days/[dayId]/suggestions", () => {
     vi.mocked(verifySuggestionLocations).mockImplementation(async (suggestions) =>
       suggestions.map((suggestion) => ({ ...suggestion, verified: false })),
     );
+    // Story 12.2: "no images" by default, so no case here reaches Wikimedia over the real network.
+    vi.mocked(attachSuggestionImages).mockImplementation(async (suggestions) =>
+      suggestions.map((suggestion) => ({ ...suggestion, images: [] })),
+    );
     await prisma.dayPlanItem.deleteMany();
     await prisma.accommodation.deleteMany();
     await prisma.tripDay.deleteMany();
@@ -178,6 +191,51 @@ describe("POST /api/trips/[id]/days/[dayId]/suggestions", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
     const [, init] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit];
     expect((init.headers as Record<string, string>)["User-Agent"]).toBe("TravelPlan/0.1 suggestions");
+  });
+
+  it("attaches the image lookup's pictures to the verified suggestions (Story 12.2)", async () => {
+    const { owner, trip, days } = await seedTrip();
+    const image = {
+      thumbnailUrl: "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ab/X.jpg/250px-X.jpg",
+      originalUrl: "https://upload.wikimedia.org/wikipedia/commons/a/ab/X.jpg",
+    };
+    vi.mocked(verifySuggestionLocations).mockImplementation(async (suggestions) =>
+      suggestions.map((suggestion, index) => ({ ...suggestion, verified: index === 0 })),
+    );
+    vi.mocked(attachSuggestionImages).mockImplementation(async (suggestions) =>
+      suggestions.map((suggestion, index) => ({ ...suggestion, images: index === 0 ? [image] : [] })),
+    );
+
+    const { status, body } = await call(trip.id, days[0].id, { session: await sessionFor(owner) });
+
+    expect(status).toBe(200);
+    const [verifiedInput, options] = vi.mocked(attachSuggestionImages).mock.calls[0];
+    expect(verifiedInput.map((suggestion) => suggestion.verified)).toEqual([true, false, false]);
+    expect(options?.signal).toBeInstanceOf(AbortSignal);
+    const suggestions = body.data!.suggestions as Array<Suggestion & { images: unknown[] }>;
+    expect(suggestions.map((suggestion) => suggestion.images)).toEqual([[image], [], []]);
+    expect(suggestions[0]).toMatchObject({ locationLabel: "Near", verified: true });
+  });
+
+  it("still answers 200 with images: [] when the image lookup rejects (AC7)", async () => {
+    const { owner, trip, days } = await seedTrip();
+    vi.mocked(verifySuggestionLocations).mockImplementation(async (suggestions) =>
+      suggestions.map((suggestion) => ({ ...suggestion, verified: true })),
+    );
+    vi.mocked(attachSuggestionImages).mockRejectedValueOnce(new TypeError("a bug in the image step"));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { status, body } = await call(trip.id, days[0].id, { session: await sessionFor(owner) });
+
+    expect(status).toBe(200);
+    const suggestions = body.data!.suggestions as Array<Suggestion & { images: unknown[] }>;
+    expect(suggestions).toHaveLength(3);
+    expect(suggestions.map((suggestion) => suggestion.images)).toEqual([[], [], []]);
+    expect(warnSpy).toHaveBeenCalledWith("day suggestions: image step failed", { name: "TypeError" });
+    expect(errorSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
   });
 
   it("passes only the day context, the wish and the mode to the model - no member data", async () => {

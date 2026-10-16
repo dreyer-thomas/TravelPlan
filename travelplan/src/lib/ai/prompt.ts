@@ -36,7 +36,7 @@ Answer with JSON only: an object with a "suggestions" array. Each entry has:
 - "locationLabel": the precise, geocodable place label described above.
 - "lat", "lng": the place's coordinates in decimal degrees.
 - "durationMinutes": a realistic visit length, a whole number of minutes.
-- "wikiTitle": the exact title of the place's Wikipedia article, if it has one; otherwise omit it.`;
+- "wikiTitle": the exact title of the place's English Wikipedia article, if it has one; otherwise omit it.`;
 
 const MODE_MEANING: Record<SuggestionMode, string> = {
   car: "car - anywhere sensible between or around the start and the end, with reasonable detours.",
