@@ -33,6 +33,8 @@
  */
 
 export type DayPlanItemOrderable = {
+  /** Story 13.1. The day's order, dense (0…n−1) per day; see `compareDayPlanItemsByOrder`. */
+  sortOrder: number;
   fromTime: string | null;
   createdAt: Date | string;
   id: string;
@@ -57,14 +59,13 @@ const toMillis = (value: Date | string): number | null => {
 };
 
 /**
- * Timed activities first, in start-time order; untimed ones after, in creation order; `id` breaks a
- * remaining tie so the order is total and stable across processes.
+ * Before Story 13.1 this was the day's order itself (exported as `compareDayPlanItemsByStartTime`): timed
+ * activities first, in start-time order; untimed ones after, in creation order; `id` breaks a remaining
+ * tie so the order is total and stable across processes. It survives only as the tiebreak below.
  *
- * The rule itself is unchanged from the one `travelSegmentRepo.ts` has always applied — this is an
- * extraction, not a redefinition. `fromTime` is a `HH:MM` string, which sorts correctly
- * lexicographically, so no parsing is needed or wanted.
+ * `fromTime` is a `HH:MM` string, which sorts correctly lexicographically, so no parsing is needed.
  */
-export const compareDayPlanItemsByStartTime = (left: DayPlanItemOrderable, right: DayPlanItemOrderable): number => {
+const compareByStartTime = (left: DayPlanItemOrderable, right: DayPlanItemOrderable): number => {
   const leftHasStart = Boolean(left.fromTime);
   const rightHasStart = Boolean(right.fromTime);
   if (leftHasStart && rightHasStart) {
@@ -83,4 +84,20 @@ export const compareDayPlanItemsByStartTime = (left: DayPlanItemOrderable, right
   if (leftTime === null || rightTime === null) return 0;
   if (leftTime !== rightTime) return leftTime - rightTime;
   return left.id.localeCompare(right.id);
+};
+
+/**
+ * Story 13.1 (FR42). The day's order: `sortOrder` ascending, which every write renumbers densely inside its
+ * own transaction, so the day view, the gantts, print, adjacency, the route points and the schedule rule
+ * all read one order because they call one function.
+ *
+ * **The tiebreak is the old start-time order on purpose**, not only `id` as the 2026-10-17 proposal wrote
+ * it. In production two rows of one day never share a `sortOrder` (it is dense), so the tiebreak cannot be
+ * observed there. It matters for rows a test seeds straight through Prisma, which all take the schema
+ * default `0`: `id` would scramble them, start-time order keeps them in the order their times describe,
+ * which is the order the migration gives real rows too.
+ */
+export const compareDayPlanItemsByOrder = (left: DayPlanItemOrderable, right: DayPlanItemOrderable): number => {
+  if (left.sortOrder !== right.sortOrder) return left.sortOrder - right.sortOrder;
+  return compareByStartTime(left, right);
 };

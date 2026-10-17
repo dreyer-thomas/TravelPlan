@@ -19,6 +19,8 @@ import {
   Tab,
   Tabs,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Tooltip,
   Typography,
 } from "@mui/material";
@@ -34,6 +36,7 @@ import { DialogTitleWithClose } from "@/components/ui/DialogCloseButton";
 import DiscardChangesDialog, { useDiscardGuard } from "@/components/ui/DiscardChangesDialog";
 import FullscreenPhotoViewer from "@/components/ui/FullscreenPhotoViewer";
 import type { SignedDayChangeReceiptWire } from "@/lib/trips/dayChangeReceipt";
+import { combineDurationToMinutes, splitMinutesToDuration } from "@/lib/trips/durationInput";
 import { TrashIcon, WarningTriangleIcon } from "@/components/features/trips/TripIcons";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -89,6 +92,53 @@ type DayPlanItem = {
   linkUrl: string | null;
   location: { lat: number; lng: number; label?: string | null } | null;
   createdAt: string;
+  /** Story 13.1. Optional so an older caller or fixture still type-checks; absent reads as FIXED. */
+  scheduleMode?: "FLEXIBLE" | "FIXED";
+  durationMinutes?: number;
+};
+
+/** Story 13.1 (FR46). How an activity is planned: by its duration, or at a booked time. */
+type PlanScheduleMode = "FLEXIBLE" | "FIXED";
+/** Story 13.1. A fixed activity's second field: its end, or its duration. Both store start and end. */
+type FixedEndKind = "end" | "duration";
+
+/** Story 13.1 AC8. A new activity, including a bucket-list take-over, opens flexible with one hour. */
+const NEW_ACTIVITY_DURATION_MINUTES = 60;
+/** Both duration boxes empty means this (Tommy, 2026-10-17: "kurz anhalten und umschauen"). */
+const EMPTY_DURATION_MINUTES = 15;
+const MIN_DURATION_MINUTES = 5;
+const LAST_MINUTE_OF_DAY = 23 * 60 + 59;
+
+const minutesOf = (value: string | null | undefined): number | null => {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value?.trim() ?? "");
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  return hours > 23 || minutes > 59 ? null : hours * 60 + minutes;
+};
+
+/** `toTime − fromTime` in minutes when both read and the end is after the start, else `null`. */
+const spanMinutes = (fromTime: string | null | undefined, toTime: string | null | undefined): number | null => {
+  const start = minutesOf(fromTime);
+  const end = minutesOf(toTime);
+  return start !== null && end !== null && end > start ? end - start : null;
+};
+
+/**
+ * Story 13.1 AC8. The duration the two boxes hold for an activity: both empty is 15 minutes, not an
+ * error (the leg dialog's rule differs there on purpose); unreadable or under 5 minutes is.
+ */
+const readActivityDuration = (
+  hours: string,
+  minutes: string,
+): { minutes: number } | { error: "invalid" | "tooShort" | "tooLong" } => {
+  if (!hours.trim() && !minutes.trim()) return { minutes: EMPTY_DURATION_MINUTES };
+  const total = combineDurationToMinutes({ hours, minutes });
+  if (total === null) return { error: "invalid" };
+  if (total < MIN_DURATION_MINUTES) return { error: "tooShort" };
+  // The server's upper bound: no activity lasts longer than one day (`MAX_ACTIVITY_DURATION_MINUTES`).
+  if (total > LAST_MINUTE_OF_DAY) return { error: "tooLong" };
+  return { minutes: total };
 };
 
 type GalleryImage = {
@@ -131,6 +181,8 @@ export type PlanFieldErrors = {
   title?: string;
   fromTime?: string;
   toTime?: string;
+  /** Story 13.1. One message for the hours and minutes boxes together, as in the leg dialog. */
+  durationMinutes?: string;
   contentJson?: string;
   costCents?: string;
   linkUrl?: string;
@@ -158,6 +210,7 @@ export const PLAN_ERROR_TAB: Record<PlanErrorKey, PlanTabId> = {
   contentJson: "what",
   fromTime: "whenWhere",
   toTime: "whenWhere",
+  durationMinutes: "whenWhere",
   costCents: "cost",
   paymentError: "cost",
   paymentRowErrors: "cost",
@@ -323,6 +376,8 @@ const planErrorFocusId = (prefix: string, key: PlanErrorKey, state: PlanErrorSta
       return `${prefix}-from-time`;
     case "toTime":
       return `${prefix}-to-time`;
+    case "durationMinutes":
+      return `${prefix}-duration-hours`;
     case "costCents":
     case "paymentError":
       return `${prefix}-cost`;
@@ -472,6 +527,11 @@ const TOOLBAR_BUTTON_SX = { minWidth: 44, width: 44, px: 0 } as const;
  */
 type PlanFormValues = {
   title: string;
+  /** Story 13.1. All four are saved values, so all four are in the dirty fingerprint. */
+  scheduleMode: PlanScheduleMode;
+  durationHours: string;
+  durationMinutes: string;
+  fixedEndKind: FixedEndKind;
   fromTime: string;
   toTime: string;
   cost: string;
@@ -545,6 +605,10 @@ type PlanFormValues = {
 const planFormFingerprint = (values: PlanFormValues) =>
   JSON.stringify([
     values.title,
+    values.scheduleMode,
+    values.durationHours,
+    values.durationMinutes,
+    values.fixedEndKind,
     values.fromTime,
     values.toTime,
     values.cost,
@@ -699,6 +763,11 @@ export default function TripDayPlanDialog({
   const { seedCurrency } = entryCurrency;
   const [fromTimeInput, setFromTimeInput] = useState<string>("");
   const [toTimeInput, setToTimeInput] = useState<string>("");
+  // Story 13.1 (FR46). Seeded by the open effect like every other saved value.
+  const [scheduleMode, setScheduleMode] = useState<PlanScheduleMode>("FLEXIBLE");
+  const [durationHoursInput, setDurationHoursInput] = useState<string>("");
+  const [durationMinutesInput, setDurationMinutesInput] = useState<string>("");
+  const [fixedEndKind, setFixedEndKind] = useState<FixedEndKind>("end");
   const [paymentMode, setPaymentMode] = useState<"single" | "split">("single");
   const [payments, setPayments] = useState<Array<{ amount: string; dueDate: string }>>([]);
   const [paymentError, setPaymentError] = useState<string | null>(null);
@@ -965,6 +1034,10 @@ export default function TripDayPlanDialog({
   const applyPlanFormValues = useCallback(
     (values: PlanFormValues, locationQuerySeed: string): PlanFormValues => {
       setTitleInput(values.title);
+      setScheduleMode(values.scheduleMode);
+      setDurationHoursInput(values.durationHours);
+      setDurationMinutesInput(values.durationMinutes);
+      setFixedEndKind(values.fixedEndKind);
       setFromTimeInput(values.fromTime);
       setToTimeInput(values.toTime);
       setCostCentsInput(values.cost);
@@ -1013,9 +1086,29 @@ export default function TripDayPlanDialog({
     // The location *search* box's seed. Outside `PlanFormValues` because it is not a saved value and
     // so must not reach the dirty fingerprint — see `planFormFingerprint`.
     let locationQuerySeed: string;
+    // Story 13.1 AC8/AC9. An edit opens in the row's mode with its duration (a fixed one's is its span);
+    // a new activity and a bucket take-over open flexible with one hour.
+    const newSchedule = {
+      scheduleMode: "FLEXIBLE" as const,
+      ...(() => {
+        const split = splitMinutesToDuration(NEW_ACTIVITY_DURATION_MINUTES);
+        return { durationHours: split.hours, durationMinutes: split.minutes };
+      })(),
+      fixedEndKind: "end" as const,
+    };
     if (mode === "edit" && item) {
+      const itemMode: PlanScheduleMode = item.scheduleMode ?? "FIXED";
+      const itemDuration =
+        (itemMode === "FIXED" ? spanMinutes(item.fromTime, item.toTime) : null) ??
+        item.durationMinutes ??
+        NEW_ACTIVITY_DURATION_MINUTES;
+      const split = splitMinutesToDuration(itemDuration);
       seed = {
         title: item.title ?? "",
+        scheduleMode: itemMode,
+        durationHours: split.hours,
+        durationMinutes: split.minutes,
+        fixedEndKind: "end",
         fromTime: item.fromTime ?? "",
         toTime: item.toTime ?? "",
         cost: seedCostBox(item, language),
@@ -1042,6 +1135,7 @@ export default function TripDayPlanDialog({
     } else if (mode === "add" && prefill) {
       seed = {
         title: prefill.title ?? "",
+        ...newSchedule,
         fromTime: "",
         toTime: "",
         cost: "",
@@ -1058,6 +1152,7 @@ export default function TripDayPlanDialog({
     } else {
       seed = {
         title: "",
+        ...newSchedule,
         fromTime: "",
         toTime: "",
         cost: "",
@@ -1301,6 +1396,113 @@ export default function TripDayPlanDialog({
     return body.data.csrfToken;
   }, [csrfToken]);
 
+  /**
+   * Story 13.1. The two-segment toggle of DESIGN.md `schedule-mode`, at the given height: the full
+   * input height for the mode, a compact one for the fixed time's *Ende* / *Dauer* switch.
+   */
+  const scheduleToggleSx = (height: number) => ({
+    borderRadius: "6px",
+    border: `1px solid ${tokens.borderStrong}`,
+    backgroundColor: tokens.cardAlt,
+    overflow: "hidden",
+    "& .MuiToggleButton-root": {
+      minHeight: height,
+      border: "none",
+      borderRadius: 0,
+      textTransform: "none",
+      fontSize: 13,
+      fontWeight: 600,
+      color: tokens.inkSoft,
+      "&.Mui-selected, &.Mui-selected:hover": {
+        backgroundColor: tokens.accentSoft,
+        color: tokens.ink,
+        fontWeight: 700,
+      },
+    },
+  });
+
+  /** Story 13.1 AC8. Hours and minutes, the leg dialog's two boxes; both empty means 15 minutes. */
+  const durationFields = (
+    <Box
+      sx={{
+        display: "flex",
+        gap: "12px",
+        "& > *": { flex: 1, minWidth: 0 },
+      }}
+    >
+      <FormField
+        id={`${fieldIdPrefix}-duration-hours`}
+        label={t("trips.plan.durationHoursLabel")}
+        value={durationHoursInput}
+        onChange={(event) => {
+          setDurationHoursInput(event.target.value);
+          setFieldErrors((previous) => ({ ...previous, durationMinutes: undefined }));
+        }}
+        error={fieldErrors.durationMinutes ?? undefined}
+        slotProps={{ htmlInput: { inputMode: "numeric" } }}
+      />
+      <FormField
+        id={`${fieldIdPrefix}-duration-minutes`}
+        label={t("trips.plan.durationMinutesLabel")}
+        value={durationMinutesInput}
+        onChange={(event) => {
+          setDurationMinutesInput(event.target.value);
+          setFieldErrors((previous) => ({ ...previous, durationMinutes: undefined }));
+        }}
+        hint={t("trips.plan.durationEmptyHint")}
+        slotProps={{ htmlInput: { inputMode: "numeric" } }}
+      />
+    </Box>
+  );
+
+  /**
+   * Story 13.1 AC9. Switching modes keeps the duration. Fixed → flexible turns the times into the
+   * duration (the inputs when they read, else the stored row; the *Dauer* form already holds it).
+   * Flexible → fixed freezes the row's stored, computed times; a new or untimed row keeps what the
+   * inputs hold, which is nothing until the user types.
+   */
+  const handleScheduleModeChange = (next: PlanScheduleMode | null) => {
+    // Pressing the active option again reports `null`; a mode is always set, so ignore it.
+    if (!next || next === scheduleMode) return;
+    if (next === "FLEXIBLE") {
+      const span =
+        fixedEndKind === "end" ? (spanMinutes(fromTimeInput, toTimeInput) ?? spanMinutes(item?.fromTime, item?.toTime)) : null;
+      if (span !== null) {
+        const split = splitMinutesToDuration(span);
+        setDurationHoursInput(split.hours);
+        setDurationMinutesInput(split.minutes);
+      }
+    } else {
+      // AC9: the row's stored times, or empty for a new or untimed row.
+      setFromTimeInput(item?.fromTime && item?.toTime ? item.fromTime : "");
+      setToTimeInput(item?.fromTime && item?.toTime ? item.toTime : "");
+    }
+    setScheduleMode(next);
+    setFieldErrors((previous) => ({ ...previous, fromTime: undefined, toTime: undefined, durationMinutes: undefined }));
+  };
+
+  /** Story 13.1 AC8. *Ende* / *Dauer* are two forms of one fixed time; each carries the other over. */
+  const handleFixedEndKindChange = (next: FixedEndKind | null) => {
+    if (!next || next === fixedEndKind) return;
+    if (next === "duration") {
+      const span = spanMinutes(fromTimeInput, toTimeInput);
+      if (span !== null) {
+        const split = splitMinutesToDuration(span);
+        setDurationHoursInput(split.hours);
+        setDurationMinutesInput(split.minutes);
+      }
+    } else {
+      const start = minutesOf(fromTimeInput);
+      const duration = readActivityDuration(durationHoursInput, durationMinutesInput);
+      if (start !== null && "minutes" in duration && start + duration.minutes <= LAST_MINUTE_OF_DAY) {
+        const end = start + duration.minutes;
+        setToTimeInput(`${String(Math.floor(end / 60)).padStart(2, "0")}:${String(end % 60).padStart(2, "0")}`);
+      }
+    }
+    setFixedEndKind(next);
+    setFieldErrors((previous) => ({ ...previous, toTime: undefined, durationMinutes: undefined }));
+  };
+
   const handleSave = async () => {
     if (!day) return;
     if (mode === "edit" && !editingItemId) {
@@ -1317,6 +1519,42 @@ export default function TripDayPlanDialog({
     setPaymentError(null);
     setPaymentRowErrors([]);
     setSaving(true);
+
+    // Story 13.1 AC8. The duration is checked here, where its two boxes are one value; the end-after-
+    // start rule of the end form stays the server's, as it always was.
+    let schedulePayload:
+      | { scheduleMode: "FLEXIBLE"; durationMinutes: number }
+      | { scheduleMode: "FIXED"; fromTime: string; toTime: string }
+      | { scheduleMode: "FIXED"; fromTime: string; durationMinutes: number };
+    if (scheduleMode === "FLEXIBLE" || fixedEndKind === "duration") {
+      const duration = readActivityDuration(durationHoursInput, durationMinutesInput);
+      const startMinute = minutesOf(fromTimeInput);
+      const durationError =
+        "error" in duration
+          ? t(
+              duration.error === "tooShort"
+                ? "trips.plan.durationTooShort"
+                : duration.error === "tooLong"
+                  ? "trips.plan.durationTooLong"
+                  : "trips.plan.durationInvalid",
+            )
+          : scheduleMode === "FIXED" && startMinute !== null && startMinute + duration.minutes > LAST_MINUTE_OF_DAY
+            ? t("trips.plan.fixedEndsAfterMidnight")
+            : null;
+      if (durationError || "error" in duration) {
+        setSaving(false);
+        const nextErrors: PlanFieldErrors = { durationMinutes: durationError ?? undefined };
+        setFieldErrors(nextErrors);
+        revealFirstError({ fieldErrors: nextErrors, paymentError: null, paymentRowErrors: [] });
+        return;
+      }
+      schedulePayload =
+        scheduleMode === "FLEXIBLE"
+          ? { scheduleMode, durationMinutes: duration.minutes }
+          : { scheduleMode, fromTime: fromTimeInput.trim(), durationMinutes: duration.minutes };
+    } else {
+      schedulePayload = { scheduleMode, fromTime: fromTimeInput.trim(), toTime: toTimeInput.trim() };
+    }
 
     const trimmedCost = costCentsInput.trim();
     const trimmedLink = linkUrl.trim();
@@ -1557,8 +1795,8 @@ export default function TripDayPlanDialog({
     const payload = {
       tripDayId: day.id,
       title: titleInput.trim(),
-      fromTime: fromTimeInput.trim(),
-      toTime: toTimeInput.trim(),
+      // Story 13.1: FLEXIBLE sends its duration only; FIXED its start and its end or duration.
+      ...schedulePayload,
       contentJson,
       costCents: costCentsForSave,
       /*
@@ -1576,8 +1814,10 @@ export default function TripDayPlanDialog({
     } as {
       tripDayId: string;
       title: string;
-      fromTime: string;
-      toTime: string;
+      scheduleMode: PlanScheduleMode;
+      fromTime?: string;
+      toTime?: string;
+      durationMinutes?: number;
       contentJson: string;
       costCents: number | null;
       costOriginalAmount: number | null;
@@ -1626,6 +1866,7 @@ export default function TripDayPlanDialog({
               if (field === "title") nextErrors.title = messages[0];
               if (field === "fromTime") nextErrors.fromTime = messages[0];
               if (field === "toTime") nextErrors.toTime = messages[0];
+              if (field === "durationMinutes") nextErrors.durationMinutes = messages[0];
               if (field === "contentJson") nextErrors.contentJson = messages[0];
               if (field === "costCents") nextErrors.costCents = messages[0];
               if (field === "linkUrl") nextErrors.linkUrl = messages[0];
@@ -1652,18 +1893,11 @@ export default function TripDayPlanDialog({
           return;
         }
 
-        // Story 11.2: the push rule's refusals name another activity, so they need its title from
-        // `details`; an imported row may have none. The dialog stays open on all three.
-        const pushDetails = (body.error?.details ?? {}) as { predecessorTitle?: string | null; itemTitle?: string | null };
+        // Story 11.2: the schedule's refusal names an activity, so it needs its title from `details`; an
+        // imported row may have none. The dialog stays open. (Story 13.1 removed the "starts before the
+        // previous activity" refusal: a fixed activity is placed by its time instead.)
+        const pushDetails = (body.error?.details ?? {}) as { itemTitle?: string | null };
         const activityTitle = (value: string | null | undefined) => value?.trim() || t("trips.plan.untitledActivity");
-        if (body.error?.code === "day_plan_before_predecessor") {
-          const nextErrors: PlanFieldErrors = {
-            fromTime: formatMessage(t("trips.plan.beforePredecessor"), { title: activityTitle(pushDetails.predecessorTitle) }),
-          };
-          setFieldErrors(nextErrors);
-          revealFirstError({ fieldErrors: nextErrors, paymentError: null, paymentRowErrors: [] });
-          return;
-        }
         if (body.error?.code === "day_plan_past_midnight") {
           setServerError(formatMessage(t("trips.plan.pastMidnight"), { title: activityTitle(pushDetails.itemTitle) }));
           return;
@@ -1723,6 +1957,10 @@ export default function TripDayPlanDialog({
     () =>
       planFormFingerprint({
         title: titleInput,
+        scheduleMode,
+        durationHours: durationHoursInput,
+        durationMinutes: durationMinutesInput,
+        fixedEndKind,
         fromTime: fromTimeInput,
         toTime: toTimeInput,
         cost: costCentsInput,
@@ -1743,12 +1981,16 @@ export default function TripDayPlanDialog({
       // putting `costCurrency` in `PlanFormValues` was meant to prevent.
       entryCurrency.currency,
       documentFiles.length,
+      durationHoursInput,
+      durationMinutesInput,
+      fixedEndKind,
       fromTimeInput,
       galleryFiles.length,
       linkUrl,
       paymentMode,
       payments,
       resolvedLocation,
+      scheduleMode,
       titleInput,
       toTimeInput,
       unresolvedPairLocation,
@@ -2558,39 +2800,91 @@ export default function TripDayPlanDialog({
               flexDirection="column"
               gap="18px"
             >
-              {/* Screen G's `.field-row`; stacks to a column at xs. Native `type="time"` is kept — it is
-                  what the tests drive and it draws its own clock affordance. */}
-              <Box
-                sx={{
-                  display: "flex",
-                  flexDirection: { xs: "column", sm: "row" },
-                  gap: "12px",
-                  "& > *": { flex: 1, minWidth: 0 },
-                }}
+              {/* Story 13.1 AC8. DESIGN.md `schedule-mode`: the input's height and radius, the selected
+                  segment in accent-soft with ink at 700. The pattern is the suggestions dialog's. */}
+              <ToggleButtonGroup
+                exclusive
+                fullWidth
+                value={scheduleMode}
+                onChange={(_event, next: PlanScheduleMode | null) => handleScheduleModeChange(next)}
+                aria-label={t("trips.plan.scheduleModeLabel")}
+                data-testid="plan-schedule-mode"
+                sx={scheduleToggleSx(44)}
               >
-                <FormField
-                  id={`${fieldIdPrefix}-from-time`}
-                  label={t("trips.plan.fromTimeLabel")}
-                  value={fromTimeInput}
-                  onChange={(event) => {
-                    setFromTimeInput(event.target.value);
-                    setFieldErrors((previous) => ({ ...previous, fromTime: undefined, toTime: undefined }));
-                  }}
-                  error={fieldErrors.fromTime ?? undefined}
-                  type="time"
-                />
-                <FormField
-                  id={`${fieldIdPrefix}-to-time`}
-                  label={t("trips.plan.toTimeLabel")}
-                  value={toTimeInput}
-                  onChange={(event) => {
-                    setToTimeInput(event.target.value);
-                    setFieldErrors((previous) => ({ ...previous, fromTime: undefined, toTime: undefined }));
-                  }}
-                  error={fieldErrors.toTime ?? undefined}
-                  type="time"
-                />
-              </Box>
+                <ToggleButton value="FLEXIBLE">{t("trips.plan.scheduleModeFlexible")}</ToggleButton>
+                <ToggleButton value="FIXED">{t("trips.plan.scheduleModeFixed")}</ToggleButton>
+              </ToggleButtonGroup>
+              {scheduleMode === "FLEXIBLE" ? (
+                <Box display="flex" flexDirection="column" gap="8px">
+                  {durationFields}
+                  {/* The client never computes times (Story 11.2): the line shows what the server last
+                      stored for a flexible row, and nothing else. */}
+                  <Typography data-testid="plan-expected-times" sx={{ fontSize: 13, color: tokens.inkSoft }}>
+                    {mode === "edit" && item?.scheduleMode === "FLEXIBLE" && item.fromTime && item.toTime
+                      ? formatMessage(t("trips.plan.expectedTimes"), { range: `${item.fromTime} – ${item.toTime}` })
+                      : t("trips.plan.expectedAfterSave")}
+                  </Typography>
+                </Box>
+              ) : (
+                <Box display="flex" flexDirection="column" gap="12px">
+                  {/* Screen G's `.field-row`; stacks to a column at xs. Native `type="time"` is kept — it
+                      is what the tests drive and it draws its own clock affordance. */}
+                  <Box
+                    sx={{
+                      display: "flex",
+                      flexDirection: { xs: "column", sm: "row" },
+                      gap: "12px",
+                      "& > *": { flex: 1, minWidth: 0 },
+                    }}
+                  >
+                    <FormField
+                      id={`${fieldIdPrefix}-from-time`}
+                      label={t("trips.plan.fromTimeLabel")}
+                      value={fromTimeInput}
+                      onChange={(event) => {
+                        setFromTimeInput(event.target.value);
+                        setFieldErrors((previous) => ({
+                          ...previous,
+                          fromTime: undefined,
+                          toTime: undefined,
+                          durationMinutes: undefined,
+                        }));
+                      }}
+                      error={fieldErrors.fromTime ?? undefined}
+                      type="time"
+                    />
+                    {fixedEndKind === "end" ? (
+                      <FormField
+                        id={`${fieldIdPrefix}-to-time`}
+                        label={t("trips.plan.toTimeLabel")}
+                        value={toTimeInput}
+                        onChange={(event) => {
+                          setToTimeInput(event.target.value);
+                          setFieldErrors((previous) => ({ ...previous, fromTime: undefined, toTime: undefined }));
+                        }}
+                        error={fieldErrors.toTime ?? undefined}
+                        type="time"
+                      />
+                    ) : null}
+                  </Box>
+                  <ToggleButtonGroup
+                    exclusive
+                    value={fixedEndKind}
+                    onChange={(_event, next: FixedEndKind | null) => handleFixedEndKindChange(next)}
+                    aria-label={t("trips.plan.scheduleModeFixed")}
+                    data-testid="plan-fixed-end-kind"
+                    sx={{ ...scheduleToggleSx(36), alignSelf: "flex-start" }}
+                  >
+                    <ToggleButton value="end" sx={{ px: "14px" }}>
+                      {t("trips.plan.fixedEndKindEnd")}
+                    </ToggleButton>
+                    <ToggleButton value="duration" sx={{ px: "14px" }}>
+                      {t("trips.plan.fixedEndKindDuration")}
+                    </ToggleButton>
+                  </ToggleButtonGroup>
+                  {fixedEndKind === "duration" ? durationFields : null}
+                </Box>
+              )}
               {/* Moved here from below the link field, unchanged: AC1 pairs the location search with the
                   two time fields so `Wann & Wo` is a section rather than a two-field tab. */}
               <Box display="flex" flexDirection="column" gap={1}>

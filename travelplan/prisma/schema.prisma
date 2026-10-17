@@ -39,6 +39,13 @@ enum AccommodationStatus {
   BOOKED
 }
 
+// Story 13.1 (FR46). A FLEXIBLE activity is planned by its duration and the schedule works out its
+// times; a FIXED one is booked and keeps its times. SQLite stores the value as plain TEXT.
+enum DayPlanItemScheduleMode {
+  FLEXIBLE
+  FIXED
+}
+
 enum TravelSegmentItemType {
   ACCOMMODATION
   DAY_PLAN_ITEM
@@ -219,6 +226,14 @@ model DayPlanItem {
   locationLabel String? @map("location_label")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
+  // Story 13.1. Every production write sets all three explicitly; the defaults exist for the
+  // migration's ALTER TABLE (SQLite needs one for a NOT NULL column) and for rows a test seeds
+  // directly. They must equal the SQL defaults or `prisma migrate diff` drifts. A FLEXIBLE row's
+  // `fromTime`/`toTime` are the schedule's result, and both `null` mean "does not fit in the day";
+  // a FIXED row always has both. `sortOrder` is the day's order, dense (0..n-1) per day, not unique.
+  scheduleMode    DayPlanItemScheduleMode @default(FIXED) @map("schedule_mode")
+  durationMinutes Int @default(15) @map("duration_minutes")
+  sortOrder       Int @default(0) @map("sort_order")
 
   tripDay TripDay @relation(fields: [tripDayId], references: [id], onDelete: Cascade)
   images  DayPlanItemImage[]
@@ -226,6 +241,7 @@ model DayPlanItem {
   payments CostPayment[]
 
   @@index([tripDayId], map: "idx_day_plan_items_trip_day_id")
+  @@index([tripDayId, sortOrder], map: "idx_day_plan_items_trip_day_sort_order")
   @@map("day_plan_items")
 }
 

@@ -453,3 +453,52 @@ describe("dayPlanItemSchemas", () => {
     });
   });
 });
+
+describe("dayPlanItemMutationSchema schedule fields (Story 13.1 AC8, AC9)", () => {
+  const base = { tripDayId: "day-id", title: "Museum", contentJson: sampleDoc };
+  const issues = (payload: Record<string, unknown>) => {
+    const result = dayPlanItemMutationSchema.safeParse({ ...base, ...payload });
+    return result.success ? [] : result.error.issues.map((issue) => issue.path.join("."));
+  };
+
+  it("treats a payload without a mode as FIXED with both times required (§14)", () => {
+    expect(issues({ fromTime: "09:00", toTime: "10:00" })).toEqual([]);
+    expect(issues({ fromTime: "09:00" })).toEqual(["toTime"]);
+    expect(issues({ toTime: "10:00" })).toEqual(["fromTime"]);
+    expect(issues({ fromTime: "10:00", toTime: "09:00" })).toEqual(["toTime"]);
+    // A duration alone does not make an old-shape payload valid.
+    expect(issues({ fromTime: "09:00", durationMinutes: 60 })).toEqual(["toTime"]);
+  });
+
+  it("accepts FLEXIBLE with a duration, with none (15 by default), and ignores any times", () => {
+    expect(issues({ scheduleMode: "FLEXIBLE", durationMinutes: 60 })).toEqual([]);
+    expect(issues({ scheduleMode: "FLEXIBLE" })).toEqual([]);
+    expect(issues({ scheduleMode: "FLEXIBLE", durationMinutes: 30, fromTime: "10:00", toTime: "09:00" })).toEqual([]);
+  });
+
+  it("refuses a FLEXIBLE duration under 5 minutes or past a whole day", () => {
+    expect(issues({ scheduleMode: "FLEXIBLE", durationMinutes: 4 })).toEqual(["durationMinutes"]);
+    expect(issues({ scheduleMode: "FLEXIBLE", durationMinutes: 5 })).toEqual([]);
+    expect(issues({ scheduleMode: "FLEXIBLE", durationMinutes: 1440 })).toEqual(["durationMinutes"]);
+    expect(issues({ scheduleMode: "FLEXIBLE", durationMinutes: 12.5 })).toEqual(["durationMinutes"]);
+  });
+
+  it("accepts FIXED as start + end or start + duration, and requires one of them", () => {
+    expect(issues({ scheduleMode: "FIXED", fromTime: "09:00", toTime: "10:00" })).toEqual([]);
+    expect(issues({ scheduleMode: "FIXED", fromTime: "09:00", durationMinutes: 90 })).toEqual([]);
+    expect(issues({ scheduleMode: "FIXED", fromTime: "09:00" })).toEqual(["toTime"]);
+    expect(issues({ scheduleMode: "FIXED", durationMinutes: 90 })).toEqual(["fromTime"]);
+  });
+
+  it("checks the FIXED end form on toTime and the duration form on durationMinutes", () => {
+    expect(issues({ scheduleMode: "FIXED", fromTime: "09:00", toTime: "09:00" })).toEqual(["toTime"]);
+    expect(issues({ scheduleMode: "FIXED", fromTime: "09:00", durationMinutes: 3 })).toEqual(["durationMinutes"]);
+    expect(issues({ scheduleMode: "FIXED", fromTime: "23:00", durationMinutes: 59 })).toEqual([]);
+    expect(issues({ scheduleMode: "FIXED", fromTime: "23:00", durationMinutes: 60 })).toEqual(["durationMinutes"]);
+  });
+
+  it("lets toTime win when a FIXED payload sends both", () => {
+    // The duration would end past midnight; the end time is what counts.
+    expect(issues({ scheduleMode: "FIXED", fromTime: "23:00", toTime: "23:30", durationMinutes: 120 })).toEqual([]);
+  });
+});

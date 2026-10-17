@@ -86,11 +86,25 @@ const toMinutes = (value: string) => {
   return hours * 60 + minutes;
 };
 
+/** Story 13.1. The shortest duration the dialog and the API accept; a stored row may be shorter (§4). */
+export const MIN_ACTIVITY_DURATION_MINUTES = 5;
+/** `HH:MM` ends at 23:59, so no activity can last longer than this within one day. */
+export const MAX_ACTIVITY_DURATION_MINUTES = 23 * 60 + 59;
+const LAST_MINUTE_OF_DAY = 23 * 60 + 59;
+
 export const dayPlanItemMutationSchema = z.object({
   tripDayId: z.string().trim().min(1, "Trip day is required"),
   title: z.string().trim().min(1, "Title is required").max(120, "Title must be at most 120 characters"),
-  fromTime: timeFieldSchema,
-  toTime: timeFieldSchema,
+  /**
+   * Story 13.1 (FR46). Absent means FIXED with both times, the shape every client before 13.1 sends
+   * (§14). FLEXIBLE takes only `durationMinutes` (15 when absent) and ignores any times sent. FIXED takes
+   * `fromTime` plus `toTime` or `durationMinutes`; `toTime` wins when both are sent, and the repository
+   * stores `toTime − fromTime` as the duration.
+   */
+  scheduleMode: z.enum(["FLEXIBLE", "FIXED"]).optional(),
+  durationMinutes: z.number().int("Duration must be whole minutes").optional().nullable(),
+  fromTime: timeFieldSchema.optional().nullable(),
+  toTime: timeFieldSchema.optional().nullable(),
   contentJson: contentJsonSchema,
   costCents: z.number().int().nonnegative("Cost must be zero or greater").optional().nullable(),
   ...costCurrencyFields,
@@ -100,19 +114,73 @@ export const dayPlanItemMutationSchema = z.object({
   bucketListItemId: z.string().trim().min(1, "Bucket list item is required").optional().nullable(),
 }).superRefine((value, context) => {
   /*
-    The time and cents rules, unchanged, nested so that their early returns stay local. At the top
+    The time and cents rules, nested so that their early returns stay local (Story 13.1 split them in
+    two, the schedule and the payments, so a schedule error no longer hides a payment one). At the top
     level a `return` here would skip the currency rule below for every payload with a malformed time
     or no cost - and "metadata present, costCents null" is precisely the shape that must be refused.
   */
-  const checkTimesAndPaymentTotal = () => {
-    if (typeof value.fromTime !== "string" || typeof value.toTime !== "string") return;
-    if (toMinutes(value.toTime) <= toMinutes(value.fromTime)) {
+  const checkSchedule = () => {
+    const duration = value.durationMinutes ?? null;
+    const durationInRange = (minutes: number) => {
+      if (minutes < MIN_ACTIVITY_DURATION_MINUTES) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["durationMinutes"],
+          message: `Duration must be at least ${MIN_ACTIVITY_DURATION_MINUTES} minutes`,
+        });
+        return false;
+      }
+      if (minutes > MAX_ACTIVITY_DURATION_MINUTES) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["durationMinutes"],
+          message: "Duration must end within the day",
+        });
+        return false;
+      }
+      return true;
+    };
+
+    if (value.scheduleMode === "FLEXIBLE") {
+      if (duration !== null) durationInRange(duration);
+      return;
+    }
+
+    // A time that failed its own format check is reported there; it is neither present nor missing here.
+    const fromTime = typeof value.fromTime === "string" ? value.fromTime : null;
+    const toTime = typeof value.toTime === "string" ? value.toTime : null;
+    if (fromTime === null) {
+      if (value.fromTime === undefined || value.fromTime === null) {
+        context.addIssue({ code: z.ZodIssueCode.custom, path: ["fromTime"], message: "From time is required" });
+      }
+      return;
+    }
+    if (value.toTime !== undefined && value.toTime !== null && toTime === null) return;
+    if (toTime !== null) {
+      if (toMinutes(toTime) <= toMinutes(fromTime)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["toTime"],
+          message: "To time must be later than from time",
+        });
+      }
+      return;
+    }
+    // Without a mode, the pre-13.1 shape: both times are required.
+    if (value.scheduleMode === undefined || duration === null) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["toTime"], message: "To time is required" });
+      return;
+    }
+    if (durationInRange(duration) && toMinutes(fromTime) + duration > LAST_MINUTE_OF_DAY) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ["toTime"],
-        message: "To time must be later than from time",
+        path: ["durationMinutes"],
+        message: "The activity would end after midnight",
       });
     }
+  };
+
+  const checkPaymentTotal = () => {
     const costCents = value.costCents ?? null;
     const payments = value.payments ?? null;
     if (costCents === null) {
@@ -145,7 +213,8 @@ export const dayPlanItemMutationSchema = z.object({
     }
   };
 
-  checkTimesAndPaymentTotal();
+  checkSchedule();
+  checkPaymentTotal();
 
   // Story 10.1, additively and deliberately last - see the identical note in accommodationSchemas.ts.
   refineCostCurrency(value, context);

@@ -329,6 +329,7 @@ const en: Dictionary = {
   "trips.dayView.ganttMinutes": "{minutes}m",
   "trips.dayView.moreActions": "More actions",
   "trips.dayView.printAction": "Print day",
+  "trips.dayView.fixedTimeLabel": "Fixed time",
   "trips.dayPrint.back": "← Back to day",
   "trips.dayPrint.loadError": "Unable to load day for printing.",
   // DW-230. Everything the day print sheet draws, which until now was English literals inside
@@ -661,7 +662,6 @@ const en: Dictionary = {
   "trips.plan.loadError": "Unable to load plan items.",
   "trips.plan.saveError": "Plan item update failed. Please try again.",
   // Story 11.2. "Move up" must match Story 11.3's menu item when it ships.
-  "trips.plan.beforePredecessor": "Starts before \"{title}\". A time change keeps the order – use \"Move up\".",
   "trips.plan.pastMidnight": "\"{title}\" would be pushed past midnight. Nothing was saved.",
   "trips.plan.dayChangedConflict": "The day was just changed. Please save again.",
   "trips.plan.untitledActivity": "Untitled activity",
@@ -705,6 +705,20 @@ const en: Dictionary = {
   "trips.plan.moveSuccess": "Activity moved to {day}.",
   "trips.plan.moveSuccessWithSegment": "Activity moved to {day}. 1 travel segment removed.",
   "trips.plan.moveSuccessWithSegments": "Activity moved to {day}. {count} travel segments removed.",
+  "trips.plan.scheduleModeLabel": "Scheduling",
+  "trips.plan.scheduleModeFlexible": "Flexible",
+  "trips.plan.scheduleModeFixed": "Fixed time",
+  "trips.plan.durationHoursLabel": "Duration (h)",
+  "trips.plan.durationMinutesLabel": "Duration (min)",
+  "trips.plan.durationEmptyHint": "Leave empty for 15 min",
+  "trips.plan.durationTooShort": "At least 5 minutes.",
+  "trips.plan.durationInvalid": "Please enter a valid duration.",
+  "trips.plan.durationTooLong": "At most 23 h 59 min.",
+  "trips.plan.fixedEndKindEnd": "End",
+  "trips.plan.fixedEndKindDuration": "Duration",
+  "trips.plan.fixedEndsAfterMidnight": "Ends after midnight.",
+  "trips.plan.expectedTimes": "Expected {range}",
+  "trips.plan.expectedAfterSave": "calculated after saving",
   // Story 11.1: the `action-notice` after a change with side effects. The singular is its own key, as
   // every count-bearing string here is - `formatMessage` has no plural support.
   // Story 11.3: a reorder's summary leads with this.
@@ -728,6 +742,7 @@ const en: Dictionary = {
   "trips.dayChange.undoStale": "The day has changed since – this change can no longer be undone.",
   "trips.dayChange.undoError": "Undo failed – please try again.",
   "trips.dayChange.undoUnavailable": "This change can no longer be undone.",
+  "trips.dayChange.planConflict": "{title} starts at {start}, reachable only at {reachable}",
   // Story 12.3. The AI day-suggestion dialog. Plurals use singular twin keys (`resultsOne`, `selectedOne`).
   "trips.suggestions.openAction": "Find ideas",
   "trips.suggestions.dialogTitle": "Ideas for the day",

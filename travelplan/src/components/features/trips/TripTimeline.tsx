@@ -46,7 +46,7 @@ import { formatShortDate } from "@/lib/trips/formatShortDate";
 // Story 8.5 review. The same two rules `TripDayView` uses, because this file's coverage bar and that
 // screen's travel figure describe the same day: the order the day's endpoints are in, and which pairs
 // of that order are legs the timeline draws.
-import { compareDayPlanItemsByStartTime } from "@/lib/trips/dayPlanItemOrder";
+import { compareDayPlanItemsByOrder } from "@/lib/trips/dayPlanItemOrder";
 import {
   buildDrawnDaySegmentPairKeys,
   isDrawnDaySegment,
@@ -107,11 +107,13 @@ type TripDay = {
     /**
      * Story 8.5 review. `GET /api/trips/{id}` carries this, and it is optional here for the same
      * reason it is in `TripDayView`: a payload built before it did (an older cached response, a
-     * fixture) must still type-check. It is the tie-break `compareDayPlanItemsByStartTime` applies to
-     * two activities starting at the same minute, and this file needs that order because the coverage
-     * bar below counts exactly the legs the day's endpoint order makes consecutive.
+     * fixture) must still type-check. It is a tie-break `compareDayPlanItemsByOrder` applies to two
+     * activities sharing a `sortOrder`, and this file needs that order because the coverage bar below
+     * counts exactly the legs the day's endpoint order makes consecutive.
      */
     createdAt?: string;
+    /** Story 13.1. The day's order; optional for the same reason as `createdAt`. */
+    sortOrder?: number;
   }[];
   travelSegments?: {
     id: string;
@@ -833,9 +835,9 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                    * an order they own, so they cannot come apart if that mapping ever changes.
                    */
                   const orderedPlanItems = [...day.dayPlanItems].sort((left, right) =>
-                    compareDayPlanItemsByStartTime(
-                      { fromTime: left.fromTime ?? null, createdAt: left.createdAt ?? "", id: left.id },
-                      { fromTime: right.fromTime ?? null, createdAt: right.createdAt ?? "", id: right.id },
+                    compareDayPlanItemsByOrder(
+                      { sortOrder: left.sortOrder ?? 0, fromTime: left.fromTime ?? null, createdAt: left.createdAt ?? "", id: left.id },
+                      { sortOrder: right.sortOrder ?? 0, fromTime: right.fromTime ?? null, createdAt: right.createdAt ?? "", id: right.id },
                     ),
                   );
                   const dayEndpoints: DaySegmentEndpoint[] = [

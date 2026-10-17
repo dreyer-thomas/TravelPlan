@@ -1682,7 +1682,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
     }>;
     expect(createdResponse.status).toBe(200);
     expect(created.data?.dayPlanItem.id).toBeTruthy();
-    expect(created.data?.receipt).toMatchObject({ version: 2, tripDayId: day.id, edited: { kind: "created" }, movedItems: [] });
+    expect(created.data?.receipt).toMatchObject({ version: 3, tripDayId: day.id, edited: { kind: "created" }, movedItems: [] });
     expect(created.data?.receipt.removedTravelSegments).toEqual([]);
     const itemId = created.data!.dayPlanItem.id;
 
@@ -1728,14 +1728,12 @@ describe("/api/trips/[id]/day-plan-items", () => {
     expect(patchedResponse.status).toBe(200);
     expect(patched.data?.dayPlanItem.fromTime).toBe("17:00");
     expect(patched.data?.receipt.edited.kind).toBe("updated");
-    // Story 11.2 supersedes 11.1's form of this step, where the retime past Park reordered the day and
-    // swept the leg. A retime now keeps its place: Museum stays first, Park is pushed to 18:20 (Museum's
-    // end plus the 20-minute leg), and the leg, still drawn, stays.
-    expect(patched.data?.receipt.removedTravelSegments).toEqual([]);
-    expect(patched.data?.receipt.movedItems.map((row) => [row.itemId, row.previousFromTime])).toEqual([[later.id, "15:00"]]);
-    // The wire form: dates as ISO strings.
-    expect(patched.data?.receipt.movedItems[0].previousUpdatedAt).toBe(later.updatedAt.toISOString());
-    expect((await prisma.dayPlanItem.findUniqueOrThrow({ where: { id: later.id } })).fromTime).toBe("18:20");
+    // Story 13.1 AC7 supersedes 11.2's form of this step: a fixed row whose start changes takes its place
+    // by its time again, as in 11.1. Museum goes after Park, the Museum → Park leg is swept, and Park,
+    // which keeps its times and its place at the front, is not moved.
+    expect(patched.data?.receipt.removedTravelSegments.map((segment) => segment.id)).toEqual([leg.id]);
+    expect(patched.data?.receipt.movedItems).toEqual([]);
+    expect((await prisma.dayPlanItem.findUniqueOrThrow({ where: { id: later.id } })).fromTime).toBe("15:00");
 
     const deletedResponse = await DELETE(
       buildRequest(url, {
@@ -1753,8 +1751,8 @@ describe("/api/trips/[id]/day-plan-items", () => {
     }>;
     expect(deletedResponse.status).toBe(200);
     expect(deleted.data?.deleted).toBe(true);
-    // The leg the retime used to sweep is still there, so deleting its start removes it now.
-    expect(deleted.data?.removedTravelSegmentIds).toEqual([leg.id]);
+    // 13.1: the retime already swept the leg, so the delete has none left to remove.
+    expect(deleted.data?.removedTravelSegmentIds).toEqual([]);
     expect(deleted.data?.receipt.edited.kind).toBe("deleted");
   });
 });

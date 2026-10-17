@@ -308,6 +308,7 @@ const de: Dictionary = {
   "trips.dayView.ganttMinutes": "{minutes}m",
   "trips.dayView.moreActions": "Weitere Aktionen",
   "trips.dayView.printAction": "Tag drucken",
+  "trips.dayView.fixedTimeLabel": "Feste Zeit",
   "trips.dayPrint.back": "← Zurück zum Tag",
   "trips.dayPrint.loadError": "Tag konnte nicht zum Drucken geladen werden.",
   // DW-230. Alles, was der Tagesausdruck druckt. Bisher standen diese Texte als englische Literale in
@@ -602,7 +603,6 @@ const de: Dictionary = {
   "trips.plan.saveError": "Plan-Element konnte nicht gespeichert werden. Bitte erneut versuchen.",
   // Story 11.2: die beiden Ablehnungen der Schieberegel und der Konflikt, wenn eine andere Änderung
   // dazwischenkam. „Nach oben“ ist der Menüpunkt aus Story 11.3.
-  "trips.plan.beforePredecessor": "Beginnt vor „{title}“. Eine Zeitänderung ändert die Reihenfolge nicht – nutze „Nach oben“.",
   "trips.plan.pastMidnight": "„{title}“ würde über Mitternacht hinaus verschoben. Nichts wurde gespeichert.",
   "trips.plan.dayChangedConflict": "Der Tag wurde gerade geändert. Bitte erneut speichern.",
   "trips.plan.untitledActivity": "Aktivität ohne Titel",
@@ -636,6 +636,20 @@ const de: Dictionary = {
   "trips.plan.moveSuccess": "Aktivität auf {day} verschoben.",
   "trips.plan.moveSuccessWithSegment": "Aktivität auf {day} verschoben. 1 Reiseabschnitt entfernt.",
   "trips.plan.moveSuccessWithSegments": "Aktivität auf {day} verschoben. {count} Reiseabschnitte entfernt.",
+  "trips.plan.scheduleModeLabel": "Planung",
+  "trips.plan.scheduleModeFlexible": "Flexibel",
+  "trips.plan.scheduleModeFixed": "Feste Zeit",
+  "trips.plan.durationHoursLabel": "Dauer (Std.)",
+  "trips.plan.durationMinutesLabel": "Dauer (Min.)",
+  "trips.plan.durationEmptyHint": "Leer lassen = 15 Min.",
+  "trips.plan.durationTooShort": "Mindestens 5 Minuten.",
+  "trips.plan.durationInvalid": "Bitte eine gültige Dauer eingeben.",
+  "trips.plan.durationTooLong": "Höchstens 23 Std. 59 Min.",
+  "trips.plan.fixedEndKindEnd": "Ende",
+  "trips.plan.fixedEndKindDuration": "Dauer",
+  "trips.plan.fixedEndsAfterMidnight": "Endet nach Mitternacht.",
+  "trips.plan.expectedTimes": "Voraussichtlich {range}",
+  "trips.plan.expectedAfterSave": "wird nach dem Speichern berechnet",
   // Story 11.1: die `action-notice` nach einer Änderung mit Nebenwirkungen. „Fahrt“ wie in der
   // Gantt-Legende, wie DESIGN.md und der Änderungsvorschlag es festlegen; die älteren Schlüssel oben
   // sagen „Reiseabschnitt“ und bleiben unverändert. Eigener Schlüssel für den Singular, weil
@@ -663,6 +677,7 @@ const de: Dictionary = {
   "trips.dayChange.undoStale": "Der Tag wurde seitdem geändert – die Änderung lässt sich nicht mehr rückgängig machen.",
   "trips.dayChange.undoError": "Rückgängig fehlgeschlagen – bitte erneut versuchen.",
   "trips.dayChange.undoUnavailable": "Diese Änderung lässt sich nicht mehr rückgängig machen.",
+  "trips.dayChange.planConflict": "{title} beginnt um {start}, erreichbar erst um {reachable}",
   // Story 12.3 — siehe en.ts.
   "trips.suggestions.openAction": "Ideen finden",
   "trips.suggestions.dialogTitle": "Ideen für den Tag",

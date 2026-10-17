@@ -147,6 +147,51 @@ describe("GET /api/trips/[id]/days/[dayId]/route", () => {
     ]);
   });
 
+  it("orders the activity points by the day's sortOrder, not by createdAt (Story 13.1 AC13)", async () => {
+    const user = await prisma.user.create({
+      data: { email: "day-route-order@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const session = await createSessionJwt({ sub: user.id, role: user.role });
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Order Trip",
+      startDate: "2026-08-01T00:00:00.000Z",
+      endDate: "2026-08-01T00:00:00.000Z",
+    });
+    const [day] = await prisma.tripDay.findMany({ where: { tripId: trip.id } });
+    const contentJson = JSON.stringify({ type: "doc", content: [{ type: "paragraph" }] });
+    // Created first, planned last: `createdAt` order and the day's order disagree.
+    const late = await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: day.id,
+        contentJson,
+        locationLat: 48.2,
+        locationLng: 11.6,
+        sortOrder: 1,
+        createdAt: new Date("2026-07-01T08:00:00.000Z"),
+      },
+    });
+    const early = await prisma.dayPlanItem.create({
+      data: {
+        tripDayId: day.id,
+        contentJson,
+        locationLat: 48.1,
+        locationLng: 11.5,
+        sortOrder: 0,
+        createdAt: new Date("2026-07-02T08:00:00.000Z"),
+      },
+    });
+    vi.mocked(getDayRouteFromOsrm).mockResolvedValue({ polyline: [], distanceMeters: null, durationSeconds: null });
+
+    const response = await GET(buildRequest(trip.id, day.id, session), {
+      params: Promise.resolve({ id: trip.id, dayId: day.id }),
+    });
+    const body = (await response.json()) as ApiEnvelope<{ points: { id: string }[] }>;
+
+    expect(response.status).toBe(200);
+    expect(body.data?.points.map((point) => point.id)).toEqual([early.id, late.id]);
+  });
+
   it("prevents cross-user route access", async () => {
     const owner = await prisma.user.create({
       data: {

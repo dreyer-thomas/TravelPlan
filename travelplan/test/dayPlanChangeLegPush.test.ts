@@ -9,8 +9,9 @@ import {
 } from "@/lib/repositories/travelSegmentRepo";
 import type { DayChangeReceiptWire } from "@/lib/trips/dayChangeReceipt";
 import { verifyDayChangeReceipt } from "@/lib/trips/dayChangeReceiptSignature";
-import { compareDayPlanItemsByStartTime } from "@/lib/trips/dayPlanItemOrder";
+import { compareDayPlanItemsByOrder } from "@/lib/trips/dayPlanItemOrder";
 import { routeContext } from "./helpers/routeContext";
+import { settleSeededDay } from "./helpers/settleSeededDay";
 
 /**
  * Story 11.4 AC1, AC2, AC5, AC6, AC8, AC15. A leg save pushes the day from where the leg starts: the
@@ -59,10 +60,17 @@ const seedTrip = async (email: string, checkOutTime: string | null = "09:00") =>
   return { user, trip, stayDay, day, stay };
 };
 
-const createItem = (tripDayId: string, title: string, fromTime: string | null, toTime: string | null) =>
+const createRawItem = (tripDayId: string, title: string, fromTime: string | null, toTime: string | null) =>
   prisma.dayPlanItem.create({
     data: { tripDayId, title, fromTime, toTime, contentJson: sampleDoc(title), createdAt: PAST, updatedAt: PAST },
   });
+
+/** Story 13.1: each seeded day is numbered the way the migration numbers real data. */
+const createItem = async (...args: Parameters<typeof createRawItem>) => {
+  const row = await createRawItem(...args);
+  await settleSeededDay(row.tripDayId);
+  return prisma.dayPlanItem.findUniqueOrThrow({ where: { id: row.id } });
+};
 
 const createLeg = (
   tripDayId: string,
@@ -92,7 +100,7 @@ const stayEndpoint = (id: string) => ({ type: "ACCOMMODATION" as const, id });
 /** The day in its canonical order, as the timeline draws it. */
 const times = async (tripDayId: string) =>
   (await prisma.dayPlanItem.findMany({ where: { tripDayId } }))
-    .sort(compareDayPlanItemsByStartTime)
+    .sort(compareDayPlanItemsByOrder)
     .map((row) => `${row.title} ${row.fromTime ?? "-"}–${row.toTime ?? "-"}`);
 
 const databaseState = async () => ({
@@ -135,6 +143,8 @@ describe("a leg between two activities pushes the day (Story 11.4 AC1)", () => {
     const b = await createItem(day.id, "B", "10:30", "11:30");
     const c = await createItem(day.id, "C", "12:00", "13:00");
     await createItem(day.id, "D", "16:00", "17:00");
+    // 13.1: B and C flexible for an hour each, so the schedule stores them at 10–11 and 11–12.
+    await settleSeededDay(day.id, { flexible: [b.id, c.id] });
 
     const result = await createTravelSegmentForTripDay(legParams(user.id, trip.id, day.id, act(a.id), act(b.id), 60));
 
@@ -142,22 +152,36 @@ describe("a leg between two activities pushes the day (Story 11.4 AC1)", () => {
     if (result.status !== "created") return;
     expect(await times(day.id)).toEqual(["A 09:00–10:00", "B 11:00–12:00", "C 12:00–13:00", "D 16:00–17:00"]);
     const stored = await prisma.travelSegment.findUniqueOrThrow({ where: { id: result.segment.id } });
+    const updatedAt = (await prisma.dayPlanItem.findUniqueOrThrow({ where: { id: b.id } })).updatedAt;
     expect(result.receipt).toEqual({
-      version: 2,
+      version: 3,
       tripDayId: day.id,
       edited: { kind: "legCreated", segmentId: stored.id, updatedAt: stored.updatedAt },
       removedTravelSegments: [],
+      // 13.1: C sits tight behind B, so it moves too, which the 11.2 walk's slack had absorbed.
       movedItems: [
         {
           itemId: b.id,
-          previousFromTime: "10:30",
-          previousToTime: "11:30",
+          previousFromTime: "10:00",
+          previousToTime: "11:00",
+          previousSortOrder: 1,
+          fromTime: "11:00",
+          toTime: "12:00",
           previousUpdatedAt: PAST,
-          updatedAt: (await prisma.dayPlanItem.findUniqueOrThrow({ where: { id: b.id } })).updatedAt,
+          updatedAt,
+        },
+        {
+          itemId: c.id,
+          previousFromTime: "11:00",
+          previousToTime: "12:00",
+          previousSortOrder: 2,
+          fromTime: "12:00",
+          toTime: "13:00",
+          previousUpdatedAt: PAST,
+          updatedAt,
         },
       ],
     });
-    void c;
   });
 
   it("absorbs a leg into slack and still returns a receipt", async () => {
@@ -181,6 +205,8 @@ describe("a leg between two activities pushes the day (Story 11.4 AC1)", () => {
     const c = await createItem(day.id, "C", "11:45", "12:45");
     const leg = await createLeg(day.id, item(a.id), item(b.id), 30);
     await createLeg(day.id, item(b.id), item(c.id), 15);
+    // 13.1: flexible B and C; the schedule computes exactly the seeded times from the two legs.
+    await settleSeededDay(day.id, { flexible: [b.id, c.id] });
 
     const result = await updateTravelSegmentForTripDay({
       ...legParams(user.id, trip.id, day.id, act(a.id), act(b.id), 90),
@@ -205,9 +231,10 @@ describe("a leg between two activities pushes the day (Story 11.4 AC1)", () => {
     const a = await createItem(day.id, "A", "09:00", "10:00");
     const b = await createItem(day.id, "B", "10:00", "11:00");
     const c = await createItem(day.id, "C", "11:00", "12:00");
-    // A→B is re-pointed at B→C: the walk starts at B, the leg's new start. (A→B's 30 min is not
-    // honoured on this day, and no longer counts once the row is retargeted.)
+    // A→B is re-pointed at B→C. 13.1: with B and C flexible, B pulls back to A's end once A→B's 30 minutes
+    // stop counting, and C follows the new 20-minute leg.
     const leg = await createLeg(day.id, item(a.id), item(b.id), 30);
+    await settleSeededDay(day.id, { flexible: [b.id, c.id] });
     const result = await updateTravelSegmentForTripDay({
       ...legParams(user.id, trip.id, day.id, act(b.id), act(c.id), 20),
       segmentId: leg.id,
@@ -217,21 +244,20 @@ describe("a leg between two activities pushes the day (Story 11.4 AC1)", () => {
     expect(await times(day.id)).toEqual(["A 09:00–10:00", "B 10:00–11:00", "C 11:20–12:20"]);
   });
 
-  it("moves nothing for a shorter leg, a same-length leg, or a mode, distance or link change", async () => {
+  it("moves nothing for a same-length leg or a mode, distance or link change; a shorter leg pulls forward (13.1 AC4)", async () => {
     const { user, trip, day } = await seedTrip("leg-no-reason@example.com");
     const a = await createItem(day.id, "A", "09:00", "10:00");
     const b = await createItem(day.id, "B", "10:30", "11:30");
-    // Already inconsistent: the stored 60 min leg does not fit. Running the walk would move B.
     const leg = await createLeg(day.id, item(a.id), item(b.id), 60);
+    // 13.1: flexible B behind the 60-minute leg, 11:00–12:00.
+    await settleSeededDay(day.id, { flexible: [b.id] });
     const base = legParams(user.id, trip.id, day.id, act(a.id), act(b.id), 60);
 
-    // Sequential saves of one row, so the shorter one comes last: after it, 60 would be a longer leg.
     for (const params of [
       { ...base },
       { ...base, transportType: "walking" as const, distanceKm: 3 },
       { ...base, distanceKm: 99 },
       { ...base, linkUrl: "https://maps.example.com/x" },
-      { ...base, durationMinutes: 45 },
     ]) {
       const result = await updateTravelSegmentForTripDay({ ...params, segmentId: leg.id });
       expect(result.status).toBe("updated");
@@ -239,7 +265,13 @@ describe("a leg between two activities pushes the day (Story 11.4 AC1)", () => {
       expect(result.receipt.movedItems).toEqual([]);
       expect(result.receipt.edited.kind).toBe("legUpdated");
     }
-    expect(await times(day.id)).toEqual(["A 09:00–10:00", "B 10:30–11:30"]);
+    expect(await times(day.id)).toEqual(["A 09:00–10:00", "B 11:00–12:00"]);
+
+    // 13.1 AC4: Story 11.4 never pulled forward; a shorter leg now does.
+    const shorter = await updateTravelSegmentForTripDay({ ...base, durationMinutes: 45, segmentId: leg.id });
+    if (shorter.status !== "updated") throw new Error(`expected an update, got ${shorter.status}`);
+    expect(shorter.receipt.movedItems.map((row) => row.itemId)).toEqual([b.id]);
+    expect(await times(day.id)).toEqual(["A 09:00–10:00", "B 10:45–11:45"]);
   });
 
   it("moves nothing for a leg that arrives at tonight's stay", async () => {
@@ -257,24 +289,27 @@ describe("a leg between two activities pushes the day (Story 11.4 AC1)", () => {
     expect(result.receipt.checkInWarning).toBeUndefined();
   });
 
-  it("moves nothing for a leg that leaves or arrives at an untimed activity", async () => {
+  it("moves a formerly untimed activity, which is flexible now, by a leg into it (13.1 §5)", async () => {
     const { user, trip, day } = await seedTrip("leg-untimed@example.com");
     const a = await createItem(day.id, "A", "09:00", "10:00");
     const u = await createItem(day.id, "U", null, null);
     const v = await createItem(day.id, "V", null, null);
 
-    const into = await createTravelSegmentForTripDay(legParams(user.id, trip.id, day.id, act(a.id), act(u.id), 600));
-    const between = await createTravelSegmentForTripDay(legParams(user.id, trip.id, day.id, act(u.id), act(v.id), 600));
+    // 13.1: untimed rows are FLEXIBLE/15 and get their times from the schedule, like any flexible row.
+    const into = await createTravelSegmentForTripDay(legParams(user.id, trip.id, day.id, act(a.id), act(u.id), 60));
+    const between = await createTravelSegmentForTripDay(legParams(user.id, trip.id, day.id, act(u.id), act(v.id), 30));
 
-    expect(into.status === "created" && into.receipt.movedItems).toEqual([]);
-    expect(between.status === "created" && between.receipt.movedItems).toEqual([]);
-    expect((await times(day.id)).sort()).toEqual(["A 09:00–10:00", "U -–-", "V -–-"]);
+    expect(into.status === "created" && into.receipt.movedItems.map((row) => row.itemId)).toEqual([u.id, v.id]);
+    expect(between.status === "created" && between.receipt.movedItems.map((row) => row.itemId)).toEqual([v.id]);
+    expect(await times(day.id)).toEqual(["A 09:00–10:00", "U 11:00–11:15", "V 11:45–12:00"]);
   });
 
   it("warns when the push makes the day reach tonight's explicit check-in too late", async () => {
     const { user, trip, day } = await seedTrip("leg-checkin@example.com");
     const a = await createItem(day.id, "A", "09:00", "10:00");
     const b = await createItem(day.id, "B", "13:00", "14:00");
+    // 13.1: B flexible, 10:00–11:00 until the four-hour leg moves it to 14:00–15:00.
+    await settleSeededDay(day.id, { flexible: [b.id] });
     const tonight = await prisma.accommodation.create({ data: { tripDayId: day.id, name: "Haast Motel", checkInTime: "14:30" } });
 
     const result = await createTravelSegmentForTripDay(legParams(user.id, trip.id, day.id, act(a.id), act(b.id), 240));
@@ -296,6 +331,8 @@ describe("a leg from last night's stay pushes from the check-out (Story 11.4 AC2
     await createItem(day.id, "Dinner", "18:00", "19:00");
     const stayLeg = await createLeg(day.id, stayEndpoint(stay.id), item(fantail.id), 60);
     await createLeg(day.id, item(fantail.id), item(haast.id), 30);
+    // 13.1: the two walks are flexible; the schedule stores Fantail 10:00–11:00 and Haast 11:30–12:00.
+    await settleSeededDay(day.id, { flexible: [fantail.id, haast.id] });
 
     const result = await updateTravelSegmentForTripDay({
       ...legParams(user.id, trip.id, day.id, accommodation(stay.id), act(fantail.id), 195),
@@ -311,6 +348,7 @@ describe("a leg from last night's stay pushes from the check-out (Story 11.4 AC2
   it("uses the shared default check-out when none is stored", async () => {
     const { user, trip, day, stay } = await seedTrip("leg-default@example.com", null);
     const first = await createItem(day.id, "F", "12:00", "13:00");
+    await settleSeededDay(day.id, { flexible: [first.id] });
 
     const result = await createTravelSegmentForTripDay(
       legParams(user.id, trip.id, day.id, accommodation(stay.id), act(first.id), 180),
@@ -320,24 +358,29 @@ describe("a leg from last night's stay pushes from the check-out (Story 11.4 AC2
     expect(await times(day.id)).toEqual(["F 13:00–14:00"]);
   });
 
-  it("walks nothing from a stored check-out it cannot read", async () => {
+  it("reads a stored check-out it cannot read as the 10:00 default (13.1 rule 1)", async () => {
     const { user, trip, day, stay } = await seedTrip("leg-odd-checkout@example.com", "late morning");
     const first = await createItem(day.id, "F", "10:00", "11:00");
+    await settleSeededDay(day.id, { flexible: [first.id] });
 
     const result = await createTravelSegmentForTripDay(
       legParams(user.id, trip.id, day.id, accommodation(stay.id), act(first.id), 600),
     );
 
-    expect(result.status === "created" && result.receipt.movedItems).toEqual([]);
+    // 13.1: `resolveDayStartMinute` falls back to 10:00 rather than walking nothing.
+    expect(result.status === "created" && result.receipt.movedItems.map((row) => row.itemId)).toEqual([first.id]);
+    expect(await times(day.id)).toEqual(["F 20:00–21:00"]);
   });
 
-  it("moves nothing when the day's first activity is untimed", async () => {
+  it("gives a formerly untimed first activity its times from the check-out and the leg (13.1 §5)", async () => {
     const { user, trip, day, stay } = await seedTrip("leg-first-untimed@example.com");
     const u = await createItem(day.id, "U", null, null);
 
     const result = await createTravelSegmentForTripDay(legParams(user.id, trip.id, day.id, accommodation(stay.id), act(u.id), 600));
 
-    expect(result.status === "created" && result.receipt.movedItems).toEqual([]);
+    // 13.1: an untimed row is FLEXIBLE/15, so it is scheduled like any other.
+    expect(result.status === "created" && result.receipt.movedItems.map((row) => row.itemId)).toEqual([u.id]);
+    expect(await times(day.id)).toEqual(["U 19:00–19:15"]);
   });
 });
 
@@ -348,6 +391,8 @@ describe("a leg save past midnight writes nothing (Story 11.4 AC6)", () => {
     const { user, trip, day } = await seedTrip("leg-midnight@example.com");
     const a = await createItem(day.id, "A", "09:00", "10:00");
     const b = await createItem(day.id, "Late show", "22:00", "23:30");
+    // 13.1 §7: only a flexible row can be pushed past midnight; this one lasts 90 minutes.
+    await settleSeededDay(day.id, { flexible: [b.id] });
     const before = await databaseState();
 
     const created = await createTravelSegmentForTripDay(legParams(user.id, trip.id, day.id, act(a.id), act(b.id), 760));
@@ -426,8 +471,12 @@ describe("POST and PATCH /api/trips/[id]/travel-segments push and answer with a 
     });
     expect(updated.status).toBe(200);
     expect(updated.body.data!.receipt.edited.kind).toBe("legUpdated");
-    expect(updated.body.data!.receipt.movedItems.map((row) => row.itemId)).toEqual([b.id]);
-    expect(await times(day.id)).toEqual(["A 09:00–10:00", "B 13:00–14:00"]);
+    // 13.1 AC5: B is fixed, so a three-hour leg does not move it; the receipt names the late arrival.
+    expect(updated.body.data!.receipt.movedItems).toEqual([]);
+    expect(updated.body.data!.receipt.planConflicts).toEqual([
+      { itemId: b.id, title: "B", fromTime: "12:00", reachableAt: "13:00" },
+    ]);
+    expect(await times(day.id)).toEqual(["A 09:00–10:00", "B 12:00–13:00"]);
   });
 
   it("answers 409 day_plan_past_midnight with the activity in details, and writes nothing", async () => {
@@ -435,6 +484,7 @@ describe("POST and PATCH /api/trips/[id]/travel-segments push and answer with a 
     const session = await createSessionJwt({ sub: user.id, role: user.role });
     const a = await createItem(day.id, "A", "09:00", "10:00");
     const b = await createItem(day.id, "Late show", "22:00", "23:30");
+    await settleSeededDay(day.id, { flexible: [b.id] });
     const before = await databaseState();
 
     const result = await send("POST", trip.id, session, wireLeg(day.id, act(a.id), act(b.id), 760));

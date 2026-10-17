@@ -32,6 +32,8 @@ export type DayPlanItemAvgAggregateOutputType = {
   costRate: number | null
   locationLat: number | null
   locationLng: number | null
+  durationMinutes: number | null
+  sortOrder: number | null
 }
 
 export type DayPlanItemSumAggregateOutputType = {
@@ -40,6 +42,8 @@ export type DayPlanItemSumAggregateOutputType = {
   costRate: number | null
   locationLat: number | null
   locationLng: number | null
+  durationMinutes: number | null
+  sortOrder: number | null
 }
 
 export type DayPlanItemMinAggregateOutputType = {
@@ -60,6 +64,9 @@ export type DayPlanItemMinAggregateOutputType = {
   locationLabel: string | null
   createdAt: Date | null
   updatedAt: Date | null
+  scheduleMode: $Enums.DayPlanItemScheduleMode | null
+  durationMinutes: number | null
+  sortOrder: number | null
 }
 
 export type DayPlanItemMaxAggregateOutputType = {
@@ -80,6 +87,9 @@ export type DayPlanItemMaxAggregateOutputType = {
   locationLabel: string | null
   createdAt: Date | null
   updatedAt: Date | null
+  scheduleMode: $Enums.DayPlanItemScheduleMode | null
+  durationMinutes: number | null
+  sortOrder: number | null
 }
 
 export type DayPlanItemCountAggregateOutputType = {
@@ -100,6 +110,9 @@ export type DayPlanItemCountAggregateOutputType = {
   locationLabel: number
   createdAt: number
   updatedAt: number
+  scheduleMode: number
+  durationMinutes: number
+  sortOrder: number
   _all: number
 }
 
@@ -110,6 +123,8 @@ export type DayPlanItemAvgAggregateInputType = {
   costRate?: true
   locationLat?: true
   locationLng?: true
+  durationMinutes?: true
+  sortOrder?: true
 }
 
 export type DayPlanItemSumAggregateInputType = {
@@ -118,6 +133,8 @@ export type DayPlanItemSumAggregateInputType = {
   costRate?: true
   locationLat?: true
   locationLng?: true
+  durationMinutes?: true
+  sortOrder?: true
 }
 
 export type DayPlanItemMinAggregateInputType = {
@@ -138,6 +155,9 @@ export type DayPlanItemMinAggregateInputType = {
   locationLabel?: true
   createdAt?: true
   updatedAt?: true
+  scheduleMode?: true
+  durationMinutes?: true
+  sortOrder?: true
 }
 
 export type DayPlanItemMaxAggregateInputType = {
@@ -158,6 +178,9 @@ export type DayPlanItemMaxAggregateInputType = {
   locationLabel?: true
   createdAt?: true
   updatedAt?: true
+  scheduleMode?: true
+  durationMinutes?: true
+  sortOrder?: true
 }
 
 export type DayPlanItemCountAggregateInputType = {
@@ -178,6 +201,9 @@ export type DayPlanItemCountAggregateInputType = {
   locationLabel?: true
   createdAt?: true
   updatedAt?: true
+  scheduleMode?: true
+  durationMinutes?: true
+  sortOrder?: true
   _all?: true
 }
 
@@ -285,6 +311,9 @@ export type DayPlanItemGroupByOutputType = {
   locationLabel: string | null
   createdAt: Date
   updatedAt: Date
+  scheduleMode: $Enums.DayPlanItemScheduleMode
+  durationMinutes: number
+  sortOrder: number
   _count: DayPlanItemCountAggregateOutputType | null
   _avg: DayPlanItemAvgAggregateOutputType | null
   _sum: DayPlanItemSumAggregateOutputType | null
@@ -328,6 +357,9 @@ export type DayPlanItemWhereInput = {
   locationLabel?: Prisma.StringNullableFilter<"DayPlanItem"> | string | null
   createdAt?: Prisma.DateTimeFilter<"DayPlanItem"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"DayPlanItem"> | Date | string
+  scheduleMode?: Prisma.EnumDayPlanItemScheduleModeFilter<"DayPlanItem"> | $Enums.DayPlanItemScheduleMode
+  durationMinutes?: Prisma.IntFilter<"DayPlanItem"> | number
+  sortOrder?: Prisma.IntFilter<"DayPlanItem"> | number
   tripDay?: Prisma.XOR<Prisma.TripDayScalarRelationFilter, Prisma.TripDayWhereInput>
   images?: Prisma.DayPlanItemImageListRelationFilter
   documents?: Prisma.DayPlanItemDocumentListRelationFilter
@@ -352,6 +384,9 @@ export type DayPlanItemOrderByWithRelationInput = {
   locationLabel?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+  scheduleMode?: Prisma.SortOrder
+  durationMinutes?: Prisma.SortOrder
+  sortOrder?: Prisma.SortOrder
   tripDay?: Prisma.TripDayOrderByWithRelationInput
   images?: Prisma.DayPlanItemImageOrderByRelationAggregateInput
   documents?: Prisma.DayPlanItemDocumentOrderByRelationAggregateInput
@@ -379,6 +414,9 @@ export type DayPlanItemWhereUniqueInput = Prisma.AtLeast<{
   locationLabel?: Prisma.StringNullableFilter<"DayPlanItem"> | string | null
   createdAt?: Prisma.DateTimeFilter<"DayPlanItem"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"DayPlanItem"> | Date | string
+  scheduleMode?: Prisma.EnumDayPlanItemScheduleModeFilter<"DayPlanItem"> | $Enums.DayPlanItemScheduleMode
+  durationMinutes?: Prisma.IntFilter<"DayPlanItem"> | number
+  sortOrder?: Prisma.IntFilter<"DayPlanItem"> | number
   tripDay?: Prisma.XOR<Prisma.TripDayScalarRelationFilter, Prisma.TripDayWhereInput>
   images?: Prisma.DayPlanItemImageListRelationFilter
   documents?: Prisma.DayPlanItemDocumentListRelationFilter
@@ -403,6 +441,9 @@ export type DayPlanItemOrderByWithAggregationInput = {
   locationLabel?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+  scheduleMode?: Prisma.SortOrder
+  durationMinutes?: Prisma.SortOrder
+  sortOrder?: Prisma.SortOrder
   _count?: Prisma.DayPlanItemCountOrderByAggregateInput
   _avg?: Prisma.DayPlanItemAvgOrderByAggregateInput
   _max?: Prisma.DayPlanItemMaxOrderByAggregateInput
@@ -431,6 +472,9 @@ export type DayPlanItemScalarWhereWithAggregatesInput = {
   locationLabel?: Prisma.StringNullableWithAggregatesFilter<"DayPlanItem"> | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"DayPlanItem"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"DayPlanItem"> | Date | string
+  scheduleMode?: Prisma.EnumDayPlanItemScheduleModeWithAggregatesFilter<"DayPlanItem"> | $Enums.DayPlanItemScheduleMode
+  durationMinutes?: Prisma.IntWithAggregatesFilter<"DayPlanItem"> | number
+  sortOrder?: Prisma.IntWithAggregatesFilter<"DayPlanItem"> | number
 }
 
 export type DayPlanItemCreateInput = {
@@ -450,6 +494,9 @@ export type DayPlanItemCreateInput = {
   locationLabel?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  scheduleMode?: $Enums.DayPlanItemScheduleMode
+  durationMinutes?: number
+  sortOrder?: number
   tripDay: Prisma.TripDayCreateNestedOneWithoutDayPlanItemsInput
   images?: Prisma.DayPlanItemImageCreateNestedManyWithoutDayPlanItemInput
   documents?: Prisma.DayPlanItemDocumentCreateNestedManyWithoutDayPlanItemInput
@@ -474,6 +521,9 @@ export type DayPlanItemUncheckedCreateInput = {
   locationLabel?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  scheduleMode?: $Enums.DayPlanItemScheduleMode
+  durationMinutes?: number
+  sortOrder?: number
   images?: Prisma.DayPlanItemImageUncheckedCreateNestedManyWithoutDayPlanItemInput
   documents?: Prisma.DayPlanItemDocumentUncheckedCreateNestedManyWithoutDayPlanItemInput
   payments?: Prisma.CostPaymentUncheckedCreateNestedManyWithoutDayPlanItemInput
@@ -496,6 +546,9 @@ export type DayPlanItemUpdateInput = {
   locationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  scheduleMode?: Prisma.EnumDayPlanItemScheduleModeFieldUpdateOperationsInput | $Enums.DayPlanItemScheduleMode
+  durationMinutes?: Prisma.IntFieldUpdateOperationsInput | number
+  sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   tripDay?: Prisma.TripDayUpdateOneRequiredWithoutDayPlanItemsNestedInput
   images?: Prisma.DayPlanItemImageUpdateManyWithoutDayPlanItemNestedInput
   documents?: Prisma.DayPlanItemDocumentUpdateManyWithoutDayPlanItemNestedInput
@@ -520,6 +573,9 @@ export type DayPlanItemUncheckedUpdateInput = {
   locationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  scheduleMode?: Prisma.EnumDayPlanItemScheduleModeFieldUpdateOperationsInput | $Enums.DayPlanItemScheduleMode
+  durationMinutes?: Prisma.IntFieldUpdateOperationsInput | number
+  sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   images?: Prisma.DayPlanItemImageUncheckedUpdateManyWithoutDayPlanItemNestedInput
   documents?: Prisma.DayPlanItemDocumentUncheckedUpdateManyWithoutDayPlanItemNestedInput
   payments?: Prisma.CostPaymentUncheckedUpdateManyWithoutDayPlanItemNestedInput
@@ -543,6 +599,9 @@ export type DayPlanItemCreateManyInput = {
   locationLabel?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  scheduleMode?: $Enums.DayPlanItemScheduleMode
+  durationMinutes?: number
+  sortOrder?: number
 }
 
 export type DayPlanItemUpdateManyMutationInput = {
@@ -562,6 +621,9 @@ export type DayPlanItemUpdateManyMutationInput = {
   locationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  scheduleMode?: Prisma.EnumDayPlanItemScheduleModeFieldUpdateOperationsInput | $Enums.DayPlanItemScheduleMode
+  durationMinutes?: Prisma.IntFieldUpdateOperationsInput | number
+  sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
 }
 
 export type DayPlanItemUncheckedUpdateManyInput = {
@@ -582,6 +644,9 @@ export type DayPlanItemUncheckedUpdateManyInput = {
   locationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  scheduleMode?: Prisma.EnumDayPlanItemScheduleModeFieldUpdateOperationsInput | $Enums.DayPlanItemScheduleMode
+  durationMinutes?: Prisma.IntFieldUpdateOperationsInput | number
+  sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
 }
 
 export type DayPlanItemListRelationFilter = {
@@ -612,6 +677,9 @@ export type DayPlanItemCountOrderByAggregateInput = {
   locationLabel?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+  scheduleMode?: Prisma.SortOrder
+  durationMinutes?: Prisma.SortOrder
+  sortOrder?: Prisma.SortOrder
 }
 
 export type DayPlanItemAvgOrderByAggregateInput = {
@@ -620,6 +688,8 @@ export type DayPlanItemAvgOrderByAggregateInput = {
   costRate?: Prisma.SortOrder
   locationLat?: Prisma.SortOrder
   locationLng?: Prisma.SortOrder
+  durationMinutes?: Prisma.SortOrder
+  sortOrder?: Prisma.SortOrder
 }
 
 export type DayPlanItemMaxOrderByAggregateInput = {
@@ -640,6 +710,9 @@ export type DayPlanItemMaxOrderByAggregateInput = {
   locationLabel?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+  scheduleMode?: Prisma.SortOrder
+  durationMinutes?: Prisma.SortOrder
+  sortOrder?: Prisma.SortOrder
 }
 
 export type DayPlanItemMinOrderByAggregateInput = {
@@ -660,6 +733,9 @@ export type DayPlanItemMinOrderByAggregateInput = {
   locationLabel?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+  scheduleMode?: Prisma.SortOrder
+  durationMinutes?: Prisma.SortOrder
+  sortOrder?: Prisma.SortOrder
 }
 
 export type DayPlanItemSumOrderByAggregateInput = {
@@ -668,6 +744,8 @@ export type DayPlanItemSumOrderByAggregateInput = {
   costRate?: Prisma.SortOrder
   locationLat?: Prisma.SortOrder
   locationLng?: Prisma.SortOrder
+  durationMinutes?: Prisma.SortOrder
+  sortOrder?: Prisma.SortOrder
 }
 
 export type DayPlanItemNullableScalarRelationFilter = {
@@ -720,6 +798,10 @@ export type DayPlanItemUncheckedUpdateManyWithoutTripDayNestedInput = {
   update?: Prisma.DayPlanItemUpdateWithWhereUniqueWithoutTripDayInput | Prisma.DayPlanItemUpdateWithWhereUniqueWithoutTripDayInput[]
   updateMany?: Prisma.DayPlanItemUpdateManyWithWhereWithoutTripDayInput | Prisma.DayPlanItemUpdateManyWithWhereWithoutTripDayInput[]
   deleteMany?: Prisma.DayPlanItemScalarWhereInput | Prisma.DayPlanItemScalarWhereInput[]
+}
+
+export type EnumDayPlanItemScheduleModeFieldUpdateOperationsInput = {
+  set?: $Enums.DayPlanItemScheduleMode
 }
 
 export type DayPlanItemCreateNestedOneWithoutPaymentsInput = {
@@ -783,6 +865,9 @@ export type DayPlanItemCreateWithoutTripDayInput = {
   locationLabel?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  scheduleMode?: $Enums.DayPlanItemScheduleMode
+  durationMinutes?: number
+  sortOrder?: number
   images?: Prisma.DayPlanItemImageCreateNestedManyWithoutDayPlanItemInput
   documents?: Prisma.DayPlanItemDocumentCreateNestedManyWithoutDayPlanItemInput
   payments?: Prisma.CostPaymentCreateNestedManyWithoutDayPlanItemInput
@@ -805,6 +890,9 @@ export type DayPlanItemUncheckedCreateWithoutTripDayInput = {
   locationLabel?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  scheduleMode?: $Enums.DayPlanItemScheduleMode
+  durationMinutes?: number
+  sortOrder?: number
   images?: Prisma.DayPlanItemImageUncheckedCreateNestedManyWithoutDayPlanItemInput
   documents?: Prisma.DayPlanItemDocumentUncheckedCreateNestedManyWithoutDayPlanItemInput
   payments?: Prisma.CostPaymentUncheckedCreateNestedManyWithoutDayPlanItemInput
@@ -856,6 +944,9 @@ export type DayPlanItemScalarWhereInput = {
   locationLabel?: Prisma.StringNullableFilter<"DayPlanItem"> | string | null
   createdAt?: Prisma.DateTimeFilter<"DayPlanItem"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"DayPlanItem"> | Date | string
+  scheduleMode?: Prisma.EnumDayPlanItemScheduleModeFilter<"DayPlanItem"> | $Enums.DayPlanItemScheduleMode
+  durationMinutes?: Prisma.IntFilter<"DayPlanItem"> | number
+  sortOrder?: Prisma.IntFilter<"DayPlanItem"> | number
 }
 
 export type DayPlanItemCreateWithoutPaymentsInput = {
@@ -875,6 +966,9 @@ export type DayPlanItemCreateWithoutPaymentsInput = {
   locationLabel?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  scheduleMode?: $Enums.DayPlanItemScheduleMode
+  durationMinutes?: number
+  sortOrder?: number
   tripDay: Prisma.TripDayCreateNestedOneWithoutDayPlanItemsInput
   images?: Prisma.DayPlanItemImageCreateNestedManyWithoutDayPlanItemInput
   documents?: Prisma.DayPlanItemDocumentCreateNestedManyWithoutDayPlanItemInput
@@ -898,6 +992,9 @@ export type DayPlanItemUncheckedCreateWithoutPaymentsInput = {
   locationLabel?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  scheduleMode?: $Enums.DayPlanItemScheduleMode
+  durationMinutes?: number
+  sortOrder?: number
   images?: Prisma.DayPlanItemImageUncheckedCreateNestedManyWithoutDayPlanItemInput
   documents?: Prisma.DayPlanItemDocumentUncheckedCreateNestedManyWithoutDayPlanItemInput
 }
@@ -935,6 +1032,9 @@ export type DayPlanItemUpdateWithoutPaymentsInput = {
   locationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  scheduleMode?: Prisma.EnumDayPlanItemScheduleModeFieldUpdateOperationsInput | $Enums.DayPlanItemScheduleMode
+  durationMinutes?: Prisma.IntFieldUpdateOperationsInput | number
+  sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   tripDay?: Prisma.TripDayUpdateOneRequiredWithoutDayPlanItemsNestedInput
   images?: Prisma.DayPlanItemImageUpdateManyWithoutDayPlanItemNestedInput
   documents?: Prisma.DayPlanItemDocumentUpdateManyWithoutDayPlanItemNestedInput
@@ -958,6 +1058,9 @@ export type DayPlanItemUncheckedUpdateWithoutPaymentsInput = {
   locationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  scheduleMode?: Prisma.EnumDayPlanItemScheduleModeFieldUpdateOperationsInput | $Enums.DayPlanItemScheduleMode
+  durationMinutes?: Prisma.IntFieldUpdateOperationsInput | number
+  sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   images?: Prisma.DayPlanItemImageUncheckedUpdateManyWithoutDayPlanItemNestedInput
   documents?: Prisma.DayPlanItemDocumentUncheckedUpdateManyWithoutDayPlanItemNestedInput
 }
@@ -979,6 +1082,9 @@ export type DayPlanItemCreateWithoutImagesInput = {
   locationLabel?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  scheduleMode?: $Enums.DayPlanItemScheduleMode
+  durationMinutes?: number
+  sortOrder?: number
   tripDay: Prisma.TripDayCreateNestedOneWithoutDayPlanItemsInput
   documents?: Prisma.DayPlanItemDocumentCreateNestedManyWithoutDayPlanItemInput
   payments?: Prisma.CostPaymentCreateNestedManyWithoutDayPlanItemInput
@@ -1002,6 +1108,9 @@ export type DayPlanItemUncheckedCreateWithoutImagesInput = {
   locationLabel?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  scheduleMode?: $Enums.DayPlanItemScheduleMode
+  durationMinutes?: number
+  sortOrder?: number
   documents?: Prisma.DayPlanItemDocumentUncheckedCreateNestedManyWithoutDayPlanItemInput
   payments?: Prisma.CostPaymentUncheckedCreateNestedManyWithoutDayPlanItemInput
 }
@@ -1039,6 +1148,9 @@ export type DayPlanItemUpdateWithoutImagesInput = {
   locationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  scheduleMode?: Prisma.EnumDayPlanItemScheduleModeFieldUpdateOperationsInput | $Enums.DayPlanItemScheduleMode
+  durationMinutes?: Prisma.IntFieldUpdateOperationsInput | number
+  sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   tripDay?: Prisma.TripDayUpdateOneRequiredWithoutDayPlanItemsNestedInput
   documents?: Prisma.DayPlanItemDocumentUpdateManyWithoutDayPlanItemNestedInput
   payments?: Prisma.CostPaymentUpdateManyWithoutDayPlanItemNestedInput
@@ -1062,6 +1174,9 @@ export type DayPlanItemUncheckedUpdateWithoutImagesInput = {
   locationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  scheduleMode?: Prisma.EnumDayPlanItemScheduleModeFieldUpdateOperationsInput | $Enums.DayPlanItemScheduleMode
+  durationMinutes?: Prisma.IntFieldUpdateOperationsInput | number
+  sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   documents?: Prisma.DayPlanItemDocumentUncheckedUpdateManyWithoutDayPlanItemNestedInput
   payments?: Prisma.CostPaymentUncheckedUpdateManyWithoutDayPlanItemNestedInput
 }
@@ -1083,6 +1198,9 @@ export type DayPlanItemCreateWithoutDocumentsInput = {
   locationLabel?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  scheduleMode?: $Enums.DayPlanItemScheduleMode
+  durationMinutes?: number
+  sortOrder?: number
   tripDay: Prisma.TripDayCreateNestedOneWithoutDayPlanItemsInput
   images?: Prisma.DayPlanItemImageCreateNestedManyWithoutDayPlanItemInput
   payments?: Prisma.CostPaymentCreateNestedManyWithoutDayPlanItemInput
@@ -1106,6 +1224,9 @@ export type DayPlanItemUncheckedCreateWithoutDocumentsInput = {
   locationLabel?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  scheduleMode?: $Enums.DayPlanItemScheduleMode
+  durationMinutes?: number
+  sortOrder?: number
   images?: Prisma.DayPlanItemImageUncheckedCreateNestedManyWithoutDayPlanItemInput
   payments?: Prisma.CostPaymentUncheckedCreateNestedManyWithoutDayPlanItemInput
 }
@@ -1143,6 +1264,9 @@ export type DayPlanItemUpdateWithoutDocumentsInput = {
   locationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  scheduleMode?: Prisma.EnumDayPlanItemScheduleModeFieldUpdateOperationsInput | $Enums.DayPlanItemScheduleMode
+  durationMinutes?: Prisma.IntFieldUpdateOperationsInput | number
+  sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   tripDay?: Prisma.TripDayUpdateOneRequiredWithoutDayPlanItemsNestedInput
   images?: Prisma.DayPlanItemImageUpdateManyWithoutDayPlanItemNestedInput
   payments?: Prisma.CostPaymentUpdateManyWithoutDayPlanItemNestedInput
@@ -1166,6 +1290,9 @@ export type DayPlanItemUncheckedUpdateWithoutDocumentsInput = {
   locationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  scheduleMode?: Prisma.EnumDayPlanItemScheduleModeFieldUpdateOperationsInput | $Enums.DayPlanItemScheduleMode
+  durationMinutes?: Prisma.IntFieldUpdateOperationsInput | number
+  sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   images?: Prisma.DayPlanItemImageUncheckedUpdateManyWithoutDayPlanItemNestedInput
   payments?: Prisma.CostPaymentUncheckedUpdateManyWithoutDayPlanItemNestedInput
 }
@@ -1187,6 +1314,9 @@ export type DayPlanItemCreateManyTripDayInput = {
   locationLabel?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  scheduleMode?: $Enums.DayPlanItemScheduleMode
+  durationMinutes?: number
+  sortOrder?: number
 }
 
 export type DayPlanItemUpdateWithoutTripDayInput = {
@@ -1206,6 +1336,9 @@ export type DayPlanItemUpdateWithoutTripDayInput = {
   locationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  scheduleMode?: Prisma.EnumDayPlanItemScheduleModeFieldUpdateOperationsInput | $Enums.DayPlanItemScheduleMode
+  durationMinutes?: Prisma.IntFieldUpdateOperationsInput | number
+  sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   images?: Prisma.DayPlanItemImageUpdateManyWithoutDayPlanItemNestedInput
   documents?: Prisma.DayPlanItemDocumentUpdateManyWithoutDayPlanItemNestedInput
   payments?: Prisma.CostPaymentUpdateManyWithoutDayPlanItemNestedInput
@@ -1228,6 +1361,9 @@ export type DayPlanItemUncheckedUpdateWithoutTripDayInput = {
   locationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  scheduleMode?: Prisma.EnumDayPlanItemScheduleModeFieldUpdateOperationsInput | $Enums.DayPlanItemScheduleMode
+  durationMinutes?: Prisma.IntFieldUpdateOperationsInput | number
+  sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   images?: Prisma.DayPlanItemImageUncheckedUpdateManyWithoutDayPlanItemNestedInput
   documents?: Prisma.DayPlanItemDocumentUncheckedUpdateManyWithoutDayPlanItemNestedInput
   payments?: Prisma.CostPaymentUncheckedUpdateManyWithoutDayPlanItemNestedInput
@@ -1250,6 +1386,9 @@ export type DayPlanItemUncheckedUpdateManyWithoutTripDayInput = {
   locationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  scheduleMode?: Prisma.EnumDayPlanItemScheduleModeFieldUpdateOperationsInput | $Enums.DayPlanItemScheduleMode
+  durationMinutes?: Prisma.IntFieldUpdateOperationsInput | number
+  sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
 }
 
 
@@ -1319,6 +1458,9 @@ export type DayPlanItemSelect<ExtArgs extends runtime.Types.Extensions.InternalA
   locationLabel?: boolean
   createdAt?: boolean
   updatedAt?: boolean
+  scheduleMode?: boolean
+  durationMinutes?: boolean
+  sortOrder?: boolean
   tripDay?: boolean | Prisma.TripDayDefaultArgs<ExtArgs>
   images?: boolean | Prisma.DayPlanItem$imagesArgs<ExtArgs>
   documents?: boolean | Prisma.DayPlanItem$documentsArgs<ExtArgs>
@@ -1344,6 +1486,9 @@ export type DayPlanItemSelectCreateManyAndReturn<ExtArgs extends runtime.Types.E
   locationLabel?: boolean
   createdAt?: boolean
   updatedAt?: boolean
+  scheduleMode?: boolean
+  durationMinutes?: boolean
+  sortOrder?: boolean
   tripDay?: boolean | Prisma.TripDayDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["dayPlanItem"]>
 
@@ -1365,6 +1510,9 @@ export type DayPlanItemSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.E
   locationLabel?: boolean
   createdAt?: boolean
   updatedAt?: boolean
+  scheduleMode?: boolean
+  durationMinutes?: boolean
+  sortOrder?: boolean
   tripDay?: boolean | Prisma.TripDayDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["dayPlanItem"]>
 
@@ -1386,9 +1534,12 @@ export type DayPlanItemSelectScalar = {
   locationLabel?: boolean
   createdAt?: boolean
   updatedAt?: boolean
+  scheduleMode?: boolean
+  durationMinutes?: boolean
+  sortOrder?: boolean
 }
 
-export type DayPlanItemOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "tripDayId" | "title" | "fromTime" | "toTime" | "contentJson" | "costCents" | "costOriginalAmount" | "costCurrency" | "costRate" | "costRateDate" | "linkUrl" | "locationLat" | "locationLng" | "locationLabel" | "createdAt" | "updatedAt", ExtArgs["result"]["dayPlanItem"]>
+export type DayPlanItemOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "tripDayId" | "title" | "fromTime" | "toTime" | "contentJson" | "costCents" | "costOriginalAmount" | "costCurrency" | "costRate" | "costRateDate" | "linkUrl" | "locationLat" | "locationLng" | "locationLabel" | "createdAt" | "updatedAt" | "scheduleMode" | "durationMinutes" | "sortOrder", ExtArgs["result"]["dayPlanItem"]>
 export type DayPlanItemInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   tripDay?: boolean | Prisma.TripDayDefaultArgs<ExtArgs>
   images?: boolean | Prisma.DayPlanItem$imagesArgs<ExtArgs>
@@ -1429,6 +1580,9 @@ export type $DayPlanItemPayload<ExtArgs extends runtime.Types.Extensions.Interna
     locationLabel: string | null
     createdAt: Date
     updatedAt: Date
+    scheduleMode: $Enums.DayPlanItemScheduleMode
+    durationMinutes: number
+    sortOrder: number
   }, ExtArgs["result"]["dayPlanItem"]>
   composites: {}
 }
@@ -1873,6 +2027,9 @@ export interface DayPlanItemFieldRefs {
   readonly locationLabel: Prisma.FieldRef<"DayPlanItem", 'String'>
   readonly createdAt: Prisma.FieldRef<"DayPlanItem", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"DayPlanItem", 'DateTime'>
+  readonly scheduleMode: Prisma.FieldRef<"DayPlanItem", 'DayPlanItemScheduleMode'>
+  readonly durationMinutes: Prisma.FieldRef<"DayPlanItem", 'Int'>
+  readonly sortOrder: Prisma.FieldRef<"DayPlanItem", 'Int'>
 }
     
 

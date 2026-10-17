@@ -3554,7 +3554,8 @@ location: `travelplan/src/lib/trips/dayPlanPush.ts:92-97`, `:150`
 severity: low
 summary: `planDayPush` breaks the walk when either side's time cannot be parsed, so later overlapping rows are not pushed. An overnight pair such as 22:00–01:00 counts as ending at its start, so the next row is pushed only onto that start and overlaps it. Neither case is named in AC1/AC2.
 evidence: Read at 2026-10-11 during the code review of Story 11.2. Both shapes exist only in imported or pre-validation rows: `dayPlanItemMutationSchema` requires a readable `fromTime < toTime` on every API write. Stopping is the conservative choice. Closing this needs a ruling on how legacy shapes are walked (refuse, clamp to 23:59, or leave as is).
-status: open
+status: done 2026-10-17
+resolution: Story 13.1. The walk is gone (`dayPlanPush.ts` deleted); `scheduleDay` (`src/lib/trips/daySchedule.ts`) makes one forward pass with no stop condition. Ruling by default (13.1 §5): a row is timed only when both times read and the end is after the start. The migration and `legacyScheduleFields` make every other shape FLEXIBLE/15, and `scheduleDay` schedules a FIXED row without two readable times as flexible (pinned in `test/daySchedule.test.ts`, `test/migrationDayPlanItemSchedule.test.ts`).
 
 ### DW-372: Undo of a push can restore a moved activity on top of one created after it
 
@@ -3564,6 +3565,7 @@ location: `travelplan/src/lib/repositories/dayPlanChangeRepo.ts` (phase 1 stalen
 severity: low
 summary: Staleness covers only the rows the receipt lists. If B was pushed 10:00→11:00 and the user then creates C at 10:00–10:30, which fits without touching B, undo puts B back at 10:00–11:00. B overlaps C, and on equal starts B's older `createdAt` sorts it first. The phase-3 post-condition only protects drawn legs.
 evidence: Read at 2026-10-11 during the code review of Story 11.2. Overlaps are allowed across the app (AC5, AC14), and undo is offered only while the notice is still showing, so the window is small. A fix would need undo to re-run the walk or to refuse when the day gained rows, and both are design decisions.
+note (Story 13.1, 2026-10-17): Re-read after the move to a stored order. A row *inserted before* a moved one now renumbers it (`sortOrder` is dense), so that row's `updatedAt` changes and undo refuses as `undo_stale`. A row *appended after* it renumbers nothing it lists, so undo can still restore the moved row onto times the new row now uses; the next write recomputes the day. Still open, still a design decision.
 status: open
 
 ### DW-373: A lost write race returns 500 rather than `409 day_plan_changed`
@@ -3769,4 +3771,46 @@ location: `travelplan/src/app/api/trips/[id]/days/[dayId]/suggestions/preview/ro
 severity: low
 summary: `getDayRouteFromOsrm` takes no external `AbortSignal`, so closing the dialog aborts only the browser fetch; the server holds the OSRM request for up to 8 s.
 evidence: Pre-existing service shape; passing `request.signal` needs a service parameter.
+status: open
+
+## Deferred from: code review of 13-1-just-say-how-long (2026-10-17)
+
+### DW-392: Undo of a delete after a later create duplicates `sortOrder`
+
+source_spec: `_bmad-output/implementation-artifacts/13-1-just-say-how-long.md`
+origin: code review of 13-1-just-say-how-long, 2026-10-17
+location: `travelplan/src/lib/repositories/dayPlanChangeRepo.ts` (undo phase 1 staleness, phase 2 restore)
+severity: low
+summary: Day A(0) B(1) C(2). Delete C (no moved rows), create D (gets 2), undo the delete. The receipt passes staleness, and C is re-created with `sortOrder` 2 next to D. The order falls back to the start-time tiebreak, and C's restored flexible times overlap D's until the next write recomputes the day.
+evidence: The same family as DW-372: staleness covers only the rows the receipt names. The story says not to widen DW-372 here.
+status: open
+
+### DW-393: Undo does not restore `scheduleMode` on a row normalised to FLEXIBLE
+
+source_spec: `_bmad-output/implementation-artifacts/13-1-just-say-how-long.md`
+origin: code review of 13-1-just-say-how-long, 2026-10-17
+location: `travelplan/src/lib/repositories/dayScheduleTransaction.ts:373`; `travelplan/src/lib/trips/dayChangeReceipt.ts` (`MovedItemRow`)
+severity: low
+summary: `applyScheduleChangesInTransaction` writes `scheduleMode: FLEXIBLE` on a FIXED row without valid times (§5). `MovedItemRow` carries no previous mode, so undo leaves the row FLEXIBLE with its restored, invalid times. AC12's "restores the day exactly" does not hold for such a row.
+evidence: The migration and the import never produce such a row, so only a seed can.
+status: open
+
+### DW-394: Adding, copying or deleting last night's stay does not recompute the next day
+
+source_spec: `_bmad-output/implementation-artifacts/13-1-just-say-how-long.md`
+origin: code review of 13-1-just-say-how-long, 2026-10-17
+location: `travelplan/src/lib/repositories/accommodationRepo.ts:296,521,630` (only the update at :462 calls `planCheckOutScheduleInTransaction`)
+severity: medium
+summary: These writes change the next day's start (09:00 vs the check-out) and which stay leg counts. The next day's flexible times stay stale until an unrelated write moves them, and that write's receipt then shows those moves (or refuses with `past_midnight`).
+evidence: Story 13.1 §9 scoped the recompute to check-out changes only.
+status: open
+
+### DW-395: The edited row's write is unconditional; concurrent inserts are outside the read set
+
+source_spec: `_bmad-output/implementation-artifacts/13-1-just-say-how-long.md`
+origin: code review of 13-1-just-say-how-long, 2026-10-17
+location: `travelplan/src/lib/repositories/dayScheduleTransaction.ts:366`; `travelplan/src/lib/repositories/dayPlanItemRepo.ts` (update path); `travelplan/src/lib/repositories/daySuggestionApplyRepo.ts:280`
+severity: low
+summary: Only the rows read in step 1 are written conditionally on `updatedAt`. Two concurrent creates or applies on one day can both take the same `sortOrder`. Whether this can happen depends on how SQLite serialises the interactive transactions, which has not been confirmed.
+evidence: The same pattern the Epic 11 writes had.
 status: open

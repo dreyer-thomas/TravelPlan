@@ -5,11 +5,13 @@ import { prisma } from "@/lib/db/prisma";
 import { createSessionJwt } from "@/lib/auth/jwt";
 import { reorderDayPlanItemForTripDay } from "@/lib/repositories/dayPlanItemRepo";
 import { routeContext } from "./helpers/routeContext";
+import { settleSeededDay } from "./helpers/settleSeededDay";
 
 /**
  * Story 11.3. *Nach oben* / *Nach unten* wired through the repository and the route: what is written,
- * what the receipt says, which legs go (and which survive), and that every refusal writes nothing. The
- * arithmetic is pinned on its own in `dayPlanPush.test.ts`.
+ * what the receipt says, which legs go (and which survive), and that every refusal writes nothing. Story
+ * 13.1 §10: only a FLEXIBLE activity moves, the pair trades `sortOrder` and the day is recomputed, so the
+ * days here are flexible chains; the arithmetic is pinned in `daySchedule.test.ts`.
  */
 
 const sampleDoc = (text: string) =>
@@ -41,12 +43,19 @@ const createTrip = async (userId: string) => {
 
 let created = 0;
 /** Distinct, increasing `createdAt`s, so equal starts always sort in creation order. */
-const createItem = (tripDayId: string, title: string | null, fromTime: string | null, toTime: string | null) => {
+const createRawItem = (tripDayId: string, title: string | null, fromTime: string | null, toTime: string | null) => {
   created += 1;
   const stamp = new Date(PAST.getTime() + created * 1000);
   return prisma.dayPlanItem.create({
     data: { tripDayId, title, fromTime, toTime, contentJson: sampleDoc(title ?? ""), createdAt: stamp, updatedAt: PAST },
   });
+};
+
+/** Story 13.1: each seeded day is numbered the way the migration numbers real data. */
+const createItem = async (...args: Parameters<typeof createRawItem>) => {
+  const row = await createRawItem(...args);
+  await settleSeededDay(row.tripDayId);
+  return prisma.dayPlanItem.findUniqueOrThrow({ where: { id: row.id } });
 };
 
 const createLeg = (
@@ -72,13 +81,22 @@ const createLeg = (
 const item = (id: string) => ({ type: "DAY_PLAN_ITEM" as const, id });
 const stay = (id: string) => ({ type: "ACCOMMODATION" as const, id });
 
-/** Success criterion 4's day: A 09–10, B 10:30–11, C 11:30–12:30. */
-const seedDay = async (email: string) => {
+/**
+ * Success criterion 4's day, flexible since Story 13.1: A for an hour, B for 30 minutes, C for an hour,
+ * from the 09:00 start of a day without a stay last night: A 09–10, B 10–10:30, C 10:30–11:30.
+ * `beforeSettle` seeds the stay and legs the schedule should count.
+ */
+const seedDay = async (
+  email: string,
+  beforeSettle?: (rows: { firstDayId: string; dayId: string; a: { id: string }; b: { id: string }; c: { id: string } }) => Promise<unknown>,
+) => {
   const user = await createUser(email);
   const { trip, firstDay, day } = await createTrip(user.id);
   const a = await createItem(day.id, "A", "09:00", "10:00");
   const b = await createItem(day.id, "B", "10:30", "11:00");
   const c = await createItem(day.id, "C", "11:30", "12:30");
+  await beforeSettle?.({ firstDayId: firstDay.id, dayId: day.id, a, b, c });
+  await settleSeededDay(day.id, { flexible: [a.id, b.id, c.id] });
   return { user, trip, firstDay, day, a, b, c };
 };
 
@@ -146,13 +164,15 @@ describe("POST /api/trips/[id]/day-plan-items/reorder (Story 11.3)", () => {
     const response = await send(trip.id, session, { tripDayId: day.id, itemId: b.id, direction: "up" });
 
     expect(response.status).toBe(200);
-    expect(await times(day.id)).toEqual({ A: "09:30–10:30", B: "09:00–09:30", C: "11:30–12:30" });
+    // 13.1: B takes the 09:00 start, A follows it, and C (tight behind A either way) keeps its times.
+    expect(await times(day.id)).toEqual({ A: "09:30–10:30", B: "09:00–09:30", C: "10:30–11:30" });
     const receipt = (response.body.data as { receipt: WireReceipt }).receipt;
-    expect(receipt.version).toBe(2);
+    expect(receipt.version).toBe(3);
     expect(receipt.signature).toMatch(/^[0-9a-f]{64}$/);
     expect(receipt.edited).toEqual({ kind: "reordered", itemId: b.id, neighbourId: a.id });
     expect(receipt.movedItems.map((row) => row.itemId)).toEqual([b.id, a.id]);
-    expect(receipt.movedItems[0]).toMatchObject({ previousFromTime: "10:30", previousToTime: "11:00", previousUpdatedAt: PAST.toISOString() });
+    // 13.1: B's previous times are the schedule's, 10:00–10:30.
+    expect(receipt.movedItems[0]).toMatchObject({ previousFromTime: "10:00", previousToTime: "10:30", previousUpdatedAt: PAST.toISOString() });
     expect(receipt.removedTravelSegments).toEqual([]);
 
     const stored = await prisma.dayPlanItem.findMany({ where: { id: { in: [a.id, b.id] } } });
@@ -168,17 +188,20 @@ describe("POST /api/trips/[id]/day-plan-items/reorder (Story 11.3)", () => {
 
     expect(result.status).toBe("reordered");
     if (result.status !== "reordered") return;
-    expect(await times(day.id)).toEqual({ A: "09:30–10:30", B: "09:00–09:30", C: "11:30–12:30" });
+    expect(await times(day.id)).toEqual({ A: "09:30–10:30", B: "09:00–09:30", C: "10:30–11:30" });
     expect(result.receipt.edited).toEqual({ kind: "reordered", itemId: a.id, neighbourId: b.id });
     expect(result.receipt.movedItems.map((row) => row.itemId)).toEqual([b.id, a.id]);
   });
 
   it("sweeps stay→A, A→B and B→C, and creates nothing (AC3)", async () => {
-    const { user, trip, firstDay, day, a, b, c } = await seedDay("reorder-legs@example.com");
-    const lastNight = await prisma.accommodation.create({ data: { tripDayId: firstDay.id, name: "Last night", status: "BOOKED" } });
-    const fromStay = await createLeg(day.id, stay(lastNight.id), item(a.id));
-    const ab = await createLeg(day.id, item(a.id), item(b.id));
-    const bc = await createLeg(day.id, item(b.id), item(c.id));
+    const legs: { id: string }[] = [];
+    const { user, trip, day, b } = await seedDay("reorder-legs@example.com", async ({ firstDayId, dayId, a, b, c }) => {
+      const lastNight = await prisma.accommodation.create({ data: { tripDayId: firstDayId, name: "Last night", status: "BOOKED" } });
+      legs.push(await createLeg(dayId, stay(lastNight.id), item(a.id)));
+      legs.push(await createLeg(dayId, item(a.id), item(b.id)));
+      legs.push(await createLeg(dayId, item(b.id), item(c.id)));
+    });
+    const [fromStay, ab, bc] = legs;
 
     const result = await reorderDayPlanItemForTripDay({ userId: user.id, tripId: trip.id, tripDayId: day.id, itemId: b.id, direction: "up" });
 
@@ -194,6 +217,7 @@ describe("POST /api/trips/[id]/day-plan-items/reorder (Story 11.3)", () => {
     const a = await createItem(day.id, "A", "09:00", "10:00");
     const b = await createItem(day.id, "B", "10:00", "11:00");
     const ba = await createLeg(day.id, item(b.id), item(a.id), 20);
+    await settleSeededDay(day.id, { flexible: [a.id, b.id] });
 
     const result = await reorderDayPlanItemForTripDay({ userId: user.id, tripId: trip.id, tripDayId: day.id, itemId: b.id, direction: "up" });
 
@@ -202,28 +226,38 @@ describe("POST /api/trips/[id]/day-plan-items/reorder (Story 11.3)", () => {
     expect(await times(day.id)).toEqual({ A: "10:20–11:20", B: "09:00–10:00" });
     expect(result.receipt.removedTravelSegments).toEqual([]);
     expect(await prisma.travelSegment.findMany()).toEqual([ba]);
+    // Kept for the record: `ba` was seeded before the settle, which keeps every stamp as seeded.
   });
 
-  it("pushes what follows an overlapping pair and lists it after the pair", async () => {
+  it("moves what follows the pair and lists it after the pair", async () => {
     const user = await createUser("reorder-push@example.com");
     const { trip, day } = await createTrip(user.id);
     const a = await createItem(day.id, "A", "09:00", "11:00");
     const b = await createItem(day.id, "B", "10:00", "10:30");
     const c = await createItem(day.id, "C", "11:00", "12:00");
+    // 13.1: flexible A 09–11, B 11–11:30, and C 11:40–12:40 behind the 10-minute B→C leg.
+    await createLeg(day.id, item(b.id), item(c.id), 10);
+    await settleSeededDay(day.id, { flexible: [a.id, b.id, c.id] });
 
     const result = await reorderDayPlanItemForTripDay({ userId: user.id, tripId: trip.id, tripDayId: day.id, itemId: b.id, direction: "up" });
 
     if (result.status !== "reordered") throw new Error(`expected reordered, got ${result.status}`);
+    // B→C is no longer drawn (swept), so C now sits tight behind A.
     expect(await times(day.id)).toEqual({ A: "09:30–11:30", B: "09:00–09:30", C: "11:30–12:30" });
     expect(result.receipt.movedItems.map((row) => row.itemId)).toEqual([b.id, a.id, c.id]);
+    expect(result.receipt.removedTravelSegments).toHaveLength(1);
   });
 
   it("past midnight: 409 with the named activity in details, and the whole DB unchanged", async () => {
     const user = await createUser("reorder-midnight@example.com");
     const { trip, day } = await createTrip(user.id);
-    const a = await createItem(day.id, "A", "21:00", "23:00");
-    const b = await createItem(day.id, "B", "22:00", "23:30");
-    await createLeg(day.id, item(a.id), item(b.id));
+    // 13.1: a fixed show until 22:00, then flexible A (90 min, to 23:30) and B (15 min, to 23:45). Up,
+    // B starts at 22:00 and A follows the 20-minute B→A leg to 22:35–00:05: past midnight.
+    await createItem(day.id, "Show", "21:00", "22:00");
+    const a = await createItem(day.id, "A", "21:00", "22:30");
+    const b = await createItem(day.id, "B", "22:00", "22:15");
+    await createLeg(day.id, item(b.id), item(a.id), 20);
+    await settleSeededDay(day.id, { flexible: [a.id, b.id] });
     const session = await createSessionJwt({ sub: user.id, role: user.role });
     const before = await databaseState();
 
@@ -234,16 +268,19 @@ describe("POST /api/trips/[id]/day-plan-items/reorder (Story 11.3)", () => {
     expect(await databaseState()).toEqual(before);
   });
 
-  it("not reorderable: the first activity up, an untimed one, the last down → 409, DB unchanged", async () => {
-    const { user, trip, day, a, c } = await seedDay("reorder-refused@example.com");
+  it("not reorderable: the first activity up, the last down, a fixed one either way → 409, DB unchanged", async () => {
+    const { user, trip, day, a } = await seedDay("reorder-refused@example.com");
+    // 13.1 §10: an untimed row is flexible now and may move; a FIXED one may not.
+    const fixed = await createItem(day.id, "F", "18:00", "19:00");
     const untimed = await createItem(day.id, "U", null, null);
     const session = await createSessionJwt({ sub: user.id, role: user.role });
     const before = await databaseState();
 
     for (const body of [
       { tripDayId: day.id, itemId: a.id, direction: "up" },
-      { tripDayId: day.id, itemId: c.id, direction: "down" },
-      { tripDayId: day.id, itemId: untimed.id, direction: "up" },
+      { tripDayId: day.id, itemId: untimed.id, direction: "down" },
+      { tripDayId: day.id, itemId: fixed.id, direction: "up" },
+      { tripDayId: day.id, itemId: fixed.id, direction: "down" },
     ]) {
       const response = await send(trip.id, session, body);
       expect(response.status).toBe(409);
@@ -291,13 +328,16 @@ describe("POST /api/trips/[id]/day-plan-items/reorder (Story 11.3)", () => {
   it("carries the check-in warning when the swapped day reaches an explicit check-in too late", async () => {
     const user = await createUser("reorder-checkin@example.com");
     const { trip, day } = await createTrip(user.id);
+    // 13.1: flexible A (2 h) and B (30 min) behind a fixed lunch until 15:00: A 15–17, B 17–17:30.
+    await createItem(day.id, "Lunch", "14:00", "15:00");
     const a = await createItem(day.id, "A", "15:00", "17:00");
     const b = await createItem(day.id, "B", "16:00", "16:30");
     const tonight = await prisma.accommodation.create({
       data: { tripDayId: day.id, name: "Hotel", status: "BOOKED", checkInTime: "17:15" },
     });
-    // B→A takes 20 minutes: A becomes 16:50–18:50, after the 17:15 check-in.
+    // B→A takes 20 minutes: A becomes 15:50–17:50, after the 17:15 check-in.
     await createLeg(day.id, item(b.id), item(a.id), 20);
+    await settleSeededDay(day.id, { flexible: [a.id, b.id] });
     const session = await createSessionJwt({ sub: user.id, role: user.role });
 
     const response = await send(trip.id, session, { tripDayId: day.id, itemId: b.id, direction: "up" });

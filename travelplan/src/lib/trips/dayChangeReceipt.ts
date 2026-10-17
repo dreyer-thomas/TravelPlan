@@ -33,6 +33,14 @@
  * Story 12.4 adds `suggestionsApplied`: the activities, legs and image rows one apply of picked AI
  * suggestions created, each activity and leg with its post-write `updatedAt`. Undo removes all of them
  * (and the image files) in one request and restores any leg the apply swept. Additive, so still version 2.
+ *
+ * Story 13.1 (version 3). The day's order is stored (`sortOrder`) and every write recomputes the day, so a
+ * write can renumber rows whose times stay put: `movedItems` lists every row whose times **or** order
+ * changed, with `previousSortOrder`, and its new times so the notice counts only rows that visibly moved.
+ * The item snapshots carry `scheduleMode`, `durationMinutes` and `sortOrder`, so undo of an edit or a
+ * delete restores how the activity was planned. A leg delete now recomputes too, and gets its own kind,
+ * `legDeleted`. `planConflicts` names the fixed activities this write made unreachable in time; like the
+ * check-in warning it is for the notice only, and undo ignores it. A version-2 receipt is refused.
  */
 
 import { formatMessage } from "@/i18n";
@@ -69,12 +77,18 @@ export type CostPaymentRow<T extends Date | string = Date> = Stamped<T> & {
   sortOrder: number;
 };
 
+/** Story 13.1. The stored spelling of `DayPlanItemScheduleMode`, spelled out to keep Prisma out of the bundle. */
+export type DayChangeScheduleMode = "FLEXIBLE" | "FIXED";
+
 export type DayPlanItemRow<T extends Date | string = Date> = Stamped<T> & {
   id: string;
   tripDayId: string;
   title: string | null;
   fromTime: string | null;
   toTime: string | null;
+  scheduleMode: DayChangeScheduleMode;
+  durationMinutes: number;
+  sortOrder: number;
   contentJson: string;
   costCents: number | null;
   costOriginalAmount: number | null;
@@ -135,6 +149,8 @@ export type DayChangeEdited<T extends Date | string = Date> =
   | { kind: "legCreated"; segmentId: string; updatedAt: T }
   /** Story 11.4. `previous` is the whole stored row before the write, stamps included. */
   | { kind: "legUpdated"; segmentId: string; updatedAt: T; previous: TravelSegmentRow<T> }
+  /** Story 13.1. The deleted leg in full; undo re-creates it with its id and stamps. */
+  | { kind: "legDeleted"; segmentId: string; previous: TravelSegmentRow<T> }
   /** Story 11.4. `previousCheckOutTime` is the stored value, not the resolved one. */
   | {
       kind: "stayCheckOutChanged";
@@ -152,13 +168,18 @@ export type DayChangeEdited<T extends Date | string = Date> =
     };
 
 /**
- * Story 11.2. An activity the push rule moved: its times before the change, and its `updatedAt` before
- * and after. Undo refuses when `updatedAt` no longer matches, and writes `previousUpdatedAt` back.
+ * Story 11.2. An activity the write moved: its times before the change, and its `updatedAt` before and
+ * after. Undo refuses when `updatedAt` no longer matches, and writes the previous values back. Story 13.1:
+ * also a row only renumbered (`previousSortOrder`); `fromTime`/`toTime` are the times after the write, so
+ * the notice can tell the two apart.
  */
 export type MovedItemRow<T extends Date | string = Date> = {
   itemId: string;
   previousFromTime: string | null;
   previousToTime: string | null;
+  previousSortOrder: number;
+  fromTime: string | null;
+  toTime: string | null;
   previousUpdatedAt: T;
   updatedAt: T;
 };
@@ -166,8 +187,11 @@ export type MovedItemRow<T extends Date | string = Date> = {
 /** Story 11.2 AC9. The day's stay has an explicit check-in that the pushed day now reaches too late. */
 export type DayChangeCheckInWarning = { accommodationId: string; checkInTime: string };
 
+/** Story 13.1 AC5. A fixed activity the day now reaches only at `reachableAt`, after its `fromTime`. */
+export type DayChangePlanConflict = { itemId: string; title: string | null; fromTime: string; reachableAt: string };
+
 export type DayChangeReceipt<T extends Date | string = Date> = {
-  version: 2;
+  version: 3;
   tripDayId: string;
   edited: DayChangeEdited<T>;
   removedTravelSegments: TravelSegmentRow<T>[];
@@ -175,6 +199,8 @@ export type DayChangeReceipt<T extends Date | string = Date> = {
   movedItems: MovedItemRow<T>[];
   consumedBucketListItem?: TripBucketListItemRow<T>;
   checkInWarning?: DayChangeCheckInWarning;
+  /** Story 13.1. Only conflicts this write made; absent when there are none. */
+  planConflicts?: DayChangePlanConflict[];
 };
 
 export type DayChangeReceiptWire = DayChangeReceipt<string>;
@@ -238,6 +264,9 @@ const mapReceipt = <A extends Date | string, B extends Date | string>(
         previous: mapStamps(receipt.edited.previous, convert),
       };
       break;
+    case "legDeleted":
+      edited = { ...receipt.edited, previous: mapStamps(receipt.edited.previous, convert) };
+      break;
     case "stayCheckOutChanged":
       edited = {
         ...receipt.edited,
@@ -273,6 +302,7 @@ const mapReceipt = <A extends Date | string, B extends Date | string>(
       ? { consumedBucketListItem: mapStamps(receipt.consumedBucketListItem, convert) }
       : {}),
     ...(receipt.checkInWarning ? { checkInWarning: { ...receipt.checkInWarning } } : {}),
+    ...(receipt.planConflicts ? { planConflicts: receipt.planConflicts.map((conflict) => ({ ...conflict })) } : {}),
   };
 };
 
@@ -283,16 +313,23 @@ export const toDayChangeReceiptWire = (receipt: DayChangeReceipt): DayChangeRece
 export const fromDayChangeReceiptWire = (receipt: DayChangeReceiptWire): DayChangeReceipt =>
   mapReceipt(receipt, (value: string) => new Date(value));
 
+/** Story 13.1. A moved row whose times changed, as opposed to one only renumbered. */
+const movedTimes = <T extends Date | string>(row: MovedItemRow<T>) =>
+  row.previousFromTime !== row.fromTime || row.previousToTime !== row.toTime;
+
 /**
  * A removed leg (Story 11.1) or a moved activity (Story 11.2). The check-in warning only follows a move.
  * A reorder (Story 11.3) always has side effects: it changes two activities' times by itself. So does an
  * apply of suggestions (Story 12.4): it writes several rows at once, and its notice is the only undo.
+ * Story 13.1: a new plan conflict too, or a plain create that runs into a ferry would show no notice. A
+ * row only renumbered is not a side effect anyone sees; it is still in `movedItems` for undo.
  */
 export const receiptHasSideEffects = <T extends Date | string>(receipt: DayChangeReceipt<T>): boolean =>
   receipt.edited.kind === "reordered" ||
   receipt.edited.kind === "suggestionsApplied" ||
   receipt.removedTravelSegments.length > 0 ||
-  receipt.movedItems.length > 0;
+  receipt.movedItems.some(movedTimes) ||
+  (receipt.planConflicts?.length ?? 0) > 0;
 
 /** Story 12.4. "4 activities and 3 travel legs added", or "1 activity added" when no leg was created. */
 const summarizeSuggestionsApplied = (itemCount: number, legCount: number, t: (key: string) => string) => {
@@ -325,7 +362,8 @@ export const summarizeDayChangeReceipt = <T extends Date | string>(
 ): string => {
   const parts: string[] = [];
   const { edited } = receipt;
-  let movedItems = receipt.movedItems;
+  // Story 13.1: rows whose times changed, never one only renumbered.
+  let movedItems = receipt.movedItems.filter(movedTimes);
   if (edited.kind === "suggestionsApplied") {
     parts.push(summarizeSuggestionsApplied(edited.items.length, edited.segments.length, t));
   }
@@ -363,3 +401,25 @@ export const checkInWarningText = <T extends Date | string>(
   receipt.checkInWarning
     ? formatMessage(t("trips.dayChange.checkInWarning"), { time: receipt.checkInWarning.checkInTime })
     : undefined;
+
+/**
+ * Story 13.1 AC5. One sentence per new plan conflict, joined with `" · "`, or `undefined` when there is
+ * none: "Fähre beginnt um 12:00, erreichbar erst um 12:40". An untitled activity uses the dialog's
+ * untitled label.
+ */
+export const planConflictText = <T extends Date | string>(
+  receipt: DayChangeReceipt<T>,
+  t: (key: string) => string,
+): string | undefined => {
+  const conflicts = receipt.planConflicts ?? [];
+  if (conflicts.length === 0) return undefined;
+  return conflicts
+    .map((conflict) =>
+      formatMessage(t("trips.dayChange.planConflict"), {
+        title: conflict.title?.trim() || t("trips.plan.untitledActivity"),
+        start: conflict.fromTime,
+        reachable: conflict.reachableAt,
+      }),
+    )
+    .join(" · ");
+};

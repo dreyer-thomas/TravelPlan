@@ -9,7 +9,7 @@
  * about *what* each one is attached to, is for the traversal and the label rule to exist once.
  *
  * **It re-derives no order.** `getTripDayPrintPayloadForUser` already built the `timeline` array -
- * `previousStay` → plan items sorted by `compareDayPlanItemsByStartTime` → `currentStay`, with travel
+ * `previousStay` → plan items sorted by `compareDayPlanItemsByOrder` → `currentStay`, with travel
  * segments interleaved - and each entry already carries its documents ordered by `sortOrder`. This
  * module flattens that; it does not sort.
  *

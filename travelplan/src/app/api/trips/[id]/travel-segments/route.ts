@@ -307,12 +307,19 @@ export const DELETE = async (request: NextRequest, context: RouteContext) => {
 
   let deleted;
   try {
-    deleted = await deleteTravelSegmentForTripDay({
-      userId,
-      tripId,
-      tripDayId: parsed.data.tripDayId,
-      segmentId: parsed.data.segmentId,
-    });
+    // Story 13.1 §8: a leg delete recomputes the day, so it can lose the same race the other saves can.
+    const attempt = await withPushConflict(() =>
+      deleteTravelSegmentForTripDay({
+        userId,
+        tripId,
+        tripDayId: parsed.data.tripDayId,
+        segmentId: parsed.data.segmentId,
+      }),
+    );
+    if ("conflict" in attempt) {
+      return dayChangedResponse();
+    }
+    deleted = attempt.result;
   } catch {
     return fail(apiError("server_error", "Unable to delete travel segment"), 500);
   }
@@ -324,6 +331,12 @@ export const DELETE = async (request: NextRequest, context: RouteContext) => {
   if (deleted.status === "missing") {
     return fail(apiError("not_found", "Travel segment not found"), 404);
   }
+  if (deleted.status === "past_midnight") {
+    return pastMidnightResponse(deleted.item);
+  }
 
-  return ok({ deleted: true });
+  return ok({
+    deleted: true,
+    receipt: signDayChangeReceipt(toDayChangeReceiptWire(deleted.receipt), { tripId, userId }),
+  });
 };

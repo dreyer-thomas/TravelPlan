@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_CHECK_IN_TIME,
   DEFAULT_CHECK_OUT_TIME,
+  DAY_START_WITHOUT_STAY,
   resolveCheckOutTime,
+  resolveDayStartMinute,
   resolveStayTime,
 } from "@/lib/trips/stayTimes";
 
@@ -25,5 +27,14 @@ describe("stayTimes", () => {
     expect(resolveCheckOutTime(null)).toBe("10:00");
     expect(resolveCheckOutTime(" ")).toBe("10:00");
     expect(resolveCheckOutTime("09:00")).toBe("09:00");
+  });
+
+  it("resolves a day start from last night's stay (Story 13.1 AC3)", () => {
+    expect(DAY_START_WITHOUT_STAY).toBe("09:00");
+    expect(resolveDayStartMinute({ checkOutTime: "08:30" })).toBe(8 * 60 + 30);
+    expect(resolveDayStartMinute({ checkOutTime: null })).toBe(10 * 60);
+    expect(resolveDayStartMinute({ checkOutTime: " " })).toBe(10 * 60);
+    expect(resolveDayStartMinute({ checkOutTime: "late" })).toBe(10 * 60);
+    expect(resolveDayStartMinute(null)).toBe(9 * 60);
   });
 });

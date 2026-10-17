@@ -19,7 +19,7 @@ import { renderWithProviders } from "./helpers/renderWithProviders";
  * could remove it (`DW-151`, reported from production on 2026-08-07).
  *
  * **The order this file is really about.** Which legs exist at all is decided by adjacency in
- * start-time order (`compareDayPlanItemsByStartTime`, applied by `travelSegmentRepo.ts`), so a screen
+ * the day's order (`compareDayPlanItemsByOrder` since Story 13.1, applied by `travelSegmentRepo.ts`), so a screen
  * that splits drawn from orphaned in any other order inverts the split: it draws a pair the API
  * refuses and offers the one row the API accepts for deletion. The payload does arrive in start-time
  * order — `getTripWithDaysForUser` sorts it in its mapping, after a Prisma `orderBy: { createdAt }`
@@ -622,6 +622,41 @@ describe("TripDayView orphaned travel legs", () => {
     // The drawn leg and its 30 minutes are untouched: removal takes one row, not the day's travel.
     expect(drawnPairs()).toContain("item-1->item-2");
     expect(screen.getByTestId("day-stat-travel-time")).toHaveTextContent("30m");
+
+    confirmSpy.mockRestore();
+  });
+
+  it("re-reads the day when the orphan removal's receipt moved activities (Story 13.1, review)", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const receipt = {
+      signature: "a".repeat(64),
+      version: 3,
+      tripDayId: "day-1",
+      edited: { kind: "legDeleted", segmentId: "segment-orphan", previous: ORPHAN },
+      removedTravelSegments: [],
+      movedItems: [
+        {
+          itemId: "item-2",
+          previousFromTime: "12:00",
+          previousToTime: "13:00",
+          previousSortOrder: 1,
+          fromTime: "11:00",
+          toTime: "12:00",
+          previousUpdatedAt: "2026-11-01T10:00:00.000Z",
+          updatedAt: "2026-12-01T08:00:00.000Z",
+        },
+      ],
+    };
+    const { detailRequestCount } = stubDay({
+      onDelete: () => ({ ok: true, status: 200, body: { data: { deleted: true, receipt }, error: null } }),
+    });
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+    const before = detailRequestCount();
+    await userEvent.click(screen.getByTestId("orphan-travel-segment-remove"));
+
+    await waitFor(() => expect(detailRequestCount()).toBeGreaterThan(before));
 
     confirmSpy.mockRestore();
   });

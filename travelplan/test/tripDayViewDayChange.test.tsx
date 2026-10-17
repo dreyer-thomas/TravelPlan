@@ -211,7 +211,7 @@ const wireLeg = (id: string) => ({
 const receipt = (legs: ReturnType<typeof wireLeg>[]): SignedDayChangeReceiptWire => ({
   // Opaque to the client: it only ever sends the server's seal back, so any well-formed value will do.
   signature: "a".repeat(64),
-  version: 2,
+  version: 3,
   tripDayId: "day-1",
   edited: { kind: "created", itemId: "item-new", updatedAt: "2026-12-01T08:00:00.000Z" },
   removedTravelSegments: legs,
@@ -226,6 +226,8 @@ const stubDay = (
     undo?: () => Outcome;
     /** Holds the DELETE response until the returned promise resolves. */
     deleteGate?: () => Promise<void>;
+    /** Replaces the activity DELETE's default success. */
+    deleteOutcome?: () => Outcome;
   } = {},
 ) => {
   const state = { accessRole: options.accessRole ?? ("owner" as "owner" | "contributor" | "viewer") };
@@ -252,6 +254,8 @@ const stubDay = (
     }
     if (url.includes("/day-plan-items") && method === "DELETE") {
       await options.deleteGate?.();
+      const outcome = options.deleteOutcome?.();
+      if (outcome) return mockFetchResponse(outcome.body, { ok: outcome.ok, status: outcome.status });
       return mockFetchResponse({
         data: { deleted: true, removedTravelSegmentIds: ["segment-drawn"], receipt: receipt([wireLeg("segment-drawn")]) },
         error: null,
@@ -531,6 +535,26 @@ describe("TripDayView change receipt notice (Story 11.1)", () => {
     // listed as an orphan; with it, Museum → Park is the day's only leg and it is drawn.
     await waitFor(() => expect(screen.queryAllByTestId("orphan-travel-segment")).toHaveLength(0));
   });
+
+  it("names the activity when a delete is refused as past midnight (Story 13.1 §7, review)", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    stubDay({
+      deleteOutcome: () => ({
+        ok: false,
+        status: 409,
+        body: {
+          data: null,
+          error: { code: "day_plan_past_midnight", message: "x", details: { itemId: "item-2", itemTitle: "Park" } },
+        },
+      }),
+    });
+    await renderDay();
+
+    await userEvent.click(screen.getByRole("button", { name: en["trips.plan.addPrimaryAction"] }));
+    await userEvent.click(await screen.findByRole("button", { name: "stub-delete" }));
+
+    expect(await screen.findByText(en["trips.plan.pastMidnight"].replace("{title}", "Park"))).toBeInTheDocument();
+  });
 });
 
 describe("TripDayView change receipt notice, version 2 (Story 11.2)", () => {
@@ -543,6 +567,9 @@ describe("TripDayView change receipt notice, version 2 (Story 11.2)", () => {
     itemId,
     previousFromTime: "10:30",
     previousToTime: "11:30",
+    previousSortOrder: 0,
+    fromTime: "11:30",
+    toTime: "12:30",
     previousUpdatedAt: "2026-11-01T10:00:00.000Z",
     updatedAt: "2026-12-01T08:00:00.000Z",
   });
@@ -591,5 +618,38 @@ describe("TripDayView change receipt notice, version 2 (Story 11.2)", () => {
     await userEvent.click(screen.getByRole("button", { name: en["trips.dayChange.undo"] }));
     expect(await screen.findByText(en["trips.dayChange.undoStale"])).toBeInTheDocument();
     expect(screen.queryByText(warning)).not.toBeInTheDocument();
+  });
+
+  it("puts a new plan conflict before the check-in warning, joined with a middle dot (Story 13.1 AC5)", async () => {
+    stubDay();
+    await renderDay();
+
+    stubControl.receipt = {
+      ...receipt([]),
+      movedItems: [movedRow("a")],
+      checkInWarning: { accommodationId: "stay-1", checkInTime: "17:30" },
+      planConflicts: [{ itemId: "ferry", title: "Ferry", fromTime: "12:00", reachableAt: "12:40" }],
+    };
+    await saveThroughPlanDialog();
+
+    expect(
+      await screen.findByText(
+        "Ferry starts at 12:00, reachable only at 12:40 · You will reach your stay after its 17:30 check-in.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("shows the notice for a save that moved nothing but ran into a fixed activity (Story 13.1 §15)", async () => {
+    stubDay();
+    await renderDay();
+
+    stubControl.receipt = {
+      ...receipt([]),
+      planConflicts: [{ itemId: "ferry", title: "Ferry", fromTime: "12:00", reachableAt: "12:40" }],
+    };
+    await saveThroughPlanDialog();
+
+    const notice = await screen.findByTestId("action-notice");
+    expect(notice).toHaveTextContent("Ferry starts at 12:00, reachable only at 12:40");
   });
 });

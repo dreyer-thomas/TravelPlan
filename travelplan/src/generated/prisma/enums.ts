@@ -42,6 +42,14 @@ export const AccommodationStatus = {
 export type AccommodationStatus = (typeof AccommodationStatus)[keyof typeof AccommodationStatus]
 
 
+export const DayPlanItemScheduleMode = {
+  FLEXIBLE: 'FLEXIBLE',
+  FIXED: 'FIXED'
+} as const
+
+export type DayPlanItemScheduleMode = (typeof DayPlanItemScheduleMode)[keyof typeof DayPlanItemScheduleMode]
+
+
 export const TravelSegmentItemType = {
   ACCOMMODATION: 'ACCOMMODATION',
   DAY_PLAN_ITEM: 'DAY_PLAN_ITEM'

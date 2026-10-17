@@ -1634,7 +1634,10 @@ export const DayPlanItemScalarFieldEnum = {
   locationLng: 'locationLng',
   locationLabel: 'locationLabel',
   createdAt: 'createdAt',
-  updatedAt: 'updatedAt'
+  updatedAt: 'updatedAt',
+  scheduleMode: 'scheduleMode',
+  durationMinutes: 'durationMinutes',
+  sortOrder: 'sortOrder'
 } as const
 
 export type DayPlanItemScalarFieldEnum = (typeof DayPlanItemScalarFieldEnum)[keyof typeof DayPlanItemScalarFieldEnum]
@@ -1817,6 +1820,13 @@ export type EnumTravelTransportTypeFieldRefInput<$PrismaModel> = FieldRefInputTy
  * Reference to a field of type 'AccommodationStatus'
  */
 export type EnumAccommodationStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'AccommodationStatus'>
+    
+
+
+/**
+ * Reference to a field of type 'DayPlanItemScheduleMode'
+ */
+export type EnumDayPlanItemScheduleModeFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'DayPlanItemScheduleMode'>
     
 
 /**

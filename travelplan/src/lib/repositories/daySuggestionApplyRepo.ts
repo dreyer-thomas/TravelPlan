@@ -5,8 +5,8 @@ import {
   buildReceipt,
   DayPlanChangedError,
   findCheckInWarningForOrderInTransaction,
-  readPushInputInTransaction,
-} from "@/lib/repositories/dayPlanPushTransaction";
+  readScheduleInputInTransaction,
+} from "@/lib/repositories/dayScheduleTransaction";
 import {
   buildSegmentTimelineInTransaction,
   readDrawnSegmentKeysInTransaction,
@@ -14,14 +14,18 @@ import {
   type TransactionClient,
 } from "@/lib/repositories/travelSegmentRepo";
 import type { DayChangeReceipt } from "@/lib/trips/dayChangeReceipt";
-import { compareDayPlanItemsByStartTime } from "@/lib/trips/dayPlanItemOrder";
-import { activityEndMinutes, minutesToTime, timeToMinutes } from "@/lib/trips/dayPlanPush";
+import { compareDayPlanItemsByOrder } from "@/lib/trips/dayPlanItemOrder";
+import { activityEndMinutes, minutesToTime, timeToMinutes } from "@/lib/trips/daySchedule";
 import { buildDaySegmentPairKey, buildDrawnDaySegmentPairKeys } from "@/lib/trips/daySegmentPairs";
 import { planDayPlanItemGalleryPhoto, removeWrittenPhotos } from "@/lib/trips/importPhotos";
 import { plainTextToTiptapDoc } from "@/lib/trips/planText";
-import { DEFAULT_CHECK_OUT_TIME, resolveCheckOutTime } from "@/lib/trips/stayTimes";
+import { resolveDayStartMinute } from "@/lib/trips/stayTimes";
 import type { DownloadedSuggestionImage } from "@/lib/trips/suggestionImageDownload";
-import { chainTimes, DAY_START_WITHOUT_STAY, SUGGESTION_MODE_ROUTING } from "@/lib/trips/suggestionPlan";
+import { chainTimes, SUGGESTION_MODE_ROUTING } from "@/lib/trips/suggestionPlan";
+import {
+  MAX_ACTIVITY_DURATION_MINUTES,
+  MIN_ACTIVITY_DURATION_MINUTES,
+} from "@/lib/validation/dayPlanItemSchemas";
 import type { GeoPoint } from "@/lib/geo/distance";
 import type {
   ApplySuggestion,
@@ -99,7 +103,16 @@ const readPlanContext = async (
       trip: { select: { startLocationLabel: true, startLocationLat: true, startLocationLng: true } },
       accommodation: stay,
       dayPlanItems: {
-        select: { id: true, title: true, fromTime: true, toTime: true, createdAt: true, locationLat: true, locationLng: true },
+        select: {
+          id: true,
+          title: true,
+          fromTime: true,
+          toTime: true,
+          createdAt: true,
+          sortOrder: true,
+          locationLat: true,
+          locationLng: true,
+        },
       },
     },
   });
@@ -116,7 +129,7 @@ const readPlanContext = async (
   // latest end, which a long activity that started earlier may hold. One whose start cannot be read is
   // not timed here.
   const timed = [...day.dayPlanItems]
-    .sort(compareDayPlanItemsByStartTime)
+    .sort(compareDayPlanItemsByOrder)
     .filter((item) => Boolean(item.fromTime) && activityEndMinutes(item) !== null);
   const last = timed.at(-1) ?? null;
   const ends = timed.map((item) => activityEndMinutes(item) as number);
@@ -152,8 +165,8 @@ export const loadSuggestionPlanContextForWriter = (
  */
 export const planStartMinute = (context: SuggestionPlanContext): number => {
   if (context.timedEndMinute !== null) return context.timedEndMinute;
-  if (!context.previousStay) return timeToMinutes(DAY_START_WITHOUT_STAY) as number;
-  return timeToMinutes(resolveCheckOutTime(context.previousStay.checkOutTime)) ?? (timeToMinutes(DEFAULT_CHECK_OUT_TIME) as number);
+  // Story 13.1 §17: the rest is the schedule rule's day start, from the one helper.
+  return resolveDayStartMinute(context.previousStay);
 };
 
 
@@ -261,18 +274,35 @@ export const applySuggestionsForTripDay = async (params: ApplySuggestionsParams)
 
         const drawnBefore = await readDrawnSegmentKeysInTransaction(tx, tripId, tripDayId);
 
+        // Story 13.1 §12, until 13.4 makes suggestions flexible: a chained row is FIXED at its chained
+        // times, an overflow row (no times) FLEXIBLE with its suggested duration, and all of them are
+        // appended in visiting order after the day's current last row. No recompute runs.
+        const last = await tx.dayPlanItem.aggregate({ where: { tripDayId }, _max: { sortOrder: true } });
+        const firstSortOrder = (last._max.sortOrder ?? -1) + 1;
+
         // Each a millisecond after the last, so untimed ones (past midnight) keep the visiting order.
         const base = Date.now();
         const created: { id: string; updatedAt: Date }[] = [];
         const imageIds: string[] = [];
         for (const [index, suggestion] of suggestions.entries()) {
           const times = rows[index];
+          const fromTime = times?.fromTime ?? null;
+          const toTime = times?.toTime ?? null;
+          const chained = fromTime !== null && toTime !== null;
           const item = await tx.dayPlanItem.create({
             data: {
               tripDayId,
               title: suggestion.title,
-              fromTime: times?.fromTime ?? null,
-              toTime: times?.toTime ?? null,
+              fromTime,
+              toTime,
+              scheduleMode: chained ? "FIXED" : "FLEXIBLE",
+              durationMinutes: chained
+                ? timeToMinutes(toTime)! - timeToMinutes(fromTime)!
+                : Math.min(
+                    MAX_ACTIVITY_DURATION_MINUTES,
+                    Math.max(MIN_ACTIVITY_DURATION_MINUTES, Math.round(suggestion.durationMinutes)),
+                  ),
+              sortOrder: firstSortOrder + index,
               contentJson: plainTextToTiptapDoc(suggestion.description),
               locationLat: suggestion.lat,
               locationLng: suggestion.lng,
@@ -330,12 +360,8 @@ export const applySuggestionsForTripDay = async (params: ApplySuggestionsParams)
           segments.push({ segmentId: segment.id, updatedAt: segment.updatedAt });
         }
 
-        const [items] = await readPushInputInTransaction(tx, tripDayId);
-        const checkInWarning = await findCheckInWarningForOrderInTransaction(
-          tx,
-          tripDayId,
-          [...items].sort(compareDayPlanItemsByStartTime),
-        );
+        const state = await readScheduleInputInTransaction(tx, tripId, tripDayId);
+        const checkInWarning = await findCheckInWarningForOrderInTransaction(tx, tripDayId, state?.rows ?? []);
 
         return buildReceipt(
           tripDayId,

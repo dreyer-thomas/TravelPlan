@@ -110,6 +110,11 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
             // array, because the legs it draws are its consecutive pairs; without this field it
             // could only guess at a tie, and a guess here is a leg counted that is not drawn.
             createdAt: item.createdAt.toISOString(),
+            // Story 13.1. The day's order is `sortOrder` now (`compareDayPlanItemsByOrder`); `createdAt`
+            // remains only a tie-break for rows that share one.
+            scheduleMode: item.scheduleMode,
+            durationMinutes: item.durationMinutes,
+            sortOrder: item.sortOrder,
             contentJson: item.contentJson,
             costCents: item.costCents,
             costOriginalAmount: item.costOriginalAmount,
@@ -251,6 +256,11 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
             // array, because the legs it draws are its consecutive pairs; without this field it
             // could only guess at a tie, and a guess here is a leg counted that is not drawn.
             createdAt: item.createdAt.toISOString(),
+            // Story 13.1. The day's order is `sortOrder` now (`compareDayPlanItemsByOrder`); `createdAt`
+            // remains only a tie-break for rows that share one.
+            scheduleMode: item.scheduleMode,
+            durationMinutes: item.durationMinutes,
+            sortOrder: item.sortOrder,
             contentJson: item.contentJson,
             costCents: item.costCents,
             costOriginalAmount: item.costOriginalAmount,

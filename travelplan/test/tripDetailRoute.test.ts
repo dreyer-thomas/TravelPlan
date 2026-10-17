@@ -298,17 +298,22 @@ describe("GET /api/trips/[id]", () => {
       "costOriginalAmount",
       "costRate",
       "costRateDate",
-      // Story 8.5. A deliberate addition, not a leak: `compareDayPlanItemsByStartTime` breaks a
-      // same-start-time tie with `createdAt`, and `TripDayView` re-applies that comparator to order
-      // the activities whose consecutive pairs are the day's travel legs. Without the field on the
-      // wire the screen could order such a pair differently from the server that decides which legs
+      // Story 8.5. A deliberate addition, not a leak: `compareDayPlanItemsByOrder` breaks a
+      // `sortOrder` tie with the start time and `createdAt`, and `TripDayView` re-applies that comparator
+      // to order the activities whose consecutive pairs are the day's travel legs. Without the field on
+      // the wire the screen could order such a pair differently from the server that decides which legs
       // between them exist at all.
       "createdAt",
+      // Story 13.1. How the activity is planned and its place in the day: the day view sorts by
+      // `sortOrder`, shows the lock for FIXED, and the dialog reopens with the duration.
+      "durationMinutes",
       "fromTime",
       "id",
       "linkUrl",
       "location",
       "payments",
+      "scheduleMode",
+      "sortOrder",
       "title",
       "toTime",
     ]);
@@ -335,7 +340,7 @@ describe("GET /api/trips/[id]", () => {
    * Story 8.5 review. **The sort every consumer of this payload rests on, and nothing pinned it.**
    *
    * The Prisma query orders `dayPlanItems` by `createdAt`; what puts them in the order the day
-   * actually happens is `[...day.dayPlanItems].sort(compareDayPlanItemsByStartTime)` in the mapping
+   * actually happens is `[...day.dayPlanItems].sort(compareDayPlanItemsByOrder)` in the mapping
    * (`tripRepo.ts`), which until the review pass was a private copy of the comparator and is now an
    * import of the shared one. That line decides more than a rendering order: `TripDayView` re-applies
    * the same comparator to what it receives and takes the consecutive pairs of the result as the day's

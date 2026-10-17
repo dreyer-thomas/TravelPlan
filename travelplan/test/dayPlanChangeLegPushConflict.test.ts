@@ -10,26 +10,26 @@ import { routeContext } from "./helpers/routeContext";
  * included) rolls back, and the route answers `409 day_plan_changed`.
  *
  * Its own file because `vi.mock` is per-module for a whole file. The interloper is simulated inside the
- * window: `planPushFromInTransaction` (called across the module boundary from `travelSegmentRepo.ts` and
- * `accommodationRepo.ts`) has read the day and planned, and no write has happened yet, so the mock bumps
- * the to-be-pushed row's `updatedAt` through the same `tx` right there, exactly as a write that slipped in
- * would leave it.
+ * window: `readScheduleInputInTransaction` (Story 13.1; called across the module boundary from
+ * `travelSegmentRepo.ts` and `accommodationRepo.ts`) has read the day, and no write has happened yet, so
+ * the mock bumps the to-be-moved row's `updatedAt` through the same `tx` right there, exactly as a write
+ * that slipped in would leave it.
  */
 const interlope = vi.hoisted(() => ({ title: null as string | null }));
 
-vi.mock("@/lib/repositories/dayPlanPushTransaction", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/repositories/dayPlanPushTransaction")>(
-    "@/lib/repositories/dayPlanPushTransaction",
+vi.mock("@/lib/repositories/dayScheduleTransaction", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/repositories/dayScheduleTransaction")>(
+    "@/lib/repositories/dayScheduleTransaction",
   );
   return {
     ...actual,
-    planPushFromInTransaction: async (...args: Parameters<typeof actual.planPushFromInTransaction>) => {
-      const planned = await actual.planPushFromInTransaction(...args);
+    readScheduleInputInTransaction: async (...args: Parameters<typeof actual.readScheduleInputInTransaction>) => {
+      const state = await actual.readScheduleInputInTransaction(...args);
       const [tx] = args;
       if (interlope.title) {
         await tx.dayPlanItem.updateMany({ where: { title: interlope.title }, data: { updatedAt: new Date("2030-01-01T00:00:00.000Z") } });
       }
-      return planned;
+      return state;
     },
   };
 });
@@ -69,12 +69,25 @@ const seed = async (email: string) => {
   const stay = await prisma.accommodation.create({
     data: { tripDayId: stayDay.id, name: "Stay", checkOutTime: "09:00", createdAt: PAST, updatedAt: PAST },
   });
-  const item = (title: string, fromTime: string, toTime: string) =>
+  // Story 13.1: flexible rows, so a leg or a check-out moves them; stored as the schedule computes them
+  // from the 09:00 check-out: A 09:00–09:30, B 09:30–10:30.
+  const item = (title: string, fromTime: string, toTime: string, durationMinutes: number, sortOrder: number) =>
     prisma.dayPlanItem.create({
-      data: { tripDayId: day.id, title, fromTime, toTime, contentJson: sampleDoc(title), createdAt: PAST, updatedAt: PAST },
+      data: {
+        tripDayId: day.id,
+        title,
+        fromTime,
+        toTime,
+        scheduleMode: "FLEXIBLE",
+        durationMinutes,
+        sortOrder,
+        contentJson: sampleDoc(title),
+        createdAt: PAST,
+        updatedAt: PAST,
+      },
     });
-  const a = await item("A", "09:30", "10:00");
-  const b = await item("B", "10:30", "11:30");
+  const a = await item("A", "09:00", "09:30", 30, 0);
+  const b = await item("B", "09:30", "10:30", 60, 1);
   const session = await createSessionJwt({ sub: user.id, role: user.role });
   return { trip, stayDay, day, stay, a, b, session };
 };
@@ -111,7 +124,7 @@ describe("a leg or check-out push that loses a race rolls the whole save back (S
     expect(response.status).toBe(409);
     expect(((await response.json()) as { error: { code: string } }).error.code).toBe("day_plan_changed");
     expect(await prisma.travelSegment.count()).toBe(0);
-    expect((await prisma.dayPlanItem.findUniqueOrThrow({ where: { id: b.id } })).fromTime).toBe("10:30");
+    expect((await prisma.dayPlanItem.findUniqueOrThrow({ where: { id: b.id } })).fromTime).toBe("09:30");
   });
 
   it("answers 409 day_plan_changed to a check-out save and leaves the stay as it was", async () => {
@@ -135,6 +148,6 @@ describe("a leg or check-out push that loses a race rolls the whole save back (S
       checkOutTime: "09:00",
       updatedAt: PAST,
     });
-    expect((await prisma.dayPlanItem.findUniqueOrThrow({ where: { id: a.id } })).fromTime).toBe("09:30");
+    expect((await prisma.dayPlanItem.findUniqueOrThrow({ where: { id: a.id } })).fromTime).toBe("09:00");
   });
 });

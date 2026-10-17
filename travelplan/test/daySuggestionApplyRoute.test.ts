@@ -206,8 +206,10 @@ describe("POST …/suggestions/preview and …/apply (Story 12.4)", () => {
     const applied = await postApply(trip.id, day2.id, session, applyBodyFrom("car", [harbour], preview.body.data!));
     expect(applied.status).toBe(200);
     const created = await prisma.dayPlanItem.findFirstOrThrow({ where: { title: "Old Harbour" } });
-    const [leg] = await prisma.travelSegment.findMany();
-    expect(leg).toMatchObject({ fromItemType: "DAY_PLAN_ITEM", fromItemId: lunch.id, toItemId: created.id, transportType: "CAR" });
+    // Story 13.1 §12: the apply appends after the day's last row, and the untimed one (flexible now) is
+    // that row, so Lunch → Old Harbour is not drawn and no leg is created. 13.4 rewrites the apply.
+    expect(created.sortOrder).toBeGreaterThan((await prisma.dayPlanItem.findFirstOrThrow({ where: { title: "Someday" } })).sortOrder);
+    expect(await prisma.travelSegment.count()).toBe(0);
   });
 
   it("starts at the latest end on the day, with the first leg still from the timeline's last activity", async () => {

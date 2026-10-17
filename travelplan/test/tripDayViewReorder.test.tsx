@@ -55,12 +55,23 @@ vi.mock("leaflet", () => ({
 const doc = (text: string) =>
   JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text }] }] });
 
-const planItem = (id: string, title: string, fromTime: string | null, toTime: string | null, createdAt: string) => ({
+const planItem = (
+  id: string,
+  title: string,
+  fromTime: string | null,
+  toTime: string | null,
+  createdAt: string,
+  scheduleMode: "FLEXIBLE" | "FIXED" = "FLEXIBLE",
+  sortOrder = 0,
+) => ({
   id,
   title,
   fromTime,
   toTime,
   createdAt,
+  scheduleMode,
+  durationMinutes: 60,
+  sortOrder,
   contentJson: doc(title),
   costCents: null,
   payments: [],
@@ -70,12 +81,15 @@ const planItem = (id: string, title: string, fromTime: string | null, toTime: st
 
 type PlanItemFixture = ReturnType<typeof planItem>;
 
-/** Museum 09–10, Market 13–14, Park 16–17, then an untimed Picnic. */
+/**
+ * Museum 09–10 and Market 13–14 (flexible), Park 16–17 (fixed, Story 13.1), then a Picnic that does not
+ * fit (flexible, no times).
+ */
 const fullDay = (): PlanItemFixture[] => [
-  planItem("item-1", "Museum", "09:00", "10:00", "2026-11-01T10:00:00.000Z"),
-  planItem("item-2", "Market", "13:00", "14:00", "2026-11-01T10:01:00.000Z"),
-  planItem("item-3", "Park", "16:00", "17:00", "2026-11-01T10:02:00.000Z"),
-  planItem("item-4", "Picnic", null, null, "2026-11-01T10:03:00.000Z"),
+  planItem("item-1", "Museum", "09:00", "10:00", "2026-11-01T10:00:00.000Z", "FLEXIBLE", 0),
+  planItem("item-2", "Market", "13:00", "14:00", "2026-11-01T10:01:00.000Z", "FLEXIBLE", 1),
+  planItem("item-3", "Park", "16:00", "17:00", "2026-11-01T10:02:00.000Z", "FIXED", 2),
+  planItem("item-4", "Picnic", null, null, "2026-11-01T10:03:00.000Z", "FLEXIBLE", 3),
 ];
 
 const tripDetail = (accessRole: "owner" | "contributor" | "viewer", items: PlanItemFixture[]) => ({
@@ -109,13 +123,16 @@ const moved = (itemId: string) => ({
   itemId,
   previousFromTime: "13:00",
   previousToTime: "14:00",
+  previousSortOrder: 1,
+  fromTime: "09:00",
+  toTime: "10:00",
   previousUpdatedAt: "2026-11-01T10:00:00.000Z",
   updatedAt: "2026-12-01T08:00:00.000Z",
 });
 
 const reorderReceipt = (): SignedDayChangeReceiptWire => ({
   signature: "a".repeat(64),
-  version: 2,
+  version: 3,
   tripDayId: "day-1",
   edited: { kind: "reordered", itemId: "item-2", neighbourId: "item-1" },
   removedTravelSegments: [],
@@ -196,23 +213,21 @@ describe("TripDayView activity overflow menu (Story 11.3)", () => {
     expect(screen.queryAllByTestId("day-plan-item-overflow")).toHaveLength(0);
   });
 
-  it("offers a trigger only on timed activities with a timed neighbour, never on an untimed one", async () => {
+  it("offers a trigger on every flexible activity with a neighbour, timed or not, never on a fixed one (13.1 §10)", async () => {
     stubDay();
     await renderDay();
 
     expect(screen.getAllByTestId("day-plan-item-overflow")).toHaveLength(3);
     expect(triggerFor("Museum")).toBeInTheDocument();
     expect(triggerFor("Market")).toBeInTheDocument();
-    expect(triggerFor("Park")).toBeInTheDocument();
-    expect(triggerFor("Picnic")).not.toBeInTheDocument();
+    // 13.1 §10: a fixed activity's place follows from its time; the untimed Picnic is flexible and moves.
+    expect(triggerFor("Park")).not.toBeInTheDocument();
+    expect(triggerFor("Picnic")).toBeInTheDocument();
   });
 
-  it("offers no trigger on a lone timed activity, whose menu would open empty", async () => {
+  it("offers no trigger on a lone activity, whose menu would open empty", async () => {
     stubDay({
-      items: [
-        planItem("item-1", "Museum", "09:00", "10:00", "2026-11-01T10:00:00.000Z"),
-        planItem("item-4", "Picnic", null, null, "2026-11-01T10:03:00.000Z"),
-      ],
+      items: [planItem("item-1", "Museum", "09:00", "10:00", "2026-11-01T10:00:00.000Z")],
     });
     await renderDay();
 
@@ -227,7 +242,8 @@ describe("TripDayView activity overflow menu (Story 11.3)", () => {
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
 
-    expect(menuItemNames(await openMenuFor("Park"))).toEqual([en["trips.plan.moveUp"]]);
+    // 13.1 §10: the last activity is the flexible Picnic, and it may move up past the fixed Park.
+    expect(menuItemNames(await openMenuFor("Picnic"))).toEqual([en["trips.plan.moveUp"]]);
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
 

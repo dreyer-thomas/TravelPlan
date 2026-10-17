@@ -4,6 +4,7 @@ import en from "@/i18n/en";
 import {
   checkInWarningText,
   fromDayChangeReceiptWire,
+  planConflictText,
   receiptHasSideEffects,
   summarizeDayChangeReceipt,
   toDayChangeReceiptWire,
@@ -50,6 +51,9 @@ const itemRow = {
   locationLat: 1,
   locationLng: 2,
   locationLabel: "Here",
+  scheduleMode: "FIXED" as const,
+  durationMinutes: 60,
+  sortOrder: 0,
   createdAt: at("2026-01-01T00:00:00.001Z"),
   updatedAt: at("2026-01-01T00:00:00.002Z"),
 };
@@ -67,7 +71,7 @@ const payment = {
 };
 
 const receiptWith = (legs: TravelSegmentRow[]): DayChangeReceipt => ({
-  version: 2,
+  version: 3,
   tripDayId: "day-1",
   edited: { kind: "created", itemId: "item-9", updatedAt: at("2026-03-01T00:00:00.000Z") },
   removedTravelSegments: legs,
@@ -80,6 +84,9 @@ const moved = (itemId: string): MovedItemRow => ({
   itemId,
   previousFromTime: "10:30",
   previousToTime: "11:30",
+  previousSortOrder: 1,
+  fromTime: "11:00",
+  toTime: "12:00",
   previousUpdatedAt: at("2026-02-01T00:00:00.011Z"),
   updatedAt: at("2026-03-01T00:00:00.012Z"),
 });
@@ -117,25 +124,28 @@ describe("dayChangeReceipt, version 2 (Story 11.2)", () => {
       BINDING,
     );
     expect(dayChangeReceiptSchema.safeParse(wire).success).toBe(true);
-    expect(dayChangeReceiptSchema.safeParse({ ...wire, movedItems: [{ ...wire.movedItems[0], fromTime: "x" }] }).success).toBe(false);
+    // Story 13.1: `fromTime` is a moved row's own key since version 3, so the unknown key is another one.
+    expect(dayChangeReceiptSchema.safeParse({ ...wire, movedItems: [{ ...wire.movedItems[0], extra: "x" }] }).success).toBe(false);
     expect(dayChangeReceiptSchema.safeParse({ ...wire, checkInWarning: { ...wire.checkInWarning, extra: 1 } }).success).toBe(false);
     expect(dayChangeReceiptSchema.safeParse({ ...wire, version: 1 }).success).toBe(false);
+    // Story 13.1 AC12: a version-2 receipt is refused too.
+    expect(dayChangeReceiptSchema.safeParse({ ...wire, version: 2 }).success).toBe(false);
   });
 });
 
 describe("dayChangeReceipt, reordered (Story 11.3)", () => {
   const reordered = (extra: MovedItemRow[] = [], legs: TravelSegmentRow[] = []): DayChangeReceipt => ({
-    version: 2,
+    version: 3,
     tripDayId: "day-1",
     edited: { kind: "reordered", itemId: "item-b", neighbourId: "item-a" },
     removedTravelSegments: legs,
     movedItems: [moved("item-b"), moved("item-a"), ...extra],
   });
 
-  it("round-trips through the wire form, still at version 2, and the schema accepts it", () => {
+  it("round-trips through the wire form, at version 3 since Story 13.1, and the schema accepts it", () => {
     const receipt = reordered([moved("item-c")], [leg("s1")]);
     const wire = toDayChangeReceiptWire(receipt);
-    expect(wire.version).toBe(2);
+    expect(wire.version).toBe(3) // Story 13.1: every receipt is version 3;
     expect(wire.edited).toEqual({ kind: "reordered", itemId: "item-b", neighbourId: "item-a" });
     expect(fromDayChangeReceiptWire(wire)).toEqual(receipt);
     expect(dayChangeReceiptSchema.safeParse(signDayChangeReceipt(wire, BINDING)).success).toBe(true);
@@ -165,7 +175,7 @@ describe("dayChangeReceipt, reordered (Story 11.3)", () => {
 
 describe("dayChangeReceipt, leg and check-out kinds (Story 11.4)", () => {
   const withEdited = (edited: DayChangeReceipt["edited"], movedItems: MovedItemRow[] = []): DayChangeReceipt => ({
-    version: 2,
+    version: 3,
     tripDayId: "day-1",
     edited,
     removedTravelSegments: [],
@@ -187,7 +197,7 @@ describe("dayChangeReceipt, leg and check-out kinds (Story 11.4)", () => {
     for (const edited of kinds) {
       const receipt = withEdited(edited, [moved("item-2")]);
       const wire = toDayChangeReceiptWire(receipt);
-      expect(wire.version).toBe(2);
+      expect(wire.version).toBe(3) // Story 13.1: every receipt is version 3;
       expect(fromDayChangeReceiptWire(wire)).toEqual(receipt);
       expect(dayChangeReceiptSchema.safeParse(signDayChangeReceipt(wire, BINDING)).success).toBe(true);
     }
@@ -238,7 +248,7 @@ describe("dayChangeReceipt (Story 11.1)", () => {
     const receipts: DayChangeReceipt[] = [
       receiptWith([leg("s1")]),
       {
-        version: 2,
+        version: 3,
         tripDayId: "day-1",
         edited: {
           kind: "updated",
@@ -250,7 +260,7 @@ describe("dayChangeReceipt (Story 11.1)", () => {
         movedItems: [],
       },
       {
-        version: 2,
+        version: 3,
         tripDayId: "day-1",
         edited: {
           kind: "deleted",
@@ -392,7 +402,7 @@ describe("dayChangeReceipt (Story 11.1)", () => {
 
 describe("dayChangeReceipt, suggestionsApplied (Story 12.4)", () => {
   const applied = (itemCount: number, legCount: number, removed: TravelSegmentRow[] = []): DayChangeReceipt => ({
-    version: 2,
+    version: 3,
     tripDayId: "day-1",
     edited: {
       kind: "suggestionsApplied",
@@ -414,10 +424,10 @@ describe("dayChangeReceipt, suggestionsApplied (Story 12.4)", () => {
     expect(receiptHasSideEffects(applied(1, 0))).toBe(true);
   });
 
-  it("round-trips through the wire form at version 2, and the schema accepts it", () => {
+  it("round-trips through the wire form at version 3 (Story 13.1), and the schema accepts it", () => {
     const receipt = applied(3, 2, [leg("s1")]);
     const wire = toDayChangeReceiptWire(receipt);
-    expect(wire.version).toBe(2);
+    expect(wire.version).toBe(3) // Story 13.1: every receipt is version 3;
     expect(fromDayChangeReceiptWire(wire)).toEqual(receipt);
     expect(dayChangeReceiptSchema.safeParse(signDayChangeReceipt(wire, BINDING)).success).toBe(true);
   });
@@ -450,5 +460,59 @@ describe("dayChangeReceipt, suggestionsApplied (Story 12.4)", () => {
     expect(summarizeDayChangeReceipt(applied(2, 2, [leg("s1")]), dictionary(de))).toBe(
       "2 Aktivitäten und 2 Fahrten hinzugefügt · 1 Fahrt entfernt",
     );
+  });
+});
+
+describe("dayChangeReceipt, version 3 (Story 13.1 AC5, AC12)", () => {
+  const renumbered = (itemId: string): MovedItemRow => ({
+    ...moved(itemId),
+    previousSortOrder: 2,
+    fromTime: "10:30",
+    toTime: "11:30",
+  });
+  const ferry = { itemId: "item-f", title: "Fähre", fromTime: "12:00", reachableAt: "12:40" };
+
+  it("round-trips a leg delete, renumbered rows and plan conflicts, and the schema accepts them", () => {
+    const receipt: DayChangeReceipt = {
+      ...receiptWith([]),
+      edited: { kind: "legDeleted", segmentId: "s1", previous: leg("s1") },
+      movedItems: [moved("item-2"), renumbered("item-3")],
+      planConflicts: [ferry],
+    };
+    const wire = toDayChangeReceiptWire(receipt);
+    expect(fromDayChangeReceiptWire(wire)).toEqual(receipt);
+    expect(dayChangeReceiptSchema.safeParse(signDayChangeReceipt(wire, BINDING)).success).toBe(true);
+    expect(
+      dayChangeReceiptSchema.safeParse(signDayChangeReceipt({ ...wire, planConflicts: [{ ...ferry, extra: 1 }] } as never, BINDING))
+        .success,
+    ).toBe(false);
+  });
+
+  it("refuses a version-2 receipt", () => {
+    const wire = signDayChangeReceipt(toDayChangeReceiptWire(receiptWith([])), BINDING);
+    expect(dayChangeReceiptSchema.safeParse({ ...wire, version: 2 }).success).toBe(false);
+  });
+
+  it("counts only rows whose times changed, never one only renumbered", () => {
+    const receipt = { ...receiptWith([]), movedItems: [moved("item-2"), renumbered("item-3"), moved("item-4")] };
+    expect(summarizeDayChangeReceipt(receipt, dictionary(de))).toBe("2 Aktivitäten verschoben");
+    expect(receiptHasSideEffects({ ...receiptWith([]), movedItems: [renumbered("item-3")] })).toBe(false);
+    expect(summarizeDayChangeReceipt({ ...receiptWith([]), movedItems: [renumbered("item-3")] }, dictionary(en))).toBe("");
+  });
+
+  it("has side effects when the write made a plan conflict, even with nothing moved", () => {
+    expect(receiptHasSideEffects({ ...receiptWith([]), planConflicts: [ferry] })).toBe(true);
+    expect(receiptHasSideEffects({ ...receiptWith([]), planConflicts: [] })).toBe(false);
+  });
+
+  it("says which fixed activity is reached late, one sentence per conflict, in both languages", () => {
+    const receipt = { ...receiptWith([]), planConflicts: [ferry, { ...ferry, itemId: "item-g", title: null, fromTime: "15:00", reachableAt: "15:05" }] };
+    expect(planConflictText(receipt, dictionary(de))).toBe(
+      "Fähre beginnt um 12:00, erreichbar erst um 12:40 · Aktivität ohne Titel beginnt um 15:00, erreichbar erst um 15:05",
+    );
+    expect(planConflictText({ ...receiptWith([]), planConflicts: [ferry] }, dictionary(en))).toBe(
+      "Fähre starts at 12:00, reachable only at 12:40",
+    );
+    expect(planConflictText(receiptWith([]), dictionary(en))).toBeUndefined();
   });
 });

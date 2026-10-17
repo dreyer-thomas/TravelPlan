@@ -56,6 +56,12 @@ import {
  * point at them, because the activities they belonged to are gone (unlike a deleted item, whose undo
  * recreates rows that point at its files - DW-187 stays as it is).
  *
+ * Story 13.1 (version 3). Every write recomputes the day, so `movedItems` also lists rows only renumbered;
+ * phase 1 checks every one of them and phase 2 restores `fromTime`, `toTime`, `sortOrder` and `updatedAt`.
+ * The snapshots carry `scheduleMode`, `durationMinutes` and `sortOrder`, so `updated` and `deleted` put
+ * them back with the other columns. `legDeleted` re-creates the leg with its id and stamps: refused when
+ * the id exists again, and a `P2002` (the pair has a leg again) maps to `stale`, as for removed legs.
+ *
  * Any failure throws `UndoStaleError`, which rolls the transaction back and maps to `stale`. A `P2002`
  * while recreating a row maps there too: someone drew a new leg for the same pair, or reused the id.
  *
@@ -157,10 +163,15 @@ const findInvalidity = (receipt: DayChangeReceipt, tripId: string): string | nul
     if (!movedIds.has(edited.itemId) || !movedIds.has(edited.neighbourId)) return "reordered pair not listed as moved";
   }
 
-  if (edited.kind === "legCreated" || edited.kind === "legUpdated" || edited.kind === "stayCheckOutChanged") {
+  if (
+    edited.kind === "legCreated" ||
+    edited.kind === "legUpdated" ||
+    edited.kind === "legDeleted" ||
+    edited.kind === "stayCheckOutChanged"
+  ) {
     if (receipt.removedTravelSegments.length > 0) return "side effect a leg or stay save never has";
   }
-  if (edited.kind === "legUpdated") {
+  if (edited.kind === "legUpdated" || edited.kind === "legDeleted") {
     if (edited.previous.id !== edited.segmentId) return "snapshot of another leg";
     if (edited.previous.tripDayId !== tripDayId) return "leg on another day";
   }
@@ -313,6 +324,11 @@ const undoInTransaction = async (
       if (!segment || !sameInstant(segment.updatedAt, edited.updatedAt)) throw new UndoStaleError("leg changed");
       break;
     }
+    case "legDeleted":
+      if (await tx.travelSegment.findUnique({ where: { id: edited.segmentId }, select: { id: true } })) {
+        throw new UndoStaleError("deleted leg exists again");
+      }
+      break;
     case "stayCheckOutChanged": {
       // The stay must be last night's for the pushed day (the nearest lower `dayIndex`, the timeline's
       // rule): a receipt naming any other stay is not something a check-out save ever returned.
@@ -410,6 +426,9 @@ const undoInTransaction = async (
       if (restored.count !== 1) throw new UndoStaleError("leg changed");
       break;
     }
+    case "legDeleted":
+      await tx.travelSegment.create({ data: edited.previous });
+      break;
     case "stayCheckOutChanged": {
       // Only what caused the push: the check-out and its stamp. Every other saved field is kept.
       const restored = await tx.accommodation.updateMany({
@@ -443,11 +462,17 @@ const undoInTransaction = async (
     }
   }
 
-  // Story 11.2: each pushed activity back where it was, conditional on the stamp phase 1 just checked.
+  // Story 11.2: each moved activity back where it was, conditional on the stamp phase 1 just checked.
+  // Story 13.1: its place in the order too, which a renumbering may be all that changed.
   for (const moved of receipt.movedItems) {
     const restored = await tx.dayPlanItem.updateMany({
       where: { id: moved.itemId, tripDayId, updatedAt: moved.updatedAt },
-      data: { fromTime: moved.previousFromTime, toTime: moved.previousToTime, updatedAt: moved.previousUpdatedAt },
+      data: {
+        fromTime: moved.previousFromTime,
+        toTime: moved.previousToTime,
+        sortOrder: moved.previousSortOrder,
+        updatedAt: moved.previousUpdatedAt,
+      },
     });
     if (restored.count !== 1) throw new UndoStaleError("moved item changed");
   }
@@ -466,7 +491,10 @@ const undoInTransaction = async (
   }
   // A leg save that re-pointed the leg leaves its old endpoints unguarded: a later delete of one of them
   // sweeps nothing (the leg no longer names it), and writing `previous` back would store an orphan.
-  if (edited.kind === "legUpdated" && !drawnAfterUndo.has(buildStoredSegmentPairKey(edited.previous))) {
+  if (
+    (edited.kind === "legUpdated" || edited.kind === "legDeleted") &&
+    !drawnAfterUndo.has(buildStoredSegmentPairKey(edited.previous))
+  ) {
     throw new UndoStaleError("restored leg would not be drawn");
   }
   if (protectedLegs.length > 0) {

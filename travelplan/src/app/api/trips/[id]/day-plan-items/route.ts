@@ -18,7 +18,7 @@ import {
 import { requireSession } from "@/lib/auth/sessionGuard";
 import { toDayChangeReceiptWire } from "@/lib/trips/dayChangeReceipt";
 import { signDayChangeReceipt } from "@/lib/trips/dayChangeReceiptSignature";
-import { dayChangedResponse, pushRefusalResponse, withPushConflict } from "@/lib/http/dayPlanPushResponses";
+import { dayChangedResponse, pastMidnightResponse, withPushConflict } from "@/lib/http/dayPlanPushResponses";
 
 type RouteContext = {
   params: Promise<{
@@ -83,6 +83,9 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
         linkUrl: item.linkUrl,
         location: item.location,
         createdAt: item.createdAt.toISOString(),
+        scheduleMode: item.scheduleMode,
+        durationMinutes: item.durationMinutes,
+        sortOrder: item.sortOrder,
       })),
     });
   } catch {
@@ -137,8 +140,10 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
     tripId,
     tripDayId: parsed.data.tripDayId,
     title: parsed.data.title,
-    fromTime: parsed.data.fromTime,
-    toTime: parsed.data.toTime,
+    scheduleMode: parsed.data.scheduleMode,
+    durationMinutes: parsed.data.durationMinutes ?? null,
+    fromTime: parsed.data.fromTime ?? null,
+    toTime: parsed.data.toTime ?? null,
     contentJson: parsed.data.contentJson,
     costCents: parsed.data.costCents ?? null,
     /*
@@ -178,8 +183,8 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
     if (created.status === "bucket_missing") {
       return fail(apiError("not_found", "Bucket list item not found"), 404);
     }
-    if (created.status === "before_predecessor" || created.status === "past_midnight") {
-      return pushRefusalResponse(created);
+    if (created.status === "past_midnight") {
+      return pastMidnightResponse(created.item);
     }
   }
 
@@ -202,6 +207,9 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
       linkUrl: resolvedItem.linkUrl,
       location: resolvedItem.location,
       createdAt: resolvedItem.createdAt.toISOString(),
+      scheduleMode: resolvedItem.scheduleMode,
+      durationMinutes: resolvedItem.durationMinutes,
+      sortOrder: resolvedItem.sortOrder,
     },
     // Story 11.1 AC2: always present, even when the write swept nothing. `dayPlanItem` is unchanged.
     // Signed for this trip and this user, so the undo route can refuse anything it did not issue.
@@ -255,8 +263,10 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
     tripDayId: parsed.data.tripDayId,
     itemId: parsed.data.itemId,
     title: parsed.data.title,
-    fromTime: parsed.data.fromTime,
-    toTime: parsed.data.toTime,
+    scheduleMode: parsed.data.scheduleMode,
+    durationMinutes: parsed.data.durationMinutes ?? null,
+    fromTime: parsed.data.fromTime ?? null,
+    toTime: parsed.data.toTime ?? null,
     contentJson: parsed.data.contentJson,
     costCents: parsed.data.costCents ?? null,
     // Story 10.1 - see the note on the POST handler above.
@@ -281,8 +291,8 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
     return fail(apiError("not_found", "Day plan item not found"), 404);
   }
 
-  if (updated.status === "before_predecessor" || updated.status === "past_midnight") {
-    return pushRefusalResponse(updated);
+  if (updated.status === "past_midnight") {
+    return pastMidnightResponse(updated.item);
   }
 
   return ok({
@@ -302,6 +312,9 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
       linkUrl: updated.item.linkUrl,
       location: updated.item.location,
       createdAt: updated.item.createdAt.toISOString(),
+      scheduleMode: updated.item.scheduleMode,
+      durationMinutes: updated.item.durationMinutes,
+      sortOrder: updated.item.sortOrder,
     },
     receipt: signDayChangeReceipt(toDayChangeReceiptWire(updated.receipt), { tripId, userId }),
   });
@@ -333,12 +346,19 @@ export const DELETE = async (request: NextRequest, context: RouteContext) => {
     return fail(apiError("validation_error", "Invalid day plan item", parsed.error.flatten()), 400);
   }
 
-  const deleted = await deleteDayPlanItemForTripDay({
-    userId,
-    tripId,
-    tripDayId: parsed.data.tripDayId,
-    itemId: parsed.data.itemId,
-  });
+  // Story 13.1: a delete recomputes the day now, so it can lose the race the other writes can.
+  const attempt = await withPushConflict(() =>
+    deleteDayPlanItemForTripDay({
+      userId,
+      tripId,
+      tripDayId: parsed.data.tripDayId,
+      itemId: parsed.data.itemId,
+    }),
+  );
+  if ("conflict" in attempt) {
+    return dayChangedResponse();
+  }
+  const deleted = attempt.result;
 
   if (deleted.status === "not_found") {
     return fail(apiError("not_found", "Trip day not found"), 404);
@@ -346,6 +366,9 @@ export const DELETE = async (request: NextRequest, context: RouteContext) => {
 
   if (deleted.status === "missing") {
     return fail(apiError("not_found", "Day plan item not found"), 404);
+  }
+  if (deleted.status === "past_midnight") {
+    return pastMidnightResponse(deleted.item);
   }
 
   // Story 6.23 AC6: deleting an activity now also removes the travel segments that pointed at it.

@@ -7,6 +7,7 @@ import {
   updateDayPlanItemForTripDay,
 } from "@/lib/repositories/dayPlanItemRepo";
 import { receiptHasSideEffects } from "@/lib/trips/dayChangeReceipt";
+import { settleSeededDay } from "./helpers/settleSeededDay";
 
 /**
  * Story 11.1 AC1/AC2. A leg that the change itself un-draws leaves in the same transaction, and the
@@ -42,10 +43,17 @@ const createTrip = async (userId: string) => {
   return { trip, firstDay, day };
 };
 
-const createItem = (tripDayId: string, title: string, fromTime: string | null, toTime: string | null) =>
+const createRawItem = (tripDayId: string, title: string, fromTime: string | null, toTime: string | null) =>
   prisma.dayPlanItem.create({
     data: { tripDayId, title, fromTime, toTime, contentJson: sampleDoc(title) },
   });
+
+/** Story 13.1: each seeded day is numbered the way the migration numbers real data. */
+const createItem = async (...args: Parameters<typeof createRawItem>) => {
+  const row = await createRawItem(...args);
+  await settleSeededDay(row.tripDayId);
+  return prisma.dayPlanItem.findUniqueOrThrow({ where: { id: row.id } });
+};
 
 const createLeg = (
   tripDayId: string,
@@ -127,7 +135,7 @@ describe("day plan writes sweep the legs they un-draw (Story 11.1)", () => {
    * pushes B and C instead, and nothing is un-drawn. The sweep's order-change coverage is the create case
    * above and the untimed case below, which still reach an order change.
    */
-  it("a retime past the successor keeps the order, pushes, and sweeps nothing", async () => {
+  it("a fixed retime past the successor is placed by its time and sweeps the legs it un-draws (13.1 AC7)", async () => {
     const user = await createUser("sweep-retime@example.com");
     const { trip, day } = await createTrip(user.id);
     const a = await createItem(day.id, "A", "09:00", "10:00");
@@ -136,8 +144,8 @@ describe("day plan writes sweep the legs they un-draw (Story 11.1)", () => {
     const ab = await createLeg(day.id, item(a.id), item(b.id));
     const bc = await createLeg(day.id, item(b.id), item(c.id));
 
-    // A at 16:00–17:00 stays first; A→B is 30 minutes, so B starts at 17:30, ends 18:30, and C (B→C,
-    // 30 minutes) at 19:00.
+    // 13.1 AC7: Story 11.2 kept a retimed row at its index and pushed; a fixed row now takes its place by
+    // its time. A at 16:00 goes after B, so neither A→B nor B→C is drawn any more.
     const result = await updateDayPlanItemForTripDay({
       ...baseMutation(user.id, trip.id, day.id),
       itemId: a.id,
@@ -149,16 +157,17 @@ describe("day plan writes sweep the legs they un-draw (Story 11.1)", () => {
 
     expect(result.status).toBe("updated");
     if (result.status !== "updated") return;
-    expect(result.receipt.removedTravelSegments).toEqual([]);
-    expect(result.receipt.movedItems.map((moved) => moved.itemId)).toEqual([b.id, c.id]);
-    expect((await prisma.travelSegment.findMany({ where: { tripDayId: day.id } })).map((leg) => leg.id).sort()).toEqual(
-      [ab.id, bc.id].sort(),
-    );
-    const rows = await prisma.dayPlanItem.findMany({ where: { tripDayId: day.id }, orderBy: { fromTime: "asc" } });
+    expect(result.receipt.removedTravelSegments.map((leg) => leg.id).sort()).toEqual([ab.id, bc.id].sort());
+    // B only renumbered (it is first now); fixed rows keep their times.
+    expect(result.receipt.movedItems.map((moved) => [moved.itemId, moved.previousSortOrder, moved.fromTime])).toEqual([
+      [b.id, 1, "15:00"],
+    ]);
+    expect(await prisma.travelSegment.count({ where: { tripDayId: day.id } })).toBe(0);
+    const rows = await prisma.dayPlanItem.findMany({ where: { tripDayId: day.id }, orderBy: { sortOrder: "asc" } });
     expect(rows.map((row) => `${row.title} ${row.fromTime}–${row.toTime}`)).toEqual([
+      "B 15:00–16:00",
       "A 16:00–17:00",
-      "B 17:30–18:30",
-      "C 19:00–20:00",
+      "C 18:00–19:00",
     ]);
   });
 

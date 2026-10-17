@@ -104,6 +104,10 @@ const dayPlanItemColumns = {
   title: nullableText(),
   fromTime: nullableText(),
   toTime: nullableText(),
+  // Story 13.1. Stored values, so no 5-minute floor (§4: a migrated fixed row may last one minute).
+  scheduleMode: z.enum(["FLEXIBLE", "FIXED"]),
+  durationMinutes: z.number().int().nonnegative(),
+  sortOrder: z.number().int().nonnegative(),
   contentJson: z.string(),
   costCents: z.number().int().nullable(),
   costOriginalAmount: z.number().int().nullable(),
@@ -194,6 +198,8 @@ const editedSchema = z.discriminatedUnion("kind", [
       previous: travelSegmentRowSchema,
     })
     .strict(),
+  // Story 13.1. A leg delete recomputes the day, so it needs its own receipt.
+  z.object({ kind: z.literal("legDeleted"), segmentId: idSchema, previous: travelSegmentRowSchema }).strict(),
   z
     .object({
       kind: z.literal("stayCheckOutChanged"),
@@ -226,6 +232,9 @@ const movedItemSchema = z
     itemId: idSchema,
     previousFromTime: nullableText(),
     previousToTime: nullableText(),
+    previousSortOrder: z.number().int().nonnegative(),
+    fromTime: nullableText(),
+    toTime: nullableText(),
     previousUpdatedAt: isoDateSchema,
     updatedAt: isoDateSchema,
   })
@@ -233,11 +242,17 @@ const movedItemSchema = z
 
 const checkInWarningSchema = z.object({ accommodationId: idSchema, checkInTime: z.string() }).strict();
 
+/** Story 13.1. For the notice only; undo ignores it, the signature covers it. */
+const planConflictSchema = z
+  .object({ itemId: idSchema, title: nullableText(), fromTime: z.string(), reachableAt: z.string() })
+  .strict();
+
 export const dayChangeReceiptSchema = z
   .object({
-    // Story 11.2 bumped this. A version-1 receipt held across a deploy is refused (400), which the
-    // client already treats as "undo unavailable" - better than misreading it as a change that moved nothing.
-    version: z.literal(2),
+    // Story 11.2 bumped this to 2, Story 13.1 to 3. An older receipt held across a deploy is refused
+    // (400), which the client already treats as "undo unavailable" - better than misreading it as a change
+    // that moved nothing. Receipts are client-held and short-lived, so no older version is tolerated.
+    version: z.literal(3),
     // The server's seal (hex HMAC-SHA256). The route verifies it; the schema only bounds its shape.
     signature: z.string().regex(/^[0-9a-f]{64}$/, "Receipt signature is malformed"),
     tripDayId: idSchema,
@@ -246,6 +261,7 @@ export const dayChangeReceiptSchema = z
     movedItems: z.array(movedItemSchema).max(MAX_LEGS),
     consumedBucketListItem: bucketListRowSchema.optional(),
     checkInWarning: checkInWarningSchema.optional(),
+    planConflicts: z.array(planConflictSchema).max(MAX_LEGS).optional(),
   })
   .strict();
 

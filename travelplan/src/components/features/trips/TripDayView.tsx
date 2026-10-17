@@ -19,6 +19,7 @@ import {
   Typography,
   useTheme,
 } from "@mui/material";
+import { visuallyHidden } from "@mui/utils";
 import type { SxProps, Theme } from "@mui/material/styles";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -44,6 +45,7 @@ import {
   ChevronRightIcon,
   HERO_SCRIM,
   HouseIcon,
+  LockIcon,
   MoreHorizontalIcon,
   MoreVerticalIcon,
   ON_PHOTO_CHROME,
@@ -72,11 +74,12 @@ import { buildDayMapPanelData, buildTripDayMapItems } from "@/lib/trips/dayMapDa
 import { formatCostOriginal } from "@/lib/trips/convertCost";
 import {
   checkInWarningText,
+  planConflictText,
   receiptHasSideEffects,
   summarizeDayChangeReceipt,
   type SignedDayChangeReceiptWire,
 } from "@/lib/trips/dayChangeReceipt";
-import { compareDayPlanItemsByStartTime } from "@/lib/trips/dayPlanItemOrder";
+import { compareDayPlanItemsByOrder } from "@/lib/trips/dayPlanItemOrder";
 // Story 8.5 review. The drawn-pair rule, shared with `TripTimeline` so the trip overview's coverage bar
 // and this screen's travel figure cannot disagree about one day.
 import {
@@ -362,11 +365,15 @@ type TripDay = {
     /**
      * Story 8.5. `GET /api/trips/{id}` carries this now; it is optional only because a payload built
      * before it did (an older cached response, a fixture) must still type-check. It is the tie-break
-     * `compareDayPlanItemsByStartTime` uses for two activities that start at the same minute, so
+     * `compareDayPlanItemsByOrder` falls back to for two activities that share a `sortOrder`, so
      * without it this screen could order such a pair differently from the server that decides which
      * legs between them are legal.
      */
     createdAt?: string;
+    /** Story 13.1. Optional for the same reason as `createdAt`: an older payload or a fixture. */
+    scheduleMode?: "FLEXIBLE" | "FIXED";
+    durationMinutes?: number;
+    sortOrder?: number;
   }[];
   travelSegments?: {
     id: string;
@@ -398,6 +405,10 @@ type DayPlanItem = {
   linkUrl: string | null;
   location: { lat: number; lng: number; label?: string | null } | null;
   createdAt: string;
+  /** Story 13.1. How the activity is planned, its duration, and its place in the day's order. */
+  scheduleMode: "FLEXIBLE" | "FIXED";
+  durationMinutes: number;
+  sortOrder: number;
 };
 
 type BucketListItem = {
@@ -1088,8 +1099,13 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
             linkUrl: item.linkUrl,
             location: item.location,
             createdAt: item.createdAt ?? "",
+            // Story 13.1. An older payload without the fields reads as what the migration made of
+            // every timed row: fixed, its own duration, and the start-time tiebreak for the order.
+            scheduleMode: item.scheduleMode ?? "FIXED",
+            durationMinutes: item.durationMinutes ?? 15,
+            sortOrder: item.sortOrder ?? 0,
           }))
-          .sort(compareDayPlanItemsByStartTime),
+          .sort(compareDayPlanItemsByOrder),
       );
       setTravelSegments(Array.isArray(resolvedDay.travelSegments) ? resolvedDay.travelSegments : []);
     } catch {
@@ -1167,6 +1183,18 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
     setActiveSegment(segmentsByKey.get(buildSegmentKey(from, to)) ?? null);
     setSegmentDialogOpen(true);
   };
+
+  /**
+   * Story 11.1. Holds a save's receipt only when it reports side effects and the viewer may write —
+   * otherwise there is nothing to show (AC4) or no one to show it to (AC8) — and always replaces
+   * whatever receipt was held before.
+   */
+  const takeDayChangeReceipt = useCallback(
+    (receipt: SignedDayChangeReceiptWire | null) => {
+      setDayChange(canEditPlanning && receipt && receiptHasSideEffects(receipt) ? { receipt, status: "ready" } : null);
+    },
+    [canEditPlanning],
+  );
 
   /**
    * Story 8.5 AC6. Removes one orphaned leg through the `DELETE` the route has always accepted.
@@ -1300,7 +1328,10 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
         // `catch` below is the *network* arm - it would restore the row under the retry message even for
         // a body that was merely not JSON. A failure with an unreadable body is still a failure, it just
         // has no error code to translate, so it falls through to the generic message.
-        const body = (await response.json().catch(() => null)) as ApiEnvelope<{ deleted: boolean }> | null;
+        const body = (await response.json().catch(() => null)) as ApiEnvelope<{
+          deleted: boolean;
+          receipt?: SignedDayChangeReceiptWire;
+        }> | null;
         // A `not_found` code on some other status is the same "already gone or never yours" answer.
         if (body?.error?.code === "not_found") {
           void loadDay({ silent: true });
@@ -1309,6 +1340,17 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
         if (!response.ok || body?.error) {
           restore();
           setError(resolveApiError(body?.error?.code, t("trips.travelSegment.orphanRemoveError")));
+          return;
+        }
+        // Story 13.1 §8: a leg delete returns a receipt like every other day write. An orphan is never
+        // drawn, so it changes no time and the receipt is normally dropped as side-effect-free. The
+        // first write on a day whose stored times are stale still recomputes it, so a receipt that
+        // moved rows brings the server's times with a reload, as after an activity delete.
+        if (currentDayIdRef.current === dayId) {
+          takeDayChangeReceipt(body?.data?.receipt ?? null);
+          if (body?.data?.receipt?.movedItems.length) {
+            await loadDay({ silent: true });
+          }
         }
       } catch {
         restore();
@@ -1317,7 +1359,7 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
         release();
       }
     },
-    [canEditPlanning, day, ensureCsrfToken, loadDay, resolveApiError, t, tripId],
+    [canEditPlanning, day, ensureCsrfToken, loadDay, resolveApiError, t, takeDayChangeReceipt, tripId],
   );
 
   const handleOpenAddPlan = () => {
@@ -1345,18 +1387,6 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
     setSelectedPlanItem(null);
     setPlanDialogMode("add");
   };
-
-  /**
-   * Story 11.1. Holds a save's receipt only when it reports side effects and the viewer may write —
-   * otherwise there is nothing to show (AC4) or no one to show it to (AC8) — and always replaces
-   * whatever receipt was held before.
-   */
-  const takeDayChangeReceipt = useCallback(
-    (receipt: SignedDayChangeReceiptWire | null) => {
-      setDayChange(canEditPlanning && receipt && receiptHasSideEffects(receipt) ? { receipt, status: "ready" } : null);
-    },
-    [canEditPlanning],
-  );
 
   /**
    * Story 11.4: a leg save may have pushed the day, so it hands over its receipt like every other day
@@ -1592,6 +1622,14 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
               return [...current.slice(0, insertAt), removedItem, ...current.slice(insertAt)];
             });
           }
+          // Story 13.1 §7: removing a row can make a stored leg drawn and push a later flexible row
+          // past 23:59; the refusal names that row, as a save's does.
+          if (response.status === 409 && body.error?.code === "day_plan_past_midnight") {
+            const details = body.error?.details as { itemTitle?: string | null } | undefined;
+            const title = details?.itemTitle?.trim() || t("trips.plan.untitledActivity");
+            setError(formatMessage(t("trips.plan.pastMidnight"), { title }));
+            return false;
+          }
           setError(resolveApiError(body.error?.code));
           return false;
         }
@@ -1608,6 +1646,11 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
         // the delete was in flight: a receipt is about its own day (AC7).
         if (currentDayIdRef.current === requestedDayId) {
           takeDayChangeReceipt(body.data?.receipt ?? null);
+          // Story 13.1 AC4: a delete pulls the flexible activities after it forward, which the optimistic
+          // removal cannot show; the server's times come with a reload, as after a leg save.
+          if (body.data?.receipt?.movedItems.length) {
+            await loadDay({ silent: true });
+          }
         }
         return true;
       } catch {
@@ -1622,7 +1665,7 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
         return false;
       }
     },
-    [day, ensureCsrfToken, resolveApiError, t, takeDayChangeReceipt, tripId],
+    [day, ensureCsrfToken, loadDay, resolveApiError, t, takeDayChangeReceipt, tripId],
   );
 
   const handlePlanDialogClose = () => {
@@ -3812,8 +3855,15 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
                           })
                   }
                   // Story 11.2 AC9: the check-in warning goes with the receipt's own summary, so it leaves
-                  // when the summary is replaced by a stale or unavailable message.
-                  warning={undoWithdrawn ? undefined : checkInWarningText(dayChange.receipt, t)}
+                  // when the summary is replaced by a stale or unavailable message. Story 13.1 AC5: the
+                  // new plan conflicts come first, joined the same way.
+                  warning={
+                    undoWithdrawn
+                      ? undefined
+                      : [planConflictText(dayChange.receipt, t), checkInWarningText(dayChange.receipt, t)]
+                          .filter((part): part is string => Boolean(part))
+                          .join(" · ") || undefined
+                  }
                   actionLabel={undoWithdrawn ? undefined : t("trips.dayChange.undo")}
                   onAction={undoWithdrawn ? undefined : handleUndoDayChange}
                   actionPending={dayChange.status === "pending"}
@@ -4280,10 +4330,11 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
                     const nextSegmentItem = timelineEndpoints[endpointIndex + 1] ?? null;
                     const itemImages = planItemImagesById[item.id] ?? [];
                     // Story 11.3 AC4. `planItems` is in the canonical order the server reorders by, so the
-                    // neighbours here are the server's. Timed is `fromTime` alone, the comparator's test,
-                    // not the time pill's `fromTime && toTime`.
-                    const canMoveUp = Boolean(item.fromTime) && index > 0 && Boolean(planItems[index - 1].fromTime);
-                    const canMoveDown = Boolean(item.fromTime) && Boolean(planItems[index + 1]?.fromTime);
+                    // neighbours here are the server's. Story 13.1 §10: only a FLEXIBLE activity moves, past
+                    // a neighbour of either mode; a FIXED one's place follows from its time.
+                    const movable = item.scheduleMode === "FLEXIBLE";
+                    const canMoveUp = movable && index > 0;
+                    const canMoveDown = movable && index < planItems.length - 1;
                     const showItemMenu = canEditPlanning && (canMoveUp || canMoveDown);
                     // Every child of the head row is conditional, so the row itself has to be too.
                     const showCardHead = Boolean((item.fromTime && item.toTime) || item.costCents || canEditPlanning);
@@ -4335,7 +4386,22 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
                               <Box data-testid="day-plan-item-head" sx={{ ...tlCardTopSx, ...overlaidContentSx }}>
                                 <Box sx={{ minWidth: 0 }}>
                                   {item.fromTime && item.toTime ? (
-                                    <Box sx={timePillSx}>{`${item.fromTime} - ${item.toTime}`}</Box>
+                                    item.scheduleMode === "FIXED" ? (
+                                      // Story 13.1 AC11: booked times carry the lock, in ink-soft, and the
+                                      // pill says so to a screen reader.
+                                      <Box
+                                        sx={{ ...timePillSx, display: "inline-flex", alignItems: "center", gap: "4px" }}
+                                        data-testid="day-plan-item-time-fixed"
+                                      >
+                                        <LockIcon sx={{ color: tokens.inkSoft }} />
+                                        <Box component="span" sx={visuallyHidden}>
+                                          {t("trips.dayView.fixedTimeLabel")}
+                                        </Box>
+                                        {`${item.fromTime} - ${item.toTime}`}
+                                      </Box>
+                                    ) : (
+                                      <Box sx={timePillSx}>{`${item.fromTime} - ${item.toTime}`}</Box>
+                                    )
                                   ) : null}
                                 </Box>
                                 {/* Story 10.2: a column, so the receipt sits *beneath* the pill while

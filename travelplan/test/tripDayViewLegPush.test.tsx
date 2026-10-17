@@ -230,6 +230,9 @@ const movedRow = (itemId: string) => ({
   itemId,
   previousFromTime: "13:00",
   previousToTime: "14:00",
+  previousSortOrder: 0,
+  fromTime: "14:00",
+  toTime: "15:00",
   previousUpdatedAt: "2026-11-01T10:00:00.000Z",
   updatedAt: "2026-12-01T08:00:00.000Z",
 });
@@ -240,7 +243,7 @@ const receiptFor = (
   moved: string[],
 ): SignedDayChangeReceiptWire => ({
   signature: "a".repeat(64),
-  version: 2,
+  version: 3,
   tripDayId,
   edited,
   removedTravelSegments: [],

@@ -55,6 +55,10 @@ const item = (overrides: Partial<PrintItem> = {}): PrintItem => ({
   title: "Museum",
   fromTime: null,
   toTime: null,
+  // Story 13.1 AC13: the print payload carries the schedule fields.
+  scheduleMode: "FLEXIBLE",
+  durationMinutes: 15,
+  sortOrder: 0,
   contentJson: '{"type":"doc","content":[]}',
   costCents: null,
   // Story 10.2. See the `stay` factory above.

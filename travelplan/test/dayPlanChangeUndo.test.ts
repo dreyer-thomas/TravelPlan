@@ -12,11 +12,16 @@ import {
   updateDayPlanItemForTripDay,
 } from "@/lib/repositories/dayPlanItemRepo";
 import { undoDayPlanChangeForTrip } from "@/lib/repositories/dayPlanChangeRepo";
-import { createTravelSegmentForTripDay, updateTravelSegmentForTripDay } from "@/lib/repositories/travelSegmentRepo";
+import {
+  createTravelSegmentForTripDay,
+  deleteTravelSegmentForTripDay,
+  updateTravelSegmentForTripDay,
+} from "@/lib/repositories/travelSegmentRepo";
 import { updateAccommodationForTripDay } from "@/lib/repositories/accommodationRepo";
 import { toDayChangeReceiptWire, type DayChangeReceiptWire } from "@/lib/trips/dayChangeReceipt";
 import { signDayChangeReceipt } from "@/lib/trips/dayChangeReceiptSignature";
 import { routeContext } from "./helpers/routeContext";
+import { settleSeededDay } from "./helpers/settleSeededDay";
 
 /**
  * Story 11.1 AC5/AC6/AC8/AC12. Undo restores every touched row identical — column by column, including
@@ -52,7 +57,7 @@ const createTrip = async (userId: string) => {
   return { trip, day };
 };
 
-const createItem = (tripDayId: string, title: string, fromTime: string | null, toTime: string | null) =>
+const createRawItem = (tripDayId: string, title: string, fromTime: string | null, toTime: string | null) =>
   prisma.dayPlanItem.create({
     data: {
       tripDayId,
@@ -69,6 +74,13 @@ const createItem = (tripDayId: string, title: string, fromTime: string | null, t
       updatedAt: PAST,
     },
   });
+
+/** Story 13.1: each seeded day is numbered the way the migration numbers real data. */
+const createItem = async (...args: Parameters<typeof createRawItem>) => {
+  const row = await createRawItem(...args);
+  await settleSeededDay(row.tripDayId);
+  return prisma.dayPlanItem.findUniqueOrThrow({ where: { id: row.id } });
+};
 
 const createLeg = (tripDayId: string, fromId: string, toId: string) =>
   prisma.travelSegment.create({
@@ -414,14 +426,24 @@ describe("undoDayPlanChangeForTrip refuses when the day has moved on (Story 11.1
   });
 });
 
+/**
+ * Story 13.1: `seedDay` with B and C flexible, so a change before them moves them. With the two
+ * 25-minute legs the schedule stores B 10:25–11:25 and C 11:50–12:50.
+ */
+const seedFlexibleDay = async (email: string) => {
+  const seeded = await seedDay(email);
+  await settleSeededDay(seeded.day.id, { flexible: [seeded.b.id, seeded.c.id] });
+  return seeded;
+};
+
 describe("undo takes back what the push moved (Story 11.2 AC10)", () => {
   beforeEach(resetDatabase);
 
   it("undoes a create that pushed an activity: every row identical, including the moved one's updatedAt", async () => {
-    const { user, trip, day, b } = await seedDay("undo-push-create@example.com");
+    const { user, trip, day, b, c } = await seedFlexibleDay("undo-push-create@example.com");
     const before = await databaseState();
 
-    // M 10:00–12:30 sits between A and B: A→B is swept, and B (12:00) is pushed to 12:30. C has slack.
+    // M 10:00–12:30 sits between A and B: A→B is swept, and B is pushed to 12:30. 13.1: C follows B.
     const created = await createDayPlanItemExpectingSuccess({
       ...mutation(user.id, trip.id, day.id),
       title: "M",
@@ -430,7 +452,7 @@ describe("undo takes back what the push moved (Story 11.2 AC10)", () => {
       contentJson: sampleDoc("M"),
     });
     if (!created) throw new Error("setup");
-    expect(created.receipt.movedItems.map((row) => row.itemId)).toEqual([b.id]);
+    expect(created.receipt.movedItems.map((row) => row.itemId)).toEqual([b.id, c.id]);
     expect(created.receipt.removedTravelSegments).toHaveLength(1);
 
     expect(await undoDayPlanChangeForTrip({ userId: user.id, tripId: trip.id, receipt: created.receipt })).toEqual({
@@ -440,7 +462,7 @@ describe("undo takes back what the push moved (Story 11.2 AC10)", () => {
   });
 
   it("undoes an update that pushed activities: columns, payments and every moved row return identical", async () => {
-    const { user, trip, day, a, b } = await seedDay("undo-push-update@example.com");
+    const { user, trip, day, a, b } = await seedFlexibleDay("undo-push-update@example.com");
     await addPayments(a.id);
     const before = await databaseState();
 
@@ -455,7 +477,8 @@ describe("undo takes back what the push moved (Story 11.2 AC10)", () => {
       payments: [{ amountCents: 500, dueDate: "2026-12-24" }],
     });
     if (updated.status !== "updated") throw new Error("setup");
-    expect(updated.receipt.movedItems).toMatchObject([{ itemId: b.id, previousFromTime: "12:00", previousToTime: "13:00" }]);
+    // 13.1: B's previous times are the schedule's; C follows it.
+    expect(updated.receipt.movedItems[0]).toMatchObject({ itemId: b.id, previousFromTime: "10:25", previousToTime: "11:25" });
     expect((await prisma.dayPlanItem.findUniqueOrThrow({ where: { id: b.id } })).fromTime).toBe("12:55");
 
     expect(await undoDayPlanChangeForTrip({ userId: user.id, tripId: trip.id, receipt: updated.receipt })).toEqual({
@@ -467,7 +490,7 @@ describe("undo takes back what the push moved (Story 11.2 AC10)", () => {
   });
 
   it("refuses when a moved activity has been edited since, and writes nothing", async () => {
-    const { user, trip, day, a, b } = await seedDay("undo-push-stale@example.com");
+    const { user, trip, day, a, b } = await seedFlexibleDay("undo-push-stale@example.com");
     const updated = await updateDayPlanItemForTripDay({
       ...mutation(user.id, trip.id, day.id),
       itemId: a.id,
@@ -496,8 +519,9 @@ describe("undo takes back what the push moved (Story 11.2 AC10)", () => {
 });
 
 /**
- * Story 11.3. A 09–12, B 10–11 (overlapping A), C 12–13, legs A→B and B→C. *Nach oben* on B gives
- * B 09–10, A 10–13, pushes C to 13–14, and sweeps both legs: a swap, a push and a sweep in one receipt.
+ * Story 11.3. A (3 h), B and C (1 h each), legs A→B and B→C. Story 13.1 makes all three flexible: the
+ * schedule stores A 09–12, B 12:25–13:25, C 13:50–14:50. *Nach oben* on B gives B 09–10, A 10–13, moves C
+ * to 13–14, and sweeps both legs: a swap, a move and a sweep in one receipt.
  */
 const seedReordered = async (email: string) => {
   const user = await createUser(email);
@@ -507,6 +531,7 @@ const seedReordered = async (email: string) => {
   const c = await createItem(day.id, "C", "12:00", "13:00");
   await createLeg(day.id, a.id, b.id);
   await createLeg(day.id, b.id, c.id);
+  await settleSeededDay(day.id, { flexible: [a.id, b.id, c.id] });
   const before = await databaseState();
   const reordered = await reorderDayPlanItemForTripDay({ userId: user.id, tripId: trip.id, tripDayId: day.id, itemId: b.id, direction: "up" });
   if (reordered.status !== "reordered") throw new Error("setup");
@@ -885,7 +910,10 @@ describe("undo takes back a leg or check-out push (Story 11.4)", () => {
     days: await prisma.tripDay.findMany({ orderBy: { id: "asc" } }),
   });
 
-  /** Day 1 with last night's stay (check-out 09:00), day 2 with A, B, C where a 90 min A→B pushes B and C. */
+  /**
+   * Day 1 with last night's stay (check-out 09:00), day 2 with A, B, C where a 90 min A→B pushes B and C.
+   * Story 13.1: all three flexible, stored A 09:00–09:30, B 09:30–10:30, C 10:30–11:00.
+   */
   const seedLegDay = async (email: string) => {
     const user = await createUser(email);
     const { trip, day: stayDay } = await createTrip(user.id);
@@ -898,6 +926,7 @@ describe("undo takes back a leg or check-out push (Story 11.4)", () => {
     const a = await createItem(day.id, "A", "09:30", "10:00");
     const b = await createItem(day.id, "B", "10:30", "11:30");
     const c = await createItem(day.id, "C", "11:30", "12:00");
+    await settleSeededDay(day.id, { flexible: [a.id, b.id, c.id] });
     const session = await createSessionJwt({ sub: user.id, role: user.role });
     return { user, trip, stayDay, day, stay, a, b, c, session };
   };
@@ -1162,5 +1191,156 @@ describe("undo takes back a leg or check-out push (Story 11.4)", () => {
       await expectForgeryRejected(seeded, { ...wire, removedTravelSegments: [forgedLeg(seeded.day.id)] });
       await expectForgeryRejected(seeded, { ...wire, consumedBucketListItem: forgedIdea(seeded.trip.id) });
     });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Story 13.1 AC12: every write recomputes the day, and one undo restores it exactly, including the
+// rows only renumbered and how the edited activity was planned.
+
+describe("undo restores a recomputed day exactly (Story 13.1 AC12)", () => {
+  beforeEach(resetDatabase);
+
+  const fullState = async () => ({
+    ...(await databaseState()),
+    stays: await prisma.accommodation.findMany({ orderBy: { id: "asc" } }),
+  });
+
+  const undo = (userId: string, tripId: string, receipt: Parameters<typeof undoDayPlanChangeForTrip>[0]["receipt"]) =>
+    undoDayPlanChangeForTrip({ userId, tripId, receipt });
+
+  it("undoes a switch from fixed to flexible: mode, duration, times and the rows it pulled forward", async () => {
+    const { user, trip, day, a, b, c } = await seedFlexibleDay("undo-13-1-to-flexible@example.com");
+    const before = await databaseState();
+
+    // A becomes flexible for 30 minutes: it starts at 09:00 still, and B and C come forward.
+    const updated = await updateDayPlanItemForTripDay({
+      ...mutation(user.id, trip.id, day.id),
+      itemId: a.id,
+      title: "A",
+      scheduleMode: "FLEXIBLE",
+      durationMinutes: 30,
+      fromTime: null,
+      toTime: null,
+      contentJson: sampleDoc("A"),
+    });
+    if (updated.status !== "updated") throw new Error(`expected an update, got ${updated.status}`);
+    expect(await prisma.dayPlanItem.findUniqueOrThrow({ where: { id: a.id } })).toMatchObject({
+      scheduleMode: "FLEXIBLE",
+      durationMinutes: 30,
+      fromTime: "09:00",
+      toTime: "09:30",
+    });
+    expect(updated.receipt.movedItems.map((row) => row.itemId)).toEqual([b.id, c.id]);
+
+    expect(await undo(user.id, trip.id, updated.receipt)).toEqual({ status: "undone" });
+    expect(await databaseState()).toEqual(before);
+  });
+
+  it("undoes a switch from flexible to fixed that placed the row by its time", async () => {
+    const { user, trip, day, c } = await seedFlexibleDay("undo-13-1-to-fixed@example.com");
+    const before = await databaseState();
+
+    // C fixed at 08:00 goes first; A→B and B→C are no longer drawn and are swept.
+    const updated = await updateDayPlanItemForTripDay({
+      ...mutation(user.id, trip.id, day.id),
+      itemId: c.id,
+      title: "C",
+      scheduleMode: "FIXED",
+      fromTime: "08:00",
+      toTime: "08:45",
+      contentJson: sampleDoc("C"),
+    });
+    if (updated.status !== "updated") throw new Error(`expected an update, got ${updated.status}`);
+    expect((await prisma.dayPlanItem.findUniqueOrThrow({ where: { id: c.id } })).sortOrder).toBe(0);
+
+    expect(await undo(user.id, trip.id, updated.receipt)).toEqual({ status: "undone" });
+    expect(await databaseState()).toEqual(before);
+  });
+
+  it("undoes a delete that pulled the day forward", async () => {
+    const { user, trip, day, a } = await seedFlexibleDay("undo-13-1-delete@example.com");
+    const before = await databaseState();
+
+    const deleted = await deleteDayPlanItemForTripDay({ userId: user.id, tripId: trip.id, tripDayId: day.id, itemId: a.id });
+    if (deleted.status !== "deleted") throw new Error("setup");
+    expect(deleted.receipt.movedItems.length).toBeGreaterThan(0);
+
+    expect(await undo(user.id, trip.id, deleted.receipt)).toEqual({ status: "undone" });
+    expect(await databaseState()).toEqual(before);
+  });
+
+  it("undoes a leg delete: the leg comes back with its id and stamps, and the rows it moved too", async () => {
+    const { user, trip, day, ab, b } = await seedFlexibleDay("undo-13-1-leg-delete@example.com");
+    const before = await fullState();
+
+    const deleted = await deleteTravelSegmentForTripDay({ userId: user.id, tripId: trip.id, tripDayId: day.id, segmentId: ab.id });
+    if (deleted.status !== "deleted") throw new Error("setup");
+    expect(deleted.receipt.edited).toEqual({ kind: "legDeleted", segmentId: ab.id, previous: ab });
+    expect(deleted.receipt.movedItems.map((row) => row.itemId)).toContain(b.id);
+
+    expect(await undo(user.id, trip.id, deleted.receipt)).toEqual({ status: "undone" });
+    expect(await fullState()).toEqual(before);
+  });
+
+  it("refuses a leg-delete undo when the leg exists again, and writes nothing", async () => {
+    const { user, trip, day, ab } = await seedFlexibleDay("undo-13-1-leg-delete-stale@example.com");
+    const deleted = await deleteTravelSegmentForTripDay({ userId: user.id, tripId: trip.id, tripDayId: day.id, segmentId: ab.id });
+    if (deleted.status !== "deleted") throw new Error("setup");
+    await prisma.travelSegment.create({ data: ab });
+
+    const before = await fullState();
+    expect(await undo(user.id, trip.id, deleted.receipt)).toEqual({ status: "stale" });
+    expect(await fullState()).toEqual(before);
+  });
+
+  it("undoes an earlier check-out that pulled the next day forward", async () => {
+    const user = await createUser("undo-13-1-earlier-checkout@example.com");
+    const { trip, day: stayDay } = await createTrip(user.id);
+    const day = await prisma.tripDay.create({
+      data: { tripId: trip.id, date: new Date("2026-11-06T00:00:00.000Z"), dayIndex: 2 },
+    });
+    await prisma.accommodation.create({
+      data: { tripDayId: stayDay.id, name: "Glenfern", status: "PLANNED", checkOutTime: "11:00", createdAt: PAST, updatedAt: PAST },
+    });
+    const f = await createItem(day.id, "F", "11:00", "12:00");
+    await settleSeededDay(day.id, { flexible: [f.id] });
+    const before = await fullState();
+
+    const result = await updateAccommodationForTripDay({
+      userId: user.id,
+      tripId: trip.id,
+      tripDayId: stayDay.id,
+      name: "Glenfern",
+      status: "planned",
+      checkOutTime: "08:00",
+    });
+    if (result.status !== "updated" || !result.receipt) throw new Error("setup");
+    expect((await prisma.dayPlanItem.findUniqueOrThrow({ where: { id: f.id } })).fromTime).toBe("08:00");
+
+    expect(await undo(user.id, trip.id, result.receipt)).toEqual({ status: "undone" });
+    expect(await fullState()).toEqual(before);
+  });
+
+  it("refuses when a row only renumbered has changed since, and writes nothing", async () => {
+    const { user, trip, day, a, c } = await seedFlexibleDay("undo-13-1-renumbered-stale@example.com");
+    // C fixed at 08:00 goes first: A keeps its fixed times and is only renumbered, 0 → 1.
+    const updated = await updateDayPlanItemForTripDay({
+      ...mutation(user.id, trip.id, day.id),
+      itemId: c.id,
+      title: "C",
+      fromTime: "08:00",
+      toTime: "08:45",
+      contentJson: sampleDoc("C"),
+    });
+    if (updated.status !== "updated") throw new Error("setup");
+    const renumbered = updated.receipt.movedItems.find((row) => row.itemId === a.id);
+    expect(renumbered).toMatchObject({ previousFromTime: "09:00", fromTime: "09:00", previousSortOrder: 0 });
+    await tick();
+    await prisma.dayPlanItem.update({ where: { id: a.id }, data: { title: "A renamed" } });
+
+    const before = await databaseState();
+    expect(await undo(user.id, trip.id, updated.receipt)).toEqual({ status: "stale" });
+    expect(await databaseState()).toEqual(before);
   });
 });

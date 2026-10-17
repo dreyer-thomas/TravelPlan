@@ -1,10 +1,11 @@
 import { apiError } from "@/lib/errors/apiError";
 import { fail } from "@/lib/http/response";
-import { DayPlanChangedError, type DayPlanPushRefusal } from "@/lib/repositories/dayPlanItemRepo";
+import { DayPlanChangedError } from "@/lib/repositories/dayPlanItemRepo";
 
 /**
- * The push rule's HTTP answers, shared by `day-plan-items/route.ts` (Story 11.2) and
- * `day-plan-items/reorder/route.ts` (Story 11.3), so both say the same thing in the same shape. They
+ * The schedule rule's HTTP answers, shared by every route whose write recomputes a day (Stories 11.2-11.4,
+ * 13.1), so all of them say the same thing in the same shape. Story 13.1 removed
+ * `day_plan_before_predecessor`: a fixed activity is placed by its time instead of being refused. They
  * lived in the first route until the second needed them; a route module may only export its handlers.
  */
 
@@ -17,22 +18,6 @@ export const pastMidnightResponse = (item: { id: string; title: string | null })
     }),
     409,
   );
-
-/**
- * Story 11.2 AC5/AC8. The push rule's refusals, with the activity they name in `details` so the dialog
- * can say which one. Nothing was written for either.
- */
-export const pushRefusalResponse = (refusal: DayPlanPushRefusal) =>
-  refusal.status === "before_predecessor"
-    ? fail(
-        apiError("day_plan_before_predecessor", "Start is before the previous activity", {
-          predecessorId: refusal.predecessor.id,
-          predecessorTitle: refusal.predecessor.title,
-          predecessorFromTime: refusal.predecessor.fromTime,
-        }),
-        409,
-      )
-    : pastMidnightResponse(refusal.item);
 
 /**
  * Story 11.2. Runs a write, mapping a push that lost a race with another write (the transaction has

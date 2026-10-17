@@ -9,6 +9,7 @@ import { useEffect, type ReactNode } from "react";
 import theme from "@/theme";
 import { mockFetchResponse, requestUrl, stubFetch } from "./helpers/mockFetch";
 import { Providers, renderWithProviders } from "./helpers/renderWithProviders";
+import { emotionDeclarations } from "./helpers/emotionStyles";
 
 // jsdom reports computed colours as `rgb(r, g, b)`; the palette stores hex. Converting here lets colour
 // assertions name the token they mean instead of a literal triple nobody can trace back to the theme.
@@ -6012,6 +6013,44 @@ describe("TripDayView layout", () => {
     expect(within(card).getByText("Museum visit")).toBeInTheDocument();
     expect(within(card).getByText("09:00 - 10:00")).toBeInTheDocument();
     expect(within(card).getByTestId("day-plan-item-cost")).toHaveTextContent("€45.00");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("marks a fixed activity's time pill with the lock and a Fixed time label, and a flexible one with neither (Story 13.1 AC11)", async () => {
+    navigationMockState.search = "";
+    vi.stubGlobal(
+      "fetch",
+      buildDayResponse({
+        dayPlanItems: [
+          { ...activityWithCost, scheduleMode: "FIXED", durationMinutes: 60, sortOrder: 0 },
+          {
+            ...activityWithCost,
+            id: "item-2",
+            title: "Harbour walk",
+            fromTime: "10:00",
+            toTime: "11:00",
+            costCents: null,
+            scheduleMode: "FLEXIBLE",
+            durationMinutes: 60,
+            sortOrder: 1,
+          },
+        ],
+      }),
+    );
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    await screen.findByRole("heading", { name: "Day 1", level: 5 });
+
+    const [fixedCard, flexibleCard] = screen.getAllByTestId("day-plan-item-card");
+    const fixedPill = within(fixedCard).getByTestId("day-plan-item-time-fixed");
+    expect(fixedPill).toHaveTextContent("Fixed time09:00 - 10:00");
+    expect(fixedPill.querySelector("svg[aria-hidden='true']")).not.toBeNull();
+    expect(emotionDeclarations(fixedPill.querySelector("svg")!, "font-size").base).toContain("12px");
+    expect(within(flexibleCard).queryByTestId("day-plan-item-time-fixed")).not.toBeInTheDocument();
+    expect(within(flexibleCard).getByText("10:00 - 11:00")).toBeInTheDocument();
+    expect(within(flexibleCard).queryByText("Fixed time")).not.toBeInTheDocument();
 
     vi.unstubAllGlobals();
   });

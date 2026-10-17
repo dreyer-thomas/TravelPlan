@@ -212,7 +212,10 @@ export const DayPlanItemScalarFieldEnum = {
   locationLng: 'locationLng',
   locationLabel: 'locationLabel',
   createdAt: 'createdAt',
-  updatedAt: 'updatedAt'
+  updatedAt: 'updatedAt',
+  scheduleMode: 'scheduleMode',
+  durationMinutes: 'durationMinutes',
+  sortOrder: 'sortOrder'
 } as const
 
 export type DayPlanItemScalarFieldEnum = (typeof DayPlanItemScalarFieldEnum)[keyof typeof DayPlanItemScalarFieldEnum]

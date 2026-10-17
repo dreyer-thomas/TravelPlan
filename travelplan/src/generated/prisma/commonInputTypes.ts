@@ -327,6 +327,23 @@ export type IntNullableWithAggregatesFilter<$PrismaModel = never> = {
   _max?: Prisma.NestedIntNullableFilter<$PrismaModel>
 }
 
+export type EnumDayPlanItemScheduleModeFilter<$PrismaModel = never> = {
+  equals?: $Enums.DayPlanItemScheduleMode | Prisma.EnumDayPlanItemScheduleModeFieldRefInput<$PrismaModel>
+  in?: $Enums.DayPlanItemScheduleMode[]
+  notIn?: $Enums.DayPlanItemScheduleMode[]
+  not?: Prisma.NestedEnumDayPlanItemScheduleModeFilter<$PrismaModel> | $Enums.DayPlanItemScheduleMode
+}
+
+export type EnumDayPlanItemScheduleModeWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.DayPlanItemScheduleMode | Prisma.EnumDayPlanItemScheduleModeFieldRefInput<$PrismaModel>
+  in?: $Enums.DayPlanItemScheduleMode[]
+  notIn?: $Enums.DayPlanItemScheduleMode[]
+  not?: Prisma.NestedEnumDayPlanItemScheduleModeWithAggregatesFilter<$PrismaModel> | $Enums.DayPlanItemScheduleMode
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumDayPlanItemScheduleModeFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumDayPlanItemScheduleModeFilter<$PrismaModel>
+}
+
 export type NestedStringFilter<$PrismaModel = never> = {
   equals?: string | Prisma.StringFieldRefInput<$PrismaModel>
   in?: string[]
@@ -644,6 +661,23 @@ export type NestedIntNullableWithAggregatesFilter<$PrismaModel = never> = {
   _sum?: Prisma.NestedIntNullableFilter<$PrismaModel>
   _min?: Prisma.NestedIntNullableFilter<$PrismaModel>
   _max?: Prisma.NestedIntNullableFilter<$PrismaModel>
+}
+
+export type NestedEnumDayPlanItemScheduleModeFilter<$PrismaModel = never> = {
+  equals?: $Enums.DayPlanItemScheduleMode | Prisma.EnumDayPlanItemScheduleModeFieldRefInput<$PrismaModel>
+  in?: $Enums.DayPlanItemScheduleMode[]
+  notIn?: $Enums.DayPlanItemScheduleMode[]
+  not?: Prisma.NestedEnumDayPlanItemScheduleModeFilter<$PrismaModel> | $Enums.DayPlanItemScheduleMode
+}
+
+export type NestedEnumDayPlanItemScheduleModeWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.DayPlanItemScheduleMode | Prisma.EnumDayPlanItemScheduleModeFieldRefInput<$PrismaModel>
+  in?: $Enums.DayPlanItemScheduleMode[]
+  notIn?: $Enums.DayPlanItemScheduleMode[]
+  not?: Prisma.NestedEnumDayPlanItemScheduleModeWithAggregatesFilter<$PrismaModel> | $Enums.DayPlanItemScheduleMode
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumDayPlanItemScheduleModeFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumDayPlanItemScheduleModeFilter<$PrismaModel>
 }
 
 

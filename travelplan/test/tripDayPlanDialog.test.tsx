@@ -6,6 +6,7 @@ import { mockFetchResponse, requestUrl, stubFetch } from "./helpers/mockFetch";
 import { Providers } from "./helpers/renderWithProviders";
 import { useI18n } from "@/i18n/provider";
 import { DOCUMENT_UPLOAD_ACCEPT } from "@/lib/trips/documentUploads";
+import enDictionary from "@/i18n/en";
 import * as React from "react";
 import type { ChangeEvent, ReactNode } from "react";
 
@@ -69,6 +70,8 @@ vi.mock("@mui/material", () => {
     // Story 6.23: `TextField select`'s native-select flag. The mock's `select` branch already
     // renders a real <select>, so the prop itself has nothing left to do but leak onto the DOM.
     "SelectProps",
+    // Story 13.1: `ToggleButtonGroup`'s single-choice flag; the mock below is always exclusive.
+    "exclusive",
   ]);
   /**
    * Story 6.24 code review. `sx` must not reach the DOM as an attribute, but dropping it outright
@@ -333,6 +336,53 @@ vi.mock("@mui/material", () => {
      * only that the icon-only controls are given one, since AC5 makes it load-bearing for the
      * destructive action whose word was removed.
      */
+    /*
+      Story 13.1. The `schedule-mode` toggle and the fixed time's Ende / Dauer switch. Faithful to the
+      two behaviours the dialog relies on: the group's state reaches each button as `aria-pressed`, and
+      pressing the active option of an exclusive group reports `null` (the dialog ignores it), as MUI's
+      own `ToggleButtonGroup` does.
+    */
+    ToggleButtonGroup: ({
+      children,
+      value,
+      onChange,
+      ...rest
+    }: {
+      children?: ReactNode;
+      value?: string;
+      exclusive?: boolean;
+      onChange?: (event: unknown, value: string | null) => void;
+    }) => (
+      <div role="group" {...omitLayoutProps(rest as Record<string, unknown>)}>
+        {React.Children.map(children, (child) =>
+          React.isValidElement(child)
+            ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              (React.cloneElement(child as any, { selectedValue: value, onSelect: onChange }) as ReactNode)
+            : child,
+        )}
+      </div>
+    ),
+    ToggleButton: ({
+      children,
+      value,
+      selectedValue,
+      onSelect,
+      ...rest
+    }: {
+      children?: ReactNode;
+      value?: string;
+      selectedValue?: string;
+      onSelect?: (event: unknown, value: string | null) => void;
+    }) => (
+      <button
+        type="button"
+        aria-pressed={selectedValue === value}
+        {...omitLayoutProps(rest as Record<string, unknown>)}
+        onClick={() => onSelect?.(null, selectedValue === value ? null : (value as string))}
+      >
+        {children}
+      </button>
+    ),
     Tooltip: ({ children, title }: { children?: ReactNode; title?: ReactNode }) => (
       <span data-tooltip={typeof title === "string" ? title : undefined}>{children}</span>
     ),
@@ -424,6 +474,13 @@ const TAB_LABELS = {
 } as const;
 
 type TabKey = keyof (typeof TAB_LABELS)["en"];
+
+/**
+ * Story 13.1 AC8: a new activity opens *Flexibel*, which has no time fields. A case that types a start
+ * and an end books a time first. Pressing it on a row that is already fixed changes nothing.
+ */
+const chooseFixedTime = (language: "en" | "de" = "en") =>
+  fireEvent.click(screen.getByRole("button", { name: language === "en" ? "Fixed time" : "Feste Zeit" }));
 
 const selectTab = (tab: TabKey, language: keyof typeof TAB_LABELS = "en") => {
   const label = TAB_LABELS[language][tab];
@@ -646,6 +703,7 @@ describe("TripDayPlanDialog", () => {
     expect(screen.queryByLabelText("Longitude")).toBeNull();
     expect(screen.queryByLabelText("Location label (optional)")).toBeNull();
     expect(screen.getByText("No coordinates selected")).toBeInTheDocument();
+    chooseFixedTime();
     fireEvent.change(screen.getByLabelText("From"), { target: { value: "09:00" } });
     fireEvent.change(screen.getByLabelText("To"), { target: { value: "10:00" } });
     fireEvent.change(screen.getByLabelText("Search place"), { target: { value: "Museum" } });
@@ -672,6 +730,7 @@ describe("TripDayPlanDialog", () => {
     expect(postCall).toBeDefined();
     const requestBody = JSON.parse(String(postCall?.[1]?.body ?? "{}"));
     expect(requestBody.title).toBe("Museum");
+    expect(requestBody.scheduleMode).toBe("FIXED");
     expect(requestBody.fromTime).toBe("09:00");
     expect(requestBody.toTime).toBe("10:00");
     expect(requestBody.costCents).toBe(2600);
@@ -925,6 +984,7 @@ describe("TripDayPlanDialog", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: " " } });
     selectTab("whenWhere");
+    chooseFixedTime();
     fireEvent.change(screen.getByLabelText("From"), { target: { value: "09:00" } });
     fireEvent.change(screen.getByLabelText("To"), { target: { value: "10:00" } });
     fireEvent.click(screen.getByRole("button", { name: "OK" }));
@@ -994,6 +1054,7 @@ describe("TripDayPlanDialog", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Plan" } });
     selectTab("whenWhere");
+    chooseFixedTime();
     fireEvent.change(screen.getByLabelText("From"), { target: { value: "" } });
     fireEvent.change(screen.getByLabelText("To"), { target: { value: "09:00" } });
     fireEvent.click(screen.getByRole("button", { name: "OK" }));
@@ -1040,6 +1101,7 @@ describe("TripDayPlanDialog", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Tickets" } });
     selectTab("whenWhere");
+    chooseFixedTime();
     fireEvent.change(screen.getByLabelText("From"), { target: { value: "09:00" } });
     fireEvent.change(screen.getByLabelText("To"), { target: { value: "10:00" } });
     selectTab("cost");
@@ -1691,6 +1753,7 @@ describe("TripDayPlanDialog", () => {
 
     selectTab("whenWhere");
     expect(screen.queryByLabelText("Title")).toBeNull();
+    chooseFixedTime();
     fireEvent.change(screen.getByLabelText("From"), { target: { value: "09:15" } });
 
     selectTab("media");
@@ -1850,18 +1913,17 @@ describe("TripDayPlanDialog", () => {
       return { onSaved, onClose };
     };
 
-    it("shows day_plan_before_predecessor on the start field, naming the predecessor", async () => {
+    it("treats day_plan_before_predecessor as an unknown code now: the generic save error (Story 13.1 AC7)", async () => {
+      // 13.1 AC7: the server no longer sends this code (a fixed activity is placed by its time), and the
+      // dialog's branch and `trips.plan.beforePredecessor` are gone with it.
       const { onSaved, onClose } = await renderRefusing({
         code: "day_plan_before_predecessor",
         message: "Start is before the previous activity",
         details: { predecessorId: "item-b", predecessorTitle: "Museum", predecessorFromTime: "10:30" },
       });
 
-      await waitFor(() =>
-        expect(screen.getByText('Starts before "Museum". A time change keeps the order – use "Move up".')).toBeInTheDocument(),
-      );
-      expect(screen.getByLabelText("From")).toHaveAttribute("aria-invalid", "true");
-      // Still open: the form is there to correct, and nothing asked to close it.
+      await waitFor(() => expect(screen.getByText(enDictionary["trips.plan.saveError"])).toBeInTheDocument());
+      expect(screen.queryByText(/Starts before/)).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "OK" })).toBeInTheDocument();
       expect(onSaved).not.toHaveBeenCalled();
       expect(onClose).not.toHaveBeenCalled();
@@ -2347,6 +2409,8 @@ describe("TripDayPlanDialog", () => {
       ["contentJson", "what"],
       ["fromTime", "whenWhere"],
       ["toTime", "whenWhere"],
+      // Story 13.1: the duration's two boxes are on Wann & Wo.
+      ["durationMinutes", "whenWhere"],
       ["costCents", "cost"],
       ["paymentError", "cost"],
       ["paymentRowErrors", "cost"],
@@ -3662,8 +3726,9 @@ describe("TripDayPlanDialog", () => {
       await renderPlace([{ lat: 48.8584, lng: 2.2945, label: "Paris, France" }]);
 
       expect(screen.getByRole("status")).toHaveTextContent("");
-      // Empty means empty: no group, and therefore no stray bordered hairline either.
-      expect(screen.queryByRole("group")).toBeNull();
+      // Empty means empty: no candidate group, and therefore no stray bordered hairline either. (Story
+      // 13.1's schedule-mode toggle is a group of its own on the same panel, and is not the list.)
+      expect(screen.queryAllByRole("group").filter((group) => group.dataset.testid !== "plan-schedule-mode")).toEqual([]);
     });
 
     /**
@@ -3967,6 +4032,255 @@ describe("TripDayPlanDialog", () => {
 
       // The currency lives in `PlanFormValues` precisely so the fingerprint covers it: a change that
       // did not dirty the form would be discarded by `✕` without a word.
+      expect(await screen.findByText("Discard changes?")).toBeInTheDocument();
+    });
+  });
+
+  /** Story 13.1 AC8, AC9. The schedule-mode toggle, the duration, and what each mode sends. */
+  describe("schedule mode (Story 13.1)", () => {
+    type Saved = Record<string, unknown>;
+    const renderSchedule = async (
+      options: {
+        mode?: "add" | "edit";
+        item?: Record<string, unknown> | null;
+        language?: "en" | "de";
+      } = {},
+    ) => {
+      const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
+      const saves: Saved[] = [];
+      const fetchMock = vi.fn(async (input: RequestInfo, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.url;
+        if (url.includes("/api/auth/csrf")) {
+          return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
+        }
+        if (url.includes("/day-plan-items") && (init?.method === "POST" || init?.method === "PATCH")) {
+          saves.push(JSON.parse(String(init.body)));
+          return mockFetchResponse({ data: { dayPlanItem: { id: "item-1" } }, error: null });
+        }
+        return mockFetchResponse({ data: { images: [], documents: [] }, error: null });
+      });
+      stubFetch(fetchMock);
+      const onSaved = vi.fn();
+      render(
+        <Providers language={options.language ?? "en"}>
+          <TripDayPlanDialog
+            open
+            mode={options.mode ?? "add"}
+            tripId="trip-1"
+            day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
+            item={(options.item ?? null) as never}
+            onClose={() => undefined}
+            onSaved={onSaved}
+          />
+        </Providers>,
+      );
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      if (options.mode !== "edit") fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Lunch" } });
+      selectTab("whenWhere", options.language ?? "en");
+      return { saves, onSaved };
+    };
+
+    const editItem = (extra: Record<string, unknown>) => ({
+      id: "item-1",
+      tripDayId: "day-1",
+      title: "Museum",
+      fromTime: "11:20",
+      toTime: "12:20",
+      contentJson: tiptapMocks.sampleDoc,
+      costCents: null,
+      linkUrl: null,
+      location: null,
+      createdAt: "2026-11-01T08:00:00.000Z",
+      ...extra,
+    });
+
+    const save = () => fireEvent.click(screen.getByRole("button", { name: "OK" }));
+    const hours = () => screen.getByLabelText("Duration (h)");
+    const minutes = () => screen.getByLabelText("Duration (min)");
+
+    it("opens a new activity flexible with one hour, no time fields, and sends only the duration", async () => {
+      const { saves } = await renderSchedule();
+
+      expect(within(screen.getByTestId("plan-schedule-mode")).getByRole("button", { name: "Flexible" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+      expect(hours()).toHaveValue("1");
+      expect(minutes()).toHaveValue("0");
+      expect(screen.queryByLabelText("From")).toBeNull();
+      expect(screen.getByTestId("plan-expected-times")).toHaveTextContent("calculated after saving");
+
+      save();
+      await waitFor(() => expect(saves).toHaveLength(1));
+      expect(saves[0]).toMatchObject({ scheduleMode: "FLEXIBLE", durationMinutes: 60 });
+      expect(saves[0]).not.toHaveProperty("fromTime");
+      expect(saves[0]).not.toHaveProperty("toTime");
+    });
+
+    it("saves an empty duration as 15 minutes", async () => {
+      const { saves } = await renderSchedule();
+      fireEvent.change(hours(), { target: { value: "" } });
+      fireEvent.change(minutes(), { target: { value: "" } });
+
+      save();
+      await waitFor(() => expect(saves).toHaveLength(1));
+      expect(saves[0]).toMatchObject({ scheduleMode: "FLEXIBLE", durationMinutes: 15 });
+    });
+
+    it("refuses a duration under five minutes or one that is not a number, on the duration field", async () => {
+      const { saves } = await renderSchedule();
+      fireEvent.change(hours(), { target: { value: "0" } });
+      fireEvent.change(minutes(), { target: { value: "4" } });
+      save();
+      expect(await screen.findByText("At least 5 minutes.")).toBeInTheDocument();
+
+      fireEvent.change(minutes(), { target: { value: "x" } });
+      save();
+      expect(await screen.findByText("Please enter a valid duration.")).toBeInTheDocument();
+      expect(saves).toEqual([]);
+    });
+
+    it("refuses a flexible duration longer than a day before the server does (review)", async () => {
+      const { saves } = await renderSchedule();
+      fireEvent.change(hours(), { target: { value: "24" } });
+      fireEvent.change(minutes(), { target: { value: "0" } });
+      save();
+      expect(await screen.findByText("At most 23 h 59 min.")).toBeInTheDocument();
+      expect(saves).toEqual([]);
+    });
+
+    it("clears typed times when a new activity goes fixed, flexible and fixed again (AC9, review)", async () => {
+      await renderSchedule();
+      chooseFixedTime();
+      fireEvent.change(screen.getByLabelText("From"), { target: { value: "12:00" } });
+      fireEvent.change(screen.getByLabelText("To"), { target: { value: "13:00" } });
+
+      fireEvent.click(screen.getByRole("button", { name: "Flexible" }));
+      fireEvent.click(screen.getByRole("button", { name: "Fixed time" }));
+      expect(screen.getByLabelText("From")).toHaveValue("");
+      expect(screen.getByLabelText("To")).toHaveValue("");
+    });
+
+    it("shows a flexible row's stored times as the expected line, in German too", async () => {
+      await renderSchedule({ mode: "edit", item: editItem({ scheduleMode: "FLEXIBLE", durationMinutes: 60 }), language: "de" });
+
+      expect(screen.getByTestId("plan-expected-times")).toHaveTextContent("Voraussichtlich 11:20 – 12:20");
+      expect(screen.getByLabelText("Dauer (Std.)")).toHaveValue("1");
+    });
+
+    it("says the times come after saving for a flexible row that does not fit", async () => {
+      await renderSchedule({
+        mode: "edit",
+        item: editItem({ scheduleMode: "FLEXIBLE", durationMinutes: 45, fromTime: null, toTime: null }),
+      });
+
+      expect(screen.getByTestId("plan-expected-times")).toHaveTextContent("calculated after saving");
+      expect(minutes()).toHaveValue("45");
+    });
+
+    it("turns a fixed row's times into the duration when switched to flexible", async () => {
+      const { saves } = await renderSchedule({
+        mode: "edit",
+        item: editItem({ scheduleMode: "FIXED", fromTime: "09:00", toTime: "10:30", durationMinutes: 90 }),
+      });
+      fireEvent.change(screen.getByLabelText("To"), { target: { value: "11:15" } });
+
+      fireEvent.click(screen.getByRole("button", { name: "Flexible" }));
+      expect(hours()).toHaveValue("2");
+      expect(minutes()).toHaveValue("15");
+
+      save();
+      await waitFor(() => expect(saves).toHaveLength(1));
+      expect(saves[0]).toMatchObject({ scheduleMode: "FLEXIBLE", durationMinutes: 135, itemId: "item-1" });
+    });
+
+    it("freezes a flexible row's computed times when switched to fixed, and keeps the duration for the duration form", async () => {
+      const { saves } = await renderSchedule({ mode: "edit", item: editItem({ scheduleMode: "FLEXIBLE", durationMinutes: 60 }) });
+
+      fireEvent.click(screen.getByRole("button", { name: "Fixed time" }));
+      expect(screen.getByLabelText("From")).toHaveValue("11:20");
+      expect(screen.getByLabelText("To")).toHaveValue("12:20");
+
+      fireEvent.click(within(screen.getByTestId("plan-fixed-end-kind")).getByRole("button", { name: "Duration" }));
+      expect(screen.queryByLabelText("To")).toBeNull();
+      expect(hours()).toHaveValue("1");
+
+      save();
+      await waitFor(() => expect(saves).toHaveLength(1));
+      expect(saves[0]).toMatchObject({ scheduleMode: "FIXED", fromTime: "11:20", durationMinutes: 60 });
+      expect(saves[0]).not.toHaveProperty("toTime");
+    });
+
+    it("sends a fixed time as start and end in the end form", async () => {
+      const { saves } = await renderSchedule();
+      chooseFixedTime();
+      fireEvent.change(screen.getByLabelText("From"), { target: { value: "12:00" } });
+      fireEvent.change(screen.getByLabelText("To"), { target: { value: "13:00" } });
+
+      save();
+      await waitFor(() => expect(saves).toHaveLength(1));
+      expect(saves[0]).toMatchObject({ scheduleMode: "FIXED", fromTime: "12:00", toTime: "13:00" });
+      expect(saves[0]).not.toHaveProperty("durationMinutes");
+    });
+
+    it("refuses a fixed duration that would end after midnight, on the duration field", async () => {
+      const { saves } = await renderSchedule();
+      chooseFixedTime();
+      fireEvent.change(screen.getByLabelText("From"), { target: { value: "23:30" } });
+      fireEvent.click(within(screen.getByTestId("plan-fixed-end-kind")).getByRole("button", { name: "Duration" }));
+      fireEvent.change(hours(), { target: { value: "1" } });
+      fireEvent.change(minutes(), { target: { value: "0" } });
+
+      save();
+      expect(await screen.findByText("Ends after midnight.")).toBeInTheDocument();
+      expect(saves).toEqual([]);
+    });
+
+    it("shows a server duration error on the duration field", async () => {
+      const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
+      stubFetch(
+        vi.fn(async (input: RequestInfo) => {
+          const url = typeof input === "string" ? input : input.url;
+          if (url.includes("/api/auth/csrf")) return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
+          return mockFetchResponse(
+            {
+              data: null,
+              error: {
+                code: "validation_error",
+                message: "Invalid day plan item",
+                details: { fieldErrors: { durationMinutes: ["Duration must be at least 5 minutes"] } },
+              },
+            },
+            { status: 400 },
+          );
+        }),
+      );
+      render(
+        <Providers language="en">
+          <TripDayPlanDialog
+            open
+            mode="add"
+            tripId="trip-1"
+            day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
+            item={null}
+            onClose={() => undefined}
+            onSaved={() => undefined}
+          />
+        </Providers>,
+      );
+      fireEvent.change(await screen.findByLabelText("Title"), { target: { value: "Lunch" } });
+      await waitFor(() => expect(screen.getByRole("button", { name: "OK" })).not.toBeDisabled());
+      save();
+
+      expect(await screen.findByText("Duration must be at least 5 minutes")).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: (name: string) => name.startsWith("When") })).toHaveAttribute("aria-selected", "true");
+    });
+
+    it("counts a mode switch as unsaved input for the discard guard", async () => {
+      await renderSchedule({ mode: "edit", item: editItem({ scheduleMode: "FIXED" }) });
+      fireEvent.click(screen.getByRole("button", { name: "Flexible" }));
+
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
       expect(await screen.findByText("Discard changes?")).toBeInTheDocument();
     });
   });

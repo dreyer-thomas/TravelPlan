@@ -51,6 +51,10 @@ const makeItem = (overrides: Partial<PrintItem> = {}): PrintItem => ({
   title: "Museum Visit",
   fromTime: "09:00",
   toTime: "11:00",
+  // Story 13.1 AC13: the print payload carries the schedule fields.
+  scheduleMode: "FIXED",
+  durationMinutes: 120,
+  sortOrder: 0,
   contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Great place" }] }] }),
   costCents: null,
   // Story 10.2. See `makeStay` above.

@@ -5,7 +5,7 @@ import { dayChangedResponse } from "@/lib/http/dayPlanPushResponses";
 import { requireSession } from "@/lib/auth/sessionGuard";
 import { refuseUnlessTripWriter } from "@/lib/auth/tripAccess";
 import { CSRF_COOKIE_NAME, validateCsrf } from "@/lib/security/csrf";
-import { DayPlanChangedError } from "@/lib/repositories/dayPlanPushTransaction";
+import { DayPlanChangedError } from "@/lib/repositories/dayScheduleTransaction";
 import { applySuggestionsForTripDay } from "@/lib/repositories/daySuggestionApplyRepo";
 import { toDayChangeReceiptWire } from "@/lib/trips/dayChangeReceipt";
 import { signDayChangeReceipt } from "@/lib/trips/dayChangeReceiptSignature";

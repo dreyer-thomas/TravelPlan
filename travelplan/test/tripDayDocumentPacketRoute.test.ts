@@ -350,7 +350,8 @@ describe("GET /api/trips/[id]/days/[dayId]/documents/packet", () => {
     const currentStay = await prisma.accommodation.create({
       data: { tripDayId: day2.id, name: "Hotel Roma", status: "BOOKED" },
     });
-    // Created out of chronological order, so `compareDayPlanItemsByStartTime` has something to do.
+    // Created out of chronological order, so `compareDayPlanItemsByOrder` has something to do: both rows
+    // share the seeded `sortOrder` 0, and its start-time tiebreak (Story 13.1) puts the Vatican first.
     const afternoon = await prisma.dayPlanItem.create({
       data: { tripDayId: day2.id, title: "Colosseum", fromTime: "15:00", contentJson: '{"type":"doc","content":[]}' },
     });

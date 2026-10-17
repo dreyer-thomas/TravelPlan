@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db/prisma";
 import { type PaymentDetail, toPaymentDetails } from "@/lib/repositories/paymentDetail";
 import { createAccountWithTemporaryPassword } from "@/lib/repositories/userRepo";
 import { Prisma } from "@/generated/prisma/client";
-import type { TravelSegmentItemType, TravelTransportType } from "@/generated/prisma/enums";
+import type { DayPlanItemScheduleMode, TravelSegmentItemType, TravelTransportType } from "@/generated/prisma/enums";
 import { deriveTripAccessRole, mapTripMemberRole, type TripAccessRole } from "@/lib/auth/tripAccessRole";
 import { buildDayMapPanelData, buildTripDayMapItems, type TripDayMapPanelData } from "@/lib/trips/dayMapData";
 // Story 8.5 review (`DW-216`, partially). This file's private copy of the comparator was byte-identical
@@ -13,7 +13,8 @@ import { buildDayMapPanelData, buildTripDayMapItems, type TripDayMapPanelData } 
 // very same rule to decide which travel legs exist. Two identical spellings of the order two layers
 // have to agree on is the shape of this story's original defect; one import removes it. The shared
 // signature takes `Date | string`, so the `Date`s here are a drop-in.
-import { compareDayPlanItemsByStartTime } from "@/lib/trips/dayPlanItemOrder";
+import { compareDayPlanItemsByOrder } from "@/lib/trips/dayPlanItemOrder";
+import { legacyScheduleFields } from "@/lib/trips/legacySchedule";
 import {
   getTripUploadDir,
   isExternalMediaUrl,
@@ -187,12 +188,16 @@ export type TripDaySummary = {
     fromTime: string | null;
     toTime: string | null;
     /**
-     * Story 8.5. The tie-break in `compareDayPlanItemsByStartTime`, which this type's own producer
+     * Story 8.5. A tie-break in `compareDayPlanItemsByOrder`, which this type's own producer
      * sorts by and `travelSegmentRepo`'s adjacency rule sorts by. Carried so a consumer re-deriving
      * that order — the day view does, because the legs it draws are the consecutive pairs of it —
      * reaches the same answer for two activities that start at the same minute.
      */
     createdAt: Date;
+    /** Story 13.1. How the activity is planned, its duration, and its place in the day's order. */
+    scheduleMode: DayPlanItemScheduleMode;
+    durationMinutes: number;
+    sortOrder: number;
     contentJson: string;
     costCents: number | null;
     costOriginalAmount: number | null;
@@ -282,6 +287,10 @@ export type TripDayPrintPlanItem = {
   title: string | null;
   fromTime: string | null;
   toTime: string | null;
+  /** Story 13.1 AC13. How the activity is planned, its duration, and its place in the day's order. */
+  scheduleMode: DayPlanItemScheduleMode;
+  durationMinutes: number;
+  sortOrder: number;
   contentJson: string;
   costCents: number | null;
   /** Story 10.2. See `TripDayPrintStay` above for why `payments` is not carried alongside these. */
@@ -1118,6 +1127,9 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
               fromTime: true,
               toTime: true,
               createdAt: true,
+              scheduleMode: true,
+              durationMinutes: true,
+              sortOrder: true,
               contentJson: true,
               costCents: true,
               costOriginalAmount: true,
@@ -1250,7 +1262,7 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
                   : null,
             }
           : null,
-        dayPlanItems: [...day.dayPlanItems].sort(compareDayPlanItemsByStartTime).map((item) => ({
+        dayPlanItems: [...day.dayPlanItems].sort(compareDayPlanItemsByOrder).map((item) => ({
           id: item.id,
           title: item.title,
           fromTime: item.fromTime,
@@ -1261,6 +1273,9 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
           // here and in `travelSegmentRepo`'s adjacency rule. `TripDayView` re-applies the shared
           // comparator to what it receives, and needs this field to arrive at the same answer.
           createdAt: item.createdAt,
+          scheduleMode: item.scheduleMode,
+          durationMinutes: item.durationMinutes,
+          sortOrder: item.sortOrder,
           contentJson: item.contentJson,
           costCents: item.costCents,
           costOriginalAmount: item.costOriginalAmount,
@@ -1454,6 +1469,9 @@ export const getTripDayPrintPayloadForUser = async ({
             fromTime: true,
             toTime: true,
             createdAt: true,
+            scheduleMode: true,
+            durationMinutes: true,
+            sortOrder: true,
             contentJson: true,
             costCents: true,
             // Story 10.2: the sheet prints the cost and the receipt that explains it.
@@ -1603,12 +1621,15 @@ export const getTripDayPrintPayloadForUser = async ({
   const currentStay = currentStaySummary ? toPrintStay(currentStaySummary) : null;
 
   const planItems: TripDayPrintPlanItem[] = [...targetDay.dayPlanItems]
-    .sort(compareDayPlanItemsByStartTime)
+    .sort(compareDayPlanItemsByOrder)
     .map((item) => ({
       id: item.id,
       title: item.title,
       fromTime: item.fromTime,
       toTime: item.toTime,
+      scheduleMode: item.scheduleMode,
+      durationMinutes: item.durationMinutes,
+      sortOrder: item.sortOrder,
       contentJson: item.contentJson,
       costCents: item.costCents,
       costOriginalAmount: item.costOriginalAmount,
@@ -2746,13 +2767,22 @@ const createImportedDays = async ({
 
     // Insertion order is the package's array order and must stay that way: import does not preserve
     // `createdAt`, so plan-item ordering - which travel segments now depend on - is insertion order.
-    for (const item of day.dayPlanItems) {
+    // Story 13.1 (AC15): a backup carries no schedule fields until 13.4, so each row gets them by the
+    // migration's rule, with the array order as the creation order the rule's tiebreak reads.
+    const scheduleFields = legacyScheduleFields(
+      day.dayPlanItems.map((item) => ({ fromTime: item.fromTime ?? null, toTime: item.toTime ?? null })),
+    );
+    for (const [itemIndex, item] of day.dayPlanItems.entries()) {
+      const schedule = scheduleFields[itemIndex];
       const createdItem = await tx.dayPlanItem.create({
         data: {
           tripDayId: createdDay.id,
           title: item.title ?? null,
-          fromTime: item.fromTime ?? null,
-          toTime: item.toTime ?? null,
+          fromTime: schedule.fromTime,
+          toTime: schedule.toTime,
+          scheduleMode: schedule.scheduleMode,
+          durationMinutes: schedule.durationMinutes,
+          sortOrder: schedule.sortOrder,
           contentJson: item.contentJson,
           costCents: item.costCents ?? null,
           costOriginalAmount: item.costOriginalAmount ?? null,
@@ -3707,9 +3737,11 @@ export const getDayRoutePointsForUser = async ({
         },
       },
       dayPlanItems: {
-        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         select: {
           id: true,
+          fromTime: true,
+          createdAt: true,
+          sortOrder: true,
           locationLat: true,
           locationLng: true,
         },
@@ -3750,7 +3782,9 @@ export const getDayRoutePointsForUser = async ({
     });
   }
 
-  for (const item of day.dayPlanItems) {
+  // Story 13.1 AC13. The day's one order, not `createdAt`, which disagreed with the timeline as soon as an
+  // activity was entered after a later one.
+  for (const item of [...day.dayPlanItems].sort(compareDayPlanItemsByOrder)) {
     if (item.locationLat === null || item.locationLng === null) {
       continue;
     }
@@ -3864,6 +3898,7 @@ export const getDaySuggestionContextForUser = async ({
           title: true,
           fromTime: true,
           createdAt: true,
+          sortOrder: true,
         },
       },
     },
@@ -3889,7 +3924,7 @@ export const getDaySuggestionContextForUser = async ({
     toSuggestionPlace([day.trip.startLocationLabel], day.trip.startLocationLat, day.trip.startLocationLng);
 
   const existingTitles = [...day.dayPlanItems]
-    .sort(compareDayPlanItemsByStartTime)
+    .sort(compareDayPlanItemsByOrder)
     .map((item) => item.title?.trim() ?? "")
     .filter((title) => title.length > 0);
 

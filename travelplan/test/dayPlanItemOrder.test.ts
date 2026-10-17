@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compareDayPlanItemsByStartTime } from "@/lib/trips/dayPlanItemOrder";
+import { compareDayPlanItemsByOrder } from "@/lib/trips/dayPlanItemOrder";
 
 /**
  * Story 8.5. A direct suite for the rule two layers now share.
@@ -12,14 +12,37 @@ import { compareDayPlanItemsByStartTime } from "@/lib/trips/dayPlanItemOrder";
  * all (the repository holds a Prisma `Date`, the client an ISO string off the wire).
  */
 
-const item = (id: string, fromTime: string | null, createdAt: Date | string) => ({ id, fromTime, createdAt });
+/** `sortOrder` 0 by default: the cases below are the tiebreak, which is the old start-time rule (13.1 §2). */
+const item = (id: string, fromTime: string | null, createdAt: Date | string, sortOrder = 0) => ({
+  id,
+  fromTime,
+  createdAt,
+  sortOrder,
+});
 const sortIds = (items: ReturnType<typeof item>[]) =>
-  [...items].sort(compareDayPlanItemsByStartTime).map((entry) => entry.id);
+  [...items].sort(compareDayPlanItemsByOrder).map((entry) => entry.id);
 
 const T1 = "2026-01-01T08:00:00.000Z";
 const T2 = "2026-01-02T08:00:00.000Z";
 
-describe("compareDayPlanItemsByStartTime", () => {
+describe("compareDayPlanItemsByOrder (Story 13.1 AC13)", () => {
+  it("orders by sortOrder first, whatever the times or the creation order say", () => {
+    const dinner = item("dinner", "19:00", T1, 0);
+    const museum = item("museum", "09:00", T1, 1);
+    const untimed = item("untimed", null, T2, 2);
+    const early = item("early", "07:00", T2, 3);
+
+    expect(sortIds([early, untimed, museum, dinner])).toEqual(["dinner", "museum", "untimed", "early"]);
+  });
+
+  it("falls back to the start-time order only for rows that share a sortOrder (seeded rows)", () => {
+    expect(sortIds([item("b", "10:00", T1, 1), item("a", "09:00", T2, 1), item("z", "23:00", T1, 0)])).toEqual([
+      "z",
+      "a",
+      "b",
+    ]);
+  });
+
   it("orders two timed activities by their start time, whatever order they arrive in", () => {
     const museum = item("museum", "09:00", T2);
     const dinner = item("dinner", "19:00", T1);
@@ -98,7 +121,7 @@ describe("compareDayPlanItemsByStartTime", () => {
     const zzz = item("zzz", "09:00", "");
     const aaa = item("aaa", "09:00", "");
 
-    expect(compareDayPlanItemsByStartTime(zzz, aaa)).toBe(0);
+    expect(compareDayPlanItemsByOrder(zzz, aaa)).toBe(0);
     expect(sortIds([zzz, aaa])).toEqual(["zzz", "aaa"]);
     expect(sortIds([aaa, zzz])).toEqual(["aaa", "zzz"]);
   });
@@ -108,8 +131,8 @@ describe("compareDayPlanItemsByStartTime", () => {
     const unknown = item("aaa", "09:00", "not-a-date");
 
     // Nothing can be concluded from one instant, so nothing is: the incoming order stands either way.
-    expect(compareDayPlanItemsByStartTime(known, unknown)).toBe(0);
-    expect(compareDayPlanItemsByStartTime(unknown, known)).toBe(0);
+    expect(compareDayPlanItemsByOrder(known, unknown)).toBe(0);
+    expect(compareDayPlanItemsByOrder(unknown, known)).toBe(0);
     expect(sortIds([known, unknown])).toEqual(["zzz", "aaa"]);
     expect(sortIds([unknown, known])).toEqual(["aaa", "zzz"]);
   });

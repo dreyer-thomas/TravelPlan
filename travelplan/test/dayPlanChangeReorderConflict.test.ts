@@ -5,8 +5,8 @@ import { createSessionJwt } from "@/lib/auth/jwt";
 import { routeContext } from "./helpers/routeContext";
 
 /**
- * Story 11.3 AC11. A reorder writes both swapped rows (and every pushed one) conditionally on the
- * `updatedAt` its transaction read, through 11.2's `applyPushMovesInTransaction`. If another write lands
+ * Story 11.3 AC11. A reorder writes both swapped rows (and every moved one) conditionally on the
+ * `updatedAt` its transaction read, through `applyScheduleChangesInTransaction` (Story 13.1). If another write lands
  * between that read and the writes, the whole change rolls back and the route answers
  * `409 day_plan_changed`.
  *
@@ -64,11 +64,13 @@ describe("a reorder that loses a race rolls the whole change back (Story 11.3)",
     const day = await prisma.tripDay.create({
       data: { tripId: trip.id, date: new Date("2026-10-01T00:00:00.000Z"), dayIndex: 1 },
     });
+    // Story 13.1 §10: only a FLEXIBLE row is offered up and down, so both rows are flexible here.
+    const flexible = { scheduleMode: "FLEXIBLE" as const, durationMinutes: 60 };
     await prisma.dayPlanItem.create({
-      data: { tripDayId: day.id, title: "A", fromTime: "09:00", toTime: "10:00", contentJson: sampleDoc("A"), createdAt: PAST, updatedAt: PAST },
+      data: { tripDayId: day.id, title: "A", fromTime: "09:00", toTime: "10:00", ...flexible, sortOrder: 0, contentJson: sampleDoc("A"), createdAt: PAST, updatedAt: PAST },
     });
     const b = await prisma.dayPlanItem.create({
-      data: { tripDayId: day.id, title: "B", fromTime: "10:30", toTime: "11:30", contentJson: sampleDoc("B"), createdAt: PAST, updatedAt: PAST },
+      data: { tripDayId: day.id, title: "B", fromTime: "10:00", toTime: "11:00", ...flexible, sortOrder: 1, contentJson: sampleDoc("B"), createdAt: PAST, updatedAt: PAST },
     });
     const before = await prisma.dayPlanItem.findMany({ orderBy: { id: "asc" } });
     // A is the second row the reorder writes; B is written first and would have succeeded.

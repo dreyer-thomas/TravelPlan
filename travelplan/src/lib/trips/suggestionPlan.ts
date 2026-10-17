@@ -15,17 +15,14 @@
  */
 
 import { haversineMeters, type GeoPoint } from "@/lib/geo/distance";
-import { LAST_MINUTE_OF_DAY, minutesToTime } from "@/lib/trips/dayPlanPush";
+import { LAST_MINUTE_OF_DAY, minutesToTime } from "@/lib/trips/daySchedule";
+import { DAY_START_WITHOUT_STAY } from "@/lib/trips/stayTimes";
 import type { RoutingProfile } from "@/lib/routing/dayRouteService";
 import type { TransportType } from "@/lib/trips/transportTypes";
 import type { SuggestionMode } from "@/lib/validation/daySuggestionSchemas";
 
-/**
- * Where the chain starts on a day with no stay the night before (the trip's first day): there is no
- * check-out to follow, so the day begins at 09:00 (Tommy, 2026-10-16, ruling 1c). A stay last night
- * always decides instead, through its check-out or the timeline's 10:00 default.
- */
-export const DAY_START_WITHOUT_STAY = "09:00";
+/** Where the chain starts without a stay last night; shared with the schedule rule since Story 13.1. */
+export { DAY_START_WITHOUT_STAY };
 
 /** Closer than this, the start and the end are "the same place" and a projection means nothing. */
 export const SAME_PLACE_METERS = 500;
