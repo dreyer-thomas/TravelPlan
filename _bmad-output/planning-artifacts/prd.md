@@ -37,7 +37,7 @@ classification:
   domain: travel_planning_private
   complexity: high
   projectContext: greenfield
-lastEdited: '2026-10-16'
+lastEdited: '2026-10-17'
 editHistory:
   - date: '2026-02-12'
     changes: 'Aligned PRD to BMAD structure, resolved performance target conflict, added transport/maps MVP scope, added restore/import, contributor role, and password reset, clarified GDPR and accessibility requirements.'
@@ -51,6 +51,10 @@ editHistory:
     changes: 'Added FR41 (foreign-currency cost entry converted to EUR at the ECB daily reference rate). EUR remains the single stored currency and the basis of every total, budget figure and export. See Sprint Change Proposal 2026-09-20.'
   - date: '2026-10-16'
     changes: 'Added FR44-FR45 (AI suggestions for a day, applied as ordered activities with travel legs) and a domain note on data sent to the AI provider. See Sprint Change Proposal 2026-10-16.'
+  - date: '2026-10-17'
+    changes: 'Rewrote FR42-FR43 and added FR46-FR47 (activities planned by duration as flexible or fixed; plan collision warnings; check-in no longer a warning). Amended FR45. See Sprint Change Proposal 2026-10-17.'
+  - date: '2026-10-17'
+    changes: 'Amended FR35-FR36 (bucket list entries are activities without a day). Added FR48 (park an activity) and FR49 (park AI suggestions). See Sprint Change Proposal 2026-10-17, Bucket List as a Parking Lot.'
 ---
 
 # Product Requirements Document - TravelPlan
@@ -250,8 +254,10 @@ TravelPlan is a web SPA targeting Chrome/Safari on desktop and mobile/tablet.
 - FR19: Users can add rich text notes to a day plan.
 - FR20: Users can add links to a day plan.
 - FR21: Users can edit or clear a day plan.
-- FR42: When users insert, retime or extend an activity, lengthen a travel leg, or move the previous night's check-out later, later activities on that day move back only as far as needed to start after the previous activity (or the check-out) ends plus the travel time between them, keeping their order and duration; gaps are never closed automatically. Travel legs whose two endpoints are no longer consecutive are removed, and the whole change, including every moved activity and removed leg, can be undone. **(Added 2026-10-10 — see Sprint Change Proposal 2026-10-10; widened 2026-10-11 to legs and check-out — see Sprint Change Proposal 2026-10-11)**
-- FR43: Users can move an activity one place earlier or later within its day, with the times of the swapped pair and the activities after them recalculated under the same rule. **(Added 2026-10-10)**
+- FR42: Whenever an activity, a travel leg or the previous night's check-out changes, the app recomputes the day: flexible activities start directly after the previous activity ends plus the travel time between them, starting from the previous night's check-out (10:00 if none is set; 09:00 on a day without a stay the night before), and move earlier as well as later; fixed activities never move. Travel legs whose two endpoints are no longer consecutive are removed, and the whole change, including every moved activity and removed leg, can be undone. **(Added 2026-10-10 — see Sprint Change Proposal 2026-10-10; widened 2026-10-11; rewritten 2026-10-17 for flexible and fixed activities — see Sprint Change Proposal 2026-10-17)**
+- FR43: Users can move an activity one place earlier or later within its day, including past a fixed activity, and the day is recomputed under FR42. A fixed activity's place follows from its time. **(Added 2026-10-10; amended 2026-10-17)**
+- FR46: Users plan an activity either as flexible, by giving only how long it takes, or as fixed, by giving a booked start together with an end or a duration. An activity without a duration takes 15 minutes. **(Added 2026-10-17 — see Sprint Change Proposal 2026-10-17)**
+- FR47: Users are warned, on the day and in the trip overview, when a day's plan cannot work: an activity cannot be reached by its fixed start, two fixed activities overlap, or the day runs past midnight. The plan is saved anyway. Arriving at the night's stay after its check-in time is not a warning. **(Added 2026-10-17)**
 
 ### Budget Awareness (MVP-light)
 
@@ -284,8 +290,9 @@ TravelPlan is a web SPA targeting Chrome/Safari on desktop and mobile/tablet.
 
 ### Idea Capture & Logbook
 
-- FR35: Users can capture ideas or places in an inbox for later placement.
-- FR36: Users can assign captured ideas to specific days.
+- FR35: Users can capture ideas or places in a trip-level bucket list for later placement. A bucket-list entry is an activity without a day: it carries everything an activity carries (title, description, link, pictures, documents, costs, duration, place), and its costs do not count in any total while it has no day. **(Amended 2026-10-17 — see Sprint Change Proposal 2026-10-17, Bucket List as a Parking Lot)**
+- FR36: Users can schedule a bucket-list entry onto a specific day; it becomes an activity of that day with all its data and is placed under FR42. **(Amended 2026-10-17)**
+- FR48: Users who can plan a trip can park an activity of a day in the bucket list. It leaves the day with all its data, becomes flexible with its duration, the day is recomputed under FR42, and the parking can be undone in one step. **(Added 2026-10-17 — see Sprint Change Proposal 2026-10-17, Bucket List as a Parking Lot)**
 - FR37: Users can view past trips as a read-only logbook.
 
 ### Travel Documents
@@ -297,7 +304,8 @@ TravelPlan is a web SPA targeting Chrome/Safari on desktop and mobile/tablet.
 ### AI Day Suggestions
 
 - FR44: Users who can plan a trip can ask an AI for activity suggestions for a day, describing in free text what they want to do and choosing car, walking or cycling. Each suggestion shows a title, a description, up to three images, a location and a typical visit duration. The day's start and end places are used as context. The feature is available only when the operator has configured an AI provider key. **(Added 2026-10-16 — see Sprint Change Proposal 2026-10-16)**
-- FR45: Users can select any number of suggestions and apply them in one step. The selected suggestions become activities in visiting order along the day's route, with times chained from the morning's check-out (or after the day's last activity), and travel legs between them in the chosen mode. The whole application can be undone in one step. **(Added 2026-10-16)**
+- FR45: Users can select any number of suggestions and apply them in one step. The selected suggestions become activities in visiting order along the day's route, as flexible activities with the suggested duration, appended after the day's last activity and placed under FR42, and travel legs between them in the chosen mode. The whole application can be undone in one step. **(Added 2026-10-16; amended 2026-10-17)**
+- FR49: When applying suggestions, users choose for each selected suggestion whether to schedule it on the day or park it in the bucket list. Parked suggestions keep their title, description, place, pictures and duration. **(Added 2026-10-17)**
 
 ## Non-Functional Requirements
 

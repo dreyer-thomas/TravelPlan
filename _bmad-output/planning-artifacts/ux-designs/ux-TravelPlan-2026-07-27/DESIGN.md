@@ -303,6 +303,16 @@ Two corner rules coexist deliberately: **photography is always sharp** ({rounded
 
   **It does not auto-dismiss.** Its action is the only way to take the change back, so it stays until the user closes it, leaves the day, or makes another write on that day. Each of those ends the undo window as well.
 
+- **schedule-mode** — A two-segment toggle at the top of the activity dialog's *Wann & Wo* tab: *Flexibel* / *Feste Zeit*. Same height and radius as `input`, selected segment in {colors.accent-soft} with {colors.ink} 700-weight text. *Flexibel* reveals one duration field (hours + minutes) and a read-only computed-time line in {colors.ink-soft}; *Feste Zeit* reveals start and either end or duration.
+
+- **plan-conflict** — The marker for a day whose plan cannot work. It belongs to the warn family, because it is an actionable gap. On the affected activity card: the small alert icon and one line in {colors.warn} ("Erreichbar erst 12:40 (40 Min zu spät)", "Passt nicht mehr in den Tag"). On the day hero: a {colors.warn-bg} pill "Der Plan geht nicht auf · 2". On the trip overview: the `day-row` gap treatment, as for a missing stay. Never colour alone, and never on an activity without a conflict.
+
+  Time pill: a fixed activity's pill adds a 12px lock glyph before the time, in {colors.ink-soft}.
+
+- **bucket-item** — One row of the bucket-list card, on Trip Overview and Day Detail. Left: the activity's first picture as a 40px square thumbnail at {rounded.photo} (it is photography); no placeholder when there is none. Then the title in {typography.body} 600-weight and one meta line in {colors.ink-soft}: duration and place, separated by " · " ("1 Std · Gullfoss"). On Day Detail the trailing "+" (24px glyph, ≥44×44px hit area) schedules the activity onto this day. The row's divider follows the card's `:last-child` rule.
+
+- **park-choice** — A two-segment toggle on a ticked suggestion card in the suggestions preview: *Einplanen* / *Parken*. Same treatment as `schedule-mode` at a compact height inside the card; selected segment in {colors.accent-soft}. Shown only while the card is ticked.
+
 - **checkbox** — {components.checkbox.boxSize} square visible box ({components.checkbox.boxRadius} radius, {colors.border-strong} border unchecked, {colors.accent} fill + white check glyph checked), inside a {components.checkbox.rowMinHeight}-tall clickable row — the whole row (box + label), not just the box, is the touch target.
 - **candidate-list** — The list of places a location search came back with, under the place field on all four surfaces that have one (trip create — twice, activity dialog, accommodation dialog, bucket-list panel). A {typography.label-caps} heading naming the count ("Ort auswählen (5)"), then one full-width, left-aligned, {components.button.minHeight} row per candidate. **The label is the content** — the same rule `doc-chip` states: a place name is the only thing distinguishing "Sky Tower, Auckland" from "Sky Tower, Ho Chi Minh City", so the row carries the geocoder's full display name and nothing else.
 

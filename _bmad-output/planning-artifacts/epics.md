@@ -46,15 +46,19 @@ FR26: Maps integration for overall trip visualization and day-plan mapping.
 FR27: Ability to start a trip plan using Google (start + destination).
 FR28: Owners can grant a contributor role with full edit permissions.
 FR29: Users can reset their password via email.
-FR30: Users can add, view, and delete trip-level bucket list items for unplanned places.
-FR31: Users can add a bucket list item to a day plan and remove it from the bucket list.
+FR30: Users can add, view, edit, and delete trip-level bucket list entries. An entry is an activity without a day and carries everything an activity carries. (Amended 2026-10-17)
+FR31: Users can schedule a bucket list entry onto a day; it moves there with all its data. (Amended 2026-10-17)
 FR35: Trip owners can view a list of all registered users in the system, to help decide who to invite as a collaborator and avoid duplicate-account confusion.
 FR38: Users can attach documents (PDF or image files) to an accommodation entry and to a day plan item.
 FR39: Users can see attached documents on the entry in the day timeline, open them, and delete them from the entry's dialog.
 FR40: Users can produce an offline document packet as a single PDF containing a day's attached documents.
 FR41: Users can enter a cost in a foreign currency and have the app convert it to EUR using a published daily exchange rate. EUR remains the stored value and the basis of every total, budget figure and export; the entered amount, its currency and the rate used are kept alongside it so the converted figure can be explained and corrected.
-FR42: When users insert, retime or extend an activity, lengthen a travel leg, or move the previous night's check-out later, later activities on that day move back only as far as needed to start after the previous activity (or the check-out) ends plus the travel time between them, keeping their order and duration; gaps are never closed automatically. Travel legs whose two endpoints are no longer consecutive are removed, and the whole change, including every moved activity and removed leg, can be undone.
-FR43: Users can move an activity one place earlier or later within its day, with the times of the swapped pair and the activities after them recalculated under the same rule.
+FR42: Whenever an activity, a travel leg or the previous night's check-out changes, the app recomputes the day: flexible activities start directly after the previous activity ends plus the travel time between them, starting from the previous night's check-out (10:00 if none is set; 09:00 on a day without a stay the night before), and move earlier as well as later; fixed activities never move. Travel legs whose two endpoints are no longer consecutive are removed, and the whole change, including every moved activity and removed leg, can be undone.
+FR43: Users can move an activity one place earlier or later within its day, including past a fixed activity, and the day is recomputed under FR42. A fixed activity's place follows from its time.
+FR46: Users plan an activity either as flexible, by giving only how long it takes, or as fixed, by giving a booked start together with an end or a duration. An activity without a duration takes 15 minutes.
+FR47: Users are warned, on the day and in the trip overview, when a day's plan cannot work: an activity cannot be reached by its fixed start, two fixed activities overlap, or the day runs past midnight. The plan is saved anyway. Arriving at the night's stay after its check-in time is not a warning.
+FR48: Users who can plan a trip can park an activity of a day in the bucket list, keeping all its data; the day is recomputed and the parking can be undone.
+FR49: When applying AI suggestions, users choose for each selected suggestion whether to schedule it or park it in the bucket list.
 
 ### NonFunctional Requirements
 
@@ -119,17 +123,21 @@ FR26: Epic 3 - Route & Map-Based Planning
 FR27: Epic 3 - Route & Map-Based Planning
 FR28: Epic 5 - Sharing & Light Contribution
 FR29: Epic 1 - Secure Access & Personal Workspace
-FR30: Epic 4 - Trip Bucket List (Idea Capture)
-FR31: Epic 4 - Trip Bucket List (Idea Capture)
+FR30: Epic 4 - Trip Bucket List (Idea Capture); Epic 14 - The Bucket List as a Parking Lot (amended 2026-10-17)
+FR31: Epic 4; Epic 14 (amended 2026-10-17)
 FR35: Epic 5 - Sharing & Light Contribution
 FR38: Epic 9 - Travel Documents
 FR39: Epic 9 - Travel Documents
 FR40: Epic 9 - Travel Documents
 FR41: Epic 10 - Costs in Another Currency
-FR42: Epic 11 - Day Plans That Recalculate Themselves
-FR43: Epic 11 - Day Plans That Recalculate Themselves
+FR42: Epic 11 - Day Plans That Recalculate Themselves; Epic 13 - Days Planned by Duration (rewritten 2026-10-17)
+FR43: Epic 11; Epic 13 (amended 2026-10-17)
 FR44: Epic 12 - AI Suggestions for the Day
-FR45: Epic 12 - AI Suggestions for the Day
+FR45: Epic 12 - AI Suggestions for the Day; Epic 13 (amended 2026-10-17)
+FR46: Epic 13 - Days Planned by Duration
+FR47: Epic 13 - Days Planned by Duration
+FR48: Epic 14 - The Bucket List as a Parking Lot
+FR49: Epic 14 - The Bucket List as a Parking Lot
 
 ## Epic List
 
@@ -180,6 +188,14 @@ Users can change one time on a day — an activity, a travel leg or the morning'
 ### Epic 12: AI Suggestions for the Day
 Users who plan a trip can describe what they want from a day, get AI suggestions for stops between the morning's stay and the evening's, pick the ones they like, and have them placed on the day in visiting order with times and travel legs — undoable in one step.
 **FRs covered:** FR44, FR45
+
+### Epic 13: Days Planned by Duration
+Users say how long they want to spend somewhere and the app works out when; only bookings keep a fixed time, and the app says plainly when the day no longer adds up.
+**FRs covered:** FR42 (rewritten), FR43 (amended), FR45 (amended), FR46, FR47
+
+### Epic 14: The Bucket List as a Parking Lot
+Users park what does not fit into a day, an activity or an AI suggestion, in the bucket list with everything it carries, and schedule it onto another day later without retyping anything.
+**FRs covered:** FR30 (amended), FR31 (amended), FR48, FR49
 
 ## Epic 1: Secure Access & Personal Workspace
 
@@ -1017,6 +1033,8 @@ So that I can capture ideas without assigning them to a specific day yet.
 **Then** the item is added to the bucket list
 **And** the app attempts to geocode the position text
 
+> **Superseded 2026-10-17 by Story 14.1** (Sprint Change Proposal 2026-10-17, Bucket List as a Parking Lot). A bucket-list entry is an activity without a day, added and edited through the activity dialog.
+
 **Given** the position text cannot be geocoded
 **When** I save the item
 **Then** the position text is retained
@@ -1045,9 +1063,13 @@ So that the idea becomes a scheduled day item and no longer stays in the bucket 
 **Then** title, description, and position text carry over
 **And** any lat/long stored with the bucket item is copied
 
+> **Superseded 2026-10-17 by Story 14.1** (Sprint Change Proposal 2026-10-17, Bucket List as a Parking Lot). Scheduling moves the same activity onto the day; nothing is copied or deleted.
+
 **Given** I add a bucket list item to the day
 **When** the day item is created
 **Then** the bucket list item is removed from the bucket list
+
+> **Superseded 2026-10-17 by Story 14.1** (Sprint Change Proposal 2026-10-17, Bucket List as a Parking Lot). Scheduling moves the same activity onto the day; nothing is copied or deleted.
 
 ### Story 4.5: Payment Schedule for Costs
 
@@ -3049,6 +3071,8 @@ This story finishes that job. It also settles the open `[ASSUMPTION]` at `EXPERI
 **Then** it renders inside the side column as the third card, below `TripOverviewMapPanel`, using the same `card` shell the other two sidebar cards use
 **And** its owner-only gating is preserved exactly — a viewer and a contributor see no bucket-list card, as today
 
+> **Superseded 2026-10-17 by Story 14.1** (Sprint Change Proposal 2026-10-17, Bucket List as a Parking Lot) for contributors: everyone who can plan sees the bucket-list card. Viewers still see none.
+
 **Given** a trip-level bucket list can hold far more ideas than the four a Day Detail card shows
 **When** the card is expanded
 **Then** it grows with its content up to approximately 5–6 rows, after which it holds a fixed maximum height and scrolls internally — expressed as a `max-height` derived from the row metric, not a magic pixel value
@@ -3646,6 +3670,8 @@ A third ruling, that **a time edit keeps the order**, means no `sortOrder` colum
 **Given** a push after which the last timed activity's end plus the leg to the night's stay passes that stay's explicit `checkInTime`
 **Then** the change is saved, and the `action-notice` carries a warning line in `{colors.warn}`; an assumed check-in time never triggers it
 
+> **Superseded 2026-10-17 by Stories 13.1 and 13.2** (Sprint Change Proposal 2026-10-17). Flexible activities move earlier as well as later; a fixed activity takes its place by time instead of being refused (predecessor AC); midnight is a warning (midnight AC); check-in is no warning (this AC). The ACs above on gaps, predecessor and midnight are superseded accordingly.
+
 **Given** a change that moved other activities
 **Then** the change receipt lists each moved activity with its previous `fromTime` and `toTime`, the notice reports how many were moved ("3 Aktivitäten verschoben"), and *Rückgängig* restores them together with everything Story 11.1 already restores
 
@@ -3675,6 +3701,8 @@ So that I can change the order of my day without retyping both sets of times.
 **Given** a timed activity with a timed neighbour above it
 **When** *Nach oben* is chosen from its menu
 **Then** it takes its neighbour's start time and keeps its own duration, the neighbour follows immediately after it and keeps its own duration, and the push rule from Story 11.2 runs from the neighbour — the day's start and both durations are preserved, slack between the pair is absorbed, and slack after it is kept
+
+> **Superseded 2026-10-17 by Story 13.3** (Sprint Change Proposal 2026-10-17). Up/down changes order only and the day is recomputed; fixed activities are not moved by it.
 
 **Given** a timed activity with a timed neighbour below it
 **When** *Nach unten* is chosen
@@ -3729,6 +3757,8 @@ So that my day never shows me arriving somewhere after I am supposed to be there
 
 **Given** a shorter leg, a deleted leg, an earlier check-out, or a leg that arrives at tonight's stay
 **Then** no activity moves
+
+> **Superseded 2026-10-17 by Story 13.1** (Sprint Change Proposal 2026-10-17). These now pull flexible activities earlier.
 
 **Given** a push from a leg or check-out that would move any activity past `23:59`
 **Then** nothing is written — neither the leg nor the stay — and the leg dialog or the stay dialog shows 11.2's message naming the activity that would not fit
@@ -3881,6 +3911,8 @@ So that the day is planned in one step and I can take it back if it is wrong.
 **Given** the ordered list
 **Then** the time chain starts at the start stay's `checkOutTime`; when that is empty, at the timeline's default check-out (10:00), and with no start stay at all (the trip's first day) at 09:00 (amended 2026-10-16, Tommy's ruling). If the day already has activities with times, it starts after the one that ends last (amended 2026-10-16, code review). Each activity gets `fromTime` = previous end plus the OSRM travel time from the previous point in the chosen mode, and `toTime` = `fromTime` + `durationMinutes`, rounded up to 5 minutes.
 
+> **Superseded 2026-10-17 by Story 13.4** (Sprint Change Proposal 2026-10-17). Applied suggestions become flexible activities placed by `scheduleDay`; its day starts (check-out, 10:00, 09:00 without a stay) are kept.
+
 **Given** the dialog before applying
 **Then** it shows the computed order and times as a preview. If an activity would end after 23:59, a warning is shown and applying is still allowed; that activity and every later one are added without times, because a time past 23:59 cannot be stored (amended 2026-10-16).
 
@@ -3901,3 +3933,270 @@ So that the day is planned in one step and I can take it back if it is wrong.
 
 **Given** tests
 **Then** they cover the ordering for both cases, the time chain from check-out, from the 10:00 default, from 09:00 on a first day and after existing activities, the OSRM fallback, a failed image download, and undo.
+
+## Epic 13: Days Planned by Duration
+
+Users say how long they want to spend somewhere and the app works out when; only bookings keep a fixed time, and the app says plainly when the day no longer adds up.
+
+### Story 13.1: Just Say How Long
+
+As someone filling a day,
+I want to give each activity only how long I want to spend there,
+So that the app works out every start and end from the check-out and the travel times, and I never add up times again.
+
+**FRs covered:** FR42 (rewritten), FR46
+
+**Depends on:** Epic 11 (receipt, undo, sweep, `action-notice`). Architecture review of the schema before this story is contexted.
+
+**Context:** Times are typed today and pushed back by Epic 11's walk, which never pulls forward. This story makes duration the input and times the result for *flexible* activities, keeps *fixed* activities exactly where they are booked, and recomputes the whole day on every write. Stored `fromTime`/`toTime` remain, as the computed result, so the gantts, cards, print, export and undo keep reading them. Rulings (Tommy, 2026-10-17): day starts at last night's check-out, else 10:00, and at 09:00 with no stay the night before; existing activities all become fixed; an activity without a duration takes 15 minutes; gaps before flexible activities close.
+
+**Acceptance Criteria:**
+
+**Given** the migration
+**Then** `DayPlanItem` gains `scheduleMode` (`FLEXIBLE` | `FIXED`), `durationMinutes` (≥ 5) and `sortOrder`, all not null; every activity with both times becomes `FIXED` with its duration; every untimed activity becomes `FLEXIBLE` with 15 minutes, ordered after the timed ones in its current relative order; `sortOrder` reproduces today's comparator order; the migration is SQL-only (`ROW_NUMBER()` for the order), and untimed rows get times appended after the day's last end without leg times, normalised by `scheduleDay` on the day's next write; `fromTime`/`toTime` stay nullable (see Story 13.2)
+
+**Given** a day whose activities were all timed before the migration
+**Then** after it, every activity's `fromTime` and `toTime` are exactly what they were (whole-DB comparison in the migration test)
+
+**Given** a day
+**When** any of these is saved: an activity created, edited or deleted; a travel leg created, edited or deleted; last night's stay's check-out changed
+**Then** the server recomputes the day inside the same transaction: from the day start (last night's `checkOutTime`, else 10:00, or 09:00 with no stay the night before, plus a drawn leg from the stay to the first activity), each flexible activity starts at the previous end plus the drawn leg between them and lasts its duration; each fixed activity keeps its times, and the cursor continues from the later of its end and the cursor
+
+**Given** a flexible activity whose predecessor gets shorter, is deleted, or whose leg gets shorter
+**Then** it and the flexible activities after it move earlier — no gap is left before a flexible activity
+
+**Given** a flexible chain that reaches a fixed activity late, or two fixed activities that overlap
+**Then** the save succeeds, the fixed activity does not move, and the `action-notice` carries a warning line naming it and the time it can be reached ("Fähre beginnt um 12:00, erreichbar erst um 12:40")
+
+**Given** a recompute that would end a flexible activity after 23:59
+**Then** in this story the save is still refused as today (`day_plan_past_midnight`); Story 13.2 turns this into a warning
+
+**Given** an activity that becomes fixed, or whose fixed start changes
+**Then** it is placed after the last activity whose computed start is at or before its start, and no save is refused for its position
+
+**Given** the activity dialog
+**Then** *Wann & Wo* starts with a `schedule-mode` toggle *Flexibel* / *Feste Zeit*; *Flexibel* (the default for a new activity) shows one duration field in hours and minutes prefilled with 1 h and the read-only line "Voraussichtlich 11:20 – 12:20" (or "wird nach dem Speichern berechnet"); *Feste Zeit* shows the start and either the end or the duration; an empty duration saves as 15 minutes
+
+**Given** an activity switched between modes
+**Then** its duration is kept: fixed → flexible keeps `toTime − fromTime`, flexible → fixed freezes the currently computed times
+
+**Given** a new activity, a bucket-list take-over or a suggestion without a chosen position
+**Then** a flexible one is appended at the end of the day and a fixed one is placed by time
+
+**Given** an activity card
+**Then** the time pill shows the computed times for flexible activities and adds a lock glyph for fixed ones
+
+**Given** a change that moved other activities (later or earlier)
+**Then** the receipt (version 3) lists each with its previous times, `sortOrder` and `updatedAt`, plus the edited activity's previous mode and duration; the notice reports "3 Aktivitäten verschoben"; and *Rückgängig* restores the day exactly (whole-DB `toEqual`), refusing as `409 undo_stale` if any named row has changed
+
+**Given** the order of a day
+**Then** every consumer reads it from `sortOrder` through one comparator — timeline, day view, gantts, print, document packet, adjacency, and the day route points query (which today orders by `createdAt`) — and `compareDayPlanItemsByStartTime` is removed
+
+**Given** the schedule rule
+**Then** it is one pure function `scheduleDay` replacing `planDayPush`, `planDayReorder` and `planDayPushFrom`, unit-tested for: day start from stored and default check-out and from 09:00 without a stay; a stay leg counted; a flexible chain; pull-forward on shortening and on delete; a fixed activity kept with waiting time before it; a late arrival at a fixed activity; two overlapping fixed activities; a fixed activity placed by time
+
+**Given** both dictionaries
+**Then** `en.ts` and `de.ts` carry every new string
+
+### Story 13.2: When the Plan Doesn't Work Out
+
+As someone with a booked ferry and a full morning,
+I want to see, on the day and in the trip overview, when my plan no longer adds up,
+So that I fix it while planning instead of finding out on the road.
+
+**FRs covered:** FR47
+
+**Depends on:** Story 13.1.
+
+**Context:** 13.1 reports a collision once, in the notice after a save. A notice is dismissed; a broken day should stay visibly broken until it is fixed. Rulings (Tommy, 2026-10-17): collisions warn and never refuse; running past midnight is a collision; arriving at the stay after check-in is normal and warns nobody.
+
+**Acceptance Criteria:**
+
+**Given** a day and its activities
+**When** it is read (day view, trip overview)
+**Then** `scheduleDay` derives its conflicts — late arrival at a fixed activity, overlapping fixed activities, past midnight — and they are never stored
+
+**Given** a fixed activity that cannot be reached in time
+**Then** its card shows a `plan-conflict` marker: alert icon and "Erreichbar erst 12:40 (40 Min zu spät)"
+
+**Given** a day with at least one conflict
+**Then** the day hero shows "Der Plan geht nicht auf" with the count, and the trip overview's `day-row` shows the same gap-badge treatment as a missing stay
+
+**Given** a recompute that would end a flexible activity after 23:59
+**Then** the save succeeds; that activity and every later flexible activity are stored without times (`fromTime`/`toTime` null — a derived state meaning *does not fit in the day*, never entered by the user), their durations are untouched, and each carries "Passt nicht mehr in den Tag"; a fixed activity always keeps its times; when a later change makes room, their times are recomputed exactly from their durations (Winston, 2026-10-17: clamping to 23:59 would create zero-length rows that the gantt hides and the backup import rejects)
+
+**Given** the push code's `day_plan_past_midnight` refusal and its i18n key
+**Then** they are removed from activity, leg, stay and reorder writes
+
+**Given** the check-in warning (`findCheckInWarning*`, the receipt's `checkInWarning`, `checkInWarningText`, the warning line and its key)
+**Then** it is removed; no arrival time at the night's stay ever warns
+
+**Given** a viewer without planning rights
+**Then** they see the same conflict markers (they describe the plan, not an action)
+
+**Given** both dictionaries
+**Then** `en.ts` and `de.ts` carry every new string, and the removed keys are removed from both
+
+### Story 13.3: Putting the Day in Order
+
+As someone who has the right activities but not yet the right sequence,
+I want to move flexible activities up and down, past bookings if needed, and drop a new one in where it belongs,
+So that the order is mine to set and the times follow from it.
+
+**FRs covered:** FR43 (amended)
+
+**Depends on:** Story 13.1.
+
+**Context:** Since 13.1, order is stored and flexible times follow from it. *Nach oben / Nach unten* (11.3) therefore becomes a pure order change. A fixed activity's place follows from its time, so it is not moved by these controls. Because every existing activity is fixed after the migration, the user needs one step to release a whole day.
+
+**Acceptance Criteria:**
+
+**Given** a flexible activity with a neighbour in a direction, fixed or flexible
+**When** *Nach oben* or *Nach unten* is chosen
+**Then** it swaps places with that neighbour, the day is recomputed, non-consecutive legs are swept, and the notice offers *Rückgängig* for the whole change
+
+**Given** a fixed activity
+**Then** *Nach oben / Nach unten* are not offered; the menu shows instead "Feste Zeit — Platz ergibt sich aus der Uhrzeit"
+
+**Given** the activity dialog for a new flexible activity
+**Then** an *Einfügen nach* select lists the day's activities in order with "Am Ende" as the default, and the new activity is placed there
+
+**Given** an activity moved to another day (Stories 6.7, 6.23, including whole-day move and swap)
+**Then** a flexible one is appended to the target day, a fixed one is placed by time, and both days are recomputed in the same transaction (undo for this path remains out of scope, as in Epic 11)
+
+**Given** a day with fixed activities
+**When** *Alle flexibel machen* is chosen from the day menu and confirmed
+**Then** every fixed activity on the day becomes flexible with its current duration, keeping the order, the day is recomputed, and the notice offers *Rückgängig*
+
+**Given** both dictionaries
+**Then** `en.ts` and `de.ts` carry every new string
+
+### Story 13.4: Suggestions and Backups Speak in Durations
+
+As someone taking over AI suggestions or restoring a backup,
+I want them to arrive as flexible activities with their durations,
+So that they behave like everything else on the day.
+
+**FRs covered:** FR45 (amended), FR46
+
+**Depends on:** Story 13.1.
+
+**Acceptance Criteria:**
+
+**Given** selected suggestions applied (Story 12.4)
+**Then** each becomes a `FLEXIBLE` activity with its suggested duration rounded up to 5 minutes, appended in visiting order after the day's last activity, with legs created as today, and the day is recomputed by `scheduleDay`; `chainTimes` and `planStartMinute` are removed, and suggestion overflow past midnight follows the 13.2 rule — flexible activities without times, shown as a conflict
+
+**Given** the suggestions preview
+**Then** it shows the times `scheduleDay` would produce, from the same function
+
+**Given** a backup export
+**Then** each activity carries `scheduleMode`, `durationMinutes` and `sortOrder`
+
+**Given** a backup import from before this change (no `scheduleMode`)
+**Then** activities with times become `FIXED`, untimed ones `FLEXIBLE` with 15 minutes, order follows the old comparator — the same rule as the migration — and a backup with the new fields round-trips exactly
+
+## Epic 14: The Bucket List as a Parking Lot
+
+Users park what does not fit into a day, an activity or an AI suggestion, in the bucket list with everything it carries, and schedule it onto another day later without retyping anything.
+
+### Story 14.1: One Kind of Entry
+
+As someone collecting ideas for a trip,
+I want a bucket-list entry to be a full activity that simply has no day yet,
+So that pictures, documents, costs and duration are never lost on the way to a day and back.
+
+**FRs covered:** FR30 (amended), FR31 (amended)
+
+**Depends on:** Story 13.1. Architecture review of the schema and media rule before this story is contexted.
+
+**Context:** Today a bucket item is a separate, much thinner record (`TripBucketListItem`), and scheduling it converts it into a new activity. This story makes the bucket list the set of the trip's activities without a day, migrates the existing ideas into that shape, and makes scheduling a move. Rulings (Tommy, 2026-10-17): a bucket entry is an activity without a day; parked activities are flexible; everyone who can plan sees and uses the bucket list.
+
+**Acceptance Criteria:**
+
+**Given** the migration
+**Then** `DayPlanItem` gains `tripId` (not null, backfilled from its day) and `tripDayId` becomes nullable; every `TripBucketListItem` becomes a `DayPlanItem` with the same id, `tripDayId = null`, `FLEXIBLE`, 15 minutes, its title, coordinates and label, and a `contentJson` built from description and position text as `buildBucketListContentJson` does today; and `TripBucketListItem` is dropped
+
+**Given** a former bucket item
+**Then** its new row carries the same title, place and text (migration test compares every row)
+
+**Given** an activity without a day
+**Then** it is `FLEXIBLE`, has no times and no travel legs, and no reader that works through the trip (cost totals and budget runway, trip overview gantt and route, trip map, print, document packet, suggestion context) includes it
+
+**Given** the bucket list on the trip overview and on Day Detail
+**Then** it lists the trip's activities without a day in alphabetical order; each row shows the first picture as a sharp-cornered thumbnail if there is one, the title, and a meta line with duration and place ("1 Std · Gullfoss")
+
+**Given** an owner or a contributor
+**Then** they see the bucket list on both surfaces and can add, edit, delete and schedule; a viewer sees no bucket list
+
+**Given** *Idee hinzufügen* or a row's edit action
+**Then** the activity dialog opens in parked mode: *Wann & Wo* shows only duration and place, *Feste Zeit* is not offered, and every other tab (description, link, pictures, documents, costs) works as on a day
+
+**Given** a picture or document added to a parked activity
+**Then** it is stored under the trip's `parked/` folder and can be deleted; pictures and documents from an earlier day keep working and can be deleted too
+
+**Given** the "+" on a Day Detail bucket row
+**Then** the same activity, with its id, pictures, documents, costs and payments, moves onto this day, is appended at the end as a flexible activity, the day is recomputed, the activity leaves the bucket list, and the notice offers *Rückgängig*, which returns it to the bucket list exactly
+
+**Given** a backup export
+**Then** parked activities are exported with all their data, including pictures, documents and payments
+
+**Given** a backup from before this change, with bucket items
+**Then** each becomes a parked activity by the same rule as the migration, and a backup with parked activities round-trips exactly
+
+**Given** both dictionaries
+**Then** `en.ts` and `de.ts` carry every new string, and keys only the old bucket dialog used are removed
+
+### Story 14.2: Park It for Another Day
+
+As someone whose day holds more than it can,
+I want to move an activity out of the day into the bucket list with one action,
+So that the day works again and the activity waits, complete, for a day that has room.
+
+**FRs covered:** FR48
+
+**Depends on:** Story 14.1.
+
+**Acceptance Criteria:**
+
+**Given** an activity on a day and a user who can plan
+**When** *Parken* is chosen from its menu
+**Then** it leaves the day with all its data; it becomes flexible, keeping its duration (a fixed one keeps `toTime − fromTime`); its travel legs are deleted and no-longer-consecutive legs are swept; the day is recomputed, so later flexible activities move earlier; and it appears in the bucket list
+
+**Given** a parking
+**Then** the notice reads "„Wasserfall" geparkt" plus the moved count if any, and *Rückgängig* restores the day exactly, including the activity's day, mode, times, order and the removed legs (whole-DB `toEqual`), refusing as `409 undo_stale` if any named row has changed
+
+**Given** a parked activity scheduled onto another day (14.1)
+**Then** it arrives with the same pictures, documents, costs, payments, link, description and duration it had before parking
+
+**Given** a viewer
+**Then** *Parken* is not offered
+
+**Given** both dictionaries
+**Then** `en.ts` and `de.ts` carry every new string
+
+### Story 14.3: Park the Suggestions Too
+
+As someone who got more good suggestions than fit into today,
+I want to park the extra ones instead of losing them,
+So that I don't have to search for them again for another day.
+
+**FRs covered:** FR49
+
+**Depends on:** Stories 13.4 and 14.1.
+
+**Acceptance Criteria:**
+
+**Given** the suggestions preview with ticked suggestions
+**Then** each ticked card shows a `park-choice` toggle *Einplanen* / *Parken*, defaulting to *Einplanen*; the preview timeline, order and legs include only the ones being scheduled; and the apply button names both counts ("3 einplanen · 2 parken", or "2 parken" alone)
+
+**Given** the apply
+**Then** scheduled suggestions are applied as in 13.4; each parked one becomes an activity without a day, flexible, with its suggested duration rounded up to 5 minutes, its title, description, place and coordinates, and its pictures downloaded and stored as for scheduled ones; parked ones get no legs
+
+**Given** an apply in which every suggestion is parked
+**Then** the day is not written, no `day_plan_changed` check applies, and the suggestions appear in the bucket list
+
+**Given** *Rückgängig* after an apply
+**Then** both the scheduled and the parked activities, with their pictures and legs, are removed in one step
+
+**Given** both dictionaries
+**Then** `en.ts` and `de.ts` carry every new string
