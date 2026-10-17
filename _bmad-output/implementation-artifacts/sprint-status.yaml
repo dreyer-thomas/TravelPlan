@@ -1,5 +1,6 @@
 # generated: 2026-03-01 13:08:00 CET
-# last_updated: 2026-10-17 (13-1-just-say-how-long code review via bmad-code-review: D1-D3 resolved by Tommy (AC6 and Task 10 amended, after-midnight conflict reported at 23:59), 7 patches applied, 3224 tests green, DW-392..395 deferred. Stays IN-PROGRESS: Task 12 real run and Q1-Q5 open.)
+# last_updated: 2026-10-17 (13-1-just-say-how-long DONE: real run passed. dev.db migrated, every visible time unchanged (76/76 FIXED), Safari checks by Tommy on day 39 of the New Zealand trip. Q1-Q5 defaults stand. Next: 13-2.)
+# previously: 2026-10-17 (13-1-just-say-how-long code review via bmad-code-review: D1-D3 resolved by Tommy (AC6 and Task 10 amended, after-midnight conflict reported at 23:59), 7 patches applied, 3224 tests green, DW-392..395 deferred. Stays IN-PROGRESS: Task 12 real run and Q1-Q5 open.)
 # previously: 2026-10-17 (13-1-just-say-how-long IN-PROGRESS via bmad-dev-story. Tasks 0-11 and the Task 12 gates done: scheduleDay/placeFixedItem, sortOrder + migration (dev.db copy: 76/76 times unchanged), receipt v3 with legDeleted and planConflicts, every write path recomputes, dialog schedule-mode, lock pill. 195 files / 3219 tests, tsc 0, lint 0/80, build ok, 6 mutations red. DW-371 closed. Open: real run with Tommy after he agrees to migrate dev.db; Q1-Q5 defaults unconfirmed.)
 # previously: 2026-10-17 (13-1-just-say-how-long ready-for-dev -> in-progress via bmad-dev-story.)
 # previously: 2026-10-17 (Story 13-1 contexted via bmad-create-story: ready-for-dev, epic-13 in-progress. 5 non-blocking questions for Tommy in the story file.)
@@ -272,7 +273,7 @@ development_status:
   epic-12-retrospective: optional
 
   epic-13: in-progress
-  13-1-just-say-how-long: in-progress
+  13-1-just-say-how-long: done
   13-2-when-the-plan-doesnt-work-out: backlog
   13-3-putting-the-day-in-order: backlog
   13-4-suggestions-and-backups-speak-in-durations: backlog

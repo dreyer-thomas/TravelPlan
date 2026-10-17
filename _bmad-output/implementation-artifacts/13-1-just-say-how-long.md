@@ -4,7 +4,7 @@ baseline_commit: d9f96be1e647d87fe2f51a4ca4b5c9cb2a06a768
 
 # Story 13.1: Just Say How Long
 
-Status: in-progress
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -311,7 +311,7 @@ Each item was checked against the code. Each one changes or sharpens what a task
   - [x] Add to `dayPlanChangeUndo.test.ts` the whole-DB `toEqual` cases from AC12 (its `databaseState()` at l.99 also needs the new columns, which it gets for free from `findMany`).
   - [x] Add one end-to-end repo test for the proposal's success criteria 1–3 and 5: check-out 09:00, a 30-minute stay leg, flexible activities of 1 h, 2 h and 30 min with 20-minute legs, reading 09:30–10:30, 10:50–12:50 and 13:10–13:40; shortening the second to 1 h gives 12:10–12:40; a fixed ferry at 12:30 after the chain gives a conflict (12:30, not 12:00: at 12:00 rule 4 places it before the third activity; Tommy, review 2026-10-17), its time unchanged and the save succeeding; one undo restores everything.
 - [x] **Task 11: i18n** (AC 16): add the *Copy* table to both files and remove `trips.plan.beforePredecessor`.
-- [ ] **Task 12: Gates and the real run**
+- [x] **Task 12: Gates and the real run**
   - [x] Full suite, `tsc --noEmit` 0, lint 0 errors (warnings no higher than the baseline), `check:migrations`, `next build`.
   - [x] Mutation checks (8.9 discipline). Make each change, run, and revert it; each must turn a test red:
     1. Drop the leg in the flexible start.
@@ -320,7 +320,7 @@ Each item was checked against the code. Each one changes or sharpens what a task
     4. Order the route points by `createdAt` again.
     5. Leave `previousSortOrder` out of undo phase 2.
     6. Swap a FIXED row on reorder.
-  - [ ] Real run with Tommy on the dev server, after he agrees to migrate `dev.db`:
+  - [x] Real run with Tommy on the dev server, after he agrees to migrate `dev.db` (2026-10-17, day 39 of the New Zealand trip, all checks passed):
     - the migration leaves every visible time unchanged;
     - a new flexible activity is computed;
     - shortening pulls rows forward;
@@ -494,7 +494,7 @@ Claude Opus 5.5 (`claude-opus-5-5`), bmad-dev-story, 2026-10-17.
 - **Tests rewritten (Task 10).** The Epic 11 suites keep every scenario. Where a scenario was about rows moving, those rows are now FLEXIBLE through the new `test/helpers/settleSeededDay.ts`, which numbers a seeded day like the migration and stores the schedule's times, so the seed is a day the app could have written. Changed expectations carry a comment naming the 13.1 rule. Notable changes: shortening and deleting now pull forward; a fixed retime past its successor is placed by time and sweeps (11.1's behaviour again); untimed rows are flexible and get times; an earlier check-out moves the next day; the 12.4 apply no longer creates the first leg when a former untimed row is the day's last row (§12 appends after it).
 - **New tests.** `daySchedule.test.ts` (32), `migrationDayPlanItemSchedule.test.ts` (8), `tripImportLegacySchedule.test.ts` (6), `daySchedulePlanByDuration.test.ts` (success criteria 1–3 and 5; the ferry is booked at 12:30, because at 12:00 rule 4 places it before the third activity, computed 12:10; at 12:30 it follows the chain and is reachable at 12:40, the proposal's figure), the AC12 undo cases (both mode switches, delete, leg delete and its staleness, earlier check-out, a stale renumbered row), schema, receipt v3, dialog (11), day view (lock, conflict notice) and route-points order.
 - **Ledger.** DW-371 closed. DW-372 re-read and annotated, still open.
-- **Open: the real run (Task 12).** Not done: it needs Tommy's agreement to migrate `prisma/dev.db` and a session in Safari, including the 390 px check of the new dialog parts. Story stays `in-progress` until then.
+- **Real run (Task 12), 2026-10-17.** `dev.db` migrated by Tommy after a backup (`prisma/dev.db.before-13-1`). Before/after diff of every activity's `id, from_time, to_time`: no difference. All 76 rows FIXED, no duplicate `sort_order` per day. Tommy checked in Safari on day 39 of the New Zealand trip: new flexible activity, pull forward, ferry conflict, undo and 390 px all work. The Q1–Q5 defaults stand as implemented.
 
 ### File List
 
@@ -551,3 +551,4 @@ Modified:
 - 2026-10-17: Planning artifacts for Epics 13 and 14 committed (`d9f96be`); story started.
 - 2026-10-17: Tasks 1–11 and the Task 12 gates done: schedule rule, stored order, migration, receipt v3, every write path, dialog, day view, tests, dictionaries. Real run with Tommy outstanding.
 - 2026-10-17: Code review (Blind Hunter, Edge Case Hunter, Acceptance Auditor). Decisions D1–D3 resolved by Tommy: AC6 and Task 10 amended, and the after-midnight conflict added. 7 patches applied with 5 new tests: 195 files / 3224 tests, tsc 0, lint 0/80. DW-392 to DW-395 deferred. Status stays in-progress until Task 12 (the real run) and Q1–Q5.
+- 2026-10-17: Real run passed (dev.db migrated, times unchanged, Safari checks on day 39 of the New Zealand trip). Status done.
