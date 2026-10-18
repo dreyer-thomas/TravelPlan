@@ -4281,6 +4281,171 @@ describe("TripDayPlanDialog", () => {
     });
   });
 
+  /** Story 13.3 AC3. *Einfügen nach*: where a new flexible activity goes on the day. */
+  describe("insert after (Story 13.3)", () => {
+    type Saved = Record<string, unknown>;
+    const activities = [
+      { id: "a-1", title: "Museum", fromTime: "09:00", toTime: "10:00" },
+      { id: "a-2", title: "Market", fromTime: null, toTime: null },
+      { id: "a-3", title: null, fromTime: "11:20", toTime: "12:20" },
+    ];
+    const renderInsert = async (
+      options: {
+        mode?: "add" | "edit";
+        item?: Record<string, unknown> | null;
+        dayActivities?: typeof activities;
+        language?: "en" | "de";
+        refuseWith?: string;
+        untouched?: boolean;
+      } = {},
+    ) => {
+      const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
+      const saves: Saved[] = [];
+      const fetchMock = vi.fn(async (input: RequestInfo, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.url;
+        if (url.includes("/api/auth/csrf")) {
+          return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
+        }
+        if (url.includes("/day-plan-items") && (init?.method === "POST" || init?.method === "PATCH")) {
+          saves.push(JSON.parse(String(init.body)));
+          if (options.refuseWith) {
+            return mockFetchResponse({ data: null, error: { code: options.refuseWith, message: "changed" } }, { status: 409 });
+          }
+          return mockFetchResponse({ data: { dayPlanItem: { id: "item-1" } }, error: null });
+        }
+        return mockFetchResponse({ data: { images: [], documents: [] }, error: null });
+      });
+      stubFetch(fetchMock);
+      const onSaved = vi.fn();
+      const onDayChanged = vi.fn();
+      render(
+        <Providers language={options.language ?? "en"}>
+          <TripDayPlanDialog
+            open
+            mode={options.mode ?? "add"}
+            tripId="trip-1"
+            day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
+            item={(options.item ?? null) as never}
+            onClose={() => undefined}
+            onSaved={onSaved}
+            dayActivities={options.dayActivities ?? activities}
+            onDayChanged={onDayChanged}
+          />
+        </Providers>,
+      );
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      if (options.mode !== "edit" && !options.untouched) {
+        fireEvent.change(screen.getByLabelText(options.language === "de" ? "Titel" : "Title"), { target: { value: "Lunch" } });
+      }
+      selectTab("whenWhere", options.language ?? "en");
+      return { saves, onSaved, onDayChanged };
+    };
+    const insertAfter = () => screen.queryByTestId("plan-insert-after") as HTMLSelectElement | null;
+    const save = () => fireEvent.click(screen.getByRole("button", { name: "OK" }));
+
+    it("shows the select for a new flexible activity, At the end first and chosen, then the day in order", async () => {
+      await renderInsert();
+
+      const select = insertAfter()!;
+      expect(select).toHaveAccessibleName("Insert after");
+      expect(select).toHaveValue("");
+      expect(Array.from(select.options).map((option) => [option.value, option.textContent])).toEqual([
+        ["", "At the end"],
+        ["a-1", "Museum · 09:00–10:00"],
+        ["a-2", "Market"],
+        ["a-3", "Untitled activity · 11:20–12:20"],
+      ]);
+    });
+
+    it("names it Einfügen nach and Am Ende in German", async () => {
+      await renderInsert({ language: "de" });
+
+      const select = insertAfter()!;
+      expect(select).toHaveAccessibleName("Einfügen nach");
+      expect(select.options[0]).toHaveTextContent("Am Ende");
+      expect(select.options[3]).toHaveTextContent("Aktivität ohne Titel · 11:20–12:20");
+    });
+
+    it("sends no afterItemId with At the end", async () => {
+      const { saves } = await renderInsert();
+
+      save();
+      await waitFor(() => expect(saves).toHaveLength(1));
+      expect(saves[0]).toMatchObject({ scheduleMode: "FLEXIBLE" });
+      expect(saves[0]).not.toHaveProperty("afterItemId");
+    });
+
+    it("sends the chosen activity as afterItemId", async () => {
+      const { saves } = await renderInsert();
+      fireEvent.change(insertAfter()!, { target: { value: "a-2" } });
+
+      save();
+      await waitFor(() => expect(saves).toHaveLength(1));
+      expect(saves[0]).toMatchObject({ scheduleMode: "FLEXIBLE", afterItemId: "a-2" });
+    });
+
+    it("hides the select for Fixed time and drops a chosen activity from the save", async () => {
+      const { saves } = await renderInsert();
+      fireEvent.change(insertAfter()!, { target: { value: "a-1" } });
+
+      chooseFixedTime();
+      expect(insertAfter()).toBeNull();
+      fireEvent.change(screen.getByLabelText("From"), { target: { value: "12:00" } });
+      fireEvent.change(screen.getByLabelText("To"), { target: { value: "13:00" } });
+      save();
+      await waitFor(() => expect(saves).toHaveLength(1));
+      expect(saves[0]).toMatchObject({ scheduleMode: "FIXED" });
+      expect(saves[0]).not.toHaveProperty("afterItemId");
+    });
+
+    it("is absent on an edit and on an empty day", async () => {
+      await renderInsert({
+        mode: "edit",
+        item: {
+          id: "a-1",
+          tripDayId: "day-1",
+          title: "Museum",
+          fromTime: "09:00",
+          toTime: "10:00",
+          contentJson: tiptapMocks.sampleDoc,
+          costCents: null,
+          linkUrl: null,
+          location: null,
+          createdAt: "2026-11-01T08:00:00.000Z",
+          scheduleMode: "FLEXIBLE",
+          durationMinutes: 60,
+        },
+      });
+      expect(insertAfter()).toBeNull();
+      cleanup();
+
+      await renderInsert({ dayActivities: [] });
+      expect(screen.getByTestId("plan-expected-times")).toBeInTheDocument();
+      expect(insertAfter()).toBeNull();
+    });
+
+    it("counts a chosen activity as dirty, so the discard guard asks before closing", async () => {
+      await renderInsert({ untouched: true });
+      fireEvent.change(insertAfter()!, { target: { value: "a-1" } });
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+      expect(await screen.findByText("Discard changes?")).toBeInTheDocument();
+    });
+
+    it("on day_plan_changed shows the stale message, asks the caller to reload the day and goes back to At the end", async () => {
+      const { saves, onSaved, onDayChanged } = await renderInsert({ refuseWith: "day_plan_changed" });
+      fireEvent.change(insertAfter()!, { target: { value: "a-2" } });
+
+      save();
+      await waitFor(() => expect(saves).toHaveLength(1));
+      expect(await screen.findByText(enDictionary["trips.plan.dayChangedConflict"])).toBeInTheDocument();
+      expect(onDayChanged).toHaveBeenCalledTimes(1);
+      expect(onSaved).not.toHaveBeenCalled();
+      selectTab("whenWhere");
+      expect(insertAfter()).toHaveValue("");
+    });
+  });
+
   /**
    * Story 14.1 AC6. The dialog opened for a bucket-list idea: no day, so *Wann & Wo* keeps only the
    * duration and the place, the save goes to `bucket-list-items`, media name no day, and nothing in the

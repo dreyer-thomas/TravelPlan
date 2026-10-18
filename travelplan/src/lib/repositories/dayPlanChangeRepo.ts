@@ -176,6 +176,13 @@ const findInvalidity = (receipt: DayChangeReceipt, tripId: string): string | nul
     if (editedId !== null && moved.itemId === editedId) return "edited item listed as moved";
     movedIds.add(moved.itemId);
   }
+  // Story 13.3: the converted rows are the edited ones; each once, and never also a moved row.
+  if (edited.kind === "madeFlexible") {
+    if (edited.items.length === 0) return "nothing made flexible";
+    const convertedIds = new Set(edited.items.map((item) => item.itemId));
+    if (convertedIds.size !== edited.items.length) return "duplicate item";
+    if (edited.items.some((item) => movedIds.has(item.itemId))) return "converted item listed as moved";
+  }
   if (edited.kind === "reordered") {
     if (edited.itemId === edited.neighbourId) return "reordered with itself";
     if (!movedIds.has(edited.itemId) || !movedIds.has(edited.neighbourId)) return "reordered pair not listed as moved";
@@ -393,6 +400,14 @@ const undoInTransaction = async (
       if (!item || !sameInstant(item.updatedAt, edited.updatedAt)) throw new UndoStaleError("parked item changed");
       break;
     }
+    case "madeFlexible": {
+      // Story 13.3. Each converted row still on the day with the stamp the write gave it, as a moved row.
+      for (const converted of edited.items) {
+        const item = await tx.dayPlanItem.findFirst({ where: { id: converted.itemId, tripDayId }, select: { updatedAt: true } });
+        if (!item || !sameInstant(item.updatedAt, converted.updatedAt)) throw new UndoStaleError("converted item changed");
+      }
+      break;
+    }
     default: {
       const unhandled: never = edited;
       throw new Error(`Unhandled receipt kind: ${String(unhandled)}`);
@@ -505,6 +520,26 @@ const undoInTransaction = async (
         },
       });
       if (restored.count !== 1) throw new UndoStaleError("parked item changed");
+      break;
+    }
+    case "madeFlexible": {
+      // Story 13.3. Each row back to FIXED with its previous duration, times, place and stamp, conditional
+      // on the stamp phase 1 just checked.
+      for (const converted of edited.items) {
+        const { previous } = converted;
+        const restored = await tx.dayPlanItem.updateMany({
+          where: { id: converted.itemId, tripDayId, updatedAt: converted.updatedAt },
+          data: {
+            scheduleMode: "FIXED",
+            durationMinutes: previous.durationMinutes,
+            fromTime: previous.fromTime,
+            toTime: previous.toTime,
+            sortOrder: previous.sortOrder,
+            updatedAt: previous.updatedAt,
+          },
+        });
+        if (restored.count !== 1) throw new UndoStaleError("converted item changed");
+      }
       break;
     }
     case "suggestionsApplied": {

@@ -172,6 +172,11 @@ export const dayPlanItemMutationSchema = z.object({
   payments: paymentsSchema.optional().nullable(),
   linkUrl: linkSchema.optional().nullable(),
   location: locationInputSchema.optional(),
+  /**
+   * Story 13.3 (*Einfügen nach*). On a create only, and only for FLEXIBLE: the new activity goes directly
+   * after this one; absent or `null` appends. A FIXED one is placed by its time, so the field is refused.
+   */
+  afterItemId: z.string().min(1).nullable().optional(),
 }).superRefine((value, context) => {
   /*
     The time and cents rules, nested so that their early returns stay local (Story 13.1 split them in
@@ -223,6 +228,13 @@ export const dayPlanItemMutationSchema = z.object({
   };
 
   checkSchedule();
+  if (value.afterItemId != null && value.scheduleMode !== "FLEXIBLE") {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["afterItemId"],
+      message: "Only a flexible activity can be inserted after another",
+    });
+  }
   refinePaymentTotal(value, context);
 
   // Story 10.1, additively and deliberately last - see the identical note in accommodationSchemas.ts.
@@ -233,6 +245,8 @@ export type DayPlanItemMutationInput = z.infer<typeof dayPlanItemMutationSchema>
 
 export const dayPlanItemUpdateSchema = dayPlanItemMutationSchema.safeExtend({
   itemId: z.string().trim().min(1, "Day plan item is required"),
+  // Story 13.3: an edit keeps its place (13.1 §13); *Nach oben* / *Nach unten* move it.
+  afterItemId: z.undefined({ error: "An edit keeps its place" }).optional(),
 });
 
 export type DayPlanItemUpdateInput = z.infer<typeof dayPlanItemUpdateSchema>;
@@ -272,6 +286,15 @@ export const dayPlanItemParkSchema = z
   .strict();
 
 export type DayPlanItemParkInput = z.infer<typeof dayPlanItemParkSchema>;
+
+/** Story 13.3. *Alle flexibel machen*: every FIXED activity of this day becomes FLEXIBLE. */
+export const dayMakeFlexibleSchema = z
+  .object({
+    tripDayId: z.string().trim().min(1, "Trip day is required"),
+  })
+  .strict();
+
+export type DayMakeFlexibleInput = z.infer<typeof dayMakeFlexibleSchema>;
 
 /**
  * Story 6.23. Deliberately its own schema rather than a third `operation` on

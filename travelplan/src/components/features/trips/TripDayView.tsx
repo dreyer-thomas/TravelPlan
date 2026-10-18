@@ -567,6 +567,33 @@ const sumSegmentMinutes = (segments: TravelSegment[]) =>
     0,
   );
 
+/**
+ * Story 13.3 §2. The activity menu's line for a FIXED row, where a FLEXIBLE one offers *Nach oben* /
+ * *Nach unten*. Not a disabled `MenuItem`: MUI dims that below contrast, and a focusable item that does
+ * nothing is noise for a keyboard. An `li` without `tabindex` is skipped by MenuList's arrow keys, and
+ * `muiSkipListHighlight` keeps the menu's first focus off it (MenuList reads the flag from the type).
+ */
+const FixedOrderHint = ({ label }: { label: string }) => (
+  <Box
+    component="li"
+    role="presentation"
+    data-testid="day-plan-item-fixed-order-hint"
+    sx={(theme) => ({
+      display: "flex",
+      alignItems: "center",
+      gap: 1,
+      minHeight: 44,
+      px: 2,
+      color: theme.palette.tokens.inkSoft,
+      typography: "body2",
+    })}
+  >
+    <LockIcon />
+    {label}
+  </Box>
+);
+FixedOrderHint.muiSkipListHighlight = true;
+
 const parsePolyline = (value: unknown): [number, number][] => {
   if (!Array.isArray(value)) return [];
   return value
@@ -663,6 +690,8 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
   const [copyingStay, setCopyingStay] = useState(false);
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
   const [dayMetaOpen, setDayMetaOpen] = useState(false);
+  // Story 13.3. *Alle flexibel machen*'s confirmation.
+  const [makeFlexibleOpen, setMakeFlexibleOpen] = useState(false);
   const [dayImageFile, setDayImageFile] = useState<File | null>(null);
   const [dayNoteDraft, setDayNoteDraft] = useState("");
   const [mapDialogItem, setMapDialogItem] = useState<MapDialogItem | null>(null);
@@ -705,6 +734,8 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
     itemId: string;
     canMoveUp: boolean;
     canMoveDown: boolean;
+    /** Story 13.3 §2: a FIXED row shows the fixed-order line instead of the moves. */
+    fixed: boolean;
   } | null>(null);
   // Story 6.23 AC4. A success line, not an error: a move deletes travel segments the user typed, so
   // it may not succeed in silence. It outlives the dialog on purpose — the dialog closes, and the
@@ -830,15 +861,20 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
   // Story 5.13 moves `dayImage` from `isOwner` to `canEditPlanning`, keeping the mirror true: the route
   // behind it now gates on write-level role, because a day image is content of a day and a contributor
   // already fills that day with stays and activities.
-  const dayMenuItemsVisible: Record<"dayImage" | "transfers" | "print" | "packet", boolean> = {
+  //
+  // Story 13.3 adds `makeFlexible`: a planning write, so `canEditPlanning`, and only on a day that has a
+  // FIXED activity to release (the route refuses a day without one as `day_plan_changed`).
+  const fixedActivityCount = planItems.filter((item) => item.scheduleMode === "FIXED").length;
+  const dayMenuItemsVisible: Record<"dayImage" | "transfers" | "makeFlexible" | "print" | "packet", boolean> = {
     dayImage: canEditPlanning,
     transfers: canEditPlanning,
+    makeFlexible: canEditPlanning && fixedActivityCount > 0,
     print: true,
     packet: true,
   };
   // The divider only earns its place when there is a planning group above it to separate.
   const showDayMenuDivider =
-    (dayMenuItemsVisible.dayImage || dayMenuItemsVisible.transfers) &&
+    (dayMenuItemsVisible.dayImage || dayMenuItemsVisible.transfers || dayMenuItemsVisible.makeFlexible) &&
     (dayMenuItemsVisible.print || dayMenuItemsVisible.packet);
   // MUI drops MenuItem to 36px at sm and up. The three controls that moved into this menu were all
   // 44px buttons and the codebase enforces that floor deliberately, so it has to be restated here -
@@ -1591,6 +1627,65 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
     },
     [canEditPlanning, day, ensureCsrfToken, loadDay, resolveApiError, t, takeDayChangeReceipt, tripId],
   );
+
+  // Claimed synchronously, as the reorder's is: a double confirm must send one request, not two.
+  const makeFlexibleInFlightRef = useRef(false);
+
+  /**
+   * Story 13.3. *Alle flexibel machen*, after its confirmation: `handleReorderPlan`'s shape. Not optimistic
+   * and no time arithmetic on the client; the day is reloaded to show what the server wrote (and 13.2's
+   * conflict markers with it). A refusal reloads first and sets its message after, because `loadDay`
+   * clears the error as its first act.
+   */
+  const handleMakeDayFlexible = useCallback(async () => {
+    setMakeFlexibleOpen(false);
+    if (!canEditPlanning || !day) return;
+    if (makeFlexibleInFlightRef.current) return;
+    makeFlexibleInFlightRef.current = true;
+
+    setError(null);
+    setPlanMoveNotice(null);
+    // Story 11.1 AC7: a write on the day ends the earlier undo window; this one's receipt opens the next.
+    setDayChange(null);
+    const requestedDayId = day.id;
+
+    try {
+      const token = await ensureCsrfToken();
+      const response = await fetch(`/api/trips/${tripId}/day-plan-items/make-flexible`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "x-csrf-token": token,
+        },
+        body: JSON.stringify({ tripDayId: day.id }),
+      });
+      const body = (await response.json()) as ApiEnvelope<{ receipt?: SignedDayChangeReceiptWire }>;
+      if (currentDayIdRef.current !== requestedDayId) return;
+
+      if (response.ok && !body.error) {
+        takeDayChangeReceipt(body.data?.receipt ?? null);
+        await loadDay({ silent: true });
+        return;
+      }
+
+      const code = body.error?.code;
+      if (response.status === 409 && code === "day_plan_changed") {
+        await loadDay({ silent: true });
+        setError(t("trips.dayView.makeFlexibleStale"));
+        return;
+      }
+      if (response.status === 404) {
+        await loadDay({ silent: true });
+      }
+      setError(resolveApiError(code, t("trips.dayView.makeFlexibleError")));
+    } catch {
+      if (currentDayIdRef.current !== requestedDayId) return;
+      setError(resolveApiError("network_error", t("trips.dayView.makeFlexibleError")));
+    } finally {
+      makeFlexibleInFlightRef.current = false;
+    }
+  }, [canEditPlanning, day, ensureCsrfToken, loadDay, resolveApiError, t, takeDayChangeReceipt, tripId]);
 
   // Claimed synchronously, as the reorder's is: a double click must send one park, not two.
   const parkInFlightRef = useRef(false);
@@ -3853,6 +3948,20 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
                     <Typography>{t("trips.dayTransfer.swapAction")}</Typography>
                   </MenuItem>
                 ) : null}
+                {/* Story 13.3. Changes the day, so above the divider; opens its confirmation. */}
+                {dayMenuItemsVisible.makeFlexible ? (
+                  <MenuItem
+                    aria-haspopup="dialog"
+                    sx={DAY_MENU_ITEM_SX}
+                    data-testid="day-menu-make-flexible"
+                    onClick={() => {
+                      handleDayMenuClose();
+                      setMakeFlexibleOpen(true);
+                    }}
+                  >
+                    <Typography>{t("trips.dayView.makeFlexibleAction")}</Typography>
+                  </MenuItem>
+                ) : null}
                 {/* component="li": Divider defaults to <hr>, and MenuList renders a <ul>, whose only
                     permitted children are <li>. As an <hr> it validates as an error and AT that
                     rebuilds the list from valid children can drop the separator outright. */}
@@ -4579,7 +4688,13 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
                                         aria-expanded={planItemMenu?.itemId === item.id}
                                         aria-controls={planItemMenu?.itemId === item.id ? "day-plan-item-overflow-menu" : undefined}
                                         onClick={(event) =>
-                                          setPlanItemMenu({ anchorEl: event.currentTarget, itemId: item.id, canMoveUp, canMoveDown })
+                                          setPlanItemMenu({
+                                            anchorEl: event.currentTarget,
+                                            itemId: item.id,
+                                            canMoveUp,
+                                            canMoveDown,
+                                            fixed: !movable,
+                                          })
                                         }
                                         sx={{ width: 44, height: 44, my: "-10px", color: tokens.inkMuted }}
                                       >
@@ -5001,6 +5116,9 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
             onClose={handlePlanDialogClose}
             onSaved={handlePlanDialogSaved}
             onDayWrite={() => setDayChange(null)}
+            // Story 13.3 (*Einfügen nach*): the cards' own order, which is the server's.
+            dayActivities={planItems.map(({ id, title, fromTime, toTime }) => ({ id, title, fromTime, toTime }))}
+            onDayChanged={() => void loadDay({ silent: true })}
           />
           {/* Story 14.1 (Q3). A new idea from Day Detail: the same parked dialog as the overview's. It goes
               to the bucket list, not onto this day; the row's "+" is what schedules it. Story 14.2: also
@@ -5258,6 +5376,7 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
                 {t("trips.plan.moveDown")}
               </MenuItem>
             ) : null}
+            {planItemMenu?.fixed ? <FixedOrderHint label={t("trips.plan.fixedOrderHint")} /> : null}
             {/* Story 14.2: always last, no confirmation - the notice's *Rückgängig* takes it back. */}
             {planItemMenu ? (
               <MenuItem onClick={() => handleParkPlanItem(planItemMenu.itemId)} sx={DAY_MENU_ITEM_SX}>
@@ -5265,6 +5384,32 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
               </MenuItem>
             ) : null}
           </Menu>
+          {/* Story 13.3. *Alle flexibel machen*'s confirmation, the bucket list's delete pair: two buttons on
+              equal footing, the safe one naming what it keeps. Undo exists, but the epic asks first. */}
+          <Dialog
+            open={makeFlexibleOpen}
+            onClose={() => setMakeFlexibleOpen(false)}
+            fullWidth
+            maxWidth="xs"
+            data-testid="day-make-flexible-dialog"
+          >
+            <DialogTitleWithClose label={t("common.close")} onClose={() => setMakeFlexibleOpen(false)}>
+              {t("trips.dayView.makeFlexibleTitle")}
+            </DialogTitleWithClose>
+            <DialogContent>
+              <Typography variant="body2" color="text.secondary">
+                {fixedActivityCount === 1
+                  ? t("trips.dayView.makeFlexibleBodyOne")
+                  : formatMessage(t("trips.dayView.makeFlexibleBody"), { count: fixedActivityCount })}
+              </Typography>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setMakeFlexibleOpen(false)}>{t("trips.dayView.makeFlexibleKeep")}</Button>
+              <Button color="error" variant="contained" onClick={() => void handleMakeDayFlexible()}>
+                {t("trips.dayView.makeFlexibleConfirm")}
+              </Button>
+            </DialogActions>
+          </Dialog>
           {/* Story 6.25 AC1 — a read-only popup, no footer, so the `✕` is its only visible dismissal. */}
           <Dialog open={Boolean(mapDialogItem)} onClose={() => setMapDialogItem(null)} fullWidth maxWidth="sm">
             <DialogTitleWithClose label={t("common.close")} onClose={() => setMapDialogItem(null)}>

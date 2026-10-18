@@ -6,6 +6,7 @@ import { CSRF_COOKIE_NAME, validateCsrf } from "@/lib/security/csrf";
 import { moveDayPlanItemToTripDay } from "@/lib/repositories/dayPlanItemRepo";
 import { dayPlanItemMoveSchema } from "@/lib/validation/dayPlanItemSchemas";
 import { requireSession } from "@/lib/auth/sessionGuard";
+import { dayChangedResponse, withPushConflict } from "@/lib/http/dayPlanPushResponses";
 
 /**
  * Story 6.23 — move **one** activity to another day.
@@ -69,13 +70,20 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
     return fail(apiError("validation_error", "Invalid day plan item move", parsed.error.flatten()), 400);
   }
 
-  const result = await moveDayPlanItemToTripDay({
-    userId,
-    tripId,
-    tripDayId: parsed.data.tripDayId,
-    itemId: parsed.data.itemId,
-    targetTripDayId: parsed.data.targetTripDayId,
-  });
+  // Story 13.3: the move recomputes both days, whose conditional writes can lose a race.
+  const attempt = await withPushConflict(() =>
+    moveDayPlanItemToTripDay({
+      userId,
+      tripId,
+      tripDayId: parsed.data.tripDayId,
+      itemId: parsed.data.itemId,
+      targetTripDayId: parsed.data.targetTripDayId,
+    }),
+  );
+  if ("conflict" in attempt) {
+    return dayChangedResponse();
+  }
+  const result = attempt.result;
 
   if (result.status === "not_found") {
     return fail(apiError("not_found", "Trip day not found"), 404);

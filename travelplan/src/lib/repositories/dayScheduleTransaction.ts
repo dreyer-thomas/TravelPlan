@@ -11,6 +11,7 @@ import {
   hasValidTimes,
   placeFixedItem,
   scheduleDay,
+  timeToMinutes,
   type ScheduleConflict,
   type ScheduleItem,
   type ScheduleLeg,
@@ -137,8 +138,11 @@ export const readScheduleInputInTransaction = async (
 export type ScheduleEdit =
   /** Nothing about the rows: a recompute only (a leg to tonight's stay, say). */
   | { kind: "none" }
-  /** A new row. FLEXIBLE is appended; FIXED is placed by its time (rule 4). */
-  | { kind: "insert"; item: ScheduleItem }
+  /**
+   * A new row. FLEXIBLE is appended, or put directly after `afterId` when given (Story 13.3, *Einfügen
+   * nach*); FIXED is placed by its time (rule 4) and ignores `afterId`.
+   */
+  | { kind: "insert"; item: ScheduleItem; afterId?: string | null }
   /**
    * A row's new state. FIXED that was not FIXED, or whose start changed, is placed by time; every other
    * edit keeps the row where it is.
@@ -150,7 +154,22 @@ export type ScheduleEdit =
   /** A leg save: `removeSegmentId` leaves the stored row out, `leg` is put first so it wins its pair. */
   | { kind: "legs"; removeSegmentId?: string; leg?: ScheduleLeg }
   /** Last night's check-out as it will be stored. */
-  | { kind: "checkOut"; checkOutTime: string | null };
+  | { kind: "checkOut"; checkOutTime: string | null }
+  /**
+   * Story 13.3. *Alle flexibel machen*: each named row becomes FLEXIBLE in place with its fixed duration
+   * (`fixedDurationOf`); the order is unchanged and nothing is placed by time.
+   */
+  | { kind: "makeFlexible"; itemIds: string[] };
+
+/**
+ * Story 13.3. A FIXED row's duration as the user saw it: `toTime − fromTime` when both read and the end is
+ * after the start, else the stored `durationMinutes`. No clamp: a migrated row may last one minute.
+ */
+export const fixedDurationOf = (row: { fromTime: string | null; toTime: string | null; durationMinutes: number }) => {
+  const start = timeToMinutes(row.fromTime);
+  const end = timeToMinutes(row.toTime);
+  return start !== null && end !== null && end > start ? end - start : row.durationMinutes;
+};
 
 export type PlannedRow = {
   id: string;
@@ -172,6 +191,8 @@ export type DaySchedulePlan = {
   order: PlannedRow[];
   /** The inserted or updated row as it will be written; `null` for every other edit. */
   edited: PlannedRow | null;
+  /** Story 13.3. The rows `makeFlexible` converted, in order, as they will be written; empty otherwise. */
+  converted: PlannedRow[];
   changes: PlannedChange[];
   /** Conflicts this write made: new ones, or reached later than before (§15). */
   newConflicts: ScheduleConflict[];
@@ -190,6 +211,8 @@ export const planDaySchedule = (state: ScheduleDayState, edit: ScheduleEdit): Da
   let legs: ScheduleLeg[] = state.legs;
   let stay = beforeStay;
   let editedId: string | null = null;
+  // Story 13.3: the rows `makeFlexible` converts are edited too, but are several and land in `converted`.
+  const convertedIds = new Set<string>();
   let placeId: string | null = null;
 
   const indexOf = (itemId: string) => {
@@ -202,7 +225,11 @@ export const planDaySchedule = (state: ScheduleDayState, edit: ScheduleEdit): Da
     case "none":
       break;
     case "insert":
-      items.push(edit.item);
+      if (edit.item.scheduleMode === "FLEXIBLE" && edit.afterId) {
+        items.splice(indexOf(edit.afterId) + 1, 0, edit.item);
+      } else {
+        items.push(edit.item);
+      }
       editedId = edit.item.id;
       if (edit.item.scheduleMode === "FIXED") placeId = edit.item.id;
       break;
@@ -238,6 +265,13 @@ export const planDaySchedule = (state: ScheduleDayState, edit: ScheduleEdit): Da
     case "checkOut":
       stay = beforeStay ? { ...beforeStay, checkOutTime: edit.checkOutTime } : beforeStay;
       break;
+    case "makeFlexible":
+      for (const itemId of edit.itemIds) {
+        const index = indexOf(itemId);
+        items[index] = { ...items[index], scheduleMode: "FLEXIBLE", durationMinutes: fixedDurationOf(items[index]) };
+        convertedIds.add(itemId);
+      }
+      break;
     default: {
       const unhandled: never = edit;
       throw new Error(`Unhandled schedule edit: ${String(unhandled)}`);
@@ -269,10 +303,15 @@ export const planDaySchedule = (state: ScheduleDayState, edit: ScheduleEdit): Da
   }));
 
   let edited: PlannedRow | null = null;
+  const converted: PlannedRow[] = [];
   const changes: PlannedChange[] = [];
   for (const row of order) {
     if (row.id === editedId) {
       edited = row;
+      continue;
+    }
+    if (convertedIds.has(row.id)) {
+      converted.push(row);
       continue;
     }
     const previous = stored.get(row.id)!;
@@ -302,7 +341,7 @@ export const planDaySchedule = (state: ScheduleDayState, edit: ScheduleEdit): Da
     return !previous || conflict.lateMinutes > previous.lateMinutes;
   });
 
-  return { order, edited, changes, newConflicts };
+  return { order, edited, converted, changes, newConflicts };
 };
 
 /**
@@ -341,6 +380,23 @@ export const applyScheduleChangesInTransaction = async (
     });
   }
   return movedItems;
+};
+
+/**
+ * Story 13.3. Recomputes a day as it now stands; no receipt. For the writes without undo, the moves
+ * between days: they re-point and renumber the rows first, then call this, so it reads the `updatedAt`s it
+ * conditions on after the re-point. A miss throws `DayPlanChangedError` and rolls the move back.
+ */
+export const recomputeDayInTransaction = async (
+  tx: TransactionClient,
+  tripId: string,
+  tripDayId: string,
+  now: Date,
+): Promise<void> => {
+  const state = await readScheduleInputInTransaction(tx, tripId, tripDayId);
+  if (!state) throw new Error("recomputeDayInTransaction: the day is not on the trip");
+  const plan = planDaySchedule(state, { kind: "none" });
+  await applyScheduleChangesInTransaction(tx, tripDayId, plan.changes, now);
 };
 
 /** The receipt's conflicts, from the plan's. `lateMinutes` stays out: the receipt schema is strict v3. */

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { dayActivityTransferSchema, dayPlanItemMutationSchema } from "@/lib/validation/dayPlanItemSchemas";
+import {
+  dayActivityTransferSchema,
+  dayPlanItemMutationSchema,
+  dayPlanItemUpdateSchema,
+} from "@/lib/validation/dayPlanItemSchemas";
 
 const sampleDoc = JSON.stringify({
   type: "doc",
@@ -503,5 +507,40 @@ describe("dayPlanItemMutationSchema schedule fields (Story 13.1 AC8, AC9)", () =
   it("lets toTime win when a FIXED payload sends both", () => {
     // The duration would end past midnight; the end time is what counts.
     expect(issues({ scheduleMode: "FIXED", fromTime: "23:00", toTime: "23:30", durationMinutes: 120 })).toEqual([]);
+  });
+});
+
+describe("dayPlanItemMutationSchema afterItemId (Story 13.3 AC3)", () => {
+  const base = { tripDayId: "day-id", title: "Walk", contentJson: sampleDoc };
+  const afterItemIdIssues = (result: ReturnType<typeof dayPlanItemMutationSchema.safeParse>) =>
+    result.success ? [] : result.error.issues.filter((issue) => issue.path[0] === "afterItemId");
+
+  it("accepts it on a FLEXIBLE create, and null or absent anywhere", () => {
+    expect(dayPlanItemMutationSchema.safeParse({ ...base, scheduleMode: "FLEXIBLE", durationMinutes: 60, afterItemId: "item-1" }).success).toBe(true);
+    expect(dayPlanItemMutationSchema.safeParse({ ...base, scheduleMode: "FLEXIBLE", afterItemId: null }).success).toBe(true);
+    expect(
+      dayPlanItemMutationSchema.safeParse({ ...base, scheduleMode: "FIXED", fromTime: "09:00", toTime: "10:00", afterItemId: null }).success,
+    ).toBe(true);
+  });
+
+  it("refuses it on a FIXED create and on one without a mode (= FIXED)", () => {
+    const fixed = dayPlanItemMutationSchema.safeParse({ ...base, scheduleMode: "FIXED", fromTime: "09:00", toTime: "10:00", afterItemId: "item-1" });
+    expect(fixed.success).toBe(false);
+    expect(afterItemIdIssues(fixed)).toHaveLength(1);
+    const legacy = dayPlanItemMutationSchema.safeParse({ ...base, fromTime: "09:00", toTime: "10:00", afterItemId: "item-1" });
+    expect(legacy.success).toBe(false);
+    expect(afterItemIdIssues(legacy)).toHaveLength(1);
+  });
+
+  it("refuses an empty id", () => {
+    expect(dayPlanItemMutationSchema.safeParse({ ...base, scheduleMode: "FLEXIBLE", afterItemId: "" }).success).toBe(false);
+  });
+
+  it("is refused on an edit, which keeps its place", () => {
+    const edit = { ...base, itemId: "item-2", scheduleMode: "FLEXIBLE", durationMinutes: 60 };
+    expect(dayPlanItemUpdateSchema.safeParse(edit).success).toBe(true);
+    const result = dayPlanItemUpdateSchema.safeParse({ ...edit, afterItemId: "item-1" });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.issues.some((issue) => issue.path[0] === "afterItemId")).toBe(true);
   });
 });

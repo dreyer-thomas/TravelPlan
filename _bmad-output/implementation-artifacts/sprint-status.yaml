@@ -1,5 +1,9 @@
 # generated: 2026-03-01 13:08:00 CET
-# last_updated: 2026-10-18 (13-2-when-the-plan-doesnt-work-out DONE via bmad-code-review: 5 patches applied (lateMinutes from the uncapped reach - Tommy chose option a; day view reloads when a leg save or delete changes the day's conflicts, not only when rows moved; AC6 delete test; AC8 wording; memo placement), 0 deferred, 13 dismissed. 205 files / 3347 tests, tsc 0, lint 0/79. Q1-Q3 defaults still unconfirmed.)
+# last_updated: 2026-10-18 (13-3-putting-the-day-in-order CODE REVIEW: 1 decision-needed (mutation 3), 6 patch left as action items, 1 defer DW-399, 19 dismissed. Status in-progress.)
+# previously: 2026-10-18 (13-3-putting-the-day-in-order REVIEW: real run passed (Tommy). Next: bmad-code-review.)
+# previously: 2026-10-18 (13-3-putting-the-day-in-order implemented via bmad-dev-story, stays in-progress until Tommy's real run (Safari, 390 px). Fixed-row hint, Einfuegen nach (afterItemId), move/swap/single-move recompute, Alle flexibel machen (receipt madeFlexible). 211 files / 3402 tests, tsc 0, lint 0/79, build ok. Mutation 3 (phase-1 staleness) survives: phase 2 guards the same. DW-376 closed.)
+# previously: 2026-10-18 (13-3-putting-the-day-in-order created via bmad-create-story, ready-for-dev. Reorder pinned + fixed-row hint, Einfuegen nach (afterItemId on create), whole-day move/swap recompute, Alle flexibel machen with receipt kind madeFlexible. Q1-Q5 defaults to confirm; recommends 14-4 first.)
+# previously: 2026-10-18 (13-2-when-the-plan-doesnt-work-out DONE via bmad-code-review: 5 patches applied (lateMinutes from the uncapped reach - Tommy chose option a; day view reloads when a leg save or delete changes the day's conflicts, not only when rows moved; AC6 delete test; AC8 wording; memo placement), 0 deferred, 13 dismissed. 205 files / 3347 tests, tsc 0, lint 0/79. Q1-Q3 defaults still unconfirmed.)
 # previously: 2026-10-18 (13-2-when-the-plan-doesnt-work-out REVIEW: real run passed (Safari, 390 px). Real-run ruling: the day start never makes a booking late (scheduleDay busyUntil, no time changes). Old orphaned legs from the 16.10 import left as they are, auto-cleanup parked. 205 files / 3344 tests, tsc 0, lint 0/79.)
 # previously: 2026-10-18 (13-2-when-the-plan-doesnt-work-out implemented via bmad-dev-story, stays in-progress until Tommy's real run (Safari, 390 px). planConflicts derived on read; card line, hero pill, overview pill; past-midnight refusal and check-in warning removed, receipt v3. 205 files / 3338 tests, tsc 0, lint 0/79, build OK. DW-377/378 closed moot, DW-375/394 annotated.)
 # previously: 2026-10-18 (13-2-when-the-plan-doesnt-work-out contexted via bmad-create-story: ready-for-dev. Conflicts derived on read in the trip payload (late, overflow), card line, hero pill, overview day-row pill; past-midnight refusal removed from every write; check-in warning removed, receipt stays v3. 3 non-blocking questions.)
@@ -291,7 +295,7 @@ development_status:
   epic-13: in-progress
   13-1-just-say-how-long: done
   13-2-when-the-plan-doesnt-work-out: done
-  13-3-putting-the-day-in-order: backlog
+  13-3-putting-the-day-in-order: in-progress
   13-4-suggestions-and-backups-speak-in-durations: backlog
   epic-13-retrospective: optional
 

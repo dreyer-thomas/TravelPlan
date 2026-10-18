@@ -155,6 +155,8 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
     payments: parsed.data.payments ?? null,
     linkUrl: resolvedLinkUrl,
     location: normalizedLocation,
+    // Story 13.3: *Einfügen nach*; the schema has allowed it only for FLEXIBLE.
+    afterItemId: parsed.data.afterItemId ?? null,
   };
 
   // Story 14.1: scheduling a bucket-list idea is `day-plan-items/schedule` now, which moves the parked

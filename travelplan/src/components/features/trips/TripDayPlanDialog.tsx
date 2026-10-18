@@ -427,6 +427,9 @@ export type PlanItemMoveOutcome = { moved: true } | { moved: false; message: str
  */
 export type PlanDialogPlacement = "day" | "parked";
 
+/** Story 13.3. One of the day's activities as *Einfügen nach* lists it, in day order. */
+export type PlanDayActivity = { id: string; title: string | null; fromTime: string | null; toTime: string | null };
+
 type TripDayPlanDialogProps = {
   open: boolean;
   mode: PlanDialogMode;
@@ -456,6 +459,17 @@ type TripDayPlanDialogProps = {
    * or delete). Those are writes on the day the view cannot see, and every write ends the undo window.
    */
   onDayWrite?: () => void;
+  /**
+   * Story 13.3 (*Einfügen nach*). The day's activities in order, for a new FLEXIBLE activity to go after.
+   * The select shows only on a create on a day (not parked), in *Flexibel*, when this is non-empty.
+   */
+  dayActivities?: PlanDayActivity[];
+  /**
+   * Story 13.3. A create refused as `409 day_plan_changed`: the day changed under the dialog, so the
+   * caller reloads it and *Einfügen nach* lists what the day now holds. Called for a create only, where
+   * no `item` can be re-seeded by the reload.
+   */
+  onDayChanged?: () => void;
 };
 
 const emptyDoc = {
@@ -580,6 +594,8 @@ type PlanFormValues = {
    * new identity on every render and the discard question turns on how many are staged.
    */
   pendingDocumentCount: number;
+  /** Story 13.3. *Einfügen nach*: `""` is "Am Ende" (the seed); otherwise the activity's id. */
+  insertAfterId: string;
 };
 
 /**
@@ -624,6 +640,7 @@ const planFormFingerprint = (values: PlanFormValues) =>
     values.contentJson,
     values.pendingPhotoCount,
     values.pendingDocumentCount,
+    values.insertAfterId,
   ]);
 
 /**
@@ -699,6 +716,8 @@ export default function TripDayPlanDialog({
   onClose,
   onSaved,
   onDayWrite,
+  dayActivities,
+  onDayChanged,
 }: TripDayPlanDialogProps) {
   const { t, language } = useI18n();
   // Story 14.1. A parked activity has no day; everything that needs one asks `canWrite` and `mediaDayId`.
@@ -774,6 +793,7 @@ export default function TripDayPlanDialog({
   const [durationHoursInput, setDurationHoursInput] = useState<string>("");
   const [durationMinutesInput, setDurationMinutesInput] = useState<string>("");
   const [fixedEndKind, setFixedEndKind] = useState<FixedEndKind>("end");
+  const [insertAfterId, setInsertAfterId] = useState<string>("");
   const [paymentMode, setPaymentMode] = useState<"single" | "split">("single");
   const [payments, setPayments] = useState<Array<{ amount: string; dueDate: string }>>([]);
   const [paymentError, setPaymentError] = useState<string | null>(null);
@@ -1047,6 +1067,7 @@ export default function TripDayPlanDialog({
       setDurationHoursInput(values.durationHours);
       setDurationMinutesInput(values.durationMinutes);
       setFixedEndKind(values.fixedEndKind);
+      setInsertAfterId(values.insertAfterId);
       setFromTimeInput(values.fromTime);
       setToTimeInput(values.toTime);
       setCostCentsInput(values.cost);
@@ -1136,6 +1157,7 @@ export default function TripDayPlanDialog({
         contentJson: item.contentJson,
         pendingPhotoCount: 0,
         pendingDocumentCount: 0,
+        insertAfterId: "",
       };
       locationQuerySeed = item.location?.label ?? "";
       // The two payment effects below would otherwise rewrite the rows this seed just restored.
@@ -1156,6 +1178,8 @@ export default function TripDayPlanDialog({
         contentJson: toDocString(emptyDoc),
         pendingPhotoCount: 0,
         pendingDocumentCount: 0,
+        // Story 13.3: every open starts at "Am Ende".
+        insertAfterId: "",
       };
       locationQuerySeed = "";
     }
@@ -1416,6 +1440,16 @@ export default function TripDayPlanDialog({
   });
 
   /** Story 13.1 AC8. Hours and minutes, the leg dialog's two boxes; both empty means 15 minutes. */
+  // Story 13.3 §4. *Einfügen nach*: a new FLEXIBLE activity on a day that already has activities. Edits
+  // keep their place (*Nach oben* / *Nach unten* move them), FIXED is placed by its time.
+  const showInsertAfter = mode === "add" && !parked && scheduleMode === "FLEXIBLE" && (dayActivities?.length ?? 0) > 0;
+  const insertAfterLabel = (activity: PlanDayActivity) => {
+    const title = activity.title?.trim() || t("trips.plan.untitledActivity");
+    return activity.fromTime && activity.toTime
+      ? formatMessage(t("trips.plan.insertAfterOption"), { title, range: `${activity.fromTime}–${activity.toTime}` })
+      : title;
+  };
+
   const durationFields = (
     <Box
       sx={{
@@ -1791,8 +1825,11 @@ export default function TripDayPlanDialog({
     const placementPayload = parked
       ? { durationMinutes: "durationMinutes" in schedulePayload ? schedulePayload.durationMinutes : undefined }
       : { tripDayId: mediaDayId!, ...schedulePayload };
+    // Story 13.3: only when the select is shown and an activity is chosen; "Am Ende" sends nothing.
+    const afterItemPayload = showInsertAfter && insertAfterId !== "" ? { afterItemId: insertAfterId } : {};
     const payload = {
       ...placementPayload,
+      ...afterItemPayload,
       title: titleInput.trim(),
       contentJson,
       costCents: costCentsForSave,
@@ -1825,6 +1862,7 @@ export default function TripDayPlanDialog({
       linkUrl: string | null;
       location: { lat: number; lng: number; label?: string | null } | null;
       itemId?: string;
+      afterItemId?: string;
     };
 
     if (mode === "edit" && editingItemId) {
@@ -1892,6 +1930,11 @@ export default function TripDayPlanDialog({
         // no longer fits is saved and marked.)
         if (body.error?.code === "day_plan_changed") {
           setServerError(t("trips.plan.dayChangedConflict"));
+          // Story 13.3: the day the select listed is gone; reload it and start over at "Am Ende".
+          if (mode === "add") {
+            setInsertAfterId("");
+            onDayChanged?.();
+          }
           return;
         }
 
@@ -1960,6 +2003,7 @@ export default function TripDayPlanDialog({
         contentJson,
         pendingPhotoCount: galleryFiles.length,
         pendingDocumentCount: documentFiles.length,
+        insertAfterId,
       }),
     [
       contentJson,
@@ -1974,6 +2018,7 @@ export default function TripDayPlanDialog({
       fixedEndKind,
       fromTimeInput,
       galleryFiles.length,
+      insertAfterId,
       linkUrl,
       paymentMode,
       payments,
@@ -2817,6 +2862,24 @@ export default function TripDayPlanDialog({
                       ? formatMessage(t("trips.plan.expectedTimes"), { range: `${item.fromTime} – ${item.toTime}` })
                       : t("trips.plan.expectedAfterSave")}
                   </Typography>
+                  {showInsertAfter ? (
+                    <FormField
+                      select
+                      id={`${fieldIdPrefix}-insert-after`}
+                      label={t("trips.plan.insertAfter")}
+                      value={insertAfterId}
+                      onChange={(event) => setInsertAfterId(event.target.value)}
+                      slotProps={{ select: { native: true } }}
+                      data-testid="plan-insert-after"
+                    >
+                      <option value="">{t("trips.plan.insertAtEnd")}</option>
+                      {(dayActivities ?? []).map((activity) => (
+                        <option key={activity.id} value={activity.id}>
+                          {insertAfterLabel(activity)}
+                        </option>
+                      ))}
+                    </FormField>
+                  ) : null}
                 </Box>
               ) : (
                 <Box display="flex" flexDirection="column" gap="12px">

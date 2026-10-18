@@ -7,6 +7,7 @@ import { prisma } from "@/lib/db/prisma";
 import { moveDayPlanItemsBetweenTripDays, swapDayPlanItemsBetweenTripDays } from "@/lib/repositories/dayPlanItemRepo";
 import { dayActivityTransferSchema } from "@/lib/validation/dayPlanItemSchemas";
 import { requireSession } from "@/lib/auth/sessionGuard";
+import { dayChangedResponse, withPushConflict } from "@/lib/http/dayPlanPushResponses";
 
 type RouteContext = {
   params: Promise<{
@@ -87,12 +88,19 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
       );
     }
 
-    const result = await moveDayPlanItemsBetweenTripDays({
-      userId,
-      tripId,
-      sourceTripDayId: parsed.data.sourceTripDayId,
-      targetTripDayId: parsed.data.targetTripDayId,
-    });
+    // Story 13.3: the move recomputes the target day, whose conditional writes can lose a race.
+    const attempt = await withPushConflict(() =>
+      moveDayPlanItemsBetweenTripDays({
+        userId,
+        tripId,
+        sourceTripDayId: parsed.data.sourceTripDayId,
+        targetTripDayId: parsed.data.targetTripDayId,
+      }),
+    );
+    if ("conflict" in attempt) {
+      return dayChangedResponse();
+    }
+    const result = attempt.result;
 
     if (result.status === "not_found") {
       return fail(apiError("not_found", "Trip day not found"), 404);
@@ -110,12 +118,19 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
     });
   }
 
-  const result = await swapDayPlanItemsBetweenTripDays({
-    userId,
-    tripId,
-    firstTripDayId: parsed.data.sourceTripDayId,
-    secondTripDayId: parsed.data.targetTripDayId,
-  });
+  // Story 13.3: the swap recomputes both days, as the move above does its target.
+  const attempt = await withPushConflict(() =>
+    swapDayPlanItemsBetweenTripDays({
+      userId,
+      tripId,
+      firstTripDayId: parsed.data.sourceTripDayId,
+      secondTripDayId: parsed.data.targetTripDayId,
+    }),
+  );
+  if ("conflict" in attempt) {
+    return dayChangedResponse();
+  }
+  const result = attempt.result;
 
   if (result.status === "not_found") {
     return fail(apiError("not_found", "Trip day not found"), 404);

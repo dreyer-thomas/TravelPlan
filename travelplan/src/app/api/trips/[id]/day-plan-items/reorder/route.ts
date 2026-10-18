@@ -21,8 +21,9 @@ import { dayPlanItemReorderSchema } from "@/lib/validation/dayPlanItemSchemas";
  *
  * The check order is `day-plan-items/route.ts`'s POST: CSRF, session, the owner-or-contributor gate (404
  * for a viewer), JSON, schema. The repository adds the writer clause. Refusals are `409`:
- * `day_plan_not_reorderable` (no timed neighbour in that direction, an unreadable start, an imported
- * overnight `toTime` the earlier shift would take below `00:00`, or the predecessor-side tie), `day_plan_changed` (a concurrent write). None of them writes anything.
+ * `day_plan_not_reorderable` (since Story 13.1 §10 only two cases: the activity is FIXED, or it has no
+ * neighbour in that direction; a FLEXIBLE one swaps with a neighbour of either mode) and
+ * `day_plan_changed` (a concurrent write). None of them writes anything.
  */
 
 type RouteContext = {

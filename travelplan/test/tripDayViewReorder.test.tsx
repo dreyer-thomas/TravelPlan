@@ -331,6 +331,42 @@ describe("TripDayView activity overflow menu (Story 11.3)", () => {
     expect(menuItemNames(await openMenuFor("Park"))).toEqual([en["trips.plan.parkAction"]]);
   });
 
+  it("shows a fixed activity the fixed-order line before Park, not as a menu item and not focusable (Story 13.3 AC2)", async () => {
+    stubDay();
+    await renderDay("de");
+
+    const menu = await openMenuFor("Park", de);
+    const hint = within(menu).getByTestId("day-plan-item-fixed-order-hint");
+    expect(hint).toHaveTextContent("Feste Zeit — Platz ergibt sich aus der Uhrzeit");
+    expect(hint.tagName).toBe("LI");
+    expect(hint).toHaveAttribute("role", "presentation");
+    expect(hint).not.toHaveAttribute("tabindex");
+    expect(menuItemNames(menu)).toEqual(["Parken"]);
+    // The hint comes first in the list, Park after it, and the menu's first focus lands on Park.
+    expect(hint.nextElementSibling).toBe(within(menu).getByRole("menuitem", { name: "Parken" }));
+    await waitFor(() => expect(within(menu).getByRole("menuitem", { name: "Parken" })).toHaveFocus());
+  });
+
+  it("shows no fixed-order line on a flexible activity, which between two fixed ones offers both moves (Story 13.3 AC1)", async () => {
+    stubDay({
+      items: [
+        planItem("item-1", "Ferry", "09:00", "10:00", "2026-11-01T10:00:00.000Z", "FIXED", 0),
+        planItem("item-2", "Walk", "10:00", "11:00", "2026-11-01T10:01:00.000Z", "FLEXIBLE", 1),
+        planItem("item-3", "Show", "20:00", "21:00", "2026-11-01T10:02:00.000Z", "FIXED", 2),
+      ],
+    });
+    await renderDay();
+
+    const menu = await openMenuFor("Walk");
+    expect(menuItemNames(menu)).toEqual([en["trips.plan.moveUp"], en["trips.plan.moveDown"], en["trips.plan.parkAction"]]);
+    expect(within(menu).queryByTestId("day-plan-item-fixed-order-hint")).not.toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+
+    const ferryMenu = await openMenuFor("Ferry");
+    expect(within(ferryMenu).getByTestId("day-plan-item-fixed-order-hint")).toHaveTextContent(en["trips.plan.fixedOrderHint"]);
+  });
+
   it("offers a trigger on a lone activity too, whose menu holds only Park (Story 14.2 AC2)", async () => {
     stubDay({
       items: [planItem("item-1", "Museum", "09:00", "10:00", "2026-11-01T10:00:00.000Z")],

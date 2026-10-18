@@ -3609,7 +3609,8 @@ location: `travelplan/src/components/features/trips/TripDayView.tsx:4238` (`canM
 severity: low
 summary: The client offers a move whenever both rows have a `fromTime`. The server also refuses with `not_reorderable` for the predecessor-side tie, an unreadable start, or an overnight `toTime` that would go below 00:00. The user sees "The view has been refreshed" and the same offer again, every time.
 evidence: Read at 2026-10-11 during the code review of Story 11.3. All three shapes need imported data or three rows with the same start in a specific `createdAt` order. A fix would hide the move on the client (duplicating the planner's checks) or use a distinct message for a refusal that won't change.
-status: open
+status: done 2026-10-18
+resolution: moot since Story 13.1 §10 (`planDayReorder` and its tie, unreadable-start and overnight refusals are gone) and closed by Story 13.3 §2: the server refuses only a FIXED row or a missing neighbour, and the menu offers *Nach oben* / *Nach unten* exactly for a FLEXIBLE row with a neighbour; a FIXED row shows the fixed-order line instead.
 
 ## Deferred from: code review of 11-4-when-the-journey-takes-longer (2026-10-11)
 
@@ -3849,4 +3850,16 @@ location: `travelplan/src/components/features/trips/TripDayView.tsx` (`loadBucke
 severity: low
 summary: `loadBucketListItems` has no request id or abort. 14.2 adds more callers (the park's `finally`, the undo of `parked`, the idea dialog's save and picture writes). When two loads overlap and the older answer arrives last, the panel shows an outdated list until the next reload.
 evidence: The loader is from 14.1. `loadDay` uses `currentDayIdRef` for the day, but nothing comparable exists for the list.
+status: open
+
+## Deferred from: code review of 13-3-putting-the-day-in-order (2026-10-18)
+
+### DW-399: The cross-day recompute's race path is untested
+
+source_spec: `_bmad-output/implementation-artifacts/13-3-putting-the-day-in-order.md`
+origin: code review of 13-3-putting-the-day-in-order, 2026-10-18
+location: `travelplan/src/app/api/trips/[id]/day-activity-transfer/route.ts`, `travelplan/src/app/api/trips/[id]/day-plan-items/move/route.ts`
+severity: low
+summary: Story 13.3 §6 wraps the whole-day move/swap and the single move in `withPushConflict`, so a lost conditional write in `recomputeDayInTransaction` answers `409 day_plan_changed` and rolls back the re-point and renumber. Every new recompute test is a happy path; neither the route mapping nor the rollback is covered.
+evidence: Hard to provoke without a mock (SQLite serialises writers, so the window is inside one transaction). The single move goes away with 14.4.
 status: open

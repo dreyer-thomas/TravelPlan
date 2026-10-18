@@ -25,8 +25,10 @@ import {
   applyScheduleChangesInTransaction,
   buildReceipt,
   DayPlanChangedError,
+  fixedDurationOf,
   planDaySchedule,
   readScheduleInputInTransaction,
+  recomputeDayInTransaction,
   toPlanConflicts,
   type DaySchedulePlan,
   type ScheduleEdit,
@@ -110,6 +112,9 @@ export type DayPlanItemParkResult =
   | { status: "missing" }
   | { status: "parked"; item: DayPlanItemDetail; receipt: DayChangeReceipt };
 
+/** Story 13.3. *Alle flexibel machen*; a day without a FIXED activity throws `DayPlanChangedError`. */
+export type DayMakeFlexibleResult = { status: "not_found" } | { status: "made_flexible"; receipt: DayChangeReceipt };
+
 type DayPlanItemMutationParams = {
   userId: string;
   tripId: string;
@@ -136,6 +141,12 @@ type DayPlanItemMutationParams = {
 };
 
 type DayPlanItemUpdateParams = DayPlanItemMutationParams & { itemId: string };
+
+/**
+ * Story 13.3 (*Einfügen nach*). A create may name the activity a new FLEXIBLE one goes directly after; the
+ * schema refuses it for FIXED. An edit keeps its place, so only the create takes it.
+ */
+type DayPlanItemCreateParams = DayPlanItemMutationParams & { afterItemId?: string | null };
 
 type DayPlanItemDeleteParams = {
   userId: string;
@@ -493,10 +504,13 @@ const scheduleFieldsOf = (params: Pick<DayPlanItemMutationParams, "scheduleMode"
   // The start + duration form (the schema has bounded the end to the day); `toTime` wins when both came.
   const toTime =
     params.toTime ?? (start !== null && params.durationMinutes != null ? minutesToTime(start + params.durationMinutes) : null);
-  const end = timeToMinutes(toTime);
   return {
     scheduleMode,
-    durationMinutes: start !== null && end !== null && end > start ? end - start : (params.durationMinutes ?? DEFAULT_ACTIVITY_DURATION_MINUTES),
+    durationMinutes: fixedDurationOf({
+      fromTime: params.fromTime,
+      toTime,
+      durationMinutes: params.durationMinutes ?? DEFAULT_ACTIVITY_DURATION_MINUTES,
+    }),
     fromTime: params.fromTime,
     toTime,
   };
@@ -627,9 +641,13 @@ export const listDayPlanItemsForTripDay = async (params: {
   return items.map((item) => toDetail({ ...item, payments: toPaymentDetails(item.payments) })).sort(compareDayPlanItemsByOrder);
 };
 
-/** `null` is "not your day", as before. Since Story 13.2 a create past 23:59 is saved without times. */
+/**
+ * `null` is "not your day", as before. Since Story 13.2 a create past 23:59 is saved without times. Story
+ * 13.3: an `afterItemId` that is no longer on the day (deleted, parked or moved since the dialog listed it)
+ * is `DayPlanChangedError` (409 `day_plan_changed`), decided before the first write; it never appends.
+ */
 export const createDayPlanItemForTripDay = async (
-  params: DayPlanItemMutationParams,
+  params: DayPlanItemCreateParams,
 ): Promise<DayPlanItemCreateResult | null> => {
   const { userId, tripId, tripDayId, contentJson, costCents, linkUrl, location } = params;
   const tripDay = await findTripDayForTripWriter(userId, tripId, tripDayId);
@@ -642,9 +660,14 @@ export const createDayPlanItemForTripDay = async (
     // placed by its time; `NEW_ITEM_ID` stands in for it.
     const now = new Date();
     const fields = scheduleFieldsOf(params);
-    const plan = await planActivityWriteInTransaction(tx, tripId, tripDayId, {
+    const afterId = fields.scheduleMode === "FLEXIBLE" ? (params.afterItemId ?? null) : null;
+    const state = await readScheduleInputInTransaction(tx, tripId, tripDayId);
+    if (!state) throw new Error("createDayPlanItemForTripDay: the day is not on the trip");
+    if (afterId !== null && !state.rows.some((row) => row.id === afterId)) throw new DayPlanChangedError();
+    const plan = planDaySchedule(state, {
       kind: "insert",
       item: { id: NEW_ITEM_ID, title: params.title.trim(), ...fields },
+      afterId,
     });
     const planned = plan.edited!;
 
@@ -829,12 +852,7 @@ export const parkDayPlanItemForTripDay = async (params: {
     if (!previous) return { status: "missing" };
     const plan = planDaySchedule(state, { kind: "remove", itemId });
 
-    const start = timeToMinutes(previous.fromTime);
-    const end = timeToMinutes(previous.toTime);
-    const durationMinutes =
-      previous.scheduleMode === "FIXED" && start !== null && end !== null && end > start
-        ? end - start
-        : previous.durationMinutes;
+    const durationMinutes = previous.scheduleMode === "FIXED" ? fixedDurationOf(previous) : previous.durationMinutes;
 
     const now = new Date();
     const drawnBefore = await readDrawnSegmentKeysInTransaction(tx, tripId, tripDayId);
@@ -889,6 +907,71 @@ export const parkDayPlanItemForTripDay = async (params: {
       },
     });
     return { status: "parked", item: toDetail({ ...item, payments: toPaymentDetails(item.payments) }), receipt };
+  });
+};
+
+/**
+ * Story 13.3. *Alle flexibel machen*: every FIXED activity of the day becomes FLEXIBLE with its fixed
+ * duration (`fixedDurationOf`), in place, and the day is recomputed, so the gaps before them close. Park's
+ * order (14.2): the writer check, then in one transaction the read, the plan, each converted row written
+ * conditionally on the `updatedAt` and the mode read here, the other rows' changes and 11.1's sweep (which
+ * in practice finds nothing: the order does not change). The menu offers it only on a day with a FIXED
+ * activity, so a day without one is the day changing under the user: `DayPlanChangedError`.
+ */
+export const makeDayFlexibleForTripDay = async (params: {
+  userId: string;
+  tripId: string;
+  tripDayId: string;
+}): Promise<DayMakeFlexibleResult> => {
+  const { userId, tripId, tripDayId } = params;
+  const tripDay = await findTripDayForTripWriter(userId, tripId, tripDayId);
+  if (!tripDay) {
+    return { status: "not_found" };
+  }
+
+  return prisma.$transaction(async (tx): Promise<DayMakeFlexibleResult> => {
+    const state = await readScheduleInputInTransaction(tx, tripId, tripDayId);
+    if (!state) return { status: "not_found" };
+    const fixedRows = state.rows.filter((row) => row.scheduleMode === "FIXED");
+    if (fixedRows.length === 0) throw new DayPlanChangedError();
+    const plan = planDaySchedule(state, { kind: "makeFlexible", itemIds: fixedRows.map((row) => row.id) });
+
+    const now = new Date();
+    const drawnBefore = await readDrawnSegmentKeysInTransaction(tx, tripId, tripDayId);
+    const stored = new Map(fixedRows.map((row) => [row.id, row]));
+    const items = [];
+    for (const row of plan.converted) {
+      const previous = stored.get(row.id)!;
+      const written = await tx.dayPlanItem.updateMany({
+        where: { id: row.id, tripDayId, updatedAt: previous.updatedAt, scheduleMode: "FIXED" },
+        data: {
+          scheduleMode: "FLEXIBLE",
+          durationMinutes: fixedDurationOf(previous),
+          fromTime: row.fromTime,
+          toTime: row.toTime,
+          sortOrder: row.sortOrder,
+          updatedAt: now,
+        },
+      });
+      if (written.count !== 1) throw new DayPlanChangedError();
+      items.push({
+        itemId: row.id,
+        updatedAt: now,
+        previous: {
+          durationMinutes: previous.durationMinutes,
+          fromTime: previous.fromTime,
+          toTime: previous.toTime,
+          sortOrder: previous.sortOrder,
+          updatedAt: previous.updatedAt,
+        },
+      });
+    }
+
+    const { receipt } = await finishActivityWriteInTransaction(tx, { tripId, tripDayId, drawnBefore, now }, plan, {
+      kind: "madeFlexible",
+      items,
+    });
+    return { status: "made_flexible", receipt };
   });
 };
 
@@ -1079,8 +1162,8 @@ export const reorderDayPlanItemForTripDay = async (params: {
 
 /**
  * Story 13.1 §11. Rewrites a day's `sortOrder` densely in `orderedIds`' order (the day's own order when
- * omitted), writing only rows whose number changes. The moves between days use it; they keep both days'
- * order dense but do not recompute times, which Story 13.3 adds.
+ * omitted), writing only rows whose number changes, without touching `updatedAt`. The moves between days
+ * use it, then recompute each day they changed (`recomputeDayInTransaction`, Story 13.3).
  */
 export const renumberDayInTransaction = async (tx: TransactionClient, tripDayId: string, orderedIds?: string[]) => {
   const rows = await tx.dayPlanItem.findMany({
@@ -1111,8 +1194,8 @@ export const renumberDayInTransaction = async (tx: TransactionClient, tripDayId:
  *
  * Ordering on the new day (AC7): Story 13.1 stores the order, so the moved row gets a place on the target
  * day (a FLEXIBLE one at the end, a FIXED one by its time, `placeFixedItem`) and both days are renumbered
- * densely. Neither day is recomputed: a flexible row keeps its old times until its new day's next write,
- * a known gap that Story 13.3 closes.
+ * densely. Story 13.3: then both days are recomputed in the same transaction (after the leg removal, so
+ * the schedule counts only the legs that stay). No receipt, no undo.
  */
 export const moveDayPlanItemToTripDay = async (
   params: SingleDayPlanItemMoveParams,
@@ -1173,6 +1256,9 @@ export const moveDayPlanItemToTripDay = async (
       "DAY_PLAN_ITEM",
       itemId,
     );
+    const now = new Date();
+    await recomputeDayInTransaction(tx, tripId, tripDayId, now);
+    await recomputeDayInTransaction(tx, tripId, targetTripDayId, now);
     return { status: "moved" as const, removedTravelSegmentIds: removed.map((segment) => segment.id) };
   });
 
@@ -1227,7 +1313,10 @@ export const moveDayPlanItemsBetweenTripDays = async (
       data: { tripDayId: targetTripDayId },
     });
     // Story 13.1 §11: the source day's order comes along unchanged; renumbering keeps it dense regardless.
+    // Story 13.3: the order is not re-sorted by time (a fixed row the new start makes unreachable is a
+    // 13.2 conflict); the times are recomputed from the target day's start. The source day is empty.
     await renumberDayInTransaction(tx, targetTripDayId);
+    await recomputeDayInTransaction(tx, tripId, targetTripDayId, new Date());
 
     return {
       status: "moved" as const,
@@ -1276,8 +1365,12 @@ export const swapDayPlanItemsBetweenTripDays = async (
       data: { tripDayId: firstTripDayId },
     });
     // Story 13.1 §11: each day's order travels with it; renumbering keeps both dense regardless.
+    // Story 13.3: both days are then recomputed from their new starts, the order as it travelled.
     await renumberDayInTransaction(tx, firstTripDayId);
     await renumberDayInTransaction(tx, secondTripDayId);
+    const now = new Date();
+    await recomputeDayInTransaction(tx, tripId, firstTripDayId, now);
+    await recomputeDayInTransaction(tx, tripId, secondTripDayId, now);
 
     return {
       status: "swapped" as const,
