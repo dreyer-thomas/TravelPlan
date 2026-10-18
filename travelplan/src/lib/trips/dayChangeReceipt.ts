@@ -41,6 +41,12 @@
  * delete restores how the activity was planned. A leg delete now recomputes too, and gets its own kind,
  * `legDeleted`. `planConflicts` names the fixed activities this write made unreachable in time; like the
  * check-in warning it is for the notice only, and undo ignores it. A version-2 receipt is refused.
+ *
+ * Story 14.1 adds `scheduled`: "+" on a bucket-list row moved the parked activity itself onto the day
+ * (same id, everything attached). Undo parks it again with its previous `updatedAt`. The bucket-list
+ * row copy that a create used to carry (`consumedBucketListItem`) is gone with the table: there is
+ * nothing to recreate, because nothing was consumed. Additive otherwise, so the version stays 3; a
+ * receipt that still carries the old field is refused by the schema.
  */
 
 import { formatMessage } from "@/i18n";
@@ -116,17 +122,6 @@ export type DayPlanItemDocumentRow<T extends Date | string = Date> = Stamped<T> 
   sortOrder: number;
 };
 
-export type TripBucketListItemRow<T extends Date | string = Date> = Stamped<T> & {
-  id: string;
-  tripId: string;
-  title: string;
-  description: string | null;
-  positionText: string | null;
-  locationLat: number | null;
-  locationLng: number | null;
-  locationLabel: string | null;
-};
-
 /** Every `DayPlanItem` column plus its payments in `sortOrder` — PATCH replaces payments wholesale. */
 export type DayPlanItemSnapshot<T extends Date | string = Date> = DayPlanItemRow<T> & {
   payments: CostPaymentRow<T>[];
@@ -159,6 +154,11 @@ export type DayChangeEdited<T extends Date | string = Date> =
       previousUpdatedAt: T;
       previousCheckOutTime: string | null;
     }
+  /**
+   * Story 14.1. A parked activity moved onto the day. `updatedAt` is its post-write stamp,
+   * `previousUpdatedAt` the stamp it had parked, which undo writes back.
+   */
+  | { kind: "scheduled"; itemId: string; updatedAt: T; previousUpdatedAt: T }
   /** Story 12.4. Everything one apply of picked suggestions created; `updatedAt` is each row's post-write stamp. */
   | {
       kind: "suggestionsApplied";
@@ -197,7 +197,6 @@ export type DayChangeReceipt<T extends Date | string = Date> = {
   removedTravelSegments: TravelSegmentRow<T>[];
   /** Always present, empty when nothing moved (DELETE never moves anything). */
   movedItems: MovedItemRow<T>[];
-  consumedBucketListItem?: TripBucketListItemRow<T>;
   checkInWarning?: DayChangeCheckInWarning;
   /** Story 13.1. Only conflicts this write made; absent when there are none. */
   planConflicts?: DayChangePlanConflict[];
@@ -274,6 +273,13 @@ const mapReceipt = <A extends Date | string, B extends Date | string>(
         previousUpdatedAt: convert(receipt.edited.previousUpdatedAt),
       };
       break;
+    case "scheduled":
+      edited = {
+        ...receipt.edited,
+        updatedAt: convert(receipt.edited.updatedAt),
+        previousUpdatedAt: convert(receipt.edited.previousUpdatedAt),
+      };
+      break;
     case "suggestionsApplied":
       edited = {
         kind: "suggestionsApplied",
@@ -298,9 +304,6 @@ const mapReceipt = <A extends Date | string, B extends Date | string>(
       previousUpdatedAt: convert(moved.previousUpdatedAt),
       updatedAt: convert(moved.updatedAt),
     })),
-    ...(receipt.consumedBucketListItem
-      ? { consumedBucketListItem: mapStamps(receipt.consumedBucketListItem, convert) }
-      : {}),
     ...(receipt.checkInWarning ? { checkInWarning: { ...receipt.checkInWarning } } : {}),
     ...(receipt.planConflicts ? { planConflicts: receipt.planConflicts.map((conflict) => ({ ...conflict })) } : {}),
   };
@@ -323,9 +326,12 @@ const movedTimes = <T extends Date | string>(row: MovedItemRow<T>) =>
  * apply of suggestions (Story 12.4): it writes several rows at once, and its notice is the only undo.
  * Story 13.1: a new plan conflict too, or a plain create that runs into a ferry would show no notice. A
  * row only renumbered is not a side effect anyone sees; it is still in `movedItems` for undo.
+ * Story 14.1: scheduling an idea always has one: it left the bucket list, and its notice is the only
+ * way to take that back, even when nothing on the day moved.
  */
 export const receiptHasSideEffects = <T extends Date | string>(receipt: DayChangeReceipt<T>): boolean =>
   receipt.edited.kind === "reordered" ||
+  receipt.edited.kind === "scheduled" ||
   receipt.edited.kind === "suggestionsApplied" ||
   receipt.removedTravelSegments.length > 0 ||
   receipt.movedItems.some(movedTimes) ||
@@ -354,14 +360,24 @@ const summarizeSuggestionsApplied = (itemCount: number, legCount: number, t: (ke
  *
  * Story 11.4 AC11: `otherDayIndex` is set when the receipt's day is not the one being viewed (a
  * check-out change that pushed the next day); the moved part then names that day.
+ *
+ * Story 14.1: a `scheduled` receipt leads with „{title}" eingeplant. The receipt carries no title, so
+ * the caller passes it as `scheduledTitle`, as it passes `otherDayIndex`.
  */
 export const summarizeDayChangeReceipt = <T extends Date | string>(
   receipt: DayChangeReceipt<T>,
   t: (key: string) => string,
-  options: { otherDayIndex?: number } = {},
+  options: { otherDayIndex?: number; scheduledTitle?: string | null } = {},
 ): string => {
   const parts: string[] = [];
   const { edited } = receipt;
+  if (edited.kind === "scheduled") {
+    parts.push(
+      formatMessage(t("trips.dayChange.scheduled"), {
+        title: options.scheduledTitle?.trim() || t("trips.plan.untitledActivity"),
+      }),
+    );
+  }
   // Story 13.1: rows whose times changed, never one only renumbered.
   let movedItems = receipt.movedItems.filter(movedTimes);
   if (edited.kind === "suggestionsApplied") {

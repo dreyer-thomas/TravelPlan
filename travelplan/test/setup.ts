@@ -51,7 +51,7 @@ vi.mock("@tiptap/react", () => ({
   },
 }));
 
-vi.mock("@tiptap/starter-kit", () => ({ default: {} }));
+vi.mock("@tiptap/starter-kit", () => ({ default: { configure: () => ({}) } }));
 vi.mock("@tiptap/extension-link", () => ({ default: { configure: () => ({}) } }));
 
 const acquireMigrationLock = () => {

@@ -173,6 +173,80 @@ describe("dayChangeReceipt, reordered (Story 11.3)", () => {
   });
 });
 
+describe("dayChangeReceipt, scheduled (Story 14.1 AC8, AC9)", () => {
+  const scheduled = (extra: MovedItemRow[] = []): DayChangeReceipt => ({
+    version: 3,
+    tripDayId: "day-1",
+    edited: {
+      kind: "scheduled",
+      itemId: "idea-1",
+      updatedAt: at("2026-10-18T10:00:00.000Z"),
+      previousUpdatedAt: at("2026-09-01T08:00:00.000Z"),
+    },
+    removedTravelSegments: [],
+    movedItems: extra,
+  });
+
+  it("round-trips through the wire form at version 3, and the schema accepts it", () => {
+    const wire = toDayChangeReceiptWire(scheduled());
+    expect(wire.version).toBe(3);
+    expect(wire.edited).toEqual({
+      kind: "scheduled",
+      itemId: "idea-1",
+      updatedAt: "2026-10-18T10:00:00.000Z",
+      previousUpdatedAt: "2026-09-01T08:00:00.000Z",
+    });
+    expect(fromDayChangeReceiptWire(wire)).toEqual(scheduled());
+    expect(dayChangeReceiptSchema.safeParse(signDayChangeReceipt(wire, BINDING)).success).toBe(true);
+  });
+
+  it("refuses a scheduled edit with an unknown key or without its previous stamp", () => {
+    const wire = signDayChangeReceipt(toDayChangeReceiptWire(scheduled()), BINDING);
+    expect(dayChangeReceiptSchema.safeParse({ ...wire, edited: { ...wire.edited, title: "x" } }).success).toBe(false);
+    const { previousUpdatedAt: _previous, ...withoutPrevious } = wire.edited as { previousUpdatedAt: string };
+    void _previous;
+    expect(dayChangeReceiptSchema.safeParse({ ...wire, edited: withoutPrevious }).success).toBe(false);
+  });
+
+  it("refuses a receipt that still carries a consumed bucket-list row (400, undo unavailable)", () => {
+    const wire = signDayChangeReceipt(toDayChangeReceiptWire(receiptWith([])), BINDING);
+    const withOldField = {
+      ...wire,
+      consumedBucketListItem: {
+        id: "idea-1",
+        tripId: "trip-1",
+        title: "Idea",
+        description: null,
+        positionText: null,
+        locationLat: null,
+        locationLng: null,
+        locationLabel: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    };
+    expect(dayChangeReceiptSchema.safeParse(withOldField).success).toBe(false);
+  });
+
+  it("always has side effects, even when nothing on the day moved", () => {
+    expect(receiptHasSideEffects(scheduled())).toBe(true);
+  });
+
+  it("names the idea it scheduled, then what else changed, in both languages", () => {
+    expect(summarizeDayChangeReceipt(scheduled(), dictionary(de), { scheduledTitle: "Wasserfall" })).toBe(
+      "„Wasserfall“ eingeplant",
+    );
+    expect(summarizeDayChangeReceipt(scheduled(), dictionary(en), { scheduledTitle: "Waterfall" })).toBe(
+      "\"Waterfall\" scheduled",
+    );
+    expect(summarizeDayChangeReceipt(scheduled([moved("item-c")]), dictionary(de), { scheduledTitle: "Wasserfall" })).toBe(
+      "„Wasserfall“ eingeplant · 1 Aktivität verschoben",
+    );
+    // Without a title the dialog's untitled label stands in.
+    expect(summarizeDayChangeReceipt(scheduled(), dictionary(en))).toBe(`"${en["trips.plan.untitledActivity"]}" scheduled`);
+  });
+});
+
 describe("dayChangeReceipt, leg and check-out kinds (Story 11.4)", () => {
   const withEdited = (edited: DayChangeReceipt["edited"], movedItems: MovedItemRow[] = []): DayChangeReceipt => ({
     version: 3,
@@ -293,19 +367,14 @@ describe("dayChangeReceipt (Story 11.1)", () => {
         removedTravelSegments: [],
         movedItems: [],
       },
+      // Story 14.1: a parked activity scheduled onto the day.
       {
         ...receiptWith([]),
-        consumedBucketListItem: {
-          id: "idea-1",
-          tripId: "trip-1",
-          title: "Idea",
-          description: null,
-          positionText: null,
-          locationLat: null,
-          locationLng: null,
-          locationLabel: null,
-          createdAt: at("2026-01-01T00:00:00.009Z"),
-          updatedAt: at("2026-01-01T00:00:00.010Z"),
+        edited: {
+          kind: "scheduled",
+          itemId: "item-9",
+          updatedAt: at("2026-01-01T00:00:00.009Z"),
+          previousUpdatedAt: at("2026-01-01T00:00:00.010Z"),
         },
       },
       // Story 11.2: moved items (one an imported row with a null end) and the check-in warning.

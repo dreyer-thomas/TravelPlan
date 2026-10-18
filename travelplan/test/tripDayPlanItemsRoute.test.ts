@@ -4,6 +4,7 @@ import { DELETE, GET, PATCH, POST } from "@/app/api/trips/[id]/day-plan-items/ro
 // Story 6.23. Its own route rather than a third operation on `day-activity-transfer`, whose two
 // operations are whole-day and whose "move" replaces the target day. See the route's own comment.
 import { POST as MOVE_POST } from "@/app/api/trips/[id]/day-plan-items/move/route";
+import { POST as SCHEDULE_POST } from "@/app/api/trips/[id]/day-plan-items/schedule/route";
 import { prisma } from "@/lib/db/prisma";
 import { createSessionJwt } from "@/lib/auth/jwt";
 import { routeContext } from "./helpers/routeContext";
@@ -45,7 +46,6 @@ describe("/api/trips/[id]/day-plan-items", () => {
   beforeEach(async () => {
     await prisma.travelSegment.deleteMany();
     await prisma.dayPlanItemImage.deleteMany();
-    await prisma.tripBucketListItem.deleteMany();
     await prisma.costPayment.deleteMany();
     await prisma.dayPlanItem.deleteMany();
     await prisma.tripMember.deleteMany();
@@ -80,7 +80,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
 
     await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         title: "Late title",
         fromTime: "10:30",
         toTime: "11:30",
@@ -96,7 +96,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
 
     await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         title: "Early title",
         fromTime: "09:00",
         toTime: "10:00",
@@ -219,7 +219,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
     });
     await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         title: "Viewer visible item",
         fromTime: "09:00",
         toTime: "10:00",
@@ -274,7 +274,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
     });
     await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         title: "Contributor visible item",
         fromTime: "09:30",
         toTime: "10:30",
@@ -513,94 +513,19 @@ describe("/api/trips/[id]/day-plan-items", () => {
     expect(deletePayload.data?.deleted).toBe(true);
   });
 
-  it("converts a bucket list item into a day plan item and removes the bucket list item", async () => {
-    const user = await prisma.user.create({
-      data: { email: "plan-route-convert@example.com", passwordHash: "hashed", role: "OWNER" },
-    });
-    const token = await createSessionJwt({ sub: user.id, role: user.role });
-
-    const trip = await prisma.trip.create({
-      data: {
-        userId: user.id,
-        name: "Convert Trip",
-        startDate: new Date("2026-12-03T00:00:00.000Z"),
-        endDate: new Date("2026-12-03T00:00:00.000Z"),
-      },
-    });
-
-    const day = await prisma.tripDay.create({
-      data: {
-        tripId: trip.id,
-        date: new Date("2026-12-03T00:00:00.000Z"),
-        dayIndex: 1,
-      },
-    });
-
-    const bucketItem = await prisma.tripBucketListItem.create({
-      data: {
-        tripId: trip.id,
-        title: "Bucket stop",
-        description: "Bucket notes",
-        positionText: "Central Station",
-        locationLat: 48.1372,
-        locationLng: 11.5756,
-        locationLabel: "Munich",
-      },
-    });
-
-    const request = buildRequest(`http://localhost/api/trips/${trip.id}/day-plan-items`, {
-      session: token,
-      csrf: "csrf-token",
-      method: "POST",
-      body: JSON.stringify({
-        tripDayId: day.id,
-        bucketListItemId: bucketItem.id,
-        title: "Bucket stop",
-        fromTime: "09:15",
-        toTime: "10:15",
-        contentJson: sampleDoc("Bucket notes"),
-        costCents: null,
-        linkUrl: null,
-        location: { lat: 48.1372, lng: 11.5756, label: "Munich" },
-      }),
-    });
-
-    const response = await POST(request, routeContext(trip.id));
-    const payload = (await response.json()) as ApiEnvelope<{
-      dayPlanItem: { id: string; tripDayId: string; title: string | null };
-    }>;
-
-    expect(response.status).toBe(200);
-    expect(payload.error).toBeNull();
-    expect(payload.data?.dayPlanItem.tripDayId).toBe(day.id);
-    expect(payload.data?.dayPlanItem.title).toBe("Bucket stop");
-    expect(await prisma.tripBucketListItem.count()).toBe(0);
-    expect(await prisma.dayPlanItem.count()).toBe(1);
-  });
-
   /**
-   * Story 5.13, AC2/AC5. The route gate here was already contributor-permissive and so was the day
-   * lookup, but `findBucketListItemForTripInTransaction` was owner-only - so a contributor's "add this
-   * idea to that day" got all the way inside the transaction and died there as `bucket_missing` -> 404,
-   * which reads as a vanished idea rather than a refusal. This case is the one that pins the third
-   * layer; the route-level contributor cases above cannot see it.
-   *
-   * The contributor's account row is `role: "VIEWER"` on purpose: the route must decide on
-   * `TripMember.role` and never on `User.role`.
+   * Story 14.1 (AC5, AC8). "+" on a bucket-list row is `day-plan-items/schedule`: the parked activity
+   * itself moves onto the day. Replaces Story 5.13's conversion cases; their point - a contributor gets
+   * through every layer, on `TripMember.role` and never `User.role` - carries over.
    */
-  it("lets a contributor convert a bucket list item into an activity", async () => {
+  const seedScheduleTrip = async (label: string) => {
     const owner = await prisma.user.create({
-      data: { email: "plan-route-convert-owner@example.com", passwordHash: "hashed", role: "OWNER" },
+      data: { email: `plan-route-schedule-${label}-owner@example.com`, passwordHash: "hashed", role: "OWNER" },
     });
-    const contributor = await prisma.user.create({
-      data: { email: "plan-route-convert-contributor@example.com", passwordHash: "hashed", role: "VIEWER" },
-    });
-    const token = await createSessionJwt({ sub: contributor.id, role: contributor.role });
-
     const trip = await prisma.trip.create({
       data: {
         userId: owner.id,
-        name: "Shared Convert Trip",
+        name: "Schedule Trip",
         startDate: new Date("2026-12-03T00:00:00.000Z"),
         endDate: new Date("2026-12-03T00:00:00.000Z"),
       },
@@ -608,43 +533,117 @@ describe("/api/trips/[id]/day-plan-items", () => {
     const day = await prisma.tripDay.create({
       data: { tripId: trip.id, date: new Date("2026-12-03T00:00:00.000Z"), dayIndex: 1 },
     });
-    await prisma.tripMember.create({ data: { tripId: trip.id, userId: contributor.id, role: "CONTRIBUTOR" } });
-
-    const bucketItem = await prisma.tripBucketListItem.create({
-      data: { tripId: trip.id, title: "Shared stop", description: "Shared notes" },
+    const idea = await prisma.dayPlanItem.create({
+      data: {
+        tripId: trip.id,
+        tripDayId: null,
+        scheduleMode: "FLEXIBLE",
+        durationMinutes: 60,
+        title: "Bucket stop",
+        contentJson: sampleDoc("Bucket notes"),
+        locationLat: 48.1372,
+        locationLng: 11.5756,
+        locationLabel: "Munich",
+      },
     });
+    return { owner, trip, day, idea };
+  };
 
-    const response = await POST(
-      buildRequest(`http://localhost/api/trips/${trip.id}/day-plan-items`, {
-        session: token,
+  const schedule = (tripId: string, session: string, body: unknown) =>
+    SCHEDULE_POST(
+      buildRequest(`http://localhost/api/trips/${tripId}/day-plan-items/schedule`, {
+        session,
         csrf: "csrf-token",
         method: "POST",
-        body: JSON.stringify({
-          tripDayId: day.id,
-          bucketListItemId: bucketItem.id,
-          title: "Shared stop",
-          fromTime: "09:15",
-          toTime: "10:15",
-          contentJson: sampleDoc("Shared notes"),
-          costCents: null,
-          linkUrl: null,
-          location: null,
-        }),
+        body: JSON.stringify(body),
       }),
-      routeContext(trip.id),
+      routeContext(tripId),
     );
+
+  it("schedules a parked activity onto the day: the same id, FLEXIBLE at the end, with a signed scheduled receipt", async () => {
+    const { owner, trip, day, idea } = await seedScheduleTrip("owner");
+    const token = await createSessionJwt({ sub: owner.id, role: owner.role });
+
+    const response = await schedule(trip.id, token, { itemId: idea.id, tripDayId: day.id });
     const payload = (await response.json()) as ApiEnvelope<{
-      dayPlanItem: { id: string; tripDayId: string; title: string | null };
+      item: { id: string; tripDayId: string; title: string | null; scheduleMode: string; location: unknown };
+      receipt: { version: number; signature: string; edited: { kind: string; itemId: string } };
     }>;
 
     expect(response.status).toBe(200);
-    // Specifically not `bucket_missing`: that is the code the owner-only lookup produced, and it is
-    // what a half-applied version of this story would answer here.
     expect(payload.error).toBeNull();
-    expect(payload.data?.dayPlanItem.tripDayId).toBe(day.id);
-    // The idea is consumed, so the conversion committed rather than half-ran.
-    expect(await prisma.tripBucketListItem.count()).toBe(0);
+    expect(payload.data?.item).toMatchObject({
+      id: idea.id,
+      tripDayId: day.id,
+      title: "Bucket stop",
+      scheduleMode: "FLEXIBLE",
+      location: { lat: 48.1372, lng: 11.5756, label: "Munich" },
+    });
+    expect(payload.data?.receipt).toMatchObject({ version: 3, edited: { kind: "scheduled", itemId: idea.id } });
+    expect(payload.data?.receipt.signature).toMatch(/^[0-9a-f]{64}$/);
     expect(await prisma.dayPlanItem.count()).toBe(1);
+    expect(await prisma.dayPlanItem.count({ where: { tripDayId: null } })).toBe(0);
+  });
+
+  it("lets a contributor schedule an idea (TripMember.role decides, not User.role)", async () => {
+    const { trip, day, idea } = await seedScheduleTrip("contributor");
+    const contributor = await prisma.user.create({
+      data: { email: "plan-route-schedule-contributor@example.com", passwordHash: "hashed", role: "VIEWER" },
+    });
+    await prisma.tripMember.create({ data: { tripId: trip.id, userId: contributor.id, role: "CONTRIBUTOR" } });
+    const token = await createSessionJwt({ sub: contributor.id, role: contributor.role });
+
+    const response = await schedule(trip.id, token, { itemId: idea.id, tripDayId: day.id });
+
+    expect(response.status).toBe(200);
+    expect((await prisma.dayPlanItem.findUniqueOrThrow({ where: { id: idea.id } })).tripDayId).toBe(day.id);
+  });
+
+  it("refuses a viewer 403 and a non-participant 404, and the idea stays parked (Story 14.1 AC5)", async () => {
+    const { trip, day, idea } = await seedScheduleTrip("refusals");
+    const viewer = await prisma.user.create({
+      data: { email: "plan-route-schedule-viewer@example.com", passwordHash: "hashed", role: "VIEWER" },
+    });
+    const stranger = await prisma.user.create({
+      data: { email: "plan-route-schedule-stranger@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    await prisma.tripMember.create({ data: { tripId: trip.id, userId: viewer.id, role: "VIEWER" } });
+
+    const asViewer = await schedule(trip.id, await createSessionJwt({ sub: viewer.id, role: viewer.role }), {
+      itemId: idea.id,
+      tripDayId: day.id,
+    });
+    expect(asViewer.status).toBe(403);
+    expect(((await asViewer.json()) as ApiEnvelope<null>).error?.code).toBe("forbidden");
+
+    const asStranger = await schedule(trip.id, await createSessionJwt({ sub: stranger.id, role: stranger.role }), {
+      itemId: idea.id,
+      tripDayId: day.id,
+    });
+    expect(asStranger.status).toBe(404);
+    expect(((await asStranger.json()) as ApiEnvelope<null>).error?.code).toBe("not_found");
+
+    expect((await prisma.dayPlanItem.findUniqueOrThrow({ where: { id: idea.id } })).tripDayId).toBeNull();
+  });
+
+  it("answers 404 for an item that is not parked or a day of another trip, and 400 for a malformed request", async () => {
+    const { owner, trip, day, idea } = await seedScheduleTrip("invalid");
+    const token = await createSessionJwt({ sub: owner.id, role: owner.role });
+    const otherTrip = await prisma.trip.create({
+      data: { userId: owner.id, name: "Other", startDate: new Date("2026-12-03T00:00:00.000Z"), endDate: new Date("2026-12-03T00:00:00.000Z") },
+    });
+    const otherDay = await prisma.tripDay.create({
+      data: { tripId: otherTrip.id, date: new Date("2026-12-03T00:00:00.000Z"), dayIndex: 1 },
+    });
+
+    expect((await schedule(trip.id, token, { itemId: idea.id, tripDayId: otherDay.id })).status).toBe(404);
+    expect((await schedule(trip.id, token, { itemId: "unknown", tripDayId: day.id })).status).toBe(404);
+    expect((await schedule(trip.id, token, { itemId: idea.id })).status).toBe(400);
+    expect((await schedule(trip.id, token, { itemId: idea.id, tripDayId: day.id, fromTime: "09:00" })).status).toBe(400);
+
+    expect(await schedule(trip.id, token, { itemId: idea.id, tripDayId: day.id }).then((response) => response.status)).toBe(200);
+    // Scheduled once, it is a day activity: a second "+" finds no parked idea.
+    expect((await schedule(trip.id, token, { itemId: idea.id, tripDayId: day.id })).status).toBe(404);
   });
 
   it("creates and returns rich formatted content without data loss", async () => {
@@ -968,7 +967,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
 
     const item = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         title: "Original title",
         fromTime: "08:00",
         toTime: "09:00",
@@ -1045,7 +1044,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
 
     const item = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         title: "Delete title",
         fromTime: "09:00",
         toTime: "10:00",
@@ -1095,7 +1094,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
     });
     const item = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         title: "Delete title",
         fromTime: "09:00",
         toTime: "10:00",
@@ -1211,60 +1210,6 @@ describe("/api/trips/[id]/day-plan-items", () => {
     expect(payload.error?.code).toBe("validation_error");
   });
 
-  it("rejects invalid times when converting a bucket list item", async () => {
-    const user = await prisma.user.create({
-      data: { email: "plan-route-convert-invalid@example.com", passwordHash: "hashed", role: "OWNER" },
-    });
-    const token = await createSessionJwt({ sub: user.id, role: user.role });
-
-    const trip = await prisma.trip.create({
-      data: {
-        userId: user.id,
-        name: "Convert Invalid Trip",
-        startDate: new Date("2026-12-06T00:00:00.000Z"),
-        endDate: new Date("2026-12-06T00:00:00.000Z"),
-      },
-    });
-
-    const day = await prisma.tripDay.create({
-      data: {
-        tripId: trip.id,
-        date: new Date("2026-12-06T00:00:00.000Z"),
-        dayIndex: 1,
-      },
-    });
-
-    const bucketItem = await prisma.tripBucketListItem.create({
-      data: {
-        tripId: trip.id,
-        title: "Bucket stop",
-      },
-    });
-
-    const request = buildRequest(`http://localhost/api/trips/${trip.id}/day-plan-items`, {
-      session: token,
-      csrf: "csrf-token",
-      method: "POST",
-      body: JSON.stringify({
-        tripDayId: day.id,
-        bucketListItemId: bucketItem.id,
-        title: "Bucket stop",
-        fromTime: "10:00",
-        toTime: "09:00",
-        contentJson: sampleDoc("Bucket stop"),
-        linkUrl: null,
-      }),
-    });
-
-    const response = await POST(request, routeContext(trip.id));
-    const payload = (await response.json()) as ApiEnvelope<null>;
-
-    expect(response.status).toBe(400);
-    expect(payload.error?.code).toBe("validation_error");
-    expect(await prisma.tripBucketListItem.count()).toBe(1);
-    expect(await prisma.dayPlanItem.count()).toBe(0);
-  });
-
   it("rejects missing times on update", async () => {
     const user = await prisma.user.create({
       data: { email: "plan-route-time-missing-update@example.com", passwordHash: "hashed", role: "OWNER" },
@@ -1290,7 +1235,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
 
     const item = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         title: "Plan",
         fromTime: "09:00",
         toTime: "10:00",
@@ -1344,7 +1289,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
 
     const item = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         title: "Plan",
         fromTime: "09:00",
         toTime: "10:00",
@@ -1423,7 +1368,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
 
       const moved = await prisma.dayPlanItem.create({
         data: {
-          tripDayId: sourceDay.id,
+          tripId: sourceDay.tripId, tripDayId: sourceDay.id,
           title: "Moved",
           fromTime: "09:00",
           toTime: "10:00",
@@ -1432,7 +1377,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
       });
       const targetExisting = await prisma.dayPlanItem.create({
         data: {
-          tripDayId: targetDay.id,
+          tripId: targetDay.tripId, tripDayId: targetDay.id,
           title: "Target Existing",
           fromTime: "14:00",
           toTime: "15:00",
@@ -1491,7 +1436,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
       const token = await createSessionJwt({ sub: owner.id, role: owner.role });
       const item = await prisma.dayPlanItem.create({
         data: {
-          tripDayId: sourceDay.id,
+          tripId: sourceDay.tripId, tripDayId: sourceDay.id,
           title: "Item",
           fromTime: "09:00",
           toTime: "10:00",
@@ -1519,7 +1464,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
       const { trip, sourceDay, targetDay } = await buildTripWithTwoDays("move-route-session@example.com");
       const item = await prisma.dayPlanItem.create({
         data: {
-          tripDayId: sourceDay.id,
+          tripId: sourceDay.tripId, tripDayId: sourceDay.id,
           title: "Item",
           fromTime: "09:00",
           toTime: "10:00",
@@ -1550,7 +1495,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
       const token = await createSessionJwt({ sub: viewer.id, role: viewer.role });
       const item = await prisma.dayPlanItem.create({
         data: {
-          tripDayId: sourceDay.id,
+          tripId: sourceDay.tripId, tripDayId: sourceDay.id,
           title: "Item",
           fromTime: "09:00",
           toTime: "10:00",
@@ -1580,7 +1525,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
       const token = await createSessionJwt({ sub: owner.id, role: owner.role });
       const item = await prisma.dayPlanItem.create({
         data: {
-          tripDayId: sourceDay.id,
+          tripId: sourceDay.tripId, tripDayId: sourceDay.id,
           title: "Item",
           fromTime: "09:00",
           toTime: "10:00",
@@ -1687,7 +1632,7 @@ describe("/api/trips/[id]/day-plan-items", () => {
     const itemId = created.data!.dayPlanItem.id;
 
     const later = await prisma.dayPlanItem.create({
-      data: { tripDayId: day.id, title: "Park", fromTime: "15:00", toTime: "16:00", contentJson: sampleDoc("Park") },
+      data: { tripId: day.tripId, tripDayId: day.id, title: "Park", fromTime: "15:00", toTime: "16:00", contentJson: sampleDoc("Park") },
     });
     const leg = await prisma.travelSegment.create({
       data: {

@@ -2,12 +2,13 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { createDayPlanItemExpectingSuccess } from "./helpers/createDayPlanItem";
 import { prisma } from "@/lib/db/prisma";
 import {
-  convertBucketListItemToDayPlanItemForTripDay,
+  scheduleParkedDayPlanItemForTripDay,
   deleteDayPlanItemForTripDay,
   updateDayPlanItemForTripDay,
 } from "@/lib/repositories/dayPlanItemRepo";
 import { receiptHasSideEffects } from "@/lib/trips/dayChangeReceipt";
 import { settleSeededDay } from "./helpers/settleSeededDay";
+import { tripIdOfDay } from "./helpers/tripIdOfDay";
 
 /**
  * Story 11.1 AC1/AC2. A leg that the change itself un-draws leaves in the same transaction, and the
@@ -43,15 +44,15 @@ const createTrip = async (userId: string) => {
   return { trip, firstDay, day };
 };
 
-const createRawItem = (tripDayId: string, title: string, fromTime: string | null, toTime: string | null) =>
+const createRawItem = async (tripDayId: string, title: string, fromTime: string | null, toTime: string | null) =>
   prisma.dayPlanItem.create({
-    data: { tripDayId, title, fromTime, toTime, contentJson: sampleDoc(title) },
+    data: { tripId: await tripIdOfDay(tripDayId), tripDayId, title, fromTime, toTime, contentJson: sampleDoc(title) },
   });
 
 /** Story 13.1: each seeded day is numbered the way the migration numbers real data. */
 const createItem = async (...args: Parameters<typeof createRawItem>) => {
   const row = await createRawItem(...args);
-  await settleSeededDay(row.tripDayId);
+  await settleSeededDay(row.tripDayId!);
   return prisma.dayPlanItem.findUniqueOrThrow({ where: { id: row.id } });
 };
 
@@ -91,7 +92,6 @@ describe("day plan writes sweep the legs they un-draw (Story 11.1)", () => {
     await prisma.travelSegment.deleteMany();
     await prisma.dayPlanItemDocument.deleteMany();
     await prisma.dayPlanItemImage.deleteMany();
-    await prisma.tripBucketListItem.deleteMany();
     await prisma.costPayment.deleteMany();
     await prisma.dayPlanItem.deleteMany();
     await prisma.tripMember.deleteMany();
@@ -304,30 +304,25 @@ describe("day plan writes sweep the legs they un-draw (Story 11.1)", () => {
     expect(receiptHasSideEffects(result.receipt)).toBe(false);
   });
 
-  it("sweeps on a bucket-list conversion and carries the consumed bucket-list row", async () => {
-    const user = await createUser("sweep-convert@example.com");
+  it("schedules a bucket-list idea at the end: the day's legs stay, and the receipt still has a side effect (Story 14.1)", async () => {
+    const user = await createUser("sweep-schedule@example.com");
     const { trip, day } = await createTrip(user.id);
     const a = await createItem(day.id, "A", "09:00", "10:00");
     const b = await createItem(day.id, "B", "15:00", "16:00");
     const leg = await createLeg(day.id, item(a.id), item(b.id));
-    const idea = await prisma.tripBucketListItem.create({
-      data: { tripId: trip.id, title: "Idea", description: "Worth it", positionText: "Old town" },
+    const idea = await prisma.dayPlanItem.create({
+      data: { tripId: trip.id, tripDayId: null, scheduleMode: "FLEXIBLE", title: "Idea", contentJson: sampleDoc("Idea") },
     });
 
-    const result = await convertBucketListItemToDayPlanItemForTripDay({
-      ...baseMutation(user.id, trip.id, day.id),
-      bucketListItemId: idea.id,
-      title: "Idea",
-      fromTime: "12:00",
-      toTime: "13:00",
-      contentJson: sampleDoc("Idea"),
-    });
+    const result = await scheduleParkedDayPlanItemForTripDay({ userId: user.id, tripId: trip.id, tripDayId: day.id, itemId: idea.id });
 
-    expect(await prisma.travelSegment.findUnique({ where: { id: leg.id } })).toBeNull();
-    expect(result.status).toBe("created");
-    if (result.status !== "created") return;
-    expect(result.receipt.removedTravelSegments).toEqual([leg]);
-    expect(result.receipt.consumedBucketListItem).toEqual(idea);
-    expect(result.receipt.edited).toMatchObject({ kind: "created", itemId: result.item.id });
+    expect(await prisma.travelSegment.findUnique({ where: { id: leg.id } })).toEqual(leg);
+    expect(result.status).toBe("scheduled");
+    if (result.status !== "scheduled") return;
+    expect(result.receipt.removedTravelSegments).toEqual([]);
+    expect(result.receipt.movedItems).toEqual([]);
+    expect(result.receipt.edited).toMatchObject({ kind: "scheduled", itemId: idea.id });
+    // The notice is the only way to take the idea back, so it shows even though nothing moved (AC8).
+    expect(receiptHasSideEffects(result.receipt)).toBe(true);
   });
 });

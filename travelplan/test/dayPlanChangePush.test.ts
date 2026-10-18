@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
 import { PATCH, POST } from "@/app/api/trips/[id]/day-plan-items/route";
+import { POST as SCHEDULE } from "@/app/api/trips/[id]/day-plan-items/schedule/route";
 import { prisma } from "@/lib/db/prisma";
 import { createSessionJwt } from "@/lib/auth/jwt";
 import {
@@ -11,6 +12,7 @@ import {
 } from "@/lib/repositories/dayPlanItemRepo";
 import { routeContext } from "./helpers/routeContext";
 import { settleSeededDay } from "./helpers/settleSeededDay";
+import { tripIdOfDay } from "./helpers/tripIdOfDay";
 
 /**
  * Story 11.2. The push rule wired into the three write paths: what moves, what the receipt says, what a
@@ -45,18 +47,18 @@ const createTrip = async (userId: string) => {
 
 let created = 0;
 /** Distinct, increasing `createdAt`s, so equal starts always sort in creation order. */
-const createRawItem = (tripDayId: string, title: string | null, fromTime: string | null, toTime: string | null) => {
+const createRawItem = async (tripDayId: string, title: string | null, fromTime: string | null, toTime: string | null) => {
   created += 1;
   const stamp = new Date(PAST.getTime() + created * 1000);
   return prisma.dayPlanItem.create({
-    data: { tripDayId, title, fromTime, toTime, contentJson: sampleDoc(title ?? ""), createdAt: stamp, updatedAt: PAST },
+    data: { tripId: await tripIdOfDay(tripDayId), tripDayId, title, fromTime, toTime, contentJson: sampleDoc(title ?? ""), createdAt: stamp, updatedAt: PAST },
   });
 };
 
 /** Story 13.1: each seeded day is numbered the way the migration numbers real data. */
 const createItem = async (...args: Parameters<typeof createRawItem>) => {
   const row = await createRawItem(...args);
-  await settleSeededDay(row.tripDayId);
+  await settleSeededDay(row.tripDayId!);
   return prisma.dayPlanItem.findUniqueOrThrow({ where: { id: row.id } });
 };
 
@@ -111,7 +113,6 @@ const databaseState = async () => ({
   items: await prisma.dayPlanItem.findMany({ orderBy: { id: "asc" } }),
   payments: await prisma.costPayment.findMany({ orderBy: { id: "asc" } }),
   legs: await prisma.travelSegment.findMany({ orderBy: { id: "asc" } }),
-  bucket: await prisma.tripBucketListItem.findMany({ orderBy: { id: "asc" } }),
 });
 
 const times = async (tripDayId: string) =>
@@ -123,7 +124,6 @@ const resetDatabase = async () => {
   await prisma.travelSegment.deleteMany();
   await prisma.dayPlanItemDocument.deleteMany();
   await prisma.dayPlanItemImage.deleteMany();
-  await prisma.tripBucketListItem.deleteMany();
   await prisma.costPayment.deleteMany();
   await prisma.dayPlanItem.deleteMany();
   await prisma.tripMember.deleteMany();
@@ -383,7 +383,7 @@ const CSRF = "csrf-token-value";
 const itemsUrl = (tripId: string) => `http://localhost/api/trips/${tripId}/day-plan-items`;
 
 const send = async (
-  handler: typeof POST,
+  handler: (request: NextRequest, context: ReturnType<typeof routeContext>) => Promise<Response>,
   method: "POST" | "PATCH",
   tripId: string,
   session: string,
@@ -446,29 +446,24 @@ describe("POST and PATCH /api/trips/[id]/day-plan-items push refusals (Story 11.
     expect(await databaseState()).toEqual(before);
   });
 
-  it("POST conversion past midnight: the idea is still on the bucket list", async () => {
-    const user = await createUser("route-convert-midnight@example.com");
+  it("schedule past midnight (Story 14.1): refused with the title, the idea still parked", async () => {
+    const user = await createUser("route-schedule-midnight@example.com");
     const { trip, day } = await createTrip(user.id);
-    // 13.1 §7: as above, a flexible Late behind a fixed Show.
+    // 13.1 §7: as above, a flexible Late behind a fixed Show; the idea's hour no longer fits.
     await createItem(day.id, "Show", "22:00", "23:00");
     const late = await createItem(day.id, "Late", "23:00", "23:45");
     await settleSeededDay(day.id, { flexible: [late.id] });
-    const idea = await prisma.tripBucketListItem.create({ data: { tripId: trip.id, title: "Idea" } });
+    const idea = await prisma.dayPlanItem.create({
+      data: { tripId: trip.id, tripDayId: null, scheduleMode: "FLEXIBLE", durationMinutes: 60, title: "Idea", contentJson: sampleDoc("Idea") },
+    });
     const session = await createSessionJwt({ sub: user.id, role: user.role });
     const before = await databaseState();
 
-    const response = await send(POST, "POST", trip.id, session, {
-      tripDayId: day.id,
-      bucketListItemId: idea.id,
-      title: "Idea",
-      fromTime: "22:30",
-      toTime: "23:30",
-      contentJson: sampleDoc("Idea"),
-    });
+    const response = await send(SCHEDULE, "POST", trip.id, session, { tripDayId: day.id, itemId: idea.id });
 
     expect(response.status).toBe(409);
-    expect(response.body.error?.code).toBe("day_plan_past_midnight");
-    expect(await prisma.tripBucketListItem.findUnique({ where: { id: idea.id } })).not.toBeNull();
+    expect(response.body.error).toMatchObject({ code: "day_plan_past_midnight", details: { itemId: idea.id, itemTitle: "Idea" } });
+    expect(await prisma.dayPlanItem.findUniqueOrThrow({ where: { id: idea.id } })).toMatchObject({ tripDayId: null });
     expect(await databaseState()).toEqual(before);
   });
 

@@ -77,7 +77,8 @@ type TripDay = {
 
 type DayPlanItem = {
   id: string;
-  tripDayId: string;
+  /** Story 14.1: `null` for a parked activity (a bucket-list idea). */
+  tripDayId: string | null;
   title: string | null;
   fromTime: string | null;
   toTime: string | null;
@@ -102,7 +103,7 @@ type PlanScheduleMode = "FLEXIBLE" | "FIXED";
 /** Story 13.1. A fixed activity's second field: its end, or its duration. Both store start and end. */
 type FixedEndKind = "end" | "duration";
 
-/** Story 13.1 AC8. A new activity, including a bucket-list take-over, opens flexible with one hour. */
+/** Story 13.1 AC8. A new activity, and since Story 14.1 a new bucket-list idea, opens flexible with one hour. */
 const NEW_ACTIVITY_DURATION_MINUTES = 60;
 /** Both duration boxes empty means this (Tommy, 2026-10-17: "kurz anhalten und umschauen"). */
 const EMPTY_DURATION_MINUTES = 15;
@@ -397,13 +398,6 @@ const planErrorFocusId = (prefix: string, key: PlanErrorKey, state: PlanErrorSta
   }
 };
 
-type PlanDialogPrefill = {
-  title: string;
-  contentJson: string;
-  location: { lat: number; lng: number; label?: string | null } | null;
-  bucketListItemId: string;
-};
-
 /**
  * Story 6.23. One candidate day for "Auf anderen Tag verschieben", already labelled.
  *
@@ -425,13 +419,21 @@ type PlanMoveTargetDay = {
  */
 export type PlanItemMoveOutcome = { moved: true } | { moved: false; message: string };
 
+/**
+ * Story 14.1. Where the activity lives: on `day`, or parked on the trip's bucket list (`day` is `null`).
+ * Parked, *Wann & Wo* keeps only the duration and the place (a parked activity is always FLEXIBLE and has
+ * no times), the save goes to `bucket-list-items` and never to `day-plan-items`, media calls name no day,
+ * and moving to another day is not offered.
+ */
+export type PlanDialogPlacement = "day" | "parked";
+
 type TripDayPlanDialogProps = {
   open: boolean;
   mode: PlanDialogMode;
   tripId: string;
   day: TripDay | null;
+  placement?: PlanDialogPlacement;
   item: DayPlanItem | null;
-  prefill?: PlanDialogPrefill | null;
   onDelete?: (itemId: string) => Promise<boolean>;
   /**
    * Story 6.23. The other days of this trip, current day already excluded by the caller.
@@ -689,8 +691,8 @@ export default function TripDayPlanDialog({
   mode,
   tripId,
   day,
+  placement = "day",
   item,
-  prefill = null,
   onDelete,
   moveTargetDays,
   onMove,
@@ -699,6 +701,10 @@ export default function TripDayPlanDialog({
   onDayWrite,
 }: TripDayPlanDialogProps) {
   const { t, language } = useI18n();
+  // Story 14.1. A parked activity has no day; everything that needs one asks `canWrite` and `mediaDayId`.
+  const parked = placement === "parked";
+  const canWrite = parked || Boolean(day);
+  const mediaDayId = parked ? null : (day?.id ?? null);
   /**
    * The UI language as it was when this dialog opened, for the seed effect below and for nothing else.
    *
@@ -907,7 +913,10 @@ export default function TripDayPlanDialog({
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
-      StarterKit,
+      // TipTap 3's StarterKit ships its own Link; ours below is the configured one (no open on click,
+      // autolink, link on paste), so the kit's is switched off. Two registered `link` extensions is what
+      // the browser warned about ("Duplicate extension names found: ['link']").
+      StarterKit.configure({ link: false }),
       PlanImage,
       Link.configure({
         openOnClick: false,
@@ -1087,7 +1096,7 @@ export default function TripDayPlanDialog({
     // so must not reach the dirty fingerprint — see `planFormFingerprint`.
     let locationQuerySeed: string;
     // Story 13.1 AC8/AC9. An edit opens in the row's mode with its duration (a fixed one's is its span);
-    // a new activity and a bucket take-over open flexible with one hour.
+    // a new activity opens flexible with one hour - a new bucket-list idea too (Story 14.1).
     const newSchedule = {
       scheduleMode: "FLEXIBLE" as const,
       ...(() => {
@@ -1097,7 +1106,7 @@ export default function TripDayPlanDialog({
       fixedEndKind: "end" as const,
     };
     if (mode === "edit" && item) {
-      const itemMode: PlanScheduleMode = item.scheduleMode ?? "FIXED";
+      const itemMode: PlanScheduleMode = parked ? "FLEXIBLE" : (item.scheduleMode ?? "FIXED");
       const itemDuration =
         (itemMode === "FIXED" ? spanMinutes(item.fromTime, item.toTime) : null) ??
         item.durationMinutes ??
@@ -1132,23 +1141,6 @@ export default function TripDayPlanDialog({
       // The two payment effects below would otherwise rewrite the rows this seed just restored.
       skipPaymentNormalization.current = true;
       skipCostSync.current = true;
-    } else if (mode === "add" && prefill) {
-      seed = {
-        title: prefill.title ?? "",
-        ...newSchedule,
-        fromTime: "",
-        toTime: "",
-        cost: "",
-        costCurrency: "EUR",
-        paymentMode: "single",
-        payments: buildDefaultPayments({ payments: [], costCents: null, fallbackDate: defaultDueDate, language }),
-        linkUrl: "",
-        location: prefill.location ?? null,
-        contentJson: prefill.contentJson,
-        pendingPhotoCount: 0,
-        pendingDocumentCount: 0,
-      };
-      locationQuerySeed = prefill.location?.label ?? "";
     } else {
       seed = {
         title: "",
@@ -1172,8 +1164,8 @@ export default function TripDayPlanDialog({
     // canonicalises the description through the editor, and fingerprinting the pre-canonical string
     // would leave the form dirty from the first keystroke onward on any doc TipTap normalises.
     //
-    // A prefilled dialog is *not* dirty on arrival: the bucket-list prefill and the activity being
-    // edited are both values the user is looking at rather than values they entered.
+    // A prefilled dialog is *not* dirty on arrival: the activity being edited holds values the user is
+    // looking at rather than values they entered.
     openFingerprint.current = planFormFingerprint(applyPlanFormValues(seed, locationQuerySeed));
     setLoadingInit(false);
     // The dependency list is now complete and `react-hooks/exhaustive-deps` is live on it again. It
@@ -1181,10 +1173,10 @@ export default function TripDayPlanDialog({
     // out — which also switched the rule off for the five values above that genuinely belong in it
     // (DW-211). `languageAtOpen` is a ref, so the rule correctly ignores it and the capture is stated
     // at the declaration instead of hidden in a suppression.
-  }, [applyPlanFormValues, defaultDueDate, item, mode, open, prefill]);
+  }, [applyPlanFormValues, defaultDueDate, item, mode, open, parked]);
 
   useEffect(() => {
-    if (!open || !day) return;
+    if (!open || !canWrite) return;
     let active = true;
 
     const fetchCsrf = async () => {
@@ -1214,7 +1206,7 @@ export default function TripDayPlanDialog({
     return () => {
       active = false;
     };
-  }, [day, open, t]);
+  }, [canWrite, open, t]);
 
   /**
    * What is already attached to this activity: the photo gallery, and — since Story 9.1 — the
@@ -1227,7 +1219,7 @@ export default function TripDayPlanDialog({
    * reverse. They are not awaited in sequence either — a slow gallery must not hold the chips back.
    */
   useEffect(() => {
-    if (!open || !day || !editingItemId) {
+    if (!open || !canWrite || !editingItemId) {
       setGalleryImages([]);
       setDocuments([]);
       return;
@@ -1237,7 +1229,7 @@ export default function TripDayPlanDialog({
     const loadGallery = async () => {
       try {
         const response = await fetch(
-          `/api/trips/${tripId}/day-plan-items/images?tripDayId=${day.id}&dayPlanItemId=${editingItemId}`,
+          `/api/trips/${tripId}/day-plan-items/images?${mediaDayId ? `tripDayId=${mediaDayId}&` : ""}dayPlanItemId=${editingItemId}`,
           {
             method: "GET",
             credentials: "include",
@@ -1259,7 +1251,7 @@ export default function TripDayPlanDialog({
     const loadDocuments = async () => {
       try {
         const response = await fetch(
-          `/api/trips/${tripId}/day-plan-items/documents?tripDayId=${day.id}&dayPlanItemId=${editingItemId}`,
+          `/api/trips/${tripId}/day-plan-items/documents?${mediaDayId ? `tripDayId=${mediaDayId}&` : ""}dayPlanItemId=${editingItemId}`,
           {
             method: "GET",
             credentials: "include",
@@ -1283,7 +1275,7 @@ export default function TripDayPlanDialog({
     return () => {
       active = false;
     };
-  }, [day, editingItemId, open, tripId]);
+  }, [canWrite, editingItemId, mediaDayId, open, tripId]);
 
   useEffect(() => {
     if (!open) return;
@@ -1338,14 +1330,16 @@ export default function TripDayPlanDialog({
   }, [costCentsInput, defaultDueDate, open, paymentMode]);
 
   const title = useMemo(() => {
+    if (parked) return t(mode === "edit" ? "trips.plan.editIdeaDialogTitle" : "trips.plan.addIdeaDialogTitle");
     if (mode === "edit") return t("trips.plan.editDialogTitle");
     return t("trips.plan.addDialogTitle");
-  }, [mode, t]);
+  }, [mode, parked, t]);
 
   const subtitle = useMemo(() => {
+    if (parked) return t("trips.bucketList.title");
     if (!day) return null;
     return formatMessage(t("trips.plan.title"), { index: day.dayIndex });
-  }, [day, t]);
+  }, [day, parked, t]);
 
   // Story 6.24 AC6. One key for both modes: after this story the word is "OK" either way, and two
   // keys holding one word is the shape Story 6.17 named a trap on `common.save`.
@@ -1359,7 +1353,7 @@ export default function TripDayPlanDialog({
    * is what makes it absent for a viewer: `TripDayView` only passes the handler when
    * `canEditPlanning`. The length check covers the one-day trip, which has nowhere to move to.
    */
-  const canMove = Boolean(editingItemId && onMove && (moveTargetDays?.length ?? 0) > 0);
+  const canMove = Boolean(!parked && editingItemId && onMove && (moveTargetDays?.length ?? 0) > 0);
 
   const resolveApiError = useCallback(
     (code: string | undefined, fallback: string) => {
@@ -1504,7 +1498,7 @@ export default function TripDayPlanDialog({
   };
 
   const handleSave = async () => {
-    if (!day) return;
+    if (!canWrite) return;
     if (mode === "edit" && !editingItemId) {
       setServerError(t("trips.plan.editItemMissing"));
       return;
@@ -1792,11 +1786,14 @@ export default function TripDayPlanDialog({
       }
     }
 
+    // Story 14.1: a parked activity sends neither a day nor a mode nor times - it is FLEXIBLE by
+    // definition and the bucket-list schema refuses all three - only its duration.
+    const placementPayload = parked
+      ? { durationMinutes: "durationMinutes" in schedulePayload ? schedulePayload.durationMinutes : undefined }
+      : { tripDayId: mediaDayId!, ...schedulePayload };
     const payload = {
-      tripDayId: day.id,
+      ...placementPayload,
       title: titleInput.trim(),
-      // Story 13.1: FLEXIBLE sends its duration only; FIXED its start and its end or duration.
-      ...schedulePayload,
       contentJson,
       costCents: costCentsForSave,
       /*
@@ -1812,9 +1809,9 @@ export default function TripDayPlanDialog({
       linkUrl: trimmedLink.length > 0 ? trimmedLink : null,
       location: locationForSave,
     } as {
-      tripDayId: string;
+      tripDayId?: string;
       title: string;
-      scheduleMode: PlanScheduleMode;
+      scheduleMode?: PlanScheduleMode;
       fromTime?: string;
       toTime?: string;
       durationMinutes?: number;
@@ -1828,18 +1825,15 @@ export default function TripDayPlanDialog({
       linkUrl: string | null;
       location: { lat: number; lng: number; label?: string | null } | null;
       itemId?: string;
-      bucketListItemId?: string;
     };
 
     if (mode === "edit" && editingItemId) {
       payload.itemId = editingItemId;
     }
-    if (mode === "add" && prefill?.bucketListItemId) {
-      payload.bucketListItemId = prefill.bucketListItemId;
-    }
 
     try {
-      const response = await fetch(`/api/trips/${tripId}/day-plan-items`, {
+      // Story 14.1: a parked activity is the bucket list's; it never goes through `day-plan-items`.
+      const response = await fetch(`/api/trips/${tripId}/${parked ? "bucket-list-items" : "day-plan-items"}`, {
         method: mode === "edit" ? "PATCH" : "POST",
         credentials: "include",
         headers: {
@@ -1883,7 +1877,7 @@ export default function TripDayPlanDialog({
           };
           if (!firstPlanErrorKey(nextState)) {
             // AC2, and the one path that can still break it: the schema has top-level keys this
-            // dialog does not surface (`location`, `tripDayId`, `bucketListItemId`, `itemId`), and
+            // dialog does not surface (`location`, `tripDayId`, `itemId`), and
             // `details.fieldErrors` may be absent entirely. Without this the stores are cleared, no
             // tab is marked, no field is focused and no banner appears — the save fails in silence.
             setServerError(resolveApiError(body.error?.code, t("trips.plan.saveError")));
@@ -2227,7 +2221,7 @@ export default function TripDayPlanDialog({
   };
 
   const uploadGalleryImages = async () => {
-    if (!day || !editingItemId || galleryFiles.length === 0) return;
+    if (!canWrite || !editingItemId || galleryFiles.length === 0) return;
 
     // The picker accepts any image/* so Safari can select at all; reject unsupported formats
     // here with a specific reason rather than a generic server-side upload failure.
@@ -2251,7 +2245,7 @@ export default function TripDayPlanDialog({
       let failedAtIndex = -1;
       for (const [index, file] of galleryFiles.entries()) {
         const formData = new FormData();
-        formData.set("tripDayId", day.id);
+        if (mediaDayId) formData.set("tripDayId", mediaDayId);
         formData.set("dayPlanItemId", editingItemId);
         formData.set("file", file);
         const response = await fetch(`/api/trips/${tripId}/day-plan-items/images`, {
@@ -2287,7 +2281,7 @@ export default function TripDayPlanDialog({
   };
 
   const deleteGalleryImage = async (imageId: string) => {
-    if (!day || !editingItemId) return;
+    if (!canWrite || !editingItemId) return;
 
     let token: string;
     try {
@@ -2308,7 +2302,7 @@ export default function TripDayPlanDialog({
           "x-csrf-token": token,
         },
         body: JSON.stringify({
-          tripDayId: day.id,
+          ...(mediaDayId ? { tripDayId: mediaDayId } : {}),
           dayPlanItemId: editingItemId,
           imageId,
         }),
@@ -2344,7 +2338,7 @@ export default function TripDayPlanDialog({
    * its own message, which is the branch mapped here. A cap the client alone enforces is not a cap.
    */
   const uploadDocuments = async () => {
-    if (!day || !editingItemId || documentFiles.length === 0) return;
+    if (!canWrite || !editingItemId || documentFiles.length === 0) return;
 
     const unsupported = documentFiles.find((file) => !isSupportedDocumentUpload(file));
     if (unsupported) {
@@ -2366,7 +2360,7 @@ export default function TripDayPlanDialog({
       let failedAtIndex = -1;
       for (const [index, file] of documentFiles.entries()) {
         const formData = new FormData();
-        formData.set("tripDayId", day.id);
+        if (mediaDayId) formData.set("tripDayId", mediaDayId);
         formData.set("dayPlanItemId", editingItemId);
         formData.set("file", file);
         const response = await fetch(`/api/trips/${tripId}/day-plan-items/documents`, {
@@ -2409,7 +2403,7 @@ export default function TripDayPlanDialog({
 
   /** The document twin of `deleteGalleryImage`: an immediate write, with nothing staged behind it. */
   const deleteDocument = async (documentId: string) => {
-    if (!day || !editingItemId) return;
+    if (!canWrite || !editingItemId) return;
 
     let token: string;
     try {
@@ -2430,7 +2424,7 @@ export default function TripDayPlanDialog({
           "x-csrf-token": token,
         },
         body: JSON.stringify({
-          tripDayId: day.id,
+          ...(mediaDayId ? { tripDayId: mediaDayId } : {}),
           dayPlanItemId: editingItemId,
           documentId,
         }),
@@ -2548,7 +2542,7 @@ export default function TripDayPlanDialog({
               </Tooltip>
             ) : null}
           </Box>
-          <Button variant="contained" onClick={handleSave} disabled={isBusy || !day}>
+          <Button variant="contained" onClick={handleSave} disabled={isBusy || !canWrite}>
             {saving ? <CircularProgress size={22} /> : saveLabel}
           </Button>
         </>
@@ -2800,21 +2794,26 @@ export default function TripDayPlanDialog({
               flexDirection="column"
               gap="18px"
             >
+              {/* Story 14.1: a parked activity has no day, so no mode to choose and no times to expect -
+                  only how long it takes (and, below, where). */}
+              {parked ? durationFields : null}
               {/* Story 13.1 AC8. DESIGN.md `schedule-mode`: the input's height and radius, the selected
                   segment in accent-soft with ink at 700. The pattern is the suggestions dialog's. */}
-              <ToggleButtonGroup
-                exclusive
-                fullWidth
-                value={scheduleMode}
-                onChange={(_event, next: PlanScheduleMode | null) => handleScheduleModeChange(next)}
-                aria-label={t("trips.plan.scheduleModeLabel")}
-                data-testid="plan-schedule-mode"
-                sx={scheduleToggleSx(44)}
-              >
-                <ToggleButton value="FLEXIBLE">{t("trips.plan.scheduleModeFlexible")}</ToggleButton>
-                <ToggleButton value="FIXED">{t("trips.plan.scheduleModeFixed")}</ToggleButton>
-              </ToggleButtonGroup>
-              {scheduleMode === "FLEXIBLE" ? (
+              {parked ? null : (
+                <ToggleButtonGroup
+                  exclusive
+                  fullWidth
+                  value={scheduleMode}
+                  onChange={(_event, next: PlanScheduleMode | null) => handleScheduleModeChange(next)}
+                  aria-label={t("trips.plan.scheduleModeLabel")}
+                  data-testid="plan-schedule-mode"
+                  sx={scheduleToggleSx(44)}
+                >
+                  <ToggleButton value="FLEXIBLE">{t("trips.plan.scheduleModeFlexible")}</ToggleButton>
+                  <ToggleButton value="FIXED">{t("trips.plan.scheduleModeFixed")}</ToggleButton>
+                </ToggleButtonGroup>
+              )}
+              {parked ? null : scheduleMode === "FLEXIBLE" ? (
                 <Box display="flex" flexDirection="column" gap="8px">
                   {durationFields}
                   {/* The client never computes times (Story 11.2): the line shows what the server last

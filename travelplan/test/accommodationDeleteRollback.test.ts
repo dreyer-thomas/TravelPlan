@@ -61,7 +61,7 @@ describe("stay deletion is atomic with its travel-segment sweep", () => {
       data: { tripDayId: day.id, name: "Doomed Stay", status: "PLANNED" },
     });
     const morning = await prisma.dayPlanItem.create({
-      data: { tripDayId: day.id, title: "Morning", contentJson: "{}" },
+      data: { tripId: day.tripId, tripDayId: day.id, title: "Morning", contentJson: "{}" },
     });
     await prisma.travelSegment.create({
       data: {

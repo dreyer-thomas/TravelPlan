@@ -22,7 +22,6 @@ describe("dayPlanItemSchemas", () => {
         lng: 11.5756,
         label: "Marienplatz",
       },
-      bucketListItemId: "bucket-id",
     });
 
     expect(result.success).toBe(true);
@@ -256,16 +255,20 @@ describe("dayPlanItemSchemas", () => {
     expect(result.success).toBe(false);
   });
 
-  it("rejects missing times even when bucketListItemId is provided", () => {
+  it("no longer carries a bucket-list id (Story 14.1: scheduling an idea is its own route)", () => {
     const result = dayPlanItemMutationSchema.safeParse({
       tripDayId: "day-id",
       title: "Plan",
+      fromTime: "09:00",
+      toTime: "10:00",
       contentJson: sampleDoc,
       linkUrl: null,
       bucketListItemId: "bucket-1",
     });
 
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data).not.toHaveProperty("bucketListItemId");
   });
 
   it("rejects invalid time formats", () => {

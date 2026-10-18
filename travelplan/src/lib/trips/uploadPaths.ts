@@ -123,6 +123,19 @@ export const getDayPlanItemDocumentUploadDir = (tripId: string, dayId: string, d
   path.join(getDayPlanItemImageUploadDir(tripId, dayId, dayPlanItemId), "documents");
 
 /**
+ * Story 14.1. A parked activity (on the bucket list, no day) keeps its media under the trip's `parked/`
+ * folder; the upload goes to the item's *current* place. An activity that was on a day keeps the
+ * `days/<d>/…` URLs it got there - nothing on disk moves when it is parked or scheduled - which is why a
+ * delete reads its directory from the stored URL (`resolveManagedItemMediaDir`) and never from the
+ * item's place.
+ */
+export const getParkedDayPlanItemImageUploadDir = (tripId: string, dayPlanItemId: string) =>
+  path.join(getTripUploadDir(tripId), "parked", "day-plan-items", dayPlanItemId);
+
+export const getParkedDayPlanItemDocumentUploadDir = (tripId: string, dayPlanItemId: string) =>
+  path.join(getParkedDayPlanItemImageUploadDir(tripId, dayPlanItemId), "documents");
+
+/**
  * Whether one URL path segment is safe to treat as a single path component.
  *
  * **One decoded segment is not the same thing as one path component.** Next URL-decodes catch-all
@@ -288,4 +301,49 @@ export const readStoredMediaDayId = (storedUrl: string, tripId: string): string 
   // at the same offset from the end of both.
   const dayId = resolved.split(path.sep).at(-(relativeSegments.length - 1));
   return dayId && isSafeMediaSegment(dayId) ? dayId : null;
+};
+
+/**
+ * Story 14.1. The directory an activity's stored media URL lives in, or `null` when the URL names no
+ * folder of *this* activity under *this* trip. One rule for every activity media delete: the image and
+ * document routes, the parked delete, and the undo of an apply.
+ *
+ * An activity's media stay where they were uploaded while the activity moves between days, onto the
+ * bucket list and back (`readStoredMediaDayId` explains why a move rewrites no URL), so the folder comes
+ * from the URL. It is accepted only when it is exactly one of the item's own folders:
+ *
+ * - `days/<any day>/day-plan-items/<itemId>` (`/documents` for a document), or
+ * - `parked/day-plan-items/<itemId>` (`/documents` for a document).
+ *
+ * Anything else - another item, another trip, a `..` that resolves elsewhere, an image filed under
+ * `documents` - is `null`, which the caller logs and skips. The structural questions are asked of the
+ * resolved path, case-folded as `mediaPathIsInside` folds, for the reasons `readStoredMediaDayId` gives;
+ * the returned directory is in the resolved path's own spelling, because that is what opens the file.
+ */
+export const resolveManagedItemMediaDir = ({
+  storedUrl,
+  tripId,
+  itemId,
+  kind,
+}: {
+  storedUrl: string;
+  tripId: string;
+  itemId: string;
+  kind: "image" | "document";
+}): string | null => {
+  if (!storedUrl || isExternalMediaUrl(storedUrl) || !isSafeMediaSegment(itemId)) return null;
+  const tripDir = path.resolve(getTripUploadDir(tripId));
+  const resolved = path.resolve(resolveStoredMediaPath(storedUrl));
+  if (!mediaPathIsInside(resolved, tripDir)) return null;
+
+  // The folder's segments relative to the trip, without the file name.
+  const folder = path.relative(mediaPathKey(tripDir), mediaPathKey(resolved)).split(path.sep).slice(0, -1);
+  const ownItem = itemId.toLowerCase();
+  const tail = kind === "document" ? ["day-plan-items", ownItem, "documents"] : ["day-plan-items", ownItem];
+  const matchesTail = (segments: string[]) =>
+    segments.length === tail.length && segments.every((segment, index) => segment === tail[index]);
+
+  const onDay = folder.length === tail.length + 2 && folder[0] === "days" && isSafeMediaSegment(folder[1]) && matchesTail(folder.slice(2));
+  const parked = folder.length === tail.length + 1 && folder[0] === "parked" && matchesTail(folder.slice(1));
+  return onDay || parked ? path.dirname(resolved) : null;
 };

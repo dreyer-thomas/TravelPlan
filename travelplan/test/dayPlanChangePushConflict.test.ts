@@ -65,10 +65,10 @@ describe("a push that loses a race rolls the whole change back (Story 11.2)", ()
       data: { tripId: trip.id, date: new Date("2026-10-01T00:00:00.000Z"), dayIndex: 1 },
     });
     await prisma.dayPlanItem.create({
-      data: { tripDayId: day.id, title: "A", fromTime: "09:00", toTime: "10:00", contentJson: sampleDoc("A"), createdAt: PAST, updatedAt: PAST },
+      data: { tripId: day.tripId, tripDayId: day.id, title: "A", fromTime: "09:00", toTime: "10:00", contentJson: sampleDoc("A"), createdAt: PAST, updatedAt: PAST },
     });
     await prisma.dayPlanItem.create({
-      data: { tripDayId: day.id, title: "B", fromTime: "10:30", toTime: "11:30", contentJson: sampleDoc("B"), createdAt: PAST, updatedAt: PAST },
+      data: { tripId: day.tripId, tripDayId: day.id, title: "B", fromTime: "10:30", toTime: "11:30", contentJson: sampleDoc("B"), createdAt: PAST, updatedAt: PAST },
     });
     const before = await prisma.dayPlanItem.findMany({ orderBy: { id: "asc" } });
     interlope.title = "B";

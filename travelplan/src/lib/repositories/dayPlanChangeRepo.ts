@@ -1,7 +1,7 @@
 import path from "node:path";
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db/prisma";
-import { deleteDayPlanItemInTransaction } from "@/lib/repositories/dayPlanItemRepo";
+import { deleteDayPlanItemInTransaction, renumberDayInTransaction } from "@/lib/repositories/dayPlanItemRepo";
 import {
   buildStoredSegmentPairKey,
   buildSegmentTimelineInTransaction,
@@ -61,6 +61,12 @@ import {
  * The snapshots carry `scheduleMode`, `durationMinutes` and `sortOrder`, so `updated` and `deleted` put
  * them back with the other columns. `legDeleted` re-creates the leg with its id and stamps: refused when
  * the id exists again, and a `P2002` (the pair has a leg again) maps to `stale`, as for removed legs.
+ *
+ * Story 14.1 adds `scheduled`: "+" moved a parked activity onto the day. Phase 1 refuses when the
+ * activity is no longer on the day with the stamp the schedule gave it, or a leg names it now; new
+ * pictures or documents do not refuse, because nothing is deleted - they go back to the bucket list with
+ * it. Phase 2 parks it again (no day, FLEXIBLE, no times, `sortOrder` 0, its previous `updatedAt`),
+ * renumbers the day, and restores the moved rows as for every kind.
  *
  * Any failure throws `UndoStaleError`, which rolls the transaction back and maps to `stale`. A `P2002`
  * while recreating a row maps there too: someone drew a new leg for the same pair, or reused the id.
@@ -150,7 +156,7 @@ const findInvalidity = (receipt: DayChangeReceipt, tripId: string): string | nul
   const editedId =
     edited.kind === "deleted"
       ? edited.previous.id
-      : edited.kind === "created" || edited.kind === "updated"
+      : edited.kind === "created" || edited.kind === "updated" || edited.kind === "scheduled"
         ? edited.itemId
         : null;
   for (const moved of receipt.movedItems) {
@@ -185,11 +191,8 @@ const findInvalidity = (receipt: DayChangeReceipt, tripId: string): string | nul
     if (new Set(edited.imageIds).size !== edited.imageIds.length) return "duplicate image";
   }
 
-  if (receipt.consumedBucketListItem) {
-    // Only a create can consume an idea; any other pairing is not something a write ever returned.
-    if (edited.kind !== "created") return "bucket-list row on a non-create";
-    if (receipt.consumedBucketListItem.tripId !== tripId) return "bucket-list row of another trip";
-  }
+  // Story 14.1: a schedule appends, which can un-draw the leg from the day's last activity to tonight's
+  // stay; like a create's, that leg is in `removedTravelSegments` and phase 2 recreates it.
 
   return null;
 };
@@ -351,6 +354,22 @@ const undoInTransaction = async (
     case "suggestionsApplied":
       removedImageFiles = await checkSuggestionsAppliedInTransaction(tx, tripDayId, edited);
       break;
+    case "scheduled": {
+      const item = await tx.dayPlanItem.findFirst({ where: { id: edited.itemId, tripId, tripDayId }, select: { updatedAt: true } });
+      if (!item || !sameInstant(item.updatedAt, edited.updatedAt)) throw new UndoStaleError("scheduled item changed");
+      // A parked activity cannot have legs (the CHECK's spirit, and a leg needs a day). Media may have
+      // been added since: they stay attached and go back to the list with it, so they do not refuse.
+      const legs = await tx.travelSegment.count({
+        where: {
+          OR: [
+            { fromItemType: "DAY_PLAN_ITEM", fromItemId: edited.itemId },
+            { toItemType: "DAY_PLAN_ITEM", toItemId: edited.itemId },
+          ],
+        },
+      });
+      if (legs > 0) throw new UndoStaleError("scheduled item gained a leg");
+      break;
+    }
     default: {
       const unhandled: never = edited;
       throw new Error(`Unhandled receipt kind: ${String(unhandled)}`);
@@ -365,13 +384,6 @@ const undoInTransaction = async (
     const existing = await tx.travelSegment.count({ where: { id: { in: removedLegIds } } });
     if (existing > 0) throw new UndoStaleError("removed leg exists again");
   }
-  if (receipt.consumedBucketListItem) {
-    const existing = await tx.tripBucketListItem.findUnique({
-      where: { id: receipt.consumedBucketListItem.id },
-      select: { id: true },
-    });
-    if (existing) throw new UndoStaleError("bucket-list row exists again");
-  }
 
   // Phase 2: the reverse. Items first, legs last. One branch per kind again.
   switch (edited.kind) {
@@ -381,9 +393,6 @@ const undoInTransaction = async (
       // if they did, it would be a leg the undo must not take (the post-condition's rule, stated early).
       if (deleted.status !== "deleted" || deleted.removedTravelSegments.length > 0) {
         throw new UndoStaleError("created item could not be removed cleanly");
-      }
-      if (receipt.consumedBucketListItem) {
-        await tx.tripBucketListItem.create({ data: receipt.consumedBucketListItem });
       }
       break;
     }
@@ -399,7 +408,8 @@ const undoInTransaction = async (
     }
     case "deleted": {
       const { images, documents, ...snapshot } = edited.previous;
-      await tx.dayPlanItem.create({ data: itemColumns(snapshot) });
+      // Story 14.1: the receipt row has no `tripId`; it is the trip the undo was asked on (the day is on it).
+      await tx.dayPlanItem.create({ data: { ...itemColumns(snapshot), tripId } });
       await restorePayments(tx, snapshot);
       if (images.length > 0) await tx.dayPlanItemImage.createMany({ data: images });
       if (documents.length > 0) await tx.dayPlanItemDocument.createMany({ data: documents });
@@ -436,6 +446,23 @@ const undoInTransaction = async (
         data: { checkOutTime: edited.previousCheckOutTime, updatedAt: edited.previousUpdatedAt },
       });
       if (restored.count !== 1) throw new UndoStaleError("stay changed");
+      break;
+    }
+    case "scheduled": {
+      // Back to the bucket list exactly as it was parked, conditional on the stamp just checked.
+      const parked = await tx.dayPlanItem.updateMany({
+        where: { id: edited.itemId, tripId, tripDayId, updatedAt: edited.updatedAt },
+        data: {
+          tripDayId: null,
+          scheduleMode: "FLEXIBLE",
+          fromTime: null,
+          toTime: null,
+          sortOrder: 0,
+          updatedAt: edited.previousUpdatedAt,
+        },
+      });
+      if (parked.count !== 1) throw new UndoStaleError("scheduled item changed");
+      await renumberDayInTransaction(tx, tripDayId);
       break;
     }
     case "suggestionsApplied": {

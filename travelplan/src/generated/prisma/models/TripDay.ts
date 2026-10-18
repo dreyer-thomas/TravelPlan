@@ -453,6 +453,11 @@ export type TripDayScalarRelationFilter = {
   isNot?: Prisma.TripDayWhereInput
 }
 
+export type TripDayNullableScalarRelationFilter = {
+  is?: Prisma.TripDayWhereInput | null
+  isNot?: Prisma.TripDayWhereInput | null
+}
+
 export type TripDayCreateNestedManyWithoutTripInput = {
   create?: Prisma.XOR<Prisma.TripDayCreateWithoutTripInput, Prisma.TripDayUncheckedCreateWithoutTripInput> | Prisma.TripDayCreateWithoutTripInput[] | Prisma.TripDayUncheckedCreateWithoutTripInput[]
   connectOrCreate?: Prisma.TripDayCreateOrConnectWithoutTripInput | Prisma.TripDayCreateOrConnectWithoutTripInput[]
@@ -537,10 +542,12 @@ export type TripDayCreateNestedOneWithoutDayPlanItemsInput = {
   connect?: Prisma.TripDayWhereUniqueInput
 }
 
-export type TripDayUpdateOneRequiredWithoutDayPlanItemsNestedInput = {
+export type TripDayUpdateOneWithoutDayPlanItemsNestedInput = {
   create?: Prisma.XOR<Prisma.TripDayCreateWithoutDayPlanItemsInput, Prisma.TripDayUncheckedCreateWithoutDayPlanItemsInput>
   connectOrCreate?: Prisma.TripDayCreateOrConnectWithoutDayPlanItemsInput
   upsert?: Prisma.TripDayUpsertWithoutDayPlanItemsInput
+  disconnect?: Prisma.TripDayWhereInput | boolean
+  delete?: Prisma.TripDayWhereInput | boolean
   connect?: Prisma.TripDayWhereUniqueInput
   update?: Prisma.XOR<Prisma.XOR<Prisma.TripDayUpdateToOneWithWhereWithoutDayPlanItemsInput, Prisma.TripDayUpdateWithoutDayPlanItemsInput>, Prisma.TripDayUncheckedUpdateWithoutDayPlanItemsInput>
 }

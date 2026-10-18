@@ -88,7 +88,7 @@ describe("GET /api/trips/[id]", () => {
     });
     await prisma.dayPlanItem.create({
       data: {
-        tripDayId: days[1].id,
+        tripId: days[1].tripId, tripDayId: days[1].id,
         contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Plan" }] }] }),
         costCents: 1400,
         linkUrl: "https://example.com/plan",
@@ -108,7 +108,7 @@ describe("GET /api/trips/[id]", () => {
     });
     await prisma.dayPlanItem.create({
       data: {
-        tripDayId: days[2].id,
+        tripId: days[2].tripId, tripDayId: days[2].id,
         contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Notes" }] }] }),
         costCents: null,
         linkUrl: null,
@@ -211,10 +211,10 @@ describe("GET /api/trips/[id]", () => {
       data: { tripDayId: day.id, name: "Shape Hotel", status: "PLANNED" },
     });
     const planItem = await prisma.dayPlanItem.create({
-      data: { tripDayId: day.id, title: "Shape Item", contentJson: "{}" },
+      data: { tripId: day.tripId, tripDayId: day.id, title: "Shape Item", contentJson: "{}" },
     });
     const otherItem = await prisma.dayPlanItem.create({
-      data: { tripDayId: day.id, title: "Second Item", contentJson: "{}" },
+      data: { tripId: day.tripId, tripDayId: day.id, title: "Second Item", contentJson: "{}" },
     });
     await prisma.travelSegment.create({
       data: {
@@ -372,14 +372,14 @@ describe("GET /api/trips/[id]", () => {
 
     // Entered first, happens last.
     await prisma.dayPlanItem.create({
-      data: { tripDayId: day.id, title: "Dinner", fromTime: "19:00", contentJson: "{}" },
+      data: { tripId: day.tripId, tripDayId: day.id, title: "Dinner", fromTime: "19:00", contentJson: "{}" },
     });
     await prisma.dayPlanItem.create({
-      data: { tripDayId: day.id, title: "Museum", fromTime: "09:00", contentJson: "{}" },
+      data: { tripId: day.tripId, tripDayId: day.id, title: "Museum", fromTime: "09:00", contentJson: "{}" },
     });
     // Untimed, so it sorts after everything timed however early it was created.
     await prisma.dayPlanItem.create({
-      data: { tripDayId: day.id, title: "Souvenirs", fromTime: null, contentJson: "{}" },
+      data: { tripId: day.tripId, tripDayId: day.id, title: "Souvenirs", fromTime: null, contentJson: "{}" },
     });
 
     const response = await GET(buildRequest(trip.id, { session: token }), routeContext(trip.id));

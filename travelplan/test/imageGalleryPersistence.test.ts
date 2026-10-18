@@ -78,7 +78,7 @@ describe("image gallery persistence", () => {
     const { day } = await createTripWithDay(user.id);
     const item = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         contentJson: JSON.stringify({
           type: "doc",
           content: [{ type: "paragraph", content: [{ type: "text", text: "Museum" }] }],

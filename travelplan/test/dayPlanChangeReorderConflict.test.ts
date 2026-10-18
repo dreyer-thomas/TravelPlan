@@ -67,10 +67,10 @@ describe("a reorder that loses a race rolls the whole change back (Story 11.3)",
     // Story 13.1 §10: only a FLEXIBLE row is offered up and down, so both rows are flexible here.
     const flexible = { scheduleMode: "FLEXIBLE" as const, durationMinutes: 60 };
     await prisma.dayPlanItem.create({
-      data: { tripDayId: day.id, title: "A", fromTime: "09:00", toTime: "10:00", ...flexible, sortOrder: 0, contentJson: sampleDoc("A"), createdAt: PAST, updatedAt: PAST },
+      data: { tripId: day.tripId, tripDayId: day.id, title: "A", fromTime: "09:00", toTime: "10:00", ...flexible, sortOrder: 0, contentJson: sampleDoc("A"), createdAt: PAST, updatedAt: PAST },
     });
     const b = await prisma.dayPlanItem.create({
-      data: { tripDayId: day.id, title: "B", fromTime: "10:00", toTime: "11:00", ...flexible, sortOrder: 1, contentJson: sampleDoc("B"), createdAt: PAST, updatedAt: PAST },
+      data: { tripId: day.tripId, tripDayId: day.id, title: "B", fromTime: "10:00", toTime: "11:00", ...flexible, sortOrder: 1, contentJson: sampleDoc("B"), createdAt: PAST, updatedAt: PAST },
     });
     const before = await prisma.dayPlanItem.findMany({ orderBy: { id: "asc" } });
     // A is the second row the reorder writes; B is written first and would have succeeded.

@@ -419,8 +419,9 @@ const theme = createTheme({
     //
     // Stated here rather than at the call sites because it is a floor, not a decision. Seven hand-written
     // `<IconButton`s carried no ring at all - `HeaderMenu`'s hamburger, both map-expand controls
-    // (`TripDayMapPanel`, `TripOverviewMapPanel`), both bucket-list panels' add/collapse controls
-    // (`TripBucketListPanel` x2, `TripDayBucketListPanel`) and `TripDayView`'s travel-segment edit glyph -
+    // (`TripDayMapPanel`, `TripOverviewMapPanel`), the bucket-list panels' controls (the overview's add
+    // and collapse in `TripBucketListPanel`, Day Detail's schedule "+" in `TripDayBucketListPanel`) and
+    // `TripDayView`'s travel-segment edit glyph -
     // and they are exactly the sites nobody thought to hand-copy it into. So this rule deletes Story
     // 6.24's two copies (DW-65 / DW-154) rather than adding a further one. (`AdminUsersList`'s
     // `ROW_ICON_BUTTON_SX` and `TripBucketListPanel`'s `rowActionButtonSx` are DW-50's row treatment and
@@ -570,7 +571,7 @@ const theme = createTheme({
     },
     // DESIGN.md:251 is explicit that an error field's inline message below it is `warn` #8A5A2B.
     // `FormField` already forced that locally; every component that reaches for a raw `TextField`
-    // instead (TripEditDialog, TripShareDialog, TripBucketListPanel, TripDayTravelSegmentDialog,
+    // instead (TripEditDialog, TripShareDialog, TripDayTravelSegmentDialog,
     // TripImportDialog, TripAccommodationDialog) inherited MUI's `palette.error.main` - #d32f2f
     // before this story, #C97A3E after it, which is 3.31:1 on card white and reads as an input
     // border rather than as text. Lifting the rule to the theme puts every error line in the app on

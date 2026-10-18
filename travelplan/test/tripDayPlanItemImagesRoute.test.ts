@@ -58,7 +58,7 @@ describe("/api/trips/[id]/day-plan-items/images", () => {
     });
     const dayPlanItem = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         contentJson: JSON.stringify({
           type: "doc",
           content: [{ type: "paragraph", content: [{ type: "text", text: "Gallery stop" }] }],
@@ -267,7 +267,7 @@ describe("/api/trips/[id]/day-plan-items/images", () => {
     });
     const dayPlanItem = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         contentJson: JSON.stringify({
           type: "doc",
           content: [{ type: "paragraph", content: [{ type: "text", text: "Shared stop" }] }],
@@ -404,7 +404,7 @@ describe("/api/trips/[id]/day-plan-items/images", () => {
     });
     const dayPlanItem = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         contentJson: JSON.stringify({
           type: "doc",
           content: [{ type: "paragraph", content: [{ type: "text", text: "Locked stop" }] }],
@@ -470,7 +470,8 @@ describe("/api/trips/[id]/day-plan-items/images", () => {
   /**
    * Story 8.4, iteration 5. The sibling of the case above, carried by the same argument.
    *
-   * When `readStoredMediaDayId` cannot read a day out of the stored URL there is no file of ours to remove,
+   * When the stored URL names no folder of this activity (`resolveManagedItemMediaDir` since Story 14.1,
+   * `readStoredMediaDayId` before it) there is no file of ours to remove,
    * so the `200` is right - but the outcome is a committed row delete with bytes left on disk, exactly what
    * the containment refusal and the `EACCES` above produce, and both of those log. Iteration 4 added the log
    * line and asserted it on one of the four routes only, which is the same "one suite is not evidence for
@@ -494,14 +495,15 @@ describe("/api/trips/[id]/day-plan-items/images", () => {
     });
     const dayPlanItem = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         contentJson: JSON.stringify({
           type: "doc",
           content: [{ type: "paragraph", content: [{ type: "text", text: "Drifted stop" }] }],
         }),
       },
     });
-    // Parses as a path, but the trip id in it is not this route's, so `readStoredMediaDayId` refuses it.
+    // Parses as a path, but the trip id in it is not this route's, so `resolveManagedItemMediaDir`
+    // (Story 14.1, which replaced `readStoredMediaDayId` on this route) refuses it.
     const imageUrl = "/uploads/trips/other-trip/days/other-day/day-plan-items/other-item/img-1.webp";
     const row = await prisma.dayPlanItemImage.create({
       data: { dayPlanItemId: dayPlanItem.id, imageUrl, sortOrder: 0 },
@@ -528,7 +530,7 @@ describe("/api/trips/[id]/day-plan-items/images", () => {
       // trip, so the URL is the one value in the record that cannot be traced back to the row whose
       // bytes were abandoned - which makes it the one value a log of it alone cannot do its job with.
       expect(consoleSpy).toHaveBeenCalledWith(
-        "day plan item image delete: stored media url names no day under this trip",
+        "day plan item image delete: stored media url names no folder of this activity",
         expect.objectContaining({
           tripId: trip.id,
         dayPlanItemId: dayPlanItem.id,
@@ -552,7 +554,8 @@ describe("/api/trips/[id]/day-plan-items/images", () => {
    * `200 { deleted: true }` with the bytes still on disk - orphaned for good, because the row that named
    * them is gone.
    *
-   * So the day segment has to come from the stored URL (`readStoredMediaDayId`), not from the request.
+   * So the folder has to come from the stored URL (`resolveManagedItemMediaDir` since Story 14.1), not
+   * from the request.
    */
   it("removes the file of a photo uploaded before the activity was moved to another day", async () => {
     const owner = await prisma.user.create({
@@ -575,7 +578,7 @@ describe("/api/trips/[id]/day-plan-items/images", () => {
     });
     const dayPlanItem = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: uploadDay.id,
+        tripId: uploadDay.tripId, tripDayId: uploadDay.id,
         contentJson: JSON.stringify({
           type: "doc",
           content: [{ type: "paragraph", content: [{ type: "text", text: "Moved stop" }] }],

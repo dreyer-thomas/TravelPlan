@@ -117,7 +117,7 @@ model Trip {
   user  User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   members TripMember[]
   days  TripDay[]
-  bucketListItems TripBucketListItem[]
+  dayPlanItems DayPlanItem[]
 
   @@index([userId])
   @@map("trips")
@@ -208,9 +208,15 @@ model Accommodation {
   @@map("accommodations")
 }
 
+// Story 14.1 (FR30, FR31). An activity belongs to its trip directly; `tripDayId = null` means it is
+// parked on the trip's bucket list. Prisma cannot express the SQLite CHECK that guards a parked row
+// (FLEXIBLE, both times null, `sort_order = 0`), so it lives in the migration
+// `20261018120000_day_plan_items_without_day` and is guarded by its test. Every trip-level reader
+// reaches activities through the day; only the bucket list reads `tripId` with `tripDayId: null`.
 model DayPlanItem {
   id        String   @id @default(cuid()) @map("id")
-  tripDayId String   @map("trip_day_id")
+  tripId    String   @map("trip_id")
+  tripDayId String?  @map("trip_day_id")
   title     String?  @map("title")
   fromTime  String?  @map("from_time")
   toTime    String?  @map("to_time")
@@ -235,13 +241,15 @@ model DayPlanItem {
   durationMinutes Int @default(15) @map("duration_minutes")
   sortOrder       Int @default(0) @map("sort_order")
 
-  tripDay TripDay @relation(fields: [tripDayId], references: [id], onDelete: Cascade)
+  trip    Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  tripDay TripDay? @relation(fields: [tripDayId], references: [id], onDelete: Cascade)
   images  DayPlanItemImage[]
   documents DayPlanItemDocument[]
   payments CostPayment[]
 
   @@index([tripDayId], map: "idx_day_plan_items_trip_day_id")
   @@index([tripDayId, sortOrder], map: "idx_day_plan_items_trip_day_sort_order")
+  @@index([tripId, tripDayId], map: "idx_day_plan_items_trip_id_trip_day_id")
   @@map("day_plan_items")
 }
 
@@ -330,22 +338,4 @@ model DayPlanItemDocument {
   @@index([dayPlanItemId], map: "idx_day_plan_item_documents_item_id")
   @@unique([dayPlanItemId, sortOrder], map: "idx_day_plan_item_documents_order")
   @@map("day_plan_item_documents")
-}
-
-model TripBucketListItem {
-  id        String   @id @default(cuid()) @map("id")
-  tripId    String   @map("trip_id")
-  title     String   @map("title")
-  description String? @map("description")
-  positionText String? @map("position_text")
-  locationLat Float? @map("location_lat")
-  locationLng Float? @map("location_lng")
-  locationLabel String? @map("location_label")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  trip Trip @relation(fields: [tripId], references: [id], onDelete: Cascade)
-
-  @@index([tripId], map: "idx_trip_bucket_list_items_trip_id")
-  @@map("trip_bucket_list_items")
 }

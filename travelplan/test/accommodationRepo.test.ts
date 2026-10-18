@@ -391,13 +391,13 @@ describe("accommodationRepo", () => {
       data: { tripDayId: previousDay.id, name: "Doomed Stay", status: "PLANNED" },
     });
     const morning = await prisma.dayPlanItem.create({
-      data: { tripDayId: previousDay.id, title: "Morning", contentJson: "{}" },
+      data: { tripId: previousDay.tripId, tripDayId: previousDay.id, title: "Morning", contentJson: "{}" },
     });
     const arrival = await prisma.dayPlanItem.create({
-      data: { tripDayId: currentDay.id, title: "Arrival", contentJson: "{}" },
+      data: { tripId: currentDay.tripId, tripDayId: currentDay.id, title: "Arrival", contentJson: "{}" },
     });
     const museum = await prisma.dayPlanItem.create({
-      data: { tripDayId: currentDay.id, title: "Museum", contentJson: "{}" },
+      data: { tripId: currentDay.tripId, tripDayId: currentDay.id, title: "Museum", contentJson: "{}" },
     });
 
     await prisma.travelSegment.createMany({

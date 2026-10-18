@@ -7,6 +7,7 @@ import path from "node:path";
 import { POST } from "@/app/api/trips/import/route";
 import { createSessionJwt } from "@/lib/auth/jwt";
 import { prisma } from "@/lib/db/prisma";
+import { buildParkedContentJson } from "@/lib/trips/parkedItemContent";
 import { createTripWithDays } from "@/lib/repositories/tripRepo";
 import { MULTIPART_FRAMING_SLACK_BYTES } from "@/lib/http/bodyLimit";
 import { MAX_IMPORT_PACKAGE_BYTES } from "@/lib/trips/importLimits";
@@ -485,7 +486,14 @@ describe("POST /api/trips/import", () => {
       const segment = await prisma.travelSegment.findFirstOrThrow({});
       const accommodation = await prisma.accommodation.findFirstOrThrow({});
       expect(segment.fromItemId).toBe(accommodation.id);
-      expect(await prisma.tripBucketListItem.count({ where: { tripId } })).toBe(1);
+      // Story 14.1: a legacy `bucketListItems` entry comes back as a parked activity, by the migration's
+      // rule - 15 minutes, FLEXIBLE, no day, and the title as the text when there is nothing else.
+      const parked = await prisma.dayPlanItem.findMany({ where: { tripId, tripDayId: null } });
+      expect(parked).toHaveLength(1);
+      expect(parked[0]).toMatchObject({ title: "Sauna", scheduleMode: "FLEXIBLE", durationMinutes: 15, sortOrder: 0 });
+      expect(parked[0].contentJson).toBe(
+        buildParkedContentJson({ title: "Sauna", description: null, positionText: null, hasCoordinates: false }),
+      );
       expect(await prisma.trip.count({ where: { userId: user.id } })).toBe(1);
     });
 

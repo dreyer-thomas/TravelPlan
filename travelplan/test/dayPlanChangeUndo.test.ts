@@ -6,7 +6,7 @@ import { POST as UNDO_POST } from "@/app/api/trips/[id]/day-plan-changes/undo/ro
 import { prisma } from "@/lib/db/prisma";
 import { createSessionJwt } from "@/lib/auth/jwt";
 import {
-  convertBucketListItemToDayPlanItemForTripDay,
+  scheduleParkedDayPlanItemForTripDay,
   deleteDayPlanItemForTripDay,
   reorderDayPlanItemForTripDay,
   updateDayPlanItemForTripDay,
@@ -22,6 +22,7 @@ import { toDayChangeReceiptWire, type DayChangeReceiptWire } from "@/lib/trips/d
 import { signDayChangeReceipt } from "@/lib/trips/dayChangeReceiptSignature";
 import { routeContext } from "./helpers/routeContext";
 import { settleSeededDay } from "./helpers/settleSeededDay";
+import { tripIdOfDay } from "./helpers/tripIdOfDay";
 
 /**
  * Story 11.1 AC5/AC6/AC8/AC12. Undo restores every touched row identical — column by column, including
@@ -57,10 +58,10 @@ const createTrip = async (userId: string) => {
   return { trip, day };
 };
 
-const createRawItem = (tripDayId: string, title: string, fromTime: string | null, toTime: string | null) =>
+const createRawItem = async (tripDayId: string, title: string, fromTime: string | null, toTime: string | null) =>
   prisma.dayPlanItem.create({
     data: {
-      tripDayId,
+      tripId: await tripIdOfDay(tripDayId), tripDayId,
       title,
       fromTime,
       toTime,
@@ -78,7 +79,7 @@ const createRawItem = (tripDayId: string, title: string, fromTime: string | null
 /** Story 13.1: each seeded day is numbered the way the migration numbers real data. */
 const createItem = async (...args: Parameters<typeof createRawItem>) => {
   const row = await createRawItem(...args);
-  await settleSeededDay(row.tripDayId);
+  await settleSeededDay(row.tripDayId!);
   return prisma.dayPlanItem.findUniqueOrThrow({ where: { id: row.id } });
 };
 
@@ -114,7 +115,6 @@ const databaseState = async () => ({
   images: await prisma.dayPlanItemImage.findMany({ orderBy: { id: "asc" } }),
   documents: await prisma.dayPlanItemDocument.findMany({ orderBy: { id: "asc" } }),
   legs: await prisma.travelSegment.findMany({ orderBy: { id: "asc" } }),
-  bucket: await prisma.tripBucketListItem.findMany({ orderBy: { id: "asc" } }),
 });
 
 const mutation = (userId: string, tripId: string, tripDayId: string) => ({
@@ -169,7 +169,6 @@ const resetDatabase = async () => {
   await prisma.travelSegment.deleteMany();
   await prisma.dayPlanItemDocument.deleteMany();
   await prisma.dayPlanItemImage.deleteMany();
-  await prisma.tripBucketListItem.deleteMany();
   await prisma.costPayment.deleteMany();
   await prisma.dayPlanItem.deleteMany();
   await prisma.tripMember.deleteMany();
@@ -252,14 +251,28 @@ describe("undoDayPlanChangeForTrip restores the whole change (Story 11.1)", () =
     expect(await databaseState()).toEqual(before);
   });
 
-  it("undoes a bucket-list conversion: the idea comes back with its original id and stamps", async () => {
-    const { user, trip, day } = await seedDay("undo-convert@example.com");
-    await prisma.tripBucketListItem.create({
+});
+
+/**
+ * Story 14.1 AC8. "+" moves the parked activity itself onto the day; undo parks it again exactly: no day,
+ * FLEXIBLE, no times, `sortOrder` 0, its previous `updatedAt`, and every row the schedule renumbered or
+ * moved back where it was.
+ */
+describe("undo of a scheduled bucket-list idea (Story 14.1 AC8)", () => {
+  beforeEach(resetDatabase);
+
+  /** A parked idea with two pictures, a document and two payments, all stamped `PAST`. */
+  const seedParked = async (tripId: string) => {
+    const idea = await prisma.dayPlanItem.create({
       data: {
-        tripId: trip.id,
+        tripId,
+        tripDayId: null,
         title: "Idea",
-        description: "Go there",
-        positionText: "Harbour",
+        scheduleMode: "FLEXIBLE",
+        durationMinutes: 120,
+        contentJson: sampleDoc("Idea"),
+        costCents: 3000,
+        linkUrl: "https://example.com/idea",
         locationLat: 1.5,
         locationLng: 2.5,
         locationLabel: "Harbour",
@@ -267,23 +280,187 @@ describe("undoDayPlanChangeForTrip restores the whole change (Story 11.1)", () =
         updatedAt: PAST,
       },
     });
+    await addPayments(idea.id);
+    const mediaBase = `/uploads/trips/${tripId}/parked/day-plan-items/${idea.id}`;
+    await prisma.dayPlanItemImage.createMany({
+      data: [
+        { dayPlanItemId: idea.id, imageUrl: `${mediaBase}/one.webp`, sortOrder: 1, createdAt: PAST, updatedAt: PAST },
+        { dayPlanItemId: idea.id, imageUrl: `${mediaBase}/two.webp`, sortOrder: 2, createdAt: PAST, updatedAt: PAST },
+      ],
+    });
+    await prisma.dayPlanItemDocument.create({
+      data: {
+        dayPlanItemId: idea.id,
+        documentUrl: `${mediaBase}/documents/ticket.pdf`,
+        fileName: "Ticket.pdf",
+        sortOrder: 1,
+        createdAt: PAST,
+        updatedAt: PAST,
+      },
+    });
+    return idea;
+  };
+
+  const schedule = async (userId: string, tripId: string, tripDayId: string, itemId: string) => {
+    const result = await scheduleParkedDayPlanItemForTripDay({ userId, tripId, tripDayId, itemId });
+    expect(result.status).toBe("scheduled");
+    if (result.status !== "scheduled") throw new Error("not scheduled");
+    return result;
+  };
+
+  it("moves the same activity onto the day with everything attached, and undo restores the whole database", async () => {
+    const { user, trip, day } = await seedDay("undo-scheduled@example.com");
+    const idea = await seedParked(trip.id);
     const before = await databaseState();
 
-    const converted = await convertBucketListItemToDayPlanItemForTripDay({
-      ...mutation(user.id, trip.id, day.id),
-      bucketListItemId: before.bucket[0].id,
-      title: "Idea",
-      fromTime: "10:30",
-      toTime: "11:00",
-      contentJson: sampleDoc("Idea"),
+    const scheduled = await schedule(user.id, trip.id, day.id, idea.id);
+    expect(scheduled.item).toMatchObject({ id: idea.id, tripDayId: day.id, scheduleMode: "FLEXIBLE", sortOrder: 3, durationMinutes: 120 });
+    expect(scheduled.receipt.edited).toEqual({
+      kind: "scheduled",
+      itemId: idea.id,
+      updatedAt: expect.any(Date),
+      previousUpdatedAt: PAST,
     });
-    expect(converted.status).toBe("created");
-    if (converted.status !== "created") return;
+    // Same id, so nothing was copied: the pictures, the document and the payments are the same rows.
+    const during = await databaseState();
+    expect(during.images).toEqual(before.images);
+    expect(during.documents).toEqual(before.documents);
+    expect(during.payments).toEqual(before.payments);
+    expect(during.items.find((row) => row.id === idea.id)).toMatchObject({ tripDayId: day.id, fromTime: "16:00", toTime: "18:00" });
 
-    const result = await undoDayPlanChangeForTrip({ userId: user.id, tripId: trip.id, receipt: converted.receipt });
+    const result = await undoDayPlanChangeForTrip({ userId: user.id, tripId: trip.id, receipt: scheduled.receipt });
 
     expect(result).toEqual({ status: "undone" });
     expect(await databaseState()).toEqual(before);
+  });
+
+  it("refuses as stale after the scheduled activity was edited on its day", async () => {
+    const { user, trip, day } = await seedDay("undo-scheduled-edited@example.com");
+    const idea = await seedParked(trip.id);
+    const scheduled = await schedule(user.id, trip.id, day.id, idea.id);
+    const edited = await updateDayPlanItemForTripDay({
+      ...mutation(user.id, trip.id, day.id),
+      itemId: idea.id,
+      title: "Idea, renamed",
+      scheduleMode: "FLEXIBLE",
+      durationMinutes: 120,
+      fromTime: null,
+      toTime: null,
+      contentJson: sampleDoc("Idea"),
+    });
+    expect(edited.status).toBe("updated");
+
+    const before = await databaseState();
+    expect(await undoDayPlanChangeForTrip({ userId: user.id, tripId: trip.id, receipt: scheduled.receipt })).toEqual({
+      status: "stale",
+    });
+    expect(await databaseState()).toEqual(before);
+  });
+
+  it("refuses as stale once a leg references the scheduled activity", async () => {
+    const { user, trip, day, c } = await seedDay("undo-scheduled-leg@example.com");
+    const idea = await seedParked(trip.id);
+    const scheduled = await schedule(user.id, trip.id, day.id, idea.id);
+    await createLeg(day.id, c.id, idea.id);
+
+    const before = await databaseState();
+    expect(await undoDayPlanChangeForTrip({ userId: user.id, tripId: trip.id, receipt: scheduled.receipt })).toEqual({
+      status: "stale",
+    });
+    expect(await databaseState()).toEqual(before);
+  });
+
+  it("is not stale after a picture was added on the day: the picture goes back to the list with it", async () => {
+    const { user, trip, day } = await seedDay("undo-scheduled-image@example.com");
+    const idea = await seedParked(trip.id);
+    const scheduled = await schedule(user.id, trip.id, day.id, idea.id);
+    const added = await prisma.dayPlanItemImage.create({
+      data: {
+        dayPlanItemId: idea.id,
+        imageUrl: `/uploads/trips/${trip.id}/days/${day.id}/day-plan-items/${idea.id}/new.webp`,
+        sortOrder: 3,
+      },
+    });
+
+    expect(await undoDayPlanChangeForTrip({ userId: user.id, tripId: trip.id, receipt: scheduled.receipt })).toEqual({
+      status: "undone",
+    });
+    expect(await prisma.dayPlanItem.findUniqueOrThrow({ where: { id: idea.id } })).toMatchObject({
+      tripDayId: null,
+      scheduleMode: "FLEXIBLE",
+      fromTime: null,
+      toTime: null,
+      sortOrder: 0,
+      updatedAt: PAST,
+    });
+    expect(await prisma.dayPlanItemImage.findUnique({ where: { id: added.id } })).not.toBeNull();
+  });
+
+  it("brings back the leg to tonight's stay that appending the idea un-drew", async () => {
+    const { user, trip, day, c } = await seedDay("undo-scheduled-stay-leg@example.com");
+    const tonight = await prisma.accommodation.create({
+      data: { tripDayId: day.id, name: "Tonight", status: "BOOKED", createdAt: PAST, updatedAt: PAST },
+    });
+    const toStay = await prisma.travelSegment.create({
+      data: {
+        tripDayId: day.id,
+        fromItemType: "DAY_PLAN_ITEM",
+        fromItemId: c.id,
+        toItemType: "ACCOMMODATION",
+        toItemId: tonight.id,
+        transportType: "WALKING",
+        durationMinutes: 10,
+        createdAt: PAST,
+        updatedAt: PAST,
+      },
+    });
+    const idea = await seedParked(trip.id);
+    const before = await databaseState();
+
+    const scheduled = await schedule(user.id, trip.id, day.id, idea.id);
+    expect(scheduled.receipt.removedTravelSegments).toEqual([toStay]);
+    expect(await prisma.travelSegment.findUnique({ where: { id: toStay.id } })).toBeNull();
+
+    expect(await undoDayPlanChangeForTrip({ userId: user.id, tripId: trip.id, receipt: scheduled.receipt })).toEqual({
+      status: "undone",
+    });
+    expect(await databaseState()).toEqual(before);
+  });
+
+  it("refuses a scheduled receipt whose removed leg is still there (stale) or that lists the item as moved (invalid)", async () => {
+    const { user, trip, day, ab } = await seedDay("undo-scheduled-forged@example.com");
+    const idea = await seedParked(trip.id);
+    const scheduled = await schedule(user.id, trip.id, day.id, idea.id);
+    const leg = await prisma.travelSegment.findUniqueOrThrow({ where: { id: ab.id } });
+
+    expect(
+      await undoDayPlanChangeForTrip({
+        userId: user.id,
+        tripId: trip.id,
+        receipt: { ...scheduled.receipt, removedTravelSegments: [leg] },
+      }),
+    ).toEqual({ status: "stale" });
+    expect(
+      await undoDayPlanChangeForTrip({
+        userId: user.id,
+        tripId: trip.id,
+        receipt: {
+          ...scheduled.receipt,
+          movedItems: [
+            {
+              itemId: idea.id,
+              previousFromTime: null,
+              previousToTime: null,
+              previousSortOrder: 0,
+              fromTime: "16:00",
+              toTime: "18:00",
+              previousUpdatedAt: PAST,
+              updatedAt: PAST,
+            },
+          ],
+        },
+      }),
+    ).toEqual({ status: "invalid", reason: "edited item listed as moved" });
   });
 });
 
@@ -1170,7 +1347,7 @@ describe("undo takes back a leg or check-out push (Story 11.4)", () => {
       const seeded = await seedLegDay("tamper-leg-extras@example.com");
       const wire = toDayChangeReceiptWire(await createdLeg(seeded));
       await expectForgeryRejected(seeded, { ...wire, removedTravelSegments: [forgedLeg(seeded.day.id)] });
-      await expectForgeryRejected(seeded, { ...wire, consumedBucketListItem: forgedIdea(seeded.trip.id) });
+      await expectForgeryRejected(seeded, { ...wire, consumedBucketListItem: forgedIdea(seeded.trip.id) } as DayChangeReceiptWire);
     });
 
     it("refuses a legUpdated whose previous row is another leg or on another day", async () => {
@@ -1189,7 +1366,7 @@ describe("undo takes back a leg or check-out push (Story 11.4)", () => {
       const seeded = await seedLegDay("tamper-checkout-extras@example.com");
       const wire = toDayChangeReceiptWire(await laterCheckOut(seeded));
       await expectForgeryRejected(seeded, { ...wire, removedTravelSegments: [forgedLeg(seeded.day.id)] });
-      await expectForgeryRejected(seeded, { ...wire, consumedBucketListItem: forgedIdea(seeded.trip.id) });
+      await expectForgeryRejected(seeded, { ...wire, consumedBucketListItem: forgedIdea(seeded.trip.id) } as DayChangeReceiptWire);
     });
   });
 });

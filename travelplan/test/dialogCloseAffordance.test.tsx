@@ -13,9 +13,29 @@ import TripCreateDialog from "@/components/features/trips/TripCreateDialog";
 import TripDayTravelSegmentDialog from "@/components/features/trips/TripDayTravelSegmentDialog";
 import TripAccommodationDialog from "@/components/features/trips/TripAccommodationDialog";
 import TripBucketListPanel from "@/components/features/trips/TripBucketListPanel";
+import TripDayPlanDialog from "@/components/features/trips/TripDayPlanDialog";
 import FullscreenPhotoViewer from "@/components/ui/FullscreenPhotoViewer";
 import TripShareDialog from "@/components/features/trips/TripShareDialog";
 import { renderWithProviders } from "./helpers/renderWithProviders";
+
+/*
+  Story 14.1. The bucket list's form is the activity dialog now, which needs an editor with a toolbar.
+  The shared mock in `test/setup.ts` has no `isActive`/`chain`, and it fires `onUpdate` once, which
+  would read as typing; this one is quiet, so the AC7 "closes silently" case means what it says.
+*/
+vi.mock("@tiptap/react", () => {
+  const chain = () => {
+    const link = { focus: () => link, toggleBold: () => link, toggleItalic: () => link, toggleBulletList: () => link, run: () => true };
+    return link;
+  };
+  const editor = {
+    commands: { setContent: () => undefined, setImage: () => undefined },
+    getJSON: () => ({ type: "doc", content: [{ type: "paragraph" }] }),
+    isActive: () => false,
+    chain,
+  };
+  return { EditorContent: () => null, useEditor: () => editor };
+});
 
 /**
  * Story 6.25 — "Close Is a Cross, and Keeping Is Named".
@@ -47,11 +67,35 @@ const BUCKET_ITEM = {
   id: "bucket-1",
   tripId: "trip-1",
   title: "Livraria Lello",
-  description: null,
-  positionText: null,
+  contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Books" }] }] }),
+  durationMinutes: 60,
+  costCents: null,
+  costOriginalAmount: null,
+  costCurrency: null,
+  costRate: null,
+  costRateDate: null,
+  payments: [],
+  linkUrl: null,
   location: null,
-  position: 1,
+  firstImageUrl: null,
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
 };
+
+/** Story 14.1: a new bucket-list idea, in the activity dialog's parked mode. */
+const renderIdeaDialog = (onClose: () => void) =>
+  renderWithProviders(
+    <TripDayPlanDialog
+      open
+      mode="add"
+      tripId="trip-1"
+      day={null}
+      placement="parked"
+      item={null}
+      onClose={onClose}
+      onSaved={() => undefined}
+    />,
+  );
 
 /** Swaps the bucket-list collection for one holding a single item, so its delete path is reachable. */
 const stubBucketListWithOneItem = () =>
@@ -368,23 +412,19 @@ describe("every dialog carries exactly one ✕ (AC1) and no Cancel (AC2)", () =>
   });
 
   /**
-   * `TripBucketListPanel` holds **both** kinds — a form and a confirmation, two dialogs in one file —
-   * and Story 6.25's Trap 1 is that they must not be treated alike. Both get the glyph; only the
-   * confirmation keeps two footer buttons.
+   * Story 14.1: the bucket list's form is the activity dialog in parked mode, so the glyph rule is the
+   * activity dialog's. The confirmation stays the panel's own and keeps two footer buttons (below).
    */
-  it("bucket list form dialog", async () => {
-    renderWithProviders(<TripBucketListPanel tripId="trip-1" />);
+  it("bucket list idea dialog (the activity dialog, parked)", async () => {
+    const onClose = vi.fn();
+    renderIdeaDialog(onClose);
 
-    await userEvent.click(await screen.findByRole("button", { name: "Add item" }));
-
-    expect(await screen.findByRole("heading", { name: "Add bucket list item", level: 2 })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Add idea", level: 2 })).toBeInTheDocument();
     expect(closeControls()).toHaveLength(1);
     expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
 
     await userEvent.click(closeControl());
-    await waitFor(() =>
-      expect(screen.queryByRole("heading", { name: "Add bucket list item", level: 2 })).toBeNull(),
-    );
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   });
 });
 
@@ -626,32 +666,32 @@ describe("each form dialog's own dirty signal (AC7)", () => {
     `tripDayViewLayout.test.tsx` and `tripDayPlanDialog.test.tsx`, where those surfaces already render.
   */
 
-  it("the bucket list form closes silently when nothing was typed", async () => {
-    renderWithProviders(<TripBucketListPanel tripId="trip-1" />);
+  it("the bucket list idea dialog closes silently when nothing was typed", async () => {
+    const onClose = vi.fn();
+    renderIdeaDialog(onClose);
 
-    await userEvent.click(await screen.findByRole("button", { name: "Add item" }));
-    await screen.findByRole("heading", { name: "Add bucket list item", level: 2 });
+    await screen.findByRole("heading", { name: "Add idea", level: 2 });
     await userEvent.click(closeControl());
 
-    await waitFor(() =>
-      expect(screen.queryByRole("heading", { name: "Add bucket list item", level: 2 })).toBeNull(),
-    );
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     expect(screen.queryByText("Discard changes?")).toBeNull();
   });
 
-  it("the bucket list form asks once a title has been typed", async () => {
-    renderWithProviders(<TripBucketListPanel tripId="trip-1" />);
+  it("the bucket list idea dialog asks once a title has been typed", async () => {
+    const onClose = vi.fn();
+    renderIdeaDialog(onClose);
 
-    await userEvent.click(await screen.findByRole("button", { name: "Add item" }));
     await userEvent.type(await screen.findByLabelText("Title"), "Hike the Tongariro Crossing");
     await userEvent.click(closeControl());
 
-    expect(await screen.findByTestId("discard-changes-body")).toBeInTheDocument();
+    // The activity dialog names its own body (`plan-discard-body`), as `tripDayPlanDialog.test.tsx` pins.
+    expect(await screen.findByTestId("plan-discard-body")).toBeInTheDocument();
     // Not asserted by role: MUI's `Modal` stamps `aria-hidden="true"` on the app root while the
     // discard question is open, so the form behind it is invisible to role queries — the same trap
     // this story's browser pass hit with Playwright's role selectors. "Keep editing" being offered is
     // what proves nothing has been thrown away yet.
     expect(screen.getByRole("button", { name: "Keep editing" })).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it("the import dialog closes silently when no backup has been chosen", async () => {

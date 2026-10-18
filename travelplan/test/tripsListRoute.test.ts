@@ -146,10 +146,10 @@ describe("GET /api/trips", () => {
     await prisma.accommodation.create({ data: { tripDayId: dayOne.id, name: "   ", costCents: 50_000 } });
     await prisma.accommodation.create({ data: { tripDayId: dayTwo.id, name: "Hotel Lisboa", costCents: 12_000 } });
     await prisma.dayPlanItem.create({
-      data: { tripDayId: dayOne.id, contentJson: "{}", costCents: 2_500 },
+      data: { tripId: dayOne.tripId, tripDayId: dayOne.id, contentJson: "{}", costCents: 2_500 },
     });
     await prisma.dayPlanItem.create({
-      data: { tripDayId: dayTwo.id, contentJson: "{}", costCents: null },
+      data: { tripId: dayTwo.tripId, tripDayId: dayTwo.id, contentJson: "{}", costCents: null },
     });
 
     const response = await GET(buildRequest(token));

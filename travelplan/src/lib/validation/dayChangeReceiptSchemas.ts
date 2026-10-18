@@ -161,20 +161,6 @@ const deletedSnapshotSchema = z
   })
   .strict();
 
-const bucketListRowSchema = z
-  .object({
-    id: idSchema,
-    tripId: idSchema,
-    title: z.string(),
-    description: nullableText(),
-    positionText: nullableText(),
-    locationLat: finiteNullable,
-    locationLng: finiteNullable,
-    locationLabel: nullableText(),
-    ...stamps,
-  })
-  .strict();
-
 const editedSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("created"), itemId: idSchema, updatedAt: isoDateSchema }).strict(),
   z
@@ -207,6 +193,15 @@ const editedSchema = z.discriminatedUnion("kind", [
       updatedAt: isoDateSchema,
       previousUpdatedAt: isoDateSchema,
       previousCheckOutTime: nullableText(),
+    })
+    .strict(),
+  // Story 14.1. A parked activity moved onto the day; `dayPlanChangeRepo.ts` checks it against the day.
+  z
+    .object({
+      kind: z.literal("scheduled"),
+      itemId: idSchema,
+      updatedAt: isoDateSchema,
+      previousUpdatedAt: isoDateSchema,
     })
     .strict(),
   // Story 12.4. Additive; the bounds are what one apply can create (8 suggestions, a leg into each, 3
@@ -252,6 +247,8 @@ export const dayChangeReceiptSchema = z
     // Story 11.2 bumped this to 2, Story 13.1 to 3. An older receipt held across a deploy is refused
     // (400), which the client already treats as "undo unavailable" - better than misreading it as a change
     // that moved nothing. Receipts are client-held and short-lived, so no older version is tolerated.
+    // Story 14.1 dropped `consumedBucketListItem` without a bump: `.strict()` refuses a receipt that
+    // still carries it (400), which is the same "undo unavailable" outcome.
     version: z.literal(3),
     // The server's seal (hex HMAC-SHA256). The route verifies it; the schema only bounds its shape.
     signature: z.string().regex(/^[0-9a-f]{64}$/, "Receipt signature is malformed"),
@@ -259,7 +256,6 @@ export const dayChangeReceiptSchema = z
     edited: editedSchema,
     removedTravelSegments: z.array(travelSegmentRowSchema).max(MAX_LEGS),
     movedItems: z.array(movedItemSchema).max(MAX_LEGS),
-    consumedBucketListItem: bucketListRowSchema.optional(),
     checkInWarning: checkInWarningSchema.optional(),
     planConflicts: z.array(planConflictSchema).max(MAX_LEGS).optional(),
   })

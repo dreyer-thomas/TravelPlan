@@ -6,7 +6,6 @@ import type {
   DayChangeReceipt,
   MovedItemRow,
   TravelSegmentRow,
-  TripBucketListItemRow,
 } from "@/lib/trips/dayChangeReceipt";
 import { compareDayPlanItemsByOrder } from "@/lib/trips/dayPlanItemOrder";
 import {
@@ -65,7 +64,6 @@ export const buildReceipt = (
   removedTravelSegments: TravelSegmentRow[],
   movedItems: MovedItemRow[],
   extras: {
-    consumedBucketListItem?: TripBucketListItemRow;
     checkInWarning?: DayChangeCheckInWarning;
     planConflicts?: DayChangePlanConflict[];
   } = {},
@@ -75,7 +73,6 @@ export const buildReceipt = (
   edited,
   removedTravelSegments,
   movedItems,
-  ...(extras.consumedBucketListItem ? { consumedBucketListItem: extras.consumedBucketListItem } : {}),
   ...(extras.checkInWarning ? { checkInWarning: extras.checkInWarning } : {}),
   // Absent when empty, as `removedImageFiles` is (12.4): an undo result pinned with `toEqual` stays valid.
   ...(extras.planConflicts && extras.planConflicts.length > 0 ? { planConflicts: extras.planConflicts } : {}),

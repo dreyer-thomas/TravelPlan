@@ -455,7 +455,8 @@ vi.mock("@tiptap/react", () => ({
   },
 }));
 
-vi.mock("@tiptap/starter-kit", () => ({ default: {} }));
+const starterKitConfigure = vi.hoisted(() => vi.fn(() => ({})));
+vi.mock("@tiptap/starter-kit", () => ({ default: { configure: starterKitConfigure } }));
 vi.mock("@tiptap/extension-link", () => ({ default: { configure: () => ({}) } }));
 
 /**
@@ -618,6 +619,29 @@ describe("TripDayPlanDialog", () => {
     tiptapMocks.doc.value = null;
     tiptapMocks.editorInstance.value = null;
     tiptapMocks.activeMarks.value.clear();
+  });
+
+  it("registers one link extension: StarterKit's own is switched off for the configured one", async () => {
+    const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
+    stubFetch(vi.fn(async () => mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null })));
+    starterKitConfigure.mockClear();
+
+    render(
+      <Providers language="en">
+        <TripDayPlanDialog
+          open
+          mode="add"
+          tripId="trip-1"
+          day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
+          item={null}
+          onClose={() => undefined}
+          onSaved={() => undefined}
+        />
+      </Providers>,
+    );
+
+    await waitFor(() => expect(starterKitConfigure).toHaveBeenCalled());
+    expect(starterKitConfigure).toHaveBeenCalledWith({ link: false });
   });
 
   it("renders add mode as form-only and saves via POST", async () => {
@@ -4282,6 +4306,152 @@ describe("TripDayPlanDialog", () => {
 
       fireEvent.click(screen.getByRole("button", { name: "Close" }));
       expect(await screen.findByText("Discard changes?")).toBeInTheDocument();
+    });
+  });
+
+  /**
+   * Story 14.1 AC6. The dialog opened for a bucket-list idea: no day, so *Wann & Wo* keeps only the
+   * duration and the place, the save goes to `bucket-list-items`, media name no day, and nothing in the
+   * parked dialog ever reaches `day-plan-items`.
+   */
+  describe("parked mode (Story 14.1)", () => {
+    const parkedItem = {
+      id: "idea-1",
+      tripDayId: null,
+      title: "Gullfoss",
+      fromTime: null,
+      toTime: null,
+      contentJson: tiptapMocks.sampleDoc,
+      costCents: null,
+      linkUrl: null,
+      location: { lat: 64.3271, lng: -20.1199, label: "Gullfoss" },
+      createdAt: "2026-10-01T08:00:00.000Z",
+      scheduleMode: "FLEXIBLE" as const,
+      durationMinutes: 120,
+    };
+
+    const renderParked = async (mode: "add" | "edit") => {
+      const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
+      const requests: { url: string; method: string; body: unknown }[] = [];
+      const fetchMock = vi.fn(async (input: RequestInfo, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.url;
+        const method = init?.method ?? "GET";
+        const body = typeof init?.body === "string" ? JSON.parse(init.body) : init?.body;
+        requests.push({ url, method, body });
+        if (url.includes("/api/auth/csrf")) return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
+        if (url.includes("/day-plan-items/images") && method === "GET") return mockFetchResponse({ data: { images: [] }, error: null });
+        if (url.includes("/day-plan-items/documents") && method === "GET") {
+          return mockFetchResponse({ data: { documents: [] }, error: null });
+        }
+        if (url.includes("/day-plan-items/images") && method === "POST") {
+          return mockFetchResponse({
+            data: { image: { id: "img-1", dayPlanItemId: "idea-1", imageUrl: "/uploads/trips/trip-1/parked/day-plan-items/idea-1/a.webp", sortOrder: 1 } },
+            error: null,
+          });
+        }
+        if (url.includes("/bucket-list-items")) return mockFetchResponse({ data: { item: { id: "idea-1" } }, error: null });
+        return mockFetchResponse({ data: null, error: { code: "server_error", message: "boom" } }, { status: 500 });
+      });
+      stubFetch(fetchMock);
+      const onSaved = vi.fn();
+      const view = render(
+        <Providers language="en">
+          <TripDayPlanDialog
+            open
+            mode={mode}
+            tripId="trip-1"
+            day={null}
+            placement="parked"
+            item={mode === "edit" ? parkedItem : null}
+            onClose={() => undefined}
+            onSaved={onSaved}
+            moveTargetDays={[{ id: "day-2", label: "Day 2" }]}
+            onMove={async () => ({ moved: true })}
+            onDelete={async () => true}
+          />
+        </Providers>,
+      );
+      await waitFor(() => expect(requests.some((request) => request.url.includes("/api/auth/csrf"))).toBe(true));
+      return { ...view, requests, onSaved };
+    };
+
+    it("titles itself as an idea of the bucket list, and Wann & Wo keeps only duration and place", async () => {
+      await renderParked("add");
+
+      expect(screen.getByText("Add idea")).toBeInTheDocument();
+      expect(screen.getByText("Bucket list")).toBeInTheDocument();
+      selectTab("whenWhere");
+      expect(screen.queryByTestId("plan-schedule-mode")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Fixed time" })).toBeNull();
+      expect(screen.queryByTestId("plan-expected-times")).toBeNull();
+      expect(screen.queryByLabelText("From")).toBeNull();
+      // A new idea starts at one hour, as a new activity does.
+      expect(screen.getByLabelText("Duration (h)")).toHaveValue("1");
+      expect(screen.getByLabelText("Duration (min)")).toHaveValue("0");
+      expect(screen.getByLabelText("Search place")).toBeInTheDocument();
+    });
+
+    it("saves a new idea to bucket-list-items with its duration and no day, mode or times", async () => {
+      const { requests, onSaved } = await renderParked("add");
+      fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Gullfoss" } });
+      selectTab("whenWhere");
+      fireEvent.change(screen.getByLabelText("Duration (h)"), { target: { value: "2" } });
+
+      fireEvent.click(screen.getByRole("button", { name: "OK" }));
+
+      await waitFor(() => expect(onSaved).toHaveBeenCalledWith(null));
+      const save = requests.find((request) => request.url.includes("/bucket-list-items"));
+      expect(save).toMatchObject({ url: "/api/trips/trip-1/bucket-list-items", method: "POST" });
+      expect(save!.body).toMatchObject({ title: "Gullfoss", durationMinutes: 120 });
+      expect(save!.body).not.toHaveProperty("tripDayId");
+      expect(save!.body).not.toHaveProperty("scheduleMode");
+      expect(save!.body).not.toHaveProperty("fromTime");
+      expect(save!.body).not.toHaveProperty("toTime");
+      expect(requests.some((request) => request.url.includes("/day-plan-items") && !request.url.includes("/day-plan-items/"))).toBe(
+        false,
+      );
+    });
+
+    it("edits an idea at its stored duration with PATCH, offers delete but not a move", async () => {
+      const { requests } = await renderParked("edit");
+
+      expect(screen.getByText("Edit idea")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Another day" })).toBeNull();
+      selectTab("whenWhere");
+      expect(screen.getByLabelText("Duration (h)")).toHaveValue("2");
+      expect(screen.getByLabelText("Duration (min)")).toHaveValue("0");
+
+      fireEvent.click(screen.getByRole("button", { name: "OK" }));
+
+      await waitFor(() => expect(requests.some((request) => request.url.includes("/bucket-list-items"))).toBe(true));
+      const save = requests.find((request) => request.url.includes("/bucket-list-items"))!;
+      expect(save.method).toBe("PATCH");
+      expect(save.body).toMatchObject({ itemId: "idea-1", durationMinutes: 120, location: { lat: 64.3271, lng: -20.1199, label: "Gullfoss" } });
+      expect(save.body).not.toHaveProperty("tripDayId");
+      expect(screen.getByRole("button", { name: "Delete plan item" })).toBeInTheDocument();
+    });
+
+    it("loads and uploads media by the item alone, never naming a day, and never calls day-plan-items", async () => {
+      const { requests, container } = await renderParked("edit");
+      await waitFor(() => expect(requests.some((request) => request.url.includes("/day-plan-items/images?"))).toBe(true));
+
+      const mediaReads = requests.filter((request) => request.method === "GET" && request.url.includes("/day-plan-items/"));
+      expect(mediaReads.map((request) => request.url)).toEqual(
+        expect.arrayContaining([
+          "/api/trips/trip-1/day-plan-items/images?dayPlanItemId=idea-1",
+          "/api/trips/trip-1/day-plan-items/documents?dayPlanItemId=idea-1",
+        ]),
+      );
+
+      uploadOnePhoto(container);
+      await waitFor(() => expect(requests.some((request) => request.method === "POST" && request.url.includes("/images"))).toBe(true));
+      const upload = requests.find((request) => request.method === "POST" && request.url.includes("/images"))!;
+      expect(upload.body).toBeInstanceOf(FormData);
+      expect((upload.body as FormData).get("tripDayId")).toBeNull();
+      expect((upload.body as FormData).get("dayPlanItemId")).toBe("idea-1");
+
+      // Nothing the parked dialog does is a day write.
+      expect(requests.some((request) => /\/day-plan-items(\?|$)/.test(request.url))).toBe(false);
     });
   });
 });

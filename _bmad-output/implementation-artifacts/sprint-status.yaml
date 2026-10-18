@@ -1,5 +1,10 @@
 # generated: 2026-03-01 13:08:00 CET
-# last_updated: 2026-10-17 (13-1-just-say-how-long DONE: real run passed. dev.db migrated, every visible time unchanged (76/76 FIXED), Safari checks by Tommy on day 39 of the New Zealand trip. Q1-Q5 defaults stand. Next: 13-2.)
+# last_updated: 2026-10-18 (14-1-one-kind-of-entry DONE via bmad-code-review: 16 patches applied (overview dialog re-seed, undo of "+" with a swept stay leg, parked import media validation, editor delete waits for confirmation, CHECK guard test, import title/duration/array bounds, notice title, schedule conflict/reload, route logging, empty folders, payments with cleared cost, decorative thumbnail, stale comment), 10 dismissed. 200 files / 3278 tests, tsc 0, lint 0 errors.)
+# previously: 2026-10-18 (14-1-one-kind-of-entry REVIEW: TipTap duplicate link fixed (StarterKit link:false); Q3 changed by Tommy - add ideas on Day Detail too; Q1-Q5 all confirmed. 200 files / 3271 tests, tsc 0, lint 0 errors. Next: code review.)
+# previously: 2026-10-18 (14-1-one-kind-of-entry REVIEW: real run passed, dev.db migrated by Tommy after backup dev.db.before-14-1, all checks ok. Pre-existing TipTap warning 'Duplicate extension names: link' (StarterKit 3 includes Link, TripDayPlanDialog adds its own) noted, not fixed. Q1-Q5 confirmation pending. Next: code review.)
+# previously: 2026-10-18 (14-1-one-kind-of-entry IN-PROGRESS via bmad-dev-story. Tasks 0-9 and the Task 10 gates done: migration day_plan_items_without_day (dev.db copy: 79/79 activities unchanged, both ideas parked; JSON byte-equal to buildParkedContentJson), tripId on every write path, readers proven untouched, bucket list on parked DayPlanItem rows, POST day-plan-items/schedule with receipt kind scheduled, parked media under parked/, TripDayPlanDialog placement=parked, bucket-item rows, backup parkedDayPlanItems + legacy bucketListItems. 200 files / 3269 tests, tsc 0, lint 0/79, build ok, 5 mutations red. Open: real run with Tommy after he agrees to migrate dev.db; Q1-Q5 defaults unconfirmed.)
+# previously: 2026-10-18 (Story 14-1-one-kind-of-entry contexted via bmad-create-story: ready-for-dev, epic-14 in-progress. Winston's Epic 14 architecture review done the same day (architecture.md, proposal section 6). 5 non-blocking questions for Tommy in the story file.)
+# previously: 2026-10-17 (13-1-just-say-how-long DONE: real run passed. dev.db migrated, every visible time unchanged (76/76 FIXED), Safari checks by Tommy on day 39 of the New Zealand trip. Q1-Q5 defaults stand. Next: 13-2.)
 # previously: 2026-10-17 (13-1-just-say-how-long code review via bmad-code-review: D1-D3 resolved by Tommy (AC6 and Task 10 amended, after-midnight conflict reported at 23:59), 7 patches applied, 3224 tests green, DW-392..395 deferred. Stays IN-PROGRESS: Task 12 real run and Q1-Q5 open.)
 # previously: 2026-10-17 (13-1-just-say-how-long IN-PROGRESS via bmad-dev-story. Tasks 0-11 and the Task 12 gates done: scheduleDay/placeFixedItem, sortOrder + migration (dev.db copy: 76/76 times unchanged), receipt v3 with legDeleted and planConflicts, every write path recomputes, dialog schedule-mode, lock pill. 195 files / 3219 tests, tsc 0, lint 0/80, build ok, 6 mutations red. DW-371 closed. Open: real run with Tommy after he agrees to migrate dev.db; Q1-Q5 defaults unconfirmed.)
 # previously: 2026-10-17 (13-1-just-say-how-long ready-for-dev -> in-progress via bmad-dev-story.)
@@ -279,8 +284,8 @@ development_status:
   13-4-suggestions-and-backups-speak-in-durations: backlog
   epic-13-retrospective: optional
 
-  epic-14: backlog
-  14-1-one-kind-of-entry: backlog
+  epic-14: in-progress
+  14-1-one-kind-of-entry: done
   14-2-park-it-for-another-day: backlog
   14-3-park-the-suggestions-too: backlog
   epic-14-retrospective: optional

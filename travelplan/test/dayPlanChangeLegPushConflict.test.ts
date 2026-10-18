@@ -74,7 +74,7 @@ const seed = async (email: string) => {
   const item = (title: string, fromTime: string, toTime: string, durationMinutes: number, sortOrder: number) =>
     prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         title,
         fromTime,
         toTime,

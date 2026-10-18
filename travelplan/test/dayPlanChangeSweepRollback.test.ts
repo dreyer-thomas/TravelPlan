@@ -54,10 +54,10 @@ describe("a day-plan write is atomic with its leg sweep", () => {
       data: { tripId: trip.id, date: new Date("2026-10-01T00:00:00.000Z"), dayIndex: 1 },
     });
     const a = await prisma.dayPlanItem.create({
-      data: { tripDayId: day.id, title: "A", fromTime: "09:00", toTime: "10:00", contentJson: sampleDoc("A") },
+      data: { tripId: day.tripId, tripDayId: day.id, title: "A", fromTime: "09:00", toTime: "10:00", contentJson: sampleDoc("A") },
     });
     const b = await prisma.dayPlanItem.create({
-      data: { tripDayId: day.id, title: "B", fromTime: "15:00", toTime: "16:00", contentJson: sampleDoc("B") },
+      data: { tripId: day.tripId, tripDayId: day.id, title: "B", fromTime: "15:00", toTime: "16:00", contentJson: sampleDoc("B") },
     });
     const leg = await prisma.travelSegment.create({
       data: {

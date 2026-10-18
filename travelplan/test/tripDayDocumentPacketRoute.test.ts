@@ -226,7 +226,7 @@ describe("GET /api/trips/[id]/days/[dayId]/documents/packet", () => {
     // has to happen before anything is opened.
     for (let item = 0; item < 7; item += 1) {
       const planItem = await prisma.dayPlanItem.create({
-        data: { tripDayId: day.id, title: `Activity ${item}`, contentJson: "{}" },
+        data: { tripId: day.tripId, tripDayId: day.id, title: `Activity ${item}`, contentJson: "{}" },
       });
       await prisma.dayPlanItemDocument.createMany({
         data: Array.from({ length: 10 }, (_unused, index) => ({
@@ -265,7 +265,7 @@ describe("GET /api/trips/[id]/days/[dayId]/documents/packet", () => {
     });
     const day = await prisma.tripDay.findFirstOrThrow({ where: { tripId: trip.id } });
     const planItem = await prisma.dayPlanItem.create({
-      data: { tripDayId: day.id, title: "Boundary activity", contentJson: "{}" },
+      data: { tripId: day.tripId, tripDayId: day.id, title: "Boundary activity", contentJson: "{}" },
     });
 
     // No bytes on disk for any of them: every document degrades to its own label page, which is what makes
@@ -353,10 +353,10 @@ describe("GET /api/trips/[id]/days/[dayId]/documents/packet", () => {
     // Created out of chronological order, so `compareDayPlanItemsByOrder` has something to do: both rows
     // share the seeded `sortOrder` 0, and its start-time tiebreak (Story 13.1) puts the Vatican first.
     const afternoon = await prisma.dayPlanItem.create({
-      data: { tripDayId: day2.id, title: "Colosseum", fromTime: "15:00", contentJson: '{"type":"doc","content":[]}' },
+      data: { tripId: day2.tripId, tripDayId: day2.id, title: "Colosseum", fromTime: "15:00", contentJson: '{"type":"doc","content":[]}' },
     });
     const morning = await prisma.dayPlanItem.create({
-      data: { tripDayId: day2.id, title: "Vatican", fromTime: "09:00", contentJson: '{"type":"doc","content":[]}' },
+      data: { tripId: day2.tripId, tripDayId: day2.id, title: "Vatican", fromTime: "09:00", contentJson: '{"type":"doc","content":[]}' },
     });
 
     // 3-page PDF on the previous night's stay, one image on each activity, 2-page PDF on tonight's stay.
@@ -564,7 +564,7 @@ describe("GET /api/trips/[id]/days/[dayId]/documents/packet", () => {
     });
     const day = await prisma.tripDay.findFirstOrThrow({ where: { tripId: trip.id } });
     const activity = await prisma.dayPlanItem.create({
-      data: { tripDayId: day.id, title: "Flight", fromTime: "09:00", contentJson: '{"type":"doc","content":[]}' },
+      data: { tripId: day.tripId, tripDayId: day.id, title: "Flight", fromTime: "09:00", contentJson: '{"type":"doc","content":[]}' },
     });
 
     // A real `/Encrypt`-carrying PDF, which is how airline tickets normally arrive.
@@ -641,7 +641,7 @@ describe("GET /api/trips/[id]/days/[dayId]/documents/packet", () => {
     const myDay = await prisma.tripDay.findFirstOrThrow({ where: { tripId: mine.id } });
     const theirDay = await prisma.tripDay.findFirstOrThrow({ where: { tripId: theirs.id } });
     const activity = await prisma.dayPlanItem.create({
-      data: { tripDayId: myDay.id, title: "Probe", fromTime: "09:00", contentJson: '{"type":"doc","content":[]}' },
+      data: { tripId: myDay.tripId, tripDayId: myDay.id, title: "Probe", fromTime: "09:00", contentJson: '{"type":"doc","content":[]}' },
     });
 
     // A real, readable, perfectly valid PDF - but it lives under a *different* trip's directory. Access is
@@ -683,7 +683,7 @@ describe("GET /api/trips/[id]/days/[dayId]/documents/packet", () => {
     });
     const day = await prisma.tripDay.findFirstOrThrow({ where: { tripId: trip.id } });
     const activity = await prisma.dayPlanItem.create({
-      data: { tripDayId: day.id, title: "Probe", fromTime: "09:00", contentJson: '{"type":"doc","content":[]}' },
+      data: { tripId: day.tripId, tripDayId: day.id, title: "Probe", fromTime: "09:00", contentJson: '{"type":"doc","content":[]}' },
     });
 
     // The target sits outside the uploads tree entirely. The *link* is inside the trip's own directory, so
@@ -730,7 +730,7 @@ describe("GET /api/trips/[id]/days/[dayId]/documents/packet", () => {
     const days = await prisma.tripDay.findMany({ where: { tripId: trip.id }, orderBy: { dayIndex: "asc" } });
     const day3 = days[2];
     const activity = await prisma.dayPlanItem.create({
-      data: { tripDayId: day3.id, title: "Ferry", fromTime: "09:00", contentJson: '{"type":"doc","content":[]}' },
+      data: { tripId: day3.tripId, tripDayId: day3.id, title: "Ferry", fromTime: "09:00", contentJson: '{"type":"doc","content":[]}' },
     });
     await prisma.dayPlanItemDocument.create({
       data: {

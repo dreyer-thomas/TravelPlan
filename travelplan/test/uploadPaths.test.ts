@@ -10,6 +10,7 @@ import {
   getMediaRoot,
   getTripDayUploadDir,
   getTripUploadDir,
+  resolveManagedItemMediaDir,
   getTripsUploadRoot,
   isExternalMediaUrl,
   isSafeMediaSegment,
@@ -493,5 +494,52 @@ describe("upload paths", () => {
     // filesystem root instead of the configured one.
     expect(resolveStoredMediaPath("/uploads/trips/trip-1/hero.png")).toBe(expected);
     expect(resolveStoredMediaPath("uploads/trips/trip-1/hero.png")).toBe(expected);
+  });
+});
+
+describe("resolveManagedItemMediaDir (Story 14.1 AC7)", () => {
+  const tripId = "trip1";
+  const itemId = "item1";
+  const tripDir = path.resolve(getTripUploadDir(tripId));
+  const resolve = (storedUrl: string, kind: "image" | "document" = "image") =>
+    resolveManagedItemMediaDir({ storedUrl, tripId, itemId, kind });
+
+  it("accepts the item's own folders on any day and under parked/, for its kind", () => {
+    expect(resolve(`/uploads/trips/${tripId}/days/d1/day-plan-items/${itemId}/a.webp`)).toBe(
+      path.join(tripDir, "days", "d1", "day-plan-items", itemId),
+    );
+    expect(resolve(`/uploads/trips/${tripId}/days/d2/day-plan-items/${itemId}/a.webp`)).toBe(
+      path.join(tripDir, "days", "d2", "day-plan-items", itemId),
+    );
+    expect(resolve(`/uploads/trips/${tripId}/parked/day-plan-items/${itemId}/a.webp`)).toBe(
+      path.join(tripDir, "parked", "day-plan-items", itemId),
+    );
+    expect(resolve(`/uploads/trips/${tripId}/parked/day-plan-items/${itemId}/documents/t.pdf`, "document")).toBe(
+      path.join(tripDir, "parked", "day-plan-items", itemId, "documents"),
+    );
+    expect(resolve(`/uploads/trips/${tripId}/days/d1/day-plan-items/${itemId}/documents/t.pdf`, "document")).toBe(
+      path.join(tripDir, "days", "d1", "day-plan-items", itemId, "documents"),
+    );
+  });
+
+  it("refuses another item, another trip, a traversal, the wrong kind, a stay's folder and an external URL", () => {
+    expect(resolve(`/uploads/trips/${tripId}/parked/day-plan-items/other/a.webp`)).toBeNull();
+    expect(resolve(`/uploads/trips/other-trip/parked/day-plan-items/${itemId}/a.webp`)).toBeNull();
+    expect(resolve(`/uploads/trips/${tripId}/parked/day-plan-items/${itemId}/../other/a.webp`)).toBeNull();
+    expect(resolve(`/uploads/trips/${tripId}/../other-trip/parked/day-plan-items/${itemId}/a.webp`)).toBeNull();
+    expect(resolve(`/uploads/trips/${tripId}/parked/day-plan-items/${itemId}/documents/t.pdf`, "image")).toBeNull();
+    expect(resolve(`/uploads/trips/${tripId}/parked/day-plan-items/${itemId}/a.webp`, "document")).toBeNull();
+    expect(resolve(`/uploads/trips/${tripId}/days/d1/accommodations/${itemId}/a.webp`)).toBeNull();
+    expect(resolve(`/uploads/trips/${tripId}/parked/day-plan-items/${itemId}/nested/a.webp`)).toBeNull();
+    expect(resolve(`/uploads/trips/${tripId}/parked/day-plan-items/${itemId}`)).toBeNull();
+    expect(resolve("https://example.com/a.webp")).toBeNull();
+    expect(resolve("")).toBeNull();
+  });
+
+  it("reads the stored spelling the way the filesystem does (a //uploads/ or /Uploads/ URL is still ours)", () => {
+    expect(resolve(`//uploads/trips/${tripId}/parked/day-plan-items/${itemId}/a.webp`)).toBe(
+      path.join(tripDir, "parked", "day-plan-items", itemId),
+    );
+    expect(resolve(`/Uploads/trips/${tripId}/parked/day-plan-items/${itemId}/a.webp`)).not.toBeNull();
   });
 });

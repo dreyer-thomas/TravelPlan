@@ -7,6 +7,8 @@ import {
   getAccommodationImageUploadDir,
   getDayPlanItemDocumentUploadDir,
   getDayPlanItemImageUploadDir,
+  getParkedDayPlanItemDocumentUploadDir,
+  getParkedDayPlanItemImageUploadDir,
   getTripDayUploadDir,
   getTripUploadDir,
   isSafeMediaSegment,
@@ -184,12 +186,19 @@ export const planAccommodationGalleryPhoto = (
   };
 };
 
+/** Story 14.1: `tripDayId: null` is a parked activity (the bucket list), restored under `parked/`. */
 export const planDayPlanItemGalleryPhoto = (
-  params: { tripId: string; tripDayId: string; dayPlanItemId: string; contentType: string },
+  params: { tripId: string; tripDayId: string | null; dayPlanItemId: string; contentType: string },
   takenFileNames: Set<string>,
 ): PhotoPlacement => {
   const { tripId, tripDayId, dayPlanItemId, contentType } = params;
   const fileName = generateGalleryFileName(contentType, takenFileNames);
+  if (tripDayId === null) {
+    return {
+      filePath: path.join(getParkedDayPlanItemImageUploadDir(tripId, dayPlanItemId), fileName),
+      imageUrl: `/uploads/trips/${tripId}/parked/day-plan-items/${dayPlanItemId}/${fileName}`,
+    };
+  }
   return {
     filePath: path.join(getDayPlanItemImageUploadDir(tripId, tripDayId, dayPlanItemId), fileName),
     imageUrl: `/uploads/trips/${tripId}/days/${tripDayId}/day-plan-items/${dayPlanItemId}/${fileName}`,
@@ -214,11 +223,17 @@ export const planAccommodationDocument = (
 };
 
 export const planDayPlanItemDocument = (
-  params: { tripId: string; tripDayId: string; dayPlanItemId: string; contentType: string },
+  params: { tripId: string; tripDayId: string | null; dayPlanItemId: string; contentType: string },
   takenFileNames: Set<string>,
 ): DocumentPlacement => {
   const { tripId, tripDayId, dayPlanItemId, contentType } = params;
   const fileName = generateDocumentFileName(contentType, takenFileNames);
+  if (tripDayId === null) {
+    return {
+      filePath: path.join(getParkedDayPlanItemDocumentUploadDir(tripId, dayPlanItemId), fileName),
+      documentUrl: `/uploads/trips/${tripId}/parked/day-plan-items/${dayPlanItemId}/documents/${fileName}`,
+    };
+  }
   return {
     filePath: path.join(getDayPlanItemDocumentUploadDir(tripId, tripDayId, dayPlanItemId), fileName),
     documentUrl: `/uploads/trips/${tripId}/days/${tripDayId}/day-plan-items/${dayPlanItemId}/documents/${fileName}`,

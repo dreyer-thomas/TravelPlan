@@ -291,6 +291,7 @@ export const applySuggestionsForTripDay = async (params: ApplySuggestionsParams)
           const chained = fromTime !== null && toTime !== null;
           const item = await tx.dayPlanItem.create({
             data: {
+              tripId,
               tripDayId,
               title: suggestion.title,
               fromTime,

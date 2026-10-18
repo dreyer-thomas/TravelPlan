@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { createDayPlanItemExpectingSuccess } from "./helpers/createDayPlanItem";
 import { prisma } from "@/lib/db/prisma";
 import {
-  convertBucketListItemToDayPlanItemForTripDay,
+  scheduleParkedDayPlanItemForTripDay,
   deleteDayPlanItemForTripDay,
   listDayPlanItemsForTripDay,
   moveDayPlanItemsBetweenTripDays,
@@ -95,7 +95,6 @@ describe("dayPlanItemRepo", () => {
   beforeEach(async () => {
     await prisma.travelSegment.deleteMany();
     await prisma.dayPlanItemImage.deleteMany();
-    await prisma.tripBucketListItem.deleteMany();
     await prisma.costPayment.deleteMany();
     await prisma.dayPlanItem.deleteMany();
     await prisma.tripMember.deleteMany();
@@ -242,7 +241,7 @@ describe("dayPlanItemRepo", () => {
 
     await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         title: "Late",
         fromTime: "10:00",
         toTime: "11:00",
@@ -255,7 +254,7 @@ describe("dayPlanItemRepo", () => {
 
     await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         title: "Early",
         fromTime: "08:00",
         toTime: "09:00",
@@ -298,7 +297,7 @@ describe("dayPlanItemRepo", () => {
 
     const created = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         fromTime: "08:00",
         toTime: "09:00",
         contentJson: sampleDoc("Original"),
@@ -358,7 +357,7 @@ describe("dayPlanItemRepo", () => {
 
     const created = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         fromTime: "08:00",
         toTime: "09:00",
         contentJson: sampleDoc("Original"),
@@ -387,7 +386,7 @@ describe("dayPlanItemRepo", () => {
 
     const created = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         fromTime: "08:00",
         toTime: "09:00",
         contentJson: sampleDoc("To delete"),
@@ -406,77 +405,94 @@ describe("dayPlanItemRepo", () => {
     expect(await prisma.dayPlanItem.count()).toBe(0);
   });
 
-  it("converts a bucket list item into a day plan item and deletes the bucket list item", async () => {
-    const user = await createUser("plan-convert@example.com");
+  it("schedules a parked activity onto the day: the same row, with its pictures, document and payments (Story 14.1 AC8)", async () => {
+    const user = await createUser("plan-schedule@example.com");
     const { trip, day } = await createTripWithDay(user.id);
-
-    const bucketItem = await prisma.tripBucketListItem.create({
+    const idea = await prisma.dayPlanItem.create({
       data: {
         tripId: trip.id,
+        tripDayId: null,
+        scheduleMode: "FLEXIBLE",
+        durationMinutes: 90,
         title: "Bucket stop",
-        description: "Bucket notes",
-        positionText: "Central Station",
+        contentJson: sampleDoc("Bucket notes"),
+        costCents: 3000,
+        linkUrl: "https://example.com/stop",
         locationLat: 48.1372,
         locationLng: 11.5756,
         locationLabel: "Munich",
       },
     });
+    const images = await Promise.all(
+      [1, 2].map((sortOrder) =>
+        prisma.dayPlanItemImage.create({
+          data: { dayPlanItemId: idea.id, imageUrl: `/uploads/trips/${trip.id}/parked/day-plan-items/${idea.id}/${sortOrder}.webp`, sortOrder },
+        }),
+      ),
+    );
+    const document = await prisma.dayPlanItemDocument.create({
+      data: { dayPlanItemId: idea.id, documentUrl: `/uploads/trips/${trip.id}/parked/day-plan-items/${idea.id}/documents/t.pdf`, fileName: "t.pdf", sortOrder: 1 },
+    });
+    const payments = await Promise.all(
+      [0, 1].map((sortOrder) =>
+        prisma.costPayment.create({ data: { dayPlanItemId: idea.id, amountCents: 1500, dueDate: "2026-11-01", sortOrder } }),
+      ),
+    );
 
-    const converted = await convertBucketListItemToDayPlanItemForTripDay({
-      userId: user.id,
-      tripId: trip.id,
+    const scheduled = await scheduleParkedDayPlanItemForTripDay({ userId: user.id, tripId: trip.id, tripDayId: day.id, itemId: idea.id });
+
+    expect(scheduled.status).toBe("scheduled");
+    if (scheduled.status !== "scheduled") return;
+    expect(scheduled.item).toMatchObject({
+      id: idea.id,
       tripDayId: day.id,
-      bucketListItemId: bucketItem.id,
       title: "Bucket stop",
-      fromTime: "10:00",
-      toTime: "11:00",
-      contentJson: sampleDoc("Bucket notes"),
-      costCents: null,
-      linkUrl: null,
+      scheduleMode: "FLEXIBLE",
+      durationMinutes: 90,
+      sortOrder: 0,
+      fromTime: "09:00",
+      toTime: "10:30",
+      costCents: 3000,
+      linkUrl: "https://example.com/stop",
       location: { lat: 48.1372, lng: 11.5756, label: "Munich" },
     });
-
-    expect(converted.status).toBe("created");
-    if (converted.status === "created") {
-      expect(converted.item.tripDayId).toBe(day.id);
-      expect(converted.item.title).toBe("Bucket stop");
-      expect(converted.item.contentJson).toContain("Bucket notes");
-      expect(converted.item.location).toEqual({ lat: 48.1372, lng: 11.5756, label: "Munich" });
-    }
-
-    expect(await prisma.tripBucketListItem.count()).toBe(0);
+    expect(scheduled.item.contentJson).toContain("Bucket notes");
     expect(await prisma.dayPlanItem.count()).toBe(1);
+    expect((await prisma.dayPlanItemImage.findMany({ where: { dayPlanItemId: idea.id }, orderBy: { sortOrder: "asc" } })).map((row) => row.id)).toEqual(
+      images.map((row) => row.id),
+    );
+    expect((await prisma.dayPlanItemDocument.findMany({ where: { dayPlanItemId: idea.id } })).map((row) => row.id)).toEqual([document.id]);
+    expect((await prisma.costPayment.findMany({ where: { dayPlanItemId: idea.id }, orderBy: { sortOrder: "asc" } })).map((row) => row.id)).toEqual(
+      payments.map((row) => row.id),
+    );
   });
 
-  it("keeps the bucket list item when conversion fails", async () => {
-    const user = await createUser("plan-convert-fail@example.com");
+  it("refuses to schedule what is not a parked activity of this trip, and a viewer, writing nothing", async () => {
+    const user = await createUser("plan-schedule-refused@example.com");
+    const viewer = await createUser("plan-schedule-viewer@example.com");
     const { trip, day } = await createTripWithDay(user.id);
-
-    const bucketItem = await prisma.tripBucketListItem.create({
-      data: {
-        tripId: trip.id,
-        title: "Bucket stop",
-      },
+    const { trip: otherTrip } = await createTripWithDay(user.id);
+    await prisma.tripMember.create({ data: { tripId: trip.id, userId: viewer.id, role: "VIEWER" } });
+    const planned = await prisma.dayPlanItem.create({
+      data: { tripId: trip.id, tripDayId: day.id, title: "Planned", fromTime: "09:00", toTime: "10:00", contentJson: sampleDoc("x") },
     });
+    const foreign = await prisma.dayPlanItem.create({
+      data: { tripId: otherTrip.id, tripDayId: null, scheduleMode: "FLEXIBLE", title: "Foreign", contentJson: sampleDoc("x") },
+    });
+    const idea = await prisma.dayPlanItem.create({
+      data: { tripId: trip.id, tripDayId: null, scheduleMode: "FLEXIBLE", title: "Idea", contentJson: sampleDoc("x") },
+    });
+    const before = await prisma.dayPlanItem.findMany({ orderBy: { id: "asc" } });
 
-    await expect(
-      convertBucketListItemToDayPlanItemForTripDay({
-        userId: user.id,
-        tripId: trip.id,
-        tripDayId: day.id,
-        bucketListItemId: bucketItem.id,
-        title: "Bucket stop",
-        fromTime: "10:00",
-        toTime: "11:00",
-        // @ts-expect-error intentional invalid payload to force a DB error
-        contentJson: null,
-        costCents: null,
-        linkUrl: null,
-      }),
-    ).rejects.toThrow();
-
-    expect(await prisma.tripBucketListItem.count()).toBe(1);
-    expect(await prisma.dayPlanItem.count()).toBe(0);
+    for (const itemId of [planned.id, foreign.id, "unknown"]) {
+      expect(await scheduleParkedDayPlanItemForTripDay({ userId: user.id, tripId: trip.id, tripDayId: day.id, itemId })).toEqual({
+        status: "missing",
+      });
+    }
+    expect(await scheduleParkedDayPlanItemForTripDay({ userId: viewer.id, tripId: trip.id, tripDayId: day.id, itemId: idea.id })).toEqual({
+      status: "not_found",
+    });
+    expect(await prisma.dayPlanItem.findMany({ orderBy: { id: "asc" } })).toEqual(before);
   });
 
   it("returns missing when deleting an unknown item", async () => {
@@ -500,7 +516,7 @@ describe("dayPlanItemRepo", () => {
 
     const created = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         fromTime: "08:00",
         toTime: "09:00",
         contentJson: sampleDoc("To delete"),
@@ -540,7 +556,7 @@ describe("dayPlanItemRepo", () => {
 
     const sourceItemA = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: firstDay.id,
+        tripId: firstDay.tripId, tripDayId: firstDay.id,
         title: "Source A",
         fromTime: "09:00",
         toTime: "10:00",
@@ -549,7 +565,7 @@ describe("dayPlanItemRepo", () => {
     });
     const sourceItemB = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: firstDay.id,
+        tripId: firstDay.tripId, tripDayId: firstDay.id,
         title: "Source B",
         fromTime: "11:00",
         toTime: "12:00",
@@ -558,7 +574,7 @@ describe("dayPlanItemRepo", () => {
     });
     const targetItem = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: secondDay.id,
+        tripId: secondDay.tripId, tripDayId: secondDay.id,
         title: "Target Existing",
         fromTime: "14:00",
         toTime: "15:00",
@@ -658,7 +674,7 @@ describe("dayPlanItemRepo", () => {
 
     const firstItem = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: firstDay.id,
+        tripId: firstDay.tripId, tripDayId: firstDay.id,
         title: "First Item",
         fromTime: "09:00",
         toTime: "10:00",
@@ -667,7 +683,7 @@ describe("dayPlanItemRepo", () => {
     });
     const secondItem = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: secondDay.id,
+        tripId: secondDay.tripId, tripDayId: secondDay.id,
         title: "Second Item",
         fromTime: "13:00",
         toTime: "14:00",
@@ -701,7 +717,7 @@ describe("dayPlanItemRepo", () => {
 
     const firstItem = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: firstDay.id,
+        tripId: firstDay.tripId, tripDayId: firstDay.id,
         title: "Only Item",
         fromTime: "09:00",
         toTime: "10:00",
@@ -728,7 +744,7 @@ describe("dayPlanItemRepo", () => {
 
     const item = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         title: "Original",
         fromTime: "09:00",
         toTime: "10:00",
@@ -796,7 +812,7 @@ describe("dayPlanItemRepo", () => {
 
     const moved = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: firstDay.id,
+        tripId: firstDay.tripId, tripDayId: firstDay.id,
         title: "Moved",
         fromTime: "09:00",
         toTime: "10:00",
@@ -810,7 +826,7 @@ describe("dayPlanItemRepo", () => {
     });
     const stayingBehind = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: firstDay.id,
+        tripId: firstDay.tripId, tripDayId: firstDay.id,
         title: "Staying Behind",
         fromTime: "16:00",
         toTime: "17:00",
@@ -819,7 +835,7 @@ describe("dayPlanItemRepo", () => {
     });
     const targetExisting = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: secondDay.id,
+        tripId: secondDay.tripId, tripDayId: secondDay.id,
         title: "Target Existing",
         fromTime: "14:00",
         toTime: "15:00",
@@ -906,7 +922,7 @@ describe("dayPlanItemRepo", () => {
 
     const untimed = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: firstDay.id,
+        tripId: firstDay.tripId, tripDayId: firstDay.id,
         title: "Untimed",
         contentJson: sampleDoc("Untimed"),
         createdAt: new Date("2026-11-05T06:00:00.000Z"),
@@ -914,7 +930,7 @@ describe("dayPlanItemRepo", () => {
     });
     await prisma.dayPlanItem.create({
       data: {
-        tripDayId: secondDay.id,
+        tripId: secondDay.tripId, tripDayId: secondDay.id,
         title: "Afternoon",
         fromTime: "14:00",
         toTime: "15:00",
@@ -954,7 +970,7 @@ describe("dayPlanItemRepo", () => {
     });
     const moved = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: firstDay.id,
+        tripId: firstDay.tripId, tripDayId: firstDay.id,
         title: "Middle",
         fromTime: "11:00",
         toTime: "12:00",
@@ -963,7 +979,7 @@ describe("dayPlanItemRepo", () => {
     });
     const neighbour = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: firstDay.id,
+        tripId: firstDay.tripId, tripDayId: firstDay.id,
         title: "Neighbour",
         fromTime: "14:00",
         toTime: "15:00",
@@ -1033,7 +1049,7 @@ describe("dayPlanItemRepo", () => {
 
     const item = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         title: "Original",
         fromTime: "09:00",
         toTime: "10:00",
@@ -1062,7 +1078,7 @@ describe("dayPlanItemRepo", () => {
 
     const elsewhere = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: secondDay.id,
+        tripId: secondDay.tripId, tripDayId: secondDay.id,
         title: "Elsewhere",
         fromTime: "09:00",
         toTime: "10:00",
@@ -1106,7 +1122,7 @@ describe("dayPlanItemRepo", () => {
     });
     const item = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: firstDay.id,
+        tripId: firstDay.tripId, tripDayId: firstDay.id,
         title: "Owned",
         fromTime: "09:00",
         toTime: "10:00",
@@ -1139,7 +1155,7 @@ describe("dayPlanItemRepo", () => {
 
     const doomed = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         title: "Doomed",
         fromTime: "09:00",
         toTime: "10:00",
@@ -1148,7 +1164,7 @@ describe("dayPlanItemRepo", () => {
     });
     const survivor = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         title: "Survivor",
         fromTime: "18:00",
         toTime: "19:00",
@@ -1217,10 +1233,10 @@ describe("dayPlanItemRepo", () => {
     const { trip, day } = await createTripWithDay(user.id);
 
     const first = await prisma.dayPlanItem.create({
-      data: { tripDayId: day.id, title: "A", fromTime: "09:00", toTime: "10:00", contentJson: sampleDoc("A") },
+      data: { tripId: day.tripId, tripDayId: day.id, title: "A", fromTime: "09:00", toTime: "10:00", contentJson: sampleDoc("A") },
     });
     const second = await prisma.dayPlanItem.create({
-      data: { tripDayId: day.id, title: "B", fromTime: "15:00", toTime: "16:00", contentJson: sampleDoc("B") },
+      data: { tripId: day.tripId, tripDayId: day.id, title: "B", fromTime: "15:00", toTime: "16:00", contentJson: sampleDoc("B") },
     });
 
     const leg = await prisma.travelSegment.create({

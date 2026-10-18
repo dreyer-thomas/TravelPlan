@@ -302,7 +302,7 @@ describe("document gallery repositories", () => {
     const { trip, day } = await createTripWithDay(owner.id);
     const item = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         contentJson: JSON.stringify({
           type: "doc",
           content: [{ type: "paragraph", content: [{ type: "text", text: "Document stop" }] }],
@@ -383,7 +383,7 @@ describe("document gallery repositories", () => {
     });
     const item = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         contentJson: JSON.stringify({
           type: "doc",
           content: [{ type: "paragraph", content: [{ type: "text", text: "Shared stop" }] }],
@@ -454,15 +454,15 @@ describe("document gallery repositories", () => {
       type: "doc",
       content: [{ type: "paragraph", content: [{ type: "text", text: "Stop" }] }],
     });
-    const itemA = await prisma.dayPlanItem.create({ data: { tripDayId: day.id, contentJson } });
-    const itemB = await prisma.dayPlanItem.create({ data: { tripDayId: day.id, contentJson } });
+    const itemA = await prisma.dayPlanItem.create({ data: { tripId: day.tripId, tripDayId: day.id, contentJson } });
+    const itemB = await prisma.dayPlanItem.create({ data: { tripId: day.tripId, tripDayId: day.id, contentJson } });
 
     // A second day with its own document, so "for this trip day" is a real filter rather than
     // "everything in the database".
     const otherDay = await prisma.tripDay.create({
       data: { tripId: trip.id, date: new Date("2026-12-13T00:00:00.000Z"), dayIndex: 2 },
     });
-    const otherItem = await prisma.dayPlanItem.create({ data: { tripDayId: otherDay.id, contentJson } });
+    const otherItem = await prisma.dayPlanItem.create({ data: { tripId: otherDay.tripId, tripDayId: otherDay.id, contentJson } });
 
     for (const [item, tripDayId, fileName] of [
       [itemA, day.id, "A1.pdf"],
@@ -512,7 +512,7 @@ describe("document gallery repositories", () => {
     });
     const item = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         contentJson: JSON.stringify({
           type: "doc",
           content: [{ type: "paragraph", content: [{ type: "text", text: "Doomed stop" }] }],

@@ -11,6 +11,8 @@ import {
   getAccommodationImageUploadDir,
   getDayPlanItemDocumentUploadDir,
   getDayPlanItemImageUploadDir,
+  getParkedDayPlanItemDocumentUploadDir,
+  getParkedDayPlanItemImageUploadDir,
   getTripDayUploadDir,
   getTripUploadDir,
   getTripsUploadRoot,
@@ -37,12 +39,16 @@ type ExportManifest = {
     updatedAt: string;
     heroImageUrl: string | null;
     heroPhotoId: string | null;
-    bucketListItems: {
+    parkedDayPlanItems: {
       id: string;
-      title: string;
-      description: string | null;
-      positionText: string | null;
+      title: string | null;
+      contentJson: string;
+      scheduleMode: string;
+      durationMinutes: number;
+      payments: { amountCents: number; dueDate: string }[];
       location: { lat: number; lng: number; label: string | null } | null;
+      images: { sortOrder: number; photoId: string }[];
+      documents: ExportDocumentRef[];
     }[];
   };
   days: {
@@ -105,7 +111,6 @@ describe("GET /api/trips/[id]/export", () => {
     await prisma.accommodationDocument.deleteMany();
     await prisma.dayPlanItemDocument.deleteMany();
     await prisma.travelSegment.deleteMany();
-    await prisma.tripBucketListItem.deleteMany();
     await prisma.dayPlanItem.deleteMany();
     await prisma.accommodation.deleteMany();
     await prisma.tripDay.deleteMany();
@@ -166,12 +171,57 @@ describe("GET /api/trips/[id]/export", () => {
     expect(payload.documents).toEqual({});
     expect(payload.trip.id).toBe(trip.id);
     expect(payload.trip.heroPhotoId).toBeNull();
-    expect(payload.trip.bucketListItems).toEqual([]);
+    expect(payload.trip.parkedDayPlanItems).toEqual([]);
+    // Story 14.1: the old list is no longer written.
+    expect(payload.trip).not.toHaveProperty("bucketListItems");
     expect(payload.days).toHaveLength(2);
     expect(payload.days[0].imagePhotoId).toBeNull();
     expect(payload.days[0].accommodation?.images).toEqual([]);
     expect(payload.days[0].accommodation?.documents).toEqual([]);
     expect(payload.days[0].travelSegments).toEqual([]);
+  });
+
+  it("archives a parked activity's picture and document after every day's media (Story 14.1 AC11)", async () => {
+    const { user, token } = await createOwner("trip-export-parked-media@example.com");
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Parked Media Trip",
+      startDate: "2026-07-01T00:00:00.000Z",
+      endDate: "2026-07-01T00:00:00.000Z",
+    });
+    const [day] = await prisma.tripDay.findMany({ where: { tripId: trip.id } });
+    await writeUploadFile(getTripDayUploadDir(trip.id, day.id), "day.png", "day-bytes");
+    await prisma.tripDay.update({ where: { id: day.id }, data: { imageUrl: `/uploads/trips/${trip.id}/days/${day.id}/day.png` } });
+    const idea = await prisma.dayPlanItem.create({
+      data: { tripId: trip.id, tripDayId: null, scheduleMode: "FLEXIBLE", title: "Idea", contentJson: "{}" },
+    });
+    const parkedDir = getParkedDayPlanItemImageUploadDir(trip.id, idea.id);
+    await writeUploadFile(parkedDir, "idea.webp", "idea-bytes");
+    await writeUploadFile(getParkedDayPlanItemDocumentUploadDir(trip.id, idea.id), "doc-1.pdf", pdfBytes());
+    await prisma.dayPlanItemImage.create({
+      data: { dayPlanItemId: idea.id, imageUrl: `/uploads/trips/${trip.id}/parked/day-plan-items/${idea.id}/idea.webp`, sortOrder: 1 },
+    });
+    await prisma.dayPlanItemDocument.create({
+      data: {
+        dayPlanItemId: idea.id,
+        documentUrl: `/uploads/trips/${trip.id}/parked/day-plan-items/${idea.id}/documents/doc-1.pdf`,
+        fileName: "Ticket.pdf",
+        sortOrder: 1,
+      },
+    });
+
+    const response = await GET(buildRequest(trip.id, { session: token }), routeContext(trip.id));
+    const archive = await readArchive(response);
+    const payload = readManifest(archive);
+    const members = readZipArchive(archive).entries.map((entry) => entry.name);
+
+    expect(response.status).toBe(200);
+    expect(payload.meta.warnings).toEqual([]);
+    // The day's photo keeps p1; the parked one comes after it.
+    expect(payload.days[0].imagePhotoId).toBe("p1");
+    expect(payload.trip.parkedDayPlanItems[0].images).toEqual([{ sortOrder: 1, photoId: "p2" }]);
+    expect(payload.trip.parkedDayPlanItems[0].documents).toEqual([{ sortOrder: 1, documentId: "d1", fileName: "Ticket.pdf" }]);
+    expect(members).toEqual(expect.arrayContaining([payload.photos.p2.archivePath, payload.documents.d1.archivePath]));
   });
 
   it("round-trips travel segments and bucket list items into the manifest", async () => {
@@ -190,7 +240,7 @@ describe("GET /api/trips/[id]/export", () => {
     });
     const planItem = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         title: "Ferry terminal",
         contentJson: JSON.stringify({ type: "doc", content: [] }),
       },
@@ -208,14 +258,26 @@ describe("GET /api/trips/[id]/export", () => {
         linkUrl: "https://example.com/ferry",
       },
     });
-    // Deliberately inserted out of alphabetical order to pin the title-first ordering.
-    await prisma.tripBucketListItem.create({
-      data: { tripId: trip.id, title: "Zoo visit", description: "Pandas", positionText: "North" },
-    });
-    await prisma.tripBucketListItem.create({
+    // Story 14.1: the bucket list is parked activities. Deliberately inserted out of alphabetical order
+    // to pin the title-first ordering.
+    await prisma.dayPlanItem.create({
       data: {
         tripId: trip.id,
+        tripDayId: null,
+        scheduleMode: "FLEXIBLE",
+        durationMinutes: 120,
+        title: "Zoo visit",
+        contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Pandas" }] }] }),
+        costCents: 2500,
+      },
+    });
+    await prisma.dayPlanItem.create({
+      data: {
+        tripId: trip.id,
+        tripDayId: null,
+        scheduleMode: "FLEXIBLE",
         title: "Aquarium",
+        contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Fish" }] }] }),
         locationLat: 48.14,
         locationLng: 11.58,
         locationLabel: "Old harbour",
@@ -226,11 +288,20 @@ describe("GET /api/trips/[id]/export", () => {
     const payload = readManifest(await readArchive(response));
 
     expect(response.status).toBe(200);
-    expect(payload.trip.bucketListItems.map((item) => item.title)).toEqual(["Aquarium", "Zoo visit"]);
-    expect(payload.trip.bucketListItems[0].location).toEqual({ lat: 48.14, lng: 11.58, label: "Old harbour" });
-    expect(payload.trip.bucketListItems[1]).toEqual(
-      expect.objectContaining({ description: "Pandas", positionText: "North", location: null })
+    expect(payload.trip.parkedDayPlanItems.map((item) => item.title)).toEqual(["Aquarium", "Zoo visit"]);
+    expect(payload.trip.parkedDayPlanItems[0].location).toEqual({ lat: 48.14, lng: 11.58, label: "Old harbour" });
+    expect(payload.trip.parkedDayPlanItems[1]).toEqual(
+      expect.objectContaining({
+        scheduleMode: "FLEXIBLE",
+        durationMinutes: 120,
+        location: null,
+        // A cost without payment rows exports one, due on the trip's first day (no day of its own).
+        payments: [{ amountCents: 2500, dueDate: "2026-09-01" }],
+      })
     );
+    expect(payload.trip.parkedDayPlanItems[1].contentJson).toContain("Pandas");
+    // A parked activity is on no day.
+    expect(payload.days[0].dayPlanItems.map((item) => item.id)).toEqual([planItem.id]);
 
     expect(payload.days[0].travelSegments).toHaveLength(1);
     const segment = payload.days[0].travelSegments[0];
@@ -263,7 +334,7 @@ describe("GET /api/trips/[id]/export", () => {
       data: { tripDayId: day.id, name: "Gallery Hotel" },
     });
     const planItem = await prisma.dayPlanItem.create({
-      data: { tripDayId: day.id, contentJson: JSON.stringify({ type: "doc", content: [] }) },
+      data: { tripId: day.tripId, tripDayId: day.id, contentJson: JSON.stringify({ type: "doc", content: [] }) },
     });
 
     await writeUploadFile(getTripUploadDir(trip.id), "hero.jpg", "hero-bytes");
@@ -531,7 +602,7 @@ describe("GET /api/trips/[id]/export", () => {
       data: { tripDayId: day.id, name: "Ticketed Hotel" },
     });
     const planItem = await prisma.dayPlanItem.create({
-      data: { tripDayId: day.id, contentJson: JSON.stringify({ type: "doc", content: [] }) },
+      data: { tripId: day.tripId, tripDayId: day.id, contentJson: JSON.stringify({ type: "doc", content: [] }) },
     });
 
     // One photo, so the fixed entry order has both halves to order.
@@ -929,7 +1000,9 @@ describe("GET /api/trips/[id]/export", () => {
     });
     const [day1] = await prisma.tripDay.findMany({ where: { tripId: trip.id }, orderBy: { dayIndex: "asc" } });
     await prisma.accommodation.create({ data: { tripDayId: day1.id, name: "Shared Hotel", status: "BOOKED" } });
-    await prisma.tripBucketListItem.create({ data: { tripId: trip.id, title: "Shared idea" } });
+    await prisma.dayPlanItem.create({
+      data: { tripId: trip.id, tripDayId: null, scheduleMode: "FLEXIBLE", title: "Shared idea", contentJson: "{}" },
+    });
     await prisma.tripMember.create({ data: { tripId: trip.id, userId: contributor.id, role: "CONTRIBUTOR" } });
     await prisma.tripMember.create({ data: { tripId: trip.id, userId: viewer.id, role: "VIEWER" } });
 
@@ -947,7 +1020,7 @@ describe("GET /api/trips/[id]/export", () => {
     // The whole archive hangs off one root query, so a stay and an idea reached through two different
     // includes are what say the root resolved to this trip rather than to an empty result.
     expect(manifest.days[0].accommodation?.id).toBeTruthy();
-    expect(manifest.trip.bucketListItems.map((entry) => entry.title)).toEqual(["Shared idea"]);
+    expect(manifest.trip.parkedDayPlanItems.map((entry) => entry.title)).toEqual(["Shared idea"]);
 
     const viewerResponse = await GET(buildRequest(trip.id, { session: viewerToken }), routeContext(trip.id));
     expect(viewerResponse.status).toBe(403);

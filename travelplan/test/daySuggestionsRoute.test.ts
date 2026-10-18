@@ -242,7 +242,7 @@ describe("POST /api/trips/[id]/days/[dayId]/suggestions", () => {
     const { owner, trip, days } = await seedTrip();
     await prisma.dayPlanItem.create({
       data: {
-        tripDayId: days[0].id,
+        tripId: days[0].tripId, tripDayId: days[0].id,
         title: "Pergamon",
         contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "private note" }] }] }),
         costCents: 1234,
@@ -272,7 +272,7 @@ describe("POST /api/trips/[id]/days/[dayId]/suggestions", () => {
     const { owner, trip, days } = await seedTrip();
     await prisma.dayPlanItem.create({
       data: {
-        tripDayId: days[0].id,
+        tripId: days[0].tripId, tripDayId: days[0].id,
         title: "Pergamon",
         contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "private note" }] }] }),
         costCents: 1234,

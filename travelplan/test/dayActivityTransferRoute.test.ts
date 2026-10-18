@@ -92,7 +92,7 @@ describe("/api/trips/[id]/day-activity-transfer", () => {
 
     const sourceItem = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: sourceDay.id,
+        tripId: sourceDay.tripId, tripDayId: sourceDay.id,
         title: "Source item",
         fromTime: "09:00",
         toTime: "10:00",
@@ -162,7 +162,7 @@ describe("/api/trips/[id]/day-activity-transfer", () => {
 
     const firstItem = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: firstDay.id,
+        tripId: firstDay.tripId, tripDayId: firstDay.id,
         title: "First",
         fromTime: "09:00",
         toTime: "10:00",
@@ -171,7 +171,7 @@ describe("/api/trips/[id]/day-activity-transfer", () => {
     });
     const secondItem = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: secondDay.id,
+        tripId: secondDay.tripId, tripDayId: secondDay.id,
         title: "Second",
         fromTime: "12:00",
         toTime: "13:00",
@@ -276,7 +276,7 @@ describe("/api/trips/[id]/day-activity-transfer", () => {
     });
     await prisma.dayPlanItem.create({
       data: {
-        tripDayId: sourceDay.id,
+        tripId: sourceDay.tripId, tripDayId: sourceDay.id,
         title: "Source item",
         fromTime: "09:00",
         toTime: "10:00",
@@ -285,7 +285,7 @@ describe("/api/trips/[id]/day-activity-transfer", () => {
     });
     const targetItem = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: targetDay.id,
+        tripId: targetDay.tripId, tripDayId: targetDay.id,
         title: "Target item",
         fromTime: "12:00",
         toTime: "13:00",

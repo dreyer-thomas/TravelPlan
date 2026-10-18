@@ -1,11 +1,42 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import TripBucketListPanel, { BUCKET_LIST_MAX_HEIGHT_PX } from "@/components/features/trips/TripBucketListPanel";
+import TripBucketListPanel, {
+  BUCKET_LIST_MAX_HEIGHT_PX,
+  BUCKET_ROW_HEIGHT_PX,
+} from "@/components/features/trips/TripBucketListPanel";
 import { emotionDeclarations, emotionPseudoClassStyle } from "./helpers/emotionStyles";
 import { renderWithProviders } from "./helpers/renderWithProviders";
+
+/**
+ * Story 14.1 rewrote this suite's data for the parked activity and replaced the inline form's cases:
+ * adding and editing an idea is the activity dialog in parked mode (`tripDayPlanDialog.test.tsx` covers
+ * the dialog itself, including its place search, which the Story 6.28 cases here used to cover for the
+ * inline form). The dialog is mocked to its props, as `tripDayViewLayout.test.tsx` mocks it.
+ */
+type PlanDialogProps = {
+  open: boolean;
+  mode: "add" | "edit";
+  tripId: string;
+  day: unknown;
+  placement?: "day" | "parked";
+  item: { id: string; title: string | null; tripDayId: string | null; scheduleMode?: string; durationMinutes?: number } | null;
+  onDelete?: (itemId: string) => Promise<boolean>;
+  onClose: () => void;
+  onDayWrite?: () => void;
+  onSaved: (receipt: unknown) => void;
+  moveTargetDays?: unknown;
+  onMove?: unknown;
+};
+const planDialog = vi.hoisted(() => ({ last: null as PlanDialogProps | null }));
+vi.mock("@/components/features/trips/TripDayPlanDialog", () => ({
+  default: (props: PlanDialogProps) => {
+    planDialog.last = props;
+    return props.open ? <div data-testid="plan-dialog">{props.mode}</div> : null;
+  },
+}));
 
 // MUI's default `md` breakpoint. The height cap is deliberately scoped to the same key the trip
 // overview grid uses, so this is the media condition Emotion must emit it under.
@@ -18,9 +49,17 @@ const buildItem = (overrides: Partial<Record<string, unknown>> = {}) => ({
   id: "item-1",
   tripId: "trip-1",
   title: "Hike spot",
-  description: "Sunset trail",
-  positionText: "Trailhead",
+  contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Sunset trail" }] }] }),
+  durationMinutes: 60,
+  costCents: null,
+  costOriginalAmount: null,
+  costCurrency: null,
+  costRate: null,
+  costRateDate: null,
+  payments: [],
+  linkUrl: null,
   location: null,
+  firstImageUrl: null,
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
   ...overrides,
@@ -62,6 +101,7 @@ const LOAD_ERROR_TEXT = "Unable to load bucket list items.";
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  planDialog.last = null;
 });
 
 describe("TripBucketListPanel", () => {
@@ -156,16 +196,20 @@ describe("TripBucketListPanel", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("opens the add dialog from the collapsed add icon", async () => {
+  it("opens the activity dialog in parked mode from the collapsed add icon (Story 14.1 AC6)", async () => {
     const fetchMock = mockBucketListFetch([]);
     const user = userEvent.setup();
 
     renderWithProviders(<TripBucketListPanel tripId="trip-1" />);
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    await user.click(screen.getByRole("button", { name: "Add item" }));
+    await user.click(screen.getByRole("button", { name: "Add idea" }));
 
-    expect(screen.getByText("Add bucket list item")).toBeInTheDocument();
+    expect(screen.getByTestId("plan-dialog")).toHaveTextContent("add");
+    expect(planDialog.last).toMatchObject({ open: true, mode: "add", tripId: "trip-1", day: null, placement: "parked", item: null });
+    // Moving to another day is not offered for an idea.
+    expect(planDialog.last?.moveTargetDays).toBeUndefined();
+    expect(planDialog.last?.onMove).toBeUndefined();
   });
 
   it("gives the panel-level add button a 44x44 hit area and no warn coloring", async () => {
@@ -175,7 +219,7 @@ describe("TripBucketListPanel", () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
-    const addButton = screen.getByRole("button", { name: "Add item" });
+    const addButton = screen.getByRole("button", { name: "Add idea" });
     const style = window.getComputedStyle(addButton);
 
     // AC1 "44px floor" (padded hit area) - the button's box is 44x44 even though the visible
@@ -361,11 +405,12 @@ describe("TripBucketListPanel", () => {
     const maxHeight = emotionDeclarations(list, "max-height");
     const overflowY = emotionDeclarations(list, "overflow-y");
 
-    // Drift pin on the derivation, not a behavioural claim: a fully populated row is 53.75px of
-    // text (12.5px title + two 11px sublines at lineHeight 1.5, each +1px offset) rather than the
-    // 44px hit area, + 2x9px padding + 1px divider = 72.75px, x 5.5 rows. jsdom lays nothing out, so
-    // whether that many rows are actually visible is Task 6's browser pass, not this assertion's.
-    expect(BUCKET_LIST_MAX_HEIGHT_PX).toBe(400.125);
+    // Drift pin on the derivation, not a behavioural claim (Story 14.1 re-derived it for `bucket-item`):
+    // the 44px hit area beats the 40px thumbnail and the 38.5px text block (13.5px title + 11.5px meta
+    // line at lineHeight 1.5, +1px offset), + 2x9px padding + 1px divider = 63px, x 5.5 rows. jsdom
+    // lays nothing out, so whether that many rows are visible is the browser pass, not this assertion's.
+    expect(BUCKET_ROW_HEIGHT_PX).toBe(63);
+    expect(BUCKET_LIST_MAX_HEIGHT_PX).toBe(346.5);
 
     // Story 7.12 Trap 3 on the element that actually carries the cap: `maxHeight` only. A `height`
     // or `minHeight` here would turn the cap into a floor, which the empty-state case cannot catch
@@ -391,345 +436,169 @@ describe("TripBucketListPanel", () => {
     expect(Array.from(maxHeight.media.keys()).sort()).toEqual([XS_MEDIA_CONDITION, MD_MEDIA_CONDITION].sort());
   });
 
-  /**
-   * Story 6.28. This file holds **two** of the five geocode call sites: the explicit *Find*, and the
-   * silent submit-time lookup that runs when the user typed a place and never pressed it. The second one
-   * is the only behaviour this story changes anywhere — with several candidates it stops and asks rather
-   * than adopting the first, because adopting the first is precisely the silent wrong pin being removed.
-   */
-  describe("story 6.28 — coordinates by hand and a choice of places", () => {
-    const mockGeocodeFetch = (results: Array<{ lat: number; lng: number; label: string }>, sentBodies: string[] = []) => {
-      const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-        const url = String(input);
-        if (url.includes("/api/auth/csrf")) {
-          return { ok: true, status: 200, json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }) };
-        }
-        if (url.includes("/api/geocode")) {
-          return { ok: true, status: 200, json: async () => ({ data: { results }, error: null }) };
-        }
-        if (init?.body) {
-          sentBodies.push(String(init.body));
-          return { ok: true, status: 200, json: async () => ({ data: { item: buildItem() }, error: null }) };
-        }
-        return { ok: true, status: 200, json: async () => ({ data: { items: [] }, error: null }) };
-      }) as unknown as typeof fetch;
-      vi.stubGlobal("fetch", fetchMock);
-      return fetchMock;
-    };
-
-    // The panel loads its items on mount, so the absence of a geocode request is a filtered call list
-    // rather than `not.toHaveBeenCalled()` — Trap 2.
-    const geocodeCalls = (fetchMock: typeof fetch) =>
-      (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls.filter((call) =>
-        String(call[0]).includes("/api/geocode"),
-      );
-
-    const openAddDialog = async (
-      results: Array<{ lat: number; lng: number; label: string }> = [],
-      sentBodies: string[] = [],
-    ) => {
-      const fetchMock = mockGeocodeFetch(results, sentBodies);
+  describe("bucket-item rows (Story 14.1 AC4)", () => {
+    const expand = async (items: unknown[]) => {
+      const fetchMock = mockBucketListFetch(items);
       const user = userEvent.setup();
-      renderWithProviders(<TripBucketListPanel tripId="trip-1" />);
+      renderWithProviders(<TripBucketListPanel tripId="trip-1" />, { language: "de" });
       await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-      await user.click(screen.getByRole("button", { name: "Add item" }));
-      return { fetchMock, user };
+      await user.click(screen.getByRole("button", { name: "Bucket-Liste erweitern" }));
+      return { user, fetchMock };
     };
 
-    // AC1 on this surface. `resolvedLocationQuery` has to be set to the raw typed text as well, or the
-    // invalidation effect nulls the pin on the next render — which is what this readout would show.
-    it("resolves a typed coordinate pair without touching the geocoder", async () => {
-      const { fetchMock, user } = await openAddDialog();
-
-      await user.type(screen.getByLabelText("Position text"), "48.8584, 2.2945");
-      await user.click(screen.getByRole("button", { name: "Find" }));
-
-      expect(await screen.findByText("Latitude: 48.858400 · Longitude: 2.294500")).toBeInTheDocument();
-      expect(geocodeCalls(fetchMock)).toHaveLength(0);
-    });
-
-    // AC2.
-    it("resolves a pasted Google Maps URL without touching the geocoder", async () => {
-      const { fetchMock, user } = await openAddDialog();
-
-      await user.click(screen.getByLabelText("Position text"));
-      await user.paste("https://www.google.com/maps/@48.8584,2.2945,17z");
-      await user.click(screen.getByRole("button", { name: "Find" }));
-
-      expect(await screen.findByText("Latitude: 48.858400 · Longitude: 2.294500")).toBeInTheDocument();
-      expect(geocodeCalls(fetchMock)).toHaveLength(0);
-    });
-
-    // AC4.
-    it("faults an out-of-range pair and leaves the readout empty", async () => {
-      const { fetchMock, user } = await openAddDialog();
-
-      await user.type(screen.getByLabelText("Position text"), "91.0, 2.0");
-      await user.click(screen.getByRole("button", { name: "Find" }));
-
-      expect(await screen.findByText("Latitude must be between -90 and 90")).toBeInTheDocument();
-      expect(screen.getByText("No coordinates selected")).toBeInTheDocument();
-      expect(geocodeCalls(fetchMock)).toHaveLength(0);
-    });
-
-    // AC5 on the explicit Find. The position field keeps the user's own words — this site has never
-    // written the geocoder's name into it — but the stored pin is the row that was chosen.
-    it("adopts nothing until a candidate row is activated", async () => {
-      const { user } = await openAddDialog([
-        { lat: -36.8485, lng: 174.7633, label: "Sky Tower, Auckland" },
-        { lat: 43.6426, lng: -79.3871, label: "Sky Tower, Toronto" },
+    it("shows the first picture as a 40px square at radius 0, the title, and duration · place", async () => {
+      await expand([
+        buildItem({
+          title: "Gullfoss",
+          durationMinutes: 60,
+          location: { lat: 64.3, lng: -20.1, label: "Gullfoss" },
+          firstImageUrl: "/uploads/trips/trip-1/parked/day-plan-items/item-1/a.webp",
+        }),
       ]);
 
-      await user.type(screen.getByLabelText("Position text"), "Sky Tower");
-      await user.click(screen.getByRole("button", { name: "Find" }));
-
-      expect(await screen.findByText("Select a place (2)")).toBeInTheDocument();
-      expect(screen.getByText("No coordinates selected")).toBeInTheDocument();
-
-      await user.click(screen.getByRole("button", { name: "Sky Tower, Auckland" }));
-
-      expect(await screen.findByText("Latitude: -36.848500 · Longitude: 174.763300")).toBeInTheDocument();
-      expect(screen.getByLabelText("Position text")).toHaveValue("Sky Tower");
-      expect(screen.queryByRole("button", { name: "Sky Tower, Toronto" })).toBeNull();
+      const row = screen.getByTestId("bucket-item");
+      // Decorative: the title beside it already names the idea.
+      const image = row.querySelector("img")!;
+      expect(image).toHaveAttribute("alt", "");
+      expect(image).toHaveAttribute("src", "/uploads/trips/trip-1/parked/day-plan-items/item-1/a.webp");
+      expect(image).toHaveAttribute("loading", "lazy");
+      const style = window.getComputedStyle(image);
+      expect(style.width).toBe("40px");
+      expect(style.height).toBe("40px");
+      expect(style.borderRadius).toBe("0px");
+      expect(within(row).getByText("Gullfoss", { selector: "p" })).toBeVisible();
+      expect(within(row).getByText("1 Std · Gullfoss")).toBeVisible();
     });
 
-    // AC8.
-    it("clears a manually entered pair", async () => {
-      const { user } = await openAddDialog();
+    it("shows no placeholder without a picture, and the duration alone without a place", async () => {
+      await expand([buildItem({ title: "Markt", durationMinutes: 90, location: null, firstImageUrl: null })]);
 
-      await user.type(screen.getByLabelText("Position text"), "48.8584, 2.2945");
-      await user.click(screen.getByRole("button", { name: "Find" }));
-      expect(await screen.findByText("Latitude: 48.858400 · Longitude: 2.294500")).toBeInTheDocument();
-
-      await user.click(screen.getByRole("button", { name: "Clear" }));
-
-      expect(screen.getByText("No coordinates selected")).toBeInTheDocument();
+      const row = screen.getByTestId("bucket-item");
+      expect(within(row).queryByRole("img")).not.toBeInTheDocument();
+      expect(within(row).getByText("1 Std 30 Min")).toBeVisible();
+      // The old line said "Keine Koordinaten gespeichert"; the meta line simply drops the place.
+      expect(within(row).queryByText(/Koordinaten/)).not.toBeInTheDocument();
     });
 
-    /**
-     * The submit path, first half: a typed pair saves with its location and **no** geocode request, even
-     * though *Find* was never pressed. Before this story the same keystrokes reached Nominatim as a
-     * search string and the entry saved with no location at all.
-     */
-    it("saves a typed pair from the submit path with no geocode request", async () => {
-      const sentBodies: string[] = [];
-      const { fetchMock, user } = await openAddDialog([], sentBodies);
+    it("opens the activity dialog in parked mode on the row's edit action, with the row's activity", async () => {
+      const { user } = await expand([buildItem({ id: "idea-7", title: "Hütte", durationMinutes: 45 })]);
 
-      await user.type(screen.getByLabelText("Title"), "Lookout");
-      await user.type(screen.getByLabelText("Position text"), "-36.8485, 174.7633");
-      await user.click(screen.getByRole("button", { name: "Save item" }));
+      await user.click(screen.getByRole("button", { name: "Eintrag bearbeiten" }));
 
-      await waitFor(() => expect(sentBodies).toHaveLength(1));
-      const payload = JSON.parse(sentBodies[0]);
-      expect(payload.location).toEqual({ lat: -36.8485, lng: 174.7633, label: "-36.848500, 174.763300" });
-      // The user's own words stay in the column that stores them.
-      expect(payload.positionText).toBe("-36.8485, 174.7633");
-      expect(geocodeCalls(fetchMock)).toHaveLength(0);
-    });
-
-    /**
-     * Story 6.28 review, P3. The submit path is **silent**, and `positionText` is a 200-character free-text
-     * note column rather than a search box — so a refusal must not be able to make a note unsaveable.
-     * `1,2,3` was answered with "Coordinates unclear…" and could then never be stored at all (it saved
-     * fine before this story), and `2026, 8` was refused with a latitude complaint about a year. Both fall
-     * through to the geocode attempt exactly as they did before, and the entry saves with no location.
-     */
-    it.each(["1,2,3", "2026, 8"])("saves the note %o that no coordinate reading can be made of", async (position) => {
-      const sentBodies: string[] = [];
-      const { user } = await openAddDialog([], sentBodies);
-
-      await user.type(screen.getByLabelText("Title"), "Numbers");
-      await user.type(screen.getByLabelText("Position text"), position);
-      await user.click(screen.getByRole("button", { name: "Save item" }));
-
-      await waitFor(() => expect(sentBodies).toHaveLength(1));
-      const payload = JSON.parse(sentBodies[0]);
-      expect(payload.positionText).toBe(position);
-      expect(payload.location).toBeNull();
-      expect(screen.queryByText("Coordinates unclear. Write 48.8584, 2.2945 or 48,8584; 2,2945.")).toBeNull();
-    });
-
-    /**
-     * Story 6.28 review, P2, and the sequence that made this the one surface where a stale list did not
-     * merely offer the wrong places but **saved** one. The rows answered "Sky Tower"; after the position
-     * text becomes "Eiffelturm", `selectLocationCandidate` would set `resolvedLocationQuery` to the text as
-     * it is *now*, the drift-invalidation effect would see agreement and leave the pin, and the entry would
-     * save as "Eiffelturm" at Auckland's coordinates. The list is dismissed instead.
-     *
-     * The field is `register("positionText")`, so this is watched rather than handled in an `onChange` —
-     * which is why it needs its own case here and not only in the two dialogs.
-     */
-    it("dismisses an unanswered candidate list when the position text is edited", async () => {
-      const { user } = await openAddDialog([
-        { lat: -36.8485, lng: 174.7633, label: "Sky Tower, Auckland" },
-        { lat: 43.6426, lng: -79.3871, label: "Sky Tower, Toronto" },
-      ]);
-
-      await user.type(screen.getByLabelText("Position text"), "Sky Tower");
-      await user.click(screen.getByRole("button", { name: "Find" }));
-      expect(await screen.findByRole("button", { name: "Sky Tower, Auckland" })).toBeInTheDocument();
-
-      await user.clear(screen.getByLabelText("Position text"));
-      await user.type(screen.getByLabelText("Position text"), "Eiffelturm");
-
-      expect(screen.queryByRole("button", { name: "Sky Tower, Auckland" })).toBeNull();
-      expect(screen.queryByText("Select a place (2)")).toBeNull();
-      expect(screen.getByText("No coordinates selected")).toBeInTheDocument();
-    });
-
-    /**
-     * The submit path, second half, and the one behaviour this story changes. `onSubmit` cannot prompt
-     * mid-save, so with several candidates it aborts, renders the list and says why — rather than
-     * adopting `results[0]`, which is the silent wrong pin, or saving with no location, which is the
-     * silent drop.
-     */
-    it("aborts the save and asks when the submit-time lookup finds several places", async () => {
-      const sentBodies: string[] = [];
-      const { user } = await openAddDialog(
-        [
-          { lat: -36.8485, lng: 174.7633, label: "Sky Tower, Auckland" },
-          { lat: 43.6426, lng: -79.3871, label: "Sky Tower, Toronto" },
-        ],
-        sentBodies,
-      );
-
-      await user.type(screen.getByLabelText("Title"), "Viewpoint");
-      await user.type(screen.getByLabelText("Position text"), "Sky Tower");
-      await user.click(screen.getByRole("button", { name: "Save item" }));
-
-      expect(await screen.findByText("Select one of the places found.")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Sky Tower, Auckland" })).toBeInTheDocument();
-      expect(sentBodies).toHaveLength(0);
-
-      // And the choice makes the save go through, with the chosen row's label stored.
-      await user.click(screen.getByRole("button", { name: "Sky Tower, Toronto" }));
-
-      /*
-        Story 6.28 review, P9. Choosing a row is the only thing that can answer "Select one of the places
-        found.", so the banner has to go with it — leaving it standing told the user to do the thing they
-        had just done, on a dialog whose save was now perfectly ready to go.
-      */
-      expect(screen.queryByText("Select one of the places found.")).toBeNull();
-
-      await user.click(screen.getByRole("button", { name: "Save item" }));
-
-      await waitFor(() => expect(sentBodies).toHaveLength(1));
-      expect(JSON.parse(sentBodies[0]).location).toEqual({
-        lat: 43.6426,
-        lng: -79.3871,
-        label: "Sky Tower, Toronto",
+      expect(planDialog.last).toMatchObject({
+        open: true,
+        mode: "edit",
+        day: null,
+        placement: "parked",
+        item: { id: "idea-7", title: "Hütte", tripDayId: null, scheduleMode: "FLEXIBLE", durationMinutes: 45 },
       });
     });
 
-    /**
-     * Story 6.28 follow-up review. *Clear* and the parse on save were on a collision course here exactly
-     * as they were in the two dialogs — but the dialogs' fix (empty the search box too) is not available
-     * on this surface, because `positionText` is a **saved note column**, not a search box. So *Clear*
-     * nulled the pin, left `48.8584, 2.2945` in the note, and `onSubmit` read the pair straight back out
-     * of it: the button was a no-op and a hand-entered location could not be deleted at all.
-     */
-    it("keeps a cleared pin cleared when the note still spells the pair", async () => {
-      const sentBodies: string[] = [];
-      const { fetchMock, user } = await openAddDialog([], sentBodies);
+    it("reloads the list after the dialog saved", async () => {
+      const { user, fetchMock } = await expand([buildItem()]);
+      await user.click(screen.getByRole("button", { name: "Eintrag bearbeiten" }));
 
-      await user.type(screen.getByLabelText("Title"), "Lookout");
-      await user.type(screen.getByLabelText("Position text"), "48.8584, 2.2945");
-      await user.click(screen.getByRole("button", { name: "Find" }));
-      expect(await screen.findByText("Latitude: 48.858400 · Longitude: 2.294500")).toBeInTheDocument();
+      act(() => planDialog.last!.onSaved(null));
 
-      await user.click(screen.getByRole("button", { name: "Clear" }));
-      expect(screen.getByText("No coordinates selected")).toBeInTheDocument();
-
-      await user.click(screen.getByRole("button", { name: "Save item" }));
-
-      await waitFor(() => expect(sentBodies).toHaveLength(1));
-      const payload = JSON.parse(sentBodies[0]);
-      expect(payload.location).toBeNull();
-      // The note itself is untouched — clearing the *location* is not deleting the user's words.
-      expect(payload.positionText).toBe("48.8584, 2.2945");
-      expect(geocodeCalls(fetchMock)).toHaveLength(0);
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+      expect(screen.queryByTestId("plan-dialog")).not.toBeInTheDocument();
     });
+  });
 
-    // ...and the marker is a query, not a latch: retyping the note revives the lookup, so *Clear* cannot
-    // quietly disable coordinate entry for the rest of the dialog's life.
-    it("resolves again after Clear once the note is edited", async () => {
-      const { user } = await openAddDialog();
-
-      await user.type(screen.getByLabelText("Position text"), "48.8584, 2.2945");
-      await user.click(screen.getByRole("button", { name: "Find" }));
-      expect(await screen.findByText("Latitude: 48.858400 · Longitude: 2.294500")).toBeInTheDocument();
-      await user.click(screen.getByRole("button", { name: "Clear" }));
-
-      await user.clear(screen.getByLabelText("Position text"));
-      await user.type(screen.getByLabelText("Position text"), "-36.8485, 174.7633");
-      await user.click(screen.getByRole("button", { name: "Find" }));
-
-      expect(await screen.findByText("Latitude: -36.848500 · Longitude: 174.763300")).toBeInTheDocument();
-    });
-
-    /**
-     * Story 6.28 follow-up review, and the sharpest edge the submit-time abort had. An item with a note
-     * and **no** location is a legal, already-saved shape — a position is optional on a bucket-list entry.
-     * Re-opening one to fix a typo in the title sent its note to Nominatim, got several rows back and
-     * refused the save with "Select one of the places found.", so the title edit could not be stored
-     * unless the user either pinned a place they never asked for or deleted the note. It saved fine
-     * before this story.
-     */
-    it("saves a title edit on an item whose note was already stored without a location", async () => {
-      const sentBodies: string[] = [];
+  describe("delete keeps its confirmation (Story 14.1 AC10)", () => {
+    it("asks first; Keep closes without a request, Delete sends it and reloads", async () => {
       const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
         if (url.includes("/api/auth/csrf")) {
-          return { ok: true, status: 200, json: async () => ({ data: { csrfToken: "csrf-token" }, error: null }) };
+          return { ok: true, status: 200, json: async () => ({ data: { csrfToken: "csrf" }, error: null }) };
         }
-        if (url.includes("/api/geocode")) {
-          return {
-            ok: true,
-            status: 200,
-            json: async () => ({
-              data: {
-                results: [
-                  { lat: -36.8485, lng: 174.7633, label: "Sky Tower, Auckland" },
-                  { lat: 43.6426, lng: -79.3871, label: "Sky Tower, Toronto" },
-                ],
-              },
-              error: null,
-            }),
-          };
+        if (init?.method === "DELETE") {
+          return { ok: true, status: 200, json: async () => ({ data: { deleted: true }, error: null }) };
         }
-        if (init?.body) {
-          sentBodies.push(String(init.body));
-          return { ok: true, status: 200, json: async () => ({ data: { item: buildItem() }, error: null }) };
-        }
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            data: { items: [buildItem({ positionText: "Sky Tower", location: null })] },
-            error: null,
-          }),
-        };
+        return { ok: true, status: 200, json: async () => ({ data: { items: [buildItem({ id: "idea-9" })] }, error: null }) };
       }) as unknown as typeof fetch;
       vi.stubGlobal("fetch", fetchMock);
+      const user = userEvent.setup();
 
+      renderWithProviders(<TripBucketListPanel tripId="trip-1" />);
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      await user.click(screen.getByRole("button", { name: "Expand bucket list" }));
+
+      await user.click(screen.getByRole("button", { name: "Delete item" }));
+      const confirm = screen.getByRole("dialog");
+      expect(within(confirm).getByText("Delete bucket list item?")).toBeVisible();
+      await user.click(within(confirm).getByRole("button", { name: "Keep item" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      expect(vi.mocked(fetchMock).mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
+
+      await user.click(screen.getByRole("button", { name: "Delete item" }));
+      await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Delete item" }));
+
+      await waitFor(() =>
+        expect(vi.mocked(fetchMock).mock.calls.find(([, init]) => init?.method === "DELETE")?.[1]?.body).toBe(
+          JSON.stringify({ itemId: "idea-9" }),
+        ),
+      );
+      const listLoads = vi.mocked(fetchMock).mock.calls.filter(([url, init]) => String(url).endsWith("/bucket-list-items") && !init?.method?.match(/DELETE/));
+      await waitFor(() => expect(listLoads.length).toBeGreaterThanOrEqual(1));
+    });
+
+    it("hands the dialog's delete over to the same confirmation", async () => {
+      const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes("/api/auth/csrf")) {
+          return { ok: true, status: 200, json: async () => ({ data: { csrfToken: "csrf" }, error: null }) };
+        }
+        if (init?.method === "DELETE") {
+          return { ok: true, status: 200, json: async () => ({ data: { deleted: true }, error: null }) };
+        }
+        return { ok: true, status: 200, json: async () => ({ data: { items: [buildItem({ id: "idea-3", title: "Hütte" })] }, error: null }) };
+      }) as unknown as typeof fetch;
+      vi.stubGlobal("fetch", fetchMock);
       const user = userEvent.setup();
       renderWithProviders(<TripBucketListPanel tripId="trip-1" />);
       await waitFor(() => expect(fetchMock).toHaveBeenCalled());
       await user.click(screen.getByRole("button", { name: "Expand bucket list" }));
-      await user.click(await screen.findByRole("button", { name: "Edit item" }));
+      await user.click(screen.getByRole("button", { name: "Edit item" }));
 
-      await user.clear(screen.getByLabelText("Title"));
-      await user.type(screen.getByLabelText("Title"), "Hike spot fixed");
-      await user.click(screen.getByRole("button", { name: "Update item" }));
+      // The editor's delete waits for the confirmation: "Keep" leaves the editor open (false).
+      let kept!: Promise<boolean>;
+      act(() => {
+        kept = planDialog.last!.onDelete!("idea-3");
+      });
+      const confirm = await screen.findByRole("dialog");
+      expect(within(confirm).getByText("Delete bucket list item?")).toBeVisible();
+      await user.click(within(confirm).getByRole("button", { name: "Keep item" }));
+      await expect(kept).resolves.toBe(false);
+      expect(vi.mocked(fetchMock).mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
 
-      await waitFor(() => expect(sentBodies).toHaveLength(1));
-      const payload = JSON.parse(sentBodies[0]);
-      expect(payload.title).toBe("Hike spot fixed");
-      expect(payload.location).toBeNull();
-      expect(payload.positionText).toBe("Sky Tower");
-      expect(screen.queryByText("Select one of the places found.")).toBeNull();
-      // The note was already settled, so re-saving it asks Nominatim nothing at all.
-      expect(geocodeCalls(fetchMock)).toHaveLength(0);
+      // Only a delete that went through closes it (true).
+      let deleted!: Promise<boolean>;
+      act(() => {
+        deleted = planDialog.last!.onDelete!("idea-3");
+      });
+      await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Delete item" }));
+      await expect(deleted).resolves.toBe(true);
+      expect(vi.mocked(fetchMock).mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(true);
+    });
+
+    it("keeps the edit dialog's item stable across a list reload, so unsaved edits are not re-seeded away", async () => {
+      const fetchMock = mockBucketListFetch([buildItem({ id: "idea-4", title: "Geysir" })]);
+      const user = userEvent.setup();
+      renderWithProviders(<TripBucketListPanel tripId="trip-1" />);
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      await user.click(screen.getByRole("button", { name: "Expand bucket list" }));
+      await user.click(screen.getByRole("button", { name: "Edit item" }));
+      const seeded = planDialog.last!.item;
+      expect(seeded).toMatchObject({ id: "idea-4" });
+      const callsBefore = vi.mocked(fetchMock).mock.calls.length;
+
+      // A picture upload in the dialog reloads the list (`onDayWrite`).
+      await act(async () => {
+        planDialog.last!.onDayWrite!();
+      });
+      await waitFor(() => expect(vi.mocked(fetchMock).mock.calls.length).toBeGreaterThan(callsBefore));
+
+      expect(planDialog.last!.item).toBe(seeded);
     });
   });
 });

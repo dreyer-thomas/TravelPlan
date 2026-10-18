@@ -6,6 +6,7 @@ import { createSessionJwt } from "@/lib/auth/jwt";
 import { reorderDayPlanItemForTripDay } from "@/lib/repositories/dayPlanItemRepo";
 import { routeContext } from "./helpers/routeContext";
 import { settleSeededDay } from "./helpers/settleSeededDay";
+import { tripIdOfDay } from "./helpers/tripIdOfDay";
 
 /**
  * Story 11.3. *Nach oben* / *Nach unten* wired through the repository and the route: what is written,
@@ -43,18 +44,18 @@ const createTrip = async (userId: string) => {
 
 let created = 0;
 /** Distinct, increasing `createdAt`s, so equal starts always sort in creation order. */
-const createRawItem = (tripDayId: string, title: string | null, fromTime: string | null, toTime: string | null) => {
+const createRawItem = async (tripDayId: string, title: string | null, fromTime: string | null, toTime: string | null) => {
   created += 1;
   const stamp = new Date(PAST.getTime() + created * 1000);
   return prisma.dayPlanItem.create({
-    data: { tripDayId, title, fromTime, toTime, contentJson: sampleDoc(title ?? ""), createdAt: stamp, updatedAt: PAST },
+    data: { tripId: await tripIdOfDay(tripDayId), tripDayId, title, fromTime, toTime, contentJson: sampleDoc(title ?? ""), createdAt: stamp, updatedAt: PAST },
   });
 };
 
 /** Story 13.1: each seeded day is numbered the way the migration numbers real data. */
 const createItem = async (...args: Parameters<typeof createRawItem>) => {
   const row = await createRawItem(...args);
-  await settleSeededDay(row.tripDayId);
+  await settleSeededDay(row.tripDayId!);
   return prisma.dayPlanItem.findUniqueOrThrow({ where: { id: row.id } });
 };
 
@@ -105,7 +106,6 @@ const databaseState = async () => ({
   items: await prisma.dayPlanItem.findMany({ orderBy: { id: "asc" } }),
   payments: await prisma.costPayment.findMany({ orderBy: { id: "asc" } }),
   legs: await prisma.travelSegment.findMany({ orderBy: { id: "asc" } }),
-  bucket: await prisma.tripBucketListItem.findMany({ orderBy: { id: "asc" } }),
 });
 
 const times = async (tripDayId: string) =>
@@ -117,7 +117,6 @@ const resetDatabase = async () => {
   await prisma.travelSegment.deleteMany();
   await prisma.dayPlanItemDocument.deleteMany();
   await prisma.dayPlanItemImage.deleteMany();
-  await prisma.tripBucketListItem.deleteMany();
   await prisma.costPayment.deleteMany();
   await prisma.dayPlanItem.deleteMany();
   await prisma.tripMember.deleteMany();

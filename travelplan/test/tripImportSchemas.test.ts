@@ -1084,6 +1084,36 @@ describe("tripImportSchemas", () => {
       expect(result.success).toBe(false);
     });
 
+    it("counts parked activities and legacy bucket entries against one ceiling (Story 14.1)", () => {
+      const half = Math.ceil(MAX_IMPORT_BUCKET_LIST_ITEMS / 2);
+      const legacy = Array.from({ length: half }, (_, index) => ({ title: `Wish ${index + 1}` }));
+      const parked = Array.from({ length: MAX_IMPORT_BUCKET_LIST_ITEMS - half + 1 }, (_, index) => ({
+        id: `p${index}`,
+        title: `Idea ${index + 1}`,
+        contentJson: "{}",
+        createdAt: "2026-02-14T12:00:00.000Z",
+        updatedAt: "2026-02-14T12:00:00.000Z",
+        location: null,
+        linkUrl: null,
+        images: [],
+        documents: [],
+      }));
+
+      const over = tripImportPayloadSchema.safeParse({
+        ...v2Payload,
+        trip: { ...v2Payload.trip, bucketListItems: legacy, parkedDayPlanItems: parked },
+      });
+      expect(over.success).toBe(false);
+      if (over.success) return;
+      expect(JSON.stringify(over.error.issues)).toContain(`at most ${MAX_IMPORT_BUCKET_LIST_ITEMS} bucket list items`);
+
+      const atCeiling = tripImportPayloadSchema.safeParse({
+        ...v2Payload,
+        trip: { ...v2Payload.trip, bucketListItems: legacy, parkedDayPlanItems: parked.slice(1) },
+      });
+      expect(atCeiling.success).toBe(true);
+    });
+
     it("refuses an unbounded warnings list, which the success envelope echoes back verbatim", () => {
       const warnings = Array.from({ length: MAX_IMPORT_WARNINGS + 1 }, (_, index) => `warning ${index}`);
 
@@ -1262,5 +1292,98 @@ describe("tripImportSchemas", () => {
       expect(result.data?.trip.heroImageUrl).toBe(atCap);
       expect(result.data?.meta.warnings).toEqual([]);
     });
+  });
+});
+
+describe("tripImportPayloadSchema parkedDayPlanItems (Story 14.1 AC12)", () => {
+  const parkedItem = (overrides: Record<string, unknown> = {}) => ({
+    id: "source-idea",
+    title: "Gullfoss",
+    contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "x" }] }] }),
+    scheduleMode: "FLEXIBLE",
+    durationMinutes: 120,
+    costCents: 3000,
+    payments: [
+      { amountCents: 1000, dueDate: "2026-08-01" },
+      { amountCents: 2000, dueDate: "2026-09-01" },
+    ],
+    linkUrl: null,
+    location: { lat: 64.3, lng: -20.1, label: "Gullfoss" },
+    createdAt: "2026-02-14T12:00:00.000Z",
+    updatedAt: "2026-02-14T12:00:00.000Z",
+    images: [],
+    documents: [],
+    ...overrides,
+  });
+  const withParked = (items: unknown[]) => ({
+    ...v2Payload,
+    trip: { ...v2Payload.trip, parkedDayPlanItems: items },
+  });
+
+  it("accepts a parked activity with its duration, payments and place, and defaults the list to empty", () => {
+    const result = tripImportPayloadSchema.safeParse(withParked([parkedItem()]));
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.trip.parkedDayPlanItems[0]).toMatchObject({ durationMinutes: 120, costCents: 3000 });
+
+    const bare = tripImportPayloadSchema.safeParse(v2Payload);
+    expect(bare.success).toBe(true);
+    if (!bare.success) return;
+    expect(bare.data.trip.parkedDayPlanItems).toEqual([]);
+  });
+
+  it("refuses payments that do not sum to the cost, a fixed mode, and a duration past a day", () => {
+    expect(tripImportPayloadSchema.safeParse(withParked([parkedItem({ costCents: 2999 })])).success).toBe(false);
+    expect(tripImportPayloadSchema.safeParse(withParked([parkedItem({ scheduleMode: "FIXED" })])).success).toBe(false);
+    expect(tripImportPayloadSchema.safeParse(withParked([parkedItem({ durationMinutes: 1440 })])).success).toBe(false);
+  });
+
+  it("refuses a duration below the app's minimum and an idea without a title", () => {
+    expect(tripImportPayloadSchema.safeParse(withParked([parkedItem({ durationMinutes: 4 })])).success).toBe(false);
+    expect(tripImportPayloadSchema.safeParse(withParked([parkedItem({ durationMinutes: 5 })])).success).toBe(true);
+    expect(tripImportPayloadSchema.safeParse(withParked([parkedItem({ title: null })])).success).toBe(false);
+    expect(tripImportPayloadSchema.safeParse(withParked([parkedItem({ title: "  " })])).success).toBe(false);
+  });
+
+  it("checks a parked activity's pictures and documents against the pools, as a day item's", () => {
+    const pooled = tripImportPayloadSchema.safeParse(withParked([parkedItem({ images: [{ sortOrder: 0, photoId: "p2" }] })]));
+    expect(pooled.success).toBe(true);
+
+    const unknownPhoto = tripImportPayloadSchema.safeParse(
+      withParked([parkedItem({ images: [{ sortOrder: 0, photoId: "missing" }] })]),
+    );
+    expect(unknownPhoto.success).toBe(false);
+    if (unknownPhoto.success) return;
+    expect(unknownPhoto.error.issues).toContainEqual(
+      expect.objectContaining({
+        message: "Unknown photo reference: missing",
+        path: ["trip", "parkedDayPlanItems", 0, "images", 0, "photoId"],
+      }),
+    );
+
+    const unknownDocument = tripImportPayloadSchema.safeParse(
+      withParked([parkedItem({ documents: [{ sortOrder: 0, documentId: "missing", fileName: "Ticket.pdf" }] })]),
+    );
+    expect(unknownDocument.success).toBe(false);
+    if (unknownDocument.success) return;
+    expect(unknownDocument.error.issues.map((issue) => issue.message)).toContain("Unknown document reference: missing");
+  });
+
+  it("counts a parked activity's pictures against the media budget", () => {
+    const photos = Object.fromEntries(
+      Array.from({ length: MAX_IMPORT_MEDIA_WRITES }, (_, index) => [
+        `px${index}`,
+        { contentType: "image/jpeg", archivePath: `photos/px${index}.jpg` },
+      ]),
+    );
+    const result = tripImportPayloadSchema.safeParse({
+      ...withParked([
+        parkedItem({ images: Array.from({ length: MAX_IMPORT_MEDIA_WRITES }, (_, index) => ({ sortOrder: index, photoId: `px${index}` })) }),
+      ]),
+      photos: { ...v2Payload.photos, ...photos },
+    });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.issues.map((issue) => issue.message).join("\n")).toMatch(/media files, more than the/);
   });
 });

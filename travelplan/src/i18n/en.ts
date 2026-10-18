@@ -553,8 +553,8 @@ const en: Dictionary = {
   "trips.overviewMap.popupNoNotes": "No notes added for this stay.",
   "trips.overviewMap.openLinkedItem": "Open details",
   "trips.bucketList.title": "Bucket list",
-  "trips.bucketList.addAction": "Add item",
-  "trips.bucketList.addToDayAction": "Add to day",
+  "trips.bucketList.addAction": "Add idea",
+  "trips.bucketList.addToDayAction": "Schedule on this day",
   "trips.bucketList.loading": "Loading bucket list...",
   "trips.bucketList.empty": "No bucket list items yet.",
   "trips.bucketList.loadError": "Unable to load bucket list items.",
@@ -564,16 +564,10 @@ const en: Dictionary = {
   "trips.bucketList.countLineOne": "1 entry",
   "trips.bucketList.expandAction": "Expand bucket list",
   "trips.bucketList.collapseAction": "Collapse bucket list",
-  "trips.bucketList.locationMissing": "No coordinates saved",
-  "trips.bucketList.addTitle": "Add bucket list item",
-  "trips.bucketList.editTitle": "Edit bucket list item",
-  "trips.bucketList.saveNew": "Save item",
-  "trips.bucketList.saveUpdate": "Update item",
-  "trips.bucketList.saveError": "Bucket list update failed. Please try again.",
   "trips.bucketList.deleteError": "Bucket list item removal failed. Please try again.",
-  "trips.bucketList.titleLabel": "Title",
-  "trips.bucketList.descriptionLabel": "Description",
-  "trips.bucketList.positionLabel": "Position text",
+  // Story 14.1: "+" on a Day Detail row moves the idea onto the day; this is its failure.
+  "trips.bucketList.scheduleError": "Could not be scheduled. Please try again.",
+  "trips.bucketList.scheduleStale": "The day was just changed – the idea was not scheduled. Please try again.",
   "trips.bucketList.editAction": "Edit item",
   "trips.bucketList.deleteAction": "Delete item",
   "trips.bucketList.deleteTitle": "Delete bucket list item?",
@@ -588,6 +582,9 @@ const en: Dictionary = {
   "trips.plan.title": "Day {index} plan",
   "trips.plan.addDialogTitle": "Add plan item",
   "trips.plan.editDialogTitle": "Edit plan item",
+  // Story 14.1: the activity dialog opened for a bucket-list idea (no day).
+  "trips.plan.addIdeaDialogTitle": "Add idea",
+  "trips.plan.editIdeaDialogTitle": "Edit idea",
   "trips.plan.itemsTitle": "Plan items",
   "trips.plan.empty": "No plan items yet.",
   "trips.plan.newItem": "New item",
@@ -723,6 +720,12 @@ const en: Dictionary = {
   // every count-bearing string here is - `formatMessage` has no plural support.
   // Story 11.3: a reorder's summary leads with this.
   "trips.dayChange.reordered": "Order changed",
+  // Story 14.1: "+" moved a bucket-list idea onto the day.
+  "trips.dayChange.scheduled": "\"{title}\" scheduled",
+  // Story 14.1: an activity's duration as the bucket-list row's meta line shows it.
+  "trips.duration.hours": "{hours} h",
+  "trips.duration.minutes": "{minutes} min",
+  "trips.duration.hoursMinutes": "{hours} h {minutes} min",
   "trips.dayChange.itemsMovedOne": "1 activity moved",
   "trips.dayChange.itemsMoved": "{count} activities moved",
   "trips.dayChange.itemsMovedOnDayOne": "1 activity moved on day {day}",
@@ -987,8 +990,8 @@ const en: Dictionary = {
   // Story 6.28 AC5. `{count}` because a heading over a list of choices has to say how many there are;
   // `formatMessage` has no plural support, and this string is grammatical for every count.
   "trips.location.resultsLabel": "Select a place ({count})",
-  // The bucket list's submit path only. It geocodes silently when the user typed a place and never
-  // pressed Find, and with several candidates it cannot prompt mid-save — so it stops and asks.
+  // The activity and stay dialogs' save paths: a candidate list the user has not answered yet stops the
+  // save. (Story 14.1 removed the bucket list's own form, which used to reach it from a silent lookup.)
   "trips.location.selectRequired": "Select one of the places found.",
   // Already worded for AC4 before this story existed, and reused as-is: `parseLocationInput` checks the
   // latitude first, so exactly one of the two is ever shown.

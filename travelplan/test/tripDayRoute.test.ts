@@ -101,7 +101,7 @@ describe("GET /api/trips/[id]/days/[dayId]/route", () => {
     });
     await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day2.id,
+        tripId: day2.tripId, tripDayId: day2.id,
         contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph" }] }),
         locationLat: 48.1372,
         locationLng: 11.5756,
@@ -163,7 +163,7 @@ describe("GET /api/trips/[id]/days/[dayId]/route", () => {
     // Created first, planned last: `createdAt` order and the day's order disagree.
     const late = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         contentJson,
         locationLat: 48.2,
         locationLng: 11.6,
@@ -173,7 +173,7 @@ describe("GET /api/trips/[id]/days/[dayId]/route", () => {
     });
     const early = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         contentJson,
         locationLat: 48.1,
         locationLng: 11.5,

@@ -25,18 +25,21 @@ export const accommodationImageReorderSchema = z.object({
 });
 
 export const dayPlanItemImageUploadSchema = z.object({
-  tripDayId: entityIdSchema,
+  // Story 14.1: absent for a parked activity (the bucket list), which has no day.
+  tripDayId: entityIdSchema.optional(),
   dayPlanItemId: entityIdSchema,
 });
 
 export const dayPlanItemImageDeleteSchema = z.object({
-  tripDayId: entityIdSchema,
+  // Story 14.1: absent for a parked activity (the bucket list), which has no day.
+  tripDayId: entityIdSchema.optional(),
   dayPlanItemId: entityIdSchema,
   imageId: entityIdSchema,
 });
 
 export const dayPlanItemImageReorderSchema = z.object({
-  tripDayId: entityIdSchema,
+  // Story 14.1: absent for a parked activity (the bucket list), which has no day.
+  tripDayId: entityIdSchema.optional(),
   dayPlanItemId: entityIdSchema,
   order: z.array(reorderEntrySchema).min(1),
 });

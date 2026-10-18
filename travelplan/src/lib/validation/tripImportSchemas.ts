@@ -12,6 +12,7 @@ import {
 import { TRANSPORT_TYPES } from "@/lib/trips/transportTypes";
 import { costCurrencyFields, paymentOriginalField, refineCostCurrency } from "@/lib/validation/costCurrencySchemas";
 import { isValidDateOnly } from "@/lib/validation/dateOnly";
+import { MAX_ACTIVITY_DURATION_MINUTES, MIN_ACTIVITY_DURATION_MINUTES } from "@/lib/validation/dayPlanItemSchemas";
 import { isSafeExternalUrl } from "@/lib/validation/safeExternalUrl";
 import { isSafeStoredImageUrl } from "@/lib/validation/safeStoredImageUrl";
 
@@ -415,8 +416,11 @@ const accommodationImportSchema = z.object({
   refineCostCurrency(value, ctx);
 });
 
-const dayPlanItemImportSchema = z
-  .object({
+/**
+ * An activity's fields as the backup carries them. Shared by the day item and, since Story 14.1, the
+ * parked one (`parkedDayPlanItemImportSchema`), which leaves out the two times.
+ */
+const dayPlanItemImportFields = {
     id: z.string().trim().min(1),
     title: z.union([z.string().trim().min(1).max(120), z.null()]).optional().default(null),
     fromTime: z.union([z.string().trim().regex(HHMM_TIME_REGEX), z.null()]).optional().default(null),
@@ -443,7 +447,46 @@ const dayPlanItemImportSchema = z
     updatedAt: isoUtcDate,
     images: imagesSchema,
     documents: documentsSchema,
-  })
+  };
+
+/** The payment and currency rules, shared by the day item and the parked one (Story 14.1). */
+const refineImportedItemCost = (
+  value: {
+    costCents: number | null;
+    payments?: { amountCents: number; amountOriginal?: number | null }[];
+    costOriginalAmount?: number | null;
+    costCurrency?: string | null;
+    costRate?: number | null;
+    costRateDate?: string | null;
+  },
+  ctx: z.RefinementCtx,
+) => {
+  const payments = value.payments ?? [];
+  if (payments.length > 0) {
+    if (value.costCents === null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["payments"],
+        message: "Payments require a costCents value",
+      });
+    } else {
+      const total = payments.reduce((sum, payment) => sum + payment.amountCents, 0);
+      if (total !== value.costCents) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["payments"],
+          message: "Payments must sum to costCents",
+        });
+      }
+    }
+  }
+
+  // Story 10.1, alongside the cents check and never instead of it.
+  refineCostCurrency(value, ctx);
+};
+
+const dayPlanItemImportSchema = z
+  .object(dayPlanItemImportFields)
   .superRefine((value, ctx) => {
     /*
       Story 10.1 review. Nested for the same reason the sum check below is: a `return` at the top
@@ -478,33 +521,27 @@ const dayPlanItemImportSchema = z
     };
 
     checkTimes();
-
-    const checkPaymentsSumToCostCents = () => {
-      const payments = value.payments ?? [];
-      if (payments.length === 0) return;
-      if (value.costCents === null) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["payments"],
-          message: "Payments require a costCents value",
-        });
-        return;
-      }
-      const total = payments.reduce((sum, payment) => sum + payment.amountCents, 0);
-      if (total !== value.costCents) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["payments"],
-          message: "Payments must sum to costCents",
-        });
-      }
-    };
-
-    checkPaymentsSumToCostCents();
-
-    // Story 10.1, alongside the cents check and never instead of it.
-    refineCostCurrency(value, ctx);
+    refineImportedItemCost(value, ctx);
   });
+
+/**
+ * Story 14.1. A parked activity (a bucket-list idea): the day item's fields without the two times, plus
+ * how it is planned. A parked activity is always FLEXIBLE; `durationMinutes` is what keeps a two-hour
+ * idea from coming back as fifteen minutes (absent - impossible from this version - it is 15).
+ */
+const { fromTime: _fromTime, toTime: _toTime, ...parkedDayPlanItemImportFields } = dayPlanItemImportFields;
+void _fromTime;
+void _toTime;
+const parkedDayPlanItemImportSchema = z
+  .object({
+    ...parkedDayPlanItemImportFields,
+    // The bucket list requires a title (`bucketListMutationSchema`); an untitled idea could never be saved again.
+    title: z.string().trim().min(1).max(120),
+    scheduleMode: z.literal("FLEXIBLE").optional(),
+    // The range the API and the dialog accept, so an imported idea can be saved and scheduled as it is.
+    durationMinutes: z.number().int().min(MIN_ACTIVITY_DURATION_MINUTES).max(MAX_ACTIVITY_DURATION_MINUTES).optional(),
+  })
+  .superRefine((value, ctx) => refineImportedItemCost(value, ctx));
 
 const tripDayImportSchema = z.object({
   id: z.string().trim().min(1),
@@ -536,7 +573,15 @@ const tripImportSchema = z
     destinationLocation: z.union([locationSchema, z.null()]).optional(),
     createdAt: isoUtcDate,
     updatedAt: isoUtcDate,
-    // Trip-scoped, so it lives inside `trip` and mirrors where the export puts it.
+    // Story 14.1: the bucket list is the trip's parked activities. Trip-scoped, so it lives inside
+    // `trip`, where the export puts it.
+    parkedDayPlanItems: z
+      .array(parkedDayPlanItemImportSchema)
+      .max(MAX_IMPORT_BUCKET_LIST_ITEMS, `A trip may carry at most ${MAX_IMPORT_BUCKET_LIST_ITEMS} bucket list items`)
+      .optional()
+      .default([]),
+    // A backup from before Story 14.1. Still read: each entry becomes a parked activity by the rule the
+    // migration used (`buildParkedContentJson`). This version no longer writes it.
     bucketListItems: z
       .array(bucketListItemImportSchema)
       .max(MAX_IMPORT_BUCKET_LIST_ITEMS, `A trip may carry at most ${MAX_IMPORT_BUCKET_LIST_ITEMS} bucket list items`)
@@ -546,6 +591,11 @@ const tripImportSchema = z
   .refine((data) => new Date(data.startDate).getTime() <= new Date(data.endDate).getTime(), {
     message: "Start date must be before or equal to end date",
     path: ["endDate"],
+  })
+  // One limit for both lists together: they are one bucket list.
+  .refine((data) => data.parkedDayPlanItems.length + data.bucketListItems.length <= MAX_IMPORT_BUCKET_LIST_ITEMS, {
+    message: `A trip may carry at most ${MAX_IMPORT_BUCKET_LIST_ITEMS} bucket list items`,
+    path: ["bucketListItems"],
   });
 
 /**
@@ -670,6 +720,24 @@ export const tripImportPayloadSchema = z.object({
   };
 
   requirePooledPhoto(input.trip.heroPhotoId, ["trip", "heroPhotoId"]);
+
+  // Story 14.1: a parked activity's pictures and documents are written like a day item's, so they are
+  // checked against the pools and counted against the same media budget.
+  input.trip.parkedDayPlanItems.forEach((item, itemIndex) => {
+    item.images.forEach((image, imageIndex) => {
+      requirePooledPhoto(image.photoId, ["trip", "parkedDayPlanItems", itemIndex, "images", imageIndex, "photoId"]);
+    });
+    item.documents.forEach((document, documentIndex) => {
+      requirePooledDocument(document.documentId, [
+        "trip",
+        "parkedDayPlanItems",
+        itemIndex,
+        "documents",
+        documentIndex,
+        "documentId",
+      ]);
+    });
+  });
 
   /**
    * The package's records, indexed by the order the *importer* walks its days.
@@ -1001,6 +1069,9 @@ export const countPhotoReferences = (payload: TripImportPayloadInput): Map<strin
   };
 
   record(payload.trip.heroPhotoId);
+  for (const item of payload.trip.parkedDayPlanItems ?? []) {
+    item.images.forEach((image) => record(image.photoId));
+  }
   for (const day of payload.days) {
     record(day.imagePhotoId);
     day.accommodation?.images.forEach((image) => record(image.photoId));
@@ -1031,6 +1102,9 @@ export const countDocumentReferences = (payload: TripImportPayloadInput): Map<st
     counts.set(documentId, (counts.get(documentId) ?? 0) + 1);
   };
 
+  for (const item of payload.trip.parkedDayPlanItems ?? []) {
+    item.documents.forEach((document) => record(document.documentId));
+  }
   for (const day of payload.days) {
     day.accommodation?.documents.forEach((document) => record(document.documentId));
     for (const item of day.dayPlanItems) {

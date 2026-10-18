@@ -1,59 +1,73 @@
 import { prisma } from "@/lib/db/prisma";
+import { parkedDayPlanItemsWhere } from "@/lib/repositories/dayPlanItemRepo";
+import { type PaymentDetail, toPaymentDetails } from "@/lib/repositories/paymentDetail";
+import { DEFAULT_ACTIVITY_DURATION_MINUTES } from "@/lib/trips/legacySchedule";
 
-type TransactionClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+/**
+ * Story 14.1 (FR30, FR31). The bucket list is the trip's parked activities: `DayPlanItem` rows with
+ * `tripDayId = null`. Its own table is gone; an idea is a full activity (text, cost and payments,
+ * pictures, documents, link, place, duration) that has no day yet. A parked row is always FLEXIBLE with
+ * no times and `sortOrder` 0 (the table's CHECK), so nothing here ever writes the schedule fields beyond
+ * that, and these writes recompute no day and return no receipt.
+ *
+ * Every read here is `parkedDayPlanItemsWhere(tripId)` - the one place a reader queries activities by
+ * `tripId` - and every function goes through the writer clause first (owners and contributors; viewers
+ * see no bucket list).
+ */
 
-export type BucketListItemDetail = {
+type PaymentInput = { amountCents: number; dueDate: string; amountOriginal?: number | null };
+
+export type ParkedDayPlanItemDetail = {
   id: string;
   tripId: string;
   title: string;
-  description: string | null;
-  positionText: string | null;
+  contentJson: string;
+  durationMinutes: number;
+  costCents: number | null;
+  costOriginalAmount: number | null;
+  costCurrency: string | null;
+  costRate: number | null;
+  costRateDate: string | null;
+  payments: PaymentDetail[];
+  linkUrl: string | null;
   location: { lat: number; lng: number; label: string | null } | null;
+  /** The first picture by `sortOrder`, read in the same query; the row's thumbnail. */
+  firstImageUrl: string | null;
   createdAt: Date;
   updatedAt: Date;
 };
 
-export type BucketListItemUpdateResult =
-  | { status: "not_found" }
-  | { status: "missing" }
-  | { status: "updated"; item: BucketListItemDetail };
-
-export type BucketListItemDeleteResult =
-  | { status: "not_found" }
-  | { status: "missing" }
-  | { status: "deleted" };
-
-type BucketListItemCreateParams = {
+export type ParkedDayPlanItemMutationParams = {
   userId: string;
   tripId: string;
   title: string;
-  description?: string | null;
-  positionText?: string | null;
+  contentJson: string;
+  durationMinutes?: number | null;
+  costCents?: number | null;
+  costOriginalAmount?: number | null;
+  costCurrency?: string | null;
+  costRate?: number | null;
+  costRateDate?: string | null;
+  payments?: PaymentInput[] | null;
+  linkUrl?: string | null;
   location?: { lat: number; lng: number; label?: string | null } | null;
 };
 
-type BucketListItemUpdateParams = BucketListItemCreateParams & { itemId: string };
+export type ParkedDayPlanItemUpdateResult =
+  | { status: "not_found" }
+  | { status: "missing" }
+  | { status: "updated"; item: ParkedDayPlanItemDetail };
 
-type BucketListItemDeleteParams = {
-  userId: string;
-  tripId: string;
-  itemId: string;
-};
-
-type BucketListItemScopeParams = {
-  userId: string;
-  tripId: string;
-  itemId: string;
-};
+/** The media rows the cascade took, for the route to remove their files after the commit. */
+export type ParkedDayPlanItemDeleteResult =
+  | { status: "not_found" }
+  | { status: "missing" }
+  | { status: "deleted"; imageUrls: string[]; documentUrls: string[] };
 
 /**
- * The single scope gate behind all four exported bucket-list functions, so Story 5.13 moved list, create,
- * update and delete together by widening this one query from `where: { id: tripId, userId }` to the flat
- * writer clause. Renamed from `findTripForUser` in the same commit: the old name would tell the next
- * reader it is owner-only, which it no longer is.
- *
- * The explicit `role: "CONTRIBUTOR"` is load-bearing. A bare `members: { some: { userId } }` is the
- * participant *read* clause and would hand viewers write access to the list.
+ * The single scope gate behind every exported function. The explicit `role: "CONTRIBUTOR"` is
+ * load-bearing: a bare `members: { some: { userId } }` is the participant *read* clause and would hand
+ * viewers the bucket list (Story 5.13).
  */
 const findTripForTripWriter = async (userId: string, tripId: string) =>
   prisma.trip.findFirst({
@@ -64,203 +78,204 @@ const findTripForTripWriter = async (userId: string, tripId: string) =>
     select: { id: true },
   });
 
-const cleanOptionalString = (value?: string | null) => {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : null;
+const detailInclude = {
+  payments: {
+    select: { amountCents: true, dueDate: true, amountOriginal: true },
+    orderBy: [{ sortOrder: "asc" as const }, { createdAt: "asc" as const }],
+  },
+  images: { select: { imageUrl: true }, orderBy: [{ sortOrder: "asc" as const }, { createdAt: "asc" as const }], take: 1 },
 };
 
-const toDetail = (item: {
+type ParkedRow = {
   id: string;
   tripId: string;
-  title: string;
-  description: string | null;
-  positionText: string | null;
+  title: string | null;
+  contentJson: string;
+  durationMinutes: number;
+  costCents: number | null;
+  costOriginalAmount: number | null;
+  costCurrency: string | null;
+  costRate: number | null;
+  costRateDate: string | null;
+  linkUrl: string | null;
   locationLat: number | null;
   locationLng: number | null;
   locationLabel: string | null;
   createdAt: Date;
   updatedAt: Date;
-}): BucketListItemDetail => ({
-  id: item.id,
-  tripId: item.tripId,
-  title: item.title,
-  description: item.description,
-  positionText: item.positionText,
+  payments: { amountCents: number; dueDate: string; amountOriginal: number | null }[];
+  images: { imageUrl: string }[];
+};
+
+const toDetail = (row: ParkedRow): ParkedDayPlanItemDetail => ({
+  id: row.id,
+  tripId: row.tripId,
+  title: row.title ?? "",
+  contentJson: row.contentJson,
+  durationMinutes: row.durationMinutes,
+  costCents: row.costCents,
+  costOriginalAmount: row.costOriginalAmount,
+  costCurrency: row.costCurrency,
+  costRate: row.costRate,
+  costRateDate: row.costRateDate,
+  payments: toPaymentDetails(row.payments),
+  linkUrl: row.linkUrl,
   location:
-    item.locationLat !== null && item.locationLng !== null
-      ? {
-          lat: item.locationLat,
-          lng: item.locationLng,
-          label: item.locationLabel,
-        }
+    row.locationLat !== null && row.locationLng !== null
+      ? { lat: row.locationLat, lng: row.locationLng, label: row.locationLabel }
       : null,
-  createdAt: item.createdAt,
-  updatedAt: item.updatedAt,
+  firstImageUrl: row.images[0]?.imageUrl ?? null,
+  createdAt: row.createdAt,
+  updatedAt: row.updatedAt,
 });
 
-export const listBucketListItemsForTrip = async (params: {
+/** The columns a create or an edit writes; the schedule fields are the parked constants, never input. */
+const contentColumns = (params: ParkedDayPlanItemMutationParams) => ({
+  title: params.title.trim(),
+  contentJson: params.contentJson,
+  durationMinutes: params.durationMinutes ?? DEFAULT_ACTIVITY_DURATION_MINUTES,
+  costCents: params.costCents ?? null,
+  costOriginalAmount: params.costOriginalAmount ?? null,
+  costCurrency: params.costCurrency ?? null,
+  costRate: params.costRate ?? null,
+  costRateDate: params.costRateDate ?? null,
+  linkUrl: params.linkUrl ?? null,
+  locationLat: params.location?.lat ?? null,
+  locationLng: params.location?.lng ?? null,
+  locationLabel: params.location?.label?.trim() || null,
+});
+
+type TransactionClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+
+/**
+ * Payments replaced wholesale, exactly as `dayPlanItemRepo.ts` writes them. Absent payments keep the rows,
+ * unless the cost is cleared: payments never outlive their cost.
+ */
+const replacePayments = async (
+  tx: TransactionClient,
+  itemId: string,
+  costCents: number | null | undefined,
+  payments: PaymentInput[] | null | undefined,
+) => {
+  if (costCents == null) {
+    await tx.costPayment.deleteMany({ where: { dayPlanItemId: itemId } });
+    return;
+  }
+  if (!payments) return;
+  await tx.costPayment.deleteMany({ where: { dayPlanItemId: itemId } });
+  if (payments.length > 0) {
+    await tx.costPayment.createMany({
+      data: payments.map((payment, index) => ({
+        dayPlanItemId: itemId,
+        amountCents: payment.amountCents,
+        amountOriginal: payment.amountOriginal ?? null,
+        dueDate: payment.dueDate,
+        sortOrder: index,
+      })),
+    });
+  }
+};
+
+/** Alphabetical, then oldest first, then by id: the order the list has always had. */
+export const listParkedDayPlanItemsForTrip = async (params: {
   userId: string;
   tripId: string;
-}): Promise<BucketListItemDetail[] | null> => {
+}): Promise<ParkedDayPlanItemDetail[] | null> => {
   const { userId, tripId } = params;
   const trip = await findTripForTripWriter(userId, tripId);
   if (!trip) {
     return null;
   }
 
-  const items = await prisma.tripBucketListItem.findMany({
-    where: { tripId },
+  const rows = await prisma.dayPlanItem.findMany({
+    where: parkedDayPlanItemsWhere(tripId),
     orderBy: [{ title: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+    include: detailInclude,
   });
-
-  return items.map(toDetail);
+  return rows.map(toDetail);
 };
 
-export const createBucketListItemForTrip = async (
-  params: BucketListItemCreateParams,
-): Promise<BucketListItemDetail | null> => {
-  const { userId, tripId, title, description, positionText, location } = params;
-  const trip = await findTripForTripWriter(userId, tripId);
+export const createParkedDayPlanItem = async (
+  params: ParkedDayPlanItemMutationParams,
+): Promise<ParkedDayPlanItemDetail | null> => {
+  const trip = await findTripForTripWriter(params.userId, params.tripId);
   if (!trip) {
     return null;
   }
 
-  const created = await prisma.tripBucketListItem.create({
-    data: {
-      tripId,
-      title: title.trim(),
-      description: cleanOptionalString(description),
-      positionText: cleanOptionalString(positionText),
-      locationLat: location?.lat ?? null,
-      locationLng: location?.lng ?? null,
-      locationLabel: cleanOptionalString(location?.label),
-    },
+  return prisma.$transaction(async (tx) => {
+    const created = await tx.dayPlanItem.create({
+      data: {
+        tripId: params.tripId,
+        tripDayId: null,
+        scheduleMode: "FLEXIBLE",
+        fromTime: null,
+        toTime: null,
+        sortOrder: 0,
+        ...contentColumns(params),
+      },
+    });
+    await replacePayments(tx, created.id, params.costCents, params.payments);
+    return toDetail(await tx.dayPlanItem.findUniqueOrThrow({ where: { id: created.id }, include: detailInclude }));
   });
-
-  return toDetail(created);
 };
 
-export const updateBucketListItemForTrip = async (
-  params: BucketListItemUpdateParams,
-): Promise<BucketListItemUpdateResult> => {
-  const { userId, tripId, itemId, title, description, positionText, location } = params;
-  const trip = await findTripForTripWriter(userId, tripId);
+/**
+ * Conditional on the item still being parked on this trip (`{ id, tripId, tripDayId: null }`): an idea
+ * scheduled meanwhile in another tab is a day activity now and answers `missing`, never an edit that
+ * would pull it off its day. Never touches the mode, the times or the order.
+ */
+export const updateParkedDayPlanItem = async (
+  params: ParkedDayPlanItemMutationParams & { itemId: string },
+): Promise<ParkedDayPlanItemUpdateResult> => {
+  const trip = await findTripForTripWriter(params.userId, params.tripId);
   if (!trip) {
     return { status: "not_found" };
   }
 
-  const existing = await prisma.tripBucketListItem.findFirst({
-    where: {
-      id: itemId,
-      tripId,
-    },
+  const item = await prisma.$transaction(async (tx) => {
+    const written = await tx.dayPlanItem.updateMany({
+      where: { id: params.itemId, ...parkedDayPlanItemsWhere(params.tripId) },
+      data: contentColumns(params),
+    });
+    if (written.count !== 1) return null;
+    await replacePayments(tx, params.itemId, params.costCents, params.payments);
+    return toDetail(await tx.dayPlanItem.findUniqueOrThrow({ where: { id: params.itemId }, include: detailInclude }));
   });
 
-  if (!existing) {
-    return { status: "missing" };
-  }
-
-  const updated = await prisma.tripBucketListItem.update({
-    where: { id: existing.id },
-    data: {
-      title: title.trim(),
-      description: cleanOptionalString(description),
-      positionText: cleanOptionalString(positionText),
-      locationLat: location?.lat ?? null,
-      locationLng: location?.lng ?? null,
-      locationLabel: cleanOptionalString(location?.label),
-    },
-  });
-
-  return { status: "updated", item: toDetail(updated) };
-};
-
-export const deleteBucketListItemForTrip = async (
-  params: BucketListItemDeleteParams,
-): Promise<BucketListItemDeleteResult> => {
-  const { userId, tripId, itemId } = params;
-  const trip = await findTripForTripWriter(userId, tripId);
-  if (!trip) {
-    return { status: "not_found" };
-  }
-
-  const existing = await prisma.tripBucketListItem.findFirst({
-    where: {
-      id: itemId,
-      tripId,
-    },
-    select: { id: true },
-  });
-
-  if (!existing) {
-    return { status: "missing" };
-  }
-
-  await prisma.tripBucketListItem.delete({ where: { id: existing.id } });
-  return { status: "deleted" };
+  return item ? { status: "updated", item } : { status: "missing" };
 };
 
 /**
- * Widened to the writer clause by Story 5.13 in step with its transaction twin below. It has no callers
- * today; it is kept in the same spelling precisely so the two cannot drift and the next caller does not
- * pick up an owner-only scope by accident.
+ * One transaction: read the media URLs, then delete the parked row, which cascades its images,
+ * documents and payments. The files are the route's to remove after the commit (Story 14.1 §15), from
+ * the URLs returned here - a day activity's delete keeps its files (DW-187); a parked idea's does not,
+ * because no undo can bring it back.
  */
-export const findBucketListItemForTrip = async (
-  params: BucketListItemScopeParams,
-): Promise<BucketListItemDetail | null> => {
-  const item = await prisma.tripBucketListItem.findFirst({
-    where: {
-      id: params.itemId,
-      tripId: params.tripId,
-      trip: {
-        OR: [{ userId: params.userId }, { members: { some: { userId: params.userId, role: "CONTRIBUTOR" } } }],
-      },
-    },
-  });
-
-  return item ? toDetail(item) : null;
-};
-
-/**
- * The "add this idea to that day" flow's item lookup, inside `convertBucketListItemToDayPlanItemForTripDay`'s
- * transaction. Story 5.13 widened it to the writer clause: the route (`day-plan-items/route.ts`) and the day
- * lookup beside it were already contributor-permissive, so an owner-only scope here let a contributor get all
- * the way into the transaction and then fail as `bucket_missing` -> 404, which reads as a vanished idea rather
- * than a refusal.
- */
-export const findBucketListItemForTripInTransaction = async (
-  params: BucketListItemScopeParams & { tx: TransactionClient },
-): Promise<BucketListItemDetail | null> => {
-  const item = await params.tx.tripBucketListItem.findFirst({
-    where: {
-      id: params.itemId,
-      tripId: params.tripId,
-      trip: {
-        OR: [{ userId: params.userId }, { members: { some: { userId: params.userId, role: "CONTRIBUTOR" } } }],
-      },
-    },
-  });
-
-  return item ? toDetail(item) : null;
-};
-
-export const deleteBucketListItemForTripInTransaction = async (params: {
-  tx: TransactionClient;
+export const deleteParkedDayPlanItem = async (params: {
+  userId: string;
   tripId: string;
   itemId: string;
-}): Promise<boolean> => {
-  const existing = await params.tx.tripBucketListItem.findFirst({
-    where: {
-      id: params.itemId,
-      tripId: params.tripId,
-    },
-    select: { id: true },
-  });
-
-  if (!existing) {
-    return false;
+}): Promise<ParkedDayPlanItemDeleteResult> => {
+  const trip = await findTripForTripWriter(params.userId, params.tripId);
+  if (!trip) {
+    return { status: "not_found" };
   }
 
-  await params.tx.tripBucketListItem.delete({ where: { id: existing.id } });
-  return true;
+  const outcome = await prisma.$transaction(async (tx) => {
+    const where = { id: params.itemId, ...parkedDayPlanItemsWhere(params.tripId) };
+    const existing = await tx.dayPlanItem.findFirst({
+      where,
+      select: { images: { select: { imageUrl: true } }, documents: { select: { documentUrl: true } } },
+    });
+    if (!existing) return null;
+    const deleted = await tx.dayPlanItem.deleteMany({ where });
+    if (deleted.count !== 1) return null;
+    return {
+      imageUrls: existing.images.map((image) => image.imageUrl),
+      documentUrls: existing.documents.map((document) => document.documentUrl),
+    };
+  });
+
+  return outcome ? { status: "deleted", ...outcome } : { status: "missing" };
 };

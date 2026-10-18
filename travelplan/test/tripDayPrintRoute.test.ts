@@ -203,7 +203,7 @@ describe("GET /api/trips/[id]/days/[dayId]/print", () => {
       data: { tripDayId: day2.id, name: "City Hotel", status: "PLANNED" },
     });
     const activity = await prisma.dayPlanItem.create({
-      data: { tripDayId: day2.id, title: "Museum", fromTime: "10:00", contentJson: '{"type":"doc","content":[]}' },
+      data: { tripId: day2.tripId, tripDayId: day2.id, title: "Museum", fromTime: "10:00", contentJson: '{"type":"doc","content":[]}' },
     });
 
     await prisma.accommodationDocument.create({
@@ -329,7 +329,7 @@ describe("GET /api/trips/[id]/days/[dayId]/print", () => {
     });
     await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day2.id,
+        tripId: day2.tripId, tripDayId: day2.id,
         title: "Museum",
         fromTime: "10:00",
         contentJson: '{"type":"doc","content":[]}',

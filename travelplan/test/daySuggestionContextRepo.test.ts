@@ -100,11 +100,11 @@ describe("getDaySuggestionContextForUser", () => {
   it("lists the trimmed, non-empty activity titles in start-time order", async () => {
     const { user, trip, days } = await seed();
     const doc = JSON.stringify({ type: "doc", content: [{ type: "paragraph" }] });
-    await prisma.dayPlanItem.create({ data: { tripDayId: days[0].id, contentJson: doc, title: " Lunch ", fromTime: "12:00" } });
-    await prisma.dayPlanItem.create({ data: { tripDayId: days[0].id, contentJson: doc, title: "Museum", fromTime: "09:30" } });
-    await prisma.dayPlanItem.create({ data: { tripDayId: days[0].id, contentJson: doc, title: "   " } });
-    await prisma.dayPlanItem.create({ data: { tripDayId: days[0].id, contentJson: doc, title: null } });
-    await prisma.dayPlanItem.create({ data: { tripDayId: days[0].id, contentJson: doc, title: "Evening walk" } });
+    await prisma.dayPlanItem.create({ data: { tripId: days[0].tripId, tripDayId: days[0].id, contentJson: doc, title: " Lunch ", fromTime: "12:00" } });
+    await prisma.dayPlanItem.create({ data: { tripId: days[0].tripId, tripDayId: days[0].id, contentJson: doc, title: "Museum", fromTime: "09:30" } });
+    await prisma.dayPlanItem.create({ data: { tripId: days[0].tripId, tripDayId: days[0].id, contentJson: doc, title: "   " } });
+    await prisma.dayPlanItem.create({ data: { tripId: days[0].tripId, tripDayId: days[0].id, contentJson: doc, title: null } });
+    await prisma.dayPlanItem.create({ data: { tripId: days[0].tripId, tripDayId: days[0].id, contentJson: doc, title: "Evening walk" } });
 
     const context = await getDaySuggestionContextForUser({ userId: user.id, tripId: trip.id, dayId: days[0].id });
 

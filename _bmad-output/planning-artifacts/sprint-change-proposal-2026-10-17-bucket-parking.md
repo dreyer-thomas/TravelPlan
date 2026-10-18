@@ -4,7 +4,7 @@
 **Raised by:** Tommy
 **Facilitated by:** John (PM) via `bmad-correct-course`
 **Mode:** Batch
-**Status:** Approved by Tommy 2026-10-17; edits 4.1, 4.2, 4.4 and 4.5 applied. 4.3 pending architecture review by Winston. Defaults 5–9 confirmed with approval.
+**Status:** Approved by Tommy 2026-10-17; edits 4.1, 4.2, 4.4 and 4.5 applied. 4.3 reviewed by Winston and applied to `architecture.md` on 2026-10-18 (see section 6). Defaults 5–9 confirmed with approval.
 **Related:** Sprint Change Proposal 2026-10-17 (Epic 13, *Days Planned by Duration*), approved earlier today. This proposal depends on it.
 **Scope classification:** Moderate, with an architecture review before the first story. One new epic with three stories, two new FRs, two FRs amended. Schema change: `DayPlanItem` can exist without a day, and `TripBucketListItem` is migrated into it and dropped. One recorded ruling is reversed: the bucket list is no longer owner-only on the trip overview (Story 7.12). No shipped story is reverted or renumbered.
 
@@ -411,3 +411,19 @@ Appended after the `epic-13` block:
 | 7 | Duration of migrated ideas | 15 minutes (FR46's default). |
 | 8 | Confirmation before parking | None; undo instead. |
 | 9 | Scheduling from the trip overview (a day picker on the bucket row) | Out of scope. Scheduling happens from the day's "+". Can be a later story. |
+
+---
+
+## 6. Architecture Review (Winston, 2026-10-18)
+
+Edit 4.3 was applied to `architecture.md` (*Data Architecture → Activities without a day*, *API & Communication Patterns → Parking and scheduling*) with these decisions on the open points:
+
+| Open point | Decision |
+|---|---|
+| Columns and migration order | `tripId` not null with cascade; `tripDayId` nullable, still cascade (deleting a day deletes its activities, it does not park them). One SQL-only migration: rebuild `day_plan_items` (SQLite cannot drop NOT NULL), backfill `trip_id` from `trip_days`, insert bucket rows with the same id, drop `trip_bucket_list_items`. A SQL `CHECK` guards the parked invariant. |
+| Media rule | URLs are never rewritten. Uploads go to the item's current place (`days/<d>/…` or `parked/…`). One URL-derived rule accepts the item's folder under any day of the trip or under `parked/`. It replaces `readStoredMediaDayId` and the undo's `receipt.tripDayId` folder. Deleting a parked activity removes its files, because there is no undo. |
+| Receipt v3 or v4 | **v3**, with the new kinds `scheduled` and `parked`. This follows 11.3, 11.4 and 12.4. `consumedBucketListItem` is removed, and an old receipt carrying it is refused as invalid. New endpoints: `day-plan-items/schedule` (14.1) and `day-plan-items/park` (14.2). |
+| Trip-level readers | Every current trip-level reader goes through the day relation, so parked rows are already excluded. The rule: only bucket-list reads query `DayPlanItem.tripId`. Future readers by `tripId` use the shared predicates. The ones that must *include* parked rows are export/import, the overwrite import's delete step, and the per-item media gates. |
+| Backup | `FORMAT_VERSION` stays 2. The export writes `trip.parkedDayPlanItems[]`. Legacy `bucketListItems` are still imported, by the migration rule. |
+
+**Correction to section 2, *Rulings superseded*:** the trip-overview bucket card has not been owner-only since Story 5.13. `TripTimeline.tsx` gates it with `canEditPlanning`, which means owner or contributor, and the bucket-list API already lets contributors write. So 14.1 changes nothing about who sees the list. Its AC on roles becomes a regression guard.

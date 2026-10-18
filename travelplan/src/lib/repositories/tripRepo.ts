@@ -14,7 +14,9 @@ import { buildDayMapPanelData, buildTripDayMapItems, type TripDayMapPanelData } 
 // have to agree on is the shape of this story's original defect; one import removes it. The shared
 // signature takes `Date | string`, so the `Date`s here are a drop-in.
 import { compareDayPlanItemsByOrder } from "@/lib/trips/dayPlanItemOrder";
-import { legacyScheduleFields } from "@/lib/trips/legacySchedule";
+import { DEFAULT_ACTIVITY_DURATION_MINUTES, legacyScheduleFields } from "@/lib/trips/legacySchedule";
+import { buildParkedContentJson } from "@/lib/trips/parkedItemContent";
+import { parkedDayPlanItemsWhere } from "@/lib/repositories/dayPlanItemRepo";
 import {
   getTripUploadDir,
   isExternalMediaUrl,
@@ -400,16 +402,6 @@ export type TripExportTravelSegment = {
   updatedAt: string;
 };
 
-export type TripExportBucketListItem = {
-  id: string;
-  title: string;
-  description: string | null;
-  positionText: string | null;
-  location: { lat: number; lng: number; label: string | null } | null;
-  createdAt: string;
-  updatedAt: string;
-};
-
 export type TripExportPayload = {
   /**
    * Surfaced as `meta.warnings` in the manifest. Always present, `[]` when clean - an optional field
@@ -438,8 +430,12 @@ export type TripExportPayload = {
     destinationLocation: { lat: number; lng: number; label: string | null } | null;
     createdAt: string;
     updatedAt: string;
-    /** Trip-scoped, so it lives inside `trip` and not at the manifest root. */
-    bucketListItems: TripExportBucketListItem[];
+    /**
+     * Story 14.1. The bucket list: the trip's parked activities, in the day item's shape without the
+     * two times (a parked activity has none), plus how it is planned. Trip-scoped, so it lives inside
+     * `trip`. Replaces `bucketListItems`, which this version no longer writes and still reads.
+     */
+    parkedDayPlanItems: TripExportParkedDayPlanItem[];
   };
   days: {
     id: string;
@@ -492,6 +488,16 @@ export type TripExportPayload = {
     }[];
     travelSegments: TripExportTravelSegment[];
   }[];
+};
+
+/**
+ * Story 14.1. A parked activity in the backup. `sortOrder` is not carried: a parked row's is always 0.
+ * `durationMinutes` is, unlike on a day item until Story 13.4, so a two-hour idea does not come back as
+ * fifteen minutes.
+ */
+export type TripExportParkedDayPlanItem = Omit<TripExportPayload["days"][number]["dayPlanItems"][number], "fromTime" | "toTime"> & {
+  scheduleMode: "FLEXIBLE";
+  durationMinutes: number;
 };
 
 /**
@@ -1828,10 +1834,41 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
       OR: [{ userId }, { members: { some: { userId, role: "CONTRIBUTOR" } } }],
     },
     include: {
-      // Trip-scoped, so it hangs off `Trip` and not off a day. Ordering is identical to
-      // `listBucketListItemsForTrip` so the backup matches what the UI shows.
-      bucketListItems: {
+      // Story 14.1: the bucket list is the trip's parked activities (`tripDayId: null`); the planned
+      // ones are reached through their days below, so this relation is read for the parked side only.
+      // Ordering is the bucket list's (`listParkedDayPlanItemsForTrip`), so the backup matches the UI.
+      dayPlanItems: {
+        where: { tripDayId: null },
         orderBy: [{ title: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+        select: {
+          id: true,
+          title: true,
+          contentJson: true,
+          durationMinutes: true,
+          costCents: true,
+          costOriginalAmount: true,
+          costCurrency: true,
+          costRate: true,
+          costRateDate: true,
+          payments: {
+            select: { amountCents: true, dueDate: true, amountOriginal: true },
+            orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+          },
+          linkUrl: true,
+          locationLat: true,
+          locationLng: true,
+          locationLabel: true,
+          createdAt: true,
+          updatedAt: true,
+          images: {
+            select: { imageUrl: true, sortOrder: true },
+            orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+          },
+          documents: {
+            select: { documentUrl: true, fileName: true, sortOrder: true },
+            orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+          },
+        },
       },
       days: {
         orderBy: [{ dayIndex: "asc" }, { date: "asc" }],
@@ -2347,6 +2384,49 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
     });
   }
 
+  // Story 14.1: the parked activities' media join the pools after every day's, so the pool ids a backup
+  // without parked activities gets are exactly the ones it got before.
+  const parkedDayPlanItems: TripExportParkedDayPlanItem[] = [];
+  for (const item of trip.dayPlanItems) {
+    const images = await registerGallery(item.images);
+    const itemDocuments = await registerDocumentGallery(item.documents);
+    parkedDayPlanItems.push({
+      id: item.id,
+      title: item.title,
+      contentJson: item.contentJson,
+      scheduleMode: "FLEXIBLE",
+      durationMinutes: item.durationMinutes,
+      costCents: item.costCents,
+      costOriginalAmount: item.costOriginalAmount,
+      costCurrency: item.costCurrency,
+      costRate: item.costRate,
+      costRateDate: item.costRateDate,
+      // As for a day item: a cost without payment rows exports one row, so the archive passes its own
+      // import check. A parked activity has no day, so the row is due on the trip's first day.
+      payments:
+        item.payments.length > 0
+          ? toPaymentDetails(item.payments)
+          : item.costCents !== null
+            ? toPaymentDetails([
+                {
+                  amountCents: item.costCents,
+                  amountOriginal: item.costCurrency !== null ? item.costOriginalAmount : null,
+                  dueDate: trip.startDate.toISOString().slice(0, 10),
+                },
+              ])
+            : [],
+      linkUrl: item.linkUrl,
+      location:
+        item.locationLat !== null && item.locationLng !== null
+          ? { lat: item.locationLat, lng: item.locationLng, label: item.locationLabel }
+          : null,
+      createdAt: item.createdAt.toISOString(),
+      updatedAt: item.updatedAt.toISOString(),
+      images,
+      documents: itemDocuments,
+    });
+  }
+
   const payload: TripExportPayload = {
     warnings,
     photos,
@@ -2376,22 +2456,7 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
           : null,
       createdAt: trip.createdAt.toISOString(),
       updatedAt: trip.updatedAt.toISOString(),
-      bucketListItems: trip.bucketListItems.map((item) => ({
-        id: item.id,
-        title: item.title,
-        description: item.description,
-        positionText: item.positionText,
-        location:
-          item.locationLat !== null && item.locationLng !== null
-            ? {
-                lat: item.locationLat,
-                lng: item.locationLng,
-                label: item.locationLabel,
-              }
-            : null,
-        createdAt: item.createdAt.toISOString(),
-        updatedAt: item.updatedAt.toISOString(),
-      })),
+      parkedDayPlanItems,
     },
     days,
   };
@@ -2776,6 +2841,7 @@ const createImportedDays = async ({
       const schedule = scheduleFields[itemIndex];
       const createdItem = await tx.dayPlanItem.create({
         data: {
+          tripId,
           tripDayId: createdDay.id,
           title: item.title ?? null,
           fromTime: schedule.fromTime,
@@ -2962,30 +3028,123 @@ const droppedForeignImageWarnings = (count: number): string[] => {
   return [`Dropped ${subject} whose stored file is not this trip's to restore`];
 };
 
-const createImportedBucketListItems = async ({
+/**
+ * Story 14.1. The bucket list as parked activities (`tripDayId: null`, FLEXIBLE, no times, `sortOrder`
+ * 0), from both lists a backup can carry:
+ *
+ * - `parkedDayPlanItems` (this version): every field, pictures and documents restored under the trip's
+ *   `parked/` folder, payments as they were, the duration kept (15 when absent).
+ * - `bucketListItems` (a backup from before 14.1): each one by the rule the migration
+ *   `20261018120000_day_plan_items_without_day` used - 15 minutes, and `buildParkedContentJson` for the
+ *   text - so an old backup and a migrated database give the same bucket list.
+ *
+ * Returns the count (`bucketListItemCount` keeps its name and counts both) and the media writes, which
+ * join the import's post-commit disk phase with every other file.
+ */
+const createImportedParkedItems = async ({
   tx,
   tripId,
-  items,
+  parkedItems,
+  legacyItems,
+  photos,
+  documents,
+  takenFileNames,
 }: {
   tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
   tripId: string;
-  items: TripImportPayloadInput["trip"]["bucketListItems"];
-}) => {
-  if (items.length === 0) return 0;
+  parkedItems: TripImportPayloadInput["trip"]["parkedDayPlanItems"];
+  legacyItems: TripImportPayloadInput["trip"]["bucketListItems"];
+  photos: ImportPhotoPool;
+  documents: ImportDocumentPool;
+  takenFileNames: Set<string>;
+}): Promise<{ count: number; photoWrites: PlannedPhotoWrite[]; documentWrites: PlannedPhotoWrite[] }> => {
+  const photoWrites: PlannedPhotoWrite[] = [];
+  const documentWrites: PlannedPhotoWrite[] = [];
+  const parked = { tripId, tripDayId: null, scheduleMode: "FLEXIBLE" as const, fromTime: null, toTime: null, sortOrder: 0 };
 
-  await tx.tripBucketListItem.createMany({
-    data: items.map((item) => ({
-      tripId,
-      title: item.title.trim(),
-      description: cleanImportedOptionalString(item.description),
-      positionText: cleanImportedOptionalString(item.positionText),
-      locationLat: item.location?.lat ?? null,
-      locationLng: item.location?.lng ?? null,
-      locationLabel: cleanImportedOptionalString(item.location?.label),
-    })),
-  });
+  for (const item of parkedItems) {
+    const createdItem = await tx.dayPlanItem.create({
+      data: {
+        ...parked,
+        title: item.title,
+        durationMinutes: item.durationMinutes ?? DEFAULT_ACTIVITY_DURATION_MINUTES,
+        contentJson: item.contentJson,
+        costCents: item.costCents ?? null,
+        costOriginalAmount: item.costOriginalAmount ?? null,
+        costCurrency: item.costCurrency ?? null,
+        costRate: item.costRate ?? null,
+        costRateDate: item.costRateDate ?? null,
+        linkUrl: item.linkUrl,
+        locationLat: item.location?.lat ?? null,
+        locationLng: item.location?.lng ?? null,
+        // As the legacy path below and `contentColumns`: an empty label is no label.
+        locationLabel: cleanImportedOptionalString(item.location?.label),
+      },
+    });
 
-  return items.length;
+    for (const image of item.images) {
+      const photo = requirePooledPhoto(photos, image.photoId);
+      const placement = planDayPlanItemGalleryPhoto(
+        { tripId, tripDayId: null, dayPlanItemId: createdItem.id, contentType: photo.contentType },
+        takenFileNames,
+      );
+      photoWrites.push({ filePath: placement.filePath, archivePath: photo.archivePath });
+      await tx.dayPlanItemImage.create({
+        data: { dayPlanItemId: createdItem.id, imageUrl: placement.imageUrl, sortOrder: image.sortOrder },
+      });
+    }
+
+    for (const document of item.documents) {
+      const pooled = requirePooledDocument(documents, document.documentId);
+      const placement = planDayPlanItemDocument(
+        { tripId, tripDayId: null, dayPlanItemId: createdItem.id, contentType: pooled.contentType },
+        takenFileNames,
+      );
+      documentWrites.push({ filePath: placement.filePath, archivePath: pooled.archivePath });
+      await tx.dayPlanItemDocument.create({
+        data: {
+          dayPlanItemId: createdItem.id,
+          documentUrl: placement.documentUrl,
+          fileName: document.fileName,
+          sortOrder: document.sortOrder,
+        },
+      });
+    }
+
+    const payments = item.payments ?? [];
+    if (payments.length > 0) {
+      await tx.costPayment.createMany({
+        data: payments.map((payment, index) => ({
+          dayPlanItemId: createdItem.id,
+          amountCents: payment.amountCents,
+          amountOriginal: payment.amountOriginal ?? null,
+          dueDate: payment.dueDate,
+          sortOrder: index,
+        })),
+      });
+    }
+  }
+
+  if (legacyItems.length > 0) {
+    await tx.dayPlanItem.createMany({
+      data: legacyItems.map((item) => ({
+        ...parked,
+        title: item.title.trim(),
+        durationMinutes: DEFAULT_ACTIVITY_DURATION_MINUTES,
+        contentJson: buildParkedContentJson({
+          title: item.title,
+          description: item.description,
+          positionText: item.positionText,
+          hasCoordinates: Boolean(item.location),
+        }),
+        locationLat: item.location?.lat ?? null,
+        locationLng: item.location?.lng ?? null,
+        locationLabel: cleanImportedOptionalString(item.location?.label),
+      })),
+    });
+  }
+
+  return { count: parkedItems.length + legacyItems.length, photoWrites, documentWrites };
 };
 
 /**
@@ -3203,10 +3362,11 @@ const runTripImport = async ({
       });
 
       await tx.tripDay.deleteMany({ where: { tripId: targetTrip.id } });
-      // Days cascade to accommodations, plan items, travel segments, images and payments. Bucket
-      // list items hang off `Trip`, not `TripDay`, so nothing above reaches them - without this
-      // they would survive the overwrite and double up (AC5).
-      await tx.tripBucketListItem.deleteMany({ where: { tripId: targetTrip.id } });
+      // Days cascade to accommodations, plan items, travel segments, images and payments. The bucket
+      // list's parked activities have no day, so nothing above reaches them - without this they would
+      // survive the overwrite and double up (Story 2.32 AC5, Story 14.1 AC12). Their files go with the
+      // trip's stashed upload directory below.
+      await tx.dayPlanItem.deleteMany({ where: parkedDayPlanItemsWhere(targetTrip.id) });
 
       const days = await createImportedDays({
         tx,
@@ -3221,10 +3381,14 @@ const runTripImport = async ({
         // URLs whose files this import is about to delete.
         dropForeignUploadUrls: false,
       });
-      const bucketListItemCount = await createImportedBucketListItems({
+      const parkedItems = await createImportedParkedItems({
         tx,
         tripId: targetTrip.id,
-        items: payload.trip.bucketListItems,
+        parkedItems: payload.trip.parkedDayPlanItems,
+        legacyItems: payload.trip.bucketListItems,
+        photos,
+        documents,
+        takenFileNames,
       });
 
       return {
@@ -3235,13 +3399,15 @@ const runTripImport = async ({
           endDate: updatedTrip.endDate,
           heroImageUrl: updatedTrip.heroImageUrl,
         },
-        photoWrites: heroPhoto && heroPlacement
-          ? [{ filePath: heroPlacement.filePath, archivePath: heroPhoto.archivePath }, ...days.photoWrites]
-          : days.photoWrites,
-        documentWrites: days.documentWrites,
+        photoWrites: [
+          ...(heroPhoto && heroPlacement ? [{ filePath: heroPlacement.filePath, archivePath: heroPhoto.archivePath }] : []),
+          ...days.photoWrites,
+          ...parkedItems.photoWrites,
+        ],
+        documentWrites: [...days.documentWrites, ...parkedItems.documentWrites],
         travelSegmentCount: days.travelSegmentCount,
         skippedTravelSegmentCount: days.skippedTravelSegmentCount,
-        bucketListItemCount,
+        bucketListItemCount: parkedItems.count,
         droppedImageCount: days.droppedImageCount,
       };
     }, IMPORT_TRANSACTION_OPTIONS);
@@ -3297,10 +3463,14 @@ const runTripImport = async ({
         // directory this trip does not own, so the row would point at another trip's file (DW-88).
         dropForeignUploadUrls: true,
       });
-      const bucketListItemCount = await createImportedBucketListItems({
+      const parkedItems = await createImportedParkedItems({
         tx,
         tripId: createdTrip.id,
-        items: payload.trip.bucketListItems,
+        parkedItems: payload.trip.parkedDayPlanItems,
+        legacyItems: payload.trip.bucketListItems,
+        photos,
+        documents,
+        takenFileNames,
       });
 
       return {
@@ -3311,11 +3481,11 @@ const runTripImport = async ({
           endDate: createdTrip.endDate,
           heroImageUrl,
         },
-        photoWrites: [...heroWrites, ...days.photoWrites],
-        documentWrites: days.documentWrites,
+        photoWrites: [...heroWrites, ...days.photoWrites, ...parkedItems.photoWrites],
+        documentWrites: [...days.documentWrites, ...parkedItems.documentWrites],
         travelSegmentCount: days.travelSegmentCount,
         skippedTravelSegmentCount: days.skippedTravelSegmentCount,
-        bucketListItemCount,
+        bucketListItemCount: parkedItems.count,
         droppedImageCount: droppedHeroImageCount + days.droppedImageCount,
       };
     }, IMPORT_TRANSACTION_OPTIONS);

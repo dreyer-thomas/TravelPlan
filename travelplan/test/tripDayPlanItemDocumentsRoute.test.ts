@@ -65,7 +65,7 @@ describe("/api/trips/[id]/day-plan-items/documents", () => {
       data: { tripId: trip.id, date: new Date("2026-12-21T00:00:00.000Z"), dayIndex: 1 },
     });
     const item = await prisma.dayPlanItem.create({
-      data: { tripDayId: day.id, contentJson: CONTENT_JSON },
+      data: { tripId: day.tripId, tripDayId: day.id, contentJson: CONTENT_JSON },
     });
     return { owner, token, trip, day, item };
   };
@@ -205,7 +205,7 @@ describe("/api/trips/[id]/day-plan-items/documents", () => {
    */
   it("answers for the whole day when dayPlanItemId is omitted", async () => {
     const { trip, day, item, token } = await seed("daywide");
-    const second = await prisma.dayPlanItem.create({ data: { tripDayId: day.id, contentJson: CONTENT_JSON } });
+    const second = await prisma.dayPlanItem.create({ data: { tripId: day.tripId, tripDayId: day.id, contentJson: CONTENT_JSON } });
 
     const viewer = await prisma.user.create({
       data: { email: "item-documents-viewer@example.com", passwordHash: "hashed", role: "VIEWER" },
@@ -242,9 +242,13 @@ describe("/api/trips/[id]/day-plan-items/documents", () => {
       3,
     );
 
-    // The trip day is still required; without it there is nothing to scope the read to.
-    const noDay = await read(trip.id, "dayPlanItemId=whatever", token);
-    expect(noDay.status).toBe(400);
+    // The day-wide read still needs its day; with neither a day nor an item there is nothing to scope to.
+    const noScope = await read(trip.id, "", token);
+    expect(noScope.status).toBe(400);
+    // Story 14.1: an item id alone asks for a parked activity's documents, so a planned item (or an
+    // unknown one) addressed without its day is not found rather than malformed.
+    expect((await read(trip.id, `dayPlanItemId=${item.id}`, token)).status).toBe(404);
+    expect((await read(trip.id, "dayPlanItemId=whatever", token)).status).toBe(404);
   });
 
   /**
@@ -597,7 +601,8 @@ describe("/api/trips/[id]/day-plan-items/documents", () => {
   /**
    * Story 8.4, iteration 5. The sibling of the case above, carried by the same argument.
    *
-   * When `readStoredMediaDayId` cannot read a day out of the stored URL there is no file of ours to remove,
+   * When the stored URL names no folder of this activity (`resolveManagedItemMediaDir` since Story 14.1,
+   * `readStoredMediaDayId` before it) there is no file of ours to remove,
    * so the `200` is right - but the outcome is a committed row delete with bytes left on disk, exactly what
    * the containment refusal and the `EACCES` above produce, and both of those log. Iteration 4 added the log
    * line and asserted it on one of the four routes only, which is the same "one suite is not evidence for
@@ -606,7 +611,8 @@ describe("/api/trips/[id]/day-plan-items/documents", () => {
   it("logs rather than skipping silently when the stored url names no day under this trip", async () => {
     const { trip, day, item, token } = await seed("nodayinurl");
 
-    // Parses as a path, but the trip id in it is not this route's, so `readStoredMediaDayId` refuses it.
+    // Parses as a path, but the trip id in it is not this route's, so `resolveManagedItemMediaDir`
+    // (Story 14.1, which replaced `readStoredMediaDayId` on this route) refuses it.
     const documentUrl = "/uploads/trips/other-trip/days/other-day/day-plan-items/other-item/documents/doc-1.pdf";
     const row = await prisma.dayPlanItemDocument.create({
       data: { dayPlanItemId: item.id, documentUrl, fileName: "Drifted.pdf", sortOrder: 0 },
@@ -633,7 +639,7 @@ describe("/api/trips/[id]/day-plan-items/documents", () => {
       // trip, so the URL is the one value in the record that cannot be traced back to the row whose
       // bytes were abandoned - which makes it the one value a log of it alone cannot do its job with.
       expect(consoleSpy).toHaveBeenCalledWith(
-        "day plan item document delete: stored media url names no day under this trip",
+        "day plan item document delete: stored media url names no folder of this activity",
         expect.objectContaining({
           tripId: trip.id,
         dayPlanItemId: item.id,

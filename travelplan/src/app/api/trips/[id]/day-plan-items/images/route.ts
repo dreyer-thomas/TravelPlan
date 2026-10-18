@@ -20,7 +20,11 @@ import {
 } from "@/lib/validation/imageGallerySchemas";
 import { requireSession } from "@/lib/auth/sessionGuard";
 import { removeManagedMediaFile } from "@/lib/trips/mediaCleanup";
-import { getDayPlanItemImageUploadDir, readStoredMediaDayId } from "@/lib/trips/uploadPaths";
+import {
+  getDayPlanItemImageUploadDir,
+  getParkedDayPlanItemImageUploadDir,
+  resolveManagedItemMediaDir,
+} from "@/lib/trips/uploadPaths";
 
 export const runtime = "nodejs";
 
@@ -63,7 +67,9 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
 
   const tripDayId = request.nextUrl.searchParams.get("tripDayId") ?? "";
   const dayPlanItemId = request.nextUrl.searchParams.get("dayPlanItemId") ?? "";
-  if (!tripDayId.trim()) {
+  // Story 14.1: a parked activity (on the bucket list) has no day and is asked for by its id alone; the
+  // day-wide list still needs its day.
+  if (!tripDayId.trim() && !dayPlanItemId.trim()) {
     return fail(apiError("validation_error", "Trip day is required"), 400);
   }
 
@@ -71,7 +77,7 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
     ? await listDayPlanItemImages({
         userId,
         tripId,
-        tripDayId,
+        tripDayId: tripDayId.trim() || null,
         dayPlanItemId,
       })
     : await listDayPlanItemImagesForTripDay({
@@ -134,7 +140,8 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
   }
 
   const parsed = dayPlanItemImageUploadSchema.safeParse({
-    tripDayId: formData.get("tripDayId"),
+    // Story 14.1: absent for a parked activity.
+    tripDayId: formData.get("tripDayId") ?? undefined,
     dayPlanItemId: formData.get("dayPlanItemId"),
   });
   if (!parsed.success) {
@@ -150,11 +157,19 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
   }
 
   const fileName = `img-${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${extension}`;
-  const uploadDir = getDayPlanItemImageUploadDir(tripId, parsed.data.tripDayId, parsed.data.dayPlanItemId);
+  // Story 14.1: into the item's current place - its day, or `parked/` for a bucket-list idea. The repository
+  // write below is scoped by that same place, so a request naming the wrong one is refused and the file
+  // removed again.
+  const { tripDayId, dayPlanItemId } = parsed.data;
+  const uploadDir = tripDayId
+    ? getDayPlanItemImageUploadDir(tripId, tripDayId, dayPlanItemId)
+    : getParkedDayPlanItemImageUploadDir(tripId, dayPlanItemId);
   await fs.mkdir(uploadDir, { recursive: true });
   const filePath = path.join(uploadDir, fileName);
   await fs.writeFile(filePath, Buffer.from(await file.arrayBuffer()));
-  const imageUrl = `/uploads/trips/${tripId}/days/${parsed.data.tripDayId}/day-plan-items/${parsed.data.dayPlanItemId}/${fileName}`;
+  const imageUrl = tripDayId
+    ? `/uploads/trips/${tripId}/days/${tripDayId}/day-plan-items/${dayPlanItemId}/${fileName}`
+    : `/uploads/trips/${tripId}/parked/day-plan-items/${dayPlanItemId}/${fileName}`;
 
   const created = await createDayPlanItemImage({
     userId,
@@ -248,16 +263,24 @@ export const DELETE = async (request: NextRequest, context: RouteContext) => {
   // the request's day is not the day its photos are under. Building the directory from it answered
   // `200 { deleted: true }` and left the bytes orphaned - see `readStoredMediaDayId`. `null` means the URL
   // names nothing under this trip's days, so there is no file of ours to remove - and that skip is logged.
-  const storedDayId = existing?.imageUrl ? readStoredMediaDayId(existing.imageUrl, tripId) : null;
+  // Story 14.1: the one rule for every activity media delete (`resolveManagedItemMediaDir`), which also
+  // accepts the item's `parked/` folder. `null` means the URL names no folder of this activity under this
+  // trip, so there is no file of ours to remove - and that skip is logged.
   if (existing?.imageUrl) {
-    if (storedDayId) {
+    const allowedDir = resolveManagedItemMediaDir({
+      storedUrl: existing.imageUrl,
+      tripId,
+      itemId: parsed.data.dayPlanItemId,
+      kind: "image",
+    });
+    if (allowedDir) {
       await removeManagedMediaFile({
         storedUrl: existing.imageUrl,
-        allowedDir: getDayPlanItemImageUploadDir(tripId, storedDayId, parsed.data.dayPlanItemId),
+        allowedDir,
         context: "day plan item image delete",
       });
     } else {
-      // Logged, not skipped in silence. `null` here means the stored URL names no day under this trip -
+      // Logged, not skipped in silence. `null` here means the stored URL names no folder of this activity -
       // a value drifted, imported or migrated from somewhere else - so there is no file of ours to remove
       // and the `200` is right. Saying nothing is not: the outcome is a committed row delete with bytes
       // left on disk and nothing naming them, which is exactly the outcome the containment refusal and an
@@ -267,7 +290,7 @@ export const DELETE = async (request: NextRequest, context: RouteContext) => {
       // It logs the ids and not `storedUrl` alone, because this branch fires precisely when the URL names
       // some *other* trip - so the URL is the one value that cannot lead back to the row whose bytes were
       // abandoned. The trip and entity ids are what make it findable.
-      console.error("day plan item image delete: stored media url names no day under this trip", {
+      console.error("day plan item image delete: stored media url names no folder of this activity", {
         tripId,
         dayPlanItemId: parsed.data.dayPlanItemId,
         imageId: parsed.data.imageId,

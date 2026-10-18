@@ -5,7 +5,6 @@ import { hasTripOwnerOrContributorAccess, hasTripReadAccess } from "@/lib/auth/t
 import { CSRF_COOKIE_NAME, validateCsrf } from "@/lib/security/csrf";
 import {
   createDayPlanItemForTripDay,
-  convertBucketListItemToDayPlanItemForTripDay,
   deleteDayPlanItemForTripDay,
   listDayPlanItemsForTripDay,
   updateDayPlanItemForTripDay,
@@ -133,7 +132,6 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
         }
       : null;
 
-  const bucketListItemId = parsed.data.bucketListItemId ?? null;
   const resolvedLinkUrl = linkUrl && linkUrl.length > 0 ? linkUrl : null;
   const mutationParams = {
     userId,
@@ -159,14 +157,9 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
     location: normalizedLocation,
   };
 
-  const attempt = bucketListItemId
-    ? await withPushConflict(() =>
-        convertBucketListItemToDayPlanItemForTripDay({
-          ...mutationParams,
-          bucketListItemId,
-        }),
-      )
-    : await withPushConflict(() => createDayPlanItemForTripDay(mutationParams));
+  // Story 14.1: scheduling a bucket-list idea is `day-plan-items/schedule` now, which moves the parked
+  // activity itself; this route only ever creates.
+  const attempt = await withPushConflict(() => createDayPlanItemForTripDay(mutationParams));
   if ("conflict" in attempt) {
     return dayChangedResponse();
   }
@@ -177,15 +170,7 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
   }
 
   if ("status" in created) {
-    if (created.status === "not_found") {
-      return fail(apiError("not_found", "Trip day not found"), 404);
-    }
-    if (created.status === "bucket_missing") {
-      return fail(apiError("not_found", "Bucket list item not found"), 404);
-    }
-    if (created.status === "past_midnight") {
-      return pastMidnightResponse(created.item);
-    }
+    return pastMidnightResponse(created.item);
   }
 
   const resolvedItem = created.item;

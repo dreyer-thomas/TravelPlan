@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { prisma } from "@/lib/db/prisma";
+import { buildParkedContentJson } from "@/lib/trips/parkedItemContent";
 import {
   getAccommodationImageUploadDir,
   getDayPlanItemImageUploadDir,
@@ -83,6 +84,7 @@ const IMPORT_PAYLOAD: TripImportPayloadInput = {
     heroPhotoId: null,
     createdAt: "2026-02-14T12:00:00.000Z",
     updatedAt: "2026-02-14T12:00:00.000Z",
+    parkedDayPlanItems: [],
     bucketListItems: [],
   },
   days: [
@@ -174,6 +176,8 @@ const V2_IMPORT_PAYLOAD: TripImportPayloadInput = {
     heroPhotoId: "p1",
     createdAt: "2026-02-14T12:00:00.000Z",
     updatedAt: "2026-02-14T12:00:00.000Z",
+    parkedDayPlanItems: [],
+    // A backup from before Story 14.1: the legacy list, which the import turns into parked activities.
     bucketListItems: [
       {
         id: "source-bucket-1",
@@ -420,7 +424,7 @@ describe("tripRepo", () => {
     });
     const planItem = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day1.id,
+        tripId: day1.tripId, tripDayId: day1.id,
         contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Museum" }] }] }),
         costCents: 1500,
         linkUrl: "https://example.com/plan-1",
@@ -431,7 +435,7 @@ describe("tripRepo", () => {
     });
     await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day2.id,
+        tripId: day2.tripId, tripDayId: day2.id,
         contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Walk" }] }] }),
         costCents: null,
         linkUrl: null,
@@ -451,14 +455,25 @@ describe("tripRepo", () => {
         linkUrl: null,
       },
     });
-    // Inserted out of alphabetical order to pin `title asc, createdAt asc, id asc`.
-    await prisma.tripBucketListItem.create({
-      data: { tripId: trip.id, title: "Rooftop bar", description: "Sunset", positionText: "Centre" },
-    });
-    await prisma.tripBucketListItem.create({
+    // Story 14.1: the bucket list is parked activities. Inserted out of alphabetical order to pin
+    // `title asc, createdAt asc, id asc`.
+    await prisma.dayPlanItem.create({
       data: {
         tripId: trip.id,
+        tripDayId: null,
+        scheduleMode: "FLEXIBLE",
+        durationMinutes: 90,
+        title: "Rooftop bar",
+        contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Sunset" }] }] }),
+      },
+    });
+    await prisma.dayPlanItem.create({
+      data: {
+        tripId: trip.id,
+        tripDayId: null,
+        scheduleMode: "FLEXIBLE",
         title: "Botanical garden",
+        contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Garden" }] }] }),
         locationLat: 48.15,
         locationLng: 11.5,
         locationLabel: "North park",
@@ -562,20 +577,26 @@ describe("tripRepo", () => {
     expect(exported?.warnings).toHaveLength(1);
     expect(exported?.warnings[0]).toContain("/uploads/trips/export-trip/days/day-1/day.webp");
 
-    expect(exported?.trip.bucketListItems.map((item) => item.title)).toEqual([
+    expect(exported?.trip.parkedDayPlanItems.map((item) => item.title)).toEqual([
       "Botanical garden",
       "Rooftop bar",
     ]);
-    expect(exported?.trip.bucketListItems[0]).toEqual(
+    expect(exported?.trip.parkedDayPlanItems[0]).toEqual(
       expect.objectContaining({
-        description: null,
-        positionText: null,
+        scheduleMode: "FLEXIBLE",
+        durationMinutes: 15,
         location: { lat: 48.15, lng: 11.5, label: "North park" },
+        images: [],
+        documents: [],
+        payments: [],
       })
     );
-    expect(exported?.trip.bucketListItems[1]).toEqual(
-      expect.objectContaining({ description: "Sunset", positionText: "Centre", location: null })
+    expect(exported?.trip.parkedDayPlanItems[1]).toEqual(
+      expect.objectContaining({ durationMinutes: 90, location: null })
     );
+    expect(exported?.trip.parkedDayPlanItems[1].contentJson).toContain("Sunset");
+    expect(exported?.trip.parkedDayPlanItems[1]).not.toHaveProperty("fromTime");
+    expect(exported?.trip).not.toHaveProperty("bucketListItems");
 
     expect(exported?.days[1].travelSegments).toEqual([]);
     expect(exported?.days[0].travelSegments).toHaveLength(1);
@@ -954,7 +975,7 @@ describe("tripRepo", () => {
 
     const breakfast = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day2.id,
+        tripId: day2.tripId, tripDayId: day2.id,
         title: "Breakfast stop",
         fromTime: "08:30",
         toTime: "09:15",
@@ -979,7 +1000,7 @@ describe("tripRepo", () => {
 
     const museum = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day2.id,
+        tripId: day2.tripId, tripDayId: day2.id,
         title: "Museum visit",
         fromTime: "10:00",
         toTime: "12:00",
@@ -1162,7 +1183,7 @@ describe("tripRepo", () => {
     });
     const activity = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day2.id,
+        tripId: day2.tripId, tripDayId: day2.id,
         title: "Museum visit",
         fromTime: "10:00",
         contentJson: '{"type":"doc","content":[]}',
@@ -1170,7 +1191,7 @@ describe("tripRepo", () => {
     });
     const withoutDocuments = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day2.id,
+        tripId: day2.tripId, tripDayId: day2.id,
         title: "Evening walk",
         fromTime: "18:00",
         contentJson: '{"type":"doc","content":[]}',
@@ -1318,7 +1339,7 @@ describe("tripRepo", () => {
 
     await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day1.id,
+        tripId: day1.tripId, tripDayId: day1.id,
         title: "Morning walk",
         fromTime: "09:00",
         toTime: "10:00",
@@ -1452,7 +1473,7 @@ describe("tripRepo", () => {
 
     const item = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         title: "Ordered tickets",
         fromTime: "09:00",
         toTime: "10:00",
@@ -1544,7 +1565,7 @@ describe("tripRepo", () => {
     });
     await prisma.dayPlanItem.create({
       data: {
-        tripDayId: days[1].id,
+        tripId: days[1].tripId, tripDayId: days[1].id,
         contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Day 2" }] }] }),
         linkUrl: null,
       },
@@ -1554,7 +1575,7 @@ describe("tripRepo", () => {
     });
     await prisma.dayPlanItem.create({
       data: {
-        tripDayId: days[2].id,
+        tripId: days[2].tripId, tripDayId: days[2].id,
         contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Day 3" }] }] }),
         linkUrl: "https://example.com/plan",
       },
@@ -1609,7 +1630,7 @@ describe("tripRepo", () => {
     });
     await prisma.dayPlanItem.create({
       data: {
-        tripDayId: days[0].id,
+        tripId: days[0].tripId, tripDayId: days[0].id,
         contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Museum" }] }] }),
         costCents: 1300,
         linkUrl: null,
@@ -1617,7 +1638,7 @@ describe("tripRepo", () => {
     });
     await prisma.dayPlanItem.create({
       data: {
-        tripDayId: days[1].id,
+        tripId: days[1].tripId, tripDayId: days[1].id,
         contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Walk" }] }] }),
         costCents: null,
         linkUrl: null,
@@ -2082,7 +2103,6 @@ describe("tripRepo", () => {
     expect(await prisma.accommodation.count()).toBe(0);
     expect(await prisma.dayPlanItem.count()).toBe(0);
     expect(await prisma.travelSegment.count()).toBe(0);
-    expect(await prisma.tripBucketListItem.count()).toBe(0);
     expect(await prisma.accommodationImage.count()).toBe(0);
     expect(await prisma.dayPlanItemImage.count()).toBe(0);
     // AC3 covers the disk too: photos are written only after the commit, so a failed transaction
@@ -2127,16 +2147,25 @@ describe("tripRepo", () => {
     expect(segment.durationMinutes).toBe(45);
     expect(segment.linkUrl).toBe("https://example.com/ferry");
 
-    // --- bucket list ---------------------------------------------------------------------------
-    const bucketItems = await prisma.tripBucketListItem.findMany({
-      where: { tripId },
+    // --- bucket list (Story 14.1: a legacy list becomes parked activities by the migration's rule) --
+    const bucketItems = await prisma.dayPlanItem.findMany({
+      where: { tripId, tripDayId: null },
       orderBy: { title: "asc" },
     });
     expect(bucketItems.map((item) => item.title)).toEqual(["Fjord cruise", "Northern lights"]);
-    // `cleanOptionalString` semantics: trimmed, and a blank string becomes null.
-    expect(bucketItems[1].description).toBe("Away from town");
-    expect(bucketItems[1].positionText).toBeNull();
-    expect(bucketItems[1].locationLabel).toBe("Tromso");
+    expect(bucketItems[1]).toMatchObject({
+      scheduleMode: "FLEXIBLE",
+      durationMinutes: 15,
+      sortOrder: 0,
+      fromTime: null,
+      toTime: null,
+      locationLabel: "Tromso",
+    });
+    // The description, trimmed; the blank position text is dropped (and would be, with coordinates).
+    expect(bucketItems[1].contentJson).toBe(
+      buildParkedContentJson({ title: "Northern lights", description: "Away from town", positionText: "", hasCoordinates: true }),
+    );
+    expect(JSON.parse(bucketItems[1].contentJson).content[0].content[0].text).toBe("Away from town");
 
     // --- image rows carry the new ids ----------------------------------------------------------
     const stayImages = await prisma.accommodationImage.findMany({
@@ -2498,7 +2527,7 @@ describe("tripRepo", () => {
       data: { tripDayId: targetDay.id, name: "Old Accommodation" },
     });
     const oldPlanItem = await prisma.dayPlanItem.create({
-      data: { tripDayId: targetDay.id, contentJson: "{\"type\":\"doc\"}" },
+      data: { tripId: targetDay.tripId, tripDayId: targetDay.id, contentJson: "{\"type\":\"doc\"}" },
     });
     await prisma.accommodationImage.create({
       data: {
@@ -2518,8 +2547,8 @@ describe("tripRepo", () => {
         durationMinutes: 15,
       },
     });
-    await prisma.tripBucketListItem.create({
-      data: { tripId: target.trip.id, title: "Stale bucket entry" },
+    await prisma.dayPlanItem.create({
+      data: { tripId: target.trip.id, tripDayId: null, scheduleMode: "FLEXIBLE", title: "Stale bucket entry", contentJson: "{}" },
     });
     // A file the previous import left behind: AC5 says the overwrite must clear the disk too.
     await writeUploadFile(getTripUploadDir(target.trip.id), "stale.jpg", jpegBytes());
@@ -2537,7 +2566,7 @@ describe("tripRepo", () => {
     expect(result.mode).toBe("overwrite");
     expect(result.trip.id).toBe(target.trip.id);
 
-    const bucketItems = await prisma.tripBucketListItem.findMany({ where: { tripId: target.trip.id } });
+    const bucketItems = await prisma.dayPlanItem.findMany({ where: { tripId: target.trip.id, tripDayId: null } });
     expect(bucketItems.map((item) => item.title).sort()).toEqual(["Fjord cruise", "Northern lights"]);
 
     // `tripDay.deleteMany` cascades days -> accommodations / plan items / segments / images, so the
@@ -2789,9 +2818,9 @@ describe("tripRepo", () => {
       await prisma.accommodation.create({ data: { tripDayId: tabStay.id, name: "\u0009", costCents: 7_000 } });
       await prisma.dayPlanItem.createMany({
         data: [
-          { tripDayId: noStay.id, contentJson: "{}", costCents: null },
-          { tripDayId: noStay.id, contentJson: "{}", costCents: 500 },
-          { tripDayId: namedStay.id, contentJson: "{}", costCents: null },
+          { tripId: noStay.tripId, tripDayId: noStay.id, contentJson: "{}", costCents: null },
+          { tripId: noStay.tripId, tripDayId: noStay.id, contentJson: "{}", costCents: 500 },
+          { tripId: namedStay.tripId, tripDayId: namedStay.id, contentJson: "{}", costCents: null },
         ],
       });
 
@@ -3029,7 +3058,7 @@ describe("tripRepo", () => {
         // `include` empty, and every numeric assertion in this block still passes with it back.
         // Scalars are filtered out by name so a future `select` of plain columns stays legal - it is
         // the *relations* that decide how much of the tree crosses the wire.
-        const TRIP_RELATION_FIELDS = ["user", "members", "days", "bucketListItems"];
+        const TRIP_RELATION_FIELDS = ["user", "members", "days", "dayPlanItems"];
         const requested = { ...(args?.include ?? {}), ...(args?.select ?? {}) };
         const relationsAsked = Object.keys(requested).filter(
           (key) => TRIP_RELATION_FIELDS.includes(key) && requested[key],
@@ -3082,7 +3111,7 @@ describe("tripRepo", () => {
       // both are checked below.
       const other = await createListTrip(user.id, "Not on the page");
       const otherDay = await createListDay(other.id, 1);
-      await prisma.dayPlanItem.create({ data: { tripDayId: otherDay.id, contentJson: "{}", costCents: 999 } });
+      await prisma.dayPlanItem.create({ data: { tripId: otherDay.tripId, tripDayId: otherDay.id, contentJson: "{}", costCents: 999 } });
 
       // See the docstring: leftover `ANALYZE` statistics in the test database file are what made this
       // test's outcome depend on which other tests had run, and on which experiments a developer had

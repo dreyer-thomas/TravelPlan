@@ -513,8 +513,8 @@ const de: Dictionary = {
   "trips.overviewMap.popupNoNotes": "Für diese Unterkunft gibt es noch keine Notizen.",
   "trips.overviewMap.openLinkedItem": "Details öffnen",
   "trips.bucketList.title": "Bucket-Liste",
-  "trips.bucketList.addAction": "Eintrag hinzufügen",
-  "trips.bucketList.addToDayAction": "Zum Tag hinzufügen",
+  "trips.bucketList.addAction": "Idee hinzufügen",
+  "trips.bucketList.addToDayAction": "Auf diesen Tag einplanen",
   "trips.bucketList.loading": "Bucket-Liste wird geladen...",
   "trips.bucketList.empty": "Noch keine Bucket-List-Einträge.",
   "trips.bucketList.loadError": "Bucket-Liste konnte nicht geladen werden.",
@@ -524,16 +524,10 @@ const de: Dictionary = {
   "trips.bucketList.countLineOne": "1 Eintrag",
   "trips.bucketList.expandAction": "Bucket-Liste erweitern",
   "trips.bucketList.collapseAction": "Bucket-Liste reduzieren",
-  "trips.bucketList.locationMissing": "Keine Koordinaten gespeichert",
-  "trips.bucketList.addTitle": "Bucket-List-Eintrag hinzufügen",
-  "trips.bucketList.editTitle": "Bucket-List-Eintrag bearbeiten",
-  "trips.bucketList.saveNew": "Eintrag speichern",
-  "trips.bucketList.saveUpdate": "Änderungen speichern",
-  "trips.bucketList.saveError": "Bucket-List-Eintrag konnte nicht gespeichert werden. Bitte erneut versuchen.",
   "trips.bucketList.deleteError": "Bucket-List-Eintrag konnte nicht gelöscht werden. Bitte erneut versuchen.",
-  "trips.bucketList.titleLabel": "Titel",
-  "trips.bucketList.descriptionLabel": "Beschreibung",
-  "trips.bucketList.positionLabel": "Positionsangabe",
+  // Story 14.1: „+“ in der Tagesansicht plant die Idee auf den Tag ein; das ist sein Fehlschlag.
+  "trips.bucketList.scheduleError": "Konnte nicht eingeplant werden. Bitte erneut versuchen.",
+  "trips.bucketList.scheduleStale": "Der Tag wurde gerade geändert – die Idee wurde nicht eingeplant. Bitte erneut versuchen.",
   "trips.bucketList.editAction": "Eintrag bearbeiten",
   "trips.bucketList.deleteAction": "Eintrag löschen",
   "trips.bucketList.deleteTitle": "Bucket-List-Eintrag löschen?",
@@ -548,6 +542,9 @@ const de: Dictionary = {
   "trips.plan.title": "Tag {index} Plan",
   "trips.plan.addDialogTitle": "Planpunkt hinzufügen",
   "trips.plan.editDialogTitle": "Planpunkt bearbeiten",
+  // Story 14.1: der Aktivitätsdialog für eine Idee der Bucket-Liste (ohne Tag).
+  "trips.plan.addIdeaDialogTitle": "Idee hinzufügen",
+  "trips.plan.editIdeaDialogTitle": "Idee bearbeiten",
   "trips.plan.itemsTitle": "Plan-Elemente",
   "trips.plan.empty": "Noch keine Plan-Elemente.",
   "trips.plan.newItem": "Neues Element",
@@ -658,6 +655,12 @@ const de: Dictionary = {
   // Grund wie bei `legsRemovedOne` („1 Aktivitäten verschoben“ wäre ein sichtbarer Fehler).
   // Story 11.3: eine Umsortierung beginnt die Zusammenfassung damit.
   "trips.dayChange.reordered": "Reihenfolge geändert",
+  // Story 14.1: „+“ hat eine Idee der Bucket-Liste auf den Tag gelegt.
+  "trips.dayChange.scheduled": "„{title}“ eingeplant",
+  // Story 14.1: die Dauer einer Aktivität, wie die Zeile der Bucket-Liste sie zeigt.
+  "trips.duration.hours": "{hours} Std",
+  "trips.duration.minutes": "{minutes} Min",
+  "trips.duration.hoursMinutes": "{hours} Std {minutes} Min",
   "trips.dayChange.itemsMovedOne": "1 Aktivität verschoben",
   "trips.dayChange.itemsMoved": "{count} Aktivitäten verschoben",
   "trips.dayChange.itemsMovedOnDayOne": "1 Aktivität an Tag {day} verschoben",

@@ -63,8 +63,7 @@ export const ModelName = {
   AccommodationImage: 'AccommodationImage',
   DayPlanItemImage: 'DayPlanItemImage',
   AccommodationDocument: 'AccommodationDocument',
-  DayPlanItemDocument: 'DayPlanItemDocument',
-  TripBucketListItem: 'TripBucketListItem'
+  DayPlanItemDocument: 'DayPlanItemDocument'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -197,6 +196,7 @@ export type AccommodationScalarFieldEnum = (typeof AccommodationScalarFieldEnum)
 
 export const DayPlanItemScalarFieldEnum = {
   id: 'id',
+  tripId: 'tripId',
   tripDayId: 'tripDayId',
   title: 'title',
   fromTime: 'fromTime',
@@ -284,22 +284,6 @@ export const DayPlanItemDocumentScalarFieldEnum = {
 } as const
 
 export type DayPlanItemDocumentScalarFieldEnum = (typeof DayPlanItemDocumentScalarFieldEnum)[keyof typeof DayPlanItemDocumentScalarFieldEnum]
-
-
-export const TripBucketListItemScalarFieldEnum = {
-  id: 'id',
-  tripId: 'tripId',
-  title: 'title',
-  description: 'description',
-  positionText: 'positionText',
-  locationLat: 'locationLat',
-  locationLng: 'locationLng',
-  locationLabel: 'locationLabel',
-  createdAt: 'createdAt',
-  updatedAt: 'updatedAt'
-} as const
-
-export type TripBucketListItemScalarFieldEnum = (typeof TripBucketListItemScalarFieldEnum)[keyof typeof TripBucketListItemScalarFieldEnum]
 
 
 export const SortOrder = {

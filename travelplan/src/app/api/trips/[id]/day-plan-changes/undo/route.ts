@@ -7,7 +7,7 @@ import { CSRF_COOKIE_NAME, validateCsrf } from "@/lib/security/csrf";
 import { requireSession } from "@/lib/auth/sessionGuard";
 import { undoDayPlanChangeForTrip } from "@/lib/repositories/dayPlanChangeRepo";
 import { removeManagedMediaFile } from "@/lib/trips/mediaCleanup";
-import { getDayPlanItemImageUploadDir } from "@/lib/trips/uploadPaths";
+import { resolveManagedItemMediaDir } from "@/lib/trips/uploadPaths";
 import { fromDayChangeReceiptWire } from "@/lib/trips/dayChangeReceipt";
 import { verifyDayChangeReceipt } from "@/lib/trips/dayChangeReceiptSignature";
 import { dayChangeUndoSchema } from "@/lib/validation/dayChangeReceiptSchemas";
@@ -99,17 +99,31 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
         return fail(apiError("undo_stale", "The day has changed since this change was made"), 409);
       case "undone": {
         const removedFiles = result.removedImageFiles ?? [];
+        // Story 14.1: each file from the folder its own URL names (`resolveManagedItemMediaDir`), not one
+        // built from the receipt's day; a URL outside the activity's folders is logged and skipped.
+        const folders = new Set<string>();
         for (const file of removedFiles) {
-          await removeManagedMediaFile({
+          const allowedDir = resolveManagedItemMediaDir({
             storedUrl: file.imageUrl,
-            allowedDir: getDayPlanItemImageUploadDir(tripId, receipt.tripDayId, file.dayPlanItemId),
-            context: "day-plan-changes undo",
+            tripId,
+            itemId: file.dayPlanItemId,
+            kind: "image",
           });
+          if (!allowedDir) {
+            console.error("day-plan-changes undo: stored media url names no folder of this activity", {
+              tripId,
+              dayPlanItemId: file.dayPlanItemId,
+              storedUrl: file.imageUrl,
+            });
+            continue;
+          }
+          folders.add(allowedDir);
+          await removeManagedMediaFile({ storedUrl: file.imageUrl, allowedDir, context: "day-plan-changes undo" });
         }
         // Then each activity's own directory, which nothing names any more. `rmdir` only removes an
         // empty one, so anything else found there stays; failures are not the user's problem.
-        for (const itemId of new Set(removedFiles.map((file) => file.dayPlanItemId))) {
-          await fs.rmdir(getDayPlanItemImageUploadDir(tripId, receipt.tripDayId, itemId)).catch(() => undefined);
+        for (const folder of folders) {
+          await fs.rmdir(folder).catch(() => undefined);
         }
         return ok({ undone: true });
       }

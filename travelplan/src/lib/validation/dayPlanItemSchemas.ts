@@ -25,7 +25,7 @@ const hasRenderableContent = (node: unknown): boolean => {
   return false;
 };
 
-const contentJsonSchema = z
+export const contentJsonSchema = z
   .string()
   .trim()
   .min(1, "Content is required")
@@ -38,7 +38,7 @@ const contentJsonSchema = z
     }
   }, "Content must be valid and non-empty JSON");
 
-const linkSchema = z
+export const linkSchema = z
   .string()
   .trim()
   .url("Link must be a valid URL")
@@ -53,7 +53,47 @@ const paymentSchema = z.object({
   dueDate: dateOnlySchema,
   ...paymentOriginalField,
 });
-const paymentsSchema = z.array(paymentSchema);
+export const paymentsSchema = z.array(paymentSchema);
+
+/**
+ * "Payments sum to the cost", shared by the day activity and the parked one (Story 14.1), so the two
+ * payloads cannot drift apart on it.
+ */
+export const refinePaymentTotal = (
+  value: { costCents?: number | null; payments?: { amountCents: number }[] | null },
+  context: z.RefinementCtx,
+) => {
+  const costCents = value.costCents ?? null;
+  const payments = value.payments ?? null;
+  if (costCents === null) {
+    if (payments && payments.length > 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["payments"],
+        message: "Payments require a total cost",
+      });
+    }
+    return;
+  }
+
+  if (!payments || payments.length === 0) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["payments"],
+      message: "Payments are required when cost is set",
+    });
+    return;
+  }
+
+  const total = payments.reduce((sum, payment) => sum + payment.amountCents, 0);
+  if (total !== costCents) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["payments"],
+      message: "Payment total must match cost",
+    });
+  }
+};
 
 const normalizeTime = (raw: string): string | null => {
   const value = raw.trim();
@@ -92,6 +132,27 @@ export const MIN_ACTIVITY_DURATION_MINUTES = 5;
 export const MAX_ACTIVITY_DURATION_MINUTES = 23 * 60 + 59;
 const LAST_MINUTE_OF_DAY = 23 * 60 + 59;
 
+/** Story 13.1's duration bounds, shared with the parked activity (Story 14.1). `false` when it reported. */
+export const refineDurationInRange = (minutes: number, context: z.RefinementCtx) => {
+  if (minutes < MIN_ACTIVITY_DURATION_MINUTES) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["durationMinutes"],
+      message: `Duration must be at least ${MIN_ACTIVITY_DURATION_MINUTES} minutes`,
+    });
+    return false;
+  }
+  if (minutes > MAX_ACTIVITY_DURATION_MINUTES) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["durationMinutes"],
+      message: "Duration must end within the day",
+    });
+    return false;
+  }
+  return true;
+};
+
 export const dayPlanItemMutationSchema = z.object({
   tripDayId: z.string().trim().min(1, "Trip day is required"),
   title: z.string().trim().min(1, "Title is required").max(120, "Title must be at most 120 characters"),
@@ -111,7 +172,6 @@ export const dayPlanItemMutationSchema = z.object({
   payments: paymentsSchema.optional().nullable(),
   linkUrl: linkSchema.optional().nullable(),
   location: locationInputSchema.optional(),
-  bucketListItemId: z.string().trim().min(1, "Bucket list item is required").optional().nullable(),
 }).superRefine((value, context) => {
   /*
     The time and cents rules, nested so that their early returns stay local (Story 13.1 split them in
@@ -121,25 +181,7 @@ export const dayPlanItemMutationSchema = z.object({
   */
   const checkSchedule = () => {
     const duration = value.durationMinutes ?? null;
-    const durationInRange = (minutes: number) => {
-      if (minutes < MIN_ACTIVITY_DURATION_MINUTES) {
-        context.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["durationMinutes"],
-          message: `Duration must be at least ${MIN_ACTIVITY_DURATION_MINUTES} minutes`,
-        });
-        return false;
-      }
-      if (minutes > MAX_ACTIVITY_DURATION_MINUTES) {
-        context.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["durationMinutes"],
-          message: "Duration must end within the day",
-        });
-        return false;
-      }
-      return true;
-    };
+    const durationInRange = (minutes: number) => refineDurationInRange(minutes, context);
 
     if (value.scheduleMode === "FLEXIBLE") {
       if (duration !== null) durationInRange(duration);
@@ -180,41 +222,8 @@ export const dayPlanItemMutationSchema = z.object({
     }
   };
 
-  const checkPaymentTotal = () => {
-    const costCents = value.costCents ?? null;
-    const payments = value.payments ?? null;
-    if (costCents === null) {
-      if (payments && payments.length > 0) {
-        context.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["payments"],
-          message: "Payments require a total cost",
-        });
-      }
-      return;
-    }
-
-    if (!payments || payments.length === 0) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["payments"],
-        message: "Payments are required when cost is set",
-      });
-      return;
-    }
-
-    const total = payments.reduce((sum, payment) => sum + payment.amountCents, 0);
-    if (total !== costCents) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["payments"],
-        message: "Payment total must match cost",
-      });
-    }
-  };
-
   checkSchedule();
-  checkPaymentTotal();
+  refinePaymentTotal(value, context);
 
   // Story 10.1, additively and deliberately last - see the identical note in accommodationSchemas.ts.
   refineCostCurrency(value, context);
@@ -243,6 +252,16 @@ export const dayPlanItemReorderSchema = z.object({
 });
 
 export type DayPlanItemReorderInput = z.infer<typeof dayPlanItemReorderSchema>;
+
+/** Story 14.1. "+" on a bucket-list row: which parked activity, onto which day. */
+export const dayPlanItemScheduleSchema = z
+  .object({
+    itemId: z.string().trim().min(1, "Day plan item is required"),
+    tripDayId: z.string().trim().min(1, "Trip day is required"),
+  })
+  .strict();
+
+export type DayPlanItemScheduleInput = z.infer<typeof dayPlanItemScheduleSchema>;
 
 /**
  * Story 6.23. Deliberately its own schema rather than a third `operation` on

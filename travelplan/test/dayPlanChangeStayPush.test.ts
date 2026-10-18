@@ -13,6 +13,7 @@ import type { DayChangeReceiptWire } from "@/lib/trips/dayChangeReceipt";
 import { compareDayPlanItemsByOrder } from "@/lib/trips/dayPlanItemOrder";
 import { routeContext } from "./helpers/routeContext";
 import { settleSeededDay } from "./helpers/settleSeededDay";
+import { tripIdOfDay } from "./helpers/tripIdOfDay";
 
 /**
  * Story 11.4 AC3, AC4, AC5, AC6, AC8. A later check-out pushes the *next* trip day from its first timed
@@ -59,15 +60,15 @@ const seedTrip = async (email: string, checkOutTime: string | null) => {
   return { user, trip, stayDay, nextDay, stay };
 };
 
-const createRawItem = (tripDayId: string, title: string, fromTime: string | null, toTime: string | null) =>
+const createRawItem = async (tripDayId: string, title: string, fromTime: string | null, toTime: string | null) =>
   prisma.dayPlanItem.create({
-    data: { tripDayId, title, fromTime, toTime, contentJson: sampleDoc(title), createdAt: PAST, updatedAt: PAST },
+    data: { tripId: await tripIdOfDay(tripDayId), tripDayId, title, fromTime, toTime, contentJson: sampleDoc(title), createdAt: PAST, updatedAt: PAST },
   });
 
 /** Story 13.1: each seeded day is numbered the way the migration numbers real data. */
 const createItem = async (...args: Parameters<typeof createRawItem>) => {
   const row = await createRawItem(...args);
-  await settleSeededDay(row.tripDayId);
+  await settleSeededDay(row.tripDayId!);
   return prisma.dayPlanItem.findUniqueOrThrow({ where: { id: row.id } });
 };
 

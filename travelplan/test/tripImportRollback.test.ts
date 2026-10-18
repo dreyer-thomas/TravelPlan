@@ -59,6 +59,7 @@ const PAYLOAD: TripImportPayloadInput = {
     heroPhotoId: "p1",
     createdAt: STAMP,
     updatedAt: STAMP,
+    parkedDayPlanItems: [],
     bucketListItems: [{ id: "b1", title: "Survive the rollback", description: null, positionText: null, location: null }],
   },
   days: [
@@ -202,7 +203,8 @@ describe("import photo-write rollback", () => {
     const days = await prisma.tripDay.findMany({ where: { tripId: target.trip.id } });
     expect(days).toHaveLength(1);
     expect(days[0].note).toBe("Restored note");
-    expect(await prisma.tripBucketListItem.count({ where: { tripId: target.trip.id } })).toBe(1);
+    // The legacy idea came back as a parked activity (Story 14.1).
+    expect(await prisma.dayPlanItem.count({ where: { tripId: target.trip.id, tripDayId: null } })).toBe(1);
   });
 
   it("puts a stashed upload directory back when the target did have one", async () => {
@@ -276,7 +278,62 @@ describe("import photo-write rollback", () => {
 
     expect(await prisma.trip.count()).toBe(0);
     expect(await prisma.tripDay.count()).toBe(0);
-    expect(await prisma.tripBucketListItem.count()).toBe(0);
+    expect(await prisma.dayPlanItem.count()).toBe(0);
+  });
+
+  /**
+   * Story 14.1. A parked activity's picture and document are restored under the trip's `parked/`
+   * folder, so a failed create-new must take that folder with it. The writes go down for real (the
+   * pictures) before the failure, which is what makes the empty disk afterwards mean something.
+   */
+  it("leaves no parked/ file behind when create-new fails", async () => {
+    const user = await createOwner("import-rollback-parked@example.com");
+    const seen = failOnDocumentWrites();
+
+    await expect(
+      importTripFromExportForUser({
+        userId: user.id,
+        payload: {
+          ...PAYLOAD,
+          documents: { d1: { contentType: "application/pdf", archivePath: "documents/d1.pdf" } },
+          trip: {
+            ...PAYLOAD.trip,
+            heroPhotoId: null,
+            bucketListItems: [],
+            parkedDayPlanItems: [
+              {
+                id: "source-idea",
+                title: "Parked idea",
+                contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "x" }] }] }),
+                scheduleMode: "FLEXIBLE",
+                durationMinutes: 120,
+                costCents: null,
+                costOriginalAmount: null,
+                costCurrency: null,
+                costRate: null,
+                costRateDate: null,
+                linkUrl: null,
+                location: null,
+                createdAt: STAMP,
+                updatedAt: STAMP,
+                images: [{ sortOrder: 1, photoId: "p1" }],
+                documents: [{ sortOrder: 1, documentId: "d1", fileName: "Ticket.pdf" }],
+              },
+            ],
+          },
+        },
+        strategy: "createNew",
+        photoBytes: photoBytes(),
+        documentBytes: documentBytes(),
+      }),
+    ).rejects.toThrow("photo_write_failed");
+
+    expect(seen.photoWrites).toHaveLength(1);
+    expect(seen.photoWrites[0]).toContain(`${path.sep}parked${path.sep}day-plan-items${path.sep}`);
+    expect(seen.documentWrites[0]).toContain(`${path.sep}parked${path.sep}day-plan-items${path.sep}`);
+    expect(await prisma.trip.count()).toBe(0);
+    expect(await prisma.dayPlanItem.count()).toBe(0);
+    expect(await fs.readdir(uploadsRoot).catch(() => [])).toEqual([]);
   });
 
   /**

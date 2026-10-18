@@ -1,9 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
 import { type PaymentDetail, toPaymentDetails } from "@/lib/repositories/paymentDetail";
-import {
-  deleteBucketListItemForTripInTransaction,
-  findBucketListItemForTripInTransaction,
-} from "@/lib/repositories/bucketListRepo";
 // Story 8.5 (`DW-215`): the segment sweep this file used to own privately now serves both members of
 // `TravelSegmentItemType` and lives beside the rows it deletes. Story 11.1 made it return full rows (for
 // the change receipt) and added the sweep of legs a write un-draws; the delete's `removedTravelSegmentIds`
@@ -17,10 +13,10 @@ import {
 import type {
   DayChangeEdited,
   DayChangeReceipt,
+  DayPlanItemRow,
   DeletedDayPlanItemSnapshot,
   MovedItemRow,
   TravelSegmentRow,
-  TripBucketListItemRow,
 } from "@/lib/trips/dayChangeReceipt";
 // Story 11.4: the transaction helpers live in their own module so the leg and stay writes can share
 // them without an import cycle; Story 13.1 replaced the push walk with the schedule rule there. The two
@@ -55,7 +51,8 @@ type PaymentInput = { amountCents: number; dueDate: string; amountOriginal?: num
 
 export type DayPlanItemDetail = {
   id: string;
-  tripDayId: string;
+  /** Story 14.1. `null` for a parked activity (the bucket list); every day read returns a day's rows. */
+  tripDayId: string | null;
   title: string | null;
   fromTime: string | null;
   toTime: string | null;
@@ -112,11 +109,12 @@ export type DayPlanItemDeleteResult =
   | DayPlanPushRefusal
   | { status: "deleted"; removedTravelSegmentIds: string[]; receipt: DayChangeReceipt };
 
-export type DayPlanItemConversionResult =
+/** Story 14.1. "+" on a bucket-list row: the parked activity itself moves onto the day. */
+export type ParkedDayPlanItemScheduleResult =
   | { status: "not_found" }
-  | { status: "bucket_missing" }
+  | { status: "missing" }
   | DayPlanPushRefusal
-  | { status: "created"; item: DayPlanItemDetail; receipt: DayChangeReceipt };
+  | { status: "scheduled"; item: DayPlanItemDetail; receipt: DayChangeReceipt };
 
 type DayPlanItemMutationParams = {
   userId: string;
@@ -174,7 +172,6 @@ type DayPlanItemSwapParams = {
   secondTripDayId: string;
 };
 
-type DayPlanItemConversionParams = DayPlanItemMutationParams & { bucketListItemId: string };
 
 export type DayPlanItemImageDetail = {
   id: string;
@@ -185,10 +182,14 @@ export type DayPlanItemImageDetail = {
   updatedAt: Date;
 };
 
+/**
+ * Story 14.1: `tripDayId` absent (or `null`) means the activity must be parked. The scope is the item's
+ * *current* place, so a parked activity's media are reached without a day and a planned one's with it.
+ */
 type DayPlanItemImageScopeParams = {
   userId: string;
   tripId: string;
-  tripDayId: string;
+  tripDayId?: string | null;
   dayPlanItemId: string;
 };
 
@@ -326,18 +327,18 @@ const findScopedDayPlanItem = async ({ userId, tripId, tripDayId, dayPlanItemId 
   prisma.dayPlanItem.findFirst({
     where: {
       id: dayPlanItemId,
-      tripDayId,
-      tripDay: {
-        id: tripDayId,
-        tripId,
-        // The writer clause, identical to `findTripDayForTripWriter` above. Story 5.13 widened it from
-        // `trip: { userId }`: a contributor may create, move and delete the activity itself, so refusing
-        // her the photos and documents attached to it was chronology (Story 2.16 predates the role), not
-        // a rule. The explicit `role: "CONTRIBUTOR"` is load-bearing - the role-agnostic spelling just
-        // below is the *participant read* scope and admits viewers.
-        trip: {
-          OR: [{ userId }, { members: { some: { userId, role: "CONTRIBUTOR" } } }],
-        },
+      tripId,
+      // Story 14.1: the item's current place. Through `tripId` and the item's own `trip` relation since a
+      // parked activity has no day to scope through; a day id names a day of this trip because the item
+      // row's `tripId` equals its day's.
+      tripDayId: tripDayId ?? null,
+      // The writer clause, identical to `findTripDayForTripWriter` above. Story 5.13 widened it from
+      // `trip: { userId }`: a contributor may create, move and delete the activity itself, so refusing
+      // her the photos and documents attached to it was chronology (Story 2.16 predates the role), not
+      // a rule. The explicit `role: "CONTRIBUTOR"` is load-bearing - the role-agnostic spelling just
+      // below is the *participant read* scope and admits viewers.
+      trip: {
+        OR: [{ userId }, { members: { some: { userId, role: "CONTRIBUTOR" } } }],
       },
     },
     select: { id: true },
@@ -352,21 +353,20 @@ const findScopedDayPlanItemForTripParticipant = async ({
   prisma.dayPlanItem.findFirst({
     where: {
       id: dayPlanItemId,
-      tripDayId,
-      tripDay: {
-        id: tripDayId,
-        tripId,
-        trip: {
-          OR: [{ userId }, { members: { some: { userId } } }],
-        },
-      },
+      tripId,
+      tripDayId: tripDayId ?? null,
+      // Story 14.1: a parked activity belongs to the bucket list, which only writers see (AC5), so its
+      // media are read under the writer clause; a planned one's under the participant clause, as before.
+      trip: tripDayId
+        ? { OR: [{ userId }, { members: { some: { userId } } }] }
+        : { OR: [{ userId }, { members: { some: { userId, role: "CONTRIBUTOR" } } }] },
     },
     select: { id: true },
   });
 
 const toDetail = (item: {
   id: string;
-  tripDayId: string;
+  tripDayId: string | null;
   title: string | null;
   fromTime: string | null;
   toTime: string | null;
@@ -412,6 +412,30 @@ const toDetail = (item: {
   durationMinutes: item.durationMinutes,
   sortOrder: item.sortOrder,
 });
+
+/**
+ * Story 14.1 (FR30). The rule for reading activities by trip, in one place.
+ *
+ * Every trip-level reader (costs, the dashboard, gantt, map, route, print, packet, suggestions) reaches
+ * activities *through the day* (`tripDay: { tripId }`, `trip.days[].dayPlanItems`), and a relation
+ * filter on the nullable `tripDay` never matches a parked row, so those readers need no filter. A
+ * reader that queries `DayPlanItem.tripId` directly must say which side it wants: only the bucket list
+ * reads `parkedDayPlanItemsWhere`, and any other reader by `tripId` uses `plannedDayPlanItemsWhere`.
+ */
+export const parkedDayPlanItemsWhere = (tripId: string) => ({ tripId, tripDayId: null });
+export const plannedDayPlanItemsWhere = (tripId: string) => ({ tripId, tripDayId: { not: null } });
+
+/**
+ * Story 14.1. A stored row as the receipt carries it: `DayPlanItemRow` has no `tripId` (undo takes it
+ * from the request) and names the receipt's day, so a row read through a day is narrowed here. Without
+ * this a spread row would carry `tripId`, which the receipt schema's `.strict()` refuses on undo.
+ */
+const toReceiptRow = <R extends { tripId: string; tripDayId: string | null }>(row: R) => {
+  const { tripId: _tripId, tripDayId, ...rest } = row;
+  void _tripId;
+  if (tripDayId === null) throw new Error("toReceiptRow: a parked row has no day receipt");
+  return { ...rest, tripDayId };
+};
 
 const toImageDetail = (item: {
   id: string;
@@ -515,7 +539,7 @@ const finishActivityWriteInTransaction = async (
   params: { tripId: string; tripDayId: string; drawnBefore: ReadonlySet<string>; now: Date; createdId?: string },
   plan: PlannedOk,
   edited: DayChangeEdited,
-  extras: { consumedBucketListItem?: TripBucketListItemRow; removedTravelSegments?: TravelSegmentRow[] } = {},
+  extras: { removedTravelSegments?: TravelSegmentRow[] } = {},
 ): Promise<{ receipt: DayChangeReceipt; movedItems: MovedItemRow[] }> => {
   const { tripId, tripDayId, drawnBefore, now, createdId } = params;
   const movedItems = await applyScheduleChangesInTransaction(tx, tripDayId, plan.changes, now);
@@ -534,7 +558,7 @@ const finishActivityWriteInTransaction = async (
       edited,
       [...removed, ...swept.filter((segment) => !removedIds.has(segment.id))],
       movedItems,
-      { consumedBucketListItem: extras.consumedBucketListItem, checkInWarning, planConflicts },
+      { checkInWarning, planConflicts },
     ),
   };
 };
@@ -587,7 +611,9 @@ export const deleteDayPlanItemInTransaction = async (
 
   const removedIds = new Set(referencing.map((segment) => segment.id));
   const removedTravelSegments = [...referencing, ...swept.filter((segment) => !removedIds.has(segment.id))];
-  return { status: "deleted", previous, removedTravelSegments };
+  const { payments, images, documents } = previous;
+  const snapshot: DeletedDayPlanItemSnapshot = { ...toReceiptRow(previous), payments, images, documents };
+  return { status: "deleted", previous: snapshot, removedTravelSegments };
 };
 
 export const listDayPlanItemsForTripDay = async (params: {
@@ -641,6 +667,7 @@ export const createDayPlanItemForTripDay = async (
     const drawnBefore = await readDrawnSegmentKeysInTransaction(tx, tripId, tripDayId);
     const item = await tx.dayPlanItem.create({
       data: {
+        tripId,
         tripDayId,
         title: params.title.trim(),
         fromTime: planned.fromTime,
@@ -693,108 +720,83 @@ export const createDayPlanItemForTripDay = async (
   });
 };
 
-export const convertBucketListItemToDayPlanItemForTripDay = async (
-  params: DayPlanItemConversionParams,
-): Promise<DayPlanItemConversionResult> => {
-  const { userId, tripId, tripDayId, bucketListItemId, contentJson, costCents, linkUrl, location } = params;
+/**
+ * Story 14.1 (FR31). "+" on a bucket-list row: the parked activity **itself** moves onto the day - same
+ * id, so its pictures, documents, payments, link, text and duration come along without a copy. It is
+ * appended as FLEXIBLE through 13.1's insert path (the plan is told the real id, which it uses for
+ * identity only), and the day is recomputed in the same transaction.
+ *
+ * Refusals are decided before the first write: `not_found` (not a day of this trip the user may write),
+ * `missing` (no parked activity with that id on this trip - already scheduled, deleted, or another
+ * trip's), and a new overflow past 23:59 (`past_midnight`, as a create refuses until Story 13.2). The
+ * move itself is conditional on the item still being parked with the `updatedAt` read here; a miss is
+ * `DayPlanChangedError` (409 `day_plan_changed`).
+ */
+export const scheduleParkedDayPlanItemForTripDay = async (params: {
+  userId: string;
+  tripId: string;
+  tripDayId: string;
+  itemId: string;
+}): Promise<ParkedDayPlanItemScheduleResult> => {
+  const { userId, tripId, tripDayId, itemId } = params;
   const tripDay = await findTripDayForTripWriter(userId, tripId, tripDayId);
   if (!tripDay) {
     return { status: "not_found" };
   }
 
-  return prisma.$transaction(async (tx) => {
-    const bucketItem = await findBucketListItemForTripInTransaction({
-      tx,
-      userId,
-      tripId,
-      itemId: bucketListItemId,
+  return prisma.$transaction(async (tx): Promise<ParkedDayPlanItemScheduleResult> => {
+    const parked = await tx.dayPlanItem.findFirst({
+      where: { id: itemId, ...parkedDayPlanItemsWhere(tripId) },
+      select: { id: true, title: true, durationMinutes: true, updatedAt: true },
     });
+    if (!parked) return { status: "missing" };
 
-    if (!bucketItem) {
-      return { status: "bucket_missing" as const };
-    }
-
-    // Story 11.2: planned before the create and before the idea is deleted, so a refusal leaves it in place.
-    // Story 13.1: placed exactly as a create places it.
-    const now = new Date();
-    const fields = scheduleFieldsOf(params);
     const plan = await planActivityWriteInTransaction(tx, tripId, tripDayId, {
       kind: "insert",
-      item: { id: NEW_ITEM_ID, title: params.title.trim(), ...fields },
-    });
-    if (plan.status === "past_midnight") return refusalOf(plan);
-    const planned = plan.edited!;
-
-    // Story 11.1: the idea as it was, so undoing the conversion brings it back rather than destroying it.
-    const consumedBucketListItem = await tx.tripBucketListItem.findUniqueOrThrow({ where: { id: bucketItem.id } });
-    const drawnBefore = await readDrawnSegmentKeysInTransaction(tx, tripId, tripDayId);
-
-    const created = await tx.dayPlanItem.create({
-      data: {
-        tripDayId,
-        title: params.title.trim(),
-        fromTime: planned.fromTime,
-        toTime: planned.toTime,
-        scheduleMode: fields.scheduleMode,
-        durationMinutes: fields.durationMinutes,
-        sortOrder: planned.sortOrder,
-        contentJson,
-        costCents: costCents ?? null,
-        costOriginalAmount: params.costOriginalAmount ?? null,
-        costCurrency: params.costCurrency ?? null,
-        costRate: params.costRate ?? null,
-        costRateDate: params.costRateDate ?? null,
-        linkUrl: linkUrl ?? null,
-        locationLat: location?.lat ?? null,
-        locationLng: location?.lng ?? null,
-        locationLabel: location?.label?.trim() || null,
+      item: {
+        id: parked.id,
+        title: parked.title,
+        scheduleMode: "FLEXIBLE",
+        durationMinutes: parked.durationMinutes,
+        fromTime: null,
+        toTime: null,
       },
     });
+    if (plan.status === "past_midnight") return plan;
+    const planned = plan.edited!;
 
-    if (params.payments) {
-      await tx.costPayment.deleteMany({ where: { dayPlanItemId: created.id } });
-      if (params.payments.length > 0) {
-        await tx.costPayment.createMany({
-          data: params.payments.map((payment, index) => ({
-            dayPlanItemId: created.id,
-            amountCents: payment.amountCents,
-            amountOriginal: payment.amountOriginal ?? null,
-            dueDate: payment.dueDate,
-            sortOrder: index,
-          })),
-        });
-      }
-    }
+    const now = new Date();
+    const drawnBefore = await readDrawnSegmentKeysInTransaction(tx, tripId, tripDayId);
+    const moved = await tx.dayPlanItem.updateMany({
+      where: { id: parked.id, ...parkedDayPlanItemsWhere(tripId), updatedAt: parked.updatedAt },
+      data: {
+        tripDayId,
+        scheduleMode: "FLEXIBLE",
+        sortOrder: planned.sortOrder,
+        fromTime: planned.fromTime,
+        toTime: planned.toTime,
+        updatedAt: now,
+      },
+    });
+    if (moved.count !== 1) throw new DayPlanChangedError();
 
-    const deleted = await deleteBucketListItemForTripInTransaction({
-      tx,
-      tripId,
-      itemId: bucketItem.id,
+    const { receipt } = await finishActivityWriteInTransaction(tx, { tripId, tripDayId, drawnBefore, now }, plan, {
+      kind: "scheduled",
+      itemId: parked.id,
+      updatedAt: now,
+      previousUpdatedAt: parked.updatedAt,
     });
 
-    if (!deleted) {
-      throw new Error("Bucket list item deletion failed");
-    }
-
-    const { receipt } = await finishActivityWriteInTransaction(
-      tx,
-      { tripId, tripDayId, drawnBefore, now, createdId: created.id },
-      plan,
-      { kind: "created", itemId: created.id, updatedAt: created.updatedAt },
-      { consumedBucketListItem },
-    );
-
-    const payments = await tx.costPayment.findMany({
-      where: { dayPlanItemId: created.id },
-      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-      select: { amountCents: true, dueDate: true, amountOriginal: true },
+    const item = await tx.dayPlanItem.findUniqueOrThrow({
+      where: { id: parked.id },
+      include: {
+        payments: {
+          select: { amountCents: true, dueDate: true, amountOriginal: true },
+          orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+        },
+      },
     });
-
-    return {
-      status: "created" as const,
-      item: toDetail({ ...created, payments: toPaymentDetails(payments) }),
-      receipt,
-    };
+    return { status: "scheduled", item: toDetail({ ...item, payments: toPaymentDetails(item.payments) }), receipt };
   });
 };
 
@@ -874,7 +876,7 @@ export const updateDayPlanItemForTripDay = async (
       tx,
       { tripId, tripDayId, drawnBefore, now },
       plan,
-      { kind: "updated", itemId: item.id, updatedAt: item.updatedAt, previous: existing },
+      { kind: "updated", itemId: item.id, updatedAt: item.updatedAt, previous: { ...toReceiptRow(existing), payments: existing.payments } },
     );
 
     const payments = await tx.costPayment.findMany({
@@ -994,7 +996,7 @@ export const reorderDayPlanItemForTripDay = async (params: {
  * omitted), writing only rows whose number changes. The moves between days use it; they keep both days'
  * order dense but do not recompute times, which Story 13.3 adds.
  */
-const renumberDayInTransaction = async (tx: TransactionClient, tripDayId: string, orderedIds?: string[]) => {
+export const renumberDayInTransaction = async (tx: TransactionClient, tripDayId: string, orderedIds?: string[]) => {
   const rows = await tx.dayPlanItem.findMany({
     where: { tripDayId },
     select: { id: true, fromTime: true, createdAt: true, sortOrder: true },

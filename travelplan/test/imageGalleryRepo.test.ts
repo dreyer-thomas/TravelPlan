@@ -138,7 +138,7 @@ describe("image gallery repositories", () => {
     const { trip, day } = await createTripWithDay(owner.id);
     const item = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         contentJson: JSON.stringify({
           type: "doc",
           content: [{ type: "paragraph", content: [{ type: "text", text: "Gallery stop" }] }],
@@ -223,7 +223,7 @@ describe("image gallery repositories", () => {
     });
     const item = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         contentJson: JSON.stringify({
           type: "doc",
           content: [{ type: "paragraph", content: [{ type: "text", text: "Shared stop" }] }],

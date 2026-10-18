@@ -106,8 +106,3 @@ export type AccommodationDocument = Prisma.AccommodationDocumentModel
  * 
  */
 export type DayPlanItemDocument = Prisma.DayPlanItemDocumentModel
-/**
- * Model TripBucketListItem
- * 
- */
-export type TripBucketListItem = Prisma.TripBucketListItemModel

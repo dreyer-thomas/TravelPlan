@@ -12,9 +12,12 @@ import {
   getAccommodationImageUploadDir,
   getDayPlanItemDocumentUploadDir,
   getDayPlanItemImageUploadDir,
+  getParkedDayPlanItemDocumentUploadDir,
+  getParkedDayPlanItemImageUploadDir,
   getTripDayUploadDir,
   getTripUploadDir,
   getTripsUploadRoot,
+  resolveStoredMediaPath,
 } from "@/lib/trips/uploadPaths";
 import { jpegBytes, pdfBytes, pngBytes, webpBytes, writeUploadFile } from "./helpers/uploadFixtures";
 
@@ -63,7 +66,6 @@ describe("trip backup round trip", () => {
     await prisma.accommodationDocument.deleteMany();
     await prisma.dayPlanItemDocument.deleteMany();
     await prisma.travelSegment.deleteMany();
-    await prisma.tripBucketListItem.deleteMany();
     await prisma.dayPlanItem.deleteMany();
     await prisma.accommodation.deleteMany();
     await prisma.tripDay.deleteMany();
@@ -105,7 +107,7 @@ describe("trip backup round trip", () => {
     });
     const sourcePlanItem = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: sourceDay1.id,
+        tripId: sourceDay1.tripId, tripDayId: sourceDay1.id,
         title: "Ferry terminal",
         contentJson: JSON.stringify({ type: "doc", content: [] }),
         costCents: 2500,
@@ -123,10 +125,17 @@ describe("trip backup round trip", () => {
         linkUrl: "https://example.com/ferry",
       },
     });
-    await prisma.tripBucketListItem.createMany({
+    // Story 14.1: the bucket list is parked activities.
+    await prisma.dayPlanItem.createMany({
       data: [
-        { tripId: sourceTrip.id, title: "Aurora hunt", description: "Clear night", positionText: "North" },
-        { tripId: sourceTrip.id, title: "Kayaking" },
+        {
+          tripId: sourceTrip.id,
+          tripDayId: null,
+          scheduleMode: "FLEXIBLE",
+          title: "Aurora hunt",
+          contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Clear night" }] }] }),
+        },
+        { tripId: sourceTrip.id, tripDayId: null, scheduleMode: "FLEXIBLE", title: "Kayaking", contentJson: "{}" },
       ],
     });
 
@@ -230,12 +239,12 @@ describe("trip backup round trip", () => {
     expect(newPlanItem.title).toBe("Ferry terminal");
     expect(newPlanItem.costCents).toBe(2500);
 
-    const bucketItems = await prisma.tripBucketListItem.findMany({
-      where: { tripId: newTripId },
+    const bucketItems = await prisma.dayPlanItem.findMany({
+      where: { tripId: newTripId, tripDayId: null },
       orderBy: { title: "asc" },
     });
     expect(bucketItems.map((item) => item.title)).toEqual(["Aurora hunt", "Kayaking"]);
-    expect(bucketItems[0].positionText).toBe("North");
+    expect(bucketItems[0].contentJson).toContain("Clear night");
 
     // Payments are back-filled from costCents by the exporter and restored by the importer.
     expect(await prisma.costPayment.count({ where: { accommodationId: newStay.id } })).toBe(1);
@@ -311,6 +320,120 @@ describe("trip backup round trip", () => {
    * The cycling leg keeps a distance and the walking leg does not, which is also the AC6 rule
    * travelling through the backup format intact.
    */
+  /**
+   * Story 14.1 AC12. A parked activity with everything an activity can carry comes back exactly: every
+   * column but the ids and stamps an import necessarily renews, both pictures and the document byte for
+   * byte (under the new trip's `parked/` folder), the split payment, and its two hours.
+   */
+  it("round-trips a parked activity with two pictures, a document, a split payment and 120 minutes", async () => {
+    const user = await prisma.user.create({
+      data: { email: "round-trip-parked@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const session = await createSessionJwt({ sub: user.id, role: user.role });
+    const { trip: sourceTrip } = await createTripWithDays({
+      userId: user.id,
+      name: "Parked Round Trip",
+      startDate: "2026-09-10T00:00:00.000Z",
+      endDate: "2026-09-10T00:00:00.000Z",
+    });
+    const idea = await prisma.dayPlanItem.create({
+      data: {
+        tripId: sourceTrip.id,
+        tripDayId: null,
+        scheduleMode: "FLEXIBLE",
+        durationMinutes: 120,
+        title: "Gullfoss",
+        contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Früh hin" }] }] }),
+        costCents: 3000,
+        linkUrl: "https://example.com/gullfoss",
+        locationLat: 64.3271,
+        locationLng: -20.1199,
+        locationLabel: "Gullfoss",
+      },
+    });
+    await prisma.costPayment.createMany({
+      data: [
+        { dayPlanItemId: idea.id, amountCents: 1000, dueDate: "2026-08-01", sortOrder: 0 },
+        { dayPlanItemId: idea.id, amountCents: 2000, dueDate: "2026-09-01", sortOrder: 1 },
+      ],
+    });
+    const parkedDir = getParkedDayPlanItemImageUploadDir(sourceTrip.id, idea.id);
+    const firstBytes = jpegBytes(200);
+    const secondBytes = pngBytes(220);
+    const ticketBytes = pdfBytes(240);
+    await writeUploadFile(parkedDir, "one.jpg", firstBytes);
+    await writeUploadFile(parkedDir, "two.png", secondBytes);
+    await writeUploadFile(getParkedDayPlanItemDocumentUploadDir(sourceTrip.id, idea.id), "doc-ticket.pdf", ticketBytes);
+    const urlBase = `/uploads/trips/${sourceTrip.id}/parked/day-plan-items/${idea.id}`;
+    await prisma.dayPlanItemImage.createMany({
+      data: [
+        { dayPlanItemId: idea.id, imageUrl: `${urlBase}/one.jpg`, sortOrder: 1 },
+        { dayPlanItemId: idea.id, imageUrl: `${urlBase}/two.png`, sortOrder: 2 },
+      ],
+    });
+    await prisma.dayPlanItemDocument.create({
+      data: { dayPlanItemId: idea.id, documentUrl: `${urlBase}/documents/doc-ticket.pdf`, fileName: "Eintritt Gullfoss.pdf", sortOrder: 1 },
+    });
+
+    const exportResponse = await EXPORT(
+      new NextRequest(`http://localhost/api/trips/${sourceTrip.id}/export`, {
+        method: "GET",
+        headers: { cookie: `session=${session}` },
+      }),
+      { params: Promise.resolve({ id: sourceTrip.id }) }
+    );
+    expect(exportResponse.status).toBe(200);
+    const archive = Buffer.from(await exportResponse.arrayBuffer());
+
+    const form = new FormData();
+    form.set("file", new File([new Uint8Array(archive)], "backup.zip", { type: "application/zip" }));
+    form.set("strategy", "createNew");
+    const importResponse = await IMPORT(
+      new NextRequest("http://localhost/api/trips/import", {
+        method: "POST",
+        headers: { cookie: `session=${session}; csrf_token=csrf-token`, "x-csrf-token": "csrf-token" },
+        body: form,
+      })
+    );
+    const imported = (await importResponse.json()) as ApiEnvelope<ImportResponse>;
+    expect(importResponse.status).toBe(200);
+    expect(imported.error).toBeNull();
+    expect(imported.data?.bucketListItemCount).toBe(1);
+    const newTripId = imported.data!.trip.id;
+
+    const columns = (row: Record<string, unknown>) => {
+      const { id: _id, tripId: _tripId, createdAt: _createdAt, updatedAt: _updatedAt, ...rest } = row;
+      void _id;
+      void _tripId;
+      void _createdAt;
+      void _updatedAt;
+      return rest;
+    };
+    const source = await prisma.dayPlanItem.findUniqueOrThrow({ where: { id: idea.id } });
+    const restored = await prisma.dayPlanItem.findFirstOrThrow({ where: { tripId: newTripId, tripDayId: null } });
+    expect(columns(restored)).toEqual(columns(source));
+    expect(restored).toMatchObject({ tripDayId: null, scheduleMode: "FLEXIBLE", durationMinutes: 120, sortOrder: 0 });
+
+    const payments = await prisma.costPayment.findMany({ where: { dayPlanItemId: restored.id }, orderBy: { sortOrder: "asc" } });
+    expect(payments.map((row) => [row.amountCents, row.dueDate, row.sortOrder])).toEqual([
+      [1000, "2026-08-01", 0],
+      [2000, "2026-09-01", 1],
+    ]);
+
+    const images = await prisma.dayPlanItemImage.findMany({ where: { dayPlanItemId: restored.id }, orderBy: { sortOrder: "asc" } });
+    expect(images.map((row) => row.sortOrder)).toEqual([1, 2]);
+    for (const row of images) {
+      expect(row.imageUrl.startsWith(`/uploads/trips/${newTripId}/parked/day-plan-items/${restored.id}/`)).toBe(true);
+    }
+    expect(await fs.readFile(resolveStoredMediaPath(images[0].imageUrl))).toEqual(firstBytes);
+    expect(await fs.readFile(resolveStoredMediaPath(images[1].imageUrl))).toEqual(secondBytes);
+
+    const [document] = await prisma.dayPlanItemDocument.findMany({ where: { dayPlanItemId: restored.id } });
+    expect(document.fileName).toBe("Eintritt Gullfoss.pdf");
+    expect(document.documentUrl.startsWith(`/uploads/trips/${newTripId}/parked/day-plan-items/${restored.id}/documents/`)).toBe(true);
+    expect(await fs.readFile(resolveStoredMediaPath(document.documentUrl))).toEqual(ticketBytes);
+  });
+
   it("round-trips walking and cycling travel segments", async () => {
     const user = await prisma.user.create({
       data: { email: "round-trip-modes@example.com", passwordHash: "hashed", role: "OWNER" },
@@ -330,14 +453,14 @@ describe("trip backup round trip", () => {
     });
     const firstStop = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: sourceDay.id,
+        tripId: sourceDay.tripId, tripDayId: sourceDay.id,
         title: "Viewpoint",
         contentJson: JSON.stringify({ type: "doc", content: [] }),
       },
     });
     const secondStop = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: sourceDay.id,
+        tripId: sourceDay.tripId, tripDayId: sourceDay.id,
         title: "Lake",
         contentJson: JSON.stringify({ type: "doc", content: [] }),
       },
@@ -439,14 +562,14 @@ describe("trip backup round trip", () => {
     });
     const firstStop = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: sourceDay.id,
+        tripId: sourceDay.tripId, tripDayId: sourceDay.id,
         title: "Viewpoint",
         contentJson: JSON.stringify({ type: "doc", content: [] }),
       },
     });
     const secondStop = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: sourceDay.id,
+        tripId: sourceDay.tripId, tripDayId: sourceDay.id,
         title: "Lake",
         contentJson: JSON.stringify({ type: "doc", content: [] }),
       },
@@ -550,7 +673,7 @@ describe("trip backup round trip", () => {
       legacyStops.push(
         await prisma.dayPlanItem.create({
           data: {
-            tripDayId: sourceDay.id,
+            tripId: sourceDay.tripId, tripDayId: sourceDay.id,
             title,
             contentJson: JSON.stringify({ type: "doc", content: [] }),
           },
@@ -725,7 +848,7 @@ describe("trip backup round trip", () => {
     // 5000 JPY at 180.94 -> 2763 cents, split so the residual sweep is part of what round-trips.
     const sourceItem = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: sourceDay.id,
+        tripId: sourceDay.tripId, tripDayId: sourceDay.id,
         title: "Sky Tower",
         contentJson: JSON.stringify({ type: "doc", content: [] }),
         costCents: 2763,
@@ -895,7 +1018,7 @@ describe("trip backup round trip", () => {
     });
     const sourcePlanItem = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: sourceDay.id,
+        tripId: sourceDay.tripId, tripDayId: sourceDay.id,
         title: "Colosseum",
         contentJson: JSON.stringify({ type: "doc", content: [] }),
       },
@@ -1173,7 +1296,7 @@ describe("trip backup round trip", () => {
     });
     const sourcePlanItem = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: sourceDay.id,
+        tripId: sourceDay.tripId, tripDayId: sourceDay.id,
         title: "Harbour walk",
         contentJson: JSON.stringify({ type: "doc", content: [] }),
       },
@@ -1189,7 +1312,9 @@ describe("trip backup round trip", () => {
         durationMinutes: 20,
       },
     });
-    await prisma.tripBucketListItem.create({ data: { tripId: sourceTrip.id, title: "Gelato" } });
+    await prisma.dayPlanItem.create({
+      data: { tripId: sourceTrip.id, tripDayId: null, scheduleMode: "FLEXIBLE", title: "Gelato", contentJson: "{}" },
+    });
 
     const galleryBytes = jpegBytes(192);
     await writeUploadFile(
@@ -1250,7 +1375,7 @@ describe("trip backup round trip", () => {
         segments: (
           await prisma.travelSegment.findMany({ where: { tripDayId: { in: days.map((day) => day.id) } } })
         ).map((segment) => ({ transportType: segment.transportType, durationMinutes: segment.durationMinutes })),
-        bucketTitles: (await prisma.tripBucketListItem.findMany({ where: { tripId } })).map((item) => item.title),
+        bucketTitles: (await prisma.dayPlanItem.findMany({ where: { tripId, tripDayId: null } })).map((item) => item.title),
       };
     };
 

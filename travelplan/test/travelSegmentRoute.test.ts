@@ -78,7 +78,7 @@ describe("/api/trips/[id]/travel-segments", () => {
 
     const planItem = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Plan" }] }] }),
       },
     });
@@ -144,7 +144,7 @@ describe("/api/trips/[id]/travel-segments", () => {
 
     const planItem = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Plan" }] }] }),
       },
     });
@@ -249,7 +249,7 @@ describe("/api/trips/[id]/travel-segments", () => {
     });
     const planItem = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Plan" }] }] }),
       },
     });
@@ -320,7 +320,7 @@ describe("/api/trips/[id]/travel-segments", () => {
     });
     const planItem = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Plan" }] }] }),
       },
     });
@@ -391,7 +391,7 @@ describe("/api/trips/[id]/travel-segments", () => {
     });
     const planItem = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Plan" }] }] }),
       },
     });
@@ -468,7 +468,7 @@ describe("/api/trips/[id]/travel-segments", () => {
     });
     const planItem = await prisma.dayPlanItem.create({
       data: {
-        tripDayId: day.id,
+        tripId: day.tripId, tripDayId: day.id,
         contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Plan" }] }] }),
       },
     });
@@ -591,7 +591,7 @@ describe("/api/trips/[id]/travel-segments", () => {
 
     await prisma.dayPlanItem.create({
       data: {
-        tripDayId: currentDay.id,
+        tripId: currentDay.tripId, tripDayId: currentDay.id,
         contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Plan" }] }] }),
       },
     });

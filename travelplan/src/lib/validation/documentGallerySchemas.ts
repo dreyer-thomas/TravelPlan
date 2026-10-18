@@ -44,12 +44,14 @@ export const accommodationDocumentDeleteSchema = z.object({
 });
 
 export const dayPlanItemDocumentUploadSchema = z.object({
-  tripDayId: mediaSegmentIdSchema,
+  // Story 14.1: absent for a parked activity (the bucket list), which has no day.
+  tripDayId: mediaSegmentIdSchema.optional(),
   dayPlanItemId: mediaSegmentIdSchema,
 });
 
 export const dayPlanItemDocumentDeleteSchema = z.object({
-  tripDayId: mediaSegmentIdSchema,
+  // Story 14.1: absent for a parked activity (the bucket list), which has no day.
+  tripDayId: mediaSegmentIdSchema.optional(),
   dayPlanItemId: mediaSegmentIdSchema,
   documentId: entityIdSchema,
 });

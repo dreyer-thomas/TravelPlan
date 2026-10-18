@@ -7,6 +7,7 @@ import { prisma } from "@/lib/db/prisma";
 import type { SignedDayChangeReceiptWire } from "@/lib/trips/dayChangeReceipt";
 import type { ApplySuggestion, SuggestionPreview } from "@/lib/validation/daySuggestionApplySchemas";
 import { routeContext } from "./routeContext";
+import { tripIdOfDay } from "./tripIdOfDay";
 
 /**
  * Story 12.4. Fixtures shared by `daySuggestionApplyRoute.test.ts` and `suggestionsApplyUndo.test.ts`:
@@ -26,7 +27,6 @@ export const resetDatabase = async () => {
   await prisma.travelSegment.deleteMany();
   await prisma.dayPlanItemDocument.deleteMany();
   await prisma.dayPlanItemImage.deleteMany();
-  await prisma.tripBucketListItem.deleteMany();
   await prisma.costPayment.deleteMany();
   await prisma.dayPlanItem.deleteMany();
   await prisma.tripMember.deleteMany();
@@ -97,7 +97,7 @@ export const seedTrip = async (email = "owner@example.com", options: { checkOutT
   return { user, trip, day1, day2, westStay, eastStay, session: await sessionFor(user) };
 };
 
-export const createActivity = (
+export const createActivity = async (
   tripDayId: string,
   title: string,
   fromTime: string | null,
@@ -106,7 +106,7 @@ export const createActivity = (
 ) =>
   prisma.dayPlanItem.create({
     data: {
-      tripDayId,
+      tripId: await tripIdOfDay(tripDayId), tripDayId,
       title,
       fromTime,
       toTime,

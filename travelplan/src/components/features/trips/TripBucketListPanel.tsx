@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Box,
@@ -13,15 +13,15 @@ import {
   IconButton,
   List,
   ListItem,
-  TextField,
   Typography,
   useTheme,
 } from "@mui/material";
-import { useForm } from "react-hook-form";
 import { formatMessage } from "@/i18n";
 import { useI18n } from "@/i18n/provider";
 import { DialogTitleWithClose } from "@/components/ui/DialogCloseButton";
-import DiscardChangesDialog, { useDiscardGuard } from "@/components/ui/DiscardChangesDialog";
+import { useOpenInstanceKey } from "@/components/ui/DialogShell";
+import BucketItemThumbnail, { BUCKET_ITEM_THUMBNAIL_PX } from "@/components/features/trips/BucketItemThumbnail";
+import TripDayPlanDialog from "@/components/features/trips/TripDayPlanDialog";
 import {
   ChevronDownIcon,
   ChevronUpIcon,
@@ -29,37 +29,62 @@ import {
   PlusIcon,
   TrashIcon,
 } from "@/components/features/trips/TripIcons";
-import LocationCandidateList from "@/components/features/trips/LocationCandidateList";
-import { formatCoordinateLabel, parseLocationInput } from "@/lib/trips/parseLocationInput";
+import { bucketItemMetaLine } from "@/lib/trips/activityDuration";
 
-// eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 type ApiEnvelope<T> = {
   data: T | null;
   error: { code: string; message: string; details?: unknown } | null;
 };
 
+/**
+ * Story 14.1. A parked activity - an activity with no day yet - as `GET bucket-list-items` returns it:
+ * everything the activity dialog needs to open on it, plus the row's first picture.
+ */
 type BucketListItem = {
   id: string;
   tripId: string;
   title: string;
-  description: string | null;
-  positionText: string | null;
+  contentJson: string;
+  durationMinutes: number;
+  costCents: number | null;
+  costOriginalAmount: number | null;
+  costCurrency: string | null;
+  costRate: number | null;
+  costRateDate: string | null;
+  payments: { amountCents: number; dueDate: string; amountOriginal?: number }[];
+  linkUrl: string | null;
   location: { lat: number; lng: number; label: string | null } | null;
+  firstImageUrl: string | null;
   createdAt: string;
   updatedAt: string;
-};
-
-type BucketListFormValues = {
-  title: string;
-  description: string;
-  positionText: string;
 };
 
 type TripBucketListPanelProps = {
   tripId: string;
 };
 
-type DialogMode = "add" | "edit";
+type IdeaDialog = { mode: "add" } | { mode: "edit"; item: BucketListItem };
+
+/** The row as the activity dialog's `item`: parked, so FLEXIBLE with no day and no times. */
+const toDialogItem = (item: BucketListItem) => ({
+  id: item.id,
+  tripDayId: null,
+  title: item.title,
+  fromTime: null,
+  toTime: null,
+  contentJson: item.contentJson,
+  costCents: item.costCents,
+  costOriginalAmount: item.costOriginalAmount,
+  costCurrency: item.costCurrency,
+  costRate: item.costRate,
+  costRateDate: item.costRateDate,
+  payments: item.payments,
+  linkUrl: item.linkUrl,
+  location: item.location,
+  createdAt: item.createdAt,
+  scheduleMode: "FLEXIBLE" as const,
+  durationMinutes: item.durationMinutes,
+});
 
 /*
  * Expanded-height cap for the row list (Story 7.12 AC2).
@@ -67,31 +92,27 @@ type DialogMode = "add" | "edit";
  * Derived from the row metric rather than written as a pixel literal, so a change to the row's own
  * measurements moves the cap instead of silently invalidating it.
  *
- * A row is `alignItems: "center"`, so its height is whichever is taller: the stacked text block, or
- * the 44px touch floor of its trailing edit/delete buttons. The text block wins for a fully
- * populated row - the row `Typography`s carry no `variant`, so they are `body1`, and `theme.ts`
- * overrides only `fontSize`/`fontWeight` there, leaving MUI's `lineHeight: 1.5` in force. That is
- * 53.75px of text against 44px of button, which is why the line-height term below is not optional.
- *
- * The metric is taken from a fully populated row (title + description + location, one line each)
- * because that is the row the add dialog produces when every field is filled, and it is the taller
- * case - so the cap never shows FEWER than the intended rows. A row with no description is 63px, of
- * which the cap shows ~6.3: still inside AC2's "roughly 5-6". A row whose text wraps in the narrow
- * sidebar column is taller again and the cap shows correspondingly fewer; wrapping is not knowable
- * here, so the cap is deliberately an approximation and Task 6's browser pass is what judges it.
+ * Story 14.1 re-derived it for the `bucket-item` row. A row is `alignItems: "center"`, so its height is
+ * the tallest of three things: the 40px thumbnail, the text block (title in `body1` 13.5px and one meta
+ * line in `body2` 11.5px, both at MUI's `lineHeight: 1.5`, which `theme.ts` leaves in force, plus the
+ * meta line's 1px offset: 38.5px), and the 44px touch floor of the trailing edit/delete buttons. The
+ * buttons win, so every row is the same height now - a row without a picture or a place is no shorter -
+ * and the cap shows exactly 5.5 of them unless a long title wraps in the narrow sidebar column, which is
+ * not knowable here.
  */
-const BUCKET_ROW_LINE_HEIGHT = 1.5; // MUI `body1`; theme.ts sets only fontSize/fontWeight on it
-const BUCKET_ROW_TITLE_FONT_SIZE_PX = 12.5;
-const BUCKET_ROW_SUBLINE_FONT_SIZE_PX = 11; // the description and location lines
-const BUCKET_ROW_SUBLINE_OFFSET_PX = 1; // each subline's `mt: "1px"`
+const BUCKET_ROW_LINE_HEIGHT = 1.5; // MUI's default; theme.ts sets only fontSize/fontWeight on body1/body2
+const BUCKET_ROW_TITLE_FONT_SIZE_PX = 13.5; // `body1`
+const BUCKET_ROW_META_FONT_SIZE_PX = 11.5; // `body2`
+const BUCKET_ROW_META_OFFSET_PX = 1; // the meta line's `mt: "1px"`
 const BUCKET_ROW_TEXT_HEIGHT_PX =
   BUCKET_ROW_TITLE_FONT_SIZE_PX * BUCKET_ROW_LINE_HEIGHT +
-  2 * (BUCKET_ROW_SUBLINE_FONT_SIZE_PX * BUCKET_ROW_LINE_HEIGHT + BUCKET_ROW_SUBLINE_OFFSET_PX);
+  BUCKET_ROW_META_FONT_SIZE_PX * BUCKET_ROW_LINE_HEIGHT +
+  BUCKET_ROW_META_OFFSET_PX;
 const BUCKET_ROW_ACTION_HIT_AREA_PX = 44; // the edit/delete IconButtons' 44px touch floor
-const BUCKET_ROW_PADDING_Y_PX = 9; // ListItem `padding: "9px 0"`, top and bottom
+const BUCKET_ROW_PADDING_Y_PX = 9; // ListItem padding, top and bottom
 const BUCKET_ROW_DIVIDER_PX = 1; // ListItem `borderBottom: "1px solid"`
-const BUCKET_ROW_HEIGHT_PX =
-  Math.max(BUCKET_ROW_TEXT_HEIGHT_PX, BUCKET_ROW_ACTION_HIT_AREA_PX) +
+export const BUCKET_ROW_HEIGHT_PX =
+  Math.max(BUCKET_ITEM_THUMBNAIL_PX, BUCKET_ROW_TEXT_HEIGHT_PX, BUCKET_ROW_ACTION_HIT_AREA_PX) +
   BUCKET_ROW_PADDING_Y_PX * 2 +
   BUCKET_ROW_DIVIDER_PX;
 
@@ -100,6 +121,12 @@ const BUCKET_ROW_HEIGHT_PX =
 const BUCKET_LIST_VISIBLE_ROWS = 5.5;
 export const BUCKET_LIST_MAX_HEIGHT_PX = BUCKET_ROW_HEIGHT_PX * BUCKET_LIST_VISIBLE_ROWS;
 
+/**
+ * The trip overview's bucket-list card (Story 7.12), on parked activities since Story 14.1. Owners and
+ * contributors only - the caller gates it, and the route refuses a viewer. Adding and editing an idea
+ * open the activity dialog in parked mode; deleting keeps its confirmation, and removes the idea's
+ * pictures and documents with it.
+ */
 export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps) {
   const { t } = useI18n();
   const theme = useTheme();
@@ -107,81 +134,28 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
   const [items, setItems] = useState<BucketListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [dialogMode, setDialogMode] = useState<DialogMode>("add");
-  const [editingItem, setEditingItem] = useState<BucketListItem | null>(null);
+  const [dialog, setDialog] = useState<IdeaDialog | null>(null);
+  // One mount per open, keyed by the idea, as `TripDayView` keys its plan dialog.
+  const dialogKey = useOpenInstanceKey(dialog !== null, dialog?.mode === "edit" ? dialog.item.id : "add");
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
-  const [serverError, setServerError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isCollapsed, setIsCollapsed] = useState(true);
-  const [resolvedLocation, setResolvedLocation] = useState<{ lat: number; lng: number; label: string | null } | null>(
-    null,
-  );
-  const [resolvedLocationQuery, setResolvedLocationQuery] = useState<string>("");
-  const [isGeocoding, setIsGeocoding] = useState(false);
-  // Story 6.28 AC5. The places a search came back with while more than one is still on offer. Filled by
-  // both fetch sites in this file — the explicit *Find* and the silent submit-time lookup.
-  const [locationCandidates, setLocationCandidates] = useState<{ lat: number; lng: number; label: string }[]>([]);
-  /**
-   * The exact position text that is already known to want **no** location, so the silent submit-time
-   * lookup does not run for it (6.28 follow-up review).
-   *
-   * `positionText` is a saved free-text column, so — unlike the three dialogs, whose *Clear* now empties
-   * the search box as well — this surface cannot express "no place" by clearing the text. Without a
-   * marker two things broke. *Clear* could not delete a hand-typed pin at all: it nulled
-   * `resolvedLocation` and left `48.8584, 2.2945` in the note, and the parse on save read the pair
-   * straight back. And an existing item saved with a note but no location (a legal shape — a position is
-   * optional) could no longer be saved after a title edit: the note went to Nominatim, came back with
-   * several rows, and the save aborted with `selectRequired` for a choice the user never asked to make.
-   *
-   * It is a *query*, not a flag, so it self-heals: any edit to the note makes it differ and the lookup
-   * comes back. Seeded on open for the already-saved-without-a-location case, and set by *Clear*.
-   */
-  const [noLocationQuery, setNoLocationQuery] = useState<string>("");
-  /**
-   * The position text the candidate list on offer was raised for (Story 6.28 review).
-   *
-   * The other four surfaces clear their list in the field's own `onChange`; here the field is
-   * `register("positionText")` and its handler belongs to react-hook-form, so the drift is watched
-   * instead — the same shape as `resolvedLocationQuery` above, and for the same reason.
-   */
-  const [candidatesQuery, setCandidatesQuery] = useState<string>("");
   const [deleteTarget, setDeleteTarget] = useState<BucketListItem | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
-
-  const {
-    register,
-    handleSubmit,
-    formState: { errors, isSubmitting, isDirty },
-    reset,
-    setError,
-    watch,
-  } = useForm<BucketListFormValues>({
-    defaultValues: {
-      title: "",
-      description: "",
-      positionText: "",
-    },
-  });
-
-  const positionTextValue = watch("positionText");
-
-  /**
-   * Story 6.25 AC7 / EXPERIENCE.md.State Patterns → "Dismissing a dialog with unsaved input".
-   *
-   * `isDirty` alone is not enough, and that is 6.24's lesson rather than a guess: the geocode lookup
-   * writes `resolvedLocation` outside react-hook-form entirely, so a user who searched for a place
-   * and then hit the `✕` would lose it silently. The comparison is against the values the dialog
-   * *opened* with — the same seed the open effect above applies — so a coordinate that was already
-   * on the item does not read as dirty.
-   */
-  const openLocationKey = useMemo(() => {
-    const seed = dialogMode === "edit" && editingItem ? editingItem.location ?? null : null;
-    return seed ? `${seed.lat},${seed.lng}` : "";
-  }, [dialogMode, editingItem]);
-  const currentLocationKey = resolvedLocation ? `${resolvedLocation.lat},${resolvedLocation.lng}` : "";
-  const closeFormDialog = useCallback(() => setDialogOpen(false), []);
-  const formGuard = useDiscardGuard(isDirty || currentLocationKey !== openLocationKey, closeFormDialog);
+  // The editor's delete waits on this panel's confirmation: it resolves `true` once the idea is gone and
+  // `false` when the user keeps it, so a cancelled delete leaves the editor (and its edits) open.
+  const deleteResolverRef = useRef<((deleted: boolean) => void) | null>(null);
+  const settleEditorDelete = useCallback((deleted: boolean) => {
+    deleteResolverRef.current?.(deleted);
+    deleteResolverRef.current = null;
+  }, []);
+  const keepDeleteTarget = useCallback(() => {
+    setDeleteTarget(null);
+    settleEditorDelete(false);
+  }, [settleEditorDelete]);
+  // Stable while the dialog is open: a fresh object per render would re-run the dialog's seed effect on
+  // every reload of the list (a picture upload calls `onDayWrite`) and wipe what the user typed.
+  const dialogItem = useMemo(() => (dialog?.mode === "edit" ? toDialogItem(dialog.item) : null), [dialog]);
 
   const resolveApiError = useCallback(
     (code?: string, fallback?: string) => {
@@ -205,9 +179,12 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
     [t],
   );
 
-  const loadItems = useCallback(async () => {
-    setLoading(true);
-    setLoadError(null);
+  /**
+   * Fetches the list and returns the state it implies rather than applying it, as `AdminUsersList`
+   * does: the mount effect below then sets state only after the await (`react-hooks/set-state-in-effect`)
+   * and can drop a response that arrives after unmount.
+   */
+  const fetchItems = useCallback(async (): Promise<{ items: BucketListItem[]; error: string | null }> => {
     try {
       const response = await fetch(`/api/trips/${tripId}/bucket-list-items`, {
         method: "GET",
@@ -215,95 +192,37 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
         cache: "no-store",
       });
       const body = (await response.json()) as ApiEnvelope<{ items: BucketListItem[] }>;
-
       if (!response.ok || body.error) {
-        setLoadError(resolveApiError(body.error?.code, t("trips.bucketList.loadError")));
-        setItems([]);
-        return;
+        return { items: [], error: resolveApiError(body.error?.code, t("trips.bucketList.loadError")) };
       }
-
-      setItems(body.data?.items ?? []);
+      return { items: body.data?.items ?? [], error: null };
     } catch {
-      setLoadError(t("trips.bucketList.loadError"));
-      setItems([]);
-    } finally {
-      setLoading(false);
+      return { items: [], error: t("trips.bucketList.loadError") };
     }
   }, [resolveApiError, t, tripId]);
 
-  useEffect(() => {
-    void loadItems();
-  }, [loadItems]);
+  const applyItems = useCallback((result: { items: BucketListItem[]; error: string | null }) => {
+    setItems(result.items);
+    setLoadError(result.error);
+    setLoading(false);
+  }, []);
+
+  /** A reload after a write: the list shows its loading line again until the answer is in. */
+  const loadItems = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    applyItems(await fetchItems());
+  }, [applyItems, fetchItems]);
 
   useEffect(() => {
-    if (!dialogOpen) return;
-    setServerError(null);
-    // Story 6.28: an unanswered choice belongs to the open that raised it, not to the next one.
-    setLocationCandidates([]);
-    setCandidatesQuery("");
-    if (dialogMode === "edit" && editingItem) {
-      reset({
-        title: editingItem.title ?? "",
-        description: editingItem.description ?? "",
-        positionText: editingItem.positionText ?? "",
-      });
-      setResolvedLocation(editingItem.location ?? null);
-      setResolvedLocationQuery(editingItem.positionText?.trim() ?? "");
-      // This note was already saved once with no location; re-saving it must not turn into a lookup the
-      // user never asked for, and must not be refused because that lookup found several places.
-      setNoLocationQuery(editingItem.location ? "" : (editingItem.positionText?.trim() ?? ""));
-    } else {
-      reset({
-        title: "",
-        description: "",
-        positionText: "",
-      });
-      setResolvedLocation(null);
-      setResolvedLocationQuery("");
-      setNoLocationQuery("");
-    }
-  }, [dialogMode, dialogOpen, editingItem, reset]);
-
-  useEffect(() => {
-    if (!deleteTarget) {
-      setDeleteError(null);
-    }
-  }, [deleteTarget]);
-
-  useEffect(() => {
-    if (!resolvedLocation) return;
-    const trimmedPosition = positionTextValue?.trim() ?? "";
-    if (trimmedPosition && trimmedPosition !== resolvedLocationQuery) {
-      setResolvedLocation(null);
-      setResolvedLocationQuery("");
-    }
-  }, [positionTextValue, resolvedLocation, resolvedLocationQuery]);
-
-  /**
-   * Story 6.28 review, and the counterpart of the invalidation effect above: the candidate list does not
-   * outlive an edit of the text it answers.
-   *
-   * Without it the list was the one thing on this surface that did not self-heal, and the result was a
-   * *saved wrong pin* rather than a stale offer: search "Sky Tower", get two rows, change the position
-   * text to "Eiffelturm", then activate "Sky Tower, Auckland" — `selectLocationCandidate` sets
-   * `resolvedLocationQuery` to the text as it is *now*, so the effect above sees agreement and leaves the
-   * pin, and the entry saves as "Eiffelturm" at Auckland's coordinates.
-   *
-   * An effect rather than an `onChange`: the field is `register("positionText")`, so react-hook-form owns
-   * its handler and wrapping it would put this panel's only field registration out of step with the other
-   * two. `locationCandidates.length` is the dependency, not the array — a new array identity per render
-   * would re-run this on every keystroke for nothing.
-   */
-  useEffect(() => {
-    if (locationCandidates.length === 0) return;
-    if ((positionTextValue?.trim() ?? "") !== candidatesQuery) {
-      setLocationCandidates([]);
-      setCandidatesQuery("");
-      // The submit-time abort's message outlived the rows it pointed at (6.28 follow-up review): the list
-      // went with the edit and "Select one of the places found." stayed, with nothing left to select from.
-      setServerError((previous) => (previous === t("trips.location.selectRequired") ? null : previous));
-    }
-  }, [candidatesQuery, locationCandidates.length, positionTextValue, t]);
+    let active = true;
+    void fetchItems().then((result) => {
+      if (active) applyItems(result);
+    });
+    return () => {
+      active = false;
+    };
+  }, [applyItems, fetchItems]);
 
   const ensureCsrfToken = useCallback(async () => {
     if (csrfToken) return csrfToken;
@@ -315,273 +234,6 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
     setCsrfToken(body.data.csrfToken);
     return body.data.csrfToken;
   }, [csrfToken]);
-
-  /**
-   * Story 6.28 AC5. Activating a candidate row stores that row and dismisses the list.
-   *
-   * The candidate's label is what gets **stored**, but it is deliberately not written into the position
-   * field: unlike the dialogs' search box, `positionText` is a saved column carrying the user's own words
-   * ("Trailhead"), and this site has never overwritten it with a geocoder's display name. What has to be
-   * kept in step is `resolvedLocationQuery` — the invalidation effect above nulls the pin whenever the
-   * field text drifts from it.
-   */
-  const selectLocationCandidate = (candidate: { lat: number; lng: number; label: string }) => {
-    setResolvedLocation({ lat: candidate.lat, lng: candidate.lng, label: candidate.label });
-    setResolvedLocationQuery(positionTextValue?.trim() ?? "");
-    setLocationCandidates([]);
-    setCandidatesQuery("");
-    // Story 6.28 review. The submit path raises `trips.location.selectRequired` ("Select one of the places
-    // found.") when it aborts, and only this gesture can answer it — leaving the banner up after the
-    // answer tells the user to do the thing they just did. Only *that* message: a failed save's
-    // `errors.csrfMissing` is not answered by picking a place, and clearing the whole slot took the record
-    // of the failure away with it (6.28 follow-up review).
-    setServerError((previous) => (previous === t("trips.location.selectRequired") ? null : previous));
-  };
-
-  /**
-   * Story 6.28, the explicit *Find*. Parse first, exactly as `TripDayPlanDialog` does.
-   *
-   * The one thing this surface needs that the dialogs do not: a coordinate result must also set
-   * `resolvedLocationQuery` to the **raw typed text**. The invalidation effect above nulls the pin
-   * whenever `positionText` drifts from `resolvedLocationQuery`, and a pair is not written back into the
-   * field — so without this line a manually entered pair would be wiped on the very next render.
-   */
-  const handleLookupLocation = async () => {
-    const query = positionTextValue?.trim() ?? "";
-    if (!query) {
-      setServerError(t("trips.location.searchRequired"));
-      return;
-    }
-
-    setServerError(null);
-    setLocationCandidates([]);
-    setCandidatesQuery("");
-    // An explicit *Find* revokes whatever *Clear* or the open effect recorded: the user is asking for this
-    // note to be looked up, so the save path must judge the answer rather than skip it (6.28 follow-up).
-    setNoLocationQuery("");
-
-    const parsed = parseLocationInput(query);
-    if (parsed.status === "ambiguous") {
-      setServerError(t("trips.location.coordinatesAmbiguous"));
-      return;
-    }
-    if (parsed.status === "out_of_range") {
-      setServerError(t(parsed.field === "lat" ? "trips.location.latInvalid" : "trips.location.lngInvalid"));
-      return;
-    }
-    if (parsed.status === "coordinates") {
-      setResolvedLocation({
-        lat: parsed.lat,
-        lng: parsed.lng,
-        label: formatCoordinateLabel(parsed.lat, parsed.lng),
-      });
-      setResolvedLocationQuery(query);
-      return;
-    }
-
-    setIsGeocoding(true);
-    try {
-      const response = await fetch(`/api/geocode?q=${encodeURIComponent(query)}`, {
-        method: "GET",
-        credentials: "include",
-      });
-      const body = (await response.json()) as ApiEnvelope<{
-        results: { lat: number; lng: number; label: string }[];
-      }>;
-
-      if (!response.ok || body.error) {
-        setServerError(body.error?.message ?? t("trips.location.lookupError"));
-        return;
-      }
-
-      const results = body.data?.results ?? [];
-      if (results.length === 0) {
-        setServerError(t("trips.location.noResult"));
-        return;
-      }
-
-      if (results.length === 1) {
-        setResolvedLocation({ lat: results[0].lat, lng: results[0].lng, label: results[0].label });
-        // The typed text, not the label: this site has never written the geocoder's name back into the
-        // position field, and the effect above only asks that the two agree.
-        setResolvedLocationQuery(query);
-        return;
-      }
-
-      setLocationCandidates(results);
-      setCandidatesQuery(query);
-    } catch {
-      setServerError(t("trips.location.lookupError"));
-    } finally {
-      setIsGeocoding(false);
-    }
-  };
-
-  /**
-   * The silent submit-time lookup: the user typed a place and never pressed *Find*.
-   *
-   * Three outcomes now, where there used to be a location or `null`. `choose` is the one behaviour this
-   * story changes anywhere: with several candidates the save **stops and asks**, because it cannot prompt
-   * mid-submit and the alternative — adopting `results[0]` — is precisely the silent wrong pin the story
-   * exists to remove. `none` still saves the entry without a location, as it always has: a bucket-list
-   * item's position is optional and a failed lookup is not a reason to refuse the note.
-   */
-  const attemptGeocode = async (
-    query: string,
-  ): Promise<
-    | { outcome: "resolved"; location: { lat: number; lng: number; label: string } }
-    | { outcome: "choose"; candidates: { lat: number; lng: number; label: string }[] }
-    | { outcome: "none" }
-  > => {
-    try {
-      const response = await fetch(`/api/geocode?q=${encodeURIComponent(query)}`, {
-        method: "GET",
-        credentials: "include",
-      });
-      const body = (await response.json()) as ApiEnvelope<{
-        results: { lat: number; lng: number; label: string }[];
-      }>;
-
-      if (!response.ok || body.error) {
-        return { outcome: "none" };
-      }
-
-      const results = body.data?.results ?? [];
-      if (results.length === 0) {
-        return { outcome: "none" };
-      }
-      if (results.length === 1) {
-        return { outcome: "resolved", location: results[0] };
-      }
-
-      return { outcome: "choose", candidates: results };
-    } catch {
-      return { outcome: "none" };
-    }
-  };
-
-  const onSubmit = async (values: BucketListFormValues) => {
-    setServerError(null);
-
-    let token: string;
-    try {
-      token = await ensureCsrfToken();
-    } catch {
-      setServerError(t("errors.csrfMissing"));
-      return;
-    }
-
-    const trimmedPosition = values.positionText.trim();
-    let nextLocation = resolvedLocation;
-
-    if (trimmedPosition && !nextLocation && trimmedPosition !== noLocationQuery) {
-      /**
-       * Story 6.28. The parser runs here too, so saving a typed pair without pressing *Find* costs no
-       * request and still stores the pin.
-       *
-       * `noLocationQuery` is the third condition and the one the follow-up review added: this whole block
-       * is skipped for a note already known to want no location — see the state's own docblock for the two
-       * things that broke without it (*Clear* could not delete a hand-typed pin, and an existing
-       * note-without-a-location item could not be re-saved at all).
-       *
-       * **Only `coordinates` changes what this path does.** `ambiguous` and `out_of_range` fall through to
-       * the geocode attempt exactly as they did before this story, and the 6.28 review is why: this is the
-       * *silent* path, and `positionText` is a 200-character free-text note column, not a search box.
-       * Aborting on a refusal made ordinary notes unsaveable — `1,2,3` was refused with "Coordinates
-       * unclear" and could never be stored at all, and `2026, 8` was refused with a latitude error. The
-       * interactive `handleLookupLocation` above still reports both refusals visibly, which is where AC4's
-       * "visible error and sets nothing" belongs: there the user asked a question about a coordinate. The
-       * multi-candidate abort below stays, because that one is spec-mandated and is a genuine choice.
-       */
-      const parsed = parseLocationInput(trimmedPosition);
-      if (parsed.status === "coordinates") {
-        nextLocation = {
-          lat: parsed.lat,
-          lng: parsed.lng,
-          label: formatCoordinateLabel(parsed.lat, parsed.lng),
-        };
-        setResolvedLocation(nextLocation);
-        setResolvedLocationQuery(trimmedPosition);
-      } else {
-        const geocoded = await attemptGeocode(trimmedPosition);
-        if (geocoded.outcome === "choose") {
-          setLocationCandidates(geocoded.candidates);
-          setCandidatesQuery(trimmedPosition);
-          setServerError(t("trips.location.selectRequired"));
-          return;
-        }
-        if (geocoded.outcome === "resolved") {
-          nextLocation = geocoded.location;
-          setResolvedLocation(geocoded.location);
-          setResolvedLocationQuery(trimmedPosition);
-        }
-      }
-    }
-
-    const payload = {
-      title: values.title,
-      description: values.description.trim() ? values.description : null,
-      positionText: trimmedPosition ? trimmedPosition : null,
-      location: nextLocation,
-    } as {
-      title: string;
-      description: string | null;
-      positionText: string | null;
-      location: { lat: number; lng: number; label: string | null } | null;
-      itemId?: string;
-    };
-
-    if (dialogMode === "edit" && editingItem) {
-      payload.itemId = editingItem.id;
-    }
-
-    try {
-      const response = await fetch(`/api/trips/${tripId}/bucket-list-items`, {
-        method: dialogMode === "edit" ? "PATCH" : "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-          "x-csrf-token": token,
-        },
-        body: JSON.stringify(payload),
-      });
-      const body = (await response.json()) as ApiEnvelope<{ item: BucketListItem }>;
-
-      if (!response.ok || body.error) {
-        if (body.error?.code === "validation_error" && body.error.details) {
-          const details = body.error.details as { fieldErrors?: Record<string, string[]> };
-          Object.entries(details.fieldErrors ?? {}).forEach(([field, messages]) => {
-            if (!messages?.[0]) return;
-            if (field === "title") setError("title", { message: messages[0] });
-            if (field === "description") setError("description", { message: messages[0] });
-            if (field === "positionText") setError("positionText", { message: messages[0] });
-          });
-          return;
-        }
-
-        setServerError(resolveApiError(body.error?.code, t("trips.bucketList.saveError")));
-        return;
-      }
-
-      setDialogOpen(false);
-      setEditingItem(null);
-      await loadItems();
-    } catch {
-      setServerError(t("trips.bucketList.saveError"));
-    }
-  };
-
-  const openAddDialog = () => {
-    setDialogMode("add");
-    setEditingItem(null);
-    setDialogOpen(true);
-  };
-
-  const openEditDialog = (item: BucketListItem) => {
-    setDialogMode("edit");
-    setEditingItem(item);
-    setDialogOpen(true);
-  };
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
@@ -615,6 +267,7 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
       }
 
       setDeleteTarget(null);
+      settleEditorDelete(true);
       await loadItems();
     } catch {
       setDeleteError(t("trips.bucketList.deleteError"));
@@ -623,8 +276,6 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
     }
   };
 
-  const dialogTitle = dialogMode === "edit" ? t("trips.bucketList.editTitle") : t("trips.bucketList.addTitle");
-  const saveLabel = dialogMode === "edit" ? t("trips.bucketList.saveUpdate") : t("trips.bucketList.saveNew");
   const entryCountLabel =
     items.length === 1
       ? t("trips.bucketList.countLineOne")
@@ -699,7 +350,7 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
               <IconButton
                 aria-label={t("trips.bucketList.addAction")}
                 title={t("trips.bucketList.addAction")}
-                onClick={openAddDialog}
+                onClick={() => setDialog({ mode: "add" })}
                 sx={{
                   width: 44,
                   height: 44,
@@ -769,47 +420,23 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
                   <ListItem
                     key={item.id}
                     disablePadding
+                    data-testid="bucket-item"
                     sx={{
                       display: "flex",
                       alignItems: "center",
-                      justifyContent: "space-between",
                       gap: 1.25,
-                      padding: "9px 0",
+                      padding: `${BUCKET_ROW_PADDING_Y_PX}px 0`,
                       borderBottom: "1px solid",
                       borderColor: tokens.border,
                     }}
                   >
-                    <Box sx={{ minWidth: 0 }}>
-                      <Typography
-                        sx={{ fontSize: "12.5px", fontWeight: 700, color: tokens.ink, overflowWrap: "anywhere" }}
-                      >
+                    <BucketItemThumbnail imageUrl={item.firstImageUrl} />
+                    <Box sx={{ minWidth: 0, flex: 1 }}>
+                      <Typography variant="body1" sx={{ fontWeight: 600, color: tokens.ink, overflowWrap: "anywhere" }}>
                         {item.title}
                       </Typography>
-                      {item.description ? (
-                        <Typography
-                          sx={{
-                            fontSize: 11,
-                            fontWeight: 600,
-                            color: tokens.inkSoft,
-                            mt: "1px",
-                            overflowWrap: "anywhere",
-                          }}
-                        >
-                          {item.description}
-                        </Typography>
-                      ) : null}
-                      <Typography
-                        sx={{
-                          fontSize: 11,
-                          fontWeight: 600,
-                          color: tokens.inkSoft,
-                          mt: "1px",
-                          overflowWrap: "anywhere",
-                        }}
-                      >
-                        {item.positionText?.trim()
-                          ? item.positionText
-                          : item.location?.label?.trim() ?? t("trips.bucketList.locationMissing")}
+                      <Typography variant="body2" sx={{ color: tokens.inkSoft, mt: "1px", overflowWrap: "anywhere" }}>
+                        {bucketItemMetaLine(item, t)}
                       </Typography>
                     </Box>
                     {/* `gap: 1` (8px, DW-50) keeps the two 44px hit areas from reading as a single
@@ -820,7 +447,7 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
                       <IconButton
                         aria-label={t("trips.bucketList.editAction")}
                         title={t("trips.bucketList.editAction")}
-                        onClick={() => openEditDialog(item)}
+                        onClick={() => setDialog({ mode: "edit", item })}
                         sx={rowActionButtonSx}
                       >
                         <PencilIcon />
@@ -828,7 +455,10 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
                       <IconButton
                         aria-label={t("trips.bucketList.deleteAction")}
                         title={t("trips.bucketList.deleteAction")}
-                        onClick={() => setDeleteTarget(item)}
+                        onClick={() => {
+                          setDeleteError(null);
+                          setDeleteTarget(item);
+                        }}
                         sx={rowActionButtonSx}
                       >
                         <TrashIcon />
@@ -842,108 +472,42 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
         </Box>
       </Box>
 
-      {/* The form half of this file. `formGuard.requestClose` is wired to the backdrop, Escape and the
-          `✕` alike — one outcome, one question. A successful save calls `setDialogOpen(false)`
-          directly, because re-asking "discard your changes?" after committing them is noise. */}
-      <Dialog open={dialogOpen} onClose={formGuard.requestClose} fullWidth maxWidth="sm">
-        <DialogTitleWithClose
-          label={t("common.close")}
-          onClose={formGuard.requestClose}
-          disabled={isSubmitting}
-        >
-          {dialogTitle}
-        </DialogTitleWithClose>
-        <DialogContent dividers>
-          <Box display="flex" flexDirection="column" gap={2.5}>
-            {serverError && <Alert severity="error">{serverError}</Alert>}
-            <Box component="form" id="bucket-list-form" onSubmit={handleSubmit(onSubmit)} display="flex" flexDirection="column" gap={2}>
-              <TextField
-                label={t("trips.bucketList.titleLabel")}
-                error={Boolean(errors.title)}
-                helperText={errors.title?.message}
-                inputProps={{ maxLength: 120 }}
-                {...register("title")}
-                fullWidth
-              />
-              <TextField
-                label={t("trips.bucketList.descriptionLabel")}
-                error={Boolean(errors.description)}
-                helperText={errors.description?.message}
-                {...register("description")}
-                fullWidth
-                multiline
-                minRows={3}
-              />
-              <TextField
-                label={t("trips.bucketList.positionLabel")}
-                error={Boolean(errors.positionText)}
-                // Story 6.28 AC3. The one place field that is a raw `TextField` rather than a
-                // `FormField`, so the helper line arrives as `helperText` — and only when there is no
-                // validation message to show, which is how `FormField` orders the same pair.
-                helperText={errors.positionText?.message ?? t("trips.location.searchHelper")}
-                inputProps={{ maxLength: 200 }}
-                {...register("positionText")}
-                fullWidth
-              />
-              <Box display="flex" gap={1} alignItems="flex-start">
-                <Button
-                  variant="outlined"
-                  onClick={() => void handleLookupLocation()}
-                  disabled={isSubmitting || isGeocoding}
-                  sx={{ mt: 1 }}
-                >
-                  {isGeocoding ? <CircularProgress size={18} /> : t("trips.location.searchAction")}
-                </Button>
-                <Button
-                  variant="text"
-                  onClick={() => {
-                    setResolvedLocation(null);
-                    setLocationCandidates([]);
-                    setCandidatesQuery("");
-                    // The three dialogs empty their search box here; this field is a saved note, so what
-                    // *Clear* means is recorded against the note's current text instead — otherwise the
-                    // parse on save reads a hand-typed pair straight back out of it and the button is a
-                    // no-op (6.28 follow-up review).
-                    setNoLocationQuery(positionTextValue?.trim() ?? "");
-                  }}
-                  // Story 6.28: an unanswered candidate list is something to clear too.
-                  disabled={isSubmitting || isGeocoding || (!resolvedLocation && locationCandidates.length === 0)}
-                  sx={{ mt: 1 }}
-                >
-                  {t("trips.location.clearAction")}
-                </Button>
-              </Box>
-              <LocationCandidateList
-                candidates={locationCandidates}
-                onSelect={selectLocationCandidate}
-                disabled={isSubmitting || isGeocoding}
-                idPrefix="bucket-list-place"
-              />
-              <Typography variant="body2" color="text.secondary">
-                {resolvedLocation
-                  ? `${t("trips.location.latLabel")}: ${resolvedLocation.lat.toFixed(6)} · ${t("trips.location.lngLabel")}: ${resolvedLocation.lng.toFixed(6)}`
-                  : t("trips.location.noCoordinates")}
-              </Typography>
-            </Box>
-          </Box>
-        </DialogContent>
-        {/* Story 6.25 AC2. A form dialog carries no cancel button: the committing action has no
-            consequential opposite worth the same visual weight, so the footer keeps one button and
-            the dismissal is the `✕` above. `justifyContent: space-between` went with the pair it
-            was spacing. */}
-        <DialogActions>
-          <Button type="submit" form="bucket-list-form" variant="contained" disabled={isSubmitting}>
-            {isSubmitting ? <CircularProgress size={22} /> : saveLabel}
-          </Button>
-        </DialogActions>
-      </Dialog>
-      <DiscardChangesDialog {...formGuard.dialogProps} />
+      {/* Story 14.1: add and edit are the activity dialog in parked mode - an idea is an activity
+          without a day, with every tab an activity has (text, cost, pictures, documents, link). */}
+      <TripDayPlanDialog
+        key={`idea-${dialogKey}`}
+        open={dialog !== null}
+        mode={dialog?.mode ?? "add"}
+        tripId={tripId}
+        day={null}
+        placement="parked"
+        item={dialogItem}
+        onDelete={(itemId) => {
+          // The confirmation is this panel's own (below), shown over the editor; the editor closes only
+          // once the idea is actually deleted.
+          const target = items.find((entry) => entry.id === itemId);
+          if (!target) return Promise.resolve(false);
+          setDeleteError(null);
+          settleEditorDelete(false);
+          setDeleteTarget(target);
+          return new Promise<boolean>((resolve) => {
+            deleteResolverRef.current = resolve;
+          });
+        }}
+        onClose={() => setDialog(null)}
+        onSaved={() => {
+          setDialog(null);
+          void loadItems();
+        }}
+        // A picture uploaded or removed in the dialog changes the row's thumbnail even without a save.
+        onDayWrite={() => void loadItems()}
+      />
 
       {/* The confirmation half. One file, two rules — see Story 6.25's Trap 1. */}
-      <Dialog open={Boolean(deleteTarget)} onClose={() => setDeleteTarget(null)} fullWidth maxWidth="xs">
+      <Dialog open={Boolean(deleteTarget)} onClose={keepDeleteTarget} fullWidth maxWidth="xs">
         <DialogTitleWithClose
           label={t("common.close")}
-          onClose={() => setDeleteTarget(null)}
+          onClose={keepDeleteTarget}
           disabled={deleteBusy}
         >
           {t("trips.bucketList.deleteTitle")}
@@ -962,7 +526,7 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
           {/* Story 6.25 AC3. Both buttons stay and the weight is unchanged; only the safe one's word
               changes — "Eintrag behalten" beside "Eintrag löschen" is two outcomes about the same
               object, in the same noun. */}
-          <Button onClick={() => setDeleteTarget(null)} disabled={deleteBusy}>
+          <Button onClick={keepDeleteTarget} disabled={deleteBusy}>
             {t("trips.bucketList.deleteKeep")}
           </Button>
           <Button color="error" variant="contained" onClick={() => void handleDelete()} disabled={deleteBusy}>

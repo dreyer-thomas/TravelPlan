@@ -30,12 +30,9 @@ const planDialogMockState = vi.hoisted(() => ({
     open: boolean;
     mode: "add" | "edit";
     item: { id: string; linkUrl: string | null } | null;
-    prefill?: {
-      title: string;
-      contentJson: string;
-      location: { lat: number; lng: number; label?: string | null } | null;
-      bucketListItemId: string;
-    } | null;
+    // Story 14.1: where the dialog writes - `"parked"` with no day is a bucket-list idea.
+    placement?: "day" | "parked";
+    day?: unknown;
     onDelete?: (itemId: string) => Promise<boolean>;
     // Story 6.23. Recorded so a test can assert *what this screen offers the dialog* — the candidate
     // days with the current one excluded — rather than only what happens after a click.
@@ -113,12 +110,9 @@ vi.mock("@/components/features/trips/TripDayPlanDialog", () => ({
     open: boolean;
     mode: "add" | "edit";
     item: { id: string; linkUrl: string | null } | null;
-    prefill?: {
-      title: string;
-      contentJson: string;
-      location: { lat: number; lng: number; label?: string | null } | null;
-      bucketListItemId: string;
-    } | null;
+    // Story 14.1: where the dialog writes - `"parked"` with no day is a bucket-list idea.
+    placement?: "day" | "parked";
+    day?: unknown;
     onDelete?: (itemId: string) => Promise<boolean>;
     moveTargetDays?: { id: string; label: string }[];
     onMove?: (itemId: string, targetTripDayId: string) => Promise<{ moved: true } | { moved: false; message: string }>;
@@ -140,8 +134,6 @@ vi.mock("@/components/features/trips/TripDayPlanDialog", () => ({
         <span data-testid="plan-dialog-mode">{props.mode}</span>
         <span data-testid="plan-dialog-item-id">{props.item?.id ?? "none"}</span>
         <span data-testid="plan-dialog-item-link">{props.item?.linkUrl ?? "none"}</span>
-        <span data-testid="plan-dialog-prefill-title">{props.prefill?.title ?? "none"}</span>
-        <span data-testid="plan-dialog-prefill-bucket">{props.prefill?.bucketListItemId ?? "none"}</span>
         {props.mode === "edit" && item ? (
           <button type="button" onClick={() => void props.onDelete?.(item.id)}>
             Delete plan item
@@ -655,22 +647,205 @@ describe("TripDayView layout", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders bucket list items and opens the plan dialog with prefill data", async () => {
+  /**
+   * Story 14.1 AC8. "+" on a Day Detail bucket row schedules the idea directly - no dialog. The day and
+   * the bucket list reload, the notice names the idea („…" eingeplant) and offers *Rückgängig*, and a
+   * successful undo reloads the bucket list, where the idea is back.
+   */
+  it("schedules a bucket-list idea with +, names it in the notice, and reloads the list after undo", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
+    let scheduled = false;
     bucketListItemsOverride = [
       {
         id: "bucket-1",
-        tripId: "trip-1",
         title: "Bucket stop",
-        description: "Bucket notes",
-        positionText: "Central Station",
+        durationMinutes: 60,
         location: { lat: 48.1372, lng: 11.5756, label: "Munich" },
-        createdAt: "2026-12-01T00:00:00.000Z",
-        updatedAt: "2026-12-01T00:00:00.000Z",
+        firstImageUrl: "/uploads/trips/trip-1/parked/day-plan-items/bucket-1/a.webp",
       },
     ];
-    const fetchMock = withBucketList(async () => {
+    const receipt = {
+      version: 3,
+      tripDayId: "day-1",
+      edited: {
+        kind: "scheduled",
+        itemId: "bucket-1",
+        updatedAt: "2026-12-01T10:00:00.000Z",
+        previousUpdatedAt: "2026-11-01T10:00:00.000Z",
+      },
+      removedTravelSegments: [],
+      movedItems: [],
+      signature: "a".repeat(64),
+    };
+    const fetchMock = withBucketList(async (input, init) => {
+      const url = requestUrl(input);
+      if (url.includes("/api/auth/csrf")) return mockFetchResponse({ data: { csrfToken: "csrf" }, error: null });
+      if (url.includes("/day-plan-items/schedule")) {
+        scheduled = true;
+        bucketListItemsOverride = [];
+        return mockFetchResponse({ data: { item: { id: "bucket-1" }, receipt }, error: null });
+      }
+      if (url.includes("/day-plan-changes/undo")) {
+        expect(JSON.parse(String(init?.body))).toEqual({ receipt });
+        return mockFetchResponse({ data: { undone: true }, error: null });
+      }
+      return mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            accessRole: "contributor",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-01T00:00:00.000Z",
+            dayCount: 1,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
+          },
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: !scheduled,
+              accommodation: null,
+              dayPlanItems: scheduled
+                ? [
+                    {
+                      id: "bucket-1",
+                      title: "Bucket stop",
+                      fromTime: "09:00",
+                      toTime: "10:00",
+                      contentJson: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "x" }] }] }),
+                      costCents: null,
+                      payments: [],
+                      linkUrl: null,
+                      location: null,
+                      scheduleMode: "FLEXIBLE",
+                      durationMinutes: 60,
+                      sortOrder: 0,
+                    },
+                  ]
+                : [],
+              travelSegments: [],
+            },
+          ],
+        },
+        error: null,
+      });
+    });
+
+    stubFetch(fetchMock);
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    // The row is a `bucket-item`: thumbnail, title, "duration · place".
+    expect(await screen.findByText("Bucket stop")).toBeInTheDocument();
+    const row = screen.getByTestId("bucket-item");
+    expect(row.querySelector("img")).toHaveAttribute("alt", "");
+    expect(within(row).getByText("1 h · Munich")).toBeInTheDocument();
+
+    await userEvent.click(within(row).getByRole("button", { name: "Schedule on this day" }));
+
+    const scheduleCall = vi.mocked(fetchMock).mock.calls.find(([input]) => requestUrl(input).includes("/day-plan-items/schedule"));
+    expect(JSON.parse(String(scheduleCall?.[1]?.body))).toEqual({ itemId: "bucket-1", tripDayId: "day-1" });
+    // No dialog: the idea itself moved, there is nothing to fill in.
+    expect(screen.queryByTestId("plan-dialog")).not.toBeInTheDocument();
+    expect(await screen.findByText('"Bucket stop" scheduled')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByTestId("bucket-item")).not.toBeInTheDocument());
+
+    const bucketLoadsBeforeUndo = vi.mocked(fetchMock).mock.calls.filter(([input]) => requestUrl(input).endsWith("/bucket-list-items")).length;
+    scheduled = false;
+    bucketListItemsOverride = [
+      { id: "bucket-1", title: "Bucket stop", durationMinutes: 60, location: null, firstImageUrl: null },
+    ];
+    await userEvent.click(screen.getByRole("button", { name: "Undo" }));
+
+    await waitFor(() =>
+      expect(vi.mocked(fetchMock).mock.calls.filter(([input]) => requestUrl(input).endsWith("/bucket-list-items")).length).toBe(
+        bucketLoadsBeforeUndo + 1,
+      ),
+    );
+    expect(await screen.findByTestId("bucket-item")).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * Story 14.1, Q3 (Tommy, 2026-10-18): ideas can be added on Day Detail too. The panel's header "+"
+   * opens the same parked dialog as the overview; a saved idea goes to the bucket list, not onto this day.
+   */
+  it("adds an idea from Day Detail through the parked dialog, and reloads the bucket list after the save", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    bucketListItemsOverride = [];
+    const fetchMock = withBucketList(async () =>
+      mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            accessRole: "contributor",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-01T00:00:00.000Z",
+            dayCount: 1,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
+          },
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: null,
+              dayPlanItems: [],
+            },
+          ],
+        },
+        error: null,
+      }),
+    );
+    stubFetch(fetchMock);
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+    await userEvent.click(await screen.findByRole("button", { name: "Add idea" }));
+
+    expect(await screen.findByTestId("plan-dialog")).toHaveTextContent("add");
+    expect(planDialogMockState.lastProps).toMatchObject({ open: true, mode: "add", placement: "parked", day: null, item: null });
+
+    const bucketLoads = () =>
+      vi.mocked(fetchMock).mock.calls.filter(([input]) => requestUrl(input).endsWith("/bucket-list-items")).length;
+    const loadsBeforeSave = bucketLoads();
+    bucketListItemsOverride = [{ id: "idea-new", title: "Reiseidee", durationMinutes: 120, location: null, firstImageUrl: null }];
+    await act(async () => {
+      planDialogMockState.lastProps?.onSaved();
+    });
+
+    await waitFor(() => expect(bucketLoads()).toBe(loadsBeforeSave + 1));
+    expect(await screen.findByText("Reiseidee")).toBeInTheDocument();
+    expect(screen.queryByTestId("plan-dialog")).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("says why a schedule was refused past midnight, and keeps the idea on the list", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    bucketListItemsOverride = [{ id: "bucket-1", title: "Late idea", durationMinutes: 60, location: null, firstImageUrl: null }];
+    const fetchMock = withBucketList(async (input) => {
+      const url = requestUrl(input);
+      if (url.includes("/api/auth/csrf")) return mockFetchResponse({ data: { csrfToken: "csrf" }, error: null });
+      if (url.includes("/day-plan-items/schedule")) {
+        return mockFetchResponse(
+          { data: null, error: { code: "day_plan_past_midnight", message: "x", details: { itemId: "bucket-1", itemTitle: "Late idea" } } },
+          { status: 409 },
+        );
+      }
       return mockFetchResponse({
         data: {
           trip: {
@@ -690,7 +865,7 @@ describe("TripDayView layout", () => {
               dayIndex: 1,
               plannedCostSubtotal: 0,
               missingAccommodation: false,
-              missingPlan: false,
+              missingPlan: true,
               accommodation: null,
               dayPlanItems: [],
             },
@@ -699,25 +874,13 @@ describe("TripDayView layout", () => {
         error: null,
       });
     });
-
     stubFetch(fetchMock);
 
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+    await userEvent.click(await screen.findByRole("button", { name: "Schedule on this day" }));
 
-    expect(await screen.findByText("Bucket list")).toBeInTheDocument();
-    // Awaited, not read synchronously off the panel's arrival: the bucket-list fetch is gated on
-    // `canEditPlanning`, which is `false` until the detail response lands (DW-243 - it used to be
-    // `true` from the first render, so the request went out alongside the detail one and the items
-    // were usually already there). The panel header and its contents now arrive one round trip apart.
-    expect(await screen.findByText("Bucket stop")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Add to day" }));
-
-    await waitFor(() => {
-      expect(planDialogMockState.lastProps?.prefill?.bucketListItemId).toBe("bucket-1");
-      expect(planDialogMockState.lastProps?.prefill?.title).toBe("Bucket stop");
-      expect(planDialogMockState.lastProps?.prefill?.location?.label).toBe("Central Station");
-      expect(planDialogMockState.lastProps?.prefill?.contentJson).toContain("Bucket notes");
-    });
+    expect(await screen.findByText(/Late idea/, { selector: ".MuiAlert-message, .MuiAlert-message *" })).toBeInTheDocument();
+    expect(screen.getByTestId("bucket-item")).toBeInTheDocument();
 
     vi.unstubAllGlobals();
   });
@@ -746,18 +909,6 @@ describe("TripDayView layout", () => {
   it("gives the plan dialog a fresh mount per open, which is what resets it between entities", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
-    bucketListItemsOverride = [
-      {
-        id: "bucket-1",
-        tripId: "trip-1",
-        title: "Bucket stop",
-        description: "Bucket notes",
-        positionText: "Central Station",
-        location: { lat: 48.1372, lng: 11.5756, label: "Munich" },
-        createdAt: "2026-12-01T00:00:00.000Z",
-        updatedAt: "2026-12-01T00:00:00.000Z",
-      },
-    ];
     const fetchMock = withBucketList(async () => {
       return mockFetchResponse({
         data: {
@@ -794,9 +945,8 @@ describe("TripDayView layout", () => {
 
     expect(await screen.findByText("Bucket list")).toBeInTheDocument();
 
-    // The item's own button, so it has to be waited for rather than queried off the panel header -
-    // same one-round-trip gap as the case above.
-    await userEvent.click(await screen.findByRole("button", { name: "Add to day" }));
+    // Story 14.1: "+" on a bucket row no longer opens this dialog, so both opens are "Add plan item".
+    await userEvent.click((await screen.findAllByRole("button", { name: "Add plan item" }))[0]);
     expect(await screen.findByTestId("plan-dialog")).toBeInTheDocument();
     const mountsAfterFirstOpen = planDialogMountState.mounts;
 
@@ -809,7 +959,7 @@ describe("TripDayView layout", () => {
       expect(screen.queryByTestId("plan-dialog")).not.toBeInTheDocument();
     });
 
-    await userEvent.click(screen.getByRole("button", { name: "Add to day" }));
+    await userEvent.click(screen.getAllByRole("button", { name: "Add plan item" })[0]);
     expect(await screen.findByTestId("plan-dialog")).toBeInTheDocument();
 
     // Two opens, two mounts. With the key gone the second open re-renders the instance the first one
