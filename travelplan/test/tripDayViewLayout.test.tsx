@@ -10,6 +10,7 @@ import theme from "@/theme";
 import { mockFetchResponse, requestUrl, stubFetch } from "./helpers/mockFetch";
 import { Providers, renderWithProviders } from "./helpers/renderWithProviders";
 import { emotionDeclarations } from "./helpers/emotionStyles";
+import { expectRowActionReveal } from "./helpers/bucketRowActionReveal";
 
 // jsdom reports computed colours as `rgb(r, g, b)`; the palette stores hex. Converting here lets colour
 // assertions name the token they mean instead of a literal triple nobody can trace back to the theme.
@@ -828,6 +829,107 @@ describe("TripDayView layout", () => {
 
     await waitFor(() => expect(bucketLoads()).toBe(loadsBeforeSave + 1));
     expect(await screen.findByText("Reiseidee")).toBeInTheDocument();
+    expect(screen.queryByTestId("plan-dialog")).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * Story 14.2 (Tommy, 2026-10-18): a bucket row's pencil edits the idea on Day Detail too, in the same
+   * parked dialog the overview uses. Deleting stays on the overview, so the dialog gets no `onDelete`.
+   */
+  it("edits an idea from Day Detail through the parked dialog, and reloads the bucket list after the save", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const idea = {
+      id: "idea-1",
+      tripId: "trip-1",
+      title: "Wasserfall",
+      contentJson: '{"type":"doc","content":[]}',
+      durationMinutes: 120,
+      costCents: 2500,
+      costOriginalAmount: null,
+      costCurrency: null,
+      costRate: null,
+      costRateDate: null,
+      payments: [],
+      linkUrl: "https://example.com/falls",
+      location: null,
+      firstImageUrl: null,
+      createdAt: "2026-10-01T00:00:00.000Z",
+      updatedAt: "2026-10-02T00:00:00.000Z",
+    };
+    bucketListItemsOverride = [idea];
+    const fetchMock = withBucketList(async () =>
+      mockFetchResponse({
+        data: {
+          trip: {
+            id: "trip-1",
+            name: "Trip",
+            accessRole: "contributor",
+            startDate: "2026-12-01T00:00:00.000Z",
+            endDate: "2026-12-01T00:00:00.000Z",
+            dayCount: 1,
+            accommodationCostTotalCents: null,
+            heroImageUrl: null,
+          },
+          days: [
+            {
+              id: "day-1",
+              date: "2026-12-01T00:00:00.000Z",
+              dayIndex: 1,
+              plannedCostSubtotal: 0,
+              missingAccommodation: false,
+              missingPlan: true,
+              accommodation: null,
+              dayPlanItems: [],
+            },
+          ],
+        },
+        error: null,
+      }),
+    );
+    stubFetch(fetchMock);
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+    const row = await screen.findByTestId("bucket-item");
+    await userEvent.click(within(row).getByRole("button", { name: "Edit item" }));
+
+    expect(await screen.findByTestId("plan-dialog-mode")).toHaveTextContent("edit");
+    expect(planDialogMockState.lastProps).toMatchObject({
+      open: true,
+      mode: "edit",
+      placement: "parked",
+      day: null,
+      item: {
+        id: "idea-1",
+        tripDayId: null,
+        title: "Wasserfall",
+        scheduleMode: "FLEXIBLE",
+        durationMinutes: 120,
+        fromTime: null,
+        toTime: null,
+        costCents: 2500,
+        linkUrl: "https://example.com/falls",
+      },
+    });
+    expect((planDialogMockState.lastProps as { onDelete?: unknown } | null)?.onDelete).toBeUndefined();
+
+    // Tommy: every row action (pencil and "+") reveals like the activity card's glyph - on hover with a
+    // mouse, always on touch. jsdom matches no media queries, so the authored rules are what can be
+    // checked (the glyph test's way).
+    expectRowActionReveal(row, ["Edit item", "Schedule on this day"]);
+
+    const bucketLoads = () =>
+      vi.mocked(fetchMock).mock.calls.filter(([input]) => requestUrl(input).endsWith("/bucket-list-items")).length;
+    const loadsBeforeSave = bucketLoads();
+    bucketListItemsOverride = [{ ...idea, title: "Wasserfall, kürzer", durationMinutes: 60 }];
+    await act(async () => {
+      planDialogMockState.lastProps?.onSaved();
+    });
+
+    await waitFor(() => expect(bucketLoads()).toBe(loadsBeforeSave + 1));
+    expect(await screen.findByText("Wasserfall, kürzer")).toBeInTheDocument();
     expect(screen.queryByTestId("plan-dialog")).not.toBeInTheDocument();
 
     vi.unstubAllGlobals();
@@ -6368,8 +6470,11 @@ describe("TripDayView layout", () => {
     expect(glyph.tagName.toLowerCase()).not.toBe("button");
     expect(glyph).not.toHaveAttribute("tabindex");
     expect(within(glyph).queryByRole("button")).toBeNull();
-    // The overlay is the card's only tab stop; the glyph must not add a second one.
-    expect(within(screen.getByTestId("day-plan-item-card")).getAllByRole("button")).toHaveLength(1);
+    // The glyph must not add a tab stop. Story 14.2: a lone card now carries the overflow trigger
+    // (*Parken*), so the card's buttons are the overlay and that trigger, and nothing else.
+    const cardButtons = within(screen.getByTestId("day-plan-item-card")).getAllByRole("button");
+    expect(cardButtons).toHaveLength(2);
+    expect(cardButtons.filter((button) => button.getAttribute("data-testid") !== "day-plan-item-overflow")).toHaveLength(1);
 
     // The reveal itself is a media-query behaviour and jsdom implements no media-query matching -
     // `getComputedStyle` returns "" for any property declared inside `@media`, so asserting on the

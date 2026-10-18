@@ -611,6 +611,10 @@ const de: Dictionary = {
   "trips.plan.reorderStale": "Der Tag wurde gerade geändert – die Reihenfolge wurde nicht geändert.",
   "trips.plan.reorderUnavailable": "Diese Aktivität lässt sich hier nicht verschieben. Die Ansicht wurde aktualisiert.",
   "trips.plan.reorderError": "Reihenfolge konnte nicht geändert werden – bitte erneut versuchen.",
+  // Story 14.2: *Parken* im selben Menü legt die Aktivität in die Bucket-Liste, und seine Ablehnungen.
+  "trips.plan.parkAction": "Parken",
+  "trips.plan.parkStale": "Der Tag wurde gerade geändert – die Aktivität wurde nicht geparkt.",
+  "trips.plan.parkError": "Konnte nicht geparkt werden – bitte erneut versuchen.",
   "trips.plan.deleteError": "Plan-Element konnte nicht gelöscht werden. Bitte erneut versuchen.",
   "trips.plan.editItemMissing": "Zu bearbeitender Planpunkt fehlt.",
   // Story 6.23 — siehe en.ts. `trips.dayTransfer.*` bleibt der Ganztagestransfer.
@@ -657,6 +661,8 @@ const de: Dictionary = {
   "trips.dayChange.reordered": "Reihenfolge geändert",
   // Story 14.1: „+“ hat eine Idee der Bucket-Liste auf den Tag gelegt.
   "trips.dayChange.scheduled": "„{title}“ eingeplant",
+  // Story 14.2: *Parken* hat die Aktivität vom Tag in die Bucket-Liste gelegt.
+  "trips.dayChange.parked": "„{title}“ geparkt",
   // Story 14.1: die Dauer einer Aktivität, wie die Zeile der Bucket-Liste sie zeigt.
   "trips.duration.hours": "{hours} Std",
   "trips.duration.minutes": "{minutes} Min",

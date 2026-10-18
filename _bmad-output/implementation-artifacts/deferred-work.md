@@ -3814,3 +3814,35 @@ severity: low
 summary: Only the rows read in step 1 are written conditionally on `updatedAt`. Two concurrent creates or applies on one day can both take the same `sortOrder`. Whether this can happen depends on how SQLite serialises the interactive transactions, which has not been confirmed.
 evidence: The same pattern the Epic 11 writes had.
 status: open
+
+## Deferred from: code review of 14-2-park-it-for-another-day (2026-10-18)
+
+### DW-396: Undo of a park after a later create duplicates `sortOrder`
+
+source_spec: `_bmad-output/implementation-artifacts/14-2-park-it-for-another-day.md`
+origin: code review of 14-2-park-it-for-another-day, 2026-10-18
+location: `travelplan/src/lib/repositories/dayPlanChangeRepo.ts:386` (phase 1), `:491` (phase 2)
+severity: low
+summary: Phase 1 checks only the parked row and `movedItems`. An activity created on the day (or scheduled onto it with "+") after the park takes the next free `sortOrder`. Undo then writes `previous.sortOrder` and the moved rows' old orders back without a renumber, so two rows can share a `sortOrder` and the restored times can overlap the new activity.
+evidence: The same shape as DW-392 (undo of a delete after a later create). Story 14.2 point 6 prescribes "no renumber", and DW-372 is not to be widened here.
+status: open
+
+### DW-397: A park that removed a never-drawn referencing leg can never be undone
+
+source_spec: `_bmad-output/implementation-artifacts/14-2-park-it-for-another-day.md`
+origin: code review of 14-2-park-it-for-another-day, 2026-10-18
+location: `travelplan/src/lib/repositories/dayPlanChangeRepo.ts:553` (phase 3 "restored leg would not be drawn")
+severity: low
+summary: `removeTravelSegmentsReferencingItemInTransaction` also removes a leg naming the activity that the timeline never drew (for example C→B against the order). The notice offers *Rückgängig*, but phase 3 refuses every undo as `undo_stale`, because the restored leg would not be drawn. AC4's "every removed leg" does not hold for such a leg.
+evidence: Flagged in the 14.2 Dev Agent Record. Delete and its undo behave the same way.
+status: open
+
+### DW-398: Bucket-list reloads have no sequencing guard
+
+source_spec: `_bmad-output/implementation-artifacts/14-2-park-it-for-another-day.md`
+origin: code review of 14-2-park-it-for-another-day, 2026-10-18
+location: `travelplan/src/components/features/trips/TripDayView.tsx` (`loadBucketListItems`)
+severity: low
+summary: `loadBucketListItems` has no request id or abort. 14.2 adds more callers (the park's `finally`, the undo of `parked`, the idea dialog's save and picture writes). When two loads overlap and the older answer arrives last, the panel shows an outdated list until the next reload.
+evidence: The loader is from 14.1. `loadDay` uses `currentDayIdRef` for the day, but nothing comparable exists for the list.
+status: open

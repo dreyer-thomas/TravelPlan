@@ -59,6 +59,7 @@ import TripDayMapPanel, {
   type TripDayMapPoint,
 } from "@/components/features/trips/TripDayMapPanel";
 import TripDayBucketListPanel from "@/components/features/trips/TripDayBucketListPanel";
+import { toBucketDialogItem, type BucketListItem } from "@/lib/trips/bucketListItem";
 import TripDayPlanDialog, { type PlanItemMoveOutcome } from "@/components/features/trips/TripDayPlanDialog";
 import TripDayTravelSegmentDialog from "@/components/features/trips/TripDayTravelSegmentDialog";
 import TripDaySuggestionsDialog from "@/components/features/trips/TripDaySuggestionsDialog";
@@ -411,15 +412,6 @@ type DayPlanItem = {
   sortOrder: number;
 };
 
-/** Story 14.1. A parked activity as `GET bucket-list-items` returns it; the panel needs these fields. */
-type BucketListItem = {
-  id: string;
-  title: string;
-  durationMinutes: number;
-  location: { lat: number; lng: number; label: string | null } | null;
-  firstImageUrl: string | null;
-};
-
 type SegmentItem = {
   id: string;
   type: "accommodation" | "dayPlanItem";
@@ -642,8 +634,11 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
   // Story 12.3. Keyed like the four above, so every open starts with an empty wish and no results.
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   // Story 14.1 (Q3): *Idee hinzufügen* on Day Detail. Rendered only while open, so every open is a fresh
-  // mount and the day's own plan dialog above is never shadowed by a second, closed instance.
-  const [ideaDialogOpen, setIdeaDialogOpen] = useState(false);
+  // mount and the day's own plan dialog above is never shadowed by a second, closed instance. Story 14.2
+  // (Tommy's request): a bucket row's pencil opens the same dialog on that idea.
+  const [ideaDialog, setIdeaDialog] = useState<{ mode: "add" } | { mode: "edit"; item: BucketListItem } | null>(null);
+  // Stable while the dialog is open, so the dialog's seed effect does not re-run on every render.
+  const ideaDialogItem = useMemo(() => (ideaDialog?.mode === "edit" ? toBucketDialogItem(ideaDialog.item) : null), [ideaDialog]);
   const suggestionsDialogKey = useOpenInstanceKey(suggestionsOpen);
   const [copyingStay, setCopyingStay] = useState(false);
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
@@ -705,8 +700,10 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
     status: "ready" | "pending" | "stale" | "unavailable";
   } | null>(null);
   // Story 14.1: the title of the idea "+" just scheduled, from the schedule response, so its notice names
-  // it before (and even without) the day reload that brings the activity into `planItems`.
-  const [scheduledIdea, setScheduledIdea] = useState<{ id: string; title: string | null } | null>(null);
+  // it before (and even without) the day reload that brings the activity into `planItems`. Story 14.2:
+  // also the activity *Parken* just took off the day, captured before the request, because the reload
+  // takes it out of `planItems` for good.
+  const [noticeItem, setNoticeItem] = useState<{ id: string; title: string | null } | null>(null);
   const [transferMode, setTransferMode] = useState<DayActivityTransferMode | null>(null);
   const [transferTargetDayId, setTransferTargetDayId] = useState("");
   const [transferSubmitting, setTransferSubmitting] = useState(false);
@@ -1366,7 +1363,7 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
       if (currentDayIdRef.current !== requestedDayId) return;
 
       if (response.ok && !body.error) {
-        setScheduledIdea({ id: item.id, title: body.data?.item?.title ?? item.title });
+        setNoticeItem({ id: item.id, title: body.data?.item?.title ?? item.title });
         takeDayChangeReceipt(body.data?.receipt ?? null);
         setPlanMoveNotice(null);
         await loadDay({ silent: true });
@@ -1474,7 +1471,8 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
       const undone = response.ok && !body.error;
       // The bucket list is the trip's, not the day's: an idea parked again belongs in it whichever day
       // the user is on by now (Story 14.1: the undo of "+").
-      if (undone && receipt.edited.kind === "scheduled") {
+      // Story 14.2: the undo of *Parken* takes the activity back out of it.
+      if (undone && (receipt.edited.kind === "scheduled" || receipt.edited.kind === "parked")) {
         loadBucketListItems();
       }
       // A response for a day the user has already left is about nothing else on screen.
@@ -1584,6 +1582,94 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
       }
     },
     [canEditPlanning, day, ensureCsrfToken, loadDay, resolveApiError, t, takeDayChangeReceipt, tripId],
+  );
+
+  // Claimed synchronously, as the reorder's is: a double click must send one park, not two.
+  const parkInFlightRef = useRef(false);
+
+  /**
+   * Story 14.2 (FR48). *Parken*: the activity itself leaves the day for the bucket list. Not optimistic,
+   * like the reorder: the server recomputes the day and the reload shows it. The title is captured
+   * before the request, from the card's own rule, because the reloaded day no longer holds the activity
+   * and the receipt carries no title. The bucket list reloads on every path, as after "+".
+   */
+  const handleParkPlanItem = useCallback(
+    async (itemId: string) => {
+      setPlanItemMenu(null);
+      if (!canEditPlanning || !day) return;
+      if (parkInFlightRef.current) return;
+      parkInFlightRef.current = true;
+
+      setError(null);
+      setPlanMoveNotice(null);
+      // Story 11.1 AC7: a write on the day ends the earlier undo window; this one's receipt opens the next.
+      setDayChange(null);
+      const requestedDayId = day.id;
+      const index = planItemsRef.current.findIndex((entry) => entry.id === itemId);
+      const entry = index >= 0 ? planItemsRef.current[index] : undefined;
+      const title = entry
+        ? entry.title?.trim() ||
+          parsePlanText(entry.contentJson) ||
+          formatMessage(t("trips.dayView.budgetItemPlan"), { index: index + 1 })
+        : null;
+
+      let answered = false;
+      try {
+        const token = await ensureCsrfToken();
+        const response = await fetch(`/api/trips/${tripId}/day-plan-items/park`, {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            "x-csrf-token": token,
+          },
+          body: JSON.stringify({ itemId, tripDayId: requestedDayId }),
+        });
+        answered = true;
+        const body = (await response.json()) as ApiEnvelope<{ receipt?: SignedDayChangeReceiptWire }>;
+        if (currentDayIdRef.current !== requestedDayId) return;
+
+        if (response.ok && !body.error) {
+          setNoticeItem({ id: itemId, title });
+          takeDayChangeReceipt(body.data?.receipt ?? null);
+          await loadDay({ silent: true });
+          return;
+        }
+
+        const code = body.error?.code;
+        if (response.status === 409 && code === "day_plan_changed") {
+          await loadDay({ silent: true });
+          setError(t("trips.plan.parkStale"));
+          return;
+        }
+        if (response.status === 409 && code === "day_plan_past_midnight") {
+          const details = body.error?.details as { itemTitle?: string | null } | undefined;
+          const pastTitle = details?.itemTitle?.trim() || t("trips.plan.untitledActivity");
+          await loadDay({ silent: true });
+          setError(formatMessage(t("trips.plan.pastMidnight"), { title: pastTitle }));
+          return;
+        }
+        if (response.status === 404) {
+          // Moved, parked or deleted elsewhere: reload so its card goes, then say so.
+          await loadDay({ silent: true });
+          setError(resolveApiError(code, t("trips.plan.parkError")));
+          return;
+        }
+        setError(resolveApiError(code, t("trips.plan.parkError")));
+      } catch {
+        if (currentDayIdRef.current !== requestedDayId) return;
+        // An answer that arrived but could not be read (a proxy's HTML 502) may follow a saved park:
+        // reload, so the day agrees with the bucket list the `finally` reloads. With no answer at all the
+        // server is likely unreachable, and a reload would only replace the day with its load error.
+        if (answered) await loadDay({ silent: true });
+        setError(resolveApiError("network_error", t("trips.plan.parkError")));
+      } finally {
+        parkInFlightRef.current = false;
+        // Joined on success; on a refusal or a lost answer the list is still the trip's to show.
+        void loadBucketListItems();
+      }
+    },
+    [canEditPlanning, day, ensureCsrfToken, loadBucketListItems, loadDay, resolveApiError, t, takeDayChangeReceipt, tripId],
   );
 
   const handleDeletePlan = useCallback(
@@ -3854,15 +3940,16 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
                                 ? detail?.days.find((entry) => entry.id === dayChange.receipt.tripDayId)?.dayIndex
                                 : undefined,
                             // Story 14.1: the receipt names the scheduled idea by id. Its title is on the
-                            // reloaded day, or until then in the schedule response.
-                            scheduledTitle:
-                              dayChange.receipt.edited.kind === "scheduled"
+                            // reloaded day, or until then in the schedule response. Story 14.2: a parked
+                            // activity is never on the reloaded day, so only the captured title names it.
+                            itemTitle:
+                              dayChange.receipt.edited.kind === "scheduled" || dayChange.receipt.edited.kind === "parked"
                                 ? (() => {
-                                    const { itemId } = dayChange.receipt.edited as { itemId: string };
-                                    return (
-                                      planItems.find((entry) => entry.id === itemId)?.title ??
-                                      (scheduledIdea?.id === itemId ? scheduledIdea.title : undefined)
-                                    );
+                                    const { itemId } = dayChange.receipt.edited;
+                                    const captured = noticeItem?.id === itemId ? noticeItem.title : undefined;
+                                    return dayChange.receipt.edited.kind === "parked"
+                                      ? captured
+                                      : (planItems.find((entry) => entry.id === itemId)?.title ?? captured);
                                   })()
                                 : undefined,
                           })
@@ -4348,7 +4435,9 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
                     const movable = item.scheduleMode === "FLEXIBLE";
                     const canMoveUp = movable && index > 0;
                     const canMoveDown = movable && index < planItems.length - 1;
-                    const showItemMenu = canEditPlanning && (canMoveUp || canMoveDown);
+                    // Story 14.2: the menu is no longer only for moving. *Parken* applies to every activity,
+                    // so every writer sees the trigger, and the menu is never empty (11.3 AC4 still holds).
+                    const showItemMenu = canEditPlanning;
                     // Every child of the head row is conditional, so the row itself has to be too.
                     const showCardHead = Boolean((item.fromTime && item.toTime) || item.costCents || canEditPlanning);
 
@@ -4437,7 +4526,8 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
                                     {canEditPlanning ? renderEditGlyph("day-plan-item-edit-glyph") : null}
                                     {/* Story 11.3. A real `<button>`, so `overlaidContentSx` hands it its
                                         clicks back and the edit overlay beneath never fires - no
-                                        `stopPropagation`. Absent when it would open an empty menu (AC4).
+                                        `stopPropagation`. Absent when it would open an empty menu (AC4);
+                                        since Story 14.2 *Parken* is always in it, so every writer sees it.
                                         44x44 spelled out (the theme's IconButton carries no geometry);
                                         the negative block margin keeps the head row as tall as before. */}
                                     {showItemMenu ? (
@@ -4797,7 +4887,8 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
                   loading={bucketLoading}
                   error={bucketError}
                   onSchedule={(item) => void handleScheduleBucketItem(item)}
-                  onAdd={() => setIdeaDialogOpen(true)}
+                  onAdd={() => setIdeaDialog({ mode: "add" })}
+                  onEdit={(item) => setIdeaDialog({ mode: "edit", item })}
                 />
               ) : null}
             </Box>
@@ -4870,20 +4961,32 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
             onDayWrite={() => setDayChange(null)}
           />
           {/* Story 14.1 (Q3). A new idea from Day Detail: the same parked dialog as the overview's. It goes
-              to the bucket list, not onto this day; the row's "+" is what schedules it. */}
-          {ideaDialogOpen && canEditPlanning ? (
+              to the bucket list, not onto this day; the row's "+" is what schedules it. Story 14.2: also
+              an existing idea, from its row's pencil. No `onDelete`, so the dialog offers no delete here. */}
+          {ideaDialog && canEditPlanning ? (
             <TripDayPlanDialog
+              key={ideaDialog.mode === "edit" ? `idea-${ideaDialog.item.id}` : "idea-add"}
               open
-              mode="add"
+              mode={ideaDialog.mode}
               tripId={tripId}
               day={null}
               placement="parked"
-              item={null}
-              onClose={() => setIdeaDialogOpen(false)}
+              item={ideaDialogItem}
+              onClose={() => setIdeaDialog(null)}
               onSaved={() => {
-                setIdeaDialogOpen(false);
+                // Story 14.2: a save gives the idea a new stamp, so if it is the activity the notice just
+                // parked, that undo could only be refused as stale; the window ends instead.
+                const savedId = ideaDialog.mode === "edit" ? ideaDialog.item.id : null;
+                setDayChange((current) =>
+                  current && savedId && current.receipt.edited.kind === "parked" && current.receipt.edited.itemId === savedId
+                    ? null
+                    : current,
+                );
+                setIdeaDialog(null);
                 loadBucketListItems();
               }}
+              // A picture uploaded or removed in the dialog changes the row's thumbnail even without a save.
+              onDayWrite={() => loadBucketListItems()}
             />
           ) : null}
           {/* Story 12.4. The dialog previews and applies on its own and hands over the receipt; like a
@@ -5111,6 +5214,12 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
             {planItemMenu?.canMoveDown ? (
               <MenuItem onClick={() => handleReorderPlan(planItemMenu.itemId, "down")} sx={DAY_MENU_ITEM_SX}>
                 {t("trips.plan.moveDown")}
+              </MenuItem>
+            ) : null}
+            {/* Story 14.2: always last, no confirmation - the notice's *Rückgängig* takes it back. */}
+            {planItemMenu ? (
+              <MenuItem onClick={() => handleParkPlanItem(planItemMenu.itemId)} sx={DAY_MENU_ITEM_SX}>
+                {t("trips.plan.parkAction")}
               </MenuItem>
             ) : null}
           </Menu>

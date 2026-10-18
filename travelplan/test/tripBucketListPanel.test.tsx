@@ -9,6 +9,7 @@ import TripBucketListPanel, {
 } from "@/components/features/trips/TripBucketListPanel";
 import { emotionDeclarations, emotionPseudoClassStyle } from "./helpers/emotionStyles";
 import { renderWithProviders } from "./helpers/renderWithProviders";
+import { expectRowActionReveal } from "./helpers/bucketRowActionReveal";
 
 /**
  * Story 14.1 rewrote this suite's data for the parked activity and replaced the inline form's cases:
@@ -275,6 +276,18 @@ describe("TripBucketListPanel", () => {
         expect(style.get("outline-offset")).toBe("2px");
       }
     });
+  });
+
+  it("shows a row's edit and delete on hover, always on touch, and when focused (Story 14.2, Tommy)", async () => {
+    const fetchMock = mockBucketListFetch([buildItem({ id: "item-a", title: "Alpha" })]);
+    const user = userEvent.setup();
+
+    renderWithProviders(<TripBucketListPanel tripId="trip-1" />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await user.click(screen.getByRole("button", { name: "Expand bucket list" }));
+
+    expectRowActionReveal(screen.getByTestId("bucket-item"), ["Edit item", "Delete item"]);
   });
 
   it("suppresses the last row's bottom border via :last-child and keeps prior rows' rule", async () => {

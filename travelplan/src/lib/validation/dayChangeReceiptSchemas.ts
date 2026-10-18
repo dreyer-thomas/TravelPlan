@@ -204,6 +204,26 @@ const editedSchema = z.discriminatedUnion("kind", [
       previousUpdatedAt: isoDateSchema,
     })
     .strict(),
+  // Story 14.2. An activity parked off the day; `dayPlanChangeRepo.ts` checks `previous.tripDayId`
+  // against the receipt's day. `previous` holds stored values, so the bounds are `dayPlanItemColumns`'.
+  z
+    .object({
+      kind: z.literal("parked"),
+      itemId: idSchema,
+      updatedAt: isoDateSchema,
+      previous: z
+        .object({
+          tripDayId: idSchema,
+          scheduleMode: dayPlanItemColumns.scheduleMode,
+          durationMinutes: dayPlanItemColumns.durationMinutes,
+          sortOrder: dayPlanItemColumns.sortOrder,
+          fromTime: nullableText(),
+          toTime: nullableText(),
+          updatedAt: isoDateSchema,
+        })
+        .strict(),
+    })
+    .strict(),
   // Story 12.4. Additive; the bounds are what one apply can create (8 suggestions, a leg into each, 3
   // pictures each). `dayPlanChangeRepo.ts` checks every row against the day.
   z

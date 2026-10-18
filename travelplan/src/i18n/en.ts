@@ -670,6 +670,10 @@ const en: Dictionary = {
   "trips.plan.reorderStale": "The day was just changed – the order was not changed.",
   "trips.plan.reorderUnavailable": "This activity cannot be moved here. The view has been refreshed.",
   "trips.plan.reorderError": "Could not change the order – please try again.",
+  // Story 14.2: *Park* in the same menu moves the activity to the bucket list, and its refusals.
+  "trips.plan.parkAction": "Park",
+  "trips.plan.parkStale": "The day was just changed – the activity was not parked.",
+  "trips.plan.parkError": "Could not be parked – please try again.",
   "trips.plan.deleteError": "Plan item removal failed. Please try again.",
   "trips.plan.editItemMissing": "Missing plan item to edit.",
   // Story 6.23 — moving one activity to another day, from the activity dialog's footer. Distinct
@@ -722,6 +726,8 @@ const en: Dictionary = {
   "trips.dayChange.reordered": "Order changed",
   // Story 14.1: "+" moved a bucket-list idea onto the day.
   "trips.dayChange.scheduled": "\"{title}\" scheduled",
+  // Story 14.2: *Park* moved the activity off the day into the bucket list.
+  "trips.dayChange.parked": "\"{title}\" parked",
   // Story 14.1: an activity's duration as the bucket-list row's meta line shows it.
   "trips.duration.hours": "{hours} h",
   "trips.duration.minutes": "{minutes} min",

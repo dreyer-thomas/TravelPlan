@@ -47,6 +47,11 @@
  * row copy that a create used to carry (`consumedBucketListItem`) is gone with the table: there is
  * nothing to recreate, because nothing was consumed. Additive otherwise, so the version stays 3; a
  * receipt that still carries the old field is refused by the schema.
+ *
+ * Story 14.2 adds `parked`, the reverse: *Parken* took the activity off the day (same row, `tripDayId`
+ * null, FLEXIBLE, no times) and the day was recomputed around the gap. `previous` holds the schedule
+ * columns it had on the day, which undo writes back with its old stamp; everything attached stayed on
+ * the row, so there is nothing else to restore. Additive, so the version stays 3.
  */
 
 import { formatMessage } from "@/i18n";
@@ -159,6 +164,25 @@ export type DayChangeEdited<T extends Date | string = Date> =
    * `previousUpdatedAt` the stamp it had parked, which undo writes back.
    */
   | { kind: "scheduled"; itemId: string; updatedAt: T; previousUpdatedAt: T }
+  /**
+   * Story 14.2. An activity moved off the day into the bucket list. `updatedAt` is its post-park stamp;
+   * `previous` is where and how it was planned, which undo writes back (the receipt's `tripDayId` is
+   * that day too).
+   */
+  | {
+      kind: "parked";
+      itemId: string;
+      updatedAt: T;
+      previous: {
+        tripDayId: string;
+        scheduleMode: DayChangeScheduleMode;
+        durationMinutes: number;
+        sortOrder: number;
+        fromTime: string | null;
+        toTime: string | null;
+        updatedAt: T;
+      };
+    }
   /** Story 12.4. Everything one apply of picked suggestions created; `updatedAt` is each row's post-write stamp. */
   | {
       kind: "suggestionsApplied";
@@ -280,6 +304,13 @@ const mapReceipt = <A extends Date | string, B extends Date | string>(
         previousUpdatedAt: convert(receipt.edited.previousUpdatedAt),
       };
       break;
+    case "parked":
+      edited = {
+        ...receipt.edited,
+        updatedAt: convert(receipt.edited.updatedAt),
+        previous: { ...receipt.edited.previous, updatedAt: convert(receipt.edited.previous.updatedAt) },
+      };
+      break;
     case "suggestionsApplied":
       edited = {
         kind: "suggestionsApplied",
@@ -328,10 +359,12 @@ const movedTimes = <T extends Date | string>(row: MovedItemRow<T>) =>
  * row only renumbered is not a side effect anyone sees; it is still in `movedItems` for undo.
  * Story 14.1: scheduling an idea always has one: it left the bucket list, and its notice is the only
  * way to take that back, even when nothing on the day moved.
+ * Story 14.2: so does parking one, for the same reason in the other direction.
  */
 export const receiptHasSideEffects = <T extends Date | string>(receipt: DayChangeReceipt<T>): boolean =>
   receipt.edited.kind === "reordered" ||
   receipt.edited.kind === "scheduled" ||
+  receipt.edited.kind === "parked" ||
   receipt.edited.kind === "suggestionsApplied" ||
   receipt.removedTravelSegments.length > 0 ||
   receipt.movedItems.some(movedTimes) ||
@@ -362,19 +395,21 @@ const summarizeSuggestionsApplied = (itemCount: number, legCount: number, t: (ke
  * check-out change that pushed the next day); the moved part then names that day.
  *
  * Story 14.1: a `scheduled` receipt leads with „{title}" eingeplant. The receipt carries no title, so
- * the caller passes it as `scheduledTitle`, as it passes `otherDayIndex`.
+ * the caller passes it as `itemTitle`, as it passes `otherDayIndex`.
+ *
+ * Story 14.2: a `parked` receipt leads with „{title}" geparkt, from the same `itemTitle`.
  */
 export const summarizeDayChangeReceipt = <T extends Date | string>(
   receipt: DayChangeReceipt<T>,
   t: (key: string) => string,
-  options: { otherDayIndex?: number; scheduledTitle?: string | null } = {},
+  options: { otherDayIndex?: number; itemTitle?: string | null } = {},
 ): string => {
   const parts: string[] = [];
   const { edited } = receipt;
-  if (edited.kind === "scheduled") {
+  if (edited.kind === "scheduled" || edited.kind === "parked") {
     parts.push(
-      formatMessage(t("trips.dayChange.scheduled"), {
-        title: options.scheduledTitle?.trim() || t("trips.plan.untitledActivity"),
+      formatMessage(t(edited.kind === "scheduled" ? "trips.dayChange.scheduled" : "trips.dayChange.parked"), {
+        title: options.itemTitle?.trim() || t("trips.plan.untitledActivity"),
       }),
     );
   }

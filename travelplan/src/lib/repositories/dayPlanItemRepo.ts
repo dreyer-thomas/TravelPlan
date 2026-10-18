@@ -116,6 +116,13 @@ export type ParkedDayPlanItemScheduleResult =
   | DayPlanPushRefusal
   | { status: "scheduled"; item: DayPlanItemDetail; receipt: DayChangeReceipt };
 
+/** Story 14.2. *Parken*: the activity itself leaves the day for the bucket list. */
+export type DayPlanItemParkResult =
+  | { status: "not_found" }
+  | { status: "missing" }
+  | DayPlanPushRefusal
+  | { status: "parked"; item: DayPlanItemDetail; receipt: DayChangeReceipt };
+
 type DayPlanItemMutationParams = {
   userId: string;
   tripId: string;
@@ -797,6 +804,115 @@ export const scheduleParkedDayPlanItemForTripDay = async (params: {
       },
     });
     return { status: "scheduled", item: toDetail({ ...item, payments: toPaymentDetails(item.payments) }), receipt };
+  });
+};
+
+/**
+ * Story 14.2 (FR48). *Parken*: the reverse of `scheduleParkedDayPlanItemForTripDay`. The activity
+ * **itself** leaves the day - same row, same id - so its pictures, documents, payments, link, text and
+ * cost stay attached without a copy. Only `tripDayId` and the schedule columns change: the row becomes
+ * FLEXIBLE with no times and `sortOrder` 0 (the parked CHECK), and keeps its duration, which for a FIXED
+ * row is `toTime - fromTime` as `scheduleFieldsOf` computes it, so a drifted stored value parks with what
+ * the user saw. No clamp: a migrated fixed row may last one minute.
+ *
+ * Delete's order with the delete replaced by an update: refusals are decided before the first write
+ * (`not_found` for a day the user may not write, `missing` for an activity no longer on this day, a new
+ * overflow past 23:59 as `past_midnight`), then the park, the legs that reference it, and the recompute
+ * with 11.1's sweep, in one transaction. Unlike delete the park is conditional on the `updatedAt` read
+ * here, because the receipt names the stamp it wrote; a miss is `DayPlanChangedError` (409
+ * `day_plan_changed`).
+ */
+export const parkDayPlanItemForTripDay = async (params: {
+  userId: string;
+  tripId: string;
+  tripDayId: string;
+  itemId: string;
+}): Promise<DayPlanItemParkResult> => {
+  const { userId, tripId, tripDayId, itemId } = params;
+  const tripDay = await findTripDayForTripWriter(userId, tripId, tripDayId);
+  if (!tripDay) {
+    return { status: "not_found" };
+  }
+
+  return prisma.$transaction(async (tx): Promise<DayPlanItemParkResult> => {
+    const state = await readScheduleInputInTransaction(tx, tripId, tripDayId);
+    if (!state || !state.rows.some((row) => row.id === itemId)) return { status: "missing" };
+    const previous = await tx.dayPlanItem.findFirst({
+      where: { id: itemId, tripDayId },
+      select: {
+        id: true,
+        scheduleMode: true,
+        durationMinutes: true,
+        sortOrder: true,
+        fromTime: true,
+        toTime: true,
+        updatedAt: true,
+      },
+    });
+    if (!previous) return { status: "missing" };
+    const plan = planDaySchedule(state, { kind: "remove", itemId });
+    if (plan.status === "past_midnight") return plan;
+
+    const start = timeToMinutes(previous.fromTime);
+    const end = timeToMinutes(previous.toTime);
+    const durationMinutes =
+      previous.scheduleMode === "FIXED" && start !== null && end !== null && end > start
+        ? end - start
+        : previous.durationMinutes;
+
+    const now = new Date();
+    const drawnBefore = await readDrawnSegmentKeysInTransaction(tx, tripId, tripDayId);
+    const parked = await tx.dayPlanItem.updateMany({
+      where: { id: itemId, tripDayId, updatedAt: previous.updatedAt },
+      data: {
+        tripDayId: null,
+        scheduleMode: "FLEXIBLE",
+        durationMinutes,
+        fromTime: null,
+        toTime: null,
+        sortOrder: 0,
+        updatedAt: now,
+      },
+    });
+    if (parked.count !== 1) throw new DayPlanChangedError();
+    const referencing = await removeTravelSegmentsReferencingItemInTransaction(
+      tx,
+      [tripDayId],
+      "DAY_PLAN_ITEM",
+      itemId,
+    );
+
+    const { receipt } = await finishActivityWriteInTransaction(
+      tx,
+      { tripId, tripDayId, drawnBefore, now },
+      plan,
+      {
+        kind: "parked",
+        itemId,
+        updatedAt: now,
+        previous: {
+          tripDayId,
+          scheduleMode: previous.scheduleMode,
+          durationMinutes: previous.durationMinutes,
+          sortOrder: previous.sortOrder,
+          fromTime: previous.fromTime,
+          toTime: previous.toTime,
+          updatedAt: previous.updatedAt,
+        },
+      },
+      { removedTravelSegments: referencing },
+    );
+
+    const item = await tx.dayPlanItem.findUniqueOrThrow({
+      where: { id: itemId },
+      include: {
+        payments: {
+          select: { amountCents: true, dueDate: true, amountOriginal: true },
+          orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+        },
+      },
+    });
+    return { status: "parked", item: toDetail({ ...item, payments: toPaymentDetails(item.payments) }), receipt };
   });
 };
 

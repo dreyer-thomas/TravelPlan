@@ -3,8 +3,9 @@
 import { Alert, Box, IconButton, Typography, useTheme } from "@mui/material";
 import { useI18n } from "@/i18n/provider";
 import BucketItemThumbnail from "@/components/features/trips/BucketItemThumbnail";
-import { PlusIcon } from "@/components/features/trips/TripIcons";
+import { PencilIcon, PlusIcon } from "@/components/features/trips/TripIcons";
 import { bucketItemMetaLine } from "@/lib/trips/activityDuration";
+import { BUCKET_ROW_ACTION_CLASS, bucketRowActionRevealSx } from "@/components/features/trips/bucketRowActionReveal";
 
 /** Story 14.1. A parked activity as the row shows it (DESIGN.md `bucket-item`). */
 type BucketListItem = {
@@ -23,12 +24,15 @@ type TripDayBucketListPanelProps<T extends BucketListItem> = {
   onSchedule: (item: T) => void;
   /** Story 14.1 (Tommy's Q3 ruling): *Idee hinzufügen* here too; the header "+" opens the parked dialog. */
   onAdd?: () => void;
+  /** Story 14.2 (Tommy's request): a row's pencil opens the idea in the parked dialog, as on the overview. */
+  onEdit?: (item: T) => void;
 };
 
 /**
  * Day Detail's bucket list. A row's "+" schedules that idea onto the day being viewed; the header's "+"
  * adds a new idea to the list (Story 14.1, Q3: Tommy wanted adding here as well as on the overview).
- * Editing an idea stays on the overview.
+ * Story 14.2: a row's pencil edits the idea here too (Tommy's request once *Parken* put ideas here);
+ * deleting one stays on the overview, with its confirmation.
  */
 export default function TripDayBucketListPanel<T extends BucketListItem>({
   items,
@@ -36,6 +40,7 @@ export default function TripDayBucketListPanel<T extends BucketListItem>({
   error,
   onSchedule,
   onAdd,
+  onEdit,
 }: TripDayBucketListPanelProps<T>) {
   const { t } = useI18n();
   const theme = useTheme();
@@ -123,6 +128,8 @@ export default function TripDayBucketListPanel<T extends BucketListItem>({
                   padding: "9px 0",
                   borderBottom: "1px solid",
                   borderColor: tokens.border,
+                  // Story 14.2 (Tommy): the row's pencil and "+" appear on hover, like an activity's glyph.
+                  ...bucketRowActionRevealSx(theme),
                 }}
               >
                 <BucketItemThumbnail imageUrl={item.firstImageUrl} />
@@ -134,11 +141,24 @@ export default function TripDayBucketListPanel<T extends BucketListItem>({
                     {metaLine}
                   </Typography>
                 </Box>
+                {onEdit ? (
+                  // The overview row's edit control: a 44px hit area beside the "+".
+                  <IconButton
+                    aria-label={t("trips.bucketList.editAction")}
+                    title={t("trips.bucketList.editAction")}
+                    className={BUCKET_ROW_ACTION_CLASS}
+                    onClick={() => onEdit(item)}
+                    sx={{ flexShrink: 0, width: 44, height: 44, padding: 0, color: tokens.inkSoft }}
+                  >
+                    <PencilIcon />
+                  </IconButton>
+                ) : null}
                 {/* The visible circle stays the mockup's 24px, but the hit area is padded out to the
                     44px floor - EXPERIENCE.md names this affordance specifically as one that was
                     previously undersized. */}
                 <IconButton
                   aria-label={t("trips.bucketList.addToDayAction")}
+                  className={BUCKET_ROW_ACTION_CLASS}
                   onClick={() => onSchedule(item)}
                   sx={addCircleSx}
                 >

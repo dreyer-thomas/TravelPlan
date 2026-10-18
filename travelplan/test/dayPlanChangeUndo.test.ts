@@ -6,6 +6,7 @@ import { POST as UNDO_POST } from "@/app/api/trips/[id]/day-plan-changes/undo/ro
 import { prisma } from "@/lib/db/prisma";
 import { createSessionJwt } from "@/lib/auth/jwt";
 import {
+  parkDayPlanItemForTripDay,
   scheduleParkedDayPlanItemForTripDay,
   deleteDayPlanItemForTripDay,
   reorderDayPlanItemForTripDay,
@@ -461,6 +462,159 @@ describe("undo of a scheduled bucket-list idea (Story 14.1 AC8)", () => {
         },
       }),
     ).toEqual({ status: "invalid", reason: "edited item listed as moved" });
+  });
+});
+
+describe("undo of a parked activity (Story 14.2 AC4)", () => {
+  beforeEach(resetDatabase);
+
+  const park = async (userId: string, tripId: string, tripDayId: string, itemId: string) => {
+    const result = await parkDayPlanItemForTripDay({ userId, tripId, tripDayId, itemId });
+    expect(result.status).toBe("parked");
+    if (result.status !== "parked") throw new Error("not parked");
+    return result;
+  };
+
+  const expectStale = async (userId: string, tripId: string, receipt: Parameters<typeof undoDayPlanChangeForTrip>[0]["receipt"]) => {
+    const before = await databaseState();
+    expect(await undoDayPlanChangeForTrip({ userId, tripId, receipt })).toEqual({ status: "stale" });
+    expect(await databaseState()).toEqual(before);
+  };
+
+  it("restores the whole database after a park that moved two rows and removed a leg", async () => {
+    const { user, trip, day, a, c } = await seedFlexibleDay("undo-parked@example.com");
+    const tonight = await prisma.accommodation.create({
+      data: { tripDayId: day.id, name: "Tonight", status: "BOOKED", createdAt: PAST, updatedAt: PAST },
+    });
+    await prisma.travelSegment.create({
+      data: {
+        tripDayId: day.id,
+        fromItemType: "DAY_PLAN_ITEM",
+        fromItemId: c.id,
+        toItemType: "ACCOMMODATION",
+        toItemId: tonight.id,
+        transportType: "WALKING",
+        durationMinutes: 10,
+        createdAt: PAST,
+        updatedAt: PAST,
+      },
+    });
+    await addPayments(a.id);
+    const before = await databaseState();
+
+    const parked = await park(user.id, trip.id, day.id, a.id);
+    expect(parked.receipt.movedItems).toHaveLength(2);
+    expect(parked.receipt.removedTravelSegments).toHaveLength(1);
+
+    expect(await undoDayPlanChangeForTrip({ userId: user.id, tripId: trip.id, receipt: parked.receipt })).toEqual({ status: "undone" });
+    expect(await databaseState()).toEqual(before);
+  });
+
+  it("restores a FIXED activity exactly: mode, times, duration, order and both legs", async () => {
+    const { user, trip, day, b } = await seedDay("undo-parked-fixed@example.com");
+    const before = await databaseState();
+
+    const parked = await park(user.id, trip.id, day.id, b.id);
+    expect(parked.receipt.removedTravelSegments).toHaveLength(2);
+
+    expect(await undoDayPlanChangeForTrip({ userId: user.id, tripId: trip.id, receipt: parked.receipt })).toEqual({ status: "undone" });
+    expect(await databaseState()).toEqual(before);
+  });
+
+  it("refuses as stale after the parked activity was edited in the bucket list", async () => {
+    const { user, trip, day, b } = await seedDay("undo-parked-edited@example.com");
+    const parked = await park(user.id, trip.id, day.id, b.id);
+    await tick();
+    await prisma.dayPlanItem.update({ where: { id: b.id }, data: { title: "B, renamed", updatedAt: new Date() } });
+
+    await expectStale(user.id, trip.id, parked.receipt);
+  });
+
+  it("refuses as stale after it was scheduled onto another day", async () => {
+    const { user, trip, day, b } = await seedDay("undo-parked-scheduled@example.com");
+    const otherDay = await prisma.tripDay.create({
+      data: { tripId: trip.id, date: new Date("2026-11-06T00:00:00.000Z"), dayIndex: 2 },
+    });
+    const parked = await park(user.id, trip.id, day.id, b.id);
+    await tick();
+    const scheduled = await scheduleParkedDayPlanItemForTripDay({ userId: user.id, tripId: trip.id, tripDayId: otherDay.id, itemId: b.id });
+    expect(scheduled.status).toBe("scheduled");
+
+    await expectStale(user.id, trip.id, parked.receipt);
+  });
+
+  it("refuses as stale when a leg was drawn across the gap it left", async () => {
+    const { user, trip, day, a, b, c } = await seedDay("undo-parked-across@example.com");
+    const parked = await park(user.id, trip.id, day.id, b.id);
+    await createLeg(day.id, a.id, c.id);
+
+    await expectStale(user.id, trip.id, parked.receipt);
+  });
+
+  it("is not stale after a picture was added while parked: it comes back to the day with the activity", async () => {
+    const { user, trip, day, b } = await seedDay("undo-parked-image@example.com");
+    const parked = await park(user.id, trip.id, day.id, b.id);
+    const added = await prisma.dayPlanItemImage.create({
+      data: { dayPlanItemId: b.id, imageUrl: `/uploads/trips/${trip.id}/parked/day-plan-items/${b.id}/new.webp`, sortOrder: 1 },
+    });
+
+    expect(await undoDayPlanChangeForTrip({ userId: user.id, tripId: trip.id, receipt: parked.receipt })).toEqual({ status: "undone" });
+    expect(await prisma.dayPlanItem.findUniqueOrThrow({ where: { id: b.id } })).toMatchObject({
+      tripDayId: day.id,
+      scheduleMode: "FIXED",
+      fromTime: "12:00",
+      toTime: "13:00",
+      updatedAt: PAST,
+    });
+    expect(await prisma.dayPlanItemImage.findUniqueOrThrow({ where: { id: added.id } })).toMatchObject({ dayPlanItemId: b.id });
+  });
+
+  it("refuses through the route, with 400 and nothing written, a receipt naming another day, listing the item as moved, or carrying an unknown field", async () => {
+    const { user, trip, day, b, c } = await seedDay("undo-parked-forged@example.com");
+    const otherDay = await prisma.tripDay.create({
+      data: { tripId: trip.id, date: new Date("2026-11-06T00:00:00.000Z"), dayIndex: 2 },
+    });
+    const session = await createSessionJwt({ sub: user.id, role: user.role });
+    const parked = await park(user.id, trip.id, day.id, b.id);
+    const wire = toDayChangeReceiptWire(parked.receipt);
+    if (wire.edited.kind !== "parked") throw new Error("setup");
+    const sign = (receipt: DayChangeReceiptWire) => signDayChangeReceipt(receipt, { tripId: trip.id, userId: user.id });
+
+    const forgeries: DayChangeReceiptWire[] = [
+      { ...wire, edited: { ...wire.edited, previous: { ...wire.edited.previous, tripDayId: otherDay.id } } },
+      {
+        ...wire,
+        movedItems: [
+          {
+            itemId: b.id,
+            previousFromTime: "12:00",
+            previousToTime: "13:00",
+            previousSortOrder: 1,
+            fromTime: null,
+            toTime: null,
+            previousUpdatedAt: PAST.toISOString(),
+            updatedAt: wire.edited.updatedAt,
+          },
+        ],
+      },
+      // AC5: strict on the wire, `edited` and its `previous` alike (review).
+      { ...wire, edited: { ...wire.edited, title: "Wasserfall" } } as unknown as DayChangeReceiptWire,
+      {
+        ...wire,
+        edited: { ...wire.edited, previous: { ...wire.edited.previous, linkUrl: null } },
+      } as unknown as DayChangeReceiptWire,
+    ];
+    void c;
+    for (const forged of forgeries) {
+      const before = await databaseState();
+      const result = await postUndo(trip.id, session, sign(forged));
+      expect(result.status).toBe(400);
+      expect(result.body.error?.code).toBe("validation_error");
+      expect(await databaseState()).toEqual(before);
+    }
+
+    // The genuine receipt still works through the route.
+    expect((await postUndo(trip.id, session, sign(wire))).status).toBe(200);
   });
 });
 

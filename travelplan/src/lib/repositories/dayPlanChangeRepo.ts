@@ -68,6 +68,13 @@ import {
  * it. Phase 2 parks it again (no day, FLEXIBLE, no times, `sortOrder` 0, its previous `updatedAt`),
  * renumbers the day, and restores the moved rows as for every kind.
  *
+ * Story 14.2 adds `parked`, the mirror: *Parken* took the activity off the day. Phase 1 refuses when it
+ * is no longer parked on this trip with the stamp the park gave it (an edit in the bucket dialog, or "+"
+ * onto any day); new pictures or documents do not refuse, they come back to the day with it. Phase 2
+ * writes its previous day, schedule columns and `updatedAt` back, then the moved rows and the removed
+ * legs as for every kind. No renumber: `movedItems` carries every renumbered row's previous `sortOrder`
+ * and the activity gets its own back, so the order is restored exactly.
+ *
  * Any failure throws `UndoStaleError`, which rolls the transaction back and maps to `stale`. A `P2002`
  * while recreating a row maps there too: someone drew a new leg for the same pair, or reused the id.
  *
@@ -130,6 +137,8 @@ const findInvalidity = (receipt: DayChangeReceipt, tripId: string): string | nul
     legIds.add(leg.id);
   }
 
+  if (edited.kind === "parked" && edited.previous.tripDayId !== tripDayId) return "item on another day";
+
   if (edited.kind === "updated" || edited.kind === "deleted") {
     const previous = edited.previous;
     if (previous.tripDayId !== tripDayId) return "item on another day";
@@ -156,7 +165,10 @@ const findInvalidity = (receipt: DayChangeReceipt, tripId: string): string | nul
   const editedId =
     edited.kind === "deleted"
       ? edited.previous.id
-      : edited.kind === "created" || edited.kind === "updated" || edited.kind === "scheduled"
+      : edited.kind === "created" ||
+          edited.kind === "updated" ||
+          edited.kind === "scheduled" ||
+          edited.kind === "parked"
         ? edited.itemId
         : null;
   for (const moved of receipt.movedItems) {
@@ -193,6 +205,7 @@ const findInvalidity = (receipt: DayChangeReceipt, tripId: string): string | nul
 
   // Story 14.1: a schedule appends, which can un-draw the leg from the day's last activity to tonight's
   // stay; like a create's, that leg is in `removedTravelSegments` and phase 2 recreates it.
+  // Story 14.2: a park removes the legs naming the activity (to either stay too); phase 2 recreates them.
 
   return null;
 };
@@ -370,6 +383,16 @@ const undoInTransaction = async (
       if (legs > 0) throw new UndoStaleError("scheduled item gained a leg");
       break;
     }
+    case "parked": {
+      // Still parked on this trip with the park's stamp. Media added since stay attached and come back
+      // with it, so they do not refuse; a parked row cannot have legs (a leg needs a day).
+      const item = await tx.dayPlanItem.findFirst({
+        where: { id: edited.itemId, tripId, tripDayId: null },
+        select: { updatedAt: true },
+      });
+      if (!item || !sameInstant(item.updatedAt, edited.updatedAt)) throw new UndoStaleError("parked item changed");
+      break;
+    }
     default: {
       const unhandled: never = edited;
       throw new Error(`Unhandled receipt kind: ${String(unhandled)}`);
@@ -463,6 +486,25 @@ const undoInTransaction = async (
       });
       if (parked.count !== 1) throw new UndoStaleError("scheduled item changed");
       await renumberDayInTransaction(tx, tripDayId);
+      break;
+    }
+    case "parked": {
+      // Back onto its day exactly as it was planned, conditional on the stamp just checked. No renumber:
+      // the moved rows below get their previous `sortOrder` back, which restores the order exactly.
+      const { previous } = edited;
+      const restored = await tx.dayPlanItem.updateMany({
+        where: { id: edited.itemId, tripId, tripDayId: null, updatedAt: edited.updatedAt },
+        data: {
+          tripDayId: previous.tripDayId,
+          scheduleMode: previous.scheduleMode,
+          durationMinutes: previous.durationMinutes,
+          sortOrder: previous.sortOrder,
+          fromTime: previous.fromTime,
+          toTime: previous.toTime,
+          updatedAt: previous.updatedAt,
+        },
+      });
+      if (restored.count !== 1) throw new UndoStaleError("parked item changed");
       break;
     }
     case "suggestionsApplied": {

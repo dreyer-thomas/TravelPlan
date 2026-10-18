@@ -263,6 +263,16 @@ export const dayPlanItemScheduleSchema = z
 
 export type DayPlanItemScheduleInput = z.infer<typeof dayPlanItemScheduleSchema>;
 
+/** Story 14.2. *Parken*: which activity, off which day (the park is conditional on it still being there). */
+export const dayPlanItemParkSchema = z
+  .object({
+    itemId: z.string().trim().min(1, "Day plan item is required"),
+    tripDayId: z.string().trim().min(1, "Trip day is required"),
+  })
+  .strict();
+
+export type DayPlanItemParkInput = z.infer<typeof dayPlanItemParkSchema>;
+
 /**
  * Story 6.23. Deliberately its own schema rather than a third `operation` on
  * `dayActivityTransferSchema` below: that schema's two operations are whole-day and its "move"

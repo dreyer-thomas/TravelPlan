@@ -30,33 +30,12 @@ import {
   TrashIcon,
 } from "@/components/features/trips/TripIcons";
 import { bucketItemMetaLine } from "@/lib/trips/activityDuration";
+import { BUCKET_ROW_ACTION_CLASS, bucketRowActionRevealSx } from "@/components/features/trips/bucketRowActionReveal";
+import { toBucketDialogItem as toDialogItem, type BucketListItem } from "@/lib/trips/bucketListItem";
 
 type ApiEnvelope<T> = {
   data: T | null;
   error: { code: string; message: string; details?: unknown } | null;
-};
-
-/**
- * Story 14.1. A parked activity - an activity with no day yet - as `GET bucket-list-items` returns it:
- * everything the activity dialog needs to open on it, plus the row's first picture.
- */
-type BucketListItem = {
-  id: string;
-  tripId: string;
-  title: string;
-  contentJson: string;
-  durationMinutes: number;
-  costCents: number | null;
-  costOriginalAmount: number | null;
-  costCurrency: string | null;
-  costRate: number | null;
-  costRateDate: string | null;
-  payments: { amountCents: number; dueDate: string; amountOriginal?: number }[];
-  linkUrl: string | null;
-  location: { lat: number; lng: number; label: string | null } | null;
-  firstImageUrl: string | null;
-  createdAt: string;
-  updatedAt: string;
 };
 
 type TripBucketListPanelProps = {
@@ -64,27 +43,6 @@ type TripBucketListPanelProps = {
 };
 
 type IdeaDialog = { mode: "add" } | { mode: "edit"; item: BucketListItem };
-
-/** The row as the activity dialog's `item`: parked, so FLEXIBLE with no day and no times. */
-const toDialogItem = (item: BucketListItem) => ({
-  id: item.id,
-  tripDayId: null,
-  title: item.title,
-  fromTime: null,
-  toTime: null,
-  contentJson: item.contentJson,
-  costCents: item.costCents,
-  costOriginalAmount: item.costOriginalAmount,
-  costCurrency: item.costCurrency,
-  costRate: item.costRate,
-  costRateDate: item.costRateDate,
-  payments: item.payments,
-  linkUrl: item.linkUrl,
-  location: item.location,
-  createdAt: item.createdAt,
-  scheduleMode: "FLEXIBLE" as const,
-  durationMinutes: item.durationMinutes,
-});
 
 /*
  * Expanded-height cap for the row list (Story 7.12 AC2).
@@ -428,6 +386,8 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
                       padding: `${BUCKET_ROW_PADDING_Y_PX}px 0`,
                       borderBottom: "1px solid",
                       borderColor: tokens.border,
+                      // Story 14.2 (Tommy): edit and delete appear on hover, like an activity's glyph.
+                      ...bucketRowActionRevealSx(theme),
                     }}
                   >
                     <BucketItemThumbnail imageUrl={item.firstImageUrl} />
@@ -448,6 +408,7 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
                         aria-label={t("trips.bucketList.editAction")}
                         title={t("trips.bucketList.editAction")}
                         onClick={() => setDialog({ mode: "edit", item })}
+                        className={BUCKET_ROW_ACTION_CLASS}
                         sx={rowActionButtonSx}
                       >
                         <PencilIcon />
@@ -459,6 +420,7 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
                           setDeleteError(null);
                           setDeleteTarget(item);
                         }}
+                        className={BUCKET_ROW_ACTION_CLASS}
                         sx={rowActionButtonSx}
                       >
                         <TrashIcon />

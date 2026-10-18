@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TripDayView from "@/components/features/trips/TripDayView";
@@ -15,10 +15,16 @@ import { renderWithProviders } from "./helpers/renderWithProviders";
  * Story 11.3 AC4, AC9, AC13 - the day view's half of *Nach oben* / *Nach unten*: which cards offer the
  * overflow trigger, what its menu holds, that it closes before the request, and what the day shows after
  * a success or a refusal. The harness is `tripDayViewDayChange.test.tsx`'s.
+ *
+ * Story 14.2 adds *Parken* as the menu's last item, so every card offers the trigger to a writer.
  */
 
+// Story 14.2 review: the bucket idea dialog's props, so a test can save it.
+const ideaDialogMock = vi.hoisted(() => ({ props: null as { onSaved: () => void } | null }));
+
 vi.mock("@/components/features/trips/TripDayPlanDialog", () => ({
-  default: function TripDayPlanDialogStub(props: { open: boolean }) {
+  default: function TripDayPlanDialogStub(props: { open: boolean; placement?: string; onSaved: () => void }) {
+    if (props.open && props.placement === "parked") ideaDialogMock.props = props;
     return props.open ? <div data-testid="plan-dialog" /> : null;
   },
 }));
@@ -139,7 +145,64 @@ const reorderReceipt = (): SignedDayChangeReceiptWire => ({
   movedItems: [moved("item-2"), moved("item-1")],
 });
 
-type Outcome = { status: number; body: unknown };
+/** Story 14.2. A park that moved `moved` rows earlier and removed `legs` legs. */
+const parkReceipt = (itemId: string, movedIds: string[] = [], legs = 0): SignedDayChangeReceiptWire => ({
+  signature: "b".repeat(64),
+  version: 3,
+  tripDayId: "day-1",
+  edited: {
+    kind: "parked",
+    itemId,
+    updatedAt: "2026-12-01T08:00:00.000Z",
+    previous: {
+      tripDayId: "day-1",
+      scheduleMode: "FLEXIBLE",
+      durationMinutes: 60,
+      sortOrder: 1,
+      fromTime: "13:00",
+      toTime: "14:00",
+      updatedAt: "2026-11-01T10:00:00.000Z",
+    },
+  },
+  removedTravelSegments: Array.from({ length: legs }, (_, index) => ({
+    id: `leg-${index}`,
+    tripDayId: "day-1",
+    fromItemType: "DAY_PLAN_ITEM" as const,
+    fromItemId: "item-1",
+    toItemType: "DAY_PLAN_ITEM" as const,
+    toItemId: itemId,
+    transportType: "WALKING" as const,
+    durationMinutes: 10,
+    distanceKm: null,
+    linkUrl: null,
+    createdAt: "2026-11-01T10:00:00.000Z",
+    updatedAt: "2026-11-01T10:00:00.000Z",
+  })),
+  movedItems: movedIds.map(moved),
+});
+
+/** `unreadable`: the answer arrives but its body is not JSON (a proxy's HTML 502). */
+type Outcome = { status: number; body: unknown; unreadable?: boolean };
+
+/** Story 14.2 review. A bucket row, as the bucket-list route returns it. */
+const bucketIdea = (id: string, title: string) => ({
+  id,
+  tripId: "trip-1",
+  title,
+  contentJson: '{"type":"doc","content":[]}',
+  durationMinutes: 60,
+  costCents: null,
+  costOriginalAmount: null,
+  costCurrency: null,
+  costRate: null,
+  costRateDate: null,
+  payments: [],
+  linkUrl: null,
+  location: null,
+  firstImageUrl: null,
+  createdAt: "2026-10-01T00:00:00.000Z",
+  updatedAt: "2026-10-02T00:00:00.000Z",
+});
 
 const stubDay = (
   options: {
@@ -148,16 +211,30 @@ const stubDay = (
     reorder?: () => Outcome;
     /** Holds the reorder response until the returned promise resolves. */
     reorderGate?: () => Promise<void>;
+    /** Story 14.2. The park answer; by default 200 with `parkReceipt()`. */
+    park?: () => Outcome;
+    parkGate?: () => Promise<void>;
+    /** Story 14.2. What the day holds after a successful park (the activity has left it). */
+    afterPark?: (items: PlanItemFixture[], itemId: string) => PlanItemFixture[];
+    undo?: () => Outcome;
+    /** Story 14.2 review. What the bucket-list route returns; empty by default. */
+    bucketItems?: () => unknown[];
   } = {},
 ) => {
   const state = { items: options.items ?? fullDay() };
   const reorderRequests: { body: unknown; csrf: string | null }[] = [];
+  const parkRequests: { body: { itemId: string; tripDayId: string }; csrf: string | null }[] = [];
+  const undoRequests: unknown[] = [];
   let detailRequests = 0;
+  let bucketRequests = 0;
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = requestUrl(input);
     const method = init?.method ?? "GET";
 
-    if (url.includes("/bucket-list-items")) return mockFetchResponse({ data: { items: [] }, error: null });
+    if (url.includes("/bucket-list-items")) {
+      bucketRequests += 1;
+      return mockFetchResponse({ data: { items: options.bucketItems?.() ?? [] }, error: null });
+    }
     if (url.includes("/api/auth/csrf")) return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
     if (url.includes("/images")) return mockFetchResponse({ data: { images: [] }, error: null });
     if (url.includes("/documents")) return mockFetchResponse({ data: { documents: [] }, error: null });
@@ -177,12 +254,43 @@ const stubDay = (
       return mockFetchResponse(outcome.body, { status: outcome.status });
     }
 
+    if (url.includes("/day-plan-items/park") && method === "POST") {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { itemId: string; tripDayId: string };
+      parkRequests.push({ body, csrf: new Headers(init?.headers).get("x-csrf-token") });
+      await options.parkGate?.();
+      const outcome = options.park?.() ?? { status: 200, body: { data: { receipt: parkReceipt(body.itemId) }, error: null } };
+      if (outcome.status === 200) {
+        state.items = (options.afterPark ?? ((items, id) => items.filter((entry) => entry.id !== id)))(state.items, body.itemId);
+      }
+      if (outcome.unreadable) {
+        return mockFetchResponse(undefined, {
+          status: outcome.status,
+          json: async () => {
+            throw new SyntaxError("Unexpected token '<'");
+          },
+        });
+      }
+      return mockFetchResponse(outcome.body, { status: outcome.status });
+    }
+    if (url.includes("/day-plan-changes/undo") && method === "POST") {
+      undoRequests.push(JSON.parse(String(init?.body ?? "{}")));
+      const outcome = options.undo?.() ?? { status: 200, body: { data: { undone: true }, error: null } };
+      return mockFetchResponse(outcome.body, { status: outcome.status });
+    }
+
     detailRequests += 1;
     return mockFetchResponse({ data: tripDetail(options.accessRole ?? "owner", state.items), error: null });
   });
 
   stubFetch(fetchMock);
-  return { state, reorderRequests, detailRequestCount: () => detailRequests };
+  return {
+    state,
+    reorderRequests,
+    parkRequests,
+    undoRequests,
+    detailRequestCount: () => detailRequests,
+    bucketRequestCount: () => bucketRequests,
+  };
 };
 
 const renderDay = async (language: "en" | "de" = "en") => {
@@ -213,41 +321,44 @@ describe("TripDayView activity overflow menu (Story 11.3)", () => {
     expect(screen.queryAllByTestId("day-plan-item-overflow")).toHaveLength(0);
   });
 
-  it("offers a trigger on every flexible activity with a neighbour, timed or not, never on a fixed one (13.1 §10)", async () => {
+  it("offers a trigger on every activity, a fixed one too, whose menu then holds only Park (Story 14.2 AC2)", async () => {
     stubDay();
     await renderDay();
 
-    expect(screen.getAllByTestId("day-plan-item-overflow")).toHaveLength(3);
-    expect(triggerFor("Museum")).toBeInTheDocument();
-    expect(triggerFor("Market")).toBeInTheDocument();
-    // 13.1 §10: a fixed activity's place follows from its time; the untimed Picnic is flexible and moves.
-    expect(triggerFor("Park")).not.toBeInTheDocument();
-    expect(triggerFor("Picnic")).toBeInTheDocument();
+    expect(screen.getAllByTestId("day-plan-item-overflow")).toHaveLength(4);
+    for (const title of ["Museum", "Market", "Park", "Picnic"]) expect(triggerFor(title)).toBeInTheDocument();
+    // 13.1 §10: a fixed activity's place follows from its time, so it cannot move - but it can be parked.
+    expect(menuItemNames(await openMenuFor("Park"))).toEqual([en["trips.plan.parkAction"]]);
   });
 
-  it("offers no trigger on a lone activity, whose menu would open empty", async () => {
+  it("offers a trigger on a lone activity too, whose menu holds only Park (Story 14.2 AC2)", async () => {
     stubDay({
       items: [planItem("item-1", "Museum", "09:00", "10:00", "2026-11-01T10:00:00.000Z")],
     });
     await renderDay();
 
-    expect(screen.queryAllByTestId("day-plan-item-overflow")).toHaveLength(0);
+    expect(screen.getAllByTestId("day-plan-item-overflow")).toHaveLength(1);
+    expect(menuItemNames(await openMenuFor("Museum"))).toEqual([en["trips.plan.parkAction"]]);
   });
 
   it("gives the first activity only Move down, the last only Move up, and a middle one both", async () => {
     stubDay();
     await renderDay();
 
-    expect(menuItemNames(await openMenuFor("Museum"))).toEqual([en["trips.plan.moveDown"]]);
+    expect(menuItemNames(await openMenuFor("Museum"))).toEqual([en["trips.plan.moveDown"], en["trips.plan.parkAction"]]);
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
 
     // 13.1 §10: the last activity is the flexible Picnic, and it may move up past the fixed Park.
-    expect(menuItemNames(await openMenuFor("Picnic"))).toEqual([en["trips.plan.moveUp"]]);
+    expect(menuItemNames(await openMenuFor("Picnic"))).toEqual([en["trips.plan.moveUp"], en["trips.plan.parkAction"]]);
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
 
-    expect(menuItemNames(await openMenuFor("Market"))).toEqual([en["trips.plan.moveUp"], en["trips.plan.moveDown"]]);
+    expect(menuItemNames(await openMenuFor("Market"))).toEqual([
+      en["trips.plan.moveUp"],
+      en["trips.plan.moveDown"],
+      en["trips.plan.parkAction"],
+    ]);
   });
 
   it("names its trigger after the activity and announces the menu it opens", async () => {
@@ -265,16 +376,16 @@ describe("TripDayView activity overflow menu (Story 11.3)", () => {
     expect(menu.closest("#day-plan-item-overflow-menu")).not.toBeNull();
     // The open menu is modal and hides the page from the accessibility tree, so the others by test id.
     const others = screen.getAllByTestId("day-plan-item-overflow").filter((button) => button !== trigger);
-    expect(others).toHaveLength(2);
+    expect(others).toHaveLength(3);
     for (const other of others) expect(other).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("names the items exactly Nach oben and Nach unten in German, and holds the 44px floor via &&", async () => {
+  it("names the items exactly Nach oben, Nach unten and Parken in German, and holds the 44px floor via &&", async () => {
     stubDay();
     await renderDay("de");
 
     const menu = await openMenuFor("Market", de);
-    expect(menuItemNames(menu)).toEqual(["Nach oben", "Nach unten"]);
+    expect(menuItemNames(menu)).toEqual(["Nach oben", "Nach unten", "Parken"]);
     for (const row of within(menu).getAllByRole("menuitem")) {
       expect(row).not.toHaveAttribute("aria-label");
       expect(emotionDoubledSelectorDeclarations(row, "min-height").base).toContain("44px");
@@ -408,5 +519,228 @@ describe("TripDayView activity overflow menu (Story 11.3)", () => {
 
     await userEvent.click(within(await openMenuFor("Market")).getByRole("menuitem", { name: en["trips.plan.moveUp"] }));
     expect(await screen.findByText(en["trips.plan.reorderError"])).toBeInTheDocument();
+  });
+});
+
+describe("TripDayView Parken (Story 14.2 AC1, AC3, AC4, AC8)", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    ideaDialogMock.props = null;
+  });
+
+  const parkFrom = async (title: string, dictionary: Record<string, string> = en) =>
+    userEvent.click(within(await openMenuFor(title, dictionary)).getByRole("menuitem", { name: dictionary["trips.plan.parkAction"] }));
+
+  it("closes the menu before the request, posts itemId and tripDayId with the CSRF header, and asks no confirmation", async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const confirm = vi.spyOn(window, "confirm");
+    const { parkRequests } = stubDay({ parkGate: () => gate });
+    await renderDay();
+
+    await parkFrom("Market");
+
+    await waitFor(() => expect(parkRequests).toHaveLength(1));
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(parkRequests).toEqual([{ body: { itemId: "item-2", tripDayId: "day-1" }, csrf: "csrf-token" }]);
+    expect(confirm).not.toHaveBeenCalled();
+    release();
+    await screen.findByTestId("action-notice");
+  });
+
+  it("sends one request when Park is chosen twice in quick succession", async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { parkRequests } = stubDay({ parkGate: () => gate, afterPark: (items) => items });
+    await renderDay();
+
+    await parkFrom("Market");
+    await waitFor(() => expect(parkRequests).toHaveLength(1));
+    await parkFrom("Market");
+
+    release();
+    await screen.findByTestId("action-notice");
+    expect(parkRequests).toHaveLength(1);
+  });
+
+  it("names the parked activity in the notice although the reloaded day no longer holds it, and reloads the bucket list", async () => {
+    const { bucketRequestCount } = stubDay();
+    await renderDay("de");
+    const bucketBefore = bucketRequestCount();
+
+    await parkFrom("Market", de);
+
+    const notice = await screen.findByTestId("action-notice");
+    await waitFor(() => expect(triggerFor("Market", de)).not.toBeInTheDocument());
+    expect(notice).toHaveTextContent("„Market“ geparkt");
+    expect(within(notice).getByRole("button", { name: de["trips.dayChange.undo"] })).toBeInTheDocument();
+    await waitFor(() => expect(bucketRequestCount()).toBeGreaterThan(bucketBefore));
+  });
+
+  it("appends the moved count and the removed legs to the notice", async () => {
+    stubDay({
+      park: () => ({ status: 200, body: { data: { receipt: parkReceipt("item-2", ["item-3", "item-4"], 1) }, error: null } }),
+    });
+    await renderDay("de");
+
+    await parkFrom("Market", de);
+
+    expect(await screen.findByTestId("action-notice")).toHaveTextContent("„Market“ geparkt · 2 Aktivitäten verschoben · 1 Fahrt entfernt");
+  });
+
+  it("posts the receipt on Rückgängig and reloads the bucket list after the undo", async () => {
+    const { undoRequests, bucketRequestCount } = stubDay();
+    await renderDay();
+
+    await parkFrom("Market");
+    const notice = await screen.findByTestId("action-notice");
+    await waitFor(() => expect(triggerFor("Market")).not.toBeInTheDocument());
+    const bucketBefore = bucketRequestCount();
+
+    await userEvent.click(within(notice).getByRole("button", { name: en["trips.dayChange.undo"] }));
+
+    await waitFor(() => expect(undoRequests).toEqual([{ receipt: parkReceipt("item-2") }]));
+    await waitFor(() => expect(bucketRequestCount()).toBeGreaterThan(bucketBefore));
+  });
+
+  it("says the day changed on day_plan_changed, after the reload, and reloads the bucket list", async () => {
+    const { detailRequestCount, bucketRequestCount } = stubDay({
+      park: () => ({ status: 409, body: { data: null, error: { code: "day_plan_changed", message: "x" } } }),
+    });
+    await renderDay();
+    const detailBefore = detailRequestCount();
+    const bucketBefore = bucketRequestCount();
+
+    await parkFrom("Market");
+
+    expect(await screen.findByText(en["trips.plan.parkStale"])).toBeInTheDocument();
+    expect(detailRequestCount()).toBeGreaterThan(detailBefore);
+    await waitFor(() => expect(bucketRequestCount()).toBeGreaterThan(bucketBefore));
+    expect(screen.queryByTestId("action-notice")).not.toBeInTheDocument();
+  });
+
+  it("reloads the day on a 404 and shows the park error, and the bucket list reloads too", async () => {
+    const { state, bucketRequestCount } = stubDay({
+      park: () => {
+        state.items = state.items.filter((entry) => entry.id !== "item-2");
+        return { status: 404, body: { data: null, error: { code: "not_found", message: "Day plan item not found" } } };
+      },
+    });
+    await renderDay();
+    const bucketBefore = bucketRequestCount();
+
+    await parkFrom("Market");
+
+    await waitFor(() => expect(triggerFor("Market")).not.toBeInTheDocument());
+    expect(await screen.findByRole("alert")).toHaveTextContent(en["trips.plan.parkError"]);
+    await waitFor(() => expect(bucketRequestCount()).toBeGreaterThan(bucketBefore));
+    expect(screen.queryByTestId("action-notice")).not.toBeInTheDocument();
+  });
+
+  it("shows the network message on a network failure and keeps the day rather than reloading it", async () => {
+    const { bucketRequestCount, detailRequestCount } = stubDay({
+      park: () => {
+        throw new TypeError("Failed to fetch");
+      },
+    });
+    await renderDay();
+    const bucketBefore = bucketRequestCount();
+    const detailBefore = detailRequestCount();
+
+    await parkFrom("Market");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(en["errors.network"]);
+    await waitFor(() => expect(bucketRequestCount()).toBeGreaterThan(bucketBefore));
+    expect(detailRequestCount()).toBe(detailBefore);
+    expect(triggerFor("Market")).toBeInTheDocument();
+  });
+
+  it("reloads the day when the answer arrives unreadable, so a park the server saved leaves the day (review)", async () => {
+    const { state, bucketRequestCount } = stubDay({
+      park: () => {
+        state.items = state.items.filter((entry) => entry.id !== "item-2");
+        return { status: 502, body: null, unreadable: true };
+      },
+    });
+    await renderDay();
+    const bucketBefore = bucketRequestCount();
+
+    await parkFrom("Market");
+
+    await waitFor(() => expect(triggerFor("Market")).not.toBeInTheDocument());
+    expect(await screen.findByRole("alert")).toHaveTextContent(en["errors.network"]);
+    await waitFor(() => expect(bucketRequestCount()).toBeGreaterThan(bucketBefore));
+    expect(screen.queryByTestId("action-notice")).not.toBeInTheDocument();
+  });
+
+  it("ends the park's undo window when the parked idea is then edited from its bucket row (review)", async () => {
+    let parked = false;
+    stubDay({
+      park: () => {
+        parked = true;
+        return { status: 200, body: { data: { receipt: parkReceipt("item-2") }, error: null } };
+      },
+      bucketItems: () => (parked ? [bucketIdea("item-2", "Market")] : []),
+    });
+    await renderDay();
+
+    await parkFrom("Market");
+    const notice = await screen.findByTestId("action-notice");
+    expect(within(notice).getByRole("button", { name: en["trips.dayChange.undo"] })).toBeInTheDocument();
+
+    const row = await screen.findByTestId("bucket-item");
+    await userEvent.click(within(row).getByRole("button", { name: en["trips.bucketList.editAction"] }));
+    await waitFor(() => expect(ideaDialogMock.props).not.toBeNull());
+    await act(async () => {
+      ideaDialogMock.props?.onSaved();
+    });
+
+    await waitFor(() => expect(screen.queryByTestId("action-notice")).not.toBeInTheDocument());
+  });
+
+  it("keeps the park's undo window when another idea is edited (review)", async () => {
+    let parked = false;
+    stubDay({
+      park: () => {
+        parked = true;
+        return { status: 200, body: { data: { receipt: parkReceipt("item-2") }, error: null } };
+      },
+      bucketItems: () => (parked ? [bucketIdea("idea-9", "Wasserfall"), bucketIdea("item-2", "Market")] : []),
+    });
+    await renderDay();
+
+    await parkFrom("Market");
+    await screen.findByTestId("action-notice");
+
+    const rows = await screen.findAllByTestId("bucket-item");
+    const other = rows.find((row) => row.textContent?.includes("Wasserfall"))!;
+    await userEvent.click(within(other).getByRole("button", { name: en["trips.bucketList.editAction"] }));
+    await waitFor(() => expect(ideaDialogMock.props).not.toBeNull());
+    await act(async () => {
+      ideaDialogMock.props?.onSaved();
+    });
+
+    const notice = await screen.findByTestId("action-notice");
+    expect(within(notice).getByRole("button", { name: en["trips.dayChange.undo"] })).toBeInTheDocument();
+  });
+
+  it("falls back to the park error for anything else", async () => {
+    stubDay({ park: () => ({ status: 500, body: { data: null, error: { code: "something_else", message: "x" } } }) });
+    await renderDay();
+
+    await parkFrom("Market");
+    expect(await screen.findByText(en["trips.plan.parkError"])).toBeInTheDocument();
+  });
+
+  it("offers a viewer no trigger, so no Park", async () => {
+    stubDay({ accessRole: "viewer" });
+    await renderDay();
+
+    expect(screen.queryAllByTestId("day-plan-item-overflow")).toHaveLength(0);
+    expect(screen.queryByRole("menuitem", { name: en["trips.plan.parkAction"] })).not.toBeInTheDocument();
   });
 });

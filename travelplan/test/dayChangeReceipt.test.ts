@@ -233,17 +233,98 @@ describe("dayChangeReceipt, scheduled (Story 14.1 AC8, AC9)", () => {
   });
 
   it("names the idea it scheduled, then what else changed, in both languages", () => {
-    expect(summarizeDayChangeReceipt(scheduled(), dictionary(de), { scheduledTitle: "Wasserfall" })).toBe(
+    expect(summarizeDayChangeReceipt(scheduled(), dictionary(de), { itemTitle: "Wasserfall" })).toBe(
       "„Wasserfall“ eingeplant",
     );
-    expect(summarizeDayChangeReceipt(scheduled(), dictionary(en), { scheduledTitle: "Waterfall" })).toBe(
+    expect(summarizeDayChangeReceipt(scheduled(), dictionary(en), { itemTitle: "Waterfall" })).toBe(
       "\"Waterfall\" scheduled",
     );
-    expect(summarizeDayChangeReceipt(scheduled([moved("item-c")]), dictionary(de), { scheduledTitle: "Wasserfall" })).toBe(
+    expect(summarizeDayChangeReceipt(scheduled([moved("item-c")]), dictionary(de), { itemTitle: "Wasserfall" })).toBe(
       "„Wasserfall“ eingeplant · 1 Aktivität verschoben",
     );
     // Without a title the dialog's untitled label stands in.
     expect(summarizeDayChangeReceipt(scheduled(), dictionary(en))).toBe(`"${en["trips.plan.untitledActivity"]}" scheduled`);
+  });
+});
+
+describe("dayChangeReceipt, parked (Story 14.2 AC3, AC5)", () => {
+  const parked = (extra: MovedItemRow[] = [], legs: TravelSegmentRow[] = []): DayChangeReceipt => ({
+    version: 3,
+    tripDayId: "day-1",
+    edited: {
+      kind: "parked",
+      itemId: "item-1",
+      updatedAt: at("2026-10-18T10:00:00.000Z"),
+      previous: {
+        tripDayId: "day-1",
+        scheduleMode: "FIXED",
+        durationMinutes: 120,
+        sortOrder: 1,
+        fromTime: "10:00",
+        toTime: "12:00",
+        updatedAt: at("2026-09-01T08:00:00.000Z"),
+      },
+    },
+    removedTravelSegments: legs,
+    movedItems: extra,
+  });
+
+  it("round-trips through the wire form at version 3, and the schema accepts it", () => {
+    const wire = toDayChangeReceiptWire(parked([moved("item-2")], [leg("s1")]));
+    expect(wire.version).toBe(3);
+    expect(wire.edited).toEqual({
+      kind: "parked",
+      itemId: "item-1",
+      updatedAt: "2026-10-18T10:00:00.000Z",
+      previous: {
+        tripDayId: "day-1",
+        scheduleMode: "FIXED",
+        durationMinutes: 120,
+        sortOrder: 1,
+        fromTime: "10:00",
+        toTime: "12:00",
+        updatedAt: "2026-09-01T08:00:00.000Z",
+      },
+    });
+    expect(fromDayChangeReceiptWire(wire)).toEqual(parked([moved("item-2")], [leg("s1")]));
+    const signed = JSON.parse(JSON.stringify(signDayChangeReceipt(wire, BINDING)));
+    const parsed = dayChangeReceiptSchema.safeParse(signed);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(verifyDayChangeReceipt(parsed.data, BINDING)).not.toBeNull();
+  });
+
+  it("refuses an unknown key, a null previous day, and a missing previous stamp", () => {
+    const wire = signDayChangeReceipt(toDayChangeReceiptWire(parked()), BINDING);
+    const edited = wire.edited as { previous: Record<string, unknown> };
+    expect(dayChangeReceiptSchema.safeParse({ ...wire, edited: { ...wire.edited, title: "x" } }).success).toBe(false);
+    expect(
+      dayChangeReceiptSchema.safeParse({ ...wire, edited: { ...edited, previous: { ...edited.previous, extra: 1 } } }).success,
+    ).toBe(false);
+    expect(
+      dayChangeReceiptSchema.safeParse({ ...wire, edited: { ...edited, previous: { ...edited.previous, tripDayId: null } } })
+        .success,
+    ).toBe(false);
+    const { updatedAt: _stamp, ...withoutStamp } = edited.previous;
+    void _stamp;
+    expect(dayChangeReceiptSchema.safeParse({ ...wire, edited: { ...edited, previous: withoutStamp } }).success).toBe(false);
+  });
+
+  it("always has side effects, even when nothing else moved and no leg was removed", () => {
+    expect(receiptHasSideEffects(parked())).toBe(true);
+  });
+
+  it("names the activity it parked, then what else changed, in both languages", () => {
+    expect(summarizeDayChangeReceipt(parked(), dictionary(de), { itemTitle: "Wasserfall" })).toBe("„Wasserfall“ geparkt");
+    expect(summarizeDayChangeReceipt(parked(), dictionary(en), { itemTitle: "Waterfall" })).toBe("\"Waterfall\" parked");
+    expect(
+      summarizeDayChangeReceipt(parked([moved("item-2"), moved("item-3")], [leg("s1")]), dictionary(de), {
+        itemTitle: "Wasserfall",
+      }),
+    ).toBe("„Wasserfall“ geparkt · 2 Aktivitäten verschoben · 1 Fahrt entfernt");
+    expect(
+      summarizeDayChangeReceipt(parked([moved("item-2")], [leg("s1"), leg("s2")]), dictionary(en), { itemTitle: "Waterfall" }),
+    ).toBe(`"Waterfall" parked · ${en["trips.dayChange.itemsMovedOne"]} · ${en["trips.dayChange.legsRemoved"].replace("{count}", "2")}`);
+    expect(summarizeDayChangeReceipt(parked(), dictionary(en))).toBe(`"${en["trips.plan.untitledActivity"]}" parked`);
   });
 });
 
