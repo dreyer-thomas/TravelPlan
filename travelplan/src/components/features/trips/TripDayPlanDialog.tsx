@@ -1443,6 +1443,10 @@ export default function TripDayPlanDialog({
   // Story 13.3 §4. *Einfügen nach*: a new FLEXIBLE activity on a day that already has activities. Edits
   // keep their place (*Nach oben* / *Nach unten* move them), FIXED is placed by its time.
   const showInsertAfter = mode === "add" && !parked && scheduleMode === "FLEXIBLE" && (dayActivities?.length ?? 0) > 0;
+  // The choice as the select shows it and the save sends it: none while the select is hidden, and none once
+  // a reload no longer lists the activity (a native select would show "Am Ende" over the stale id).
+  const effectiveInsertAfterId =
+    showInsertAfter && (dayActivities ?? []).some((activity) => activity.id === insertAfterId) ? insertAfterId : "";
   const insertAfterLabel = (activity: PlanDayActivity) => {
     const title = activity.title?.trim() || t("trips.plan.untitledActivity");
     return activity.fromTime && activity.toTime
@@ -1826,7 +1830,7 @@ export default function TripDayPlanDialog({
       ? { durationMinutes: "durationMinutes" in schedulePayload ? schedulePayload.durationMinutes : undefined }
       : { tripDayId: mediaDayId!, ...schedulePayload };
     // Story 13.3: only when the select is shown and an activity is chosen; "Am Ende" sends nothing.
-    const afterItemPayload = showInsertAfter && insertAfterId !== "" ? { afterItemId: insertAfterId } : {};
+    const afterItemPayload = effectiveInsertAfterId !== "" ? { afterItemId: effectiveInsertAfterId } : {};
     const payload = {
       ...placementPayload,
       ...afterItemPayload,
@@ -2003,7 +2007,7 @@ export default function TripDayPlanDialog({
         contentJson,
         pendingPhotoCount: galleryFiles.length,
         pendingDocumentCount: documentFiles.length,
-        insertAfterId,
+        insertAfterId: effectiveInsertAfterId,
       }),
     [
       contentJson,
@@ -2017,8 +2021,8 @@ export default function TripDayPlanDialog({
       durationMinutesInput,
       fixedEndKind,
       fromTimeInput,
+      effectiveInsertAfterId,
       galleryFiles.length,
-      insertAfterId,
       linkUrl,
       paymentMode,
       payments,
@@ -2867,7 +2871,7 @@ export default function TripDayPlanDialog({
                       select
                       id={`${fieldIdPrefix}-insert-after`}
                       label={t("trips.plan.insertAfter")}
-                      value={insertAfterId}
+                      value={effectiveInsertAfterId}
                       onChange={(event) => setInsertAfterId(event.target.value)}
                       slotProps={{ select: { native: true } }}
                       data-testid="plan-insert-after"

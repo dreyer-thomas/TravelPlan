@@ -4,7 +4,7 @@ baseline_commit: a65c89490067f95f902dd5f1c7ee3ee85f3d350a
 
 # Story 13.3: Putting the Day in Order
 
-Status: in-progress
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -182,15 +182,15 @@ Each item was checked against the code. Items marked **(Q)** are defaults for To
 
 ### Review Findings
 
-Code review 2026-10-18 (Blind Hunter, Edge Case Hunter, Acceptance Auditor): 1 decision-needed, 6 patch, 1 defer (DW-399), 19 dismissed.
+Code review 2026-10-18 (Blind Hunter, Edge Case Hunter, Acceptance Auditor): 1 decision-needed (resolved: accepted deviation), 6 patch (all applied; patches 1 and 2 share one fix, the chosen id counts only while the select shows it), 1 defer (DW-399), 19 dismissed. After the patches: 211 files / 3406 tests, tsc 0, lint 0/79; each new test turns red with its fix reverted.
 
-- [ ] [Review][Decision] Mutation check 3 (skip the `madeFlexible` phase-1 staleness loop) stays green — Task 8 says each mutation must turn a test red. Phase 2's conditional `updateMany` refuses the same stale row and the transaction rolls back, so the two phases are not distinguishable from outside. Either accept the redundancy as a recorded deviation, or add a test that observes phase 1 on its own (e.g. a spy proving no restore write is attempted before the refusal). [travelplan/src/lib/repositories/dayPlanChangeRepo.ts]
-- [ ] [Review][Patch] A hidden *Einfügen nach* choice keeps the form dirty: the fingerprint counts `insertAfterId` even when the select is hidden (*Feste Zeit*), so closing asks the discard question about a value that would not be saved; fingerprint it only while `showInsertAfter` [travelplan/src/components/features/trips/TripDayPlanDialog.tsx:2006]
-- [ ] [Review][Patch] The select can show "Am Ende" while sending a stale id: when `dayActivities` reloads without the chosen activity, the native select falls back to its first option but the state keeps the old id and the save answers 409; reset `insertAfterId` when it is no longer among `dayActivities` [travelplan/src/components/features/trips/TripDayPlanDialog.tsx:2865]
-- [ ] [Review][Patch] The whole-day move/swap can now answer `409 day_plan_changed` (§6), but `handleSubmitTransfer` shows the generic move/swap error over a stale day; reload and show the day-changed message on that code [travelplan/src/components/features/trips/TripDayView.tsx:1974]
-- [ ] [Review][Patch] `afterItemId` is not trimmed (siblings use `.trim().min(1)`), so a blank id passes as a valid id and is answered as a race (409) instead of 400 [travelplan/src/lib/validation/dayPlanItemSchemas.ts]
-- [ ] [Review][Patch] No test pins *Einfügen nach* hidden in parked mode (Task 3, AC3) [travelplan/test/tripDayPlanDialog.test.tsx]
-- [ ] [Review][Patch] The new `renumberDayInTransaction` doc says it writes "without touching `updatedAt`", but `DayPlanItem.updatedAt` is `@updatedAt`, which Prisma stamps on `updateMany`; correct the comment [travelplan/src/lib/repositories/dayPlanItemRepo.ts:1165]
+- [x] [Review][Decision] Mutation check 3 (skip the `madeFlexible` phase-1 staleness loop) stays green — Task 8 says each mutation must turn a test red. Phase 2's conditional `updateMany` refuses the same stale row and the transaction rolls back, so the two phases are not distinguishable from outside. Either accept the redundancy as a recorded deviation, or add a test that observes phase 1 on its own (e.g. a spy proving no restore write is attempted before the refusal). [travelplan/src/lib/repositories/dayPlanChangeRepo.ts] — resolved 2026-10-18 (Tommy): accepted as a recorded deviation; phase 1 is a redundant guard behind phase 2's conditional writes.
+- [x] [Review][Patch] A hidden *Einfügen nach* choice keeps the form dirty: the fingerprint counts `insertAfterId` even when the select is hidden (*Feste Zeit*), so closing asks the discard question about a value that would not be saved; fingerprint it only while `showInsertAfter` [travelplan/src/components/features/trips/TripDayPlanDialog.tsx:2006]
+- [x] [Review][Patch] The select can show "Am Ende" while sending a stale id: when `dayActivities` reloads without the chosen activity, the native select falls back to its first option but the state keeps the old id and the save answers 409; reset `insertAfterId` when it is no longer among `dayActivities` [travelplan/src/components/features/trips/TripDayPlanDialog.tsx:2865]
+- [x] [Review][Patch] The whole-day move/swap can now answer `409 day_plan_changed` (§6), but `handleSubmitTransfer` shows the generic move/swap error over a stale day; reload and show the day-changed message on that code [travelplan/src/components/features/trips/TripDayView.tsx:1974]
+- [x] [Review][Patch] `afterItemId` is not trimmed (siblings use `.trim().min(1)`), so a blank id passes as a valid id and is answered as a race (409) instead of 400 [travelplan/src/lib/validation/dayPlanItemSchemas.ts]
+- [x] [Review][Patch] No test pins *Einfügen nach* hidden in parked mode (Task 3, AC3) [travelplan/test/tripDayPlanDialog.test.tsx]
+- [x] [Review][Patch] The new `renumberDayInTransaction` doc says it writes "without touching `updatedAt`", but `DayPlanItem.updatedAt` is `@updatedAt`, which Prisma stamps on `updateMany`; correct the comment [travelplan/src/lib/repositories/dayPlanItemRepo.ts:1165]
 - [x] [Review][Defer] The race paths of the cross-day recompute (`withPushConflict` → 409 in `day-activity-transfer` and `day-plan-items/move`, rollback of re-point and renumber) have no test [travelplan/src/app/api/trips/[id]/day-activity-transfer/route.ts] — deferred (DW-399)
 
 ## Dev Notes
@@ -340,3 +340,4 @@ Claude Opus 5.5 (claude-opus-5-5)
 
 - 2026-10-18: Implemented via bmad-dev-story. Reorder pinned and the fixed-row hint; *Einfügen nach* (`afterItemId` on create, dialog select, stale reload); moves between days recompute (whole-day move, swap, 6.23 single move); *Alle flexibel machen* with receipt kind `madeFlexible` and undo; 14 i18n keys; DW-376 closed. Gates green.
 - 2026-10-18: Real run passed; status review.
+- 2026-10-18: Code review (bmad-code-review): mutation 3 accepted as a recorded deviation; 6 patches applied (*Einfügen nach* counts and sends a choice only while the select shows it, whole-day move/swap reloads on `409 day_plan_changed` with its own message (2 new i18n keys), `afterItemId` trimmed, parked-mode test, renumber comment); DW-399 deferred. Status done.

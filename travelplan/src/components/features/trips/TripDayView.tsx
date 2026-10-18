@@ -1971,6 +1971,13 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
       });
 
       const body = (await response.json()) as ApiEnvelope<Record<string, unknown>>;
+      // Story 13.3 §6: the recompute after the re-point lost a race and nothing was moved. Reload first,
+      // because `loadDay` clears the error as its first act.
+      if (response.status === 409 && body.error?.code === "day_plan_changed") {
+        await loadDay({ silent: true });
+        setError(transferMode === "move" ? t("trips.dayTransfer.moveStale") : t("trips.dayTransfer.swapStale"));
+        return;
+      }
       if (!response.ok || body.error) {
         setError(
           resolveApiError(

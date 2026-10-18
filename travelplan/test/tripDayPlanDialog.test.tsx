@@ -4318,7 +4318,7 @@ describe("TripDayPlanDialog", () => {
       stubFetch(fetchMock);
       const onSaved = vi.fn();
       const onDayChanged = vi.fn();
-      render(
+      const dialog = (dayActivities: typeof activities) => (
         <Providers language={options.language ?? "en"}>
           <TripDayPlanDialog
             open
@@ -4328,17 +4328,20 @@ describe("TripDayPlanDialog", () => {
             item={(options.item ?? null) as never}
             onClose={() => undefined}
             onSaved={onSaved}
-            dayActivities={options.dayActivities ?? activities}
+            dayActivities={dayActivities}
             onDayChanged={onDayChanged}
           />
-        </Providers>,
+        </Providers>
       );
+      const view = render(dialog(options.dayActivities ?? activities));
+      /** The parent's reload: the same dialog, open, with what the day now holds. */
+      const reloadDay = (dayActivities: typeof activities) => view.rerender(dialog(dayActivities));
       await waitFor(() => expect(fetchMock).toHaveBeenCalled());
       if (options.mode !== "edit" && !options.untouched) {
         fireEvent.change(screen.getByLabelText(options.language === "de" ? "Titel" : "Title"), { target: { value: "Lunch" } });
       }
       selectTab("whenWhere", options.language ?? "en");
-      return { saves, onSaved, onDayChanged };
+      return { saves, onSaved, onDayChanged, reloadDay };
     };
     const insertAfter = () => screen.queryByTestId("plan-insert-after") as HTMLSelectElement | null;
     const save = () => fireEvent.click(screen.getByRole("button", { name: "OK" }));
@@ -4432,6 +4435,27 @@ describe("TripDayPlanDialog", () => {
       expect(await screen.findByText("Discard changes?")).toBeInTheDocument();
     });
 
+    it("drops a chosen activity a reload no longer lists: the select shows At the end and the save sends none", async () => {
+      const { saves, reloadDay } = await renderInsert();
+      fireEvent.change(insertAfter()!, { target: { value: "a-2" } });
+
+      reloadDay(activities.filter((activity) => activity.id !== "a-2"));
+      expect(insertAfter()).toHaveValue("");
+      save();
+      await waitFor(() => expect(saves).toHaveLength(1));
+      expect(saves[0]).not.toHaveProperty("afterItemId");
+    });
+
+    it("does not count a choice the select no longer shows as unsaved input", async () => {
+      const { reloadDay } = await renderInsert({ untouched: true });
+      fireEvent.change(insertAfter()!, { target: { value: "a-1" } });
+
+      reloadDay([]);
+      expect(insertAfter()).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+      expect(screen.queryByText("Discard changes?")).toBeNull();
+    });
+
     it("on day_plan_changed shows the stale message, asks the caller to reload the day and goes back to At the end", async () => {
       const { saves, onSaved, onDayChanged } = await renderInsert({ refuseWith: "day_plan_changed" });
       fireEvent.change(insertAfter()!, { target: { value: "a-2" } });
@@ -4467,7 +4491,10 @@ describe("TripDayPlanDialog", () => {
       durationMinutes: 120,
     };
 
-    const renderParked = async (mode: "add" | "edit") => {
+    const renderParked = async (
+      mode: "add" | "edit",
+      dayActivities?: Array<{ id: string; title: string | null; fromTime: string | null; toTime: string | null }>,
+    ) => {
       const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
       const requests: { url: string; method: string; body: unknown }[] = [];
       const fetchMock = vi.fn(async (input: RequestInfo, init?: RequestInit) => {
@@ -4505,12 +4532,20 @@ describe("TripDayPlanDialog", () => {
             moveTargetDays={[{ id: "day-2", label: "Day 2" }]}
             onMove={async () => ({ moved: true })}
             onDelete={async () => true}
+            dayActivities={dayActivities}
           />
         </Providers>,
       );
       await waitFor(() => expect(requests.some((request) => request.url.includes("/api/auth/csrf"))).toBe(true));
       return { ...view, requests, onSaved };
     };
+
+    it("offers no Insert after, even when given a day's activities (Story 13.3 AC3)", async () => {
+      await renderParked("add", [{ id: "a-1", title: "Museum", fromTime: "09:00", toTime: "10:00" }]);
+      selectTab("whenWhere");
+
+      expect(screen.queryByTestId("plan-insert-after")).toBeNull();
+    });
 
     it("titles itself as an idea of the bucket list, and Wann & Wo keeps only duration and place", async () => {
       await renderParked("add");

@@ -2815,6 +2815,141 @@ describe("TripDayView layout", () => {
     vi.unstubAllGlobals();
   });
 
+  it("on a 409 day_plan_changed from the swap reloads the day and says nothing was swapped (Story 13.3 §6)", async () => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+
+    const dayOne = {
+      id: "day-1",
+      date: "2026-12-01T00:00:00.000Z",
+      dayIndex: 1,
+      plannedCostSubtotal: 0,
+      missingAccommodation: false,
+      missingPlan: false,
+      accommodation: {
+        id: "stay-1",
+        name: "City Hotel",
+        notes: null,
+        status: "planned" as const,
+        costCents: 10000,
+        link: null,
+        checkInTime: "16:00",
+        checkOutTime: "10:00",
+        location: { lat: 48.145, lng: 11.582 },
+      },
+      dayPlanItems: [
+        {
+          id: "plan-1",
+          title: "Museum title",
+          fromTime: "09:00",
+          toTime: "10:00",
+          contentJson: JSON.stringify({
+            type: "doc",
+            content: [{ type: "paragraph", content: [{ type: "text", text: "Body details" }] }],
+          }),
+          costCents: null,
+          linkUrl: null,
+          location: { lat: 48.1372, lng: 11.5756 },
+        },
+      ],
+      travelSegments: [],
+    };
+    const dayTwo = {
+      id: "day-2",
+      date: "2026-12-02T00:00:00.000Z",
+      dayIndex: 2,
+      plannedCostSubtotal: 0,
+      missingAccommodation: false,
+      missingPlan: false,
+      accommodation: {
+        id: "stay-2",
+        name: "Lake Hotel",
+        notes: null,
+        status: "booked" as const,
+        costCents: 20000,
+        link: null,
+        checkInTime: "16:00",
+        checkOutTime: "10:00",
+        location: { lat: 47.0, lng: 11.0 },
+      },
+      dayPlanItems: [
+        {
+          id: "plan-2",
+          title: "Target activity",
+          fromTime: "12:00",
+          toTime: "13:00",
+          contentJson: JSON.stringify({
+            type: "doc",
+            content: [{ type: "paragraph", content: [{ type: "text", text: "Target details" }] }],
+          }),
+          costCents: null,
+          linkUrl: null,
+          location: { lat: 47.1, lng: 11.1 },
+        },
+      ],
+      travelSegments: [],
+    };
+
+    const tripState = {
+      trip: {
+        id: "trip-1",
+        name: "Trip",
+        accessRole: "owner" as const,
+        startDate: "2026-12-01T00:00:00.000Z",
+        endDate: "2026-12-02T00:00:00.000Z",
+        dayCount: 2,
+        accommodationCostTotalCents: null,
+        heroImageUrl: null,
+      },
+      days: [dayOne, dayTwo],
+    };
+
+    const fetchMock = withBucketList(async (input, init) => {
+      const url = requestUrl(input);
+      if (url === "/api/auth/csrf") {
+        return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
+      }
+      if (url === "/api/trips/trip-1") {
+        return mockFetchResponse({ data: tripState, error: null });
+      }
+      if (url === "/api/trips/trip-1/day-plan-items/images?tripDayId=day-1") {
+        return mockFetchResponse({ data: { images: [] }, error: null });
+      }
+      if (url.includes("/accommodations/images?tripDayId=day-1")) {
+        return mockFetchResponse({ data: { images: [] }, error: null });
+      }
+      if (url.includes("/accommodations/images?tripDayId=day-2")) {
+        return mockFetchResponse({ data: { images: [] }, error: null });
+      }
+      if (url === "/api/trips/trip-1/days/day-1/route") {
+        return mockFetchResponse({ data: { route: { polyline: [[48.145, 11.582], [48.1372, 11.5756]] } }, error: null });
+      }
+      if (url === "/api/trips/trip-1/day-activity-transfer" && init?.method === "POST") {
+        return mockFetchResponse({ data: null, error: { code: "day_plan_changed", message: "changed" } }, { status: 409 });
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+
+    stubFetch(fetchMock);
+
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    expect(await screen.findByText("Museum title")).toBeInTheDocument();
+    expect(screen.getAllByText("City Hotel").length).toBeGreaterThan(0);
+
+    await activateDayOverflowItem("Swap activities");
+    expect(await screen.findByRole("heading", { name: "Swap activities", level: 2 })).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText("Target day"), "day-2");
+    await userEvent.click(screen.getByRole("button", { name: "Confirm swap" }));
+
+    expect(await screen.findByText("The day was just changed – the activities were not swapped.")).toBeInTheDocument();
+    const tripLoads = fetchMock.mock.calls.filter(([input]) => requestUrl(input) === "/api/trips/trip-1");
+    expect(tripLoads.length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("Museum title")).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
   it("hides copy previous night action when a current-night accommodation already exists", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";

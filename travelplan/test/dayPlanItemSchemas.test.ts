@@ -532,8 +532,9 @@ describe("dayPlanItemMutationSchema afterItemId (Story 13.3 AC3)", () => {
     expect(afterItemIdIssues(legacy)).toHaveLength(1);
   });
 
-  it("refuses an empty id", () => {
+  it("refuses an empty or blank id", () => {
     expect(dayPlanItemMutationSchema.safeParse({ ...base, scheduleMode: "FLEXIBLE", afterItemId: "" }).success).toBe(false);
+    expect(dayPlanItemMutationSchema.safeParse({ ...base, scheduleMode: "FLEXIBLE", afterItemId: "  " }).success).toBe(false);
   });
 
   it("is refused on an edit, which keeps its place", () => {

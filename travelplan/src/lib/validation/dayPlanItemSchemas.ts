@@ -176,7 +176,7 @@ export const dayPlanItemMutationSchema = z.object({
    * Story 13.3 (*Einfügen nach*). On a create only, and only for FLEXIBLE: the new activity goes directly
    * after this one; absent or `null` appends. A FIXED one is placed by its time, so the field is refused.
    */
-  afterItemId: z.string().min(1).nullable().optional(),
+  afterItemId: z.string().trim().min(1).nullable().optional(),
 }).superRefine((value, context) => {
   /*
     The time and cents rules, nested so that their early returns stay local (Story 13.1 split them in

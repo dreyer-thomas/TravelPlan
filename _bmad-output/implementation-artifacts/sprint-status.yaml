@@ -1,5 +1,6 @@
 # generated: 2026-03-01 13:08:00 CET
-# last_updated: 2026-10-18 (13-3-putting-the-day-in-order CODE REVIEW: 1 decision-needed (mutation 3), 6 patch left as action items, 1 defer DW-399, 19 dismissed. Status in-progress.)
+# last_updated: 2026-10-18 (13-3-putting-the-day-in-order DONE via bmad-code-review: mutation 3 accepted as deviation (Tommy), 6 patches applied, 1 defer DW-399, 19 dismissed. 211 files / 3406 tests, tsc 0, lint 0/79. 14-4 can start.)
+# previously: 2026-10-18 (13-3-putting-the-day-in-order CODE REVIEW: 1 decision-needed (mutation 3), 6 patch left as action items, 1 defer DW-399, 19 dismissed. Status in-progress.)
 # previously: 2026-10-18 (13-3-putting-the-day-in-order REVIEW: real run passed (Tommy). Next: bmad-code-review.)
 # previously: 2026-10-18 (13-3-putting-the-day-in-order implemented via bmad-dev-story, stays in-progress until Tommy's real run (Safari, 390 px). Fixed-row hint, Einfuegen nach (afterItemId), move/swap/single-move recompute, Alle flexibel machen (receipt madeFlexible). 211 files / 3402 tests, tsc 0, lint 0/79, build ok. Mutation 3 (phase-1 staleness) survives: phase 2 guards the same. DW-376 closed.)
 # previously: 2026-10-18 (13-3-putting-the-day-in-order created via bmad-create-story, ready-for-dev. Reorder pinned + fixed-row hint, Einfuegen nach (afterItemId on create), whole-day move/swap recompute, Alle flexibel machen with receipt kind madeFlexible. Q1-Q5 defaults to confirm; recommends 14-4 first.)
@@ -295,7 +296,7 @@ development_status:
   epic-13: in-progress
   13-1-just-say-how-long: done
   13-2-when-the-plan-doesnt-work-out: done
-  13-3-putting-the-day-in-order: in-progress
+  13-3-putting-the-day-in-order: done
   13-4-suggestions-and-backups-speak-in-durations: backlog
   epic-13-retrospective: optional
 

@@ -1162,8 +1162,9 @@ export const reorderDayPlanItemForTripDay = async (params: {
 
 /**
  * Story 13.1 §11. Rewrites a day's `sortOrder` densely in `orderedIds`' order (the day's own order when
- * omitted), writing only rows whose number changes, without touching `updatedAt`. The moves between days
- * use it, then recompute each day they changed (`recomputeDayInTransaction`, Story 13.3).
+ * omitted), writing only rows whose number changes; Prisma's `@updatedAt` stamps each row it writes. The
+ * moves between days use it, then recompute each day they changed (`recomputeDayInTransaction`, Story
+ * 13.3), which reads the stamps afresh.
  */
 export const renumberDayInTransaction = async (tx: TransactionClient, tripDayId: string, orderedIds?: string[]) => {
   const rows = await tx.dayPlanItem.findMany({

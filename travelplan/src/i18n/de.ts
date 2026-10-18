@@ -377,6 +377,8 @@ const de: Dictionary = {
   "trips.dayTransfer.sameDayError": "Bitte einen anderen Tag für diesen Transfer auswählen.",
   "trips.dayTransfer.moveError": "Aktivitäten konnten nicht verschoben werden. Bitte erneut versuchen.",
   "trips.dayTransfer.swapError": "Aktivitäten konnten nicht getauscht werden. Bitte erneut versuchen.",
+  "trips.dayTransfer.moveStale": "Der Tag wurde gerade geändert – die Aktivitäten wurden nicht verschoben.",
+  "trips.dayTransfer.swapStale": "Der Tag wurde gerade geändert – die Aktivitäten wurden nicht getauscht.",
   "trips.costOverview.back": "← Zurück zur Reise",
   "trips.costOverview.title": "Kostenübersicht",
   "trips.costOverview.columnDay": "Tag",

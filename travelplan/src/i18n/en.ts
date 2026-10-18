@@ -397,6 +397,8 @@ const en: Dictionary = {
   "trips.dayTransfer.sameDayError": "Select a different day for this transfer.",
   "trips.dayTransfer.moveError": "Unable to move activities. Please try again.",
   "trips.dayTransfer.swapError": "Unable to swap activities. Please try again.",
+  "trips.dayTransfer.moveStale": "The day was just changed – the activities were not moved.",
+  "trips.dayTransfer.swapStale": "The day was just changed – the activities were not swapped.",
   "trips.costOverview.back": "← Back to trip",
   "trips.costOverview.title": "Cost overview",
   "trips.costOverview.columnDay": "Day",
