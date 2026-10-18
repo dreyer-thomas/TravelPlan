@@ -1,5 +1,5 @@
 /**
- * Story 12.4 (FR45). The order the picked suggestions are visited in, and the times the chain gives them.
+ * Story 12.4 (FR45). The order the picked suggestions are visited in, and the duration each one is stored with.
  *
  * Pure: no React, no Prisma, no `server-only`. The preview and apply routes feed it, and the dialog
  * imports its types. Both routes run the same functions, so apply writes exactly what the preview showed.
@@ -8,17 +8,20 @@
  *   by how far along the way from start to end they lie (a projection onto that line, in a flat plane
  *   around the start). With no end, or an end next to the start (a round trip from the same hotel), a
  *   nearest-neighbour tour from the start. With no start, the dialog's order. Ties keep list order.
- * - **Times** (`chainTimes`). From the start minute, each stop begins after the previous end plus its
- *   leg, rounded up to five minutes, and lasts its duration, also rounded up. An unknown leg counts as 0.
- *   The time format has no 24:00, so the first stop that would end after 23:59 and every one after it
- *   get no times at all: nothing is clamped and no duration is shortened.
+ * - **Duration** (`suggestionDurationMinutes`). The suggested duration rounded up to five minutes.
+ * - **Times.** Since Story 13.4 the stops are FLEXIBLE activities appended to the day, and their times
+ *   are the schedule rule's (`planSuggestionAppend` in `daySuggestionApplyRepo.ts`): starts are not
+ *   rounded, and a stop that would end after 23:59 is stored without times (Story 13.2's overflow).
  */
 
 import { haversineMeters, type GeoPoint } from "@/lib/geo/distance";
-import { LAST_MINUTE_OF_DAY, minutesToTime } from "@/lib/trips/daySchedule";
 import { DAY_START_WITHOUT_STAY } from "@/lib/trips/stayTimes";
 import type { RoutingProfile } from "@/lib/routing/dayRouteService";
 import type { TransportType } from "@/lib/trips/transportTypes";
+import {
+  MAX_ACTIVITY_DURATION_MINUTES,
+  MIN_ACTIVITY_DURATION_MINUTES,
+} from "@/lib/validation/dayPlanItemSchemas";
 import type { SuggestionMode } from "@/lib/validation/daySuggestionSchemas";
 
 /** Where the chain starts without a stay last night; shared with the schedule rule since Story 13.1. */
@@ -75,41 +78,12 @@ export const orderSuggestions = (points: GeoPoint[], origin: GeoPoint | null, en
 
 export const ceilToFive = (minutes: number) => Math.ceil(minutes / 5) * 5;
 
-export type ChainedTimes = { fromTime: string; toTime: string };
+/** Story 13.4. A suggestion's stored duration: rounded up to five minutes, inside the activity range. */
+export const suggestionDurationMinutes = (minutes: number) =>
+  Math.min(MAX_ACTIVITY_DURATION_MINUTES, Math.max(MIN_ACTIVITY_DURATION_MINUTES, ceilToFive(minutes)));
 
-/**
- * AC2. `legMinutes[i]` is the leg into stop `i` (from the start for `i = 0`), `null` when unknown.
- * A `null` row has no times (item 2); `overflow` says at least one row is `null`.
- */
-export const chainTimes = ({
-  startMinute,
-  legMinutes,
-  durations,
-}: {
-  startMinute: number;
-  legMinutes: (number | null)[];
-  durations: number[];
-}): { rows: (ChainedTimes | null)[]; overflow: boolean } => {
-  const rows: (ChainedTimes | null)[] = [];
-  let previousEnd = startMinute;
-  let overflow = false;
-  durations.forEach((duration, index) => {
-    if (overflow) {
-      rows.push(null);
-      return;
-    }
-    const from = ceilToFive(previousEnd + (legMinutes[index] ?? 0));
-    const to = from + ceilToFive(duration);
-    if (to > LAST_MINUTE_OF_DAY) {
-      overflow = true;
-      rows.push(null);
-      return;
-    }
-    rows.push({ fromTime: minutesToTime(from), toTime: minutesToTime(to) });
-    previousEnd = to;
-  });
-  return { rows, overflow };
-};
+/** A planned stop's times in the preview; `null` in its place means it does not fit in the day. */
+export type SuggestionTimes = { fromTime: string; toTime: string };
 
 /**
  * The search's mode as an OSRM profile and as the stored leg's transport type. One map for both callers

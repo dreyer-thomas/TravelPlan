@@ -22,8 +22,8 @@ import { suggestionApplyRequestSchema } from "@/lib/validation/daySuggestionAppl
  * pictures are downloaded first, outside the transaction (`suggestionImageDownload.ts`); a failed one is
  * skipped and never fails the apply. Then the repository re-reads the basis inside its transaction and
  * answers `409 day_plan_changed` when the day moved since the preview: the dialog then previews again.
- * The times are recomputed from the legs sent back with the preview's own function; OSRM is not asked
- * twice.
+ * The day is recomputed with the preview's own planner and the legs sent back with it; OSRM is not
+ * asked twice.
  */
 
 export const runtime = "nodejs";

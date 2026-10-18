@@ -14,6 +14,7 @@ vi.mock("@/lib/trips/suggestionImageDownload", async () => {
 
 import { prisma } from "@/lib/db/prisma";
 import { applySuggestionsForTripDay } from "@/lib/repositories/daySuggestionApplyRepo";
+import { getTripWithDaysForUser } from "@/lib/repositories/tripRepo";
 import type { SuggestionMode } from "@/lib/validation/daySuggestionSchemas";
 import { DayRouteError, getDayRouteFromOsrm } from "@/lib/routing/dayRouteService";
 import { downloadSuggestionImages } from "@/lib/trips/suggestionImageDownload";
@@ -29,6 +30,7 @@ import {
   databaseState,
   postApply,
   postPreview,
+  postUndo,
   resetDatabase,
   seedTrip,
   suggestion,
@@ -37,6 +39,9 @@ import {
 /**
  * Story 12.4 AC1–AC10 at the HTTP boundary, against the real test database. OSRM and the picture download
  * are mocked (never the real internet); the files land under the per-worker `MEDIA_STORAGE_ROOT`.
+ *
+ * Since Story 13.4 the suggestions land FLEXIBLE, appended after the day's last row, with the schedule
+ * rule's times (starts are not rounded); the preview runs the apply's own planner.
  */
 
 const thumb = (name: string) => `https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ab/${name}/250px-${name}`;
@@ -85,7 +90,7 @@ afterEach(() => {
 });
 
 describe("POST …/suggestions/preview and …/apply (Story 12.4)", () => {
-  it("orders the stops along the way, chains the times from last night's check-out and shows the legs", async () => {
+  it("orders the stops along the way, plans the times from last night's check-out and shows the legs", async () => {
     const { trip, day2, westStay, session } = await seedTrip();
     vi.mocked(getDayRouteFromOsrm).mockResolvedValue(osrmLegs([12, 8449], [7, 1200]));
 
@@ -94,10 +99,10 @@ describe("POST …/suggestions/preview and …/apply (Story 12.4)", () => {
     expect(preview.status).toBe(200);
     expect(preview.body.data).toEqual({
       order: [1, 0],
-      // 09:30 + 12 → 09:45 (rounded up), + 90 → 11:15; + 7 → 11:25, + 45 → 12:10.
+      // 09:30 + 12 → 09:42 (not rounded), + 90 → 11:12; + 7 → 11:19, + 45 → 12:04.
       rows: [
-        { fromTime: "09:45", toTime: "11:15" },
-        { fromTime: "11:25", toTime: "12:10" },
+        { fromTime: "09:42", toTime: "11:12" },
+        { fromTime: "11:19", toTime: "12:04" },
       ],
       legs: [
         { durationMinutes: 12, distanceKm: 8.4 },
@@ -105,9 +110,9 @@ describe("POST …/suggestions/preview and …/apply (Story 12.4)", () => {
       ],
       basis: {
         afterItemId: null,
-        startTime: "09:30",
-        // No activity yet, the first leg leaves last night's stay, the stops are ordered from it, tonight's stay ends the day.
-        fingerprint: `items:0|from:accommodation:${westStay.id}@41.15,-8.65|order:41.15,-8.65|end:41.15,-8.6`,
+        // No activity yet, the first leg leaves last night's stay, the stops are ordered from it, tonight's stay
+        // ends the day; then the planned times.
+        fingerprint: `items:0|from:accommodation:${westStay.id}@41.15,-8.65|order:41.15,-8.65|end:41.15,-8.6|times:09:42-11:12,11:19-12:04`,
       },
       overflow: false,
       routingUnavailable: false,
@@ -135,16 +140,19 @@ describe("POST …/suggestions/preview and …/apply (Story 12.4)", () => {
     expect(applied.status).toBe(200);
     expect(getDayRouteFromOsrm).toHaveBeenCalledTimes(1);
     const items = await prisma.dayPlanItem.findMany({ where: { tripDayId: day2.id }, orderBy: { fromTime: "asc" } });
-    expect(items.map(({ title, fromTime, toTime, locationLabel, locationLat, locationLng }) => ({
+    expect(items.map(({ title, scheduleMode, durationMinutes, sortOrder, fromTime, toTime, locationLabel, locationLat, locationLng }) => ({
       title,
+      scheduleMode,
+      durationMinutes,
+      sortOrder,
       fromTime,
       toTime,
       locationLabel,
       locationLat,
       locationLng,
     }))).toEqual([
-      { title: "Old Harbour", fromTime: "09:45", toTime: "11:15", locationLabel: "Harbour, Porto", locationLat: 41.15, locationLng: -8.63 },
-      { title: "Tile Museum", fromTime: "11:25", toTime: "12:10", locationLabel: "Museu, Porto", locationLat: 41.15, locationLng: -8.61 },
+      { title: "Old Harbour", scheduleMode: "FLEXIBLE", durationMinutes: 90, sortOrder: 0, fromTime: "09:42", toTime: "11:12", locationLabel: "Harbour, Porto", locationLat: 41.15, locationLng: -8.63 },
+      { title: "Tile Museum", scheduleMode: "FLEXIBLE", durationMinutes: 45, sortOrder: 1, fromTime: "11:19", toTime: "12:04", locationLabel: "Museu, Porto", locationLat: 41.15, locationLng: -8.61 },
     ]);
     expect(parsePlanText(items[0].contentJson)).toBe("Walk the quay. Then the fish market.");
     expect(JSON.parse(items[0].contentJson).content).toHaveLength(2);
@@ -187,29 +195,38 @@ describe("POST …/suggestions/preview and …/apply (Story 12.4)", () => {
     expect(receipt.movedItems).toEqual([]);
   });
 
-  it("starts after the last timed activity and takes the first leg from it; untimed ones are ignored", async () => {
+  it("appends after the day's last activity, timed or not, and takes the first leg from it", async () => {
     const { trip, day2, session } = await seedTrip();
-    const lunch = await createActivity(day2.id, "Lunch", "12:00", "13:20", { lat: 41.15, lng: -8.64 });
-    await createActivity(day2.id, "Someday", null, null, { lat: 41.2, lng: -8.7 });
+    await createActivity(day2.id, "Lunch", "12:00", "13:20", { lat: 41.15, lng: -8.64 });
+    // A seed without times sorts after Lunch; it is the day's last row (scheduled as flexible, 15 min).
+    const someday = await createActivity(day2.id, "Someday", null, null, { lat: 41.2, lng: -8.7 });
     vi.mocked(getDayRouteFromOsrm).mockResolvedValue(osrmLegs([3, 900]));
 
     const preview = await postPreview(trip.id, day2.id, session, { mode: "car", suggestions: [harbour] });
 
+    // Lunch ends 13:20, Someday 13:20–13:35, + 3 → 13:38.
     expect(preview.body.data).toMatchObject({
-      rows: [{ fromTime: "13:25", toTime: "14:55" }],
-      basis: { afterItemId: lunch.id, startTime: "13:20" },
-      origin: { kind: "activity", label: "Lunch" },
+      rows: [{ fromTime: "13:38", toTime: "15:08" }],
+      basis: { afterItemId: someday.id },
+      origin: { kind: "activity", label: "Someday" },
     });
-    expect(vi.mocked(getDayRouteFromOsrm).mock.calls[0][0].points[0]).toEqual({ lat: 41.15, lng: -8.64 });
+    expect(vi.mocked(getDayRouteFromOsrm).mock.calls[0][0].points[0]).toEqual({ lat: 41.2, lng: -8.7 });
     expect(vi.mocked(getDayRouteFromOsrm).mock.calls[0][0].profile).toBe("driving");
 
     const applied = await postApply(trip.id, day2.id, session, applyBodyFrom("car", [harbour], preview.body.data!));
     expect(applied.status).toBe(200);
     const created = await prisma.dayPlanItem.findFirstOrThrow({ where: { title: "Old Harbour" } });
-    // Story 13.1 §12: the apply appends after the day's last row, and the untimed one (flexible now) is
-    // that row, so Lunch → Old Harbour is not drawn and no leg is created. 13.4 rewrites the apply.
-    expect(created.sortOrder).toBeGreaterThan((await prisma.dayPlanItem.findFirstOrThrow({ where: { title: "Someday" } })).sortOrder);
-    expect(await prisma.travelSegment.count()).toBe(0);
+    expect(created).toMatchObject({ sortOrder: 2, scheduleMode: "FLEXIBLE", fromTime: "13:38", toTime: "15:08" });
+    const legs = await prisma.travelSegment.findMany();
+    expect(legs.map(({ fromItemId, toItemId }) => [fromItemId, toItemId])).toEqual([[someday.id, created.id]]);
+    // The seed was normalised by the recompute (FLEXIBLE, its times, sortOrder 1), and the receipt lists it.
+    expect(await prisma.dayPlanItem.findUniqueOrThrow({ where: { id: someday.id } })).toMatchObject({
+      scheduleMode: "FLEXIBLE",
+      fromTime: "13:20",
+      toTime: "13:35",
+      sortOrder: 1,
+    });
+    expect(applied.body.data!.receipt.movedItems.map((moved) => moved.itemId)).toEqual([someday.id]);
   });
 
   it("starts at the latest end on the day, with the first leg still from the timeline's last activity", async () => {
@@ -220,10 +237,10 @@ describe("POST …/suggestions/preview and …/apply (Story 12.4)", () => {
 
     const preview = await postPreview(trip.id, day2.id, session, { mode: "car", suggestions: [harbour] });
 
-    // Not 11:05: the tour runs until 18:00. The timeline still draws coffee as the new stop's neighbour.
+    // Not 11:03: the tour runs until 18:00. Coffee is still the day's last row, so the new stop's neighbour.
     expect(preview.body.data).toMatchObject({
-      rows: [{ fromTime: "18:05", toTime: "19:35" }],
-      basis: { afterItemId: coffee.id, startTime: "18:00" },
+      rows: [{ fromTime: "18:03", toTime: "19:33" }],
+      basis: { afterItemId: coffee.id },
       origin: { kind: "activity", label: "Coffee" },
     });
     expect(vi.mocked(getDayRouteFromOsrm).mock.calls[0][0].points[0]).toEqual({ lat: 41.15, lng: -8.64 });
@@ -256,20 +273,24 @@ describe("POST …/suggestions/preview and …/apply (Story 12.4)", () => {
     const { trip, day2, session } = await seedTrip("owner@example.com", { checkOutTime: null });
     vi.mocked(getDayRouteFromOsrm).mockResolvedValue(osrmLegs([10, 2000]));
     const preview = await postPreview(trip.id, day2.id, session, { mode: "walking", suggestions: [harbour] });
-    expect(preview.body.data?.basis.startTime).toBe("10:00");
     expect(preview.body.data?.rows).toEqual([{ fromTime: "10:10", toTime: "11:40" }]);
+    expect(preview.body.data?.basis.fingerprint).toMatch(/\|times:10:10-11:40$/);
   });
 
-  it("orders from the trip's start on the first day but creates no leg from it", async () => {
+  it("orders from the trip's start on the first day, but neither counts nor creates a leg from it", async () => {
     const { trip, day1, session } = await seedTrip();
     vi.mocked(getDayRouteFromOsrm).mockResolvedValue(osrmLegs([20, 15000], [7, 1200]));
 
     const preview = await postPreview(trip.id, day1.id, session, { mode: "car", suggestions: [harbour, museum] });
 
     expect(preview.body.data?.origin).toEqual({ kind: "tripStart", label: "Porto Airport" });
-    // No stay last night, so no check-out: the day starts at 09:00 (Tommy's ruling 1c), + 20 → 09:20.
-    expect(preview.body.data?.basis.startTime).toBe("09:00");
-    expect(preview.body.data?.rows[0]).toEqual({ fromTime: "09:20", toTime: "10:50" });
+    // No stay last night, so no check-out: the day starts at 09:00 (Tommy's ruling 1c). The 20-minute leg
+    // from the trip's start is shown but not stored, so it does not count either (Story 13.4 Q1).
+    expect(preview.body.data?.legs[0]).toEqual({ durationMinutes: 20, distanceKm: 15 });
+    expect(preview.body.data?.rows).toEqual([
+      { fromTime: "09:00", toTime: "10:30" },
+      { fromTime: "10:37", toTime: "11:22" },
+    ]);
     expect(vi.mocked(getDayRouteFromOsrm).mock.calls[0][0].points[0]).toEqual({ lat: 41.24, lng: -8.68 });
     const applied = await postApply(trip.id, day1.id, session, applyBodyFrom("car", [harbour, museum], preview.body.data!));
     expect(applied.status).toBe(200);
@@ -375,7 +396,10 @@ describe("POST …/suggestions/preview and …/apply (Story 12.4)", () => {
     const applied = await postApply(trip.id, day2.id, session, applyBodyFrom("walking", late, preview.body.data!));
     expect(applied.status).toBe(200);
     const club = await prisma.dayPlanItem.findFirstOrThrow({ where: { title: "Club" } });
-    expect(club).toMatchObject({ fromTime: null, toTime: null });
+    expect(club).toMatchObject({ scheduleMode: "FLEXIBLE", durationMinutes: 60, fromTime: null, toTime: null });
+    // Story 13.2: the trip payload marks it as a conflict on the next read.
+    const day = (await getTripWithDaysForUser(trip.userId, trip.id))!.days.find((entry) => entry.id === day2.id)!;
+    expect(day.planConflicts).toEqual([{ kind: "overflow", itemId: club.id, title: "Club" }]);
   });
 
   it("refuses with 409 and writes nothing when the day changed since the preview", async () => {
@@ -423,6 +447,97 @@ describe("POST …/suggestions/preview and …/apply (Story 12.4)", () => {
     await prisma.accommodation.update({ where: { id: eastStay.id }, data: { locationLat: 41.1, locationLng: -8.5 } });
     expect((await postApply(trip.id, day2.id, session, applyBodyFrom("car", [harbour], second.body.data!))).status).toBe(409);
     expect(await prisma.dayPlanItem.count()).toBe(1);
+  });
+
+  it("stores exactly the times the preview showed (Story 13.4 AC2)", async () => {
+    const { trip, day2, session } = await seedTrip();
+    await createActivity(day2.id, "Lunch", "12:00", "13:00", { lat: 41.15, lng: -8.64 });
+    vi.mocked(getDayRouteFromOsrm).mockResolvedValue(osrmLegs([11, 2100], [4, 700]));
+    const suggestions = [museum, harbour];
+
+    const preview = await postPreview(trip.id, day2.id, session, { mode: "walking", suggestions });
+    const body = applyBodyFrom("walking", suggestions, preview.body.data!);
+    expect((await postApply(trip.id, day2.id, session, body)).status).toBe(200);
+
+    const stored = await Promise.all(
+      body.suggestions.map((entry) => prisma.dayPlanItem.findFirstOrThrow({ where: { title: entry.title } })),
+    );
+    expect(stored.map(({ fromTime, toTime }) => ({ fromTime, toTime }))).toEqual(preview.body.data!.rows);
+    expect(preview.body.data!.rows).toEqual([
+      { fromTime: "13:11", toTime: "14:41" },
+      { fromTime: "14:45", toTime: "15:30" },
+    ]);
+  });
+
+  it("refuses with 409 and writes nothing when last night's check-out or an earlier duration changed", async () => {
+    const { trip, day2, westStay, session } = await seedTrip();
+    const walk = await prisma.dayPlanItem.create({
+      data: {
+        tripId: trip.id,
+        tripDayId: day2.id,
+        title: "Walk",
+        scheduleMode: "FLEXIBLE",
+        durationMinutes: 60,
+        fromTime: "09:30",
+        toTime: "10:30",
+        contentJson: "{}",
+      },
+    });
+    vi.mocked(getDayRouteFromOsrm).mockResolvedValue(osrmLegs([5, 1000]));
+
+    const first = await postPreview(trip.id, day2.id, session, { mode: "walking", suggestions: [harbour] });
+    await prisma.accommodation.update({ where: { id: westStay.id }, data: { checkOutTime: "11:00" } });
+    const before = await databaseState();
+    const refused = await postApply(trip.id, day2.id, session, applyBodyFrom("walking", [harbour], first.body.data!));
+    expect(refused.status).toBe(409);
+    expect(refused.body.error?.code).toBe("day_plan_changed");
+    expect(await databaseState()).toEqual(before);
+
+    const second = await postPreview(trip.id, day2.id, session, { mode: "walking", suggestions: [harbour] });
+    await prisma.dayPlanItem.update({ where: { id: walk.id }, data: { durationMinutes: 90 } });
+    const stateBefore = await databaseState();
+    expect((await postApply(trip.id, day2.id, session, applyBodyFrom("walking", [harbour], second.body.data!))).status).toBe(409);
+    expect(await databaseState()).toEqual(stateBefore);
+  });
+
+  it("recomputes an unsettled day, lists the moved rows, and undo restores the whole database (AC5)", async () => {
+    const { trip, day2, session } = await seedTrip();
+    // A legacy import's leftovers: flexible rows at stale times, sortOrders not dense.
+    for (const [title, sortOrder, fromTime, toTime] of [
+      ["Market", 0, "11:00", "12:00"],
+      ["Garden", 5, "14:00", "14:30"],
+    ] as const) {
+      await prisma.dayPlanItem.create({
+        data: { tripId: trip.id, tripDayId: day2.id, title, scheduleMode: "FLEXIBLE", durationMinutes: title === "Market" ? 60 : 30, sortOrder, fromTime, toTime, contentJson: "{}" },
+      });
+    }
+    vi.mocked(getDayRouteFromOsrm).mockRejectedValue(new DayRouteError("routing_no_route", "no route"));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const before = await databaseState();
+
+    const preview = await postPreview(trip.id, day2.id, session, { mode: "walking", suggestions: [harbour] });
+    // 09:30 Market → 10:30, Garden → 11:00, then the suggestion.
+    expect(preview.body.data?.rows).toEqual([{ fromTime: "11:00", toTime: "12:30" }]);
+    const applied = await postApply(trip.id, day2.id, session, applyBodyFrom("walking", [harbour], preview.body.data!));
+    expect(applied.status).toBe(200);
+    const receipt = applied.body.data!.receipt;
+    expect(receipt.movedItems.map((moved) => [moved.fromTime, moved.toTime])).toEqual([
+      ["09:30", "10:30"],
+      ["10:30", "11:00"],
+    ]);
+    expect(
+      (await prisma.dayPlanItem.findMany({ where: { tripDayId: day2.id }, orderBy: { sortOrder: "asc" } })).map(
+        ({ title, sortOrder }) => [title, sortOrder],
+      ),
+    ).toEqual([
+      ["Market", 0],
+      ["Garden", 1],
+      ["Old Harbour", 2],
+    ]);
+
+    const undone = await postUndo(trip.id, session, receipt);
+    expect(undone.status).toBe(200);
+    expect(await databaseState()).toEqual(before);
   });
 
   it("writes nothing for a viewer even past the route, through the repository's own writer clause", async () => {
@@ -505,7 +620,7 @@ describe("POST …/suggestions/preview and …/apply (Story 12.4)", () => {
 
   it("refuses a body with a suggestion out of bounds, legs that do not match, or a car leg without a distance", async () => {
     const { trip, day2, session } = await seedTrip();
-    const basis = { afterItemId: null, startTime: "09:30", fingerprint: "items:0" };
+    const basis = { afterItemId: null, fingerprint: "items:0" };
     const leg = { durationMinutes: 5, distanceKm: 1 };
     const refused = async (body: unknown) => (await postApply(trip.id, day2.id, session, body)).status;
     expect(await refused({ mode: "car", suggestions: [{ ...harbour, durationMinutes: 601 }], legs: [leg], basis })).toBe(400);

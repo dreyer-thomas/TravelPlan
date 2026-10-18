@@ -10,16 +10,25 @@ import {
   planFirstLegPoint,
   planOrderingOrigin,
   planOrigin,
-  planStartMinute,
+  planSuggestionAppend,
 } from "@/lib/repositories/daySuggestionApplyRepo";
+import { readScheduleInputInTransaction } from "@/lib/repositories/dayScheduleTransaction";
+import { prisma } from "@/lib/db/prisma";
 import { getDayRouteFromOsrm } from "@/lib/routing/dayRouteService";
-import { chainTimes, legFromOsrm, orderSuggestions, SUGGESTION_MODE_ROUTING, type SuggestionLeg } from "@/lib/trips/suggestionPlan";
+import {
+  legFromOsrm,
+  orderSuggestions,
+  SUGGESTION_MODE_ROUTING,
+  suggestionDurationMinutes,
+  type SuggestionLeg,
+} from "@/lib/trips/suggestionPlan";
 import { dayRouteParamsSchema } from "@/lib/validation/dayRouteSchemas";
 import { suggestionPreviewRequestSchema, type SuggestionPreview } from "@/lib/validation/daySuggestionApplySchemas";
 
 /**
  * Story 12.4 (AC1–AC3, AC6). `POST` the ticked suggestions and the search's mode; get back the order they
- * would be visited in, their times and the legs between them. Writes nothing.
+ * would be visited in, their times and the legs between them. Writes nothing. The times come from the
+ * apply's own planner (`planSuggestionAppend`, Story 13.4) over the day as it stands.
  *
  * A planning step, so writers only (`refuseUnlessTripWriter`), unlike the search, which also admits an
  * ADMIN viewer. It calls no AI, so it neither checks `isAiSuggestionsEnabled` nor counts against the daily
@@ -137,18 +146,26 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
       }
     }
 
-    const { rows, overflow } = chainTimes({
-      startMinute: planStartMinute(planContext),
-      legMinutes: legs.map((leg) => leg?.durationMinutes ?? null),
-      durations: ordered.map((suggestion) => suggestion.durationMinutes),
-    });
+    // Story 13.4 §8: the apply's planner, on the day read after the OSRM call (the apply re-plans anyway).
+    const state = await readScheduleInputInTransaction(prisma, tripId, dayId);
+    if (!state) {
+      return fail(apiError("not_found", "Trip day not found"), 404);
+    }
+    const plan = planSuggestionAppend(
+      state,
+      ordered.map((suggestion) => suggestionDurationMinutes(suggestion.durationMinutes)),
+      legs.map((leg) => leg?.durationMinutes ?? null),
+    );
+    const rows = plan.appended.map((row) =>
+      row.fromTime && row.toTime ? { fromTime: row.fromTime, toTime: row.toTime } : null,
+    );
 
     const preview: SuggestionPreview = {
       order,
       rows,
       legs,
-      basis: planBasis(planContext),
-      overflow,
+      basis: planBasis(planContext, plan),
+      overflow: rows.some((row) => row === null),
       routingUnavailable,
       origin: planOrigin(planContext),
     };

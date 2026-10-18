@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { SUGGESTION_MODE_ROUTING, type ChainedTimes, type SuggestionLeg } from "@/lib/trips/suggestionPlan";
+import { SUGGESTION_MODE_ROUTING, type SuggestionTimes, type SuggestionLeg } from "@/lib/trips/suggestionPlan";
 import { transportTypeRequiresDistance } from "@/lib/trips/transportTypes";
 import {
   isWikimediaThumbnailUrl,
@@ -47,14 +47,11 @@ export const suggestionPreviewRequestSchema = z.object({
   suggestions: suggestionsSchema,
 });
 
-const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
-
 /** Item 9. What the plan was computed on; apply refuses with `409 day_plan_changed` when it moved. */
 export const suggestionPlanBasisSchema = z
   .object({
     afterItemId: z.string().min(1).max(128).nullable(),
-    startTime: z.string().regex(TIME_PATTERN),
-    /** Opaque to the client: the rest of what the preview read (`planBasis`). */
+    /** Opaque to the client: what the preview read and the times it planned (`planBasis`). */
     fingerprint: z.string().min(1).max(512),
   })
   .strict();
@@ -72,8 +69,8 @@ const legSchema = z
 
 /**
  * `suggestions` in visiting order (the preview's `order` applied) and one leg per suggestion, the leg
- * *into* it. Apply recomputes the times from these legs with the preview's own function and never calls
- * OSRM again (item 8).
+ * *into* it. Apply plans the day with these legs through the preview's own planner (Story 13.4) and never
+ * calls OSRM again (item 8).
  */
 export const suggestionApplyRequestSchema = z
   .object({
@@ -107,7 +104,7 @@ export type SuggestionPreviewOrigin = {
 /** `200 { data: SuggestionPreview }`. `rows` and `legs` are in visiting order; `order` maps them back. */
 export type SuggestionPreview = {
   order: number[];
-  rows: (ChainedTimes | null)[];
+  rows: (SuggestionTimes | null)[];
   legs: (SuggestionLeg | null)[];
   basis: SuggestionPlanBasis;
   overflow: boolean;

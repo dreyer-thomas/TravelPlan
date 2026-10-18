@@ -54,7 +54,9 @@ import {
  * delete as the other kinds, then restores the legs the apply swept. The image *files* go only after the
  * transaction commits, and only those of the rows read inside it (the route does that): nothing else can
  * point at them, because the activities they belonged to are gone (unlike a deleted item, whose undo
- * recreates rows that point at its files - DW-187 stays as it is).
+ * recreates rows that point at its files - DW-187 stays as it is). Since Story 13.4 the apply recomputes the
+ * day, so its `movedItems` may list existing rows it moved or renumbered (never one it created), restored
+ * like every other kind's.
  *
  * Story 13.1 (version 3). Every write recomputes the day, so `movedItems` also lists rows only renumbered;
  * phase 1 checks every one of them and phase 2 restores `fromTime`, `toTime`, `sortOrder` and `updatedAt`.
@@ -202,8 +204,9 @@ const findInvalidity = (receipt: DayChangeReceipt, tripId: string): string | nul
   }
 
   if (edited.kind === "suggestionsApplied") {
-    // An apply only appends: it never moves an existing activity.
-    if (receipt.movedItems.length > 0) return "side effect an apply never has";
+    // Story 13.4: the apply recomputes the day, so it may move existing rows, never one it created.
+    const createdIds = new Set(edited.items.map((item) => item.itemId));
+    if (receipt.movedItems.some((moved) => createdIds.has(moved.itemId))) return "applied item listed as moved";
     if (new Set(edited.items.map((item) => item.itemId)).size !== edited.items.length) return "duplicate item";
     if (new Set(edited.segments.map((segment) => segment.segmentId)).size !== edited.segments.length) return "duplicate leg";
     if (edited.segments.some((segment) => legIds.has(segment.segmentId))) return "leg both created and removed";

@@ -14,7 +14,11 @@ import { buildDayMapPanelData, buildTripDayMapItems, type TripDayMapPanelData } 
 // have to agree on is the shape of this story's original defect; one import removes it. The shared
 // signature takes `Date | string`, so the `Date`s here are a drop-in.
 import { compareDayPlanItemsByOrder } from "@/lib/trips/dayPlanItemOrder";
-import { DEFAULT_ACTIVITY_DURATION_MINUTES, legacyScheduleFields } from "@/lib/trips/legacySchedule";
+import {
+  carriedScheduleFields,
+  DEFAULT_ACTIVITY_DURATION_MINUTES,
+  legacyScheduleFields,
+} from "@/lib/trips/legacySchedule";
 import { buildScheduleInput, derivePlanConflicts, type DayPlanConflict } from "@/lib/trips/planConflicts";
 import { buildParkedContentJson } from "@/lib/trips/parkedItemContent";
 import { parkedDayPlanItemsWhere } from "@/lib/repositories/dayPlanItemRepo";
@@ -478,6 +482,13 @@ export type TripExportPayload = {
       title: string | null;
       fromTime: string | null;
       toTime: string | null;
+      /**
+       * Story 13.4. The schedule fields, so a restore keeps flexible activities flexible. `sortOrder` is the
+       * activity's position in the day's order (`compareDayPlanItemsByOrder`), not the raw column.
+       */
+      scheduleMode: "FIXED" | "FLEXIBLE";
+      durationMinutes: number;
+      sortOrder: number;
       contentJson: string;
       costCents: number | null;
       costOriginalAmount: number | null;
@@ -498,10 +509,13 @@ export type TripExportPayload = {
 
 /**
  * Story 14.1. A parked activity in the backup. `sortOrder` is not carried: a parked row's is always 0.
- * `durationMinutes` is, unlike on a day item until Story 13.4, so a two-hour idea does not come back as
+ * `durationMinutes` is, as on a day item since Story 13.4, so a two-hour idea does not come back as
  * fifteen minutes.
  */
-export type TripExportParkedDayPlanItem = Omit<TripExportPayload["days"][number]["dayPlanItems"][number], "fromTime" | "toTime"> & {
+export type TripExportParkedDayPlanItem = Omit<
+  TripExportPayload["days"][number]["dayPlanItems"][number],
+  "fromTime" | "toTime" | "sortOrder" | "scheduleMode" | "durationMinutes"
+> & {
   scheduleMode: "FLEXIBLE";
   durationMinutes: number;
 };
@@ -1942,6 +1956,9 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
               title: true,
               fromTime: true,
               toTime: true,
+              scheduleMode: true,
+              durationMinutes: true,
+              sortOrder: true,
               contentJson: true,
               costCents: true,
               costOriginalAmount: true,
@@ -2291,6 +2308,11 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
       ? await registerDocumentGallery(day.accommodation.documents)
       : [];
 
+    // Story 13.4: each activity's position in the day's order. The array keeps `createdAt` order (the
+    // legacy rule's tiebreak reads it); seeded rows tying at `sortOrder` 0 still get distinct positions.
+    const position = new Map(
+      [...day.dayPlanItems].sort(compareDayPlanItemsByOrder).map((item, index) => [item.id, index]),
+    );
     const dayPlanItems: TripExportPayload["days"][number]["dayPlanItems"] = [];
     for (const item of day.dayPlanItems) {
       const images = await registerGallery(item.images);
@@ -2300,6 +2322,9 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
         title: item.title,
         fromTime: item.fromTime,
         toTime: item.toTime,
+        scheduleMode: item.scheduleMode,
+        durationMinutes: item.durationMinutes,
+        sortOrder: position.get(item.id)!,
         contentJson: item.contentJson,
         costCents: item.costCents,
         costOriginalAmount: item.costOriginalAmount,
@@ -2857,11 +2882,28 @@ const createImportedDays = async ({
 
     // Insertion order is the package's array order and must stay that way: import does not preserve
     // `createdAt`, so plan-item ordering - which travel segments now depend on - is insertion order.
-    // Story 13.1 (AC15): a backup carries no schedule fields until 13.4, so each row gets them by the
-    // migration's rule, with the array order as the creation order the rule's tiebreak reads.
-    const scheduleFields = legacyScheduleFields(
-      day.dayPlanItems.map((item) => ({ fromTime: item.fromTime ?? null, toTime: item.toTime ?? null })),
+    // Story 13.4: a day whose activities carry the schedule fields (the schema allows all or none) is
+    // restored exactly as exported. A backup from before 13.4 carries none, so each row gets them by the
+    // migration's rule (Story 13.1 AC15), with the array order as the creation order its tiebreak reads.
+    const carried = day.dayPlanItems.flatMap((item) =>
+      item.scheduleMode !== undefined && item.durationMinutes !== undefined && item.sortOrder !== undefined
+        ? [
+            {
+              scheduleMode: item.scheduleMode,
+              durationMinutes: item.durationMinutes,
+              sortOrder: item.sortOrder,
+              fromTime: item.fromTime ?? null,
+              toTime: item.toTime ?? null,
+            },
+          ]
+        : [],
     );
+    const scheduleFields =
+      day.dayPlanItems.length > 0 && carried.length === day.dayPlanItems.length
+        ? carriedScheduleFields(carried)
+        : legacyScheduleFields(
+            day.dayPlanItems.map((item) => ({ fromTime: item.fromTime ?? null, toTime: item.toTime ?? null })),
+          );
     for (const [itemIndex, item] of day.dayPlanItems.entries()) {
       const schedule = scheduleFields[itemIndex];
       const createdItem = await tx.dayPlanItem.create({

@@ -2,8 +2,14 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { prisma } from "@/lib/db/prisma";
 import {
+  applyScheduleChangesInTransaction,
   buildReceipt,
   DayPlanChangedError,
+  planDaySchedule,
+  readScheduleInputInTransaction,
+  toPlanConflicts,
+  type DaySchedulePlan,
+  type ScheduleDayState,
 } from "@/lib/repositories/dayScheduleTransaction";
 import {
   buildSegmentTimelineInTransaction,
@@ -13,17 +19,12 @@ import {
 } from "@/lib/repositories/travelSegmentRepo";
 import type { DayChangeReceipt } from "@/lib/trips/dayChangeReceipt";
 import { compareDayPlanItemsByOrder } from "@/lib/trips/dayPlanItemOrder";
-import { activityEndMinutes, minutesToTime, timeToMinutes } from "@/lib/trips/daySchedule";
+import type { ScheduleItem, ScheduleLeg } from "@/lib/trips/daySchedule";
 import { buildDaySegmentPairKey, buildDrawnDaySegmentPairKeys } from "@/lib/trips/daySegmentPairs";
 import { planDayPlanItemGalleryPhoto, removeWrittenPhotos } from "@/lib/trips/importPhotos";
 import { plainTextToTiptapDoc } from "@/lib/trips/planText";
-import { resolveDayStartMinute } from "@/lib/trips/stayTimes";
 import type { DownloadedSuggestionImage } from "@/lib/trips/suggestionImageDownload";
-import { chainTimes, SUGGESTION_MODE_ROUTING } from "@/lib/trips/suggestionPlan";
-import {
-  MAX_ACTIVITY_DURATION_MINUTES,
-  MIN_ACTIVITY_DURATION_MINUTES,
-} from "@/lib/validation/dayPlanItemSchemas";
+import { SUGGESTION_MODE_ROUTING, suggestionDurationMinutes } from "@/lib/trips/suggestionPlan";
 import type { GeoPoint } from "@/lib/geo/distance";
 import type {
   ApplySuggestion,
@@ -39,21 +40,25 @@ import type { SuggestionMode } from "@/lib/validation/daySuggestionSchemas";
  * check-out, and the apply needs both. The day is read through the writer clause, as every planning write
  * reads it.
  *
- * **What the plan starts from** (the *basis*). The chain starts when the last timed activity has ended
- * (the latest end on the day, so no new stop overlaps a long one that started earlier), or at last night's
- * check-out (10:00 when none is stored, the time the timeline draws), or at 09:00 on a
- * day with no stay the night before. The basis also carries a fingerprint of everything else the preview
- * planned from: how many activities the day has, where the first leg leaves from, the point the stops
- * are ordered from and tonight's stay. Apply re-reads it inside its transaction and refuses with
- * `DayPlanChangedError` (`409 day_plan_changed`) when any of it moved, so a day that changed after the
- * preview is never written to with the preview's times or legs, and a repeated apply (a retry after a
- * lost answer, a second tab) is refused even when all its activities were untimed.
+ * **The times** (Story 13.4). The suggestions are appended as FLEXIBLE activities after the day's last
+ * activity, timed or not, and the day is planned through `planDaySchedule` (`planSuggestionAppend`), so
+ * their times are the schedule rule's: they follow the last activity (or start at the day start on an
+ * empty day) plus the legs, and those that do not fit before 23:59 have none. The preview and the apply
+ * run the same planner.
  *
- * **The transaction** follows the Epic 11 writes: drawn keys before, the creates, the sweep of any leg the
- * new activities now sit inside (typically last activity → tonight's stay), the check-in warning, the
- * receipt. It also creates legs, which 11.1 reserved for undo: R7 makes this the one deliberate
- * exception. A leg is created only where the final timeline draws it, so an untimed activity sorting
- * between two new ones never ends up under an orphaned leg. No leg goes to tonight's stay.
+ * **The basis.** What the preview planned from: the day's last activity, and a fingerprint of the rest:
+ * how many activities the day has, where the first leg leaves from, the point the stops are ordered from,
+ * tonight's stay, and the planned times themselves. Apply plans again inside its transaction and refuses
+ * with `DayPlanChangedError` (`409 day_plan_changed`) when any of it differs, so a day that changed after
+ * the preview (a check-out, an earlier duration, a leg) is never written to with times the user did not
+ * see, and a repeated apply (a retry after a lost answer, a second tab) is refused.
+ *
+ * **The transaction** follows the Epic 13 writes: plan before the first write, drawn keys, the creates,
+ * the recompute of every other row whose times or order changed (an unsettled day, a legacy import's,
+ * is normalised here), the sweep of any leg the new activities now sit inside (typically last activity →
+ * tonight's stay), the receipt. It also creates legs, which 11.1 reserved for undo: R7 makes this the
+ * one deliberate exception. A leg is created only where the final timeline draws it. No leg goes to
+ * tonight's stay.
  *
  * **Files.** The pictures were downloaded before (network I/O cannot sit inside a SQLite transaction);
  * each one is written after its activity exists, because the path names the activity. Every written
@@ -74,10 +79,8 @@ export type SuggestionPlanContext = {
   /** Tonight's stay; only its point matters. */
   end: GeoPoint | null;
   tripStart: { label: string | null; point: GeoPoint | null };
-  /** The last timed activity in the timeline's order: the first stop's neighbour, where its leg leaves. */
-  lastTimed: { id: string; title: string | null; point: GeoPoint | null } | null;
-  /** The latest end of any timed activity, where the chain starts; `null` with none. */
-  timedEndMinute: number | null;
+  /** The day's last activity in its order, timed or not: the first stop's neighbour, where its leg leaves. */
+  lastItem: { id: string; title: string | null; point: GeoPoint | null } | null;
   /** Every activity on the day, timed or not: a repeated apply of untimed ones still changes it. */
   itemCount: number;
 };
@@ -123,14 +126,9 @@ const readPlanContext = async (
   });
   const previous = previousDay?.accommodation ?? null;
 
-  // The last timed activity in the timeline's order is the first stop's neighbour; the chain starts at the
-  // latest end, which a long activity that started earlier may hold. One whose start cannot be read is
-  // not timed here.
-  const timed = [...day.dayPlanItems]
-    .sort(compareDayPlanItemsByOrder)
-    .filter((item) => Boolean(item.fromTime) && activityEndMinutes(item) !== null);
-  const last = timed.at(-1) ?? null;
-  const ends = timed.map((item) => activityEndMinutes(item) as number);
+  // The suggestions are appended after the day's last activity (an overflow row without times counts), so
+  // it is the first stop's neighbour.
+  const last = [...day.dayPlanItems].sort(compareDayPlanItemsByOrder).at(-1) ?? null;
 
   return {
     tripDayId: day.id,
@@ -142,10 +140,9 @@ const readPlanContext = async (
       label: day.trip.startLocationLabel?.trim() || null,
       point: pointOf(day.trip.startLocationLat, day.trip.startLocationLng),
     },
-    lastTimed: last
+    lastItem: last
       ? { id: last.id, title: last.title, point: pointOf(last.locationLat, last.locationLng) }
       : null,
-    timedEndMinute: ends.length > 0 ? Math.max(...ends) : null,
     itemCount: day.dayPlanItems.length,
   };
 };
@@ -158,35 +155,24 @@ export const loadSuggestionPlanContextForWriter = (
 ): Promise<SuggestionPlanContext | null> => readPlanContext(prisma, userId, tripId, tripDayId);
 
 /**
- * Where the chain starts (AC2): the latest end of any timed activity; else last night's check-out (stored, or the
- * timeline's 10:00 default); else, with no stay last night, 09:00 (ruling 1c).
- */
-export const planStartMinute = (context: SuggestionPlanContext): number => {
-  if (context.timedEndMinute !== null) return context.timedEndMinute;
-  // Story 13.1 §17: the rest is the schedule rule's day start, from the one helper.
-  return resolveDayStartMinute(context.previousStay);
-};
-
-
-/**
- * The point the stops are ordered from (AC1): the last timed activity's place, else last night's stay,
+ * The point the stops are ordered from (AC1): the day's last activity's place, else last night's stay,
  * else the trip's start.
  */
 export const planOrderingOrigin = (context: SuggestionPlanContext): GeoPoint | null =>
-  context.lastTimed?.point ?? context.previousStay?.point ?? context.tripStart.point;
+  context.lastItem?.point ?? context.previousStay?.point ?? context.tripStart.point;
 
 /**
  * Where the first leg leaves from, which is always the first stop's timeline neighbour, never a fallback:
- * a last timed activity without a place has an unknown first leg (AC4).
+ * a last activity without a place has an unknown first leg (AC4).
  */
 export const planFirstLegPoint = (context: SuggestionPlanContext): GeoPoint | null => {
-  if (context.lastTimed) return context.lastTimed.point;
+  if (context.lastItem) return context.lastItem.point;
   if (context.previousStay) return context.previousStay.point;
   return context.tripStart.point;
 };
 
 export const planOrigin = (context: SuggestionPlanContext): SuggestionPreviewOrigin => {
-  if (context.lastTimed) return { kind: "activity", label: context.lastTimed.title?.trim() || null };
+  if (context.lastItem) return { kind: "activity", label: context.lastItem.title?.trim() || null };
   if (context.previousStay) return { kind: "stay", label: context.previousStay.name };
   if (context.tripStart.point || context.tripStart.label) return { kind: "tripStart", label: context.tripStart.label };
   return { kind: "none", label: null };
@@ -196,27 +182,62 @@ const pointKey = (point: GeoPoint | null) => (point ? `${point.lat},${point.lng}
 
 /** The first leg's `from` end as apply would store it; `null` when nothing can carry a leg (trip start). */
 const planFirstLegFrom = (context: SuggestionPlanContext) =>
-  context.lastTimed
-    ? { type: "dayPlanItem" as const, id: context.lastTimed.id }
+  context.lastItem
+    ? { type: "dayPlanItem" as const, id: context.lastItem.id }
     : context.previousStay
       ? { type: "accommodation" as const, id: context.previousStay.id }
       : null;
 
+/** Story 13.4 §3. A stand-in id for suggestion `index`; no stored row or leg can carry one. */
+const standInId = (index: number) => `\u0000suggestion:${index}`;
+
 /**
- * Item 9. What the plan was computed on. `afterItemId` and `startTime` decide the times; the fingerprint
- * covers the rest the preview read: the day's activity count, the first leg's `from` end and point, the
- * ordering origin and tonight's stay.
+ * Story 13.4 §3. The day with the suggestions appended FLEXIBLE in visiting order, planned through
+ * `planDaySchedule`. `durations` are already rounded (`suggestionDurationMinutes`); `legMinutes[i]` is the
+ * leg into suggestion `i`, `null` when unknown. The leg into the first one leaves from the day's last row,
+ * or from last night's stay on an empty day, or from nothing (the trip's start carries no leg), which is
+ * exactly what `scheduleDay` reads. `appended[i]` is suggestion `i`'s times and `sortOrder`.
  */
-export const planBasis = (context: SuggestionPlanContext): SuggestionPlanBasis => {
+export const planSuggestionAppend = (
+  state: ScheduleDayState,
+  durations: number[],
+  legMinutes: (number | null)[],
+): DaySchedulePlan => {
+  const items: ScheduleItem[] = durations.map((durationMinutes, index) => ({
+    id: standInId(index),
+    title: null,
+    scheduleMode: "FLEXIBLE",
+    durationMinutes,
+    fromTime: null,
+    toTime: null,
+  }));
+  const firstFrom = state.rows.at(-1)?.id ?? state.previousStay?.id ?? null;
+  const legs: ScheduleLeg[] = [];
+  items.forEach((item, index) => {
+    const minutes = legMinutes[index] ?? null;
+    const fromKey = index === 0 ? firstFrom : items[index - 1].id;
+    if (minutes === null || fromKey === null) return;
+    legs.push({ fromKey, toKey: item.id, durationMinutes: minutes });
+  });
+  return planDaySchedule(state, { kind: "append", items, legs });
+};
+
+/**
+ * Item 9, Story 13.4 §7. What the plan was computed on. `afterItemId` is the day's last activity; the
+ * fingerprint covers the rest the preview read (the day's activity count, the first leg's `from` end and
+ * point, the ordering origin, tonight's stay) and the times it planned, so a change of last night's
+ * check-out, an earlier duration or a leg is a different basis too.
+ */
+export const planBasis = (context: SuggestionPlanContext, plan: DaySchedulePlan): SuggestionPlanBasis => {
   const from = planFirstLegFrom(context);
   return {
-    afterItemId: context.lastTimed?.id ?? null,
-    startTime: minutesToTime(planStartMinute(context)),
+    afterItemId: context.lastItem?.id ?? null,
     fingerprint: [
       `items:${context.itemCount}`,
       `from:${from ? `${from.type}:${from.id}` : "-"}@${pointKey(planFirstLegPoint(context))}`,
       `order:${pointKey(planOrderingOrigin(context))}`,
       `end:${pointKey(context.end)}`,
+      `times:${plan.appended.map((row) => (row.fromTime && row.toTime ? `${row.fromTime}-${row.toTime}` : "-")).join(",")}`,
     ].join("|"),
   };
 };
@@ -245,7 +266,7 @@ export type ApplySuggestionsParams = {
 const APPLY_TRANSACTION_TIMEOUT_MS = 20000;
 
 const sameBasis = (left: SuggestionPlanBasis, right: SuggestionPlanBasis) =>
-  left.afterItemId === right.afterItemId && left.startTime === right.startTime && left.fingerprint === right.fingerprint;
+  left.afterItemId === right.afterItemId && left.fingerprint === right.fingerprint;
 
 /**
  * AC4. Writes every activity, its pictures and the drawn legs in one transaction, and returns the receipt.
@@ -262,46 +283,33 @@ export const applySuggestionsForTripDay = async (params: ApplySuggestionsParams)
       async (tx) => {
         const context = await readPlanContext(tx, userId, tripId, tripDayId);
         if (!context) return null;
-        if (!sameBasis(planBasis(context), basis)) throw new DayPlanChangedError();
+        const state = await readScheduleInputInTransaction(tx, tripId, tripDayId);
+        if (!state) return null;
 
-        const { rows } = chainTimes({
-          startMinute: planStartMinute(context),
-          legMinutes: legs.map((leg) => leg?.durationMinutes ?? null),
-          durations: suggestions.map((suggestion) => suggestion.durationMinutes),
-        });
+        // Story 13.4: the same planner as the preview, on the day as it stands in this transaction.
+        const durations = suggestions.map((suggestion) => suggestionDurationMinutes(suggestion.durationMinutes));
+        const plan = planSuggestionAppend(state, durations, legs.map((leg) => leg?.durationMinutes ?? null));
+        if (!sameBasis(planBasis(context, plan), basis)) throw new DayPlanChangedError();
 
+        const now = new Date();
         const drawnBefore = await readDrawnSegmentKeysInTransaction(tx, tripId, tripDayId);
 
-        // Story 13.1 §12, until 13.4 makes suggestions flexible: a chained row is FIXED at its chained
-        // times, an overflow row (no times) FLEXIBLE with its suggested duration, and all of them are
-        // appended in visiting order after the day's current last row. No recompute runs.
-        const last = await tx.dayPlanItem.aggregate({ where: { tripDayId }, _max: { sortOrder: true } });
-        const firstSortOrder = (last._max.sortOrder ?? -1) + 1;
-
-        // Each a millisecond after the last, so untimed ones (past midnight) keep the visiting order.
+        // Each a millisecond after the last: the order is `sortOrder`, but the creation order stays readable.
         const base = Date.now();
         const created: { id: string; updatedAt: Date }[] = [];
         const imageIds: string[] = [];
         for (const [index, suggestion] of suggestions.entries()) {
-          const times = rows[index];
-          const fromTime = times?.fromTime ?? null;
-          const toTime = times?.toTime ?? null;
-          const chained = fromTime !== null && toTime !== null;
+          const planned = plan.appended[index];
           const item = await tx.dayPlanItem.create({
             data: {
               tripId,
               tripDayId,
               title: suggestion.title,
-              fromTime,
-              toTime,
-              scheduleMode: chained ? "FIXED" : "FLEXIBLE",
-              durationMinutes: chained
-                ? timeToMinutes(toTime)! - timeToMinutes(fromTime)!
-                : Math.min(
-                    MAX_ACTIVITY_DURATION_MINUTES,
-                    Math.max(MIN_ACTIVITY_DURATION_MINUTES, Math.round(suggestion.durationMinutes)),
-                  ),
-              sortOrder: firstSortOrder + index,
+              fromTime: planned.fromTime,
+              toTime: planned.toTime,
+              scheduleMode: "FLEXIBLE",
+              durationMinutes: durations[index],
+              sortOrder: planned.sortOrder,
               contentJson: plainTextToTiptapDoc(suggestion.description),
               locationLat: suggestion.lat,
               locationLng: suggestion.lng,
@@ -329,6 +337,9 @@ export const applySuggestionsForTripDay = async (params: ApplySuggestionsParams)
             imageIds.push(row.id);
           }
         }
+
+        // Every other row whose times or order the plan changed (an unsettled day is normalised here).
+        const movedItems = await applyScheduleChangesInTransaction(tx, tripDayId, plan.changes, now);
 
         const removed = await sweepNoLongerDrawnSegmentsInTransaction(tx, { tripId, tripDayId, drawnBefore });
 
@@ -368,7 +379,9 @@ export const applySuggestionsForTripDay = async (params: ApplySuggestionsParams)
             imageIds,
           },
           removed,
-          [],
+          movedItems,
+          // Appended FLEXIBLE rows cannot make an earlier FIXED row late; passed anyway, so the receipt is honest.
+          { planConflicts: toPlanConflicts(plan.newConflicts) },
         );
       },
       { timeout: APPLY_TRANSACTION_TIMEOUT_MS },

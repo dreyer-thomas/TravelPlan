@@ -1387,3 +1387,66 @@ describe("tripImportPayloadSchema parkedDayPlanItems (Story 14.1 AC12)", () => {
     expect(result.error.issues.map((issue) => issue.message).join("\n")).toMatch(/media files, more than the/);
   });
 });
+
+describe("tripImportSchemas: an activity's schedule fields (Story 13.4)", () => {
+  const item = validPayload.days[0].dayPlanItems[0];
+  const withItems = (dayPlanItems: Record<string, unknown>[]) =>
+    tripImportPayloadSchema.safeParse({
+      ...validPayload,
+      days: [{ ...validPayload.days[0], dayPlanItems }, validPayload.days[1]],
+    });
+  const scheduled = (id: string, sortOrder: number, extra: Record<string, unknown> = {}) => ({
+    ...item,
+    id,
+    scheduleMode: "FLEXIBLE",
+    durationMinutes: 60,
+    sortOrder,
+    ...extra,
+  });
+  const messages = (result: ReturnType<typeof withItems>) =>
+    result.success ? [] : result.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`);
+
+  it("accepts a day whose activities all carry the fields, and an old backup that carries none", () => {
+    expect(withItems([scheduled("a", 0), scheduled("b", 1, { scheduleMode: "FIXED", fromTime: "10:00", toTime: "11:00" })]).success).toBe(true);
+    expect(withItems([{ ...item, id: "a" }, { ...item, id: "b" }]).success).toBe(true);
+    expect(tripImportPayloadSchema.safeParse(validPayload).success).toBe(true);
+  });
+
+  it("refuses a day where only some activities, or only some fields, are carried", () => {
+    expect(messages(withItems([scheduled("a", 0), { ...item, id: "b" }]))).toEqual([
+      "days.0.dayPlanItems.1: Schedule fields must be on every activity of a day or on none",
+    ]);
+    const { sortOrder: _sortOrder, ...partial } = scheduled("a", 0);
+    void _sortOrder;
+    expect(messages(withItems([partial]))).toEqual([
+      "days.0.dayPlanItems.0: Schedule fields must be on every activity of a day or on none",
+    ]);
+  });
+
+  it("refuses duplicate sortOrders within a day", () => {
+    expect(messages(withItems([scheduled("a", 1), scheduled("b", 1)]))).toEqual([
+      "days.0.dayPlanItems.1: Duplicate activity sortOrder detected: 1",
+    ]);
+  });
+
+  it("accepts a one-minute duration and refuses 0 and 1440", () => {
+    expect(withItems([scheduled("a", 0, { durationMinutes: 1 })]).success).toBe(true);
+    expect(withItems([scheduled("a", 0, { durationMinutes: 0 })]).success).toBe(false);
+    expect(withItems([scheduled("a", 0, { durationMinutes: 1440 })]).success).toBe(false);
+    expect(withItems([scheduled("a", 0, { scheduleMode: "PARKED" })]).success).toBe(false);
+    expect(withItems([scheduled("a", -1)]).success).toBe(false);
+  });
+
+  it("does not let a parked activity carry a sortOrder", async () => {
+    const result = tripImportPayloadSchema.safeParse({
+      ...validPayload,
+      trip: {
+        ...validPayload.trip,
+        parkedDayPlanItems: [{ ...item, id: "idea", title: "Idea", scheduleMode: "FLEXIBLE", durationMinutes: 30, sortOrder: 4 }],
+      },
+    });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.trip.parkedDayPlanItems?.[0]).not.toHaveProperty("sortOrder");
+  });
+});

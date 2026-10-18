@@ -6,6 +6,7 @@ import { GET as EXPORT } from "@/app/api/trips/[id]/export/route";
 import { POST as IMPORT } from "@/app/api/trips/import/route";
 import { createSessionJwt } from "@/lib/auth/jwt";
 import { prisma } from "@/lib/db/prisma";
+import { planDaySchedule, readScheduleInputInTransaction } from "@/lib/repositories/dayScheduleTransaction";
 import { createTripWithDays } from "@/lib/repositories/tripRepo";
 import {
   getAccommodationDocumentUploadDir,
@@ -20,6 +21,7 @@ import {
   resolveStoredMediaPath,
 } from "@/lib/trips/uploadPaths";
 import { jpegBytes, pdfBytes, pngBytes, webpBytes, writeUploadFile } from "./helpers/uploadFixtures";
+import { readZipArchive } from "./helpers/zipReader";
 
 /**
  * The automated half of Story 2.32's manual verification: export a fully populated trip through the
@@ -795,6 +797,105 @@ describe("trip backup round trip", () => {
     expect(await prisma.trip.count({ where: { userId: user.id } })).toBe(2);
   });
 
+
+  /**
+   * Story 13.4 §19. A day's schedule survives export → import exactly: per day, the ordered list of
+   * (title, scheduleMode, durationMinutes, fromTime, toTime, sortOrder) is the same in the source rows, the
+   * restored rows and both exports. The day has every shape: FIXED, FLEXIBLE with computed times, a
+   * one-minute FLEXIBLE row, an overflow row without times, and an order that is not the creation order.
+   */
+  it("round-trips a day's schedule exactly: modes, durations, times and order (Story 13.4)", async () => {
+    const user = await prisma.user.create({
+      data: { email: "round-trip-schedule@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const session = await createSessionJwt({ sub: user.id, role: user.role });
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Schedule Round Trip",
+      startDate: "2026-05-01T00:00:00.000Z",
+      endDate: "2026-05-01T00:00:00.000Z",
+    });
+    const [day] = await prisma.tripDay.findMany({ where: { tripId: trip.id } });
+
+    // [title, mode, duration, from, to, sortOrder], seeded in this (creation) order. No stay last night, so
+    // the day starts at 09:00: Breakfast 09:00, the museum booked 10:00–12:00, then the chain to 23:41, and
+    // the bar no longer fits.
+    const seeds = [
+      ["Museum", "FIXED", 120, "10:00", "12:00", 1],
+      ["Coffee", "FLEXIBLE", 1, "12:00", "12:01", 2],
+      ["Breakfast", "FLEXIBLE", 45, "09:00", "09:45", 0],
+      ["Bar", "FLEXIBLE", 60, null, null, 4],
+      ["Hike", "FLEXIBLE", 700, "12:01", "23:41", 3],
+    ] as const;
+    for (const [index, [title, scheduleMode, durationMinutes, fromTime, toTime, sortOrder]] of seeds.entries()) {
+      await prisma.dayPlanItem.create({
+        data: {
+          tripId: trip.id,
+          tripDayId: day.id,
+          title,
+          scheduleMode,
+          durationMinutes,
+          fromTime,
+          toTime,
+          sortOrder,
+          contentJson: "{}",
+          createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, index)),
+        },
+      });
+    }
+    // A day the app could have written: the schedule rule changes nothing on it.
+    const state = await readScheduleInputInTransaction(prisma, trip.id, day.id);
+    expect(planDaySchedule(state!, { kind: "none" }).changes).toEqual([]);
+
+    const columns = <T extends { title: string | null; scheduleMode: string; durationMinutes: number; fromTime: string | null; toTime: string | null; sortOrder: number }>(rows: T[]) =>
+      [...rows]
+        .sort((left, right) => left.sortOrder - right.sortOrder)
+        .map(({ title, scheduleMode, durationMinutes, fromTime, toTime, sortOrder }) => ({
+          title,
+          scheduleMode,
+          durationMinutes,
+          fromTime,
+          toTime,
+          sortOrder,
+        }));
+    const exportTrip = async (tripId: string) => {
+      const response = await EXPORT(
+        new NextRequest(`http://localhost/api/trips/${tripId}/export`, { method: "GET", headers: { cookie: `session=${session}` } }),
+        { params: Promise.resolve({ id: tripId }) },
+      );
+      expect(response.status).toBe(200);
+      return Buffer.from(await response.arrayBuffer());
+    };
+    const manifestDayItems = async (archive: Buffer) => {
+      const entry = readZipArchive(archive).entries.find((candidate) => candidate.name === "trip.json")!;
+      const manifest = JSON.parse(entry.data.toString("utf8")) as {
+        days: { dayPlanItems: Parameters<typeof columns>[0] }[];
+      };
+      return columns(manifest.days[0].dayPlanItems);
+    };
+
+    const archive = await exportTrip(trip.id);
+    const form = new FormData();
+    form.set("file", new File([new Uint8Array(archive)], "backup.zip", { type: "application/zip" }));
+    form.set("strategy", "createNew");
+    const importResponse = await IMPORT(
+      new NextRequest("http://localhost/api/trips/import", {
+        method: "POST",
+        headers: { cookie: `session=${session}; csrf_token=csrf-token`, "x-csrf-token": "csrf-token" },
+        body: form,
+      }),
+    );
+    const imported = (await importResponse.json()) as ApiEnvelope<ImportResponse>;
+    expect(importResponse.status).toBe(200);
+    const restoredTripId = imported.data!.trip.id;
+
+    const source = columns(await prisma.dayPlanItem.findMany({ where: { tripDayId: day.id } }));
+    expect(source.map((row) => row.title)).toEqual(["Breakfast", "Museum", "Coffee", "Hike", "Bar"]);
+    const restored = columns(await prisma.dayPlanItem.findMany({ where: { tripId: restoredTripId, tripDayId: { not: null } } }));
+    expect(restored).toEqual(source);
+    expect(await manifestDayItems(archive)).toEqual(source);
+    expect(await manifestDayItems(await exportTrip(restoredTripId))).toEqual(source);
+  });
 
   /**
    * Story 10.1 AC13, through both real routes. All five columns survive export → import, and - the

@@ -21,7 +21,8 @@ import { scheduleInputFor, toScheduleItem, toScheduleLeg } from "@/lib/trips/pla
 /**
  * Story 13.1 (FR42). The transaction half of the schedule rule, shared by every write that can change a
  * day's times or order: the activity writes (`dayPlanItemRepo.ts`), the leg writes (`travelSegmentRepo.ts`)
- * and last night's check-out (`accommodationRepo.ts`). It replaces Story 11.4's `dayPlanPushTransaction.ts`.
+ * and last night's check-out (`accommodationRepo.ts`), and since Story 13.4 the apply of suggestions
+ * (`daySuggestionApplyRepo.ts`). It replaces Story 11.4's `dayPlanPushTransaction.ts`.
  *
  * Each write keeps the shape Epic 11 gave it, inside one `prisma.$transaction`:
  *
@@ -159,7 +160,12 @@ export type ScheduleEdit =
    * Story 13.3. *Alle flexibel machen*: each named row becomes FLEXIBLE in place with its fixed duration
    * (`fixedDurationOf`); the order is unchanged and nothing is placed by time.
    */
-  | { kind: "makeFlexible"; itemIds: string[] };
+  | { kind: "makeFlexible"; itemIds: string[] }
+  /**
+   * Story 13.4. Applied suggestions: each item FLEXIBLE, appended in the given order after the day's last
+   * row; `legs` are put first so they win their pair, as a leg save's are.
+   */
+  | { kind: "append"; items: ScheduleItem[]; legs: ScheduleLeg[] };
 
 /**
  * Story 13.3. A FIXED row's duration as the user saw it: `toTime − fromTime` when both read and the end is
@@ -193,6 +199,8 @@ export type DaySchedulePlan = {
   edited: PlannedRow | null;
   /** Story 13.3. The rows `makeFlexible` converted, in order, as they will be written; empty otherwise. */
   converted: PlannedRow[];
+  /** Story 13.4. The rows `append` added, in order, as they will be written; empty otherwise. */
+  appended: PlannedRow[];
   changes: PlannedChange[];
   /** Conflicts this write made: new ones, or reached later than before (§15). */
   newConflicts: ScheduleConflict[];
@@ -213,6 +221,8 @@ export const planDaySchedule = (state: ScheduleDayState, edit: ScheduleEdit): Da
   let editedId: string | null = null;
   // Story 13.3: the rows `makeFlexible` converts are edited too, but are several and land in `converted`.
   const convertedIds = new Set<string>();
+  // Story 13.4: the rows `append` adds are new, like an insert's, and land in `appended`.
+  const appendedIds = new Set<string>();
   let placeId: string | null = null;
 
   const indexOf = (itemId: string) => {
@@ -272,6 +282,11 @@ export const planDaySchedule = (state: ScheduleDayState, edit: ScheduleEdit): Da
         convertedIds.add(itemId);
       }
       break;
+    case "append":
+      items.push(...edit.items);
+      legs = [...edit.legs, ...state.legs];
+      for (const item of edit.items) appendedIds.add(item.id);
+      break;
     default: {
       const unhandled: never = edit;
       throw new Error(`Unhandled schedule edit: ${String(unhandled)}`);
@@ -304,6 +319,7 @@ export const planDaySchedule = (state: ScheduleDayState, edit: ScheduleEdit): Da
 
   let edited: PlannedRow | null = null;
   const converted: PlannedRow[] = [];
+  const appended: PlannedRow[] = [];
   const changes: PlannedChange[] = [];
   for (const row of order) {
     if (row.id === editedId) {
@@ -312,6 +328,10 @@ export const planDaySchedule = (state: ScheduleDayState, edit: ScheduleEdit): Da
     }
     if (convertedIds.has(row.id)) {
       converted.push(row);
+      continue;
+    }
+    if (appendedIds.has(row.id)) {
+      appended.push(row);
       continue;
     }
     const previous = stored.get(row.id)!;
@@ -341,7 +361,7 @@ export const planDaySchedule = (state: ScheduleDayState, edit: ScheduleEdit): Da
     return !previous || conflict.lateMinutes > previous.lateMinutes;
   });
 
-  return { order, edited, converted, changes, newConflicts };
+  return { order, edited, converted, appended, changes, newConflicts };
 };
 
 /**

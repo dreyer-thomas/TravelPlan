@@ -3,14 +3,15 @@ import {
   SAME_PLACE_METERS,
   SUGGESTION_MODE_ROUTING,
   ceilToFive,
-  chainTimes,
   legFromOsrm,
   orderSuggestions,
+  suggestionDurationMinutes,
 } from "@/lib/trips/suggestionPlan";
 
 /**
- * Story 12.4 AC1/AC2. The order the picked suggestions are visited in, and the times they get. Pure, so
- * every rule is pinned here and the routes only feed it.
+ * Story 12.4 AC1/AC2. The order the picked suggestions are visited in, and (Story 13.4) the duration each is
+ * stored with. Pure, so every rule is pinned here and the routes only feed it. The times are the schedule
+ * rule's since 13.4 (`dayScheduleAppend.test.ts`, `daySuggestionApplyRoute.test.ts`).
  */
 
 // A west-to-east line through Porto: origin in the west, the night's stay about 4 km east.
@@ -67,41 +68,20 @@ describe("ceilToFive", () => {
   });
 });
 
-describe("chainTimes", () => {
-  it("starts at the start minute and adds each leg and each duration, both rounded up to five", () => {
-    const result = chainTimes({ startMinute: 10 * 60, legMinutes: [12, 7], durations: [90, 43] });
-    expect(result.overflow).toBe(false);
-    // 10:00 + 12 = 10:12 → 10:15; + 90 → 11:45. + 7 = 11:52 → 11:55; + ceil5(43) = 45 → 12:40.
-    expect(result.rows).toEqual([
-      { fromTime: "10:15", toTime: "11:45" },
-      { fromTime: "11:55", toTime: "12:40" },
-    ]);
+describe("suggestionDurationMinutes (Story 13.4)", () => {
+  it("rounds up to five minutes", () => {
+    expect(suggestionDurationMinutes(43)).toBe(45);
+    expect(suggestionDurationMinutes(91)).toBe(95);
   });
 
-  it("treats an unknown leg as no travel time", () => {
-    const result = chainTimes({ startMinute: 10 * 60 + 2, legMinutes: [null, null], durations: [60, 30] });
-    expect(result.rows).toEqual([
-      { fromTime: "10:05", toTime: "11:05" },
-      { fromTime: "11:05", toTime: "11:35" },
-    ]);
+  it("leaves a multiple of five alone; 600 stays 600", () => {
+    expect(suggestionDurationMinutes(90)).toBe(90);
+    expect(suggestionDurationMinutes(600)).toBe(600);
   });
 
-  it("leaves every row from the first one past 23:59 without times and says so", () => {
-    const result = chainTimes({ startMinute: 21 * 60, legMinutes: [0, 10, 5], durations: [120, 60, 30] });
-    expect(result.rows).toEqual([{ fromTime: "21:00", toTime: "23:00" }, null, null]);
-    expect(result.overflow).toBe(true);
-  });
-
-  it("still fits an activity ending exactly at 23:55", () => {
-    const result = chainTimes({ startMinute: 22 * 60 + 55, legMinutes: [null], durations: [60] });
-    expect(result.rows).toEqual([{ fromTime: "22:55", toTime: "23:55" }]);
-    expect(result.overflow).toBe(false);
-  });
-
-  it("refuses a start that rounds up to midnight", () => {
-    const result = chainTimes({ startMinute: 23 * 60 + 50, legMinutes: [8], durations: [10] });
-    expect(result.rows).toEqual([null]);
-    expect(result.overflow).toBe(true);
+  it("keeps the result inside the activity range", () => {
+    expect(suggestionDurationMinutes(0)).toBe(5);
+    expect(suggestionDurationMinutes(5000)).toBe(1439);
   });
 });
 

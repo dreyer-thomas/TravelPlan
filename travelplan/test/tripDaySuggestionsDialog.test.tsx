@@ -54,7 +54,7 @@ const previewData = (overrides: Partial<SuggestionPreview> = {}): SuggestionPrev
   order: [1, 0],
   rows: [{ fromTime: "09:45", toTime: "11:45" }, null],
   legs: [{ durationMinutes: 12, distanceKm: 8.4 }, null],
-  basis: { afterItemId: null, startTime: "09:30", fingerprint: "items:0|from:accommodation:stay-1@41.15,-8.65|order:41.15,-8.65|end:-" },
+  basis: { afterItemId: null, fingerprint: "items:0|from:accommodation:stay-1@41.15,-8.65|order:41.15,-8.65|end:-" },
   overflow: true,
   routingUnavailable: false,
   origin: { kind: "stay", label: "Hotel Ribeira" },
@@ -680,7 +680,7 @@ describe("TripDaySuggestionsDialog preview and apply (Story 12.4)", () => {
     renderDialog({ onApplied: vi.fn() });
     const step = await openPreview(user);
     const rows = within(step).getAllByTestId("suggestions-preview-row");
-    expect(rows[0]).toHaveTextContent("25 min · 18 km · not saved as a leg");
+    expect(rows[0]).toHaveTextContent("25 min · 18 km · not counted and not saved as a leg");
     expect(rows[1]).toHaveTextContent("7 min · 1.2 km");
     expect(rows[1]).not.toHaveTextContent("not saved");
   });

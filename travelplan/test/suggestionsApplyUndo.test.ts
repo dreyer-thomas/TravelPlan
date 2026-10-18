@@ -16,6 +16,7 @@ vi.mock("@/lib/trips/suggestionImageDownload", async () => {
 import { prisma } from "@/lib/db/prisma";
 import { getDayRouteFromOsrm } from "@/lib/routing/dayRouteService";
 import { downloadSuggestionImages } from "@/lib/trips/suggestionImageDownload";
+import { signDayChangeReceipt } from "@/lib/trips/dayChangeReceiptSignature";
 import { resolveStoredMediaPath } from "@/lib/trips/uploadPaths";
 import {
   JPEG,
@@ -161,5 +162,34 @@ describe("undo of an apply of suggestions (Story 12.4)", () => {
     const undone = await postUndo(trip.id, session, forged);
     expect(undone.status).toBe(400);
     expect(await prisma.dayPlanItem.findUnique({ where: { id: lunch.id } })).not.toBeNull();
+  });
+
+  it("refuses a signed receipt that lists a created activity as moved with 400 (Story 13.4)", async () => {
+    const { user, trip, session, receipt, edited } = await applyTwo();
+    const { signature: _signature, ...unsigned } = receipt;
+    void _signature;
+    const created = edited.items[0];
+    const alsoMoved = signDayChangeReceipt(
+      {
+        ...unsigned,
+        movedItems: [
+          {
+            itemId: created.itemId,
+            previousFromTime: "13:00",
+            previousToTime: "14:00",
+            previousSortOrder: 1,
+            fromTime: "13:05",
+            toTime: "14:35",
+            previousUpdatedAt: created.updatedAt,
+            updatedAt: created.updatedAt,
+          },
+        ],
+      },
+      { tripId: trip.id, userId: user.id },
+    );
+    const state = await databaseState();
+    const undone = await postUndo(trip.id, session, alsoMoved);
+    expect(undone.status).toBe(400);
+    expect(await databaseState()).toEqual(state);
   });
 });

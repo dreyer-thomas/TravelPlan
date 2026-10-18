@@ -1,9 +1,9 @@
-import { minutesToTime, LAST_MINUTE_OF_DAY } from "@/lib/trips/daySchedule";
+import { hasValidTimes, minutesToTime, LAST_MINUTE_OF_DAY } from "@/lib/trips/daySchedule";
 import type { ScheduleMode } from "@/lib/trips/daySchedule";
 
 /**
  * Story 13.1 (AC15). The schedule fields for rows that carry none: a day's activities from a backup made
- * before Story 13.4, which adds the fields to the export. The rule is the migration's
+ * before Story 13.4 added the fields to the export. The rule is the migration's
  * (`20261017120000_add_day_plan_item_schedule`), stated in TS once; `migrationDayPlanItemSchedule.test.ts`
  * runs both over the same rows and requires the same answer.
  *
@@ -88,4 +88,38 @@ export const legacyScheduleFields = (items: LegacyScheduleInput[]): LegacySchedu
     };
   });
   return result;
+};
+
+export type CarriedScheduleInput = {
+  scheduleMode: ScheduleMode;
+  durationMinutes: number;
+  sortOrder: number;
+  fromTime: string | null;
+  toTime: string | null;
+};
+
+/**
+ * Story 13.4. The schedule fields for a day whose activities carry them (a backup from that story on), one
+ * entry per input row, in input order. No recompute: the stored times are the exported ones, so the round
+ * trip is exact; a hand-edited inconsistency is normalised by the day's next write, as a legacy import is.
+ *
+ * - **Order**: each row's rank by the carried `sortOrder` (0, 2, 7 becomes 0, 1, 2; dense stays as it is).
+ * - **FIXED with two valid times**: kept. **FIXED without them**: FLEXIBLE, the normalisation every write
+ *   applies (13.1 §5); a seeded row or a hand-edited file can carry one.
+ * - **FLEXIBLE**: kept; `null` times mean *does not fit in the day* (13.2).
+ */
+export const carriedScheduleFields = (items: CarriedScheduleInput[]): LegacyScheduleFields[] => {
+  const rank = new Map(
+    items
+      .map((item, index) => ({ index, sortOrder: item.sortOrder }))
+      .sort((left, right) => left.sortOrder - right.sortOrder || left.index - right.index)
+      .map((entry, position) => [entry.index, position]),
+  );
+  return items.map((item, index) => ({
+    scheduleMode: item.scheduleMode === "FIXED" && hasValidTimes(item) ? "FIXED" : "FLEXIBLE",
+    durationMinutes: item.durationMinutes,
+    sortOrder: rank.get(index)!,
+    fromTime: item.fromTime,
+    toTime: item.toTime,
+  }));
 };

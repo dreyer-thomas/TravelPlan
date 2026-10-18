@@ -1,5 +1,9 @@
 # generated: 2026-03-01 13:08:00 CET
-# last_updated: 2026-10-18 (13-3-putting-the-day-in-order DONE via bmad-code-review: mutation 3 accepted as deviation (Tommy), 6 patches applied, 1 defer DW-399, 19 dismissed. 211 files / 3406 tests, tsc 0, lint 0/79. 14-4 can start.)
+# last_updated: 2026-10-18 (14-3-park-the-suggestions-too created via bmad-create-story, ready-for-dev. Per ticked card Einplanen/Parken in the choose step (toggle outside the card's label); apply takes a separate `parked` list, all-parked writes nothing on the day (no basis, no 409) and skips the preview; parked rows FLEXIBLE/no day under parked/ media; receipt suggestionsApplied gains optional parkedItems (v3), undo deletes them by parkedDayPlanItemsWhere; day view reloads the bucket list after apply and undo. Commit 13-4 first. Q1-Q5 defaults to confirm.)
+# previously: 2026-10-18 (13-4 DONE via bmad-code-review: 0 decision, 2 patches applied (export FORMAT_VERSION docblock reworded to the legacy rule, trip-id consistency test rounds the duration through suggestionDurationMinutes), 0 defer, 19 dismissed; no AC violated.)
+# previously: 2026-10-18 (13-4 REVIEW via bmad-dev-story: suggestions apply FLEXIBLE through the `append` plan kind shared by preview and apply, basis carries planned times, movedItems allowed on suggestionsApplied (never a created row); export carries scheduleMode/durationMinutes/sortOrder (position), import restores exactly or legacy per day. 213 files / 3426 tests, tsc 0, lint 0/79, build ok, 6/6 mutations red, real run passed.)
+# previously: 2026-10-18 (13-4-suggestions-and-backups-speak-in-durations created via bmad-create-story, ready-for-dev. Suggestions apply FLEXIBLE through a new planDaySchedule kind `append` shared by preview and apply (chainTimes/planStartMinute removed, first leg from the day's last row, basis fingerprint carries the planned times, movedItems allowed on suggestionsApplied); export carries scheduleMode/durationMinutes/sortOrder (position), import restores them exactly or applies the legacy rule per day. Q1-Q4 defaults to confirm.)
+# previously: 2026-10-18 (13-3-putting-the-day-in-order DONE via bmad-code-review: mutation 3 accepted as deviation (Tommy), 6 patches applied, 1 defer DW-399, 19 dismissed. 211 files / 3406 tests, tsc 0, lint 0/79. 14-4 can start.)
 # previously: 2026-10-18 (13-3-putting-the-day-in-order CODE REVIEW: 1 decision-needed (mutation 3), 6 patch left as action items, 1 defer DW-399, 19 dismissed. Status in-progress.)
 # previously: 2026-10-18 (13-3-putting-the-day-in-order REVIEW: real run passed (Tommy). Next: bmad-code-review.)
 # previously: 2026-10-18 (13-3-putting-the-day-in-order implemented via bmad-dev-story, stays in-progress until Tommy's real run (Safari, 390 px). Fixed-row hint, Einfuegen nach (afterItemId), move/swap/single-move recompute, Alle flexibel machen (receipt madeFlexible). 211 files / 3402 tests, tsc 0, lint 0/79, build ok. Mutation 3 (phase-1 staleness) survives: phase 2 guards the same. DW-376 closed.)
@@ -297,12 +301,12 @@ development_status:
   13-1-just-say-how-long: done
   13-2-when-the-plan-doesnt-work-out: done
   13-3-putting-the-day-in-order: done
-  13-4-suggestions-and-backups-speak-in-durations: backlog
+  13-4-suggestions-and-backups-speak-in-durations: done
   epic-13-retrospective: optional
 
   epic-14: in-progress
   14-1-one-kind-of-entry: done
   14-2-park-it-for-another-day: done
-  14-3-park-the-suggestions-too: backlog
+  14-3-park-the-suggestions-too: ready-for-dev
   14-4-one-way-to-another-day: ready-for-dev
   epic-14-retrospective: optional

@@ -276,6 +276,40 @@ describe("POST /api/trips/import", () => {
     expect(payload.error?.code).toBe("validation_error");
   });
 
+  it("refuses a day whose activities carry the schedule fields only partly, or twice the same sortOrder, and writes nothing (Story 13.4)", async () => {
+    const user = await prisma.user.create({
+      data: { email: "import-route-schedule@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const session = await createSessionJwt({ sub: user.id, role: user.role });
+    const activity = (id: string, schedule: Record<string, unknown>) => ({
+      id,
+      contentJson: "{}",
+      linkUrl: null,
+      location: null,
+      createdAt: "2026-02-14T12:00:00.000Z",
+      updatedAt: "2026-02-14T12:00:00.000Z",
+      ...schedule,
+    });
+    const flexible = (sortOrder: number) => ({ scheduleMode: "FLEXIBLE", durationMinutes: 30, sortOrder });
+
+    for (const dayPlanItems of [
+      [activity("a", flexible(0)), activity("b", {})],
+      [activity("a", flexible(1)), activity("b", flexible(1))],
+    ]) {
+      const response = await POST(
+        buildRequest(
+          { payload: { ...VALID_PAYLOAD, days: [{ ...VALID_PAYLOAD.days[0], dayPlanItems }, VALID_PAYLOAD.days[1]] } },
+          { session, csrf: "csrf-token" },
+        ),
+      );
+      const payload = (await response.json()) as ApiEnvelope<null>;
+      expect(response.status).toBe(400);
+      expect(payload.error?.code).toBe("validation_error");
+    }
+    expect(await prisma.trip.count({ where: { userId: user.id } })).toBe(0);
+    expect(await prisma.dayPlanItem.count()).toBe(0);
+  });
+
   it("rejects an oversized json body before reading it", async () => {
     const user = await prisma.user.create({
       data: { email: "import-route-json-oversize@example.com", passwordHash: "hashed", role: "OWNER" },

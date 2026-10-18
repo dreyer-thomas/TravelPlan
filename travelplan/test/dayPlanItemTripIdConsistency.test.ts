@@ -13,8 +13,11 @@ import {
   applySuggestionsForTripDay,
   loadSuggestionPlanContextForWriter,
   planBasis,
+  planSuggestionAppend,
 } from "@/lib/repositories/daySuggestionApplyRepo";
+import { readScheduleInputInTransaction } from "@/lib/repositories/dayScheduleTransaction";
 import { createTripWithDays, getTripExportForUser, importTripFromExportForUser } from "@/lib/repositories/tripRepo";
+import { suggestionDurationMinutes } from "@/lib/trips/suggestionPlan";
 import type { TripImportPayloadInput } from "@/lib/validation/tripImportSchemas";
 import { suggestion } from "./helpers/suggestionApplyFixtures";
 
@@ -127,6 +130,9 @@ describe("every write path keeps DayPlanItem.tripId equal to its day's trip (Sto
     const { user, trip, days } = await seed();
     const context = await loadSuggestionPlanContextForWriter(user.id, trip.id, days[0].id);
     if (!context) throw new Error("no context");
+    const state = await readScheduleInputInTransaction(prisma, trip.id, days[0].id);
+    if (!state) throw new Error("no state");
+    const plan = planSuggestionAppend(state, [suggestionDurationMinutes(suggestion().durationMinutes)], [null]);
     const receipt = await applySuggestionsForTripDay({
       userId: user.id,
       tripId: trip.id,
@@ -134,7 +140,7 @@ describe("every write path keeps DayPlanItem.tripId equal to its day's trip (Sto
       mode: "walking",
       suggestions: [suggestion({ title: "Suggested" })],
       legs: [null],
-      basis: planBasis(context),
+      basis: planBasis(context, plan),
       images: [[]],
     });
     expect(receipt).not.toBeNull();

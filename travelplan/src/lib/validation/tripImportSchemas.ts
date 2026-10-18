@@ -486,7 +486,18 @@ const refineImportedItemCost = (
 };
 
 const dayPlanItemImportSchema = z
-  .object(dayPlanItemImportFields)
+  .object({
+    ...dayPlanItemImportFields,
+    /*
+      Story 13.4. The schedule fields, on the day item only (a parked one carries no `sortOrder`). Absent in
+      a backup from before that story, whose import applies the legacy rule; per day, all or none
+      (`tripDayImportSchema`). The minimum duration is 1, not 5: *Alle flexibel machen* keeps a migrated
+      one-minute row at one minute (Story 13.3 §7); 5 is the dialog's input rule only.
+    */
+    scheduleMode: z.enum(["FIXED", "FLEXIBLE"]).optional(),
+    durationMinutes: z.number().int().min(1).max(MAX_ACTIVITY_DURATION_MINUTES).optional(),
+    sortOrder: z.number().int().min(0).optional(),
+  })
   .superRefine((value, ctx) => {
     /*
       Story 10.1 review. Nested for the same reason the sum check below is: a `return` at the top
@@ -559,6 +570,37 @@ const tripDayImportSchema = z.object({
     .max(MAX_IMPORT_SEGMENTS_PER_DAY, `A day may carry at most ${MAX_IMPORT_SEGMENTS_PER_DAY} travel segments`)
     .optional()
     .default([]),
+}).superRefine((day, ctx) => {
+  // Story 13.4: a day is restored either by its carried schedule or by the legacy rule, never by both.
+  const carries = (item: (typeof day.dayPlanItems)[number]) =>
+    [item.scheduleMode, item.durationMinutes, item.sortOrder].map((field) => field !== undefined);
+  const complete = day.dayPlanItems.map((item) => carries(item).every(Boolean));
+  const empty = day.dayPlanItems.map((item) => carries(item).every((field) => !field));
+  const anyCarried = day.dayPlanItems.some((_item, index) => !empty[index]);
+  if (anyCarried) {
+    const index = complete.findIndex((isComplete) => !isComplete);
+    if (index >= 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["dayPlanItems", index],
+        message: "Schedule fields must be on every activity of a day or on none",
+      });
+      return;
+    }
+  }
+  const seen = new Set<number>();
+  for (const [index, item] of day.dayPlanItems.entries()) {
+    if (item.sortOrder === undefined) continue;
+    if (seen.has(item.sortOrder)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["dayPlanItems", index],
+        message: `Duplicate activity sortOrder detected: ${item.sortOrder}`,
+      });
+      return;
+    }
+    seen.add(item.sortOrder);
+  }
 });
 
 const tripImportSchema = z

@@ -778,8 +778,8 @@ function SuggestionPreviewStep({
         : null;
   // With no point to start from there is no first leg to show.
   const showFirstLeg = preview.origin.kind !== "none";
-  // From the trip's start the leg counts in the times, but nothing on the day can carry it, so it is not
-  // stored; say so rather than let the notice count one leg fewer than this list shows.
+  // From the trip's start nothing on the day can carry the leg, so it is not stored and (Story 13.4) does
+  // not count in the times either; say so rather than let the notice count one leg fewer than this list shows.
   const firstLegNotSaved = preview.origin.kind === "tripStart";
 
   const legText = (leg: PreviewState["legs"][number]) =>

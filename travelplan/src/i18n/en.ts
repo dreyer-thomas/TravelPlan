@@ -801,7 +801,7 @@ const en: Dictionary = {
   "trips.suggestions.previewFromTripStart": "From the trip's starting point",
   "trips.suggestions.legSummary": "{minutes} min · {km} km",
   "trips.suggestions.legUnknown": "Travel time unknown",
-  "trips.suggestions.legNotSaved": "not saved as a leg",
+  "trips.suggestions.legNotSaved": "not counted and not saved as a leg",
   "trips.suggestions.errorDayNotFound": "This day no longer exists.",
   "trips.suggestions.untimed": "no time",
   "trips.suggestions.overflowWarning": "This runs past midnight. Whatever no longer fits is added without a time.",

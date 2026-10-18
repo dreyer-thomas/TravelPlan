@@ -63,6 +63,12 @@ type ExportManifest = {
     } | null;
     dayPlanItems: {
       id: string;
+      title: string | null;
+      fromTime: string | null;
+      toTime: string | null;
+      scheduleMode: string;
+      durationMinutes: number;
+      sortOrder: number;
       images: { sortOrder: number; photoId: string }[];
       documents: ExportDocumentRef[];
     }[];
@@ -300,6 +306,9 @@ describe("GET /api/trips/[id]/export", () => {
       })
     );
     expect(payload.trip.parkedDayPlanItems[1].contentJson).toContain("Pandas");
+    // Story 13.4: a parked activity carries no `sortOrder` (the day items do).
+    expect(payload.trip.parkedDayPlanItems[0]).not.toHaveProperty("sortOrder");
+    expect(payload.trip.parkedDayPlanItems[1]).not.toHaveProperty("sortOrder");
     // A parked activity is on no day.
     expect(payload.days[0].dayPlanItems.map((item) => item.id)).toEqual([planItem.id]);
 
@@ -318,6 +327,59 @@ describe("GET /api/trips/[id]/export", () => {
     // Endpoint ids must equal the exported records' ids, or 2.32 cannot rewire them.
     expect(segment.fromItemId).toBe(payload.days[0].accommodation?.id);
     expect(segment.toItemId).toBe(payload.days[0].dayPlanItems[0].id);
+  });
+
+  it("carries each day activity's schedule fields, sortOrder as its position in the day's order (Story 13.4)", async () => {
+    const { user, token } = await createOwner("trip-export-schedule@example.com");
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Schedule Trip",
+      startDate: "2026-09-01T00:00:00.000Z",
+      endDate: "2026-09-01T00:00:00.000Z",
+    });
+    const [day] = await prisma.tripDay.findMany({ where: { tripId: trip.id } });
+    // Three seeds tying at sortOrder 0, created out of the day's order: the comparator puts A (09:00), then C
+    // (14:00), then the untimed B.
+    const seed = (title: string, fromTime: string | null, toTime: string | null, createdAt: string) =>
+      prisma.dayPlanItem.create({
+        data: { tripId: trip.id, tripDayId: day.id, title, fromTime, toTime, contentJson: "{}", createdAt: new Date(createdAt) },
+      });
+    await seed("C", "14:00", "15:00", "2026-01-01T00:00:01.000Z");
+    await seed("A", "09:00", "10:00", "2026-01-01T00:00:02.000Z");
+    await seed("B", null, null, "2026-01-01T00:00:03.000Z");
+    await prisma.dayPlanItem.create({
+      data: {
+        tripId: trip.id,
+        tripDayId: day.id,
+        title: "Walk",
+        scheduleMode: "FLEXIBLE",
+        durationMinutes: 75,
+        sortOrder: 7,
+        fromTime: "15:00",
+        toTime: "16:15",
+        contentJson: "{}",
+        createdAt: new Date("2026-01-01T00:00:04.000Z"),
+      },
+    });
+
+    const payload = readManifest(await readArchive(await GET(buildRequest(trip.id, { session: token }), routeContext(trip.id))));
+
+    // The array keeps creation order; `sortOrder` is the position, so 7 exports as 3.
+    expect(
+      payload.days[0].dayPlanItems.map(({ title, scheduleMode, durationMinutes, sortOrder, fromTime, toTime }) => ({
+        title,
+        scheduleMode,
+        durationMinutes,
+        sortOrder,
+        fromTime,
+        toTime,
+      })),
+    ).toEqual([
+      { title: "C", scheduleMode: "FIXED", durationMinutes: 15, sortOrder: 1, fromTime: "14:00", toTime: "15:00" },
+      { title: "A", scheduleMode: "FIXED", durationMinutes: 15, sortOrder: 0, fromTime: "09:00", toTime: "10:00" },
+      { title: "B", scheduleMode: "FIXED", durationMinutes: 15, sortOrder: 2, fromTime: null, toTime: null },
+      { title: "Walk", scheduleMode: "FLEXIBLE", durationMinutes: 75, sortOrder: 3, fromTime: "15:00", toTime: "16:15" },
+    ]);
   });
 
   it("writes one archive member per pooled photo with no unregistered member and no dangling reference", async () => {

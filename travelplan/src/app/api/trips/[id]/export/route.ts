@@ -34,6 +34,12 @@ const APP_VERSION = process.env.npm_package_version ?? "0.1.0";
  * The alternative is worse in every direction. Bumping to 3 makes *every* new archive unreadable to
  * any build that has not shipped this story - including the archives that carry no documents at all,
  * which is most of them - and buys nothing in return: the old build's refusal is already accurate.
+ *
+ * Story 13.4 adds `scheduleMode`, `durationMinutes` and `sortOrder` to each day activity, again within
+ * version 2: the fields are additive. A build from before that story strips them (Zod drops unknown keys)
+ * and applies the legacy rule: timed activities come back FIXED at their times, untimed ones FLEXIBLE with
+ * 15 minutes, in the order that rule gives. Nothing is refused; that is the documented price of growing
+ * version 2.
  */
 const FORMAT_VERSION = 2;
 const MANIFEST_ENTRY_NAME = "trip.json";
