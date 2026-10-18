@@ -1217,6 +1217,12 @@ describe("POST /api/trips/[id]/day-plan-changes/undo (Story 11.1)", () => {
           },
         });
       });
+
+      it("refuses a v3 receipt that still carries a check-in warning (Story 13.2 AC8)", async () => {
+        const { trip, a, session, wire } = await seedReorderedWire("tamper-reorder-checkin@example.com");
+        // Correctly signed, so only the `.strict()` schema stands between it and an undo.
+        await expectRejected(trip.id, session, { ...wire, checkInWarning: { accommodationId: a.id, checkInTime: "17:30" } });
+      });
     });
 
     it("refuses a version-1 receipt held across the deploy (Story 11.2)", async () => {

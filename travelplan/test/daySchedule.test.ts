@@ -155,18 +155,53 @@ describe("scheduleDay (Story 13.1 AC14)", () => {
         input([flex("a", 60), flex("b", 80), fixed("ferry", "12:00", "13:00")], [leg("a", "b", 20), leg("b", "ferry", 40)]),
       );
       expect(times(late)).toEqual(["a 09:00–10:00", "b 10:20–11:40", "ferry 12:00–13:00"]);
-      expect(late.conflicts).toEqual([{ itemId: "ferry", title: "FERRY", fromTime: "12:00", reachableAt: "12:20" }]);
+      expect(late.conflicts).toEqual([{ itemId: "ferry", title: "FERRY", fromTime: "12:00", reachableAt: "12:20", lateMinutes: 20 }]);
     });
 
     it("reports two overlapping fixed rows", () => {
       const result = scheduleDay(input([fixed("tour", "10:00", "12:00"), fixed("lunch", "11:30", "12:30")]));
       expect(times(result)).toEqual(["tour 10:00–12:00", "lunch 11:30–12:30"]);
-      expect(result.conflicts).toEqual([{ itemId: "lunch", title: "LUNCH", fromTime: "11:30", reachableAt: "12:00" }]);
+      expect(result.conflicts).toEqual([{ itemId: "lunch", title: "LUNCH", fromTime: "11:30", reachableAt: "12:00", lateMinutes: 30 }]);
     });
 
-    it("reports a fixed first row the day start cannot reach", () => {
-      const result = scheduleDay(input([fixed("f", "09:10", "10:00")], [leg(STAY, "f", 30)]));
-      expect(result.conflicts).toEqual([{ itemId: "f", title: "F", fromTime: "09:10", reachableAt: "09:30" }]);
+    // Tommy's ruling in the 13.2 real run (2026-10-18): the day start is an assumption, not a limit.
+    describe("the day start never makes a booking late", () => {
+      it("does not report a fixed first row before the day start, even with a leg from last night's stay", () => {
+        const result = scheduleDay(input([fixed("f", "09:10", "10:00")], [leg(STAY, "f", 30)]));
+        expect(result.conflicts).toEqual([]);
+      });
+
+      it("does not report a flight at 00:00 on a day without a stay, and keeps the times after it", () => {
+        const result = scheduleDay({
+          dayStartMinute: timeToMinutes("09:00")!,
+          previousStayId: null,
+          items: [fixed("flight", "00:00", "12:30"), flex("a", 60)],
+          legs: [],
+        });
+        expect(result.conflicts).toEqual([]);
+        expect(times(result)).toEqual(["flight 00:00–12:30", "a 12:30–13:30"]);
+      });
+
+      it("does not report two early bookings that do not overlap, and starts the flexible rows at the day start", () => {
+        const result = scheduleDay(input([fixed("f", "05:00", "06:00"), fixed("g", "07:00", "08:00"), flex("a", 30)]));
+        expect(result.conflicts).toEqual([]);
+        expect(times(result)).toEqual(["f 05:00–06:00", "g 07:00–08:00", "a 09:00–09:30"]);
+      });
+
+      it("still reports two early bookings that overlap, from the first one's end", () => {
+        const result = scheduleDay(input([fixed("f", "05:00", "07:00"), fixed("g", "06:30", "08:00")]));
+        expect(result.conflicts).toEqual([{ itemId: "g", title: "G", fromTime: "06:30", reachableAt: "07:00", lateMinutes: 30 }]);
+      });
+
+      it("still reports an early booking after a leg from an earlier booking", () => {
+        const result = scheduleDay(input([fixed("f", "05:00", "06:00"), fixed("g", "06:15", "07:00")], [leg("f", "g", 30)]));
+        expect(result.conflicts).toEqual([{ itemId: "g", title: "G", fromTime: "06:15", reachableAt: "06:30", lateMinutes: 15 }]);
+      });
+
+      it("still reports a booking that a flexible row placed before it runs into", () => {
+        const result = scheduleDay(input([flex("a", 60), fixed("flight", "06:00", "08:00")]));
+        expect(result.conflicts).toEqual([{ itemId: "flight", title: "FLIGHT", fromTime: "06:00", reachableAt: "10:00", lateMinutes: 240 }]);
+      });
     });
 
     it("keeps a fixed row's stored strings verbatim", () => {
@@ -209,12 +244,12 @@ describe("scheduleDay (Story 13.1 AC14)", () => {
       expect(result.conflicts).toEqual([]);
     });
 
-    it("reports a fixed row reached only after midnight, with reachableAt capped at 23:59 (review D1)", () => {
+    it("reports a fixed row reached only after midnight, with reachableAt capped at 23:59 (review D1) and lateMinutes uncapped", () => {
       const result = scheduleDay(
         input([fixed("a", "21:00", "23:00"), fixed("b", "23:30", "23:45")], [leg("a", "b", 120)]),
       );
       expect(result.overflow).toEqual([]);
-      expect(result.conflicts).toEqual([{ itemId: "b", title: "B", fromTime: "23:30", reachableAt: "23:59" }]);
+      expect(result.conflicts).toEqual([{ itemId: "b", title: "B", fromTime: "23:30", reachableAt: "23:59", lateMinutes: 90 }]);
     });
   });
 

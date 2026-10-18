@@ -54,8 +54,8 @@ export const settleSeededDay = async (tripDayId: string, options: { flexible?: s
     const day = await tx.tripDay.findUniqueOrThrow({ where: { id: tripDayId }, select: { tripId: true } });
     const state = await readScheduleInputInTransaction(tx, day.tripId, tripDayId);
     if (!state) return;
+    // Story 13.2: a seeded day past 23:59 settles like a write: its overflowing rows lose their times.
     const plan = planDaySchedule(state, { kind: "none" });
-    if (plan.status !== "ok") throw new Error("settleSeededDay: the seeded day does not fit");
     for (const change of plan.changes) {
       await tx.dayPlanItem.update({
         where: { id: change.id },

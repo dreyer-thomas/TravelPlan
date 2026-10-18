@@ -16,15 +16,15 @@ import {
   travelSegmentUpdateSchema,
 } from "@/lib/validation/travelSegmentSchemas";
 import { requireSession } from "@/lib/auth/sessionGuard";
-import { dayChangedResponse, pastMidnightResponse, withPushConflict } from "@/lib/http/dayPlanPushResponses";
+import { dayChangedResponse, withPushConflict } from "@/lib/http/dayPlanPushResponses";
 import { toDayChangeReceiptWire } from "@/lib/trips/dayChangeReceipt";
 import { signDayChangeReceipt } from "@/lib/trips/dayChangeReceiptSignature";
 
 /**
  * Story 11.4 (FR42) narrows Story 11.2 AC14: a leg save (POST, PATCH) now runs the push walk from where
- * the leg starts, and answers with the signed change receipt beside the segment, always. Its refusals
- * are the activity writes' own: `409 day_plan_past_midnight` (nothing written) and `409 day_plan_changed`
- * (a pushed activity changed during the write; everything rolled back). `409 travel_segment_exists` is
+ * the leg starts, and answers with the signed change receipt beside the segment, always. Its refusal is
+ * the activity writes' own `409 day_plan_changed` (a pushed activity changed during the write; everything
+ * rolled back); since Story 13.2 a day pushed past 23:59 is saved, not refused. `409 travel_segment_exists` is
  * unchanged. DELETE never pushes.
  */
 
@@ -161,9 +161,6 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
   if (segmentResult.status === "not_adjacent") {
     return fail(apiError("validation_error", "Travel segment must connect adjacent items"), 400);
   }
-  if (segmentResult.status === "past_midnight") {
-    return pastMidnightResponse(segmentResult.item);
-  }
 
   const segment = segmentResult.segment;
 
@@ -256,10 +253,6 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
     return fail(apiError("validation_error", "Travel segment must connect adjacent items"), 400);
   }
 
-  if (updated.status === "past_midnight") {
-    return pastMidnightResponse(updated.item);
-  }
-
   return ok({
     segment: {
       id: updated.segment.id,
@@ -330,9 +323,6 @@ export const DELETE = async (request: NextRequest, context: RouteContext) => {
 
   if (deleted.status === "missing") {
     return fail(apiError("not_found", "Travel segment not found"), 404);
-  }
-  if (deleted.status === "past_midnight") {
-    return pastMidnightResponse(deleted.item);
   }
 
   return ok({

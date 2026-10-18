@@ -458,26 +458,6 @@ describe("TripDayView activity overflow menu (Story 11.3)", () => {
     expect(reorderRequests).toHaveLength(1);
   });
 
-  it("shows the past-midnight refusal naming the activity after the reload, and no notice", async () => {
-    const { detailRequestCount } = stubDay({
-      reorder: () => ({
-        status: 409,
-        body: {
-          data: null,
-          error: { code: "day_plan_past_midnight", message: "x", details: { itemId: "item-1", itemTitle: "Museum" } },
-        },
-      }),
-    });
-    await renderDay();
-    const before = detailRequestCount();
-
-    await userEvent.click(within(await openMenuFor("Market")).getByRole("menuitem", { name: en["trips.plan.moveUp"] }));
-
-    expect(await screen.findByText(en["trips.plan.pastMidnight"].replace("{title}", "Museum"))).toBeInTheDocument();
-    expect(detailRequestCount()).toBeGreaterThan(before);
-    expect(screen.queryByTestId("action-notice")).not.toBeInTheDocument();
-  });
-
   it("says the day changed on day_plan_changed, and that the view was refreshed on day_plan_not_reorderable", async () => {
     let code = "day_plan_changed";
     const { detailRequestCount } = stubDay({

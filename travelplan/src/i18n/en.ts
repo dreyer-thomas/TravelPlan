@@ -659,7 +659,6 @@ const en: Dictionary = {
   "trips.plan.loadError": "Unable to load plan items.",
   "trips.plan.saveError": "Plan item update failed. Please try again.",
   // Story 11.2. "Move up" must match Story 11.3's menu item when it ships.
-  "trips.plan.pastMidnight": "\"{title}\" would be pushed past midnight. Nothing was saved.",
   "trips.plan.dayChangedConflict": "The day was just changed. Please save again.",
   "trips.plan.untitledActivity": "Untitled activity",
   // Story 11.3: an activity's overflow menu and the reorder refusals.
@@ -736,7 +735,6 @@ const en: Dictionary = {
   "trips.dayChange.itemsMoved": "{count} activities moved",
   "trips.dayChange.itemsMovedOnDayOne": "1 activity moved on day {day}",
   "trips.dayChange.itemsMovedOnDay": "{count} activities moved on day {day}",
-  "trips.dayChange.checkInWarning": "You will reach your stay after its {time} check-in.",
   "trips.dayChange.legsRemovedOne": "1 travel leg removed",
   "trips.dayChange.legsRemoved": "{count} travel legs removed",
   "trips.dayChange.activitiesAddedOne": "1 activity added",
@@ -752,6 +750,9 @@ const en: Dictionary = {
   "trips.dayChange.undoError": "Undo failed – please try again.",
   "trips.dayChange.undoUnavailable": "This change can no longer be undone.",
   "trips.dayChange.planConflict": "{title} starts at {start}, reachable only at {reachable}",
+  "trips.planConflict.lateBy": "Reachable only at {reachable} ({late} late)",
+  "trips.planConflict.overflow": "No longer fits in the day",
+  "trips.planConflict.dayBadge": "The plan doesn't work out · {count}",
   // Story 12.3. The AI day-suggestion dialog. Plurals use singular twin keys (`resultsOne`, `selectedOne`).
   "trips.suggestions.openAction": "Find ideas",
   "trips.suggestions.dialogTitle": "Ideas for the day",

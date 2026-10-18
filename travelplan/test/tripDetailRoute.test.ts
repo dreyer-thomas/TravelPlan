@@ -264,6 +264,7 @@ describe("GET /api/trips/[id]", () => {
       "missingAccommodation",
       "missingPlan",
       "note",
+      "planConflicts",
       "plannedCostSubtotal",
       "travelSegments",
       "updatedAt",
@@ -968,5 +969,115 @@ describe("DELETE /api/trips/[id]", () => {
     // The assertion the status alone cannot make.
     expect(await prisma.trip.count({ where: { id: trip.id } })).toBe(1);
     expect(await prisma.tripDay.count({ where: { tripId: trip.id } })).toBeGreaterThan(0);
+  });
+});
+
+describe("GET /api/trips/[id] plan conflicts (Story 13.2 AC1, AC2, AC9)", () => {
+  beforeEach(async () => {
+    await prisma.travelSegment.deleteMany();
+    await prisma.dayPlanItem.deleteMany();
+    await prisma.accommodation.deleteMany();
+    await prisma.tripMember.deleteMany();
+    await prisma.tripDay.deleteMany();
+    await prisma.trip.deleteMany();
+    await prisma.user.deleteMany();
+  });
+
+  type DayPayload = { id: string; planConflicts: unknown[] };
+
+  const doc = JSON.stringify({ type: "doc", content: [] });
+
+  /**
+   * Day 1 has a stay checking out at 09:00 (its name blank on the variant). Day 2: a 3 h flexible hike,
+   * then a 12:30 ferry (reached at 12:40, 10 min late), then a fixed 21:00–23:30 show and a flexible
+   * 60 min bar that no longer fits. Day 3 works.
+   */
+  const seed = async (email: string, stayName = "Harbor Hotel") => {
+    const owner = await prisma.user.create({ data: { email, passwordHash: "hashed", role: "OWNER" } });
+    const { trip } = await createTripWithDays({
+      userId: owner.id,
+      name: "Ferry Trip",
+      startDate: "2026-05-01T00:00:00.000Z",
+      endDate: "2026-05-03T00:00:00.000Z",
+    });
+    const [day1, day2, day3] = await prisma.tripDay.findMany({ where: { tripId: trip.id }, orderBy: { dayIndex: "asc" } });
+    const stay = await prisma.accommodation.create({ data: { tripDayId: day1.id, name: stayName, checkOutTime: "09:00" } });
+    const row = (tripDayId: string, title: string, sortOrder: number, fields: Record<string, unknown>) =>
+      prisma.dayPlanItem.create({ data: { tripId: trip.id, tripDayId, title, sortOrder, contentJson: doc, ...fields } });
+    const hike = await row(day2.id, "Hike", 0, { scheduleMode: "FLEXIBLE", durationMinutes: 180, fromTime: "09:30", toTime: "12:30" });
+    const ferry = await row(day2.id, "Ferry", 1, { scheduleMode: "FIXED", durationMinutes: 90, fromTime: "12:30", toTime: "14:00" });
+    await row(day2.id, "Show", 2, { scheduleMode: "FIXED", durationMinutes: 150, fromTime: "21:00", toTime: "23:30" });
+    const bar = await row(day2.id, "Bar", 3, { scheduleMode: "FLEXIBLE", durationMinutes: 60, fromTime: null, toTime: null });
+    await prisma.travelSegment.create({
+      data: {
+        tripDayId: day2.id,
+        fromItemType: "ACCOMMODATION",
+        fromItemId: stay.id,
+        toItemType: "DAY_PLAN_ITEM",
+        toItemId: hike.id,
+        transportType: "CAR",
+        durationMinutes: 30,
+      },
+    });
+    await prisma.travelSegment.create({
+      data: {
+        tripDayId: day2.id,
+        fromItemType: "DAY_PLAN_ITEM",
+        fromItemId: hike.id,
+        toItemType: "DAY_PLAN_ITEM",
+        toItemId: ferry.id,
+        transportType: "CAR",
+        durationMinutes: 10,
+      },
+    });
+    await row(day3.id, "Museum", 0, { scheduleMode: "FLEXIBLE", durationMinutes: 60, fromTime: "09:00", toTime: "10:00" });
+    return { owner, trip, day1, day2, day3, ferry, bar };
+  };
+
+  const read = async (userId: string, role: "OWNER" | "VIEWER" | "CONTRIBUTOR", tripId: string) => {
+    const session = await createSessionJwt({ sub: userId, role: role === "OWNER" ? "OWNER" : "VIEWER" });
+    const response = await GET(buildRequest(tripId, { session }), routeContext(tripId));
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as ApiEnvelope<{ days: DayPayload[] }>;
+    return payload.data!.days;
+  };
+
+  const expected = (ferry: { id: string }, bar: { id: string }) => [
+    { kind: "late", itemId: ferry.id, title: "Ferry", fromTime: "12:30", reachableAt: "12:40", lateMinutes: 10 },
+    { kind: "overflow", itemId: bar.id, title: "Bar" },
+  ];
+
+  it("returns a late ferry and an overflow row on the broken day, [] on the others", async () => {
+    const { owner, trip, ferry, bar } = await seed("conflicts-owner@example.com");
+
+    const days = await read(owner.id, "OWNER", trip.id);
+
+    expect(days.map((day) => day.planConflicts)).toEqual([[], expected(ferry, bar), []]);
+  });
+
+  it("gives a viewer and a contributor the same field", async () => {
+    const { trip, ferry, bar } = await seed("conflicts-shared@example.com");
+    for (const role of ["VIEWER", "CONTRIBUTOR"] as const) {
+      const member = await prisma.user.create({
+        data: { email: `conflicts-${role.toLowerCase()}@example.com`, passwordHash: "hashed", role: "VIEWER" },
+      });
+      await prisma.tripMember.create({ data: { tripId: trip.id, userId: member.id, role } });
+
+      const days = await read(member.id, role, trip.id);
+
+      expect(days[1].planConflicts).toEqual(expected(ferry, bar));
+    }
+  });
+
+  it("counts last night's stay by the write path's rule even when its name is blank (§3)", async () => {
+    const { owner, trip, ferry, bar } = await seed("conflicts-blank@example.com", "   ");
+
+    const days = await read(owner.id, "OWNER", trip.id);
+
+    // The payload hides the blank-named stay (`accommodation: null`), but the 09:00 check-out and the
+    // 30-minute leg from it still start the day: without them the hike would start at 09:00 and the
+    // ferry be reached at 12:10, on time.
+    expect(days[0]).toMatchObject({ accommodation: null, missingAccommodation: true });
+    expect(days[1].planConflicts).toEqual(expected(ferry, bar));
   });
 });

@@ -4,7 +4,7 @@ import { fail, ok } from "@/lib/http/response";
 import { refuseUnlessTripWriter } from "@/lib/auth/tripAccess";
 import { CSRF_COOKIE_NAME, validateCsrf } from "@/lib/security/csrf";
 import { requireSession } from "@/lib/auth/sessionGuard";
-import { dayChangedResponse, pastMidnightResponse, withPushConflict } from "@/lib/http/dayPlanPushResponses";
+import { dayChangedResponse, withPushConflict } from "@/lib/http/dayPlanPushResponses";
 import { scheduleParkedDayPlanItemForTripDay } from "@/lib/repositories/dayPlanItemRepo";
 import { toDayChangeReceiptWire } from "@/lib/trips/dayChangeReceipt";
 import { signDayChangeReceipt } from "@/lib/trips/dayChangeReceiptSignature";
@@ -19,8 +19,8 @@ import { dayPlanItemScheduleSchema } from "@/lib/validation/dayPlanItemSchemas";
  * Beside `move/` and `reorder/` because it is the same kind of write: one activity changes place. The
  * gate is the bucket list's (`refuseUnlessTripWriter`: viewer 403 `forbidden`, non-participant 404), so
  * the two halves of the idea's life answer a refused caller alike (AC5). Refusals are `404` (no such
- * day, no such parked activity), `409 day_plan_past_midnight` (11.2's code and `details`) and
- * `409 day_plan_changed` (a concurrent write). None of them writes anything.
+ * day, no such parked activity) and `409 day_plan_changed` (a concurrent write). None of them writes
+ * anything. A day pushed past 23:59 is saved (Story 13.2).
  */
 
 type RouteContext = {
@@ -92,8 +92,6 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
         return fail(apiError("not_found", "Trip day not found"), 404);
       case "missing":
         return fail(apiError("not_found", "Bucket list item not found"), 404);
-      case "past_midnight":
-        return pastMidnightResponse(result.item);
       case "scheduled": {
         const { item } = result;
         return ok({

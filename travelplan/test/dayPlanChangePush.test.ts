@@ -83,7 +83,6 @@ const createLeg = (
   });
 
 const item = (id: string) => ({ type: "DAY_PLAN_ITEM" as const, id });
-const stay = (id: string) => ({ type: "ACCOMMODATION" as const, id });
 
 /**
  * The worked example, as Story 13.1 plans it: A fixed 09–10, B and C flexible for an hour each, D fixed
@@ -107,13 +106,6 @@ const seedWorkedDay = async (
 };
 
 const mutation = (userId: string, tripId: string, tripDayId: string) => ({ userId, tripId, tripDayId, costCents: null, linkUrl: null });
-
-/** Every row a day-plan write could touch, in a stable order. */
-const databaseState = async () => ({
-  items: await prisma.dayPlanItem.findMany({ orderBy: { id: "asc" } }),
-  payments: await prisma.costPayment.findMany({ orderBy: { id: "asc" } }),
-  legs: await prisma.travelSegment.findMany({ orderBy: { id: "asc" } }),
-});
 
 const times = async (tripDayId: string) =>
   Object.fromEntries(
@@ -306,14 +298,14 @@ describe("the push rule's refusals write nothing (Story 11.2 AC5, AC8)", () => {
     expect(result.receipt.planConflicts).toEqual([{ itemId: c.id, title: "C", fromTime: "09:30", reachableAt: "10:00" }]);
   });
 
-  it("past_midnight: a create that would push a row past 23:59 writes nothing", async () => {
+  it("a create that pushes a row past 23:59 is saved, and the row loses its times", async () => {
+    // Story 13.2: past midnight is saved, not refused.
     const user = await createUser("refuse-midnight@example.com");
     const { trip, day } = await createTrip(user.id);
-    // 13.1 §7: only a flexible row can be pushed past midnight; Late follows the fixed Show, 22:00–23:30.
+    // Only a flexible row can be pushed past midnight; Late follows the fixed Show, 22:00–23:30.
     await createItem(day.id, "Show", "21:00", "22:00");
     const late = await createItem(day.id, "Late", "22:00", "23:30");
     await settleSeededDay(day.id, { flexible: [late.id] });
-    const before = await databaseState();
 
     const result = await createDayPlanItemForTripDay({
       ...mutation(user.id, trip.id, day.id),
@@ -323,8 +315,16 @@ describe("the push rule's refusals write nothing (Story 11.2 AC5, AC8)", () => {
       contentJson: sampleDoc("Dinner"),
     });
 
-    expect(result).toEqual({ status: "past_midnight", item: { id: late.id, title: "Late" } });
-    expect(await databaseState()).toEqual(before);
+    if (!result) throw new Error("expected a create");
+    expect(result.item).toMatchObject({ title: "Dinner", fromTime: "21:00", toTime: "23:00" });
+    expect(await prisma.dayPlanItem.findUniqueOrThrow({ where: { id: late.id } })).toMatchObject({
+      fromTime: null,
+      toTime: null,
+      durationMinutes: 90,
+    });
+    expect(result.receipt.movedItems).toEqual([
+      expect.objectContaining({ itemId: late.id, previousFromTime: "22:00", previousToTime: "23:30", fromTime: null, toTime: null }),
+    ]);
   });
 });
 
@@ -353,13 +353,13 @@ describe("a row that already does not fit never blocks a save (Story 13.1 §7)",
     expect(await prisma.dayPlanItem.findUniqueOrThrow({ where: { id: late.id } })).toMatchObject({ fromTime: null, toTime: null });
   });
 
-  it("refuses a change that pushes a row that fitted past midnight, but not one that already did not fit", async () => {
+  it("saves a change that pushes a row that fitted past midnight, storing it without times", async () => {
+    // Story 13.2: past midnight is saved, not refused.
     const user = await createUser("midnight-new@example.com");
     const { trip, day } = await createTrip(user.id);
     await createItem(day.id, "Show", "21:00", "22:00");
     const fits = await createItem(day.id, "Bar", "22:00", "23:00");
     await settleSeededDay(day.id, { flexible: [fits.id] });
-    const before = await databaseState();
 
     const pushed = await createDayPlanItemForTripDay({
       ...mutation(user.id, trip.id, day.id),
@@ -369,8 +369,13 @@ describe("a row that already does not fit never blocks a save (Story 13.1 §7)",
       contentJson: sampleDoc("Dinner"),
     });
 
-    expect(pushed).toEqual({ status: "past_midnight", item: { id: fits.id, title: "Bar" } });
-    expect(await databaseState()).toEqual(before);
+    if (!pushed) throw new Error("expected a create");
+    expect(await prisma.dayPlanItem.findUniqueOrThrow({ where: { id: fits.id } })).toMatchObject({
+      fromTime: null,
+      toTime: null,
+      durationMinutes: 60,
+    });
+    expect(pushed.receipt.movedItems.map((row) => row.itemId)).toEqual([fits.id]);
   });
 });
 
@@ -423,15 +428,15 @@ describe("POST and PATCH /api/trips/[id]/day-plan-items push refusals (Story 11.
     expect(order.map((row) => row.id)).toEqual([a.id, c.id, b.id, d.id]);
   });
 
-  it("POST past midnight: 409 day_plan_past_midnight with details, database unchanged", async () => {
+  it("POST past midnight: 200, the pushed row stored without times (Story 13.2)", async () => {
+    // Story 13.2: past midnight is saved, not refused.
     const user = await createUser("route-midnight@example.com");
     const { trip, day } = await createTrip(user.id);
-    // 13.1 §7: Late is flexible behind the fixed Show, 23:00–23:45; the fixed Bar pushes it past 23:59.
+    // Late is flexible behind the fixed Show, 23:00–23:45; the fixed Bar pushes it past 23:59.
     await createItem(day.id, "Show", "22:00", "23:00");
     const late = await createItem(day.id, "Late", "23:00", "23:45");
     await settleSeededDay(day.id, { flexible: [late.id] });
     const session = await createSessionJwt({ sub: user.id, role: user.role });
-    const before = await databaseState();
 
     const response = await send(POST, "POST", trip.id, session, {
       tripDayId: day.id,
@@ -441,15 +446,18 @@ describe("POST and PATCH /api/trips/[id]/day-plan-items push refusals (Story 11.
       contentJson: sampleDoc("Bar"),
     });
 
-    expect(response.status).toBe(409);
-    expect(response.body.error).toMatchObject({ code: "day_plan_past_midnight", details: { itemId: late.id, itemTitle: "Late" } });
-    expect(await databaseState()).toEqual(before);
+    expect(response.status).toBe(200);
+    expect(response.body.error).toBeNull();
+    expect(await prisma.dayPlanItem.findUniqueOrThrow({ where: { id: late.id } })).toMatchObject({ fromTime: null, toTime: null });
+    const data = response.body.data as { receipt: { movedItems: { itemId: string; fromTime: string | null }[] } };
+    expect(data.receipt.movedItems).toEqual([expect.objectContaining({ itemId: late.id, fromTime: null })]);
   });
 
-  it("schedule past midnight (Story 14.1): refused with the title, the idea still parked", async () => {
+  it("schedule past midnight (Story 14.1): 200, the idea on the day without times (Story 13.2)", async () => {
+    // Story 13.2: past midnight is saved, not refused.
     const user = await createUser("route-schedule-midnight@example.com");
     const { trip, day } = await createTrip(user.id);
-    // 13.1 §7: as above, a flexible Late behind a fixed Show; the idea's hour no longer fits.
+    // As above, a flexible Late behind a fixed Show; the idea's hour no longer fits.
     await createItem(day.id, "Show", "22:00", "23:00");
     const late = await createItem(day.id, "Late", "23:00", "23:45");
     await settleSeededDay(day.id, { flexible: [late.id] });
@@ -457,14 +465,17 @@ describe("POST and PATCH /api/trips/[id]/day-plan-items push refusals (Story 11.
       data: { tripId: trip.id, tripDayId: null, scheduleMode: "FLEXIBLE", durationMinutes: 60, title: "Idea", contentJson: sampleDoc("Idea") },
     });
     const session = await createSessionJwt({ sub: user.id, role: user.role });
-    const before = await databaseState();
 
     const response = await send(SCHEDULE, "POST", trip.id, session, { tripDayId: day.id, itemId: idea.id });
 
-    expect(response.status).toBe(409);
-    expect(response.body.error).toMatchObject({ code: "day_plan_past_midnight", details: { itemId: idea.id, itemTitle: "Idea" } });
-    expect(await prisma.dayPlanItem.findUniqueOrThrow({ where: { id: idea.id } })).toMatchObject({ tripDayId: null });
-    expect(await databaseState()).toEqual(before);
+    expect(response.status).toBe(200);
+    expect(await prisma.dayPlanItem.findUniqueOrThrow({ where: { id: idea.id } })).toMatchObject({
+      tripDayId: day.id,
+      fromTime: null,
+      toTime: null,
+      durationMinutes: 60,
+    });
+    expect(await prisma.dayPlanItem.findUniqueOrThrow({ where: { id: late.id } })).toMatchObject({ fromTime: "23:00", toTime: "23:45" });
   });
 
   it("POST success still answers dayPlanItem and a signed version-3 receipt listing moved items", async () => {
@@ -493,79 +504,28 @@ describe("POST and PATCH /api/trips/[id]/day-plan-items push refusals (Story 11.
   });
 });
 
-describe("the check-in warning (Story 11.2 AC9)", () => {
+describe("the check-in warning is gone (Story 13.2 AC8)", () => {
   beforeEach(resetDatabase);
 
-  /** A 15:00–16:00 and B 16:00–17:00, with tonight's stay. Extending A to 16:45 pushes B to 16:45–17:45. */
-  const seedEvening = async (email: string, checkInTime: string | null) => {
-    const user = await createUser(email);
+  it("a push that reaches an explicit check-in late carries no warning in its receipt", async () => {
+    const user = await createUser("warn-explicit@example.com");
     const { trip, day } = await createTrip(user.id);
     const a = await createItem(day.id, "A", "15:00", "16:00");
     const b = await createItem(day.id, "B", "16:00", "17:00");
-    // 13.1: B is flexible, so it is what A's changes move.
     await settleSeededDay(day.id, { flexible: [b.id] });
-    const accommodation = await prisma.accommodation.create({
-      data: { tripDayId: day.id, name: "Hotel", status: "BOOKED", checkInTime },
-    });
-    return { user, trip, day, a, b, accommodation };
-  };
+    await prisma.accommodation.create({ data: { tripDayId: day.id, name: "Hotel", status: "BOOKED", checkInTime: "17:30" } });
 
-  const extendA = (user: { id: string }, trip: { id: string }, day: { id: string }, a: { id: string }, toTime = "16:45") =>
-    updateDayPlanItemForTripDay({
+    // A to 16:45 pushes B to 16:45–17:45, after the 17:30 check-in: 11.2 warned here.
+    const result = await updateDayPlanItemForTripDay({
       ...mutation(user.id, trip.id, day.id),
       itemId: a.id,
       title: "A",
       fromTime: "15:00",
-      toTime,
+      toTime: "16:45",
       contentJson: sampleDoc("A"),
     });
-
-  it("warns when the pushed day reaches an explicit check-in too late", async () => {
-    const { user, trip, day, a, accommodation } = await seedEvening("warn-explicit@example.com", "17:30");
-
-    const result = await extendA(user, trip, day, a);
     if (result.status !== "updated") throw new Error("expected an update");
     expect(result.receipt.movedItems).toHaveLength(1);
-    expect(result.receipt.checkInWarning).toEqual({ accommodationId: accommodation.id, checkInTime: "17:30" });
-  });
-
-  it("does not warn when the stay's check-in is not set (the 16:00 default is the client's)", async () => {
-    const { user, trip, day, a } = await seedEvening("warn-null@example.com", null);
-
-    const result = await extendA(user, trip, day, a);
-    if (result.status !== "updated") throw new Error("expected an update");
-    expect(result.receipt.movedItems).toHaveLength(1);
-    expect(result.receipt.checkInWarning).toBeUndefined();
-  });
-
-  it("does not warn when nothing moved, even if the day already ends after check-in", async () => {
-    const { user, trip, day, a } = await seedEvening("warn-unmoved@example.com", "12:00");
-
-    // 13.1 AC4: a shorter A would pull B forward now, so the save that moves nothing keeps A's times.
-    const result = await extendA(user, trip, day, a, "16:00");
-    if (result.status !== "updated") throw new Error("expected an update");
-    expect(result.receipt.movedItems).toEqual([]);
-    expect(result.receipt.checkInWarning).toBeUndefined();
-  });
-
-  it("counts the leg to the stay only when it is drawn", async () => {
-    // B ends at 17:45 after the push; check-in 18:00. Without the 30-minute leg there is no warning.
-    const drawn = await seedEvening("warn-leg-drawn@example.com", "18:00");
-    await createLeg(drawn.day.id, item(drawn.b.id), stay(drawn.accommodation.id), 30);
-    const withLeg = await extendA(drawn.user, drawn.trip, drawn.day, drawn.a);
-    if (withLeg.status !== "updated") throw new Error("expected an update");
-    expect(withLeg.receipt.checkInWarning).toEqual({ accommodationId: drawn.accommodation.id, checkInTime: "18:00" });
-
-    await resetDatabase();
-
-    // The same leg, but an untimed activity now sits between B and the stay: the leg is not drawn.
-    const undrawn = await seedEvening("warn-leg-undrawn@example.com", "18:00");
-    await createItem(undrawn.day.id, "Untimed", null, null);
-    await createLeg(undrawn.day.id, item(undrawn.b.id), stay(undrawn.accommodation.id), 30);
-    const withoutLeg = await extendA(undrawn.user, undrawn.trip, undrawn.day, undrawn.a);
-    if (withoutLeg.status !== "updated") throw new Error("expected an update");
-    // 13.1: the former untimed row is flexible and follows B, 17:45–18:00, which is not after 18:00.
-    expect(withoutLeg.receipt.movedItems).toHaveLength(2);
-    expect(withoutLeg.receipt.checkInWarning).toBeUndefined();
+    expect(Object.keys(result.receipt)).not.toContain("checkInWarning");
   });
 });

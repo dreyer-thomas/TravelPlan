@@ -93,12 +93,6 @@ const times = async (tripDayId: string) =>
     .sort(compareDayPlanItemsByOrder)
     .map((row) => `${row.title} ${row.fromTime ?? "-"}–${row.toTime ?? "-"}`);
 
-const databaseState = async () => ({
-  items: await prisma.dayPlanItem.findMany({ orderBy: { id: "asc" } }),
-  legs: await prisma.travelSegment.findMany({ orderBy: { id: "asc" } }),
-  stays: await prisma.accommodation.findMany({ orderBy: { id: "asc" } }),
-});
-
 const patchStay = (userId: string, tripId: string, tripDayId: string, checkOutTime?: string | null) =>
   updateAccommodationForTripDay({
     userId,
@@ -297,13 +291,14 @@ describe("a changed check-out recomputes the next day (Story 11.4 AC3, 13.1 AC3)
     expect(await times(farDay.id)).toEqual(["Far 09:30–10:00"]);
   });
 
-  it("refuses past midnight, naming the activity, with nothing written", async () => {
+  it("saves a check-out past which nothing fits; an earlier one gives the times back (Story 13.2 AC6)", async () => {
+    // Story 13.2: past midnight is saved, not refused.
     const { user, trip, stayDay, nextDay } = await seedTrip("stay-midnight@example.com", "09:00");
     const f = await createItem(nextDay.id, "Early bird", "08:00", "09:00");
     const late = await createItem(nextDay.id, "Late show", "22:30", "23:30");
-    // 13.1 §7: flexible rows, so a 23:30 check-out leaves the first of them no room.
+    // Flexible rows, so a 23:30 check-out leaves neither of them room.
     await flexibleDay(nextDay.id, f, late);
-    const before = await databaseState();
+    const settled = await times(nextDay.id);
 
     const result = await updateAccommodationForTripDay({
       userId: user.id,
@@ -314,8 +309,24 @@ describe("a changed check-out recomputes the next day (Story 11.4 AC3, 13.1 AC3)
       checkOutTime: "23:30",
     });
 
-    expect(result).toEqual({ status: "past_midnight", item: { id: f.id, title: "Early bird" } });
-    expect(await databaseState()).toEqual(before);
+    if (result.status !== "updated") throw new Error(`expected an update, got ${result.status}`);
+    expect(result.accommodation.checkOutTime).toBe("23:30");
+    expect(result.receipt?.movedItems.map((row) => [row.itemId, row.fromTime, row.toTime])).toEqual([
+      [f.id, null, null],
+      [late.id, null, null],
+    ]);
+    expect(await times(nextDay.id)).toEqual(["Early bird -–-", "Late show -–-"]);
+
+    const earlier = await updateAccommodationForTripDay({
+      userId: user.id,
+      tripId: trip.id,
+      tripDayId: stayDay.id,
+      name: "Renamed too",
+      status: "booked",
+      checkOutTime: "09:00",
+    });
+    expect(earlier.status).toBe("updated");
+    expect(await times(nextDay.id)).toEqual(settled);
   });
 });
 
@@ -410,13 +421,13 @@ describe("PATCH /api/trips/[id]/accommodations (Story 11.4)", () => {
     expect(untouched.body.data && "receipt" in untouched.body.data).toBe(false);
   });
 
-  it("answers 409 day_plan_past_midnight with the activity in details, and writes nothing", async () => {
+  it("answers 200 for a check-out that pushes the next day past midnight (Story 13.2)", async () => {
+    // Story 13.2: past midnight is saved, not refused.
     const { user, trip, stayDay, nextDay } = await seedTrip("route-stay-midnight@example.com", "09:00");
     const session = await createSessionJwt({ sub: user.id, role: user.role });
     const f = await createItem(nextDay.id, "Early bird", "08:00", "09:00");
     const late = await createItem(nextDay.id, "Late show", "22:30", "23:30");
     await flexibleDay(nextDay.id, f, late);
-    const before = await databaseState();
 
     const result = await send(PATCH, `http://localhost/api/trips/${trip.id}/accommodations`, "PATCH", trip.id, session, {
       tripDayId: stayDay.id,
@@ -425,12 +436,9 @@ describe("PATCH /api/trips/[id]/accommodations (Story 11.4)", () => {
       checkOutTime: "23:30",
     });
 
-    expect(result.status).toBe(409);
-    expect(result.body.error).toMatchObject({
-      code: "day_plan_past_midnight",
-      details: { itemId: f.id, itemTitle: "Early bird" },
-    });
-    expect(await databaseState()).toEqual(before);
+    expect(result.status).toBe(200);
+    expect(result.body.error).toBeNull();
+    expect(await times(nextDay.id)).toEqual(["Early bird -–-", "Late show -–-"]);
   });
 
   it("answers a POST and a copy without a receipt", async () => {

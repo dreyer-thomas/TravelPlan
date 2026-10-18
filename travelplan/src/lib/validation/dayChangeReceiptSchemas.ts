@@ -255,8 +255,6 @@ const movedItemSchema = z
   })
   .strict();
 
-const checkInWarningSchema = z.object({ accommodationId: idSchema, checkInTime: z.string() }).strict();
-
 /** Story 13.1. For the notice only; undo ignores it, the signature covers it. */
 const planConflictSchema = z
   .object({ itemId: idSchema, title: nullableText(), fromTime: z.string(), reachableAt: z.string() })
@@ -268,7 +266,8 @@ export const dayChangeReceiptSchema = z
     // (400), which the client already treats as "undo unavailable" - better than misreading it as a change
     // that moved nothing. Receipts are client-held and short-lived, so no older version is tolerated.
     // Story 14.1 dropped `consumedBucketListItem` without a bump: `.strict()` refuses a receipt that
-    // still carries it (400), which is the same "undo unavailable" outcome.
+    // still carries it (400), which is the same "undo unavailable" outcome. Story 13.2 dropped
+    // the check-in warning the same way.
     version: z.literal(3),
     // The server's seal (hex HMAC-SHA256). The route verifies it; the schema only bounds its shape.
     signature: z.string().regex(/^[0-9a-f]{64}$/, "Receipt signature is malformed"),
@@ -276,7 +275,6 @@ export const dayChangeReceiptSchema = z
     edited: editedSchema,
     removedTravelSegments: z.array(travelSegmentRowSchema).max(MAX_LEGS),
     movedItems: z.array(movedItemSchema).max(MAX_LEGS),
-    checkInWarning: checkInWarningSchema.optional(),
     planConflicts: z.array(planConflictSchema).max(MAX_LEGS).optional(),
   })
   .strict();

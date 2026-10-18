@@ -536,25 +536,6 @@ describe("TripDayView change receipt notice (Story 11.1)", () => {
     await waitFor(() => expect(screen.queryAllByTestId("orphan-travel-segment")).toHaveLength(0));
   });
 
-  it("names the activity when a delete is refused as past midnight (Story 13.1 §7, review)", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
-    stubDay({
-      deleteOutcome: () => ({
-        ok: false,
-        status: 409,
-        body: {
-          data: null,
-          error: { code: "day_plan_past_midnight", message: "x", details: { itemId: "item-2", itemTitle: "Park" } },
-        },
-      }),
-    });
-    await renderDay();
-
-    await userEvent.click(screen.getByRole("button", { name: en["trips.plan.addPrimaryAction"] }));
-    await userEvent.click(await screen.findByRole("button", { name: "stub-delete" }));
-
-    expect(await screen.findByText(en["trips.plan.pastMidnight"].replace("{title}", "Park"))).toBeInTheDocument();
-  });
 });
 
 describe("TripDayView change receipt notice, version 2 (Story 11.2)", () => {
@@ -595,7 +576,7 @@ describe("TripDayView change receipt notice, version 2 (Story 11.2)", () => {
     expect(await screen.findByTestId("action-notice")).toHaveTextContent(en["trips.dayChange.itemsMovedOne"]);
   });
 
-  it("shows the check-in warning line, and drops it once undo is withdrawn as stale", async () => {
+  it("shows a new plan conflict as the warning line, and drops it once undo is withdrawn as stale (Story 13.2 AC8)", async () => {
     stubDay({
       undo: () => ({
         ok: false,
@@ -608,35 +589,17 @@ describe("TripDayView change receipt notice, version 2 (Story 11.2)", () => {
     stubControl.receipt = {
       ...receipt([]),
       movedItems: [movedRow("a")],
-      checkInWarning: { accommodationId: "stay-1", checkInTime: "17:30" },
+      planConflicts: [{ itemId: "ferry", title: "Ferry", fromTime: "12:00", reachableAt: "12:40" }],
     };
     await saveThroughPlanDialog();
 
-    const warning = "You will reach your stay after its 17:30 check-in.";
+    // The conflict alone: the check-in warning that used to follow it is gone.
+    const warning = "Ferry starts at 12:00, reachable only at 12:40";
     expect(await screen.findByText(warning)).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: en["trips.dayChange.undo"] }));
     expect(await screen.findByText(en["trips.dayChange.undoStale"])).toBeInTheDocument();
     expect(screen.queryByText(warning)).not.toBeInTheDocument();
-  });
-
-  it("puts a new plan conflict before the check-in warning, joined with a middle dot (Story 13.1 AC5)", async () => {
-    stubDay();
-    await renderDay();
-
-    stubControl.receipt = {
-      ...receipt([]),
-      movedItems: [movedRow("a")],
-      checkInWarning: { accommodationId: "stay-1", checkInTime: "17:30" },
-      planConflicts: [{ itemId: "ferry", title: "Ferry", fromTime: "12:00", reachableAt: "12:40" }],
-    };
-    await saveThroughPlanDialog();
-
-    expect(
-      await screen.findByText(
-        "Ferry starts at 12:00, reachable only at 12:40 · You will reach your stay after its 17:30 check-in.",
-      ),
-    ).toBeInTheDocument();
   });
 
   it("shows the notice for a save that moved nothing but ran into a fixed activity (Story 13.1 §15)", async () => {

@@ -4,7 +4,7 @@ import { fail, ok } from "@/lib/http/response";
 import { hasTripOwnerOrContributorAccess } from "@/lib/auth/tripAccess";
 import { CSRF_COOKIE_NAME, validateCsrf } from "@/lib/security/csrf";
 import { requireSession } from "@/lib/auth/sessionGuard";
-import { dayChangedResponse, pastMidnightResponse, withPushConflict } from "@/lib/http/dayPlanPushResponses";
+import { dayChangedResponse, withPushConflict } from "@/lib/http/dayPlanPushResponses";
 import { reorderDayPlanItemForTripDay } from "@/lib/repositories/dayPlanItemRepo";
 import { toDayChangeReceiptWire } from "@/lib/trips/dayChangeReceipt";
 import { signDayChangeReceipt } from "@/lib/trips/dayChangeReceiptSignature";
@@ -22,8 +22,7 @@ import { dayPlanItemReorderSchema } from "@/lib/validation/dayPlanItemSchemas";
  * The check order is `day-plan-items/route.ts`'s POST: CSRF, session, the owner-or-contributor gate (404
  * for a viewer), JSON, schema. The repository adds the writer clause. Refusals are `409`:
  * `day_plan_not_reorderable` (no timed neighbour in that direction, an unreadable start, an imported
- * overnight `toTime` the earlier shift would take below `00:00`, or the predecessor-side tie), `day_plan_past_midnight` (11.2's code and `details`), `day_plan_changed` (a
- * concurrent write). None of them writes anything.
+ * overnight `toTime` the earlier shift would take below `00:00`, or the predecessor-side tie), `day_plan_changed` (a concurrent write). None of them writes anything.
  */
 
 type RouteContext = {
@@ -97,8 +96,6 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
         return fail(apiError("not_found", "Day plan item not found"), 404);
       case "not_reorderable":
         return fail(apiError("day_plan_not_reorderable", "The activity cannot move in that direction"), 409);
-      case "past_midnight":
-        return pastMidnightResponse(result.item);
       case "reordered":
         return ok({ receipt: signDayChangeReceipt(toDayChangeReceiptWire(result.receipt), { tripId, userId }) });
       default: {

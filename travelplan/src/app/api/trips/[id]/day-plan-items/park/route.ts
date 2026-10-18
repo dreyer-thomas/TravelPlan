@@ -4,7 +4,7 @@ import { fail, ok } from "@/lib/http/response";
 import { refuseUnlessTripWriter } from "@/lib/auth/tripAccess";
 import { CSRF_COOKIE_NAME, validateCsrf } from "@/lib/security/csrf";
 import { requireSession } from "@/lib/auth/sessionGuard";
-import { dayChangedResponse, pastMidnightResponse, withPushConflict } from "@/lib/http/dayPlanPushResponses";
+import { dayChangedResponse, withPushConflict } from "@/lib/http/dayPlanPushResponses";
 import { parkDayPlanItemForTripDay } from "@/lib/repositories/dayPlanItemRepo";
 import { toDayChangeReceiptWire } from "@/lib/trips/dayChangeReceipt";
 import { signDayChangeReceipt } from "@/lib/trips/dayChangeReceiptSignature";
@@ -19,8 +19,8 @@ import { dayPlanItemParkSchema } from "@/lib/validation/dayPlanItemSchemas";
  * The sibling of `schedule/`, with the same gate (`refuseUnlessTripWriter`: viewer 403 `forbidden`,
  * non-participant 404). The body names the day as well as the activity, unlike the architecture's
  * `{ itemId }`, so a park from a stale tab cannot follow the activity to a day another tab moved it to.
- * Refusals are `404` (no such day, or the activity is no longer on it), `409 day_plan_past_midnight` and
- * `409 day_plan_changed` (a concurrent write). None of them writes anything.
+ * Refusals are `404` (no such day, or the activity is no longer on it) and `409 day_plan_changed` (a
+ * concurrent write). None of them writes anything. A day pushed past 23:59 is saved (Story 13.2).
  */
 
 type RouteContext = {
@@ -92,8 +92,6 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
         return fail(apiError("not_found", "Trip day not found"), 404);
       case "missing":
         return fail(apiError("not_found", "Day plan item not found"), 404);
-      case "past_midnight":
-        return pastMidnightResponse(result.item);
       case "parked": {
         const { item } = result;
         return ok({

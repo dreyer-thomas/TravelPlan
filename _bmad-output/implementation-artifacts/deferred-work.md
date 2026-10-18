@@ -3599,6 +3599,7 @@ severity: low
 summary: The handlers clear the earlier receipt before sending (11.1 AC7). When the server refuses (409) or the request fails, nothing was written, yet the earlier change's undo, and any legs it would restore, is gone.
 evidence: Read at 2026-10-11 during the code review of Story 11.3. This is the established contract across all write handlers, and the 11.3 spec repeats it. Changing it means restoring the receipt on every non-ok branch, which is a UX decision for Tommy.
 status: open
+note: 2026-10-18, Story 13.2 removed the `409 day_plan_past_midnight` refusal from every write, so that refusal no longer discards a receipt. `day_plan_changed`, `day_plan_not_reorderable` and network failures still do; the entry stays open for them.
 
 ### DW-376: The activity menu offers a move the server will always refuse
 
@@ -3620,7 +3621,8 @@ location: `travelplan/src/lib/trips/dayChangeReceipt.ts:313` (`checkInWarningTex
 severity: low
 summary: A later check-out on day N pushes day N+1, and the receipt may carry that day's `checkInWarning`. `otherDayIndex` reaches only the moved-count text. So when the notice is viewed on day N, "You will reach your stay after its {time} check-in." reads as if it were about day N's stay.
 evidence: Read at 2026-10-11 during the code review of Story 11.4. In today's UI, check-out can be edited only from the pushed day (11.4 Read-this-first §1), so `tripDayId !== day.id` is reachable only through the API. Resolve this together with the open question of whether the current-stay dialog should get a check-out field.
-status: open
+status: done 2026-10-18
+resolution: moot: Story 13.2 removed the check-in warning (no producer, no receipt field, no text).
 
 ### DW-378: A check-out that pushes another day past midnight does not name that day
 
@@ -3630,7 +3632,8 @@ location: `travelplan/src/lib/http/dayPlanPushResponses.ts` (`pastMidnightRespon
 severity: low
 summary: `409 day_plan_past_midnight` carries only `itemId` and `itemTitle`. When the blocking activity is on the next day, the stay dialog names the activity but not the day.
 evidence: Read at 2026-10-11 during the code review of Story 11.4. The cause is the same as DW-377: API-only today, because the check-out is edited from the pushed day itself. Deferred with the same UX question.
-status: open
+status: done 2026-10-18
+resolution: moot: Story 13.2 removed `day_plan_past_midnight`; a check-out past which the next day no longer fits is saved, and that day's cards, hero and overview row carry the plan-conflict markers.
 
 ## Deferred from: code review of 6-31-train-and-bus-as-travel-modes (2026-10-16)
 
@@ -3804,6 +3807,7 @@ severity: medium
 summary: These writes change the next day's start (09:00 vs the check-out) and which stay leg counts. The next day's flexible times stay stale until an unrelated write moves them, and that write's receipt then shows those moves (or refuses with `past_midnight`).
 evidence: Story 13.1 §9 scoped the recompute to check-out changes only.
 status: open
+note: 2026-10-18, since Story 13.2 a later write never refuses with `past_midnight`, so that half of the summary is gone. The stale times remain until the next write. The trip payload's `planConflicts` describe the recomputed schedule, so on such a day the markers can disagree with the stored time pills (13.2 §10). The entry stays open.
 
 ### DW-395: The edited row's write is unconditional; concurrent inserts are outside the read set
 

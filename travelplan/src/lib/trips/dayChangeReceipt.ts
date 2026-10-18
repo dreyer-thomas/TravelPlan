@@ -14,9 +14,8 @@
  * to them.
  *
  * Story 11.2 (version 2) adds the activities the push rule moved (`movedItems`, each with the times and
- * `updatedAt` it had before, so undo can put it back byte for byte) and the optional check-in warning,
- * which travels inside the receipt because the notice renders only what the receipt and the day hold.
- * Undo ignores the warning; the signature covers it like everything else.
+ * `updatedAt` it had before, so undo can put it back byte for byte). It also carried an optional check-in
+ * warning, which Story 13.2 removed (see below).
  *
  * Story 11.3 adds a fourth edited kind, `reordered`: *Nach oben* / *Nach unten* writes nothing but times,
  * so it names the two activities that traded places and lists both of them in `movedItems` (with every
@@ -39,8 +38,8 @@
  * changed, with `previousSortOrder`, and its new times so the notice counts only rows that visibly moved.
  * The item snapshots carry `scheduleMode`, `durationMinutes` and `sortOrder`, so undo of an edit or a
  * delete restores how the activity was planned. A leg delete now recomputes too, and gets its own kind,
- * `legDeleted`. `planConflicts` names the fixed activities this write made unreachable in time; like the
- * check-in warning it is for the notice only, and undo ignores it. A version-2 receipt is refused.
+ * `legDeleted`. `planConflicts` names the fixed activities this write made unreachable in time; it is for
+ * the notice only, and undo ignores it. A version-2 receipt is refused.
  *
  * Story 14.1 adds `scheduled`: "+" on a bucket-list row moved the parked activity itself onto the day
  * (same id, everything attached). Undo parks it again with its previous `updatedAt`. The bucket-list
@@ -52,6 +51,11 @@
  * null, FLEXIBLE, no times) and the day was recomputed around the gap. `previous` holds the schedule
  * columns it had on the day, which undo writes back with its old stamp; everything attached stayed on
  * the row, so there is nothing else to restore. Additive, so the version stays 3.
+ *
+ * Story 13.2 removes the check-in warning: arriving at the night's stay after its check-in is no longer a
+ * warning, and a write past 23:59 is saved instead of refused. A row that lost its times is a time change,
+ * so it is in `movedItems` with its previous times and undo restores it. Removed without a bump, as 14.1
+ * did: a receipt that still carries the field is refused by the `.strict()` schema (400).
  */
 
 import { formatMessage } from "@/i18n";
@@ -208,9 +212,6 @@ export type MovedItemRow<T extends Date | string = Date> = {
   updatedAt: T;
 };
 
-/** Story 11.2 AC9. The day's stay has an explicit check-in that the pushed day now reaches too late. */
-export type DayChangeCheckInWarning = { accommodationId: string; checkInTime: string };
-
 /** Story 13.1 AC5. A fixed activity the day now reaches only at `reachableAt`, after its `fromTime`. */
 export type DayChangePlanConflict = { itemId: string; title: string | null; fromTime: string; reachableAt: string };
 
@@ -221,7 +222,6 @@ export type DayChangeReceipt<T extends Date | string = Date> = {
   removedTravelSegments: TravelSegmentRow<T>[];
   /** Always present, empty when nothing moved (DELETE never moves anything). */
   movedItems: MovedItemRow<T>[];
-  checkInWarning?: DayChangeCheckInWarning;
   /** Story 13.1. Only conflicts this write made; absent when there are none. */
   planConflicts?: DayChangePlanConflict[];
 };
@@ -335,7 +335,6 @@ const mapReceipt = <A extends Date | string, B extends Date | string>(
       previousUpdatedAt: convert(moved.previousUpdatedAt),
       updatedAt: convert(moved.updatedAt),
     })),
-    ...(receipt.checkInWarning ? { checkInWarning: { ...receipt.checkInWarning } } : {}),
     ...(receipt.planConflicts ? { planConflicts: receipt.planConflicts.map((conflict) => ({ ...conflict })) } : {}),
   };
 };
@@ -352,7 +351,7 @@ const movedTimes = <T extends Date | string>(row: MovedItemRow<T>) =>
   row.previousFromTime !== row.fromTime || row.previousToTime !== row.toTime;
 
 /**
- * A removed leg (Story 11.1) or a moved activity (Story 11.2). The check-in warning only follows a move.
+ * A removed leg (Story 11.1) or a moved activity (Story 11.2); since Story 13.2 also one that lost its times.
  * A reorder (Story 11.3) always has side effects: it changes two activities' times by itself. So does an
  * apply of suggestions (Story 12.4): it writes several rows at once, and its notice is the only undo.
  * Story 13.1: a new plan conflict too, or a plain create that runs into a ferry would show no notice. A
@@ -443,15 +442,6 @@ export const summarizeDayChangeReceipt = <T extends Date | string>(
   }
   return parts.join(" · ");
 };
-
-/** Story 11.2 AC9. The notice's warning line, or `undefined` when the receipt carries no warning. */
-export const checkInWarningText = <T extends Date | string>(
-  receipt: DayChangeReceipt<T>,
-  t: (key: string) => string,
-): string | undefined =>
-  receipt.checkInWarning
-    ? formatMessage(t("trips.dayChange.checkInWarning"), { time: receipt.checkInWarning.checkInTime })
-    : undefined;
 
 /**
  * Story 13.1 AC5. One sentence per new plan conflict, joined with `" · "`, or `undefined` when there is

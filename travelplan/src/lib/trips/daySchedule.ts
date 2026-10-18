@@ -14,9 +14,14 @@
  *    first row adds the drawn leg from last night's stay.
  * 2. **Flexible.** `fromTime = cursor + leg(previous → this)`, `toTime = fromTime + durationMinutes`; the
  *    cursor moves to `toTime`. A flexible row always sits tight: a gap before one never survives.
- * 3. **Fixed.** Its times are never changed. When `cursor + leg > fromTime` it is reached late, a
- *    *conflict*; that covers a flexible chain running into a booking and two overlapping bookings. The
- *    cursor moves to `max(cursor, toTime)`, so a gap before a fixed row stays as waiting time.
+ * 3. **Fixed.** Its times are never changed. It is reached late, a *conflict*, when what is already on
+ *    the day plus the leg passes its `fromTime`; that covers a flexible chain running into a booking and
+ *    two overlapping bookings. The day start alone never makes a booking late (Tommy's ruling during the
+ *    13.2 real run, 2026-10-18): a flight at 00:00 on a day without a stay, or a ferry before the
+ *    check-out, just means the day starts earlier. So the late check reads `busyUntil`, the end of the
+ *    last activity actually on the day, and a booking with nothing before it is never late. The cursor
+ *    moves to `max(cursor, toTime)`, so a gap before a fixed row stays as waiting time; the day start
+ *    still decides where flexible rows begin, so no time changes with this rule.
  * 5. **Midnight.** A flexible row whose end would pass 23:59 gets `null` times, meaning *does not fit in
  *    the day*, and so does every later flexible row. Its duration is untouched, so the next write that
  *    makes room gives the times back exactly.
@@ -95,7 +100,15 @@ export type ScheduleInput = {
   legs: ScheduleLeg[];
 };
 
-export type ScheduleConflict = { itemId: string; title: string | null; fromTime: string; reachableAt: string };
+export type ScheduleConflict = {
+  itemId: string;
+  title: string | null;
+  fromTime: string;
+  /** Capped at 23:59, the last time of day there is (review D1). */
+  reachableAt: string;
+  /** From the uncapped reach, so a booking reached only after midnight is not understated (13.2 review). */
+  lateMinutes: number;
+};
 
 export type ScheduleResult = {
   /** One per input row, in the same order. A fixed row's strings are passed through verbatim. */
@@ -125,6 +138,8 @@ export const scheduleDay = (input: ScheduleInput): ScheduleResult => {
   const overflow: string[] = [];
 
   let cursor = dayStartMinute;
+  /** The end of the last activity on the day so far; `null` before the first. Only the late check reads it. */
+  let busyUntil: number | null = null;
   let overflowed = false;
 
   items.forEach((item, index) => {
@@ -138,20 +153,24 @@ export const scheduleDay = (input: ScheduleInput): ScheduleResult => {
       // After an overflow the cursor is past 23:59, and the overflow already describes that day (13.2
       // shows it). Without one, a booking reached only after midnight (a long leg into a late row) is
       // still a conflict; its `reachableAt` is capped at 23:59, the last time of day there is (review D1).
-      if (reachable > start && !overflowed) {
+      const reachedFromDay = busyUntil === null ? null : busyUntil + leg;
+      if (reachedFromDay !== null && reachedFromDay > start && !overflowed) {
         conflicts.push({
           itemId: item.id,
           title: item.title,
           fromTime: item.fromTime!,
-          reachableAt: minutesToTime(Math.min(reachable, LAST_MINUTE_OF_DAY)),
+          reachableAt: minutesToTime(Math.min(reachedFromDay, LAST_MINUTE_OF_DAY)),
+          lateMinutes: reachedFromDay - start,
         });
       }
       cursor = Math.max(cursor, end);
+      busyUntil = Math.max(busyUntil ?? end, end);
       rows.push({ id: item.id, fromTime: item.fromTime, toTime: item.toTime });
       return;
     }
 
     const end = reachable + item.durationMinutes;
+    busyUntil = Math.max(busyUntil ?? end, end);
     if (overflowed || end > LAST_MINUTE_OF_DAY) {
       overflowed = true;
       cursor = Math.max(cursor, end);

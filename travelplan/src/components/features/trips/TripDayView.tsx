@@ -74,7 +74,6 @@ import { buildDayMapPanelData, buildTripDayMapItems } from "@/lib/trips/dayMapDa
 // because they are one comparator - see `dayPlanItemOrder.ts` for what happened when they were two.
 import { formatCostOriginal } from "@/lib/trips/convertCost";
 import {
-  checkInWarningText,
   planConflictText,
   receiptHasSideEffects,
   summarizeDayChangeReceipt,
@@ -92,6 +91,8 @@ import {
 import { documentDisplayName } from "@/lib/trips/documentUploads";
 import { IMAGE_UPLOAD_ACCEPT, isSupportedImageUpload } from "@/lib/trips/imageUploads";
 import { transportTypeAllowsDistance, type TransportType } from "@/lib/trips/transportTypes";
+import { formatActivityDuration } from "@/lib/trips/activityDuration";
+import type { DayPlanConflict } from "@/lib/trips/planConflicts";
 import { DEFAULT_CHECK_IN_TIME, DEFAULT_CHECK_OUT_TIME, resolveStayTime } from "@/lib/trips/stayTimes";
 
 type ApiEnvelope<T> = {
@@ -331,6 +332,11 @@ type TripDay = {
   plannedCostSubtotal: number;
   missingAccommodation: boolean;
   missingPlan: boolean;
+  /**
+   * Story 13.2. The marked activities, derived by the server on read; this screen never computes them.
+   * Optional for the same reason as `createdAt` below: an older payload or a fixture.
+   */
+  planConflicts?: DayPlanConflict[];
   accommodation: {
     id: string;
     name: string;
@@ -479,6 +485,14 @@ const stayRouteLabel = (stay: { name: string; location?: { label?: string | null
   const place = stay.location?.label?.trim();
   return place && place !== stay.name ? `${stay.name} · ${place}` : stay.name;
 };
+
+/**
+ * Story 13.2 review. Whether a day write needs a reload to show its effect: moved activities (13.1 AC4),
+ * or a change to the day's plan conflicts, which a fixed activity can gain or lose without moving. A
+ * conflict the write created is in the receipt; one it resolved shows only as a day that had conflicts.
+ */
+const dayWriteNeedsReload = (receipt: SignedDayChangeReceiptWire | null | undefined, dayConflictCount: number) =>
+  (receipt?.movedItems.length ?? 0) > 0 || (receipt?.planConflicts?.length ?? 0) > 0 || dayConflictCount > 0;
 
 const compareTripDaysChronologically = (left: TripDay, right: TripDay) => {
   if (left.dayIndex !== right.dayIndex) return left.dayIndex - right.dayIndex;
@@ -637,6 +651,12 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
   // mount and the day's own plan dialog above is never shadowed by a second, closed instance. Story 14.2
   // (Tommy's request): a bucket row's pencil opens the same dialog on that idea.
   const [ideaDialog, setIdeaDialog] = useState<{ mode: "add" } | { mode: "edit"; item: BucketListItem } | null>(null);
+  // Story 13.2 AC3, AC4. The day's marked activities, indexed once per payload for the cards.
+  const planConflicts = useMemo(() => day?.planConflicts ?? [], [day]);
+  const planConflictByItemId = useMemo(
+    () => new Map(planConflicts.map((conflict) => [conflict.itemId, conflict])),
+    [planConflicts],
+  );
   // Stable while the dialog is open, so the dialog's seed effect does not re-run on every render.
   const ideaDialogItem = useMemo(() => (ideaDialog?.mode === "edit" ? toBucketDialogItem(ideaDialog.item) : null), [ideaDialog]);
   const suggestionsDialogKey = useOpenInstanceKey(suggestionsOpen);
@@ -1374,12 +1394,6 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
         setError(t("trips.bucketList.scheduleStale"));
         return;
       }
-      if (response.status === 409 && body.error?.code === "day_plan_past_midnight") {
-        const details = body.error?.details as { itemTitle?: string | null } | undefined;
-        const title = details?.itemTitle?.trim() || t("trips.plan.untitledActivity");
-        setError(formatMessage(t("trips.plan.pastMidnight"), { title }));
-        return;
-      }
       setError(resolveApiError(body.error?.code, t("trips.bucketList.scheduleError")));
     } catch {
       if (currentDayIdRef.current !== requestedDayId) return;
@@ -1428,7 +1442,8 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
     setSegmentDialogOpen(false);
     // Story 11.4: the save moved activities, which the local merge above cannot show. The reload comes
     // after the merge so it is the last write, and only while this is still the day the save was on.
-    if (receipt?.movedItems.length && currentDayIdRef.current === requestedDayId) {
+    // Story 13.2: a leg can make a fixed activity late, or stop it being late, without moving anything.
+    if (dayWriteNeedsReload(receipt, day?.planConflicts?.length ?? 0) && currentDayIdRef.current === requestedDayId) {
       await loadDay({ silent: true });
     }
   };
@@ -1550,13 +1565,6 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
         }
 
         const code = body.error?.code;
-        if (response.status === 409 && code === "day_plan_past_midnight") {
-          const details = body.error?.details as { itemTitle?: string | null } | undefined;
-          const title = details?.itemTitle?.trim() || t("trips.plan.untitledActivity");
-          await loadDay({ silent: true });
-          setError(formatMessage(t("trips.plan.pastMidnight"), { title }));
-          return;
-        }
         if (response.status === 409 && code === "day_plan_changed") {
           await loadDay({ silent: true });
           setError(t("trips.plan.reorderStale"));
@@ -1642,13 +1650,6 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
           setError(t("trips.plan.parkStale"));
           return;
         }
-        if (response.status === 409 && code === "day_plan_past_midnight") {
-          const details = body.error?.details as { itemTitle?: string | null } | undefined;
-          const pastTitle = details?.itemTitle?.trim() || t("trips.plan.untitledActivity");
-          await loadDay({ silent: true });
-          setError(formatMessage(t("trips.plan.pastMidnight"), { title: pastTitle }));
-          return;
-        }
         if (response.status === 404) {
           // Moved, parked or deleted elsewhere: reload so its card goes, then say so.
           await loadDay({ silent: true });
@@ -1715,14 +1716,6 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
               return [...current.slice(0, insertAt), removedItem, ...current.slice(insertAt)];
             });
           }
-          // Story 13.1 §7: removing a row can make a stored leg drawn and push a later flexible row
-          // past 23:59; the refusal names that row, as a save's does.
-          if (response.status === 409 && body.error?.code === "day_plan_past_midnight") {
-            const details = body.error?.details as { itemTitle?: string | null } | undefined;
-            const title = details?.itemTitle?.trim() || t("trips.plan.untitledActivity");
-            setError(formatMessage(t("trips.plan.pastMidnight"), { title }));
-            return false;
-          }
           setError(resolveApiError(body.error?.code));
           return false;
         }
@@ -1740,8 +1733,10 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
         if (currentDayIdRef.current === requestedDayId) {
           takeDayChangeReceipt(body.data?.receipt ?? null);
           // Story 13.1 AC4: a delete pulls the flexible activities after it forward, which the optimistic
-          // removal cannot show; the server's times come with a reload, as after a leg save.
-          if (body.data?.receipt?.movedItems.length) {
+          // removal cannot show; the server's times come with a reload, as after a leg save. Story 13.2:
+          // so do the day's plan conflicts, which a delete can create as well as resolve (a stored leg
+          // that becomes drawn once the row between its ends is gone).
+          if (dayWriteNeedsReload(body.data?.receipt, day.planConflicts?.length ?? 0)) {
             await loadDay({ silent: true });
           }
         }
@@ -2742,6 +2737,33 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
         "& a, & button": { pointerEvents: "auto" },
       }
     : {};
+  /**
+   * Story 13.2 AC3. The card's `plan-conflict` line, in the card body (which carries `overlaidContentSx`),
+   * outside every planning gate: a viewer sees it too. Never colour alone: the triangle and the words say it.
+   */
+  const renderPlanConflictLine = (conflict: DayPlanConflict | undefined) =>
+    conflict ? (
+      <Typography
+        variant="body2"
+        data-testid="plan-conflict"
+        sx={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 0.5,
+          m: 0,
+          color: theme.palette.warning.main,
+          fontWeight: 600,
+        }}
+      >
+        <WarningTriangleIcon sx={{ fontSize: 14, flexShrink: 0 }} />
+        {conflict.kind === "late"
+          ? formatMessage(t("trips.planConflict.lateBy"), {
+              reachable: conflict.reachableAt,
+              late: formatActivityDuration(conflict.lateMinutes, t),
+            })
+          : t("trips.planConflict.overflow")}
+      </Typography>
+    ) : null;
   // An untitled activity falls back to its whole note body for a title, and that string becomes the
   // overlay's accessible name - a screen reader would read the entire note on every focus. The card
   // still shows the full text; only the name is capped.
@@ -3907,6 +3929,31 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
                 <Typography sx={{ color: "rgba(255,255,255,.92)", fontSize: 13, fontWeight: 600, mt: 0.75 }}>
                   {formatDate(day.date)}
                 </Typography>
+                {/* Story 13.2 AC4. DESIGN.md's one exception to "the hero carries no stats": the day's
+                    plan does not work out. Inside the title block, so `HERO_TITLE_RIGHT_CLEARANCE` keeps
+                    it clear of the overflow control too. Every role sees it. */}
+                {planConflicts.length > 0 ? (
+                  <Box
+                    data-testid="day-hero-plan-conflict"
+                    sx={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 0.5,
+                      alignSelf: "flex-start",
+                      mt: 1,
+                      px: 1,
+                      py: 0.5,
+                      borderRadius: "6px",
+                      backgroundColor: tokens.warnBg,
+                      color: theme.palette.warning.main,
+                      fontSize: 12,
+                      fontWeight: 700,
+                    }}
+                  >
+                    <WarningTriangleIcon sx={{ fontSize: 14 }} />
+                    {formatMessage(t("trips.planConflict.dayBadge"), { count: planConflicts.length })}
+                  </Box>
+                ) : null}
               </Box>
             </Box>
 
@@ -3954,16 +4001,10 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
                                 : undefined,
                           })
                   }
-                  // Story 11.2 AC9: the check-in warning goes with the receipt's own summary, so it leaves
-                  // when the summary is replaced by a stale or unavailable message. Story 13.1 AC5: the
-                  // new plan conflicts come first, joined the same way.
-                  warning={
-                    undoWithdrawn
-                      ? undefined
-                      : [planConflictText(dayChange.receipt, t), checkInWarningText(dayChange.receipt, t)]
-                          .filter((part): part is string => Boolean(part))
-                          .join(" · ") || undefined
-                  }
+                  // Story 13.1 AC5: the new plan conflicts go with the receipt's own summary, so they leave
+                  // when the summary is replaced by a stale or unavailable message. (Story 13.2 removed the
+                  // check-in warning that used to follow them.)
+                  warning={undoWithdrawn ? undefined : planConflictText(dayChange.receipt, t) || undefined}
                   actionLabel={undoWithdrawn ? undefined : t("trips.dayChange.undo")}
                   onAction={undoWithdrawn ? undefined : handleUndoDayChange}
                   actionPending={dayChange.status === "pending"}
@@ -4558,6 +4599,7 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
                               <Typography variant="cardTitle" component="p" sx={{ color: tokens.ink, m: 0 }}>
                                 {title}
                               </Typography>
+                              {renderPlanConflictLine(planConflictByItemId.get(item.id))}
                               {/* The notes take their pointer events back, which is the one place the
                                   stretched overlay costs something real. Everything else on the card
                                   passes clicks down to it, and a layer that does that cannot be

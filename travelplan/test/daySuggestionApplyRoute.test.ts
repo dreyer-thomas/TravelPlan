@@ -353,13 +353,14 @@ describe("POST …/suggestions/preview and …/apply (Story 12.4)", () => {
     expect(await prisma.travelSegment.count({ where: { toItemType: "ACCOMMODATION" } })).toBe(0);
   });
 
-  it("warns when the appended activities reach tonight's stay after its check-in", async () => {
+  it("carries no check-in warning when the appended activities reach tonight's stay late (Story 13.2)", async () => {
     const { trip, day2, eastStay, session } = await seedTrip();
     await prisma.accommodation.update({ where: { id: eastStay.id }, data: { checkInTime: "10:30" } });
     vi.mocked(getDayRouteFromOsrm).mockResolvedValue(osrmLegs([5, 1000]));
     const preview = await postPreview(trip.id, day2.id, session, { mode: "car", suggestions: [harbour] });
     const applied = await postApply(trip.id, day2.id, session, applyBodyFrom("car", [harbour], preview.body.data!));
-    expect(applied.body.data?.receipt.checkInWarning).toEqual({ accommodationId: eastStay.id, checkInTime: "10:30" });
+    expect(applied.status).toBe(200);
+    expect(Object.keys(applied.body.data!.receipt)).not.toContain("checkInWarning");
   });
 
   it("adds whatever passes 23:59 without times and says so in the preview", async () => {

@@ -17,7 +17,7 @@ import {
 import { requireSession } from "@/lib/auth/sessionGuard";
 import { toDayChangeReceiptWire } from "@/lib/trips/dayChangeReceipt";
 import { signDayChangeReceipt } from "@/lib/trips/dayChangeReceiptSignature";
-import { dayChangedResponse, pastMidnightResponse, withPushConflict } from "@/lib/http/dayPlanPushResponses";
+import { dayChangedResponse, withPushConflict } from "@/lib/http/dayPlanPushResponses";
 
 type RouteContext = {
   params: Promise<{
@@ -169,10 +169,6 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
     return fail(apiError("not_found", "Trip day not found"), 404);
   }
 
-  if ("status" in created) {
-    return pastMidnightResponse(created.item);
-  }
-
   const resolvedItem = created.item;
 
   return ok({
@@ -276,10 +272,6 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
     return fail(apiError("not_found", "Day plan item not found"), 404);
   }
 
-  if (updated.status === "past_midnight") {
-    return pastMidnightResponse(updated.item);
-  }
-
   return ok({
     dayPlanItem: {
       id: updated.item.id,
@@ -351,9 +343,6 @@ export const DELETE = async (request: NextRequest, context: RouteContext) => {
 
   if (deleted.status === "missing") {
     return fail(apiError("not_found", "Day plan item not found"), 404);
-  }
-  if (deleted.status === "past_midnight") {
-    return pastMidnightResponse(deleted.item);
   }
 
   // Story 6.23 AC6: deleting an activity now also removes the travel segments that pointed at it.

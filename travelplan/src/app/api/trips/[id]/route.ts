@@ -74,6 +74,8 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
           plannedCostSubtotal: day.plannedCostSubtotal,
           missingAccommodation: day.missingAccommodation,
           missingPlan: day.missingPlan,
+          // Story 13.2. Derived on read by the repository; the day view and the overview render it as-is.
+          planConflicts: day.planConflicts,
           accommodation: day.accommodation
             ? {
                 id: day.accommodation.id,
@@ -224,6 +226,8 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
           plannedCostSubtotal: day.plannedCostSubtotal,
           missingAccommodation: day.missingAccommodation,
           missingPlan: day.missingPlan,
+          // Story 13.2. Derived on read by the repository; the day view and the overview render it as-is.
+          planConflicts: day.planConflicts,
           accommodation: day.accommodation
             ? {
                 id: day.accommodation.id,

@@ -5,19 +5,10 @@ import { DayPlanChangedError } from "@/lib/repositories/dayPlanItemRepo";
 /**
  * The schedule rule's HTTP answers, shared by every route whose write recomputes a day (Stories 11.2-11.4,
  * 13.1), so all of them say the same thing in the same shape. Story 13.1 removed
- * `day_plan_before_predecessor`: a fixed activity is placed by its time instead of being refused. They
+ * `day_plan_before_predecessor`: a fixed activity is placed by its time instead of being refused. Story
+ * 13.2 removed the midnight refusal: a write past 23:59 is saved, its overflowing rows untimed. They
  * lived in the first route until the second needed them; a route module may only export its handlers.
  */
-
-/** Story 11.2 AC8. The activity that would pass 23:59, named in `details`. Nothing was written. */
-export const pastMidnightResponse = (item: { id: string; title: string | null }) =>
-  fail(
-    apiError("day_plan_past_midnight", "The change would push an activity past midnight", {
-      itemId: item.id,
-      itemTitle: item.title,
-    }),
-    409,
-  );
 
 /**
  * Story 11.2. Runs a write, mapping a push that lost a race with another write (the transaction has

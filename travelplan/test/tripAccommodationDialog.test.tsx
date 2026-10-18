@@ -9,7 +9,6 @@ import TripAccommodationDialog, {
   STAY_TAB_IDS,
 } from "@/components/features/trips/TripAccommodationDialog";
 import { useI18n } from "@/i18n/provider";
-import de from "@/i18n/de";
 import en from "@/i18n/en";
 import { DOCUMENT_UPLOAD_ACCEPT } from "@/lib/trips/documentUploads";
 import { mockFetchResponse, requestUrl, stubFetch } from "./helpers/mockFetch";
@@ -2809,50 +2808,6 @@ describe("TripAccommodationDialog", () => {
       fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
 
       await waitFor(() => expect(onSaved).toHaveBeenCalledWith(null));
-    });
-
-    it("names the activity a push past midnight would move, and stays open", async () => {
-      stubSave({
-        status: 409,
-        body: {
-          data: null,
-          error: {
-            code: "day_plan_past_midnight",
-            message: "The change would push an activity past midnight",
-            details: { itemId: "item-9", itemTitle: "Spätvorstellung" },
-          },
-        },
-      });
-      const onSaved = vi.fn();
-
-      renderPrevious("de", onSaved);
-      fireEvent.click(screen.getByRole("button", { name: "Unterkunft speichern" }));
-
-      expect(await screen.findByText(de["trips.plan.pastMidnight"].replace("{title}", "Spätvorstellung"))).toBeInTheDocument();
-      expect(screen.queryByText("The change would push an activity past midnight")).not.toBeInTheDocument();
-      expect(onSaved).not.toHaveBeenCalled();
-      expect(screen.getByRole("dialog")).toBeInTheDocument();
-    });
-
-    it("names an untitled activity with the untitled fallback", async () => {
-      stubSave({
-        status: 409,
-        body: {
-          data: null,
-          error: {
-            code: "day_plan_past_midnight",
-            message: "The change would push an activity past midnight",
-            details: { itemId: "item-9", itemTitle: "  " },
-          },
-        },
-      });
-
-      renderPrevious("en", vi.fn());
-      fireEvent.click(screen.getByRole("button", { name: "Save stay" }));
-
-      expect(
-        await screen.findByText(en["trips.plan.pastMidnight"].replace("{title}", en["trips.plan.untitledActivity"])),
-      ).toBeInTheDocument();
     });
 
     it("says the day changed meanwhile, and stays open", async () => {

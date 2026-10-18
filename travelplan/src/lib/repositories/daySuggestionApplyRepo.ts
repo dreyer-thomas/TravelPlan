@@ -4,8 +4,6 @@ import { prisma } from "@/lib/db/prisma";
 import {
   buildReceipt,
   DayPlanChangedError,
-  findCheckInWarningForOrderInTransaction,
-  readScheduleInputInTransaction,
 } from "@/lib/repositories/dayScheduleTransaction";
 import {
   buildSegmentTimelineInTransaction,
@@ -361,9 +359,6 @@ export const applySuggestionsForTripDay = async (params: ApplySuggestionsParams)
           segments.push({ segmentId: segment.id, updatedAt: segment.updatedAt });
         }
 
-        const state = await readScheduleInputInTransaction(tx, tripId, tripDayId);
-        const checkInWarning = await findCheckInWarningForOrderInTransaction(tx, tripDayId, state?.rows ?? []);
-
         return buildReceipt(
           tripDayId,
           {
@@ -374,7 +369,6 @@ export const applySuggestionsForTripDay = async (params: ApplySuggestionsParams)
           },
           removed,
           [],
-          { checkInWarning },
         );
       },
       { timeout: APPLY_TRANSACTION_TIMEOUT_MS },

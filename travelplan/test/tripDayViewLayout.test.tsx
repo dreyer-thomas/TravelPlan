@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import TripDayView from "@/components/features/trips/TripDayView";
@@ -935,7 +935,7 @@ describe("TripDayView layout", () => {
     vi.unstubAllGlobals();
   });
 
-  it("says why a schedule was refused past midnight, and keeps the idea on the list", async () => {
+  it("says a schedule failed, and keeps the idea on the list (Story 13.2: past midnight is saved, not refused)", async () => {
     planDialogMockState.lastProps = null;
     navigationMockState.search = "";
     bucketListItemsOverride = [{ id: "bucket-1", title: "Late idea", durationMinutes: 60, location: null, firstImageUrl: null }];
@@ -944,8 +944,8 @@ describe("TripDayView layout", () => {
       if (url.includes("/api/auth/csrf")) return mockFetchResponse({ data: { csrfToken: "csrf" }, error: null });
       if (url.includes("/day-plan-items/schedule")) {
         return mockFetchResponse(
-          { data: null, error: { code: "day_plan_past_midnight", message: "x", details: { itemId: "bucket-1", itemTitle: "Late idea" } } },
-          { status: 409 },
+          { data: null, error: { code: "internal_error", message: "x" } },
+          { status: 500 },
         );
       }
       return mockFetchResponse({
@@ -981,7 +981,7 @@ describe("TripDayView layout", () => {
     renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
     await userEvent.click(await screen.findByRole("button", { name: "Schedule on this day" }));
 
-    expect(await screen.findByText(/Late idea/, { selector: ".MuiAlert-message, .MuiAlert-message *" })).toBeInTheDocument();
+    expect(await screen.findByText("Could not be scheduled. Please try again.", { selector: ".MuiAlert-message, .MuiAlert-message *" })).toBeInTheDocument();
     expect(screen.getByTestId("bucket-item")).toBeInTheDocument();
 
     vi.unstubAllGlobals();
@@ -8744,5 +8744,131 @@ describe("TripDayView conversion receipt", () => {
 
     expect(screen.getByTestId("day-plan-item-cost")).toHaveTextContent("€107.74");
     expect(screen.queryByTestId("cost-original-annotation")).toBeNull();
+  });
+});
+
+describe("TripDayView plan conflicts (Story 13.2 AC3, AC4, AC9)", () => {
+  const doc = JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Notes" }] }] });
+
+  const activity = (id: string, title: string, fromTime: string | null, toTime: string | null, scheduleMode: "FIXED" | "FLEXIBLE", sortOrder: number) => ({
+    id,
+    title,
+    fromTime,
+    toTime,
+    scheduleMode,
+    durationMinutes: 60,
+    sortOrder,
+    createdAt: `2026-12-01T00:00:0${sortOrder}.000Z`,
+    contentJson: doc,
+    costCents: null,
+    linkUrl: null,
+    location: null,
+  });
+
+  /** The server derived these; the client renders them as they come (it never computes a schedule). */
+  const brokenConflicts = [
+    { kind: "late", itemId: "ferry", title: "Ferry", fromTime: "12:00", reachableAt: "12:40", lateMinutes: 40 },
+    { kind: "overflow", itemId: "bar", title: "Bar" },
+  ];
+
+  const dayPayload = (accessRole: "owner" | "viewer" | "contributor", planConflicts: unknown[]) => ({
+    trip: {
+      id: "trip-1",
+      name: "Trip",
+      accessRole,
+      startDate: "2026-12-01T00:00:00.000Z",
+      endDate: "2026-12-01T00:00:00.000Z",
+      dayCount: 1,
+      accommodationCostTotalCents: null,
+      heroImageUrl: null,
+    },
+    days: [
+      {
+        id: "day-1",
+        date: "2026-12-01T00:00:00.000Z",
+        dayIndex: 1,
+        plannedCostSubtotal: 0,
+        missingAccommodation: true,
+        missingPlan: false,
+        planConflicts,
+        accommodation: null,
+        dayPlanItems: [
+          activity("hike", "Hike", "09:00", "12:40", "FLEXIBLE", 0),
+          activity("ferry", "Ferry", "12:00", "13:00", "FIXED", 1),
+          activity("bar", "Bar", null, null, "FLEXIBLE", 2),
+        ],
+        travelSegments: [],
+      },
+    ],
+  });
+
+  const renderDay = async (payload: ReturnType<typeof dayPayload>, language: "en" | "de" = "en") => {
+    planDialogMockState.lastProps = null;
+    navigationMockState.search = "";
+    const fetchMock = withBucketList(async (input) => {
+      const url = requestUrl(input);
+      if (url === "/api/auth/csrf") return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
+      if (url === "/api/trips/trip-1") return mockFetchResponse({ data: payload, error: null });
+      if (url.includes("/images?tripDayId=day-1")) return mockFetchResponse({ data: { images: [] }, error: null });
+      if (url === "/api/trips/trip-1/days/day-1/route") return mockFetchResponse({ data: { route: { polyline: [] } }, error: null });
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    stubFetch(fetchMock);
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />, { language });
+    await screen.findAllByTestId("day-plan-item-card");
+  };
+
+  const cardOf = (title: string) =>
+    screen.getAllByTestId("day-plan-item-card").find((card) => within(card).queryByText(title, { selector: "p" }))!;
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("marks a late fixed card and an overflow card, and leaves the working card alone (AC3)", async () => {
+    await renderDay(dayPayload("owner", brokenConflicts));
+
+    expect(within(cardOf("Ferry")).getByTestId("plan-conflict")).toHaveTextContent("Reachable only at 12:40 (40 min late)");
+    const bar = cardOf("Bar");
+    expect(within(bar).getByTestId("plan-conflict")).toHaveTextContent("No longer fits in the day");
+    expect(within(bar).queryByText(/ - /)).not.toBeInTheDocument();
+    expect(within(cardOf("Hike")).queryByTestId("plan-conflict")).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("plan-conflict")).toHaveLength(2);
+  });
+
+  it("puts the count on the day hero (AC4)", async () => {
+    await renderDay(dayPayload("owner", brokenConflicts));
+
+    expect(within(screen.getByTestId("day-hero")).getByTestId("day-hero-plan-conflict")).toHaveTextContent(
+      "The plan doesn't work out · 2",
+    );
+  });
+
+  it("says it in German, with the lateness in Std/Min", async () => {
+    await renderDay(
+      dayPayload("owner", [{ kind: "late", itemId: "ferry", title: "Ferry", fromTime: "12:00", reachableAt: "13:10", lateMinutes: 70 }]),
+      "de",
+    );
+
+    expect(within(cardOf("Ferry")).getByTestId("plan-conflict")).toHaveTextContent("Erreichbar erst 13:10 (1 Std 10 Min zu spät)");
+    expect(screen.getByTestId("day-hero-plan-conflict")).toHaveTextContent("Der Plan geht nicht auf · 1");
+  });
+
+  it("shows no marker and no hero pill on a day that works", async () => {
+    await renderDay(dayPayload("owner", []));
+
+    expect(screen.queryByTestId("plan-conflict")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("day-hero-plan-conflict")).not.toBeInTheDocument();
+  });
+
+  it("shows a viewer and a contributor the same markers (AC9)", async () => {
+    for (const role of ["viewer", "contributor"] as const) {
+      await renderDay(dayPayload(role, brokenConflicts));
+
+      expect(within(cardOf("Ferry")).getByTestId("plan-conflict")).toHaveTextContent("Reachable only at 12:40 (40 min late)");
+      expect(within(cardOf("Bar")).getByTestId("plan-conflict")).toHaveTextContent("No longer fits in the day");
+      expect(screen.getByTestId("day-hero-plan-conflict")).toHaveTextContent("The plan doesn't work out · 2");
+      cleanup();
+    }
   });
 });

@@ -2200,48 +2200,6 @@ describe("TripDayTravelSegmentDialog", () => {
       await waitFor(() => expect(onSaved).toHaveBeenCalledWith({ id: "segment-1" }, null));
     });
 
-    it("names the activity a push past midnight would move, and stays open", async () => {
-      stubRefusal({
-        code: "day_plan_past_midnight",
-        message: "The change would push an activity past midnight",
-        details: { itemId: "item-9", itemTitle: "Late show" },
-      });
-      const onSaved = vi.fn();
-
-      render(
-        <I18nProvider initialLanguage="de">
-          <TripDayTravelSegmentDialog {...baseProps} segment={editedSegment} onSaved={onSaved} />
-        </I18nProvider>,
-      );
-      fireEvent.click(await screen.findByRole("button", { name: "OK" }));
-
-      expect(
-        await screen.findByText(de["trips.plan.pastMidnight"].replace("{title}", "Late show")),
-      ).toBeInTheDocument();
-      expect(screen.queryByText("The change would push an activity past midnight")).not.toBeInTheDocument();
-      expect(onSaved).not.toHaveBeenCalled();
-      expect(screen.getByRole("dialog")).toBeInTheDocument();
-    });
-
-    it("falls back to the untitled name for an activity without a title", async () => {
-      stubRefusal({
-        code: "day_plan_past_midnight",
-        message: "The change would push an activity past midnight",
-        details: { itemId: "item-9", itemTitle: null },
-      });
-
-      render(
-        <I18nProvider initialLanguage="en">
-          <TripDayTravelSegmentDialog {...baseProps} segment={editedSegment} />
-        </I18nProvider>,
-      );
-      fireEvent.click(await screen.findByRole("button", { name: "OK" }));
-
-      expect(
-        await screen.findByText(en["trips.plan.pastMidnight"].replace("{title}", en["trips.plan.untitledActivity"])),
-      ).toBeInTheDocument();
-    });
-
     it("says the day changed meanwhile, and stays open", async () => {
       stubRefusal({ code: "day_plan_changed", message: "The day was changed by another write" });
       const onSaved = vi.fn();

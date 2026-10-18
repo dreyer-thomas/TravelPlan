@@ -148,9 +148,16 @@ type WireReceipt = {
   version: number;
   signature: string;
   edited: { kind: string; itemId: string; neighbourId: string };
-  movedItems: { itemId: string; previousFromTime: string; previousToTime: string; previousUpdatedAt: string; updatedAt: string }[];
+  movedItems: {
+    itemId: string;
+    previousFromTime: string;
+    previousToTime: string;
+    fromTime: string | null;
+    toTime: string | null;
+    previousUpdatedAt: string;
+    updatedAt: string;
+  }[];
   removedTravelSegments: { id: string }[];
-  checkInWarning?: { accommodationId: string; checkInTime: string };
 };
 
 describe("POST /api/trips/[id]/day-plan-items/reorder (Story 11.3)", () => {
@@ -247,7 +254,8 @@ describe("POST /api/trips/[id]/day-plan-items/reorder (Story 11.3)", () => {
     expect(result.receipt.removedTravelSegments).toHaveLength(1);
   });
 
-  it("past midnight: 409 with the named activity in details, and the whole DB unchanged", async () => {
+  it("past midnight: 200, the pushed activity stored without times and listed in the receipt", async () => {
+    // Story 13.2: past midnight is saved, not refused.
     const user = await createUser("reorder-midnight@example.com");
     const { trip, day } = await createTrip(user.id);
     // 13.1: a fixed show until 22:00, then flexible A (90 min, to 23:30) and B (15 min, to 23:45). Up,
@@ -258,13 +266,19 @@ describe("POST /api/trips/[id]/day-plan-items/reorder (Story 11.3)", () => {
     await createLeg(day.id, item(b.id), item(a.id), 20);
     await settleSeededDay(day.id, { flexible: [a.id, b.id] });
     const session = await createSessionJwt({ sub: user.id, role: user.role });
-    const before = await databaseState();
 
     const response = await send(trip.id, session, { tripDayId: day.id, itemId: b.id, direction: "up" });
 
-    expect(response.status).toBe(409);
-    expect(response.body.error).toMatchObject({ code: "day_plan_past_midnight", details: { itemId: a.id, itemTitle: "A" } });
-    expect(await databaseState()).toEqual(before);
+    expect(response.status).toBe(200);
+    expect(await times(day.id)).toEqual({ Show: "21:00–22:00", A: "null–null", B: "22:00–22:15" });
+    expect(await prisma.dayPlanItem.findUniqueOrThrow({ where: { id: a.id } })).toMatchObject({ durationMinutes: 90 });
+    const receipt = (response.body.data as { receipt: WireReceipt }).receipt;
+    expect(receipt.movedItems.find((row) => row.itemId === a.id)).toMatchObject({
+      previousFromTime: "22:00",
+      previousToTime: "23:30",
+      fromTime: null,
+      toTime: null,
+    });
   });
 
   it("not reorderable: the first activity up, the last down, a fixed one either way → 409, DB unchanged", async () => {
@@ -324,14 +338,14 @@ describe("POST /api/trips/[id]/day-plan-items/reorder (Story 11.3)", () => {
     expect(response.status).toBe(200);
   });
 
-  it("carries the check-in warning when the swapped day reaches an explicit check-in too late", async () => {
+  it("carries no check-in warning when the swapped day reaches an explicit check-in too late (Story 13.2)", async () => {
     const user = await createUser("reorder-checkin@example.com");
     const { trip, day } = await createTrip(user.id);
     // 13.1: flexible A (2 h) and B (30 min) behind a fixed lunch until 15:00: A 15–17, B 17–17:30.
     await createItem(day.id, "Lunch", "14:00", "15:00");
     const a = await createItem(day.id, "A", "15:00", "17:00");
     const b = await createItem(day.id, "B", "16:00", "16:30");
-    const tonight = await prisma.accommodation.create({
+    await prisma.accommodation.create({
       data: { tripDayId: day.id, name: "Hotel", status: "BOOKED", checkInTime: "17:15" },
     });
     // B→A takes 20 minutes: A becomes 15:50–17:50, after the 17:15 check-in.
@@ -343,6 +357,7 @@ describe("POST /api/trips/[id]/day-plan-items/reorder (Story 11.3)", () => {
 
     expect(response.status).toBe(200);
     const receipt = (response.body.data as { receipt: WireReceipt }).receipt;
-    expect(receipt.checkInWarning).toEqual({ accommodationId: tonight.id, checkInTime: "17:15" });
+    expect(receipt.movedItems.length).toBeGreaterThan(0);
+    expect(Object.keys(receipt)).not.toContain("checkInWarning");
   });
 });

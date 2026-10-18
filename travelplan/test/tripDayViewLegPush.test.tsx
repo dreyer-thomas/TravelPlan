@@ -192,7 +192,27 @@ const tripDetailAfterPush = () => {
   return detail;
 };
 
-const stubDay = (options: { afterFirst?: () => ReturnType<typeof tripDetail> } = {}) => {
+/** Story 13.2: the detail with Market (fixed 13:00) reached late, as the server derives it. */
+const tripDetailWithLateMarket = () => {
+  const detail = tripDetail();
+  return {
+    ...detail,
+    days: detail.days.map((day, index) =>
+      index === 0
+        ? {
+            ...day,
+            planConflicts: [
+              { kind: "late" as const, itemId: "item-2", title: "Market", fromTime: "13:00", reachableAt: "13:20", lateMinutes: 20 },
+            ],
+          }
+        : day,
+    ),
+  };
+};
+
+const stubDay = (
+  options: { first?: () => ReturnType<typeof tripDetail>; afterFirst?: () => ReturnType<typeof tripDetail> } = {},
+) => {
   let detailRequests = 0;
   const undoBodies: unknown[] = [];
   stubFetch(
@@ -213,7 +233,10 @@ const stubDay = (options: { afterFirst?: () => ReturnType<typeof tripDetail> } =
         });
       }
       detailRequests += 1;
-      const detail = detailRequests > 1 && options.afterFirst ? options.afterFirst() : tripDetail();
+      const detail =
+        detailRequests > 1
+          ? (options.afterFirst ?? tripDetail)()
+          : (options.first ?? tripDetail)();
       return mockFetchResponse({ data: detail, error: null });
     }),
   );
@@ -300,6 +323,38 @@ describe("TripDayView and a leg or check-out push (Story 11.4)", () => {
     await waitFor(() => expect(screen.queryByRole("button", { name: "stub-segment-save" })).not.toBeInTheDocument());
     expect(screen.queryByTestId("action-notice")).not.toBeInTheDocument();
     expect(detailRequestCount()).toBe(before);
+  });
+
+  // Story 13.2 review: a fixed activity becomes late, or stops being late, without moving.
+  it("reloads after a leg save that made a fixed activity late without moving anything, and marks it", async () => {
+    const { detailRequestCount } = stubDay({ afterFirst: tripDetailWithLateMarket });
+    await renderDay("day-1");
+    const before = detailRequestCount();
+    expect(screen.queryByTestId("plan-conflict")).not.toBeInTheDocument();
+
+    stubControl.receipt = {
+      ...legReceipt([]),
+      planConflicts: [{ itemId: "item-2", title: "Market", fromTime: "13:00", reachableAt: "13:20" }],
+    };
+    await userEvent.click(screen.getAllByRole("button", { name: en["trips.travelSegment.editAction"] })[0]);
+    await userEvent.click(await screen.findByRole("button", { name: "stub-segment-save" }));
+
+    await waitFor(() => expect(detailRequestCount()).toBeGreaterThan(before));
+    expect(await screen.findByTestId("plan-conflict")).toBeInTheDocument();
+  });
+
+  it("reloads after a leg save on a day that had conflicts, so a resolved one leaves its card", async () => {
+    const { detailRequestCount } = stubDay({ first: tripDetailWithLateMarket });
+    await renderDay("day-1");
+    expect(await screen.findByTestId("plan-conflict")).toBeInTheDocument();
+    const before = detailRequestCount();
+
+    stubControl.receipt = legReceipt([]);
+    await userEvent.click(screen.getAllByRole("button", { name: en["trips.travelSegment.editAction"] })[0]);
+    await userEvent.click(await screen.findByRole("button", { name: "stub-segment-save" }));
+
+    await waitFor(() => expect(detailRequestCount()).toBeGreaterThan(before));
+    await waitFor(() => expect(screen.queryByTestId("plan-conflict")).not.toBeInTheDocument());
   });
 
   it("shows the notice after a previous-stay save whose receipt moved this day", async () => {

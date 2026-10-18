@@ -16,7 +16,6 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { formatMessage } from "@/i18n";
 import { useI18n } from "@/i18n/provider";
 import type { SignedDayChangeReceiptWire } from "@/lib/trips/dayChangeReceipt";
 import {
@@ -584,16 +583,8 @@ export default function TripDayTravelSegmentDialog({
           setServerError(t("trips.travelSegment.existsHint"));
           return;
         }
-        // Story 11.4: the leg's push refusals, in the plan dialog's words. The dialog stays open on both.
-        if (body.error?.code === "day_plan_past_midnight") {
-          const details = (body.error.details ?? {}) as { itemTitle?: string | null };
-          setServerError(
-            formatMessage(t("trips.plan.pastMidnight"), {
-              title: details.itemTitle?.trim() || t("trips.plan.untitledActivity"),
-            }),
-          );
-          return;
-        }
+        // Story 11.4: the leg's race with another write, in the plan dialog's words. The dialog stays open.
+        // (Story 13.2: a leg that pushes the day past 23:59 is saved, not refused.)
         if (body.error?.code === "day_plan_changed") {
           setServerError(t("trips.plan.dayChangedConflict"));
           return;

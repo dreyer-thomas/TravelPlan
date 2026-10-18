@@ -15,6 +15,7 @@ import { buildDayMapPanelData, buildTripDayMapItems, type TripDayMapPanelData } 
 // signature takes `Date | string`, so the `Date`s here are a drop-in.
 import { compareDayPlanItemsByOrder } from "@/lib/trips/dayPlanItemOrder";
 import { DEFAULT_ACTIVITY_DURATION_MINUTES, legacyScheduleFields } from "@/lib/trips/legacySchedule";
+import { buildScheduleInput, derivePlanConflicts, type DayPlanConflict } from "@/lib/trips/planConflicts";
 import { buildParkedContentJson } from "@/lib/trips/parkedItemContent";
 import { parkedDayPlanItemsWhere } from "@/lib/repositories/dayPlanItemRepo";
 import {
@@ -168,6 +169,11 @@ export type TripDaySummary = {
   plannedCostSubtotal: number;
   missingAccommodation: boolean;
   missingPlan: boolean;
+  /**
+   * Story 13.2 (FR47). The activities whose plan does not work out, in the day's order; `[]` for a day
+   * that works. Derived on read by `derivePlanConflicts`, never stored.
+   */
+  planConflicts: DayPlanConflict[];
   accommodation: {
     id: string;
     name: string;
@@ -1226,8 +1232,26 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
     accommodationCostTotalCents,
     heroImageUrl: trip.heroImageUrl,
     updatedAt: trip.updatedAt,
-    days: trip.days.map((day) => {
+    days: trip.days.map((day, dayPosition) => {
       const accommodationName = day.accommodation?.name?.trim() ?? "";
+      const orderedItems = [...day.dayPlanItems].sort(compareDayPlanItemsByOrder);
+      // Story 13.2 §3. The writes' rule (`readScheduleInputInTransaction`): last night's stay is the raw
+      // accommodation row of the nearest earlier day with a lower `dayIndex`, whatever its name. `days` is
+      // ordered by `[dayIndex, date]`, so that is the first lower one walking back.
+      let previousDay: (typeof trip.days)[number] | undefined;
+      for (let position = dayPosition - 1; position >= 0; position -= 1) {
+        if (trip.days[position].dayIndex < day.dayIndex) {
+          previousDay = trip.days[position];
+          break;
+        }
+      }
+      const planConflicts = derivePlanConflicts(
+        buildScheduleInput({
+          items: orderedItems,
+          legs: day.travelSegments,
+          previousStay: previousDay?.accommodation ?? null,
+        }),
+      );
       const hasAccommodation = accommodationName.length > 0;
       const status = day.accommodation?.status === "BOOKED" ? "booked" : "planned";
       const dayMeta = dayMetaById.get(day.id);
@@ -1243,6 +1267,7 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
         plannedCostSubtotal: getVisibleDayTotal(day),
         missingAccommodation: !hasAccommodation,
         missingPlan: day._count.dayPlanItems === 0,
+        planConflicts,
         accommodation: hasAccommodation
           ? {
               id: day.accommodation!.id,
@@ -1268,7 +1293,7 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
                   : null,
             }
           : null,
-        dayPlanItems: [...day.dayPlanItems].sort(compareDayPlanItemsByOrder).map((item) => ({
+        dayPlanItems: orderedItems.map((item) => ({
           id: item.id,
           title: item.title,
           fromTime: item.fromTime,

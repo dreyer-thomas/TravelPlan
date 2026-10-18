@@ -1,5 +1,10 @@
 # generated: 2026-03-01 13:08:00 CET
-# last_updated: 2026-10-18 (14-2-park-it-for-another-day DONE via bmad-code-review: 4 patches applied (Day Detail idea edit ends a park undo it made stale; reload after an unreadable park answer; refusal tests assert their text; unknown-field parked receipt refused through the undo route), 3 deferred DW-396..398, 16 dismissed. 203 files / 3320 tests, tsc 0, lint 0/79. 14-4 can start.)
+# last_updated: 2026-10-18 (13-2-when-the-plan-doesnt-work-out DONE via bmad-code-review: 5 patches applied (lateMinutes from the uncapped reach - Tommy chose option a; day view reloads when a leg save or delete changes the day's conflicts, not only when rows moved; AC6 delete test; AC8 wording; memo placement), 0 deferred, 13 dismissed. 205 files / 3347 tests, tsc 0, lint 0/79. Q1-Q3 defaults still unconfirmed.)
+# previously: 2026-10-18 (13-2-when-the-plan-doesnt-work-out REVIEW: real run passed (Safari, 390 px). Real-run ruling: the day start never makes a booking late (scheduleDay busyUntil, no time changes). Old orphaned legs from the 16.10 import left as they are, auto-cleanup parked. 205 files / 3344 tests, tsc 0, lint 0/79.)
+# previously: 2026-10-18 (13-2-when-the-plan-doesnt-work-out implemented via bmad-dev-story, stays in-progress until Tommy's real run (Safari, 390 px). planConflicts derived on read; card line, hero pill, overview pill; past-midnight refusal and check-in warning removed, receipt v3. 205 files / 3338 tests, tsc 0, lint 0/79, build OK. DW-377/378 closed moot, DW-375/394 annotated.)
+# previously: 2026-10-18 (13-2-when-the-plan-doesnt-work-out contexted via bmad-create-story: ready-for-dev. Conflicts derived on read in the trip payload (late, overflow), card line, hero pill, overview day-row pill; past-midnight refusal removed from every write; check-in warning removed, receipt stays v3. 3 non-blocking questions.)
+# previously: 2026-10-18 (8-7-what-the-ai-searches-cost added to epics.md as backlog by John (PM) with Tommy: usage record per AI search, prompt caching, admin page /admin/ai-usage via the header menu. Model stays Sonnet 5.5. Sequenced after Epic 14.)
+# previously: 2026-10-18 (14-2-park-it-for-another-day DONE via bmad-code-review: 4 patches applied (Day Detail idea edit ends a park undo it made stale; reload after an unreadable park answer; refusal tests assert their text; unknown-field parked receipt refused through the undo route), 3 deferred DW-396..398, 16 dismissed. 203 files / 3320 tests, tsc 0, lint 0/79. 14-4 can start.)
 # previously: 2026-10-18 (14-4-one-way-to-another-day contexted via bmad-create-story: ready-for-dev, on Tommy's request during the 14.2 run. Removes 6.23's single-activity move (dialog "anderer Tag", POST day-plan-items/move, moveDayPlanItemToTripDay); park + "+" replace it; whole-day transfer untouched. Implement after 14.2's code review. 2 non-blocking questions.)
 # previously: 2026-10-18 (14-2-park-it-for-another-day REVIEW: real run passed (Tommy: park, times moved earlier, day total without its price, "+" restored it). 203 files / 3317 tests, tsc 0, lint 0/79, build OK. Next: code review.)
 # previously: 2026-10-18 (14-2-park-it-for-another-day dev-story: Tasks 0-7 and Task 8 gates done (parked receipt kind, POST day-plan-items/park, undo, Parken in the card menu on every card). 203 files / 3315 tests, tsc 0, lint 0/79, build OK; mutations 1,2,3,5 red, 4 equivalent. Tommy additions: edit ideas on Day Detail, bucket row actions reveal on hover; 3317 tests green. Stays in-progress until the real run with Tommy.)
@@ -256,6 +261,7 @@ development_status:
   8-4-media-deletion-that-deletes-only-its-own-file: done
   8-5-travel-segments-that-match-their-day: done
   8-6-the-sixth-route-story-8-4-left-out: done
+  8-7-what-the-ai-searches-cost: backlog
   epic-8-retrospective: optional
 
   epic-9: in-progress
@@ -284,7 +290,7 @@ development_status:
 
   epic-13: in-progress
   13-1-just-say-how-long: done
-  13-2-when-the-plan-doesnt-work-out: backlog
+  13-2-when-the-plan-doesnt-work-out: done
   13-3-putting-the-day-in-order: backlog
   13-4-suggestions-and-backups-speak-in-durations: backlog
   epic-13-retrospective: optional

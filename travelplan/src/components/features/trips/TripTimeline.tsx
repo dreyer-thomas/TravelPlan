@@ -56,6 +56,7 @@ import { withImageCacheBuster } from "@/lib/trips/imageUploads";
 import type { TransportType } from "@/lib/trips/transportTypes";
 import { useI18n } from "@/i18n/provider";
 import { formatMessage } from "@/i18n";
+import type { DayPlanConflict } from "@/lib/trips/planConflicts";
 
 type ApiEnvelope<T> = {
   data: T | null;
@@ -85,6 +86,8 @@ type TripDay = {
   updatedAt?: string;
   missingAccommodation: boolean;
   missingPlan: boolean;
+  /** Story 13.2. Derived by the server on read; optional because an older payload or a fixture lacks it. */
+  planConflicts?: DayPlanConflict[];
   accommodation: {
     id: string;
     name: string;
@@ -151,6 +154,20 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
   const { language, t } = useI18n();
   const theme = useTheme();
   const tokens = theme.palette.tokens;
+  // The day row's warn pill: the missing stay's (`day-row-gap-pill`) and, since Story 13.2, the broken
+  // plan's (`day-row-plan-conflict-pill`) share it, so the two read as the same kind of warning.
+  const dayRowWarnPillSx = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 0.75,
+    backgroundColor: tokens.warnBg,
+    color: theme.palette.warning.main,
+    px: 1.25,
+    py: 0.75,
+    borderRadius: "6px",
+    fontSize: "11.5px",
+    fontWeight: 700,
+  } as const;
   const [detail, setDetail] = useState<TripDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -909,6 +926,10 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                     unplanned: unplannedSummary,
                   });
                   const isGap = day.missingAccommodation;
+                  // Story 13.2 AC5. A broken plan takes the row's gap state too; the stay column below
+                  // keeps `isGap` alone, because a day can have its stay and still not work out.
+                  const planConflictCount = day.planConflicts?.length ?? 0;
+                  const isWarnRow = isGap || planConflictCount > 0;
                   // One derivation drives `component`, `href`, `target` and `rel` together, so an unsafe
                   // stored value takes the `<span>` path the no-link case already produces rather than
                   // becoming a third state to style. Rows written before the write schema gained its
@@ -961,10 +982,10 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                         gap: "14px",
                         padding: "12px 14px",
                         border: "1px solid",
-                        borderColor: isGap ? tokens.warnBorder : tokens.borderStrong,
+                        borderColor: isWarnRow ? tokens.warnBorder : tokens.borderStrong,
                         borderRadius: "8px",
                         marginBottom: "8px",
-                        backgroundColor: isGap ? tokens.warnBgRow : tokens.card,
+                        backgroundColor: isWarnRow ? tokens.warnBgRow : tokens.card,
                         // Keyboard-only focus: the row is outlined when its navigation link is focused,
                         // without also firing on plain mouse clicks the way :focus-within does.
                         "&:has(:focus-visible)": {
@@ -1021,6 +1042,15 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                             {t("trips.timeline.missingPlan")}
                           </Typography>
                         ) : null}
+                        {planConflictCount > 0 ? (
+                          <Box
+                            data-testid="day-row-plan-conflict-pill"
+                            sx={{ ...dayRowWarnPillSx, alignSelf: "flex-start", mt: 0.5 }}
+                          >
+                            <WarningTriangleIcon />
+                            {formatMessage(t("trips.planConflict.dayBadge"), { count: planConflictCount })}
+                          </Box>
+                        ) : null}
                       </Box>
 
                       <Box
@@ -1040,21 +1070,7 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                         }}
                       >
                         {isGap ? (
-                          <Box
-                            data-testid="day-row-gap-pill"
-                            sx={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: 0.75,
-                              backgroundColor: tokens.warnBg,
-                              color: theme.palette.warning.main,
-                              px: 1.25,
-                              py: 0.75,
-                              borderRadius: "6px",
-                              fontSize: "11.5px",
-                              fontWeight: 700,
-                            }}
-                          >
+                          <Box data-testid="day-row-gap-pill" sx={dayRowWarnPillSx}>
                             <WarningTriangleIcon />
                             {t("trips.timeline.noAccommodation")}
                           </Box>

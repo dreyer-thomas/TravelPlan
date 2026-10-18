@@ -1887,15 +1887,9 @@ export default function TripDayPlanDialog({
           return;
         }
 
-        // Story 11.2: the schedule's refusal names an activity, so it needs its title from `details`; an
-        // imported row may have none. The dialog stays open. (Story 13.1 removed the "starts before the
-        // previous activity" refusal: a fixed activity is placed by its time instead.)
-        const pushDetails = (body.error?.details ?? {}) as { itemTitle?: string | null };
-        const activityTitle = (value: string | null | undefined) => value?.trim() || t("trips.plan.untitledActivity");
-        if (body.error?.code === "day_plan_past_midnight") {
-          setServerError(formatMessage(t("trips.plan.pastMidnight"), { title: activityTitle(pushDetails.itemTitle) }));
-          return;
-        }
+        // Story 11.2: the schedule's race with another write. The dialog stays open. (Story 13.1 removed
+        // the "starts before the previous activity" refusal, Story 13.2 the past-midnight one: a day that
+        // no longer fits is saved and marked.)
         if (body.error?.code === "day_plan_changed") {
           setServerError(t("trips.plan.dayChangedConflict"));
           return;

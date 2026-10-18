@@ -7,7 +7,6 @@ import {
 import {
   applyScheduleChangesInTransaction,
   buildReceipt,
-  findCheckInWarningInTransaction,
   planDaySchedule,
   readScheduleInputInTransaction,
   toPlanConflicts,
@@ -49,12 +48,11 @@ export type AccommodationStatus = "planned" | "booked";
 
 /**
  * Story 11.4: `receipt` is present exactly when the update ran the walk on the next day (a later resolved
- * check-out, and a next day exists); `past_midnight` is that walk's refusal, with nothing written.
+ * check-out, and a next day exists). Since Story 13.2 the walk never refuses.
  */
 export type AccommodationUpdateResult =
   | { status: "not_found" }
   | { status: "missing" }
-  | { status: "past_midnight"; item: { id: string; title: string | null } }
   | { status: "updated"; accommodation: AccommodationDetail; receipt?: DayChangeReceipt };
 
 export type AccommodationCopyResult =
@@ -458,9 +456,8 @@ export const updateAccommodationForTripDay = async (
       return { status: "missing" };
     }
 
-    // Decided before any write, so a refusal leaves nothing to roll back.
+    // Planned before any write, from the stored rows the conditional writes compare against.
     const push = await planCheckOutScheduleInTransaction(tx, { tripId, checkOutTime: params.checkOutTime }, existing);
-    if (push?.plan.status === "past_midnight") return push.plan;
 
     const now = new Date();
     const accommodation = await tx.accommodation.update({
@@ -493,13 +490,12 @@ export const updateAccommodationForTripDay = async (
       ...accommodation,
       payments: toPaymentDetails(payments),
     });
-    if (!push || push.plan.status !== "ok") {
+    if (!push) {
       return { status: "updated", accommodation: detail };
     }
 
     const { nextDayId, plan } = push;
     const movedItems = await applyScheduleChangesInTransaction(tx, nextDayId, plan.changes, now);
-    const checkInWarning = await findCheckInWarningInTransaction(tx, nextDayId, plan.order, movedItems);
     // A check-out never changes an order, so 11.1's sweep has nothing to remove (rule 12).
     const receipt = buildReceipt(
       nextDayId,
@@ -512,7 +508,7 @@ export const updateAccommodationForTripDay = async (
       },
       [],
       movedItems,
-      { checkInWarning, planConflicts: toPlanConflicts(plan.newConflicts) },
+      { planConflicts: toPlanConflicts(plan.newConflicts) },
     );
     return { status: "updated", accommodation: detail, receipt };
   });

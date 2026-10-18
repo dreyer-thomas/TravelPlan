@@ -1,6 +1,5 @@
 import type { TransactionClient } from "@/lib/repositories/travelSegmentRepo";
 import type {
-  DayChangeCheckInWarning,
   DayChangeEdited,
   DayChangePlanConflict,
   DayChangeReceipt,
@@ -9,16 +8,14 @@ import type {
 } from "@/lib/trips/dayChangeReceipt";
 import { compareDayPlanItemsByOrder } from "@/lib/trips/dayPlanItemOrder";
 import {
-  activityEndMinutes,
   hasValidTimes,
   placeFixedItem,
   scheduleDay,
-  timeToMinutes,
   type ScheduleConflict,
   type ScheduleItem,
   type ScheduleLeg,
 } from "@/lib/trips/daySchedule";
-import { resolveDayStartMinute } from "@/lib/trips/stayTimes";
+import { scheduleInputFor, toScheduleItem, toScheduleLeg } from "@/lib/trips/planConflicts";
 
 /**
  * Story 13.1 (FR42). The transaction half of the schedule rule, shared by every write that can change a
@@ -29,12 +26,12 @@ import { resolveDayStartMinute } from "@/lib/trips/stayTimes";
  *
  * 1. `readScheduleInputInTransaction`: the day's rows in order, last night's stay, the day's legs.
  * 2. `planDaySchedule` (pure): apply the edit to the in-memory day, place a fixed row by its time if it
- *    needs placing, schedule the day **before** and **after**, and decide the one refusal
- *    (`past_midnight`) *before the first write*, as Story 11.2 §7 requires.
+ *    needs placing, and schedule the day **before** and **after**. It never refuses: since Story 13.2 a
+ *    flexible row pushed past 23:59 is stored without times (rule 5), and the trip payload marks it.
  * 3. The write itself.
  * 4. `applyScheduleChangesInTransaction`: every other row whose times or `sortOrder` changed, each
  *    conditional on the `updatedAt` step 1 read (`DayPlanChangedError` rolls the whole change back).
- * 5. 11.1's sweep, the check-in warning, and `buildReceipt`.
+ * 5. 11.1's sweep and `buildReceipt`.
  *
  * This module imports `travelSegmentRepo.ts` for its transaction type only, so `dayPlanItemRepo.ts` (which
  * imports `travelSegmentRepo.ts`) and `travelSegmentRepo.ts` itself can both import it without a cycle.
@@ -52,19 +49,12 @@ export class DayPlanChangedError extends Error {
   }
 }
 
-/**
- * The one refusal the schedule rule still has until Story 13.2 (Story 13.1 §7): a write would leave a
- * flexible activity that fitted, or the one being created, without room before 23:59.
- */
-export type DaySchedulePastMidnight = { status: "past_midnight"; item: { id: string; title: string | null } };
-
 export const buildReceipt = (
   tripDayId: string,
   edited: DayChangeEdited,
   removedTravelSegments: TravelSegmentRow[],
   movedItems: MovedItemRow[],
   extras: {
-    checkInWarning?: DayChangeCheckInWarning;
     planConflicts?: DayChangePlanConflict[];
   } = {},
 ): DayChangeReceipt => ({
@@ -73,7 +63,6 @@ export const buildReceipt = (
   edited,
   removedTravelSegments,
   movedItems,
-  ...(extras.checkInWarning ? { checkInWarning: extras.checkInWarning } : {}),
   // Absent when empty, as `removedImageFiles` is (12.4): an undo result pinned with `toEqual` stays valid.
   ...(extras.planConflicts && extras.planConflicts.length > 0 ? { planConflicts: extras.planConflicts } : {}),
 });
@@ -139,12 +128,8 @@ export const readScheduleInputInTransaction = async (
     tripDayId,
     rows: [...day.dayPlanItems].sort(compareDayPlanItemsByOrder),
     previousStay: previousDay?.accommodation ?? null,
-    legs: day.travelSegments.map((segment) => ({
-      id: segment.id,
-      fromKey: segment.fromItemId,
-      toKey: segment.toItemId,
-      durationMinutes: segment.durationMinutes,
-    })),
+    // The trip payload (`tripRepo.ts`) maps its legs with the same `toScheduleLeg` (Story 13.2 §2).
+    legs: day.travelSegments.map((segment) => ({ id: segment.id, ...toScheduleLeg(segment) })),
   };
 };
 
@@ -182,46 +167,29 @@ export type PlannedChange = PlannedRow & {
   previous: { fromTime: string | null; toTime: string | null; sortOrder: number; updatedAt: Date };
 };
 
-export type DaySchedulePlan =
-  | {
-      status: "ok";
-      /** The day after the write, in order, with the computed times. */
-      order: PlannedRow[];
-      /** The inserted or updated row as it will be written; `null` for every other edit. */
-      edited: PlannedRow | null;
-      changes: PlannedChange[];
-      /** Conflicts this write made: new ones, or reached later than before (§15). */
-      newConflicts: ScheduleConflict[];
-    }
-  | DaySchedulePastMidnight;
-
-const asScheduleItem = (row: ScheduleItem): ScheduleItem => ({
-  id: row.id,
-  title: row.title,
-  scheduleMode: row.scheduleMode,
-  durationMinutes: row.durationMinutes,
-  fromTime: row.fromTime,
-  toTime: row.toTime,
-});
+export type DaySchedulePlan = {
+  /** The day after the write, in order, with the computed times (`null` for a row that does not fit). */
+  order: PlannedRow[];
+  /** The inserted or updated row as it will be written; `null` for every other edit. */
+  edited: PlannedRow | null;
+  changes: PlannedChange[];
+  /** Conflicts this write made: new ones, or reached later than before (§15). */
+  newConflicts: ScheduleConflict[];
+};
 
 /**
  * Step 2, pure. Throws when the edit names a row that is not on the day; the repositories check first.
  */
 export const planDaySchedule = (state: ScheduleDayState, edit: ScheduleEdit): DaySchedulePlan => {
-  const beforeItems = state.rows.map(asScheduleItem);
+  const beforeItems = state.rows.map(toScheduleItem);
   const beforeStay = state.previousStay;
-  const before = scheduleDay({
-    dayStartMinute: resolveDayStartMinute(beforeStay),
-    previousStayId: beforeStay?.id ?? null,
-    items: beforeItems,
-    legs: state.legs,
-  });
+  // The same input builder as the trip payload's conflicts (Story 13.2 §2), so the read cannot drift.
+  const before = scheduleDay(scheduleInputFor({ items: beforeItems, legs: state.legs, previousStay: beforeStay }));
 
   let items = [...beforeItems];
   let legs: ScheduleLeg[] = state.legs;
   let stay = beforeStay;
   let editedId: string | null = null;
-  let createdId: string | null = null;
   let placeId: string | null = null;
 
   const indexOf = (itemId: string) => {
@@ -235,7 +203,7 @@ export const planDaySchedule = (state: ScheduleDayState, edit: ScheduleEdit): Da
       break;
     case "insert":
       items.push(edit.item);
-      editedId = createdId = edit.item.id;
+      editedId = edit.item.id;
       if (edit.item.scheduleMode === "FIXED") placeId = edit.item.id;
       break;
     case "update": {
@@ -276,11 +244,8 @@ export const planDaySchedule = (state: ScheduleDayState, edit: ScheduleEdit): Da
     }
   }
 
-  const scheduleInput = {
-    dayStartMinute: resolveDayStartMinute(stay),
-    previousStayId: stay?.id ?? null,
-    legs,
-  };
+  // `items` is overridden at each call below: placing a fixed row changes the order.
+  const scheduleInput = scheduleInputFor({ items, legs, previousStay: stay });
 
   if (placeId !== null) {
     const placed = items[indexOf(placeId)];
@@ -291,15 +256,8 @@ export const planDaySchedule = (state: ScheduleDayState, edit: ScheduleEdit): Da
 
   const after = scheduleDay({ ...scheduleInput, items });
 
-  // §7: only a *new* overflow refuses. A row that did not fit before stays untimed and never blocks.
-  const beforeTimes = new Map(before.rows.map((row) => [row.id, row]));
-  for (const id of after.overflow) {
-    const hadTimes = beforeTimes.get(id)?.fromTime != null;
-    if (id === createdId || hadTimes) {
-      const item = items.find((entry) => entry.id === id)!;
-      return { status: "past_midnight", item: { id, title: item.title } };
-    }
-  }
+  // Story 13.2: a row pushed past 23:59 is not refused. Its `null` times are a change like any other, so it
+  // lands in `changes` (and the receipt's `movedItems`) with its previous times, and undo restores it.
 
   const stored = new Map(state.rows.map((row) => [row.id, row]));
   const order: PlannedRow[] = after.rows.map((row, sortOrder) => ({
@@ -341,10 +299,10 @@ export const planDaySchedule = (state: ScheduleDayState, edit: ScheduleEdit): Da
   const beforeConflicts = new Map(before.conflicts.map((conflict) => [conflict.itemId, conflict]));
   const newConflicts = after.conflicts.filter((conflict) => {
     const previous = beforeConflicts.get(conflict.itemId);
-    return !previous || timeToMinutes(conflict.reachableAt)! > timeToMinutes(previous.reachableAt)!;
+    return !previous || conflict.lateMinutes > previous.lateMinutes;
   });
 
-  return { status: "ok", order, edited, changes, newConflicts };
+  return { order, edited, changes, newConflicts };
 };
 
 /**
@@ -385,64 +343,6 @@ export const applyScheduleChangesInTransaction = async (
   return movedItems;
 };
 
-/** The receipt's conflicts, from the plan's. */
+/** The receipt's conflicts, from the plan's. `lateMinutes` stays out: the receipt schema is strict v3. */
 export const toPlanConflicts = (conflicts: ScheduleConflict[]): DayChangePlanConflict[] =>
-  conflicts.map((conflict) => ({ ...conflict }));
-
-/** `true` when the write moved some other row's times (a renumbering alone moves nothing visible). */
-export const movedAnyTimes = (movedItems: MovedItemRow[]) =>
-  movedItems.some((row) => row.previousFromTime !== row.fromTime || row.previousToTime !== row.toTime);
-
-/**
- * Story 11.2 AC9, kept until Story 13.2 removes it. Only after a change that moved some row's times, and
- * only against an explicit check-in: the 16:00 default lives in the client and never warns. The last timed
- * activity's end, plus the stored leg from it to the night's stay when that leg is drawn (the activity is
- * the day's last), compared in plain minutes; the sum may pass midnight and is never formatted.
- */
-export const findCheckInWarningForOrderInTransaction = async (
-  tx: TransactionClient,
-  tripDayId: string,
-  order: Array<{ id: string; fromTime: string | null; toTime: string | null }>,
-): Promise<DayChangeCheckInWarning | undefined> => {
-  const day = await tx.tripDay.findUnique({
-    where: { id: tripDayId },
-    select: { accommodation: { select: { id: true, checkInTime: true } } },
-  });
-  const stay = day?.accommodation;
-  const checkInTime = stay?.checkInTime?.trim();
-  if (!stay || !checkInTime) return undefined;
-  const checkInMinutes = timeToMinutes(checkInTime);
-  if (checkInMinutes === null) return undefined;
-
-  const timed = order.filter((item) => Boolean(item.fromTime));
-  const last = timed.at(-1);
-  if (!last) return undefined;
-  const lastEnd = activityEndMinutes(last);
-  if (lastEnd === null) return undefined;
-
-  let arrival = lastEnd;
-  if (order.at(-1) === last) {
-    const legToStay = await tx.travelSegment.findFirst({
-      where: {
-        tripDayId,
-        fromItemType: "DAY_PLAN_ITEM",
-        fromItemId: last.id,
-        toItemType: "ACCOMMODATION",
-        toItemId: stay.id,
-      },
-      select: { durationMinutes: true },
-    });
-    arrival += legToStay?.durationMinutes ?? 0;
-  }
-
-  return arrival > checkInMinutes ? { accommodationId: stay.id, checkInTime } : undefined;
-};
-
-/** The check-in warning for a planned write: only when it moved some row's times, as before 13.1. */
-export const findCheckInWarningInTransaction = async (
-  tx: TransactionClient,
-  tripDayId: string,
-  order: PlannedRow[],
-  movedItems: MovedItemRow[],
-): Promise<DayChangeCheckInWarning | undefined> =>
-  movedAnyTimes(movedItems) ? findCheckInWarningForOrderInTransaction(tx, tripDayId, order) : undefined;
+  conflicts.map(({ itemId, title, fromTime, reachableAt }) => ({ itemId, title, fromTime, reachableAt }));

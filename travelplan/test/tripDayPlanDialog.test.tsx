@@ -1953,34 +1953,6 @@ describe("TripDayPlanDialog", () => {
       expect(onClose).not.toHaveBeenCalled();
     });
 
-    it("shows day_plan_past_midnight in the banner, naming the activity", async () => {
-      const { onSaved, onClose } = await renderRefusing({
-        code: "day_plan_past_midnight",
-        message: "The change would push an activity past midnight",
-        details: { itemId: "item-c", itemTitle: "Night bus" },
-      });
-
-      await waitFor(() =>
-        expect(screen.getByText('"Night bus" would be pushed past midnight. Nothing was saved.')).toBeInTheDocument(),
-      );
-      expect(screen.getByRole("button", { name: "OK" })).toBeInTheDocument();
-      expect(onSaved).not.toHaveBeenCalled();
-      expect(onClose).not.toHaveBeenCalled();
-    });
-
-    it("names an untitled activity as such", async () => {
-      const { onSaved } = await renderRefusing({
-        code: "day_plan_past_midnight",
-        message: "The change would push an activity past midnight",
-        details: { itemId: "item-c", itemTitle: null },
-      });
-
-      await waitFor(() =>
-        expect(screen.getByText('"Untitled activity" would be pushed past midnight. Nothing was saved.')).toBeInTheDocument(),
-      );
-      expect(onSaved).not.toHaveBeenCalled();
-    });
-
     it("asks to save again after day_plan_changed", async () => {
       const { onSaved } = await renderRefusing({ code: "day_plan_changed", message: "The day was changed by another write" });
 

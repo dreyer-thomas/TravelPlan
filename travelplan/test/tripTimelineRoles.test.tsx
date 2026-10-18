@@ -185,7 +185,7 @@ describe("TripTimeline role gating", () => {
 
   const buildDetailResponse = (
     trip: TripOverrides & { heroImageUrl?: string | null; updatedAt?: string },
-    day: { missingAccommodation: boolean; accommodation: unknown },
+    day: { missingAccommodation: boolean; accommodation: unknown; planConflicts?: unknown[] },
   ) => ({
     data: {
       trip: {
@@ -217,6 +217,7 @@ describe("TripTimeline role gating", () => {
           plannedCostSubtotal: 0,
           missingAccommodation: day.missingAccommodation,
           missingPlan: true,
+          ...(day.planConflicts ? { planConflicts: day.planConflicts } : {}),
           accommodation: day.accommodation,
           dayPlanItems: [],
           travelSegments: [],
@@ -992,6 +993,25 @@ describe("TripTimeline role gating", () => {
     const background = window.getComputedStyle(screen.getByTestId("trip-hero")).backgroundImage;
     expect(background).toContain("/images/world-map-placeholder.svg");
     expect(background).not.toContain("?v=");
+  });
+
+  it("shows a viewer the plan-conflict pill on the day row (Story 13.2 AC9)", async () => {
+    const fetchMock = stubDetailFetch(
+      buildDetailResponse(
+        { name: "Viewer Conflict Trip", accessRole: "viewer" },
+        {
+          missingAccommodation: true,
+          accommodation: null,
+          planConflicts: [{ kind: "overflow", itemId: "bar", title: "Bar" }],
+        },
+      ),
+    );
+
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/trips/trip-1", expect.anything()));
+    const dayCard = await screen.findByTestId("timeline-day-card");
+    expect(within(dayCard).getByTestId("day-row-plan-conflict-pill")).toHaveTextContent("The plan doesn't work out · 1");
   });
 
   it("keeps booked/planned status strings off the day row while showing the stay name", async () => {

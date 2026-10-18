@@ -10,7 +10,7 @@ import {
 } from "@/lib/repositories/accommodationRepo";
 import { accommodationDeleteSchema, accommodationMutationSchema } from "@/lib/validation/accommodationSchemas";
 import { requireSession } from "@/lib/auth/sessionGuard";
-import { dayChangedResponse, pastMidnightResponse, withPushConflict } from "@/lib/http/dayPlanPushResponses";
+import { dayChangedResponse, withPushConflict } from "@/lib/http/dayPlanPushResponses";
 import { toDayChangeReceiptWire } from "@/lib/trips/dayChangeReceipt";
 import { signDayChangeReceipt } from "@/lib/trips/dayChangeReceiptSignature";
 
@@ -183,10 +183,6 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
 
   if (accommodationResult.status === "missing") {
     return fail(apiError("not_found", "Accommodation not found"), 404);
-  }
-
-  if (accommodationResult.status === "past_midnight") {
-    return pastMidnightResponse(accommodationResult.item);
   }
 
   return ok({

@@ -25,11 +25,9 @@ import {
   applyScheduleChangesInTransaction,
   buildReceipt,
   DayPlanChangedError,
-  findCheckInWarningInTransaction,
   planDaySchedule,
   readScheduleInputInTransaction,
   toPlanConflicts,
-  type DaySchedulePastMidnight,
   type DaySchedulePlan,
   type ScheduleEdit,
 } from "@/lib/repositories/dayScheduleTransaction";
@@ -78,12 +76,6 @@ export type DayPlanItemDetail = {
  */
 export type DayPlanItemCreateResult = { item: DayPlanItemDetail; receipt: DayChangeReceipt };
 
-/**
- * Story 11.2's refusals, down to one since Story 13.1: a fixed row is placed by its time instead of being
- * refused for starting before its predecessor, so only `past_midnight` is left (until Story 13.2).
- */
-export type DayPlanPushRefusal = DaySchedulePastMidnight;
-
 export { DayPlanChangedError };
 
 /** *Nach oben* / *Nach unten*. */
@@ -92,7 +84,6 @@ export type ReorderDirection = "up" | "down";
 export type DayPlanItemUpdateResult =
   | { status: "not_found" }
   | { status: "missing" }
-  | DayPlanPushRefusal
   | { status: "updated"; item: DayPlanItemDetail; receipt: DayChangeReceipt };
 
 /** Story 11.3. *Nach oben* / *Nach unten*; refusals are decided before the transaction's first write. */
@@ -100,27 +91,23 @@ export type DayPlanItemReorderResult =
   | { status: "not_found" }
   | { status: "missing" }
   | { status: "not_reorderable" }
-  | { status: "past_midnight"; item: { id: string; title: string | null } }
   | { status: "reordered"; receipt: DayChangeReceipt };
 
 export type DayPlanItemDeleteResult =
   | { status: "not_found" }
   | { status: "missing" }
-  | DayPlanPushRefusal
   | { status: "deleted"; removedTravelSegmentIds: string[]; receipt: DayChangeReceipt };
 
 /** Story 14.1. "+" on a bucket-list row: the parked activity itself moves onto the day. */
 export type ParkedDayPlanItemScheduleResult =
   | { status: "not_found" }
   | { status: "missing" }
-  | DayPlanPushRefusal
   | { status: "scheduled"; item: DayPlanItemDetail; receipt: DayChangeReceipt };
 
 /** Story 14.2. *Parken*: the activity itself leaves the day for the bucket list. */
 export type DayPlanItemParkResult =
   | { status: "not_found" }
   | { status: "missing" }
-  | DayPlanPushRefusal
   | { status: "parked"; item: DayPlanItemDetail; receipt: DayChangeReceipt };
 
 type DayPlanItemMutationParams = {
@@ -517,7 +504,7 @@ const scheduleFieldsOf = (params: Pick<DayPlanItemMutationParams, "scheduleMode"
 
 /**
  * Story 13.1. Reads the day through `tx` and plans the write's recompute (`dayScheduleTransaction.ts`).
- * Called before the transaction's first write, so a refusal leaves nothing to roll back. The writer clause
+ * Called before the transaction's first write. The writer clause
  * has already found the day on the trip, so the read always finds it.
  */
 const planActivityWriteInTransaction = async (
@@ -531,20 +518,14 @@ const planActivityWriteInTransaction = async (
   return planDaySchedule(state, edit);
 };
 
-/** A refusal that names the row being created names it by its title only; it has no id yet. */
-const refusalOf = (refusal: DaySchedulePastMidnight): DaySchedulePastMidnight =>
-  refusal.item.id === NEW_ITEM_ID ? { status: "past_midnight", item: { id: "", title: refusal.item.title } } : refusal;
-
-type PlannedOk = Extract<DaySchedulePlan, { status: "ok" }>;
-
 /**
  * Story 13.1. Everything after the write's own row write: the other rows' changes, 11.1's sweep, the
- * check-in warning, the receipt. `createdId` replaces the stand-in id of a created row in the conflicts.
+ * receipt. `createdId` replaces the stand-in id of a created row in the conflicts.
  */
 const finishActivityWriteInTransaction = async (
   tx: TransactionClient,
   params: { tripId: string; tripDayId: string; drawnBefore: ReadonlySet<string>; now: Date; createdId?: string },
-  plan: PlannedOk,
+  plan: DaySchedulePlan,
   edited: DayChangeEdited,
   extras: { removedTravelSegments?: TravelSegmentRow[] } = {},
 ): Promise<{ receipt: DayChangeReceipt; movedItems: MovedItemRow[] }> => {
@@ -553,8 +534,6 @@ const finishActivityWriteInTransaction = async (
   const swept = await sweepNoLongerDrawnSegmentsInTransaction(tx, { tripId, tripDayId, drawnBefore });
   const removed = extras.removedTravelSegments ?? [];
   const removedIds = new Set(removed.map((segment) => segment.id));
-  const order = plan.order.map((row) => (createdId && row.id === NEW_ITEM_ID ? { ...row, id: createdId } : row));
-  const checkInWarning = await findCheckInWarningInTransaction(tx, tripDayId, order, movedItems);
   const planConflicts = toPlanConflicts(plan.newConflicts).map((conflict) =>
     createdId && conflict.itemId === NEW_ITEM_ID ? { ...conflict, itemId: createdId } : conflict,
   );
@@ -565,7 +544,7 @@ const finishActivityWriteInTransaction = async (
       edited,
       [...removed, ...swept.filter((segment) => !removedIds.has(segment.id))],
       movedItems,
-      { checkInWarning, planConflicts },
+      { planConflicts },
     ),
   };
 };
@@ -648,10 +627,10 @@ export const listDayPlanItemsForTripDay = async (params: {
   return items.map((item) => toDetail({ ...item, payments: toPaymentDetails(item.payments) })).sort(compareDayPlanItemsByOrder);
 };
 
-/** `null` is "not your day", as before; a refusal carries a `status`, a success does not. */
+/** `null` is "not your day", as before. Since Story 13.2 a create past 23:59 is saved without times. */
 export const createDayPlanItemForTripDay = async (
   params: DayPlanItemMutationParams,
-): Promise<DayPlanItemCreateResult | DayPlanPushRefusal | null> => {
+): Promise<DayPlanItemCreateResult | null> => {
   const { userId, tripId, tripDayId, contentJson, costCents, linkUrl, location } = params;
   const tripDay = await findTripDayForTripWriter(userId, tripId, tripDayId);
   if (!tripDay) {
@@ -659,15 +638,14 @@ export const createDayPlanItemForTripDay = async (
   }
 
   return prisma.$transaction(async (tx) => {
-    // Story 11.2: planned first, so a refusal returns before anything is written. Story 13.1: a FLEXIBLE
-    // row is appended and scheduled, a FIXED one is placed by its time; `NEW_ITEM_ID` stands in for it.
+    // Story 13.1: planned before the first write. A FLEXIBLE row is appended and scheduled, a FIXED one is
+    // placed by its time; `NEW_ITEM_ID` stands in for it.
     const now = new Date();
     const fields = scheduleFieldsOf(params);
     const plan = await planActivityWriteInTransaction(tx, tripId, tripDayId, {
       kind: "insert",
       item: { id: NEW_ITEM_ID, title: params.title.trim(), ...fields },
     });
-    if (plan.status === "past_midnight") return refusalOf(plan);
     const planned = plan.edited!;
 
     // Story 11.1: what the day drew before this write, read through `tx` before anything changes.
@@ -735,7 +713,7 @@ export const createDayPlanItemForTripDay = async (
  *
  * Refusals are decided before the first write: `not_found` (not a day of this trip the user may write),
  * `missing` (no parked activity with that id on this trip - already scheduled, deleted, or another
- * trip's), and a new overflow past 23:59 (`past_midnight`, as a create refuses until Story 13.2). The
+ * trip's). A day it fills past 23:59 is saved, its flexible rows past midnight without times (13.2). The
  * move itself is conditional on the item still being parked with the `updatedAt` read here; a miss is
  * `DayPlanChangedError` (409 `day_plan_changed`).
  */
@@ -769,7 +747,6 @@ export const scheduleParkedDayPlanItemForTripDay = async (params: {
         toTime: null,
       },
     });
-    if (plan.status === "past_midnight") return plan;
     const planned = plan.edited!;
 
     const now = new Date();
@@ -816,8 +793,8 @@ export const scheduleParkedDayPlanItemForTripDay = async (params: {
  * the user saw. No clamp: a migrated fixed row may last one minute.
  *
  * Delete's order with the delete replaced by an update: refusals are decided before the first write
- * (`not_found` for a day the user may not write, `missing` for an activity no longer on this day, a new
- * overflow past 23:59 as `past_midnight`), then the park, the legs that reference it, and the recompute
+ * (`not_found` for a day the user may not write, `missing` for an activity no longer on this day), then the
+ * park, the legs that reference it, and the recompute
  * with 11.1's sweep, in one transaction. Unlike delete the park is conditional on the `updatedAt` read
  * here, because the receipt names the stamp it wrote; a miss is `DayPlanChangedError` (409
  * `day_plan_changed`).
@@ -851,7 +828,6 @@ export const parkDayPlanItemForTripDay = async (params: {
     });
     if (!previous) return { status: "missing" };
     const plan = planDaySchedule(state, { kind: "remove", itemId });
-    if (plan.status === "past_midnight") return plan;
 
     const start = timeToMinutes(previous.fromTime);
     const end = timeToMinutes(previous.toTime);
@@ -944,7 +920,6 @@ export const updateDayPlanItemForTripDay = async (
       kind: "update",
       item: { id: existing.id, title: title.trim(), ...fields },
     });
-    if (plan.status === "past_midnight") return plan;
     const planned = plan.edited!;
 
     const drawnBefore = await readDrawnSegmentKeysInTransaction(tx, tripId, tripDayId);
@@ -1007,9 +982,6 @@ export const updateDayPlanItemForTripDay = async (
   if (!outcome) {
     return { status: "missing" };
   }
-  if ("status" in outcome) {
-    return outcome;
-  }
 
   return { status: "updated", item: outcome.item, receipt: outcome.receipt };
 };
@@ -1031,7 +1003,6 @@ export const deleteDayPlanItemForTripDay = async (
     const state = await readScheduleInputInTransaction(tx, tripId, tripDayId);
     if (!state || !state.rows.some((row) => row.id === itemId)) return { status: "missing" };
     const plan = planDaySchedule(state, { kind: "remove", itemId });
-    if (plan.status === "past_midnight") return plan;
 
     const now = new Date();
     const outcome = await deleteDayPlanItemInTransaction(tx, { tripId, tripDayId, itemId });
@@ -1094,7 +1065,6 @@ export const reorderDayPlanItemForTripDay = async (params: {
     if (state.rows[index].scheduleMode !== "FLEXIBLE" || !neighbour) return { status: "not_reorderable" };
 
     const plan = planDaySchedule(state, { kind: "swap", itemId, neighbourId: neighbour.id });
-    if (plan.status === "past_midnight") return plan;
 
     const now = new Date();
     const drawnBefore = await readDrawnSegmentKeysInTransaction(tx, tripId, tripDayId);

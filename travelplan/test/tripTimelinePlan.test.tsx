@@ -827,6 +827,76 @@ describe("TripTimeline plan action", () => {
     vi.unstubAllGlobals();
   });
 
+  it("gives a day whose plan does not work out the gap state and a conflict pill, keeping its stay (Story 13.2 AC5)", async () => {
+    const stay = (id: string, name: string) => ({
+      id,
+      name,
+      notes: null,
+      status: "booked",
+      costCents: null,
+      link: "https://example.com/" + id,
+      location: null,
+    });
+    const day = (index: number, overrides: Record<string, unknown>) => ({
+      id: `day-${index}`,
+      date: `2026-12-0${index}T00:00:00.000Z`,
+      dayIndex: index,
+      imageUrl: null,
+      note: null,
+      missingAccommodation: false,
+      missingPlan: false,
+      accommodation: stay(`stay-${index}`, `Hotel ${index}`),
+      dayPlanItems: [],
+      ...overrides,
+    });
+    const late = { kind: "late", itemId: "ferry", title: "Ferry", fromTime: "12:00", reachableAt: "12:40", lateMinutes: 40 };
+    const overflow = { kind: "overflow", itemId: "bar", title: "Bar" };
+    const tripDetailResponse = {
+      data: {
+        trip: {
+          id: "trip-1",
+          name: "Trip",
+          accessRole: "owner",
+          startDate: "2026-12-01T00:00:00.000Z",
+          endDate: "2026-12-03T00:00:00.000Z",
+          dayCount: 3,
+          plannedCostTotal: 0,
+          accommodationCostTotalCents: null,
+          heroImageUrl: null,
+        },
+        days: [
+          day(1, { planConflicts: [late, overflow] }),
+          day(2, { missingAccommodation: true, accommodation: null, planConflicts: [overflow] }),
+          day(3, { planConflicts: [] }),
+        ],
+      },
+      error: null,
+    };
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => tripDetailResponse })) as unknown as typeof fetch;
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithProviders(<TripTimeline tripId="trip-1" />);
+    await waitFor(() => expect(screen.getAllByTestId("timeline-day-card")).toHaveLength(3));
+    const [broken, both, working] = screen.getAllByTestId("timeline-day-card");
+
+    // A stay and a broken plan: warn row, the stay link stays, the pill counts the marked activities.
+    expect(broken).toHaveStyle({ backgroundColor: theme.palette.tokens.warnBgRow, borderColor: theme.palette.tokens.warnBorder });
+    expect(within(broken).getByTestId("day-row-stay")).toHaveTextContent("Hotel 1");
+    expect(within(broken).queryByTestId("day-row-gap-pill")).toBeNull();
+    expect(within(broken).getByTestId("day-row-plan-conflict-pill")).toHaveTextContent("The plan doesn't work out · 2");
+
+    // A missing stay and a broken plan: both pills.
+    expect(within(both).getByTestId("day-row-gap-pill")).toHaveTextContent("No accommodation");
+    expect(within(both).getByTestId("day-row-plan-conflict-pill")).toHaveTextContent("The plan doesn't work out · 1");
+
+    // A working day with a stay looks exactly as before.
+    expect(working).toHaveStyle({ backgroundColor: theme.palette.tokens.card, borderColor: theme.palette.tokens.borderStrong });
+    expect(within(working).queryByTestId("day-row-plan-conflict-pill")).toBeNull();
+    expect(within(working).getByTestId("day-row-stay")).toHaveTextContent("Hotel 3");
+
+    vi.unstubAllGlobals();
+  });
+
   /**
    * Story 6.29, AC4. This row put the stored value straight into `href`, and the write schema accepted
    * `javascript:` until the same story tightened it, so rows holding one exist and are not migrated. The

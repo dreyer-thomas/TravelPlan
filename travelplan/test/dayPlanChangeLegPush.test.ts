@@ -287,7 +287,6 @@ describe("a leg between two activities pushes the day (Story 11.4 AC1)", () => {
     expect(result.status).toBe("created");
     if (result.status !== "created") return;
     expect(result.receipt.movedItems).toEqual([]);
-    expect(result.receipt.checkInWarning).toBeUndefined();
   });
 
   it("moves a formerly untimed activity, which is flexible now, by a leg into it (13.1 §5)", async () => {
@@ -305,20 +304,20 @@ describe("a leg between two activities pushes the day (Story 11.4 AC1)", () => {
     expect(await times(day.id)).toEqual(["A 09:00–10:00", "U 11:00–11:15", "V 11:45–12:00"]);
   });
 
-  it("warns when the push makes the day reach tonight's explicit check-in too late", async () => {
+  it("does not warn when the push makes the day reach tonight's explicit check-in too late (Story 13.2)", async () => {
     const { user, trip, day } = await seedTrip("leg-checkin@example.com");
     const a = await createItem(day.id, "A", "09:00", "10:00");
     const b = await createItem(day.id, "B", "13:00", "14:00");
     // 13.1: B flexible, 10:00–11:00 until the four-hour leg moves it to 14:00–15:00.
     await settleSeededDay(day.id, { flexible: [b.id] });
-    const tonight = await prisma.accommodation.create({ data: { tripDayId: day.id, name: "Haast Motel", checkInTime: "14:30" } });
+    await prisma.accommodation.create({ data: { tripDayId: day.id, name: "Haast Motel", checkInTime: "14:30" } });
 
     const result = await createTravelSegmentForTripDay(legParams(user.id, trip.id, day.id, act(a.id), act(b.id), 240));
 
     expect(result.status).toBe("created");
     if (result.status !== "created") return;
     expect(result.receipt.movedItems.map((row) => row.itemId)).toEqual([b.id]);
-    expect(result.receipt.checkInWarning).toEqual({ accommodationId: tonight.id, checkInTime: "14:30" });
+    expect(Object.keys(result.receipt)).not.toContain("checkInWarning");
   });
 });
 
@@ -385,29 +384,37 @@ describe("a leg from last night's stay pushes from the check-out (Story 11.4 AC2
   });
 });
 
-describe("a leg save past midnight writes nothing (Story 11.4 AC6)", () => {
+describe("a leg save past midnight is saved (Story 11.4 AC6, Story 13.2 AC6)", () => {
   beforeEach(resetDatabase);
 
-  it("refuses a create and an update, naming the activity, with the whole database unchanged", async () => {
+  it("saves a create and an update; the pushed activity loses its times and keeps its duration", async () => {
+    // Story 13.2: past midnight is saved, not refused.
     const { user, trip, day } = await seedTrip("leg-midnight@example.com");
     const a = await createItem(day.id, "A", "09:00", "10:00");
     const b = await createItem(day.id, "Late show", "22:00", "23:30");
-    // 13.1 §7: only a flexible row can be pushed past midnight; this one lasts 90 minutes.
+    // Only a flexible row can be pushed past midnight; this one lasts 90 minutes.
     await settleSeededDay(day.id, { flexible: [b.id] });
-    const before = await databaseState();
 
     const created = await createTravelSegmentForTripDay(legParams(user.id, trip.id, day.id, act(a.id), act(b.id), 760));
-    expect(created).toEqual({ status: "past_midnight", item: { id: b.id, title: "Late show" } });
-    expect(await databaseState()).toEqual(before);
+    if (created.status !== "created") throw new Error(`expected a create, got ${created.status}`);
+    expect(created.receipt.movedItems).toEqual([expect.objectContaining({ itemId: b.id, fromTime: null, toTime: null })]);
+    expect(await times(day.id)).toEqual(["A 09:00–10:00", "Late show -–-"]);
+    expect(await prisma.dayPlanItem.findUniqueOrThrow({ where: { id: b.id } })).toMatchObject({ durationMinutes: 90 });
 
-    const leg = await createLeg(day.id, item(a.id), item(b.id), 30);
-    const withLeg = await databaseState();
+    // A shorter leg makes room again: the times come back exactly from the duration.
+    const shorter = await updateTravelSegmentForTripDay({
+      ...legParams(user.id, trip.id, day.id, act(a.id), act(b.id), 30),
+      segmentId: created.segment.id,
+    });
+    if (shorter.status !== "updated") throw new Error(`expected an update, got ${shorter.status}`);
+    expect(await times(day.id)).toEqual(["A 09:00–10:00", "Late show 10:30–12:00"]);
+
     const updated = await updateTravelSegmentForTripDay({
       ...legParams(user.id, trip.id, day.id, act(a.id), act(b.id), 760),
-      segmentId: leg.id,
+      segmentId: created.segment.id,
     });
-    expect(updated).toEqual({ status: "past_midnight", item: { id: b.id, title: "Late show" } });
-    expect(await databaseState()).toEqual(withLeg);
+    if (updated.status !== "updated") throw new Error(`expected an update, got ${updated.status}`);
+    expect(await times(day.id)).toEqual(["A 09:00–10:00", "Late show -–-"]);
   });
 });
 
@@ -480,22 +487,19 @@ describe("POST and PATCH /api/trips/[id]/travel-segments push and answer with a 
     expect(await times(day.id)).toEqual(["A 09:00–10:00", "B 12:00–13:00"]);
   });
 
-  it("answers 409 day_plan_past_midnight with the activity in details, and writes nothing", async () => {
+  it("answers 200 for a leg that pushes an activity past midnight, which is stored without times", async () => {
+    // Story 13.2: past midnight is saved, not refused.
     const { user, trip, day } = await seedTrip("route-leg-midnight@example.com");
     const session = await createSessionJwt({ sub: user.id, role: user.role });
     const a = await createItem(day.id, "A", "09:00", "10:00");
     const b = await createItem(day.id, "Late show", "22:00", "23:30");
     await settleSeededDay(day.id, { flexible: [b.id] });
-    const before = await databaseState();
 
     const result = await send("POST", trip.id, session, wireLeg(day.id, act(a.id), act(b.id), 760));
 
-    expect(result.status).toBe(409);
-    expect(result.body.error).toMatchObject({
-      code: "day_plan_past_midnight",
-      details: { itemId: b.id, itemTitle: "Late show" },
-    });
-    expect(await databaseState()).toEqual(before);
+    expect(result.status).toBe(200);
+    expect(result.body.error).toBeNull();
+    expect(await times(day.id)).toEqual(["A 09:00–10:00", "Late show -–-"]);
   });
 
   it("still answers not_adjacent with 400 and an existing pair with 409 travel_segment_exists", async () => {

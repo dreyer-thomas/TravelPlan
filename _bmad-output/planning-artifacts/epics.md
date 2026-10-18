@@ -2452,6 +2452,8 @@ So that I can see what a section holds without scrolling through everything that
 
 ### Story 6.23: Move a Single Activity to Another Day
 
+**Removed by Story 14.4 (2026-10-18):** *Parken* + "+" replace it.
+
 As a trip planner,
 I want to move one activity to a different day,
 So that a plan that turned out to fit better elsewhere can be rearranged instead of retyped.
@@ -3359,6 +3361,66 @@ Recorded as DW-305 by Story 8.4's own review, which checked the spec's reasoning
 **Then** it becomes that helper's sixth call site rather than a second implementation of the same rule
 
 
+### Story 8.7: What the AI Searches Cost
+
+As the administrator of this installation,
+I want every AI day search to record what it consumed, the repeated part of each search to be cached, and both to be visible on an admin-only page,
+So that I can see what the feature costs, and whether caching pays, from numbers instead of a guess.
+
+**FRs covered:** None (operations; Epic 12's feature is unchanged for its users)
+
+**Depends on:** Story 12.1. **Origin:** Tommy with John (PM), 2026-10-18. The model stays `claude-sonnet-5-5`. A Haiku comparison was considered and deliberately left out (see Context).
+
+**Context:** `daySuggestionService.ts` reads `response.usage` nowhere, so today nobody can say what a search costs, and nothing would show a change in cost. Prompt caching was the reason to look. The useful saving is **inside** one search, not between searches. The cached prefix that repeats across searches (tool definition plus `SUGGESTION_SYSTEM_PROMPT`) is under ~1,000 tokens and lives 5 minutes, and at ≤ 20 searches per user per day it will mostly have expired before the next search. Inside one search, the server-side web search loop (up to 5 searches) re-reads the growing context on every step, and so do the `pause_turn` resumptions. With caching on, the API writes a cache entry after each search result by itself, so those re-reads are billed at the cache-read rate (0.1× input). This is an expectation, not a measurement, and the reason this story records numbers before anyone draws conclusions. `prompt.ts` already keeps the system prompt constant "so that a later story can cache" it, so no prompt change is needed.
+
+Haiku 5.5 was weighed and set aside for now. It would need the older `web_search_20250305` (the current tool version 400s on Haiku), it adds unfiltered results to the context, and at this volume the saving is a few euros a month against the risk of worse suggestions. If it comes back, this story's records are the baseline it would be measured against.
+
+**Acceptance Criteria:**
+
+**Given** the Claude request in `requestDaySuggestions`
+**When** caching is enabled
+**Then** it carries top-level `cache_control: { type: "ephemeral" }` and nothing else about the request changes: same model, tool, effort, output format, deadline and retries
+**And** nothing that varies per request (date, ids, the wish) moves into `system` or ahead of it
+
+**Given** a search that reaches Claude
+**When** it ends, whether it succeeds or fails as `ai_failed`
+**Then** one usage record is stored in the database with: time, the requesting user, model, outcome (`ok` / `failed`), duration in ms, and the token counts **summed over the first request and every `pause_turn` resumption**: `input_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens`, `output_tokens` and the number of web searches (`usage.server_tool_use.web_search_requests`)
+**And** a call that failed before any response arrived is recorded as `failed` with the counts it does have (zero if none), because it may still have been paid for
+**And** a search refused before the model call (daily limit, validation, access) records nothing, the same line `consumeDailySearch` already draws
+
+**Given** the privacy rule of Story 12.1
+**When** a record is stored
+**Then** it holds no prompt text, no wish, no place, no trip and no response content, only the fields listed above
+**And** storing the record can never fail the search: a write error is logged and the user still gets their suggestions
+
+**Given** an account deleted through the user administration (Story 5.10)
+**When** it has usage records
+**Then** the records stay, with the user cleared, and are shown as "deleted account". The cost history must not shrink when an account goes
+
+**Given** a signed-in admin
+**When** they open the global header menu (the hamburger on *Alle Reisen*)
+**Then** a row "KI-Nutzung" / "AI usage" sits next to "Nutzerverwaltung" and leads to `/admin/ai-usage`
+**And** non-admins see neither the row nor the page: the page and its `/api/admin/*` route refuse them through `requireAdmin`, exactly as `/admin/users` does. A hidden row is not a guard
+
+**Given** the AI usage page
+**When** it shows a month (current month by default, previous months selectable)
+**Then** it shows the number of searches (and how many failed), the four token counts, the number of web searches, the **cache-read share** of all input tokens, the **estimated cost** for the month and **per search**, and a per-user breakdown of searches and estimated cost
+**And** a month without searches says so instead of showing a table of zeros
+
+**Given** the estimated cost
+**When** it is computed
+**Then** it is computed at display time from the stored counts and a price table in `lib/ai/config.ts` (input, output, cache write, cache read per million tokens, and the fee per web search), keyed by model, so a price change needs no data migration
+**And** it is labelled as an estimate, and the Anthropic console stays the authoritative bill
+**And** the prices are checked against Anthropic's current pricing page when the story is implemented, not copied from this text
+
+**Given** both dictionaries
+**Then** `en.ts` and `de.ts` carry every new string
+
+**Given** the real run with Tommy
+**When** two or more searches are made, at least one of which runs several web searches
+**Then** the page shows them, and a search with several web searches shows `cache_read_input_tokens` above zero. If it is zero, caching is not working, and the story is not done until it is understood
+
+
 ## Epic 9: Travel Documents
 
 Users can keep tickets and booking confirmations as the original files on the stay or activity they belong to, see and open them from the day timeline, and take them offline as one PDF.
@@ -4200,3 +4262,28 @@ So that I don't have to search for them again for another day.
 
 **Given** both dictionaries
 **Then** `en.ts` and `de.ts` carry every new string
+
+### Story 14.4: One Way to Another Day
+
+As someone rearranging a trip,
+I want one way to take an activity to another day,
+So that the day's controls say one thing each and the way I use can always be undone.
+
+**FRs covered:** none new (FR21, FR23 stay covered through FR48 and the bucket list's "+").
+
+**Depends on:** Story 14.2. **Origin:** Tommy, 2026-10-18 (14.2 real run): *Parken* + "+" replace Story 6.23's "anderer Tag".
+
+**Acceptance Criteria:**
+
+**Given** the activity dialog
+**Then** it no longer offers "anderer Tag" or the *Auf anderen Tag verschieben* picker, for any role
+
+**Given** the server
+**Then** `POST /day-plan-items/move` and its repository function are removed; the whole-day transfer (Story 6.7) is unchanged
+
+**Given** an activity with pictures, documents, payments and a link
+**When** it is parked on one day and scheduled onto another
+**Then** it arrives with everything attached, and media cleanup still finds files uploaded on the earlier day
+
+**Given** both dictionaries
+**Then** the keys used only by the removed feature are deleted from `en.ts` and `de.ts`

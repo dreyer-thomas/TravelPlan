@@ -1553,16 +1553,8 @@ export default function TripAccommodationDialog({
           return;
         }
 
-        // Story 11.4: a later check-out's push refusals, in the plan dialog's words. The dialog stays open.
-        if (body.error?.code === "day_plan_past_midnight") {
-          const details = (body.error.details ?? {}) as { itemTitle?: string | null };
-          setServerError(
-            formatMessage(t("trips.plan.pastMidnight"), {
-              title: details.itemTitle?.trim() || t("trips.plan.untitledActivity"),
-            }),
-          );
-          return;
-        }
+        // Story 11.4: a later check-out's race with another write, in the plan dialog's words. The dialog
+        // stays open. (Story 13.2: a check-out that pushes the next day past 23:59 is saved, not refused.)
         if (body.error?.code === "day_plan_changed") {
           setServerError(t("trips.plan.dayChangedConflict"));
           return;

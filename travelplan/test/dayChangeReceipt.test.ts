@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import de from "@/i18n/de";
 import en from "@/i18n/en";
 import {
-  checkInWarningText,
   fromDayChangeReceiptWire,
   planConflictText,
   receiptHasSideEffects,
@@ -107,26 +106,17 @@ describe("dayChangeReceipt, version 2 (Story 11.2)", () => {
     );
   });
 
-  it("formats the check-in warning, and has none without one", () => {
-    const warned = { ...receiptWith([]), movedItems: [moved("item-2")], checkInWarning: { accommodationId: "stay-1", checkInTime: "17:30" } };
-    expect(checkInWarningText(warned, dictionary(de))).toBe("Die Ankunft in der Unterkunft liegt nach dem Check-in um 17:30.");
-    expect(checkInWarningText(warned, dictionary(en))).toBe("You will reach your stay after its 17:30 check-in.");
-    expect(checkInWarningText(receiptWith([]), dictionary(en))).toBeUndefined();
+  it("counts a row that lost its times past midnight as moved (Story 13.2 §7)", () => {
+    const untimed = { ...receiptWith([]), movedItems: [{ ...moved("item-2"), fromTime: null, toTime: null }] };
+    expect(receiptHasSideEffects(untimed)).toBe(true);
+    expect(summarizeDayChangeReceipt(untimed, dictionary(de))).toBe("1 Aktivität verschoben");
   });
 
-  it("refuses a moved row with an unknown key and a warning with an unknown key", () => {
-    const wire = signDayChangeReceipt(
-      toDayChangeReceiptWire({
-        ...receiptWith([]),
-        movedItems: [moved("item-2")],
-        checkInWarning: { accommodationId: "stay-1", checkInTime: "17:30" },
-      }),
-      BINDING,
-    );
+  it("refuses a moved row with an unknown key", () => {
+    const wire = signDayChangeReceipt(toDayChangeReceiptWire({ ...receiptWith([]), movedItems: [moved("item-2")] }), BINDING);
     expect(dayChangeReceiptSchema.safeParse(wire).success).toBe(true);
     // Story 13.1: `fromTime` is a moved row's own key since version 3, so the unknown key is another one.
     expect(dayChangeReceiptSchema.safeParse({ ...wire, movedItems: [{ ...wire.movedItems[0], extra: "x" }] }).success).toBe(false);
-    expect(dayChangeReceiptSchema.safeParse({ ...wire, checkInWarning: { ...wire.checkInWarning, extra: 1 } }).success).toBe(false);
     expect(dayChangeReceiptSchema.safeParse({ ...wire, version: 1 }).success).toBe(false);
     // Story 13.1 AC12: a version-2 receipt is refused too.
     expect(dayChangeReceiptSchema.safeParse({ ...wire, version: 2 }).success).toBe(false);
@@ -206,6 +196,12 @@ describe("dayChangeReceipt, scheduled (Story 14.1 AC8, AC9)", () => {
     const { previousUpdatedAt: _previous, ...withoutPrevious } = wire.edited as { previousUpdatedAt: string };
     void _previous;
     expect(dayChangeReceiptSchema.safeParse({ ...wire, edited: withoutPrevious }).success).toBe(false);
+  });
+
+  it("refuses a receipt that still carries a check-in warning (Story 13.2 AC8: 400, undo unavailable)", () => {
+    const wire = signDayChangeReceipt(toDayChangeReceiptWire(receiptWith([])), BINDING);
+    const withOldField = { ...wire, checkInWarning: { accommodationId: "stay-1", checkInTime: "17:30" } };
+    expect(dayChangeReceiptSchema.safeParse(withOldField).success).toBe(false);
   });
 
   it("refuses a receipt that still carries a consumed bucket-list row (400, undo unavailable)", () => {
@@ -458,11 +454,14 @@ describe("dayChangeReceipt (Story 11.1)", () => {
           previousUpdatedAt: at("2026-01-01T00:00:00.010Z"),
         },
       },
-      // Story 11.2: moved items (one an imported row with a null end) and the check-in warning.
+      // Story 11.2: moved items (one an imported row with a null end). Story 13.2: one that lost its times.
       {
         ...receiptWith([leg("s1")]),
-        movedItems: [moved("item-2"), { ...moved("item-3"), previousToTime: null }],
-        checkInWarning: { accommodationId: "stay-1", checkInTime: "17:30" },
+        movedItems: [
+          moved("item-2"),
+          { ...moved("item-3"), previousToTime: null },
+          { ...moved("item-4"), fromTime: null, toTime: null },
+        ],
       },
     ];
 

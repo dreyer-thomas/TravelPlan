@@ -600,7 +600,6 @@ const de: Dictionary = {
   "trips.plan.saveError": "Plan-Element konnte nicht gespeichert werden. Bitte erneut versuchen.",
   // Story 11.2: die beiden Ablehnungen der Schieberegel und der Konflikt, wenn eine andere Änderung
   // dazwischenkam. „Nach oben“ ist der Menüpunkt aus Story 11.3.
-  "trips.plan.pastMidnight": "„{title}“ würde über Mitternacht hinaus verschoben. Nichts wurde gespeichert.",
   "trips.plan.dayChangedConflict": "Der Tag wurde gerade geändert. Bitte erneut speichern.",
   "trips.plan.untitledActivity": "Aktivität ohne Titel",
   // Story 11.3: das Überlaufmenü einer Aktivität und die Ablehnungen der Umsortierung.
@@ -671,7 +670,6 @@ const de: Dictionary = {
   "trips.dayChange.itemsMoved": "{count} Aktivitäten verschoben",
   "trips.dayChange.itemsMovedOnDayOne": "1 Aktivität an Tag {day} verschoben",
   "trips.dayChange.itemsMovedOnDay": "{count} Aktivitäten an Tag {day} verschoben",
-  "trips.dayChange.checkInWarning": "Die Ankunft in der Unterkunft liegt nach dem Check-in um {time}.",
   "trips.dayChange.legsRemovedOne": "1 Fahrt entfernt",
   "trips.dayChange.legsRemoved": "{count} Fahrten entfernt",
   "trips.dayChange.activitiesAddedOne": "1 Aktivität hinzugefügt",
@@ -687,6 +685,9 @@ const de: Dictionary = {
   "trips.dayChange.undoError": "Rückgängig fehlgeschlagen – bitte erneut versuchen.",
   "trips.dayChange.undoUnavailable": "Diese Änderung lässt sich nicht mehr rückgängig machen.",
   "trips.dayChange.planConflict": "{title} beginnt um {start}, erreichbar erst um {reachable}",
+  "trips.planConflict.lateBy": "Erreichbar erst {reachable} ({late} zu spät)",
+  "trips.planConflict.overflow": "Passt nicht mehr in den Tag",
+  "trips.planConflict.dayBadge": "Der Plan geht nicht auf · {count}",
   // Story 12.3 — siehe en.ts.
   "trips.suggestions.openAction": "Ideen finden",
   "trips.suggestions.dialogTitle": "Ideen für den Tag",

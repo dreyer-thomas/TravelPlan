@@ -15,11 +15,9 @@ import type { TransportType } from "@/lib/trips/transportTypes";
 import {
   applyScheduleChangesInTransaction,
   buildReceipt,
-  findCheckInWarningInTransaction,
   planDaySchedule,
   readScheduleInputInTransaction,
   toPlanConflicts,
-  type DaySchedulePastMidnight,
   type ScheduleEdit,
 } from "@/lib/repositories/dayScheduleTransaction";
 import type { DayChangeEdited, DayChangeReceipt } from "@/lib/trips/dayChangeReceipt";
@@ -49,20 +47,15 @@ export type TravelSegmentDetail = {
   updatedAt: Date;
 };
 
-/** Story 11.4, kept by 13.1: the recompute a leg save runs refused (nothing was written), naming the activity. */
-type TravelSegmentPastMidnight = DaySchedulePastMidnight;
-
 export type TravelSegmentUpdateResult =
   | { status: "not_found" }
   | { status: "missing" }
   | { status: "not_adjacent" }
-  | TravelSegmentPastMidnight
   | { status: "updated"; segment: TravelSegmentDetail; receipt: DayChangeReceipt };
 
 export type TravelSegmentDeleteResult =
   | { status: "not_found" }
   | { status: "missing" }
-  | TravelSegmentPastMidnight
   /** Story 13.1: a leg delete recomputes the day, so it returns a receipt like the other leg saves. */
   | { status: "deleted"; receipt: DayChangeReceipt };
 
@@ -70,7 +63,6 @@ export type TravelSegmentCreateResult =
   | { status: "not_found" }
   | { status: "missing" }
   | { status: "not_adjacent" }
-  | TravelSegmentPastMidnight
   | { status: "created"; segment: TravelSegmentDetail; receipt: DayChangeReceipt };
 
 type TravelSegmentItemTypeInput = "accommodation" | "dayPlanItem";
@@ -369,7 +361,7 @@ const ensureSegmentItemsExist = async (
  * Story 13.1 (FR42). Every leg save recomputes the day the leg is on, with the leg as it will be after the
  * save: `edit` leaves out the stored row a save replaces or deletes and puts the new value first, so it
  * wins its pair. A shorter leg pulls the day forward now as a longer one pushes it (Story 11.4's "only a
- * longer leg pushes" guard is gone). Planned before the save's first write, so a refusal writes nothing.
+ * longer leg pushes" guard is gone). Planned before the save's first write; it never refuses (13.2).
  * The day is on the trip (the caller checked), so the read always finds it.
  */
 const planLegScheduleInTransaction = async (
@@ -389,21 +381,17 @@ const scheduleLegOf = (params: TravelSegmentMutationParams) => ({
   durationMinutes: params.durationMinutes,
 });
 
-/** The moves, the check-in warning and the new conflicts of a planned recompute, as the receipt. */
+/** The moves and the new conflicts of a planned recompute, as the receipt. */
 const applyLegScheduleInTransaction = async (
   tx: TransactionClient,
   tripDayId: string,
-  plan: Extract<Awaited<ReturnType<typeof planLegScheduleInTransaction>>, { status: "ok" }>,
+  plan: Awaited<ReturnType<typeof planLegScheduleInTransaction>>,
   edited: DayChangeEdited,
   now: Date,
 ): Promise<DayChangeReceipt> => {
   const movedItems = await applyScheduleChangesInTransaction(tx, tripDayId, plan.changes, now);
-  const checkInWarning = await findCheckInWarningInTransaction(tx, tripDayId, plan.order, movedItems);
   // A leg save never changes the order, so 11.1's sweep has nothing to remove (rule 12).
-  return buildReceipt(tripDayId, edited, [], movedItems, {
-    checkInWarning,
-    planConflicts: toPlanConflicts(plan.newConflicts),
-  });
+  return buildReceipt(tripDayId, edited, [], movedItems, { planConflicts: toPlanConflicts(plan.newConflicts) });
 };
 
 /**
@@ -478,7 +466,7 @@ export const listTravelSegmentsForTripDay = async (params: {
 
 /**
  * Story 11.4, rewired by 13.1: a new leg recomputes its day (`planLegScheduleInTransaction`). Adjacency,
- * plan, write and moves are one transaction; a refusal writes nothing, and a `P2002` (the pair already has
+ * plan, write and moves are one transaction; a `not_adjacent` writes nothing, and a `P2002` (the pair already has
  * a leg) still propagates for the route's `409 travel_segment_exists`. The receipt is always returned.
  */
 export const createTravelSegmentForTripDay = async (
@@ -494,7 +482,6 @@ export const createTravelSegmentForTripDay = async (
     if (itemStatus === "not_adjacent") return { status: "not_adjacent" };
 
     const plan = await planLegScheduleInTransaction(tx, params, { kind: "legs", leg: scheduleLegOf(params) });
-    if (plan.status === "past_midnight") return plan;
 
     const now = new Date();
     const segment = await tx.travelSegment.create({
@@ -548,7 +535,6 @@ export const updateTravelSegmentForTripDay = async (
       removeSegmentId: segmentId,
       leg: scheduleLegOf(params),
     });
-    if (plan.status === "past_midnight") return plan;
 
     const now = new Date();
     const updated = await tx.travelSegment.update({
@@ -590,7 +576,6 @@ export const deleteTravelSegmentForTripDay = async (
     if (!existing) return { status: "missing" };
 
     const plan = await planLegScheduleInTransaction(tx, { tripId, tripDayId }, { kind: "legs", removeSegmentId: segmentId });
-    if (plan.status === "past_midnight") return plan;
 
     const now = new Date();
     const deleted = await tx.travelSegment.deleteMany({ where: { id: segmentId, tripDayId } });
