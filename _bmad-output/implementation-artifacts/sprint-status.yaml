@@ -1,5 +1,8 @@
 # generated: 2026-03-01 13:08:00 CET
-# last_updated: 2026-10-18 (14-3-park-the-suggestions-too created via bmad-create-story, ready-for-dev. Per ticked card Einplanen/Parken in the choose step (toggle outside the card's label); apply takes a separate `parked` list, all-parked writes nothing on the day (no basis, no 409) and skips the preview; parked rows FLEXIBLE/no day under parked/ media; receipt suggestionsApplied gains optional parkedItems (v3), undo deletes them by parkedDayPlanItemsWhere; day view reloads the bucket list after apply and undo. Commit 13-4 first. Q1-Q5 defaults to confirm.)
+# last_updated: 2026-10-19 (14-3 DONE via bmad-code-review: 4 patches applied (receipt message, 3 undo tests), DW-400 and DW-401 deferred. 213 files / 3459 tests, tsc 0, lint 0/79.)
+# previously: 2026-10-19 (14-3 REVIEW via bmad-dev-story: real run confirmed by Tommy; parked suggestions go to the bucket list in the apply transaction, receipt parkedItems with undo, dialog Einplanen/Parken toggle. 213 files / 3457 tests, tsc 0, lint 0/79, build ok.)
+# previously: 2026-10-18 (14-3 IN-PROGRESS via bmad-dev-story: 13-4 committed as 088de55 (baseline); Q1-Q5 defaults confirmed. All tasks done except Task 8's real run with Tommy; 213 files / 3457 tests, tsc 0, lint 0/79, build ok; mutations 1,2,3,5,6 red, 4 green by phase-2 guard (accepted).)
+# previously: 2026-10-18 (14-3-park-the-suggestions-too created via bmad-create-story, ready-for-dev. Per ticked card Einplanen/Parken in the choose step (toggle outside the card's label); apply takes a separate `parked` list, all-parked writes nothing on the day (no basis, no 409) and skips the preview; parked rows FLEXIBLE/no day under parked/ media; receipt suggestionsApplied gains optional parkedItems (v3), undo deletes them by parkedDayPlanItemsWhere; day view reloads the bucket list after apply and undo. Commit 13-4 first. Q1-Q5 defaults to confirm.)
 # previously: 2026-10-18 (13-4 DONE via bmad-code-review: 0 decision, 2 patches applied (export FORMAT_VERSION docblock reworded to the legacy rule, trip-id consistency test rounds the duration through suggestionDurationMinutes), 0 defer, 19 dismissed; no AC violated.)
 # previously: 2026-10-18 (13-4 REVIEW via bmad-dev-story: suggestions apply FLEXIBLE through the `append` plan kind shared by preview and apply, basis carries planned times, movedItems allowed on suggestionsApplied (never a created row); export carries scheduleMode/durationMinutes/sortOrder (position), import restores exactly or legacy per day. 213 files / 3426 tests, tsc 0, lint 0/79, build ok, 6/6 mutations red, real run passed.)
 # previously: 2026-10-18 (13-4-suggestions-and-backups-speak-in-durations created via bmad-create-story, ready-for-dev. Suggestions apply FLEXIBLE through a new planDaySchedule kind `append` shared by preview and apply (chainTimes/planStartMinute removed, first leg from the day's last row, basis fingerprint carries the planned times, movedItems allowed on suggestionsApplied); export carries scheduleMode/durationMinutes/sortOrder (position), import restores them exactly or applies the legacy rule per day. Q1-Q4 defaults to confirm.)
@@ -307,6 +310,6 @@ development_status:
   epic-14: in-progress
   14-1-one-kind-of-entry: done
   14-2-park-it-for-another-day: done
-  14-3-park-the-suggestions-too: ready-for-dev
+  14-3-park-the-suggestions-too: done
   14-4-one-way-to-another-day: ready-for-dev
   epic-14-retrospective: optional

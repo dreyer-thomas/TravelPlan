@@ -673,6 +673,72 @@ describe("dayChangeReceipt, suggestionsApplied (Story 12.4)", () => {
   });
 });
 
+describe("dayChangeReceipt, suggestionsApplied with parked ones (Story 14.3 AC5, AC7)", () => {
+  const stamp = (ms: number) => at(`2026-03-01T00:00:00.${String(ms).padStart(3, "0")}Z`);
+  const applied = (itemCount: number, legCount: number, parkedCount: number): DayChangeReceipt => ({
+    version: 3,
+    tripDayId: "day-1",
+    edited: {
+      kind: "suggestionsApplied",
+      items: Array.from({ length: itemCount }, (_value, index) => ({ itemId: `item-${index}`, updatedAt: stamp(100 + index) })),
+      segments: Array.from({ length: legCount }, (_value, index) => ({ segmentId: `seg-${index}`, updatedAt: stamp(200 + index) })),
+      imageIds: [],
+      parkedItems: Array.from({ length: parkedCount }, (_value, index) => ({ itemId: `parked-${index}`, updatedAt: stamp(300 + index) })),
+    },
+    removedTravelSegments: [],
+    movedItems: [],
+  });
+
+  it("round-trips parkedItems through the wire form, and omits the key when the receipt has none", () => {
+    const receipt = applied(2, 1, 2);
+    const wire = toDayChangeReceiptWire(receipt);
+    expect(fromDayChangeReceiptWire(wire)).toEqual(receipt);
+    expect(dayChangeReceiptSchema.safeParse(signDayChangeReceipt(wire, BINDING)).success).toBe(true);
+
+    const { parkedItems: _parked, ...withoutParked } = receipt.edited as Extract<DayChangeReceipt["edited"], { kind: "suggestionsApplied" }>;
+    void _parked;
+    const plain = toDayChangeReceiptWire({ ...receipt, edited: withoutParked });
+    expect("parkedItems" in plain.edited).toBe(false);
+  });
+
+  it("accepts an all-parked receipt and refuses none at all, more than 8 together and an unknown key", () => {
+    const wire = signDayChangeReceipt(toDayChangeReceiptWire(applied(2, 1, 1)), BINDING);
+    if (wire.edited.kind !== "suggestionsApplied") throw new Error("fixture");
+    const edited = wire.edited;
+    const parse = (next: unknown) => dayChangeReceiptSchema.safeParse({ ...wire, edited: next }).success;
+    expect(parse({ ...edited, items: [], segments: [] })).toBe(true);
+    expect(parse({ ...edited, items: [], parkedItems: [] })).toBe(false);
+    expect(parse({ ...edited, parkedItems: Array.from({ length: 7 }, () => edited.parkedItems![0]) })).toBe(false);
+    expect(parse({ ...edited, parkedItems: [{ ...edited.parkedItems![0], title: "x" }] })).toBe(false);
+  });
+
+  it("says how many were parked after the added part, or alone when all were, in both languages", () => {
+    expect(summarizeDayChangeReceipt(applied(3, 2, 2), dictionary(de))).toBe("3 Aktivitäten und 2 Fahrten hinzugefügt · 2 geparkt");
+    expect(summarizeDayChangeReceipt(applied(1, 0, 1), dictionary(de))).toBe("1 Aktivität hinzugefügt · 1 geparkt");
+    expect(summarizeDayChangeReceipt(applied(0, 0, 2), dictionary(de))).toBe("2 geparkt");
+    expect(summarizeDayChangeReceipt(applied(0, 0, 1), dictionary(de))).toBe("1 geparkt");
+    expect(summarizeDayChangeReceipt(applied(3, 2, 2), dictionary(en))).toBe("3 activities and 2 travel legs added · 2 parked");
+    expect(summarizeDayChangeReceipt(applied(0, 0, 1), dictionary(en))).toBe("1 parked");
+    expect(receiptHasSideEffects(applied(0, 0, 2))).toBe(true);
+  });
+
+  it("has every new key in both dictionaries", () => {
+    for (const key of [
+      "trips.suggestions.parkChoiceLabel",
+      "trips.suggestions.choiceSchedule",
+      "trips.suggestions.choicePark",
+      "trips.suggestions.applySplit",
+      "trips.suggestions.applyParkedOnly",
+      "trips.suggestions.previewParkedTitle",
+      "trips.dayChange.suggestionsParked",
+      "trips.dayChange.suggestionsParkedOne",
+    ]) {
+      expect(de[key as keyof typeof de], key).toBeTruthy();
+      expect(en[key as keyof typeof en], key).toBeTruthy();
+    }
+  });
+});
+
 describe("dayChangeReceipt, version 3 (Story 13.1 AC5, AC12)", () => {
   const renumbered = (itemId: string): MovedItemRow => ({
     ...moved(itemId),

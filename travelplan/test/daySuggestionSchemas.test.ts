@@ -8,6 +8,7 @@ import {
   suggestionsResponseSchema,
   truncateOnWordBoundary,
 } from "@/lib/validation/daySuggestionSchemas";
+import { suggestionApplyRequestSchema } from "@/lib/validation/daySuggestionApplySchemas";
 
 // Each call is a distinct stop by default: the response schema drops repeats of the same title and label.
 let stopNumber = 0;
@@ -210,5 +211,45 @@ describe("isWikimediaThumbnailUrl", () => {
 
   it("keeps the upload check to the upload host", () => {
     expect(isWikimediaUploadUrl("https://thumb.wikimedia.org/wikipedia/commons/thumb/d/dd/X.JPG/250px-X.JPG")).toBe(false);
+  });
+});
+
+describe("suggestionApplyRequestSchema (Story 14.3)", () => {
+  const applied = () => ({ ...suggestion(), verified: true, images: [] });
+  const basis = { afterItemId: null, fingerprint: "f" };
+  const leg = { durationMinutes: 10, distanceKm: 1.2 };
+
+  it("accepts a 13.4 body without parked and defaults parked to []", () => {
+    const parsed = suggestionApplyRequestSchema.parse({ mode: "walking", suggestions: [applied()], legs: [leg], basis });
+    expect(parsed.parked).toEqual([]);
+  });
+
+  it("accepts a mixed body and an all-parked body without a basis", () => {
+    expect(
+      suggestionApplyRequestSchema.safeParse({ mode: "walking", suggestions: [applied()], legs: [leg], basis, parked: [applied()] }).success,
+    ).toBe(true);
+    expect(
+      suggestionApplyRequestSchema.safeParse({ mode: "walking", suggestions: [], legs: [], basis: null, parked: [applied(), applied()] })
+        .success,
+    ).toBe(true);
+  });
+
+  it("refuses nothing at all, more than 8 together, a missing basis and a basis with nothing scheduled", () => {
+    const cases = [
+      { mode: "walking", suggestions: [], legs: [], basis: null, parked: [] },
+      {
+        mode: "walking",
+        suggestions: Array.from({ length: 5 }, applied),
+        legs: Array.from({ length: 5 }, () => leg),
+        basis,
+        parked: Array.from({ length: 4 }, applied),
+      },
+      { mode: "walking", suggestions: [applied()], legs: [leg], basis: null, parked: [] },
+      { mode: "walking", suggestions: [], legs: [], basis, parked: [applied()] },
+      { mode: "walking", suggestions: [], legs: [], parked: [applied()] },
+    ];
+    for (const body of cases) {
+      expect(suggestionApplyRequestSchema.safeParse(body).success).toBe(false);
+    }
   });
 });

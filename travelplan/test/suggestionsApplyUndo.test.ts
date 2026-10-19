@@ -14,6 +14,9 @@ vi.mock("@/lib/trips/suggestionImageDownload", async () => {
 });
 
 import { prisma } from "@/lib/db/prisma";
+import { updateParkedDayPlanItem } from "@/lib/repositories/bucketListRepo";
+import { scheduleParkedDayPlanItemForTripDay } from "@/lib/repositories/dayPlanItemRepo";
+import type { SignedDayChangeReceiptWire } from "@/lib/trips/dayChangeReceipt";
 import { getDayRouteFromOsrm } from "@/lib/routing/dayRouteService";
 import { downloadSuggestionImages } from "@/lib/trips/suggestionImageDownload";
 import { signDayChangeReceipt } from "@/lib/trips/dayChangeReceiptSignature";
@@ -191,5 +194,297 @@ describe("undo of an apply of suggestions (Story 12.4)", () => {
     const undone = await postUndo(trip.id, session, alsoMoved);
     expect(undone.status).toBe(400);
     expect(await databaseState()).toEqual(state);
+  });
+});
+
+/** Story 14.3. Lunch on day 2, then harbour scheduled after it and museum parked, in one apply. */
+const applyMixed = async () => {
+  const seeded = await seedTrip();
+  const { trip, day2, session } = seeded;
+  await createActivity(day2.id, "Lunch", "12:00", "13:00", { lat: 41.15, lng: -8.64 });
+  const before = await databaseState();
+  vi.mocked(getDayRouteFromOsrm).mockResolvedValueOnce({
+    polyline: [],
+    distanceMeters: 1000,
+    durationSeconds: 300,
+    legs: [{ durationSeconds: 300, distanceMeters: 1000 }],
+  });
+  const preview = await postPreview(trip.id, day2.id, session, { mode: "walking", suggestions: [harbour] });
+  const applied = await postApply(trip.id, day2.id, session, {
+    ...applyBodyFrom("walking", [harbour], preview.body.data!),
+    parked: [museum],
+  });
+  expect(applied.status).toBe(200);
+  const receipt = applied.body.data!.receipt;
+  if (receipt.edited.kind !== "suggestionsApplied") throw new Error("expected a suggestionsApplied receipt");
+  return { ...seeded, before, receipt, edited: receipt.edited, parkedId: receipt.edited.parkedItems![0].itemId };
+};
+
+const applyAllParked = async () => {
+  const seeded = await seedTrip();
+  const { trip, day2, session } = seeded;
+  const before = await databaseState();
+  const applied = await postApply(trip.id, day2.id, session, {
+    mode: "walking",
+    suggestions: [],
+    legs: [],
+    basis: null,
+    parked: [harbour, museum],
+  });
+  expect(applied.status).toBe(200);
+  const receipt = applied.body.data!.receipt;
+  if (receipt.edited.kind !== "suggestionsApplied") throw new Error("expected a suggestionsApplied receipt");
+  return { ...seeded, before, receipt, edited: receipt.edited };
+};
+
+/** A later write must not share the apply's millisecond, or its stamp would look unchanged. */
+const nextMillisecond = () => new Promise((resolve) => setTimeout(resolve, 5));
+
+const resign = (receipt: SignedDayChangeReceiptWire, change: Record<string, unknown>, tripId: string, userId: string) => {
+  const { signature: _signature, ...unsigned } = receipt;
+  void _signature;
+  return signDayChangeReceipt({ ...unsigned, ...change } as typeof unsigned, { tripId, userId });
+};
+
+describe("undo of an apply with parked suggestions (Story 14.3)", () => {
+  it("removes the scheduled and the parked activities with their legs, pictures, files and folders", async () => {
+    const { trip, day2, session, before, receipt, edited } = await applyMixed();
+    expect(edited.items).toHaveLength(1);
+    expect(edited.parkedItems).toHaveLength(1);
+    const files = (await prisma.dayPlanItemImage.findMany()).map((image) => resolveStoredMediaPath(image.imageUrl));
+    expect(files).toHaveLength(3);
+    expect(files.filter((file) => file.includes(`${path.sep}days${path.sep}${day2.id}${path.sep}`))).toHaveLength(2);
+    expect(files.filter((file) => file.includes(`${path.sep}parked${path.sep}day-plan-items${path.sep}`))).toHaveLength(1);
+    files.forEach((file) => expect(fs.existsSync(file)).toBe(true));
+
+    const undone = await postUndo(trip.id, session, receipt);
+
+    expect(undone.status).toBe(200);
+    expect(await databaseState()).toEqual(before);
+    files.forEach((file) => expect(fs.existsSync(file)).toBe(false));
+    new Set(files.map((file) => path.dirname(file))).forEach((dir) => expect(fs.existsSync(dir)).toBe(false));
+  });
+
+  it("restores a swept leg and a moved row when a mixed apply is undone (AC4)", async () => {
+    const { trip, day2, eastStay, session } = await seedTrip();
+    await createActivity(day2.id, "Lunch", "12:00", "13:20", { lat: 41.15, lng: -8.64 });
+    // A flexible row at stale times and a sparse sortOrder; the recompute settles it after Lunch, so the
+    // receipt lists it as moved. (A FIXED seed without times would be turned FLEXIBLE, which undo does not
+    // restore: DW-401.)
+    const someday = await prisma.dayPlanItem.create({
+      data: {
+        tripId: trip.id,
+        tripDayId: day2.id,
+        title: "Someday",
+        scheduleMode: "FLEXIBLE",
+        durationMinutes: 15,
+        sortOrder: 5,
+        fromTime: "09:00",
+        toTime: "09:15",
+        contentJson: "{}",
+        locationLat: 41.2,
+        locationLng: -8.7,
+        createdAt: new Date("2026-01-02T03:04:05.678Z"),
+        updatedAt: new Date("2026-01-02T03:04:05.678Z"),
+      },
+    });
+    await prisma.travelSegment.create({
+      data: {
+        tripDayId: day2.id,
+        fromItemType: "DAY_PLAN_ITEM",
+        fromItemId: someday.id,
+        toItemType: "ACCOMMODATION",
+        toItemId: eastStay.id,
+        transportType: "CAR",
+        durationMinutes: 15,
+        distanceKm: 4,
+        createdAt: new Date("2026-01-02T03:04:05.678Z"),
+        updatedAt: new Date("2026-01-02T03:04:05.678Z"),
+      },
+    });
+    const before = await databaseState();
+    const preview = await postPreview(trip.id, day2.id, session, { mode: "walking", suggestions: [harbour] });
+    const applied = await postApply(trip.id, day2.id, session, {
+      ...applyBodyFrom("walking", [harbour], preview.body.data!),
+      parked: [museum],
+    });
+    expect(applied.status).toBe(200);
+    const receipt = applied.body.data!.receipt;
+    if (receipt.edited.kind !== "suggestionsApplied") throw new Error("expected a suggestionsApplied receipt");
+    expect(receipt.edited.parkedItems).toHaveLength(1);
+    expect(receipt.movedItems.map((moved) => moved.itemId)).toEqual([someday.id]);
+    expect(receipt.removedTravelSegments).toHaveLength(1);
+
+    const undone = await postUndo(trip.id, session, receipt);
+
+    expect(undone.status).toBe(200);
+    expect(await databaseState()).toEqual(before);
+  });
+
+  it("removes an all-parked apply and its files, and the day was never touched", async () => {
+    const { trip, session, before, receipt, edited } = await applyAllParked();
+    expect(edited.items).toEqual([]);
+    const files = (await prisma.dayPlanItemImage.findMany()).map((image) => resolveStoredMediaPath(image.imageUrl));
+    expect(files).toHaveLength(3);
+
+    const undone = await postUndo(trip.id, session, receipt);
+
+    expect(undone.status).toBe(200);
+    expect(await databaseState()).toEqual(before);
+    files.forEach((file) => expect(fs.existsSync(file)).toBe(false));
+    new Set(files.map((file) => path.dirname(file))).forEach((dir) => expect(fs.existsSync(dir)).toBe(false));
+  });
+
+  const staleCases: Array<[string, (context: Awaited<ReturnType<typeof applyMixed>>) => Promise<unknown>]> = [
+    [
+      "edited in the bucket dialog",
+      ({ user, trip, parkedId }) =>
+        updateParkedDayPlanItem({ userId: user.id, tripId: trip.id, itemId: parkedId, title: "Renamed", contentJson: "{}" }),
+    ],
+    [
+      "scheduled with +",
+      ({ user, trip, day1, parkedId }) =>
+        scheduleParkedDayPlanItemForTripDay({ userId: user.id, tripId: trip.id, tripDayId: day1.id, itemId: parkedId }),
+    ],
+    [
+      "given a picture",
+      ({ trip, parkedId }) =>
+        prisma.dayPlanItemImage.create({ data: { dayPlanItemId: parkedId, imageUrl: `/uploads/trips/${trip.id}/x.jpg`, sortOrder: 9 } }),
+    ],
+    [
+      "given a document",
+      ({ trip, parkedId }) =>
+        prisma.dayPlanItemDocument.create({
+          data: { dayPlanItemId: parkedId, documentUrl: `/uploads/trips/${trip.id}/x.pdf`, fileName: "x.pdf", sortOrder: 1 },
+        }),
+    ],
+    ["deleted", ({ parkedId }) => prisma.dayPlanItem.delete({ where: { id: parkedId } })],
+  ];
+
+  for (const [label, change] of staleCases) {
+    it(`refuses with 409 undo_stale and writes nothing when a parked one was ${label} since`, async () => {
+      const context = await applyMixed();
+      await nextMillisecond();
+      await change(context);
+      const state = await databaseState();
+      const files = (await prisma.dayPlanItemImage.findMany({ where: { imageUrl: { contains: "/img-" } } })).map((image) =>
+        resolveStoredMediaPath(image.imageUrl),
+      );
+
+      const undone = await postUndo(context.trip.id, context.session, context.receipt);
+
+      expect(undone.status).toBe(409);
+      expect(undone.body.error?.code).toBe("undo_stale");
+      expect(await databaseState()).toEqual(state);
+      files.forEach((file) => expect(fs.existsSync(file)).toBe(true));
+    });
+  }
+
+  it("refuses with 409 undo_stale and keeps the parked one when a scheduled one was edited since", async () => {
+    const { trip, session, receipt, edited, parkedId } = await applyMixed();
+    await nextMillisecond();
+    await prisma.dayPlanItem.update({ where: { id: edited.items[0].itemId }, data: { title: "Renamed" } });
+    const state = await databaseState();
+
+    const undone = await postUndo(trip.id, session, receipt);
+
+    expect(undone.status).toBe(409);
+    expect(undone.body.error?.code).toBe("undo_stale");
+    expect(await databaseState()).toEqual(state);
+    expect(await prisma.dayPlanItem.findUnique({ where: { id: parkedId } })).not.toBeNull();
+  });
+
+  it("refuses forged or malformed signed receipts with 400 and writes nothing", async () => {
+    const mixed = await applyMixed();
+    const { user, trip, session, receipt, edited, parkedId } = mixed;
+    const dayItem = edited.items[0];
+    const parkedItem = edited.parkedItems![0];
+    const forgeries: Record<string, unknown>[] = [
+      { edited: { ...edited, parkedItems: [parkedItem, dayItem] } },
+      {
+        movedItems: [
+          {
+            itemId: parkedId,
+            previousFromTime: null,
+            previousToTime: null,
+            previousSortOrder: 0,
+            fromTime: null,
+            toTime: null,
+            previousUpdatedAt: parkedItem.updatedAt,
+            updatedAt: parkedItem.updatedAt,
+          },
+        ],
+      },
+      { edited: { ...edited, items: [], parkedItems: [] } },
+      { edited: { ...edited, items: [], parkedItems: undefined } },
+      {
+        edited: {
+          ...edited,
+          parkedItems: Array.from({ length: 8 }, (_, index) => ({ itemId: `parked-${index}`, updatedAt: parkedItem.updatedAt })),
+        },
+      },
+      { edited: { ...edited, parkedItems: [{ ...parkedItem, extra: true }] } },
+      // An all-parked receipt never has the day's legs.
+      { edited: { ...edited, items: [] } },
+    ];
+    const state = await databaseState();
+    for (const change of forgeries) {
+      const undone = await postUndo(trip.id, session, resign(receipt, change, trip.id, user.id));
+      expect(undone.status, JSON.stringify(change).slice(0, 120)).toBe(400);
+    }
+    expect(await databaseState()).toEqual(state);
+  });
+
+  it("refuses an all-parked receipt that claims segments, moved rows or removed legs with 400", async () => {
+    const { user, trip, session, receipt, edited } = await applyAllParked();
+    const lunch = await createActivity(receipt.tripDayId, "Lunch", "12:00", "13:00");
+    const stamp = new Date("2026-01-02T03:04:05.678Z").toISOString();
+    const forgeries: Record<string, unknown>[] = [
+      { edited: { ...edited, segments: [{ segmentId: "leg-1", updatedAt: stamp }] } },
+      {
+        movedItems: [
+          {
+            itemId: lunch.id,
+            previousFromTime: "11:00",
+            previousToTime: "12:00",
+            previousSortOrder: 0,
+            fromTime: "12:00",
+            toTime: "13:00",
+            previousUpdatedAt: stamp,
+            updatedAt: stamp,
+          },
+        ],
+      },
+      {
+        removedTravelSegments: [
+          {
+            id: "leg-2",
+            tripDayId: receipt.tripDayId,
+            fromItemType: "DAY_PLAN_ITEM",
+            fromItemId: lunch.id,
+            toItemType: "DAY_PLAN_ITEM",
+            toItemId: edited.parkedItems![0].itemId,
+            transportType: "CAR",
+            durationMinutes: 10,
+            distanceKm: null,
+            linkUrl: null,
+            createdAt: stamp,
+            updatedAt: stamp,
+          },
+        ],
+      },
+    ];
+    const state = await databaseState();
+    for (const change of forgeries) {
+      expect((await postUndo(trip.id, session, resign(receipt, change, trip.id, user.id))).status).toBe(400);
+    }
+    expect(await databaseState()).toEqual(state);
+  });
+
+  it("still undoes a 13.4 receipt, which has no parkedItems key", async () => {
+    const { trip, session, before, receipt, edited } = await applyTwo();
+    expect("parkedItems" in edited).toBe(false);
+    expect((await postUndo(trip.id, session, receipt)).status).toBe(200);
+    expect(await databaseState()).toEqual(before);
   });
 });

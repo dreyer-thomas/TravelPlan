@@ -872,6 +872,204 @@ describe("TripDaySuggestionsDialog preview and apply (Story 12.4)", () => {
     expect(signal?.aborted).toBe(true);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  describe("park instead of schedule (Story 14.3)", () => {
+    const choiceOf = (card: HTMLElement) => within(card).queryByRole("group", { name: /^Schedule or park: / });
+    const pressed = (card: HTMLElement, name: "Schedule" | "Park") =>
+      within(card).getByRole("button", { name }).getAttribute("aria-pressed");
+    const searchAndTick = async (user: ReturnType<typeof userEvent.setup>, indices: number[]) => {
+      await typeWishAndSearch(user);
+      const cards = await screen.findAllByTestId("suggestion-card");
+      const titles = ["Old Harbour", "Tile Museum", "Garden Walk"];
+      for (const index of indices) await user.click(within(cards[index]).getByText(titles[index]));
+      return cards;
+    };
+
+    it("shows Schedule / Park only on a ticked card, defaulting to Schedule, and not without an apply", async () => {
+      const user = userEvent.setup();
+      routes();
+      const { unmount } = renderDialog({ onApplied: vi.fn() });
+      const cards = await searchAndTick(user, [0]);
+
+      expect(choiceOf(cards[0])).toHaveAccessibleName("Schedule or park: Old Harbour");
+      expect(pressed(cards[0], "Schedule")).toBe("true");
+      expect(pressed(cards[0], "Park")).toBe("false");
+      expect(choiceOf(cards[1])).toBeNull();
+      expect(choiceOf(cards[2])).toBeNull();
+      unmount();
+
+      routes();
+      renderDialog();
+      const viewerCards = await searchAndTick(user, [0]);
+      expect(choiceOf(viewerCards[0])).toBeNull();
+    });
+
+    it("keeps the card ticked when Park is clicked, and starts at Schedule again after an untick", async () => {
+      const user = userEvent.setup();
+      routes();
+      renderDialog({ onApplied: vi.fn() });
+      const cards = await searchAndTick(user, [0]);
+
+      // Outside the card's label: a button inside it would be a nested interactive element.
+      expect(choiceOf(cards[0])!.closest("label")).toBeNull();
+      await user.click(within(cards[0]).getByRole("button", { name: "Park" }));
+
+      expect(screen.getAllByRole("checkbox")[0]).toBeChecked();
+      expect(pressed(cards[0], "Park")).toBe("true");
+      // Pressing the active option again keeps it.
+      await user.click(within(cards[0]).getByRole("button", { name: "Park" }));
+      expect(pressed(cards[0], "Park")).toBe("true");
+
+      await user.click(within(cards[0]).getByText("Old Harbour"));
+      expect(choiceOf(cards[0])).toBeNull();
+      await user.click(within(cards[0]).getByText("Old Harbour"));
+      expect(pressed(cards[0], "Schedule")).toBe("true");
+    });
+
+    it("forgets the choices with the ticks when a new search starts", async () => {
+      const user = userEvent.setup();
+      routes();
+      renderDialog({ onApplied: vi.fn() });
+      const cards = await searchAndTick(user, [0]);
+      await user.click(within(cards[0]).getByRole("button", { name: "Park" }));
+
+      await user.click(screen.getByRole("button", { name: "Search" }));
+      await waitFor(() => expect(screen.getAllByRole("checkbox")[0]).not.toBeChecked());
+      const fresh = await screen.findAllByTestId("suggestion-card");
+      await user.click(within(fresh[0]).getByText("Old Harbour"));
+
+      expect(pressed(fresh[0], "Schedule")).toBe("true");
+      expect(screen.getByRole("button", { name: "Add (1)" })).toBeEnabled();
+    });
+
+    it("previews only the scheduled ones, lists the parked ones, and the writing button names both counts", async () => {
+      const user = userEvent.setup();
+      const fetchMock = routes();
+      const onApplied = vi.fn();
+      renderDialog({ onApplied });
+      const cards = await searchAndTick(user, [0, 1, 2]);
+      await user.click(within(cards[1]).getByRole("button", { name: "Park" }));
+
+      // The choose step's button opens the preview and keeps its label.
+      await user.click(screen.getByRole("button", { name: "Add (3)" }));
+      const step = await screen.findByTestId("suggestions-preview");
+
+      const results = threeSuggestions();
+      expect(JSON.parse(String(callsTo(fetchMock, "/preview")[0][1]?.body))).toEqual({
+        mode: "car",
+        suggestions: [results[0], results[2]],
+      });
+      expect(within(step).getAllByTestId("suggestions-preview-row")).toHaveLength(2);
+      expect(within(step).queryByText("Tile Museum")).toBeNull();
+      const parked = screen.getByTestId("suggestions-preview-parked");
+      expect(within(parked).getByText("Goes to the bucket list")).toBeInTheDocument();
+      const parkedRows = within(parked).getAllByTestId("suggestions-preview-parked-row");
+      expect(parkedRows).toHaveLength(1);
+      expect(parkedRows[0]).toHaveTextContent("Tile Museum");
+      expect(parkedRows[0]).toHaveTextContent("Museu, Porto · about 45 min");
+
+      await user.click(screen.getByRole("button", { name: "Schedule 2 · park 1" }));
+
+      await waitFor(() => expect(onApplied).toHaveBeenCalledWith(RECEIPT));
+      expect(JSON.parse(String(callsTo(fetchMock, "/apply")[0][1]?.body))).toEqual({
+        mode: "car",
+        suggestions: [results[2], results[0]],
+        legs: previewData().legs,
+        basis: previewData().basis,
+        parked: [results[1]],
+      });
+    });
+
+    it("applies at once without a preview when every ticked one is parked", async () => {
+      const user = userEvent.setup();
+      const fetchMock = routes();
+      const onApplied = vi.fn();
+      renderDialog({ onApplied });
+      const cards = await searchAndTick(user, [0, 2]);
+      await user.click(within(cards[0]).getByRole("button", { name: "Park" }));
+      expect(screen.getByRole("button", { name: "Add (2)" })).toBeEnabled();
+      await user.click(within(cards[2]).getByRole("button", { name: "Park" }));
+
+      await user.click(screen.getByRole("button", { name: "Park 2" }));
+
+      await waitFor(() => expect(onApplied).toHaveBeenCalledWith(RECEIPT));
+      expect(callsTo(fetchMock, "/preview")).toHaveLength(0);
+      const results = threeSuggestions();
+      expect(JSON.parse(String(callsTo(fetchMock, "/apply")[0][1]?.body))).toEqual({
+        mode: "car",
+        suggestions: [],
+        legs: [],
+        basis: null,
+        parked: [results[0], results[2]],
+      });
+    });
+
+    it("cannot be closed while an all-parked apply runs, and shows progress", async () => {
+      const user = userEvent.setup();
+      const hanging = hangingFetch();
+      routes({ apply: (init) => hanging.mock("/apply", init) });
+      const { onClose } = renderDialog({ onApplied: vi.fn() });
+      const cards = await searchAndTick(user, [0]);
+      await user.click(within(cards[0]).getByRole("button", { name: "Park" }));
+
+      await user.click(screen.getByRole("button", { name: "Park 1" }));
+      await waitFor(() => expect(hanging.mock).toHaveBeenCalledTimes(1));
+
+      expect(screen.getByRole("button", { name: "Park 1" })).toBeDisabled();
+      expect(screen.getByRole("progressbar")).toBeInTheDocument();
+      expect(within(cards[0]).getByRole("button", { name: "Schedule" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Close" })).toBeDisabled();
+      await user.keyboard("{Escape}");
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it("keeps the split when the day changed and the preview is made again", async () => {
+      const user = userEvent.setup();
+      let applies = 0;
+      const fetchMock = routes({
+        apply: () => {
+          applies += 1;
+          return applies === 1
+            ? mockFetchResponse({ data: null, error: { code: "day_plan_changed", message: "changed" } }, { status: 409 })
+            : mockFetchResponse({ data: { receipt: RECEIPT }, error: null });
+        },
+      });
+      const onApplied = vi.fn();
+      renderDialog({ onApplied });
+      const cards = await searchAndTick(user, [0, 1, 2]);
+      await user.click(within(cards[1]).getByRole("button", { name: "Park" }));
+      await user.click(screen.getByRole("button", { name: "Add (3)" }));
+      await screen.findByTestId("suggestions-preview");
+
+      await user.click(screen.getByRole("button", { name: "Schedule 2 · park 1" }));
+      await screen.findByTestId("suggestions-plan-changed");
+
+      const previews = callsTo(fetchMock, "/preview").map(([, init]) => JSON.parse(String(init?.body)));
+      expect(previews).toHaveLength(2);
+      expect(previews[1]).toEqual(previews[0]);
+      expect(screen.getByTestId("suggestions-preview-parked")).toHaveTextContent("Tile Museum");
+
+      await user.click(screen.getByRole("button", { name: "Schedule 2 · park 1" }));
+      await waitFor(() => expect(onApplied).toHaveBeenCalledWith(RECEIPT));
+      expect(JSON.parse(String(callsTo(fetchMock, "/apply")[1][1]?.body)).parked).toEqual([threeSuggestions()[1]]);
+    });
+
+    it("keeps the choices when going back to the selection", async () => {
+      const user = userEvent.setup();
+      routes({ preview: () => previewReply({ order: [0], rows: [{ fromTime: "09:45", toTime: "11:15" }], legs: [null], overflow: false }) });
+      renderDialog({ onApplied: vi.fn() });
+      const cards = await searchAndTick(user, [0, 1]);
+      await user.click(within(cards[1]).getByRole("button", { name: "Park" }));
+      await user.click(screen.getByRole("button", { name: "Add (2)" }));
+      await screen.findByTestId("suggestions-preview");
+
+      await user.click(screen.getByRole("button", { name: "Back to the selection" }));
+
+      const again = screen.getAllByTestId("suggestion-card");
+      expect(pressed(again[0], "Schedule")).toBe("true");
+      expect(pressed(again[1], "Park")).toBe("true");
+    });
+  });
 });
 
 describe("DialogShell fullScreenOnPhone", () => {

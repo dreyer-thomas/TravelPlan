@@ -64,6 +64,12 @@ import type { SuggestionMode } from "@/lib/validation/daySuggestionSchemas";
  * each one is written after its activity exists, because the path names the activity. Every written
  * path is collected, and all of them are removed if the transaction throws: the import's own
  * write-then-roll-back. The activity directories created for them go too, once empty.
+ *
+ * **Parked suggestions** (Story 14.3). The ones set to *Parken* become bucket-list entries in the same
+ * transaction: no day (`tripDayId` null), FLEXIBLE, no times, `sortOrder` 0, the rounded duration, their
+ * pictures under `parked/`. They are not in the plan, the basis or the legs, and the receipt lists them
+ * in `parkedItems`. When every suggestion is parked the day is not read past the writer clause and not
+ * written at all: no plan, no basis check (so never a 409), no recompute, no sweep, no leg.
  */
 
 type BasisReader = Pick<TransactionClient, "tripDay">;
@@ -257,9 +263,14 @@ export type ApplySuggestionsParams = {
   suggestions: ApplySuggestion[];
   /** The leg into each suggestion, from the preview. */
   legs: ({ durationMinutes: number; distanceKm: number | null } | null)[];
-  basis: SuggestionPlanBasis;
+  /** `null` exactly when `suggestions` is empty (everything parked). */
+  basis: SuggestionPlanBasis | null;
   /** One entry per suggestion, already downloaded. */
   images: DownloadedSuggestionImage[][];
+  /** Story 14.3. The ones parked to the bucket list, in the dialog's order; none when left out. */
+  parked?: ApplySuggestion[];
+  /** One entry per parked suggestion, already downloaded. */
+  parkedImages?: DownloadedSuggestionImage[][];
 };
 
 /** 24 small writes, 24 files and a sweep; well past Prisma's 5 s default on a slow disk. */
@@ -274,68 +285,120 @@ const sameBasis = (left: SuggestionPlanBasis, right: SuggestionPlanBasis) =>
  * already; the writer clause here is the planning writes' own).
  */
 export const applySuggestionsForTripDay = async (params: ApplySuggestionsParams): Promise<DayChangeReceipt | null> => {
-  const { userId, tripId, tripDayId, mode, suggestions, legs, basis, images } = params;
+  const { userId, tripId, tripDayId, mode, suggestions, legs, basis, images, parked = [], parkedImages = [] } = params;
   const writtenFiles: string[] = [];
   const createdDirs = new Set<string>();
+
+  // One activity's pictures, under its day's folder or under `parked/` (`dayId` null).
+  const writeImages = async (
+    tx: TransactionClient,
+    dayId: string | null,
+    itemId: string,
+    downloaded: DownloadedSuggestionImage[],
+    imageIds: string[],
+  ) => {
+    const taken = new Set<string>();
+    for (const [position, image] of downloaded.entries()) {
+      const placement = planDayPlanItemGalleryPhoto(
+        { tripId, tripDayId: dayId, dayPlanItemId: itemId, contentType: image.contentType },
+        taken,
+      );
+      await fs.mkdir(path.dirname(placement.filePath), { recursive: true });
+      createdDirs.add(path.dirname(placement.filePath));
+      await fs.writeFile(placement.filePath, image.bytes);
+      writtenFiles.push(placement.filePath);
+      const row = await tx.dayPlanItemImage.create({
+        data: { dayPlanItemId: itemId, imageUrl: placement.imageUrl, sortOrder: position + 1 },
+        select: { id: true },
+      });
+      imageIds.push(row.id);
+    }
+  };
 
   try {
     return await prisma.$transaction(
       async (tx) => {
+        // The writer clause on the day, even when everything is parked: a viewer or a foreign day gets nothing.
         const context = await readPlanContext(tx, userId, tripId, tripDayId);
         if (!context) return null;
-        const state = await readScheduleInputInTransaction(tx, tripId, tripDayId);
-        if (!state) return null;
 
-        // Story 13.4: the same planner as the preview, on the day as it stands in this transaction.
+        let plan: DaySchedulePlan | null = null;
         const durations = suggestions.map((suggestion) => suggestionDurationMinutes(suggestion.durationMinutes));
-        const plan = planSuggestionAppend(state, durations, legs.map((leg) => leg?.durationMinutes ?? null));
-        if (!sameBasis(planBasis(context, plan), basis)) throw new DayPlanChangedError();
+        if (suggestions.length > 0) {
+          const state = await readScheduleInputInTransaction(tx, tripId, tripDayId);
+          if (!state) return null;
+          // Story 13.4: the same planner as the preview, on the day as it stands in this transaction.
+          plan = planSuggestionAppend(state, durations, legs.map((leg) => leg?.durationMinutes ?? null));
+          if (!basis || !sameBasis(planBasis(context, plan), basis)) throw new DayPlanChangedError();
+        }
 
         const now = new Date();
-        const drawnBefore = await readDrawnSegmentKeysInTransaction(tx, tripId, tripDayId);
+        const drawnBefore = plan ? await readDrawnSegmentKeysInTransaction(tx, tripId, tripDayId) : new Set<string>();
 
         // Each a millisecond after the last: the order is `sortOrder`, but the creation order stays readable.
         const base = Date.now();
         const created: { id: string; updatedAt: Date }[] = [];
         const imageIds: string[] = [];
-        for (const [index, suggestion] of suggestions.entries()) {
-          const planned = plan.appended[index];
+        if (plan) {
+          for (const [index, suggestion] of suggestions.entries()) {
+            const planned = plan.appended[index];
+            const item = await tx.dayPlanItem.create({
+              data: {
+                tripId,
+                tripDayId,
+                title: suggestion.title,
+                fromTime: planned.fromTime,
+                toTime: planned.toTime,
+                scheduleMode: "FLEXIBLE",
+                durationMinutes: durations[index],
+                sortOrder: planned.sortOrder,
+                contentJson: plainTextToTiptapDoc(suggestion.description),
+                locationLat: suggestion.lat,
+                locationLng: suggestion.lng,
+                locationLabel: suggestion.locationLabel,
+                createdAt: new Date(base + index),
+              },
+              select: { id: true, updatedAt: true },
+            });
+            created.push(item);
+            await writeImages(tx, tripDayId, item.id, images[index] ?? [], imageIds);
+          }
+        }
+
+        // Story 14.3: the parked ones, as the bucket list's own create writes them (the parked CHECK).
+        const parkedCreated: { id: string; updatedAt: Date }[] = [];
+        for (const [index, suggestion] of parked.entries()) {
           const item = await tx.dayPlanItem.create({
             data: {
               tripId,
-              tripDayId,
+              tripDayId: null,
               title: suggestion.title,
-              fromTime: planned.fromTime,
-              toTime: planned.toTime,
+              fromTime: null,
+              toTime: null,
               scheduleMode: "FLEXIBLE",
-              durationMinutes: durations[index],
-              sortOrder: planned.sortOrder,
+              durationMinutes: suggestionDurationMinutes(suggestion.durationMinutes),
+              sortOrder: 0,
               contentJson: plainTextToTiptapDoc(suggestion.description),
               locationLat: suggestion.lat,
               locationLng: suggestion.lng,
               locationLabel: suggestion.locationLabel,
-              createdAt: new Date(base + index),
+              createdAt: new Date(base + suggestions.length + index),
             },
             select: { id: true, updatedAt: true },
           });
-          created.push(item);
+          parkedCreated.push(item);
+          await writeImages(tx, null, item.id, parkedImages[index] ?? [], imageIds);
+        }
 
-          const taken = new Set<string>();
-          for (const [position, image] of (images[index] ?? []).entries()) {
-            const placement = planDayPlanItemGalleryPhoto(
-              { tripId, tripDayId, dayPlanItemId: item.id, contentType: image.contentType },
-              taken,
-            );
-            await fs.mkdir(path.dirname(placement.filePath), { recursive: true });
-            createdDirs.add(path.dirname(placement.filePath));
-            await fs.writeFile(placement.filePath, image.bytes);
-            writtenFiles.push(placement.filePath);
-            const row = await tx.dayPlanItemImage.create({
-              data: { dayPlanItemId: item.id, imageUrl: placement.imageUrl, sortOrder: position + 1 },
-              select: { id: true },
-            });
-            imageIds.push(row.id);
-          }
+        const parkedItems = parkedCreated.map((item) => ({ itemId: item.id, updatedAt: item.updatedAt }));
+        if (!plan) {
+          // Everything parked: the day was not touched.
+          return buildReceipt(
+            tripDayId,
+            { kind: "suggestionsApplied", items: [], segments: [], imageIds, parkedItems },
+            [],
+            [],
+          );
         }
 
         // Every other row whose times or order the plan changed (an unsettled day is normalised here).
@@ -377,6 +440,8 @@ export const applySuggestionsForTripDay = async (params: ApplySuggestionsParams)
             items: created.map((item) => ({ itemId: item.id, updatedAt: item.updatedAt })),
             segments,
             imageIds,
+            // Only when something was parked, so an apply without parking writes the 13.4 receipt.
+            ...(parkedItems.length > 0 ? { parkedItems } : {}),
           },
           removed,
           movedItems,

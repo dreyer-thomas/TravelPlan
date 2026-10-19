@@ -56,6 +56,11 @@ import type { SuggestionPreview } from "@/lib/validation/daySuggestionApplySchem
  *   the viewer's address but not the trip page they came from (DW-387). The app sets no CSP, so there is
  *   no `img-src` to extend. Only `thumbnailUrl` reaches the DOM; `originalUrl` is 12.4's server-side
  *   download source and stays in state.
+ * - **Story 14.3: park instead of schedule.** A ticked card shows *Einplanen* / *Parken* (DESIGN.md
+ *   `park-choice`), outside the card's label so a click on it never unticks the card. Only the ones set to
+ *   *Einplanen* are previewed and planned; the parked ones are listed under the preview's timeline and
+ *   sent beside it, and the button that writes names both counts. When every ticked one is parked there
+ *   is nothing to plan: "2 parken" applies at once, without a preview.
  */
 
 export type TripDaySuggestionsDialogProps = {
@@ -77,8 +82,12 @@ type SearchStatus = "idle" | "searching" | "results" | "error";
 
 type PlanEnvelope = { data?: unknown; error?: { code?: string } | null };
 
-/** The preview step's data: the server's plan and the picked suggestions it was made for, in list order. */
-type PreviewState = SuggestionPreview & { picked: DaySuggestion[] };
+/**
+ * The preview step's data: the server's plan and the picked suggestions it was made for, in list order.
+ * Story 14.3: `parked` are the ticked ones set to *Parken*, snapshotted with it, so a re-preview after a
+ * 409 sends the same split.
+ */
+type PreviewState = SuggestionPreview & { picked: DaySuggestion[]; parked: DaySuggestion[] };
 
 type ErrorEnvelope = {
   data?: { suggestions?: unknown } | null;
@@ -122,6 +131,8 @@ export default function TripDaySuggestionsDialog({
   const [suggestions, setSuggestions] = useState<DaySuggestion[]>([]);
   // Indices into `suggestions`: Story 12.1 deliberately gives a suggestion no id.
   const [ticked, setTicked] = useState<Set<number>>(() => new Set());
+  // Story 14.3. The ticked ones set to *Parken*, indices like `ticked`; not in the set means *Einplanen*.
+  const [parkedChoice, setParkedChoice] = useState<Set<number>>(() => new Set());
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   // Bumped per result list, so a card's "this picture failed" state never survives into the next list.
   const [resultKey, setResultKey] = useState(0);
@@ -187,6 +198,7 @@ export default function TripDaySuggestionsDialog({
     // Cleared when the search *starts*: the old list stays on screen until the new one arrives, but
     // nothing ticked against it can outlive the question that replaced it.
     setTicked(new Set());
+    setParkedChoice(new Set());
     setStatus("searching");
 
     const controller = new AbortController();
@@ -256,6 +268,15 @@ export default function TripDaySuggestionsDialog({
 
   const toggle = (index: number) => {
     if (searching || planBusy) return;
+    // Unticking forgets the choice, so a card ticked again starts at *Einplanen*.
+    if (ticked.has(index)) {
+      setParkedChoice((current) => {
+        if (!current.has(index)) return current;
+        const next = new Set(current);
+        next.delete(index);
+        return next;
+      });
+    }
     setTicked((current) => {
       const next = new Set(current);
       if (next.has(index)) {
@@ -267,7 +288,24 @@ export default function TripDaySuggestionsDialog({
     });
   };
 
+  const chooseParked = (index: number, park: boolean) => {
+    if (searching || planBusy) return;
+    setParkedChoice((current) => {
+      const next = new Set(current);
+      if (park) {
+        next.add(index);
+      } else {
+        next.delete(index);
+      }
+      return next;
+    });
+  };
+
   const tickedCount = ticked.size;
+  // Story 14.3. The ticked ones split by their choice, both in list order.
+  const scheduledPicked = suggestions.filter((_suggestion, index) => ticked.has(index) && !parkedChoice.has(index));
+  const parkedPicked = suggestions.filter((_suggestion, index) => ticked.has(index) && parkedChoice.has(index));
+  const parkedOnly = scheduledPicked.length === 0 && parkedPicked.length > 0;
   const selectedText =
     tickedCount === 0
       ? t("trips.suggestions.selectedNone")
@@ -340,7 +378,7 @@ export default function TripDaySuggestionsDialog({
     setErrorMessage(code === "network" ? t("errors.network") : mapPlanError(code));
   };
 
-  const requestPreview = async (picked: DaySuggestion[], afterChange: boolean) => {
+  const requestPreview = async (picked: DaySuggestion[], parked: DaySuggestion[], afterChange: boolean) => {
     setErrorMessage(null);
     setPlanBusy("preview");
     const result = await postPlan("preview", { mode: searchedMode, suggestions: picked });
@@ -356,17 +394,34 @@ export default function TripDaySuggestionsDialog({
       }
       return;
     }
-    setPreview({ ...data, picked });
+    setPreview({ ...data, picked, parked });
     setPlanChangedNote(afterChange);
     setStep("preview");
   };
 
   const handleOpenPreview = () => {
     if (!onApplied || tickedCount === 0 || planBusy) return;
-    void requestPreview(
-      suggestions.filter((_suggestion, index) => ticked.has(index)),
-      false,
-    );
+    if (parkedOnly) {
+      void handleApplyParkedOnly();
+      return;
+    }
+    void requestPreview(scheduledPicked, parkedPicked, false);
+  };
+
+  /** Story 14.3. Everything parked: nothing to plan or show, so no preview and no basis. */
+  const handleApplyParkedOnly = async () => {
+    if (!onApplied || planBusy) return;
+    setErrorMessage(null);
+    setPlanBusy("apply");
+    const result = await postPlan("apply", { mode: searchedMode, suggestions: [], legs: [], basis: null, parked: parkedPicked });
+    if (!result) return;
+    setPlanBusy(null);
+    const receipt = (result.data as { receipt?: SignedDayChangeReceiptWire } | undefined)?.receipt;
+    if (result.ok && receipt) {
+      onApplied(receipt);
+      return;
+    }
+    showPlanError(result.ok ? undefined : result.code);
   };
 
   const handleConfirmApply = async () => {
@@ -378,6 +433,8 @@ export default function TripDaySuggestionsDialog({
       suggestions: preview.order.map((index) => preview.picked[index]),
       legs: preview.legs,
       basis: preview.basis,
+      // Only when something is parked: without, the body is 13.4's (the server defaults it to none).
+      ...(preview.parked.length > 0 ? { parked: preview.parked } : {}),
     });
     if (!result) return;
     setPlanBusy(null);
@@ -387,7 +444,7 @@ export default function TripDaySuggestionsDialog({
       return;
     }
     if (result.code === "day_plan_changed") {
-      await requestPreview(preview.picked, true);
+      await requestPreview(preview.picked, preview.parked, true);
       return;
     }
     showPlanError(result.ok ? undefined : result.code);
@@ -411,7 +468,9 @@ export default function TripDaySuggestionsDialog({
           disabled={planBusy !== null}
           startIcon={planBusy ? <CircularProgress size={16} color="inherit" /> : undefined}
         >
-          {t("trips.suggestions.confirmApply")}
+          {preview && preview.parked.length > 0
+            ? formatMessage(t("trips.suggestions.applySplit"), { scheduled: preview.picked.length, parked: preview.parked.length })
+            : t("trips.suggestions.confirmApply")}
         </Button>
       </>
     ) : (
@@ -426,7 +485,9 @@ export default function TripDaySuggestionsDialog({
             disabled={tickedCount === 0 || searching || planBusy !== null}
             startIcon={planBusy ? <CircularProgress size={16} color="inherit" /> : undefined}
           >
-            {formatMessage(t("trips.suggestions.apply"), { count: tickedCount })}
+            {parkedOnly
+              ? formatMessage(t("trips.suggestions.applyParkedOnly"), { count: parkedPicked.length })
+              : formatMessage(t("trips.suggestions.apply"), { count: tickedCount })}
           </Button>
         ) : null}
       </>
@@ -454,6 +515,7 @@ export default function TripDaySuggestionsDialog({
               </Alert>
             ) : null}
             <SuggestionPreviewStep preview={preview} planChanged={planChangedNote} language={language} />
+            {preview.parked.length > 0 ? <SuggestionPreviewParked parked={preview.parked} /> : null}
           </Box>
         ) : (
         <Box component="form" noValidate onSubmit={handleSearch} sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
@@ -588,6 +650,16 @@ export default function TripDaySuggestionsDialog({
                   checked={ticked.has(index)}
                   disabled={searching}
                   onToggle={() => toggle(index)}
+                  // Story 14.3: only where something can be applied, i.e. for a writer.
+                  parkChoice={
+                    onApplied
+                      ? {
+                          parked: parkedChoice.has(index),
+                          disabled: searching || planBusy !== null,
+                          onChange: (park) => chooseParked(index, park),
+                        }
+                      : undefined
+                  }
                 />
               ))}
             </Box>
@@ -606,93 +678,143 @@ type SuggestionCardProps = {
   checked: boolean;
   disabled: boolean;
   onToggle: () => void;
+  /** Story 14.3. *Einplanen* / *Parken*, shown while the card is ticked; absent without an apply. */
+  parkChoice?: { parked: boolean; disabled: boolean; onChange: (park: boolean) => void };
 };
 
-function SuggestionCard({ idBase, suggestion, checked, disabled, onToggle }: SuggestionCardProps) {
+function SuggestionCard({ idBase, suggestion, checked, disabled, onToggle, parkChoice }: SuggestionCardProps) {
   const { t } = useI18n();
   const { tokens } = useTheme().palette;
   const titleId = `${idBase}-title`;
   const metaId = `${idBase}-meta`;
 
   return (
-    // DESIGN.md checkbox: the whole card is the click target, so the card *is* the label.
+    // The border is the card's; the label inside it is the click target. Story 14.3's toggle sits below
+    // the label, still inside the border, so a click on it never reaches the checkbox.
     <Box
-      component="label"
       data-testid="suggestion-card"
       sx={{
-        display: "flex",
-        gap: 1,
-        alignItems: "flex-start",
-        p: "18px 18px 18px 8px",
         borderRadius: "10px",
         backgroundColor: tokens.card,
         // A ticked card takes the accent edge; the checkbox's own fill carries the state as well, so
         // colour is never the only signal.
         border: "1px solid",
         borderColor: checked ? "primary.main" : tokens.borderStrong,
-        cursor: disabled ? "default" : "pointer",
         opacity: disabled ? 0.7 : 1,
       }}
     >
-      <Checkbox
-        checked={checked}
-        disabled={disabled}
-        onChange={onToggle}
-        sx={{ mt: "-12px" }}
-        slotProps={{ input: { "aria-labelledby": titleId, "aria-describedby": metaId } }}
-      />
-      <Box sx={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 0.75 }}>
-        <Typography id={titleId} sx={{ fontWeight: 800, color: tokens.ink, fontSize: 14.5 }}>
-          {suggestion.title}
-        </Typography>
-        <Typography variant="body2" sx={{ color: tokens.ink, whiteSpace: "pre-line" }}>
-          {suggestion.description}
-        </Typography>
-        <Box
-          id={metaId}
-          sx={{
-            display: "flex",
-            flexWrap: "wrap",
-            alignItems: "center",
-            columnGap: 1,
-            rowGap: 0.5,
-            fontSize: 12.5,
-            color: tokens.inkSoft,
-          }}
-        >
-          <Box component="span" sx={{ fontWeight: 700 }}>
-            {suggestion.locationLabel}
-          </Box>
-          <Box component="span" aria-hidden="true">
-            ·
-          </Box>
-          <Box component="span" sx={{ fontVariantNumeric: "tabular-nums" }}>
-            {formatApproxDuration(suggestion.durationMinutes, t)}
-          </Box>
-          {suggestion.verified ? null : (
-            <Box
-              component="span"
-              data-testid="suggestion-unverified"
-              sx={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "4px",
-                px: "7px",
-                py: "2px",
-                borderRadius: "5px",
-                backgroundColor: tokens.pillNeutral,
-                color: tokens.inkSoft,
-                fontSize: 11.5,
-                fontWeight: 700,
-              }}
-            >
-              <UnverifiedPlaceGlyph />
-              {t("trips.suggestions.unverified")}
+      {/* DESIGN.md checkbox: the whole card body is the click target, so it *is* the label. */}
+      <Box
+        component="label"
+        sx={{
+          display: "flex",
+          gap: 1,
+          alignItems: "flex-start",
+          p: "18px 18px 18px 8px",
+          cursor: disabled ? "default" : "pointer",
+        }}
+      >
+        <Checkbox
+          checked={checked}
+          disabled={disabled}
+          onChange={onToggle}
+          sx={{ mt: "-12px" }}
+          slotProps={{ input: { "aria-labelledby": titleId, "aria-describedby": metaId } }}
+        />
+        <Box sx={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 0.75 }}>
+          <Typography id={titleId} sx={{ fontWeight: 800, color: tokens.ink, fontSize: 14.5 }}>
+            {suggestion.title}
+          </Typography>
+          <Typography variant="body2" sx={{ color: tokens.ink, whiteSpace: "pre-line" }}>
+            {suggestion.description}
+          </Typography>
+          <Box
+            id={metaId}
+            sx={{
+              display: "flex",
+              flexWrap: "wrap",
+              alignItems: "center",
+              columnGap: 1,
+              rowGap: 0.5,
+              fontSize: 12.5,
+              color: tokens.inkSoft,
+            }}
+          >
+            <Box component="span" sx={{ fontWeight: 700 }}>
+              {suggestion.locationLabel}
             </Box>
-          )}
+            <Box component="span" aria-hidden="true">
+              ·
+            </Box>
+            <Box component="span" sx={{ fontVariantNumeric: "tabular-nums" }}>
+              {formatApproxDuration(suggestion.durationMinutes, t)}
+            </Box>
+            {suggestion.verified ? null : (
+              <Box
+                component="span"
+                data-testid="suggestion-unverified"
+                sx={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "4px",
+                  px: "7px",
+                  py: "2px",
+                  borderRadius: "5px",
+                  backgroundColor: tokens.pillNeutral,
+                  color: tokens.inkSoft,
+                  fontSize: 11.5,
+                  fontWeight: 700,
+                }}
+              >
+                <UnverifiedPlaceGlyph />
+                {t("trips.suggestions.unverified")}
+              </Box>
+            )}
+          </Box>
+          <SuggestionThumbnails title={suggestion.title} images={suggestion.images} />
         </Box>
-        <SuggestionThumbnails title={suggestion.title} images={suggestion.images} />
       </Box>
+      {checked && parkChoice ? (
+        <Box sx={{ px: "18px", pb: "14px" }}>
+          {/* DESIGN.md park-choice: `schedule-mode`'s treatment at a compact height inside the card. */}
+          <ToggleButtonGroup
+            exclusive
+            fullWidth
+            value={parkChoice.parked ? "park" : "schedule"}
+            // Pressing the active option reports `null`; one of the two is always chosen, so ignore it.
+            onChange={(_event, next: "schedule" | "park" | null) => {
+              if (next) parkChoice.onChange(next === "park");
+            }}
+            aria-label={formatMessage(t("trips.suggestions.parkChoiceLabel"), { title: suggestion.title })}
+            disabled={parkChoice.disabled}
+            data-testid="suggestion-park-choice"
+            sx={{
+              borderRadius: "6px",
+              border: `1px solid ${tokens.borderStrong}`,
+              backgroundColor: tokens.cardAlt,
+              overflow: "hidden",
+              "& .MuiToggleButton-root": {
+                minHeight: 36,
+                py: 0,
+                border: "none",
+                borderRadius: 0,
+                textTransform: "none",
+                fontSize: 13,
+                fontWeight: 600,
+                color: tokens.inkSoft,
+                "&.Mui-selected, &.Mui-selected:hover": {
+                  backgroundColor: tokens.accentSoft,
+                  color: tokens.ink,
+                  fontWeight: 700,
+                },
+              },
+            }}
+          >
+            <ToggleButton value="schedule">{t("trips.suggestions.choiceSchedule")}</ToggleButton>
+            <ToggleButton value="park">{t("trips.suggestions.choicePark")}</ToggleButton>
+          </ToggleButtonGroup>
+        </Box>
+      ) : null}
     </Box>
   );
 }
@@ -748,6 +870,37 @@ function SuggestionThumbnails({ title, images }: { title: string; images: DaySug
           sx={{ flex: "0 0 56px", width: 56, height: 56, objectFit: "cover", borderRadius: 0, display: "block" }}
         />
       ))}
+    </Box>
+  );
+}
+
+/**
+ * Story 14.3. What goes to the bucket list with the apply: one compact row per parked suggestion, title,
+ * place and duration, no times and no legs. The user sees everything the button will write.
+ */
+function SuggestionPreviewParked({ parked }: { parked: DaySuggestion[] }) {
+  const { t } = useI18n();
+  const { tokens } = useTheme().palette;
+  return (
+    <Box data-testid="suggestions-preview-parked" sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+      <Typography variant="labelCaps" component="h3" sx={{ color: tokens.inkSoft, m: 0 }}>
+        {t("trips.suggestions.previewParkedTitle")}
+      </Typography>
+      <Box component="ul" sx={{ listStyle: "none", m: 0, p: 0, display: "flex", flexDirection: "column", gap: 1 }}>
+        {parked.map((suggestion, index) => (
+          <Box
+            component="li"
+            key={`${index}-${suggestion.title}`}
+            data-testid="suggestions-preview-parked-row"
+            sx={{ p: "10px 14px", borderRadius: "10px", border: `1px solid ${tokens.border}`, backgroundColor: tokens.cardAlt }}
+          >
+            <Typography sx={{ fontWeight: 800, color: tokens.ink, fontSize: 14, overflowWrap: "anywhere" }}>{suggestion.title}</Typography>
+            <Typography variant="body2" sx={{ color: tokens.inkSoft, fontSize: 12.5, overflowWrap: "anywhere" }}>
+              {`${suggestion.locationLabel} · ${formatApproxDuration(suggestion.durationMinutes, t)}`}
+            </Typography>
+          </Box>
+        ))}
+      </Box>
     </Box>
   );
 }

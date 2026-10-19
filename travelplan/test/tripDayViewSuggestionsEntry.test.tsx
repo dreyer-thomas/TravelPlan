@@ -262,4 +262,63 @@ describe("TripDayView: Find ideas entry (Story 12.3)", () => {
       dayLoadsBefore,
     );
   });
+
+  it("reloads the bucket list after an apply that parked suggestions, and again after its undo (Story 14.3)", async () => {
+    const user = userEvent.setup();
+    const receipt = {
+      version: 3,
+      tripDayId: "day-2",
+      edited: {
+        kind: "suggestionsApplied",
+        items: [],
+        segments: [],
+        imageIds: [],
+        parkedItems: [{ itemId: "parked-1", updatedAt: "2026-12-02T10:00:00.000Z" }],
+      },
+      removedTravelSegments: [],
+      movedItems: [],
+      signature: "a".repeat(64),
+    };
+    const idea = {
+      title: "Old Harbour",
+      description: "Walk the quay.",
+      locationLabel: "Harbour, Porto",
+      lat: 41.14,
+      lng: -8.61,
+      durationMinutes: 90,
+      verified: true,
+      images: [],
+    };
+    const fetchMock = stubDay("owner");
+    const dayFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/suggestions/apply")) return mockFetchResponse({ data: { receipt }, error: null });
+      if (url.endsWith("/suggestions")) return mockFetchResponse({ data: { suggestions: [idea] }, error: null });
+      if (url.endsWith("/day-plan-changes/undo")) return mockFetchResponse({ data: { undone: true }, error: null });
+      return dayFetch(input);
+    });
+    const bucketLoads = () => fetchMock.mock.calls.filter(([input]) => requestUrl(input).includes("/bucket-list-items")).length;
+    await renderDay(true);
+    await user.click(findIdeasButton()!);
+    const dialog = await screen.findByRole("dialog", { name: en["trips.suggestions.dialogTitle"] });
+    await user.type(within(dialog).getByLabelText(en["trips.suggestions.promptLabel"]), "Harbour");
+    await user.click(within(dialog).getByRole("button", { name: en["trips.suggestions.search"] }));
+    await user.click(await within(dialog).findByText("Old Harbour"));
+    await user.click(within(dialog).getByRole("button", { name: en["trips.suggestions.choicePark"] }));
+    await waitFor(() => expect(bucketLoads()).toBeGreaterThan(0));
+    const beforeApply = bucketLoads();
+
+    await user.click(within(dialog).getByRole("button", { name: "Park 1" }));
+
+    expect(await screen.findByText("1 parked")).toBeInTheDocument();
+    await waitFor(() => expect(bucketLoads()).toBeGreaterThan(beforeApply));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: en["trips.suggestions.dialogTitle"] })).toBeNull());
+    const beforeUndo = bucketLoads();
+
+    await user.click(await screen.findByRole("button", { name: en["trips.dayChange.undo"] }));
+
+    await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => requestUrl(input).endsWith("/day-plan-changes/undo"))).toBe(true));
+    await waitFor(() => expect(bucketLoads()).toBeGreaterThan(beforeUndo));
+  });
 });

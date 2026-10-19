@@ -206,6 +206,8 @@ export type DayChangeEdited<T extends Date | string = Date> =
       items: { itemId: string; updatedAt: T }[];
       segments: { segmentId: string; updatedAt: T }[];
       imageIds: string[];
+      /** Story 14.3. The ones parked to the bucket list in the same apply; absent when none was. */
+      parkedItems?: { itemId: string; updatedAt: T }[];
     };
 
 /**
@@ -340,6 +342,10 @@ const mapReceipt = <A extends Date | string, B extends Date | string>(
         items: receipt.edited.items.map((item) => ({ ...item, updatedAt: convert(item.updatedAt) })),
         segments: receipt.edited.segments.map((segment) => ({ ...segment, updatedAt: convert(segment.updatedAt) })),
         imageIds: [...receipt.edited.imageIds],
+        // Omitted when absent: a signed receipt is compared as JSON.
+        ...(receipt.edited.parkedItems
+          ? { parkedItems: receipt.edited.parkedItems.map((item) => ({ ...item, updatedAt: convert(item.updatedAt) })) }
+          : {}),
       };
       break;
     default: {
@@ -394,6 +400,10 @@ export const receiptHasSideEffects = <T extends Date | string>(receipt: DayChang
   receipt.movedItems.some(movedTimes) ||
   (receipt.planConflicts?.length ?? 0) > 0;
 
+/** Story 14.3. "2 geparkt", "1 geparkt". */
+const summarizeSuggestionsParked = (count: number, t: (key: string) => string) =>
+  count === 1 ? t("trips.dayChange.suggestionsParkedOne") : formatMessage(t("trips.dayChange.suggestionsParked"), { count });
+
 /** Story 12.4. "4 activities and 3 travel legs added", or "1 activity added" when no leg was created. */
 const summarizeSuggestionsApplied = (itemCount: number, legCount: number, t: (key: string) => string) => {
   if (legCount === 0) {
@@ -425,6 +435,8 @@ const summarizeSuggestionsApplied = (itemCount: number, legCount: number, t: (ke
  *
  * Story 13.3: a `madeFlexible` receipt leads with "N Aktivitäten flexibel gemacht"; the converted rows are
  * never in `movedItems`, so the moved count that follows is the other rows'.
+ *
+ * Story 14.3: a `suggestionsApplied` receipt with `parkedItems` adds "N geparkt" after the added part.
  */
 export const summarizeDayChangeReceipt = <T extends Date | string>(
   receipt: DayChangeReceipt<T>,
@@ -443,7 +455,12 @@ export const summarizeDayChangeReceipt = <T extends Date | string>(
   // Story 13.1: rows whose times changed, never one only renumbered.
   let movedItems = receipt.movedItems.filter(movedTimes);
   if (edited.kind === "suggestionsApplied") {
-    parts.push(summarizeSuggestionsApplied(edited.items.length, edited.segments.length, t));
+    // Story 14.3: an all-parked apply added nothing to the day, so it reads only "2 geparkt".
+    if (edited.items.length > 0) {
+      parts.push(summarizeSuggestionsApplied(edited.items.length, edited.segments.length, t));
+    }
+    const parkedCount = edited.parkedItems?.length ?? 0;
+    if (parkedCount > 0) parts.push(summarizeSuggestionsParked(parkedCount, t));
   }
   if (edited.kind === "madeFlexible") {
     const count = edited.items.length;

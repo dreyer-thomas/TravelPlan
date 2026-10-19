@@ -71,15 +71,31 @@ const legSchema = z
  * `suggestions` in visiting order (the preview's `order` applied) and one leg per suggestion, the leg
  * *into* it. Apply plans the day with these legs through the preview's own planner (Story 13.4) and never
  * calls OSRM again (item 8).
+ *
+ * Story 14.3: `parked` are the ticked ones set to *Parken*, in the dialog's list order. They are not in the
+ * order, the legs or the basis; they become bucket-list entries. Together with `suggestions` there is at
+ * least one and at most `MAX_SUGGESTIONS`. `basis` is there exactly when something is scheduled: an
+ * all-parked apply never reads the day's plan. `parked` defaults to `[]`, so a 13.4 body still parses.
  */
 export const suggestionApplyRequestSchema = z
   .object({
     mode: z.enum(SUGGESTION_MODES),
-    suggestions: suggestionsSchema,
+    suggestions: z.array(applySuggestionSchema).max(MAX_SUGGESTIONS),
     legs: z.array(legSchema).max(MAX_SUGGESTIONS),
-    basis: suggestionPlanBasisSchema,
+    basis: suggestionPlanBasisSchema.nullable(),
+    parked: z.array(applySuggestionSchema).max(MAX_SUGGESTIONS).default([]),
   })
   .superRefine((value, context) => {
+    const total = value.suggestions.length + value.parked.length;
+    if (total < 1 || total > MAX_SUGGESTIONS) {
+      context.addIssue({ code: "custom", path: ["suggestions"], message: `Between 1 and ${MAX_SUGGESTIONS} suggestions` });
+    }
+    if (value.suggestions.length > 0 && value.basis === null) {
+      context.addIssue({ code: "custom", path: ["basis"], message: "A basis is required when something is scheduled" });
+    }
+    if (value.suggestions.length === 0 && value.basis !== null) {
+      context.addIssue({ code: "custom", path: ["basis"], message: "No basis when nothing is scheduled" });
+    }
     if (value.legs.length !== value.suggestions.length) {
       context.addIssue({ code: "custom", path: ["legs"], message: "One leg per suggestion" });
     }

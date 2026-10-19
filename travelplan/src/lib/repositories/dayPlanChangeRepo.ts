@@ -1,7 +1,11 @@
 import path from "node:path";
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db/prisma";
-import { deleteDayPlanItemInTransaction, renumberDayInTransaction } from "@/lib/repositories/dayPlanItemRepo";
+import {
+  deleteDayPlanItemInTransaction,
+  parkedDayPlanItemsWhere,
+  renumberDayInTransaction,
+} from "@/lib/repositories/dayPlanItemRepo";
 import {
   buildStoredSegmentPairKey,
   buildSegmentTimelineInTransaction,
@@ -57,6 +61,12 @@ import {
  * recreates rows that point at its files - DW-187 stays as it is). Since Story 13.4 the apply recomputes the
  * day, so its `movedItems` may list existing rows it moved or renumbered (never one it created), restored
  * like every other kind's.
+ *
+ * Story 14.3: a `suggestionsApplied` receipt may also list `parkedItems`, the suggestions the same apply
+ * parked to the bucket list. Phase 1 checks them as parked rows of the trip (`parkedDayPlanItemsWhere`)
+ * with the stamp the apply gave them, and runs the image, document and leg checks over them too; phase 2
+ * deletes them by the same predicate. An all-parked receipt never touched the day, so it carries no leg,
+ * no moved row and no removed leg.
  *
  * Story 13.1 (version 3). Every write recomputes the day, so `movedItems` also lists rows only renumbered;
  * phase 1 checks every one of them and phase 2 restores `fromTime`, `toTime`, `sortOrder` and `updatedAt`.
@@ -205,9 +215,17 @@ const findInvalidity = (receipt: DayChangeReceipt, tripId: string): string | nul
 
   if (edited.kind === "suggestionsApplied") {
     // Story 13.4: the apply recomputes the day, so it may move existing rows, never one it created.
-    const createdIds = new Set(edited.items.map((item) => item.itemId));
+    // Story 14.3: every created id once across the day's and the parked ones.
+    const allItems = [...edited.items, ...(edited.parkedItems ?? [])];
+    const createdIds = new Set(allItems.map((item) => item.itemId));
     if (receipt.movedItems.some((moved) => createdIds.has(moved.itemId))) return "applied item listed as moved";
-    if (new Set(edited.items.map((item) => item.itemId)).size !== edited.items.length) return "duplicate item";
+    if (createdIds.size !== allItems.length) return "duplicate item";
+    if (
+      edited.items.length === 0 &&
+      (edited.segments.length > 0 || receipt.movedItems.length > 0 || receipt.removedTravelSegments.length > 0)
+    ) {
+      return "side effect an all-parked apply never has";
+    }
     if (new Set(edited.segments.map((segment) => segment.segmentId)).size !== edited.segments.length) return "duplicate leg";
     if (edited.segments.some((segment) => legIds.has(segment.segmentId))) return "leg both created and removed";
     if (new Set(edited.imageIds).size !== edited.imageIds.length) return "duplicate image";
@@ -242,17 +260,33 @@ const restorePayments = async (tx: TransactionClient, snapshot: DayPlanItemSnaps
  */
 const checkSuggestionsAppliedInTransaction = async (
   tx: TransactionClient,
+  tripId: string,
   tripDayId: string,
   edited: Extract<DayChangeReceipt["edited"], { kind: "suggestionsApplied" }>,
 ): Promise<UndoneImageFile[]> => {
-  const itemIds = edited.items.map((item) => item.itemId);
+  const dayItemIds = edited.items.map((item) => item.itemId);
+  const parkedItems = edited.parkedItems ?? [];
+  const parkedIds = parkedItems.map((item) => item.itemId);
+  const itemIds = [...dayItemIds, ...parkedIds];
   const segmentIds = new Set(edited.segments.map((segment) => segment.segmentId));
 
-  const items = await tx.dayPlanItem.findMany({ where: { id: { in: itemIds }, tripDayId }, select: { id: true, updatedAt: true } });
+  const items = await tx.dayPlanItem.findMany({ where: { id: { in: dayItemIds }, tripDayId }, select: { id: true, updatedAt: true } });
   const itemStamps = new Map(items.map((item) => [item.id, item.updatedAt]));
   for (const item of edited.items) {
     const stamp = itemStamps.get(item.itemId);
     if (!stamp || !sameInstant(stamp, item.updatedAt)) throw new UndoStaleError("applied item changed");
+  }
+  // Story 14.3: a parked one scheduled with "+", edited in the bucket dialog or deleted since is stale.
+  if (parkedIds.length > 0) {
+    const parked = await tx.dayPlanItem.findMany({
+      where: { id: { in: parkedIds }, ...parkedDayPlanItemsWhere(tripId) },
+      select: { id: true, updatedAt: true },
+    });
+    const parkedStamps = new Map(parked.map((item) => [item.id, item.updatedAt]));
+    for (const item of parkedItems) {
+      const stamp = parkedStamps.get(item.itemId);
+      if (!stamp || !sameInstant(stamp, item.updatedAt)) throw new UndoStaleError("applied item changed");
+    }
   }
 
   const segments = await tx.travelSegment.findMany({
@@ -375,7 +409,7 @@ const undoInTransaction = async (
       break;
     }
     case "suggestionsApplied":
-      removedImageFiles = await checkSuggestionsAppliedInTransaction(tx, tripDayId, edited);
+      removedImageFiles = await checkSuggestionsAppliedInTransaction(tx, tripId, tripDayId, edited);
       break;
     case "scheduled": {
       const item = await tx.dayPlanItem.findFirst({ where: { id: edited.itemId, tripId, tripDayId }, select: { updatedAt: true } });
@@ -560,6 +594,13 @@ const undoInTransaction = async (
         if (deleted.status !== "deleted" || deleted.removedTravelSegments.length > 0) {
           throw new UndoStaleError("applied item could not be removed cleanly");
         }
+      }
+      // Story 14.3: the parked ones, by the parked predicate (not by day); the cascade takes their image rows.
+      for (const item of edited.parkedItems ?? []) {
+        const deleted = await tx.dayPlanItem.deleteMany({
+          where: { id: item.itemId, ...parkedDayPlanItemsWhere(tripId), updatedAt: item.updatedAt },
+        });
+        if (deleted.count !== 1) throw new UndoStaleError("applied item changed");
       }
       break;
     }

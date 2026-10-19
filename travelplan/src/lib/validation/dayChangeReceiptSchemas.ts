@@ -254,19 +254,28 @@ const editedSchema = z.discriminatedUnion("kind", [
     .strict(),
   // Story 12.4. Additive; the bounds are what one apply can create (8 suggestions, a leg into each, 3
   // pictures each). `dayPlanChangeRepo.ts` checks every row against the day.
+  // Story 14.3: `parkedItems` are the ones parked to the bucket list; optional, so a 13.4 receipt stays
+  // valid. Together with `items` at least one and at most `MAX_APPLIED_SUGGESTIONS`.
   z
     .object({
       kind: z.literal("suggestionsApplied"),
       items: z
         .array(z.object({ itemId: idSchema, updatedAt: isoDateSchema }).strict())
-        .min(1)
         .max(MAX_APPLIED_SUGGESTIONS),
       segments: z
         .array(z.object({ segmentId: idSchema, updatedAt: isoDateSchema }).strict())
         .max(MAX_APPLIED_SUGGESTIONS),
       imageIds: z.array(idSchema).max(MAX_APPLIED_SUGGESTIONS * MAX_IMAGES_PER_APPLIED_SUGGESTION),
+      parkedItems: z
+        .array(z.object({ itemId: idSchema, updatedAt: isoDateSchema }).strict())
+        .max(MAX_APPLIED_SUGGESTIONS)
+        .optional(),
     })
-    .strict(),
+    .strict()
+    .refine((edited) => {
+      const total = edited.items.length + (edited.parkedItems?.length ?? 0);
+      return total >= 1 && total <= MAX_APPLIED_SUGGESTIONS;
+    }, `Between 1 and ${MAX_APPLIED_SUGGESTIONS} applied suggestions`),
 ]);
 
 /** Story 11.2. Times are stored text (an import may hold odd ones); the stamps are what undo compares. */

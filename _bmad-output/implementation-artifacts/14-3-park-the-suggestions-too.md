@@ -1,6 +1,10 @@
+---
+baseline_commit: 088de55859ea0de6c36bb8e4b0c5bcc3459cc563
+---
+
 # Story 14.3: Park the Suggestions Too
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -107,37 +111,48 @@ Each item was checked against the code. Items marked **(Q)** are defaults for To
 
 ## Tasks / Subtasks
 
-- [ ] **Task 0: Baseline** (all ACs)
-  - [ ] 13.4's changes are in the working tree but not committed (`git status`). Ask Tommy to commit them (or commit on his word) before starting, so this story's diff is reviewable on its own. Record the baseline commit in this file's front matter, as 13.4 did.
-  - [ ] Run `npx vitest run test/daySuggestionApplyRoute.test.ts test/suggestionsApplyUndo.test.ts test/tripDaySuggestionsDialog.test.tsx` green before any change.
-- [ ] **Task 1: Request schema** (AC 6; §1)
-  - [ ] `SAS`: `suggestions` in the apply request `.min(0)`; `parked: z.array(applySuggestionSchema).max(MAX_SUGGESTIONS).default([])`; `basis: suggestionPlanBasisSchema.nullable()`; `superRefine` adds the total 1..8 rule and the basis-iff-scheduled rule. Keep the leg rules. Update the docblock (`SAS:68-72`).
-  - [ ] No test imports `suggestionApplyRequestSchema` directly today; cover every AC 6 case through the route in `test/daySuggestionApplyRoute.test.ts` (400 and nothing written), plus pure schema cases in `test/daySuggestionSchemas.test.ts`.
-- [ ] **Task 2: Apply** (AC 2, 3; §3-8)
-  - [ ] `SAR` `ApplySuggestionsParams`: `basis: SuggestionPlanBasis | null`, `parked: ApplySuggestion[]`, `parkedImages: DownloadedSuggestionImage[][]`.
-  - [ ] Restructure `applySuggestionsForTripDay` per §4: the scheduled branch only when `suggestions.length > 0`; the parked creates per §5-6; receipt per §9. Keep the file rollback covering both.
-  - [ ] Update the `SAR` header docblock: one paragraph "Story 14.3" (parked ones: no day, no plan, no basis, no legs; all-parked writes nothing on the day).
-  - [ ] `APL`: one download call over both lists, split (§7); pass `parked` and `parkedImages`. Docblock line for 14.3.
-- [ ] **Task 3: Receipt and undo** (AC 4, 5; §9-14)
-  - [ ] `RCS`, `RCP` type and wire conversion (`parkedItems` optional, omitted when absent).
-  - [ ] `DCR`: invalidity (§10), phase 1 (§11), phase 2 (§12). Add a "Story 14.3" sentence to the `DCR` header block next to 12.4's (`DCR:51-58`).
-  - [ ] `summarizeSuggestionsApplied` (`RCP:409`) per §23, with the two new keys.
-- [ ] **Task 4: Dialog** (AC 1; §15-21)
-  - [ ] Card restructure (§16), toggle (§17), state (§18), buttons (§19), parked list in the preview step (§20), body (§21).
-  - [ ] Update the `SD` header docblock: a bullet "Story 14.3: park instead of schedule".
-- [ ] **Task 5: Day view** (AC 3, 4; §22)
-  - [ ] `TDV:5172-5180`: reload the bucket list after an apply. `TDV:1524-1528`: reload it after the undo of a `suggestionsApplied` with parked items. Update the comment there.
-- [ ] **Task 6: i18n** (AC 7, 8): add every key in *Copy* to both files, next to their siblings.
-- [ ] **Task 7: Tests**
-  - [ ] `test/daySuggestionApplyRoute.test.ts` (use `test/helpers/suggestionApplyFixtures.ts`): mixed apply (scheduled ones identical to a 13.4 apply of the same scheduled set, parked rows' columns per AC 2, parked picture file exists under `parked/`, no leg names a parked id, receipt lists `parkedItems`); all-parked apply on a day changed since the dialog opened (no 409, day rows and legs `toEqual` before/after, `movedItems` and `segments` empty); all-parked apply by a viewer → 403/404 as today; 13.4-shaped body still works; AC 6 cases.
-  - [ ] `test/suggestionsApplyUndo.test.ts`: mixed undo with whole-DB `toEqual` and files plus folders gone (scheduled `days/…` and parked `parked/…`); stale cases for a parked one edited (`updateParkedDayPlanItem`), scheduled with "+" (`POST day-plan-items/schedule`), given a picture, deleted; AC 5 forged cases; an old receipt without `parkedItems`.
-  - [ ] Receipt schema / summary tests (`rg "summarizeDayChangeReceipt" test`): the two AC 7 strings, both languages' keys exist.
-  - [ ] `test/tripDaySuggestionsDialog.test.tsx`: toggle only on ticked cards; click on *Parken* keeps the tick; untick + re-tick resets to *Einplanen*; new search clears; preview body has only scheduled ones and the parked list; the request bodies (`preview` without parked, `apply` with `parked`); the button labels in all four cases of §19; all-parked applies without a preview request; 409 re-preview keeps the split.
-  - [ ] `test/tripDayViewSuggestionsEntry.test.tsx`: after `onApplied` the bucket-list endpoint is fetched again; after the undo of a receipt with `parkedItems` too.
-  - [ ] Mutation checks (record each red/green in *Debug Log*): (1) drop `tripDayId: null` from the parked create → CHECK or test red; (2) let the all-parked path run the basis check → AC 3 test red; (3) phase 2 skips the parked deletes → undo test red; (4) phase 1 skips the parked stamp check → stale test red; (5) dialog renders the toggle inside the `label` → keep-the-tick test red; (6) day view does not reload the bucket list → entry test red. If one stays green because a second guard catches it (13.3 mutation 3), say which and why.
-- [ ] **Task 8: Gates and real run**
-  - [ ] `npx vitest run`, `npx tsc --noEmit`, `npm run lint` (0 errors), `npm run build`.
-  - [ ] Real run with Tommy (dev server, Safari, 390 px): search, tick five, park two, preview shows three plus "Kommt in die Bucket-Liste", apply, notice "… · 2 geparkt", the two appear in the Day Detail bucket list with thumbnails and durations, "+" one of them onto another day with its pictures; then *Rückgängig* on a fresh apply removes all; an all-parked apply leaves the day as it was. Status stays `in-progress` until Tommy confirms; then `review`.
+- [x] **Task 0: Baseline** (all ACs)
+  - [x] 13.4's changes are in the working tree but not committed (`git status`). Ask Tommy to commit them (or commit on his word) before starting, so this story's diff is reviewable on its own. Record the baseline commit in this file's front matter, as 13.4 did.
+  - [x] Run `npx vitest run test/daySuggestionApplyRoute.test.ts test/suggestionsApplyUndo.test.ts test/tripDaySuggestionsDialog.test.tsx` green before any change.
+- [x] **Task 1: Request schema** (AC 6; §1)
+  - [x] `SAS`: `suggestions` in the apply request `.min(0)`; `parked: z.array(applySuggestionSchema).max(MAX_SUGGESTIONS).default([])`; `basis: suggestionPlanBasisSchema.nullable()`; `superRefine` adds the total 1..8 rule and the basis-iff-scheduled rule. Keep the leg rules. Update the docblock (`SAS:68-72`).
+  - [x] No test imports `suggestionApplyRequestSchema` directly today; cover every AC 6 case through the route in `test/daySuggestionApplyRoute.test.ts` (400 and nothing written), plus pure schema cases in `test/daySuggestionSchemas.test.ts`.
+- [x] **Task 2: Apply** (AC 2, 3; §3-8)
+  - [x] `SAR` `ApplySuggestionsParams`: `basis: SuggestionPlanBasis | null`, `parked: ApplySuggestion[]`, `parkedImages: DownloadedSuggestionImage[][]`.
+  - [x] Restructure `applySuggestionsForTripDay` per §4: the scheduled branch only when `suggestions.length > 0`; the parked creates per §5-6; receipt per §9. Keep the file rollback covering both.
+  - [x] Update the `SAR` header docblock: one paragraph "Story 14.3" (parked ones: no day, no plan, no basis, no legs; all-parked writes nothing on the day).
+  - [x] `APL`: one download call over both lists, split (§7); pass `parked` and `parkedImages`. Docblock line for 14.3.
+- [x] **Task 3: Receipt and undo** (AC 4, 5; §9-14)
+  - [x] `RCS`, `RCP` type and wire conversion (`parkedItems` optional, omitted when absent).
+  - [x] `DCR`: invalidity (§10), phase 1 (§11), phase 2 (§12). Add a "Story 14.3" sentence to the `DCR` header block next to 12.4's (`DCR:51-58`).
+  - [x] `summarizeSuggestionsApplied` (`RCP:409`) per §23, with the two new keys.
+- [x] **Task 4: Dialog** (AC 1; §15-21)
+  - [x] Card restructure (§16), toggle (§17), state (§18), buttons (§19), parked list in the preview step (§20), body (§21).
+  - [x] Update the `SD` header docblock: a bullet "Story 14.3: park instead of schedule".
+- [x] **Task 5: Day view** (AC 3, 4; §22)
+  - [x] `TDV:5172-5180`: reload the bucket list after an apply. `TDV:1524-1528`: reload it after the undo of a `suggestionsApplied` with parked items. Update the comment there.
+- [x] **Task 6: i18n** (AC 7, 8): add every key in *Copy* to both files, next to their siblings.
+- [x] **Task 7: Tests**
+  - [x] `test/daySuggestionApplyRoute.test.ts` (use `test/helpers/suggestionApplyFixtures.ts`): mixed apply (scheduled ones identical to a 13.4 apply of the same scheduled set, parked rows' columns per AC 2, parked picture file exists under `parked/`, no leg names a parked id, receipt lists `parkedItems`); all-parked apply on a day changed since the dialog opened (no 409, day rows and legs `toEqual` before/after, `movedItems` and `segments` empty); all-parked apply by a viewer → 403/404 as today; 13.4-shaped body still works; AC 6 cases.
+  - [x] `test/suggestionsApplyUndo.test.ts`: mixed undo with whole-DB `toEqual` and files plus folders gone (scheduled `days/…` and parked `parked/…`); stale cases for a parked one edited (`updateParkedDayPlanItem`), scheduled with "+" (`POST day-plan-items/schedule`), given a picture, deleted; AC 5 forged cases; an old receipt without `parkedItems`.
+  - [x] Receipt schema / summary tests (`rg "summarizeDayChangeReceipt" test`): the two AC 7 strings, both languages' keys exist.
+  - [x] `test/tripDaySuggestionsDialog.test.tsx`: toggle only on ticked cards; click on *Parken* keeps the tick; untick + re-tick resets to *Einplanen*; new search clears; preview body has only scheduled ones and the parked list; the request bodies (`preview` without parked, `apply` with `parked`); the button labels in all four cases of §19; all-parked applies without a preview request; 409 re-preview keeps the split.
+  - [x] `test/tripDayViewSuggestionsEntry.test.tsx`: after `onApplied` the bucket-list endpoint is fetched again; after the undo of a receipt with `parkedItems` too.
+  - [x] Mutation checks (record each red/green in *Debug Log*): (1) drop `tripDayId: null` from the parked create → CHECK or test red; (2) let the all-parked path run the basis check → AC 3 test red; (3) phase 2 skips the parked deletes → undo test red; (4) phase 1 skips the parked stamp check → stale test red; (5) dialog renders the toggle inside the `label` → keep-the-tick test red; (6) day view does not reload the bucket list → entry test red. If one stays green because a second guard catches it (13.3 mutation 3), say which and why.
+- [x] **Task 8: Gates and real run**
+  - [x] `npx vitest run`, `npx tsc --noEmit`, `npm run lint` (0 errors), `npm run build`.
+  - [x] Real run with Tommy (dev server, Safari, 390 px): search, tick five, park two, preview shows three plus "Kommt in die Bucket-Liste", apply, notice "… · 2 geparkt", the two appear in the Day Detail bucket list with thumbnails and durations, "+" one of them onto another day with its pictures; then *Rückgängig* on a fresh apply removes all; an all-parked apply leaves the day as it was. Status stays `in-progress` until Tommy confirms; then `review`.
+
+### Review Findings
+
+Code review 2026-10-19 (Blind Hunter, Edge Case Hunter, Acceptance Auditor): 0 decision-needed, 4 patch (all applied), 2 defer (one found while patching), 21 dismissed.
+
+- [x] [Review][Patch] Receipt refine message hard-codes "8" instead of building it from `MAX_APPLIED_SUGGESTIONS` (the request schema uses `MAX_SUGGESTIONS`) [travelplan/src/lib/validation/dayChangeReceiptSchemas.ts:278]
+- [x] [Review][Patch] AC5 forgery test does not cover an all-parked receipt with non-empty `removedTravelSegments`; a mutation dropping that clause in `findInvalidity` stays green [travelplan/test/suggestionsApplyUndo.test.ts:368]
+- [x] [Review][Patch] No mixed-undo test where the *scheduled* item went stale: nothing pins that the parked rows survive (all-or-nothing) when a scheduled one blocks the undo [travelplan/test/suggestionsApplyUndo.test.ts:309]
+- [x] [Review][Patch] Mixed undo never exercises the moved-rows / swept-leg restore with parked items present (AC4); `applyMixed` appends after Lunch with nothing to sweep or move [travelplan/test/suggestionsApplyUndo.test.ts:201]
+- [x] [Review][Defer] All-parked undo depends on the day it was launched from: if that day is deleted (dates shortened) or write access is lost, undo answers 400/404 although the parked rows are intact [travelplan/src/lib/repositories/dayPlanChangeRepo.ts] — deferred, by design (receipts are per day), rare (DW-400)
+- [x] [Review][Defer] Undo of a suggestions apply does not restore a moved row's `scheduleMode`: the recompute turns a legacy FIXED row without times FLEXIBLE, and `movedItems` carries only times, sortOrder and stamps [travelplan/src/lib/repositories/dayPlanChangeRepo.ts] — deferred, pre-existing since 13.4, found while writing the AC4 mixed-undo test (DW-401)
 
 ## Dev Notes
 
@@ -223,10 +238,55 @@ Recent commits: `624bcb5` / `bae6d99` 13-3, `a65c894` 13-2, `e0643cd` 14-2, `f49
 
 ### Agent Model Used
 
+Claude Opus 5.5 (claude-opus-5-5), bmad-dev-story, 2026-10-18.
+
 ### Debug Log References
+
+- Task 0: 13-4 committed on Tommy's word as `088de55` (with this story file, as 13-3's commit carried 14-4's); baseline recorded. Baseline suites green (89/89). Q1-Q5 defaults confirmed by Tommy.
+- Pre-existing flake, not caused by this story: `suggestionsApplyUndo.test.ts` › "refuses when an applied leg was changed or removed" fails about 1 run in 6 **at the baseline too** (verified on a stash of 088de55): the test's `travelSegment.update` can share the apply's millisecond, so `updatedAt` looks unchanged. The new 14.3 stale tests wait 5 ms (`nextMillisecond`) before their write to avoid that shape. The old test was left unmodified (Part D); a candidate for the deferred ledger.
+- Mutation checks:
+  1. Parked create without `tripDayId: null` → red (2 route tests).
+  2. All-parked path runs the plan and basis check (`if (true)`) → red (the all-parked-on-a-changed-day test).
+  3. Phase 2 skips the parked deletes → red (2 undo tests).
+  4. Phase 1 skips the parked stamp check → **stays green**, accepted: phase 2's delete is conditional on `{ id, tripId, tripDayId: null, updatedAt }` and throws the same `UndoStaleError("applied item changed")` inside the transaction, so every stale case (edited, scheduled with "+", deleted) still answers 409 and writes nothing. The picture and document cases are caught by the image and document checks, which already run over all ids. Same shape as 13.3's mutation 3: phase 1 is defence in depth with no observable difference.
+  5. Toggle rendered inside the `label` → first green: jsdom follows the HTML rule that a click on interactive content inside a label does not activate its control, so the tick survived. Added `expect(choice.closest("label")).toBeNull()` to the keep-the-tick test → red.
+  6. Day view without the bucket reload after apply → red; without the reload after the undo of a receipt with `parkedItems` → red.
+- Gates: `npx vitest run` 213 files / 3457 tests passed; `npx tsc --noEmit` 0; `npm run lint` 0 errors / 79 warnings (unchanged from 13.4); `npm run build` ok.
 
 ### Completion Notes List
 
 - Ultimate context engine analysis completed - comprehensive developer guide created.
+- **Request (§1-2):** `parked` (default `[]`) beside `suggestions` (now `min(0)`); `basis` nullable; superRefine: 1..8 together, basis iff something scheduled. Preview unchanged.
+- **Apply (§3-8):** `readPlanContext` (the writer clause) always runs; plan, basis check, drawn keys, recompute, sweep, timeline and legs only when something is scheduled. Parked rows are created with `tripDayId: null`, FLEXIBLE, no times, `sortOrder` 0, the rounded duration, `createdAt` continuing the stagger; their pictures go under `parked/` through a shared `writeImages` helper, so the existing rollback covers them. The route makes one download call over both lists and splits the result. `parked` / `parkedImages` are optional in `ApplySuggestionsParams` (default `[]`), so direct repository callers in the 13.4 suites stay unmodified.
+- **Receipt (§9, §23):** optional `parkedItems`; `items` may be empty; refine 1..8 together; wire conversion omits the key when absent; the repo writes it only when something was parked, so an apply without parking writes the 13.4 receipt. Summary adds "N geparkt" and drops the added part when nothing was scheduled.
+- **Undo (§10-12):** invalidity covers duplicates across both lists, a parked id in `movedItems`, and all-parked with legs, moved rows or removed legs. Phase 1 checks parked stamps through `parkedDayPlanItemsWhere`, with the image, document and leg checks over all ids. Phase 2 deletes parked rows by the parked predicate and the stamp. The route's URL-derived file removal handles `parked/` (pinned by a test).
+- **Dialog (§15-21):** the card is now an outer bordered `Box` with the `label` inside and the toggle below it (only while ticked, only with `onApplied`), 36 px, in the `schedule-mode` treatment. `parkedChoice` is cleared on untick and on a new search, and kept on *Zurück*. Buttons: *Übernehmen (n)* opens the preview (scheduled only); the preview's primary reads "s einplanen · p parken" when something is parked; all parked → "n parken" applies directly. A "Kommt in die Bucket-Liste" list goes under the timeline. `PreviewState.parked` is snapshotted, so a 409 re-preview keeps the split. The apply body carries `parked` only when non-empty (same body as 13.4 otherwise).
+- **Day view (§22):** the bucket list reloads after every apply, and after the undo of a `suggestionsApplied` with parked items.
+- **Real run:** confirmed OK by Tommy on 2026-10-19 (Task 8). Status → review.
 
 ### File List
+
+- travelplan/src/lib/validation/daySuggestionApplySchemas.ts
+- travelplan/src/lib/repositories/daySuggestionApplyRepo.ts
+- travelplan/src/app/api/trips/[id]/days/[dayId]/suggestions/apply/route.ts
+- travelplan/src/lib/validation/dayChangeReceiptSchemas.ts
+- travelplan/src/lib/trips/dayChangeReceipt.ts
+- travelplan/src/lib/repositories/dayPlanChangeRepo.ts
+- travelplan/src/components/features/trips/TripDaySuggestionsDialog.tsx
+- travelplan/src/components/features/trips/TripDayView.tsx
+- travelplan/src/i18n/de.ts
+- travelplan/src/i18n/en.ts
+- travelplan/test/daySuggestionSchemas.test.ts
+- travelplan/test/daySuggestionApplyRoute.test.ts
+- travelplan/test/suggestionsApplyUndo.test.ts
+- travelplan/test/dayChangeReceipt.test.ts
+- travelplan/test/tripDaySuggestionsDialog.test.tsx
+- travelplan/test/tripDayViewSuggestionsEntry.test.tsx
+- _bmad-output/implementation-artifacts/14-3-park-the-suggestions-too.md
+- _bmad-output/implementation-artifacts/sprint-status.yaml
+
+### Change Log
+
+- 2026-10-18: Implemented 14.3 (park the suggestions too): request `parked` list, parked rows and pictures in the apply transaction, all-parked path without touching the day, receipt `parkedItems` with undo, dialog *Einplanen*/*Parken* toggle, split buttons and parked list, bucket-list reloads, 8 i18n keys per language; tests and mutation checks. 
+- 2026-10-19: Tommy confirmed the real run; status → review.
+- 2026-10-19: Code review: 4 patches applied (receipt refine message from `MAX_APPLIED_SUGGESTIONS`; tests for an all-parked receipt with removed legs, a stale scheduled item in a mixed undo, and a mixed undo restoring a swept leg and a moved row); DW-400 and DW-401 deferred. 213 files / 3459 tests, tsc 0, lint 0/79. Status done.

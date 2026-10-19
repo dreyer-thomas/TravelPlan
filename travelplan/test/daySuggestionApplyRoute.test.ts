@@ -631,3 +631,179 @@ describe("POST …/suggestions/preview and …/apply (Story 12.4)", () => {
     expect(CSRF).toBeTruthy();
   });
 });
+
+describe("POST …/suggestions/apply with parked suggestions (Story 14.3)", () => {
+  const dayState = async (tripDayId: string) => ({
+    items: await prisma.dayPlanItem.findMany({ where: { tripDayId }, orderBy: { id: "asc" } }),
+    legs: await prisma.travelSegment.findMany({ where: { tripDayId }, orderBy: { id: "asc" } }),
+  });
+
+  it("schedules the scheduled ones as 13.4 does and parks the others to the bucket list with their pictures", async () => {
+    const { trip, day2, westStay, session } = await seedTrip();
+    vi.mocked(getDayRouteFromOsrm).mockResolvedValue(osrmLegs([12, 8449]));
+    // Only the scheduled one goes through the preview, as the dialog sends it.
+    const preview = await postPreview(trip.id, day2.id, session, { mode: "walking", suggestions: [harbour] });
+    const parkedMuseum = { ...museum, durationMinutes: 43 };
+
+    const applied = await postApply(trip.id, day2.id, session, {
+      ...applyBodyFrom("walking", [harbour], preview.body.data!),
+      parked: [parkedMuseum],
+    });
+
+    expect(applied.status).toBe(200);
+    expect(getDayRouteFromOsrm).toHaveBeenCalledTimes(1);
+    // One download for both lists, the scheduled ones first.
+    expect(vi.mocked(downloadSuggestionImages)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(downloadSuggestionImages).mock.calls[0][0]).toEqual([harbour.images, museum.images]);
+
+    const dayItems = await prisma.dayPlanItem.findMany({ where: { tripDayId: day2.id } });
+    expect(dayItems.map(({ title, fromTime, toTime, sortOrder }) => ({ title, fromTime, toTime, sortOrder }))).toEqual([
+      { title: "Old Harbour", ...preview.body.data!.rows[0]!, sortOrder: 0 },
+    ]);
+    const legs = await prisma.travelSegment.findMany();
+    expect(legs.map(({ fromItemId, toItemId }) => [fromItemId, toItemId])).toEqual([[westStay.id, dayItems[0].id]]);
+
+    const parked = await prisma.dayPlanItem.findMany({ where: { tripId: trip.id, tripDayId: null } });
+    expect(parked).toHaveLength(1);
+    const [row] = parked;
+    expect({
+      title: row.title,
+      scheduleMode: row.scheduleMode,
+      fromTime: row.fromTime,
+      toTime: row.toTime,
+      sortOrder: row.sortOrder,
+      durationMinutes: row.durationMinutes,
+      locationLabel: row.locationLabel,
+      locationLat: row.locationLat,
+      locationLng: row.locationLng,
+    }).toEqual({
+      title: "Tile Museum",
+      scheduleMode: "FLEXIBLE",
+      fromTime: null,
+      toTime: null,
+      sortOrder: 0,
+      // Rounded up to five minutes, as a scheduled suggestion's.
+      durationMinutes: 45,
+      locationLabel: "Museu, Porto",
+      locationLat: 41.15,
+      locationLng: -8.61,
+    });
+    expect(parsePlanText(row.contentJson)).toBe("Azulejos from five centuries.");
+    expect(legs.some((leg) => leg.fromItemId === row.id || leg.toItemId === row.id)).toBe(false);
+
+    const parkedImages = await prisma.dayPlanItemImage.findMany({ where: { dayPlanItemId: row.id } });
+    expect(parkedImages).toHaveLength(1);
+    expect(parkedImages[0].sortOrder).toBe(1);
+    expect(parkedImages[0].imageUrl).toMatch(new RegExp(`^/uploads/trips/${trip.id}/parked/day-plan-items/${row.id}/img-.+\\.jpg$`));
+    expect(fs.existsSync(resolveStoredMediaPath(parkedImages[0].imageUrl))).toBe(true);
+
+    const edited = applied.body.data!.receipt.edited;
+    expect(edited.kind).toBe("suggestionsApplied");
+    if (edited.kind !== "suggestionsApplied") return;
+    expect(edited.items).toEqual([{ itemId: dayItems[0].id, updatedAt: dayItems[0].updatedAt.toISOString() }]);
+    expect(edited.parkedItems).toEqual([{ itemId: row.id, updatedAt: row.updatedAt.toISOString() }]);
+    expect(edited.imageIds).toEqual(expect.arrayContaining([parkedImages[0].id]));
+    expect(edited.imageIds).toHaveLength(3);
+  });
+
+  it("writes the 13.4 receipt, without a parkedItems key, when nothing is parked", async () => {
+    const { trip, day2, session } = await seedTrip();
+    vi.mocked(getDayRouteFromOsrm).mockResolvedValue(osrmLegs([12, 8449]));
+    const preview = await postPreview(trip.id, day2.id, session, { mode: "walking", suggestions: [harbour] });
+
+    const applied = await postApply(trip.id, day2.id, session, { ...applyBodyFrom("walking", [harbour], preview.body.data!), parked: [] });
+
+    expect(applied.status).toBe(200);
+    expect("parkedItems" in applied.body.data!.receipt.edited).toBe(false);
+  });
+
+  it("parks everything without touching the day, even when the day changed since the dialog opened", async () => {
+    const { trip, day2, session } = await seedTrip();
+    const lunch = await createActivity(day2.id, "Lunch", "12:00", "13:00", { lat: 41.15, lng: -8.64 });
+    vi.mocked(getDayRouteFromOsrm).mockResolvedValue(osrmLegs([3, 900]));
+    // A preview and then a change of the day: a scheduled apply of it would answer 409.
+    await postPreview(trip.id, day2.id, session, { mode: "walking", suggestions: [harbour] });
+    await prisma.dayPlanItem.update({ where: { id: lunch.id }, data: { toTime: "13:30" } });
+    vi.mocked(getDayRouteFromOsrm).mockClear();
+    const before = await dayState(day2.id);
+
+    const applied = await postApply(trip.id, day2.id, session, {
+      mode: "walking",
+      suggestions: [],
+      legs: [],
+      basis: null,
+      parked: [harbour, museum],
+    });
+
+    expect(applied.status).toBe(200);
+    expect(getDayRouteFromOsrm).not.toHaveBeenCalled();
+    expect(await dayState(day2.id)).toEqual(before);
+    const parked = await prisma.dayPlanItem.findMany({ where: { tripId: trip.id, tripDayId: null }, orderBy: { createdAt: "asc" } });
+    expect(parked.map((row) => row.title)).toEqual(["Old Harbour", "Tile Museum"]);
+    const receipt = applied.body.data!.receipt;
+    expect(receipt.tripDayId).toBe(day2.id);
+    expect(receipt.movedItems).toEqual([]);
+    expect(receipt.removedTravelSegments).toEqual([]);
+    expect(receipt.edited).toEqual({
+      kind: "suggestionsApplied",
+      items: [],
+      segments: [],
+      imageIds: expect.any(Array),
+      parkedItems: parked.map((row) => ({ itemId: row.id, updatedAt: row.updatedAt.toISOString() })),
+    });
+  });
+
+  it("refuses an all-parked apply by a viewer at the route and in the repository, and writes nothing", async () => {
+    const { trip, day2 } = await seedTrip();
+    const viewer = await addMember(trip.id, "VIEWER");
+    const stranger = await seedTrip("stranger@example.com");
+    const body = { mode: "walking", suggestions: [], legs: [], basis: null, parked: [harbour] };
+    const before = await databaseState();
+
+    const refused = await postApply(trip.id, day2.id, viewer.session, body);
+    expect(refused.status).toBe(403);
+    expect(refused.body.error?.code).toBe("forbidden");
+    expect((await postApply(trip.id, day2.id, stranger.session, body)).status).toBe(404);
+    const receipt = await applySuggestionsForTripDay({
+      userId: viewer.user.id,
+      tripId: trip.id,
+      tripDayId: day2.id,
+      mode: "walking",
+      suggestions: [],
+      legs: [],
+      basis: null,
+      images: [],
+      parked: [harbour],
+      parkedImages: [[]],
+    });
+    expect(receipt).toBeNull();
+    expect(await databaseState()).toEqual(before);
+  });
+
+  it("refuses more than 8 together, none at all, a missing basis and a basis with nothing scheduled", async () => {
+    const { trip, day2, session } = await seedTrip();
+    const basis = { afterItemId: null, fingerprint: "items:0" };
+    const leg = { durationMinutes: 5, distanceKm: 1 };
+    const before = await databaseState();
+    const refused = async (body: unknown) => {
+      const response = await postApply(trip.id, day2.id, session, body);
+      return [response.status, response.body.error?.code];
+    };
+    const invalid = [400, "validation_error"];
+    expect(
+      await refused({
+        mode: "walking",
+        suggestions: Array.from({ length: 5 }, () => harbour),
+        legs: Array(5).fill(leg),
+        basis,
+        parked: Array.from({ length: 4 }, () => museum),
+      }),
+    ).toEqual(invalid);
+    expect(await refused({ mode: "walking", suggestions: [], legs: [], basis: null, parked: [] })).toEqual(invalid);
+    expect(await refused({ mode: "walking", suggestions: [harbour], legs: [leg], basis: null, parked: [museum] })).toEqual(invalid);
+    expect(await refused({ mode: "walking", suggestions: [], legs: [], basis, parked: [museum] })).toEqual(invalid);
+    expect(await refused({ mode: "walking", suggestions: [], legs: [], basis: null, parked: Array(9).fill(museum) })).toEqual(invalid);
+    expect(await databaseState()).toEqual(before);
+    expect(downloadSuggestionImages).not.toHaveBeenCalled();
+  });
+});

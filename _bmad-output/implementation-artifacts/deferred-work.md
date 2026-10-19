@@ -3863,3 +3863,25 @@ severity: low
 summary: Story 13.3 §6 wraps the whole-day move/swap and the single move in `withPushConflict`, so a lost conditional write in `recomputeDayInTransaction` answers `409 day_plan_changed` and rolls back the re-point and renumber. Every new recompute test is a happy path; neither the route mapping nor the rollback is covered.
 evidence: Hard to provoke without a mock (SQLite serialises writers, so the window is inside one transaction). The single move goes away with 14.4.
 status: open
+
+## Deferred from: code review of 14-3-park-the-suggestions-too (2026-10-19)
+
+### DW-400: An all-parked apply cannot be undone once its launch day is gone
+
+source_spec: `_bmad-output/implementation-artifacts/14-3-park-the-suggestions-too.md`
+origin: code review of 14-3-park-the-suggestions-too, 2026-10-19
+location: `travelplan/src/lib/repositories/daySuggestionApplyRepo.ts` (receipt built with `tripDayId`), `travelplan/src/lib/repositories/dayPlanChangeRepo.ts` (`undoDayPlanChangeForTrip` day lookups)
+severity: low
+summary: An all-parked `suggestionsApplied` receipt touches no day, but it still carries the `tripDayId` it was launched from, and the undo resolves that day first. If the day is deleted (trip dates shortened) or the user loses write access to it before the undo, the undo answers 400/404, although the parked bucket-list rows are intact and could be removed by `parkedDayPlanItemsWhere(tripId)`.
+evidence: Receipts are per day by design, and the undo window is short. A guard would check trip access for an all-parked receipt and skip the day phases.
+status: open
+
+### DW-401: Undo of a suggestions apply leaves a normalised legacy row FLEXIBLE
+
+source_spec: `_bmad-output/implementation-artifacts/14-3-park-the-suggestions-too.md`
+origin: code review of 14-3-park-the-suggestions-too, 2026-10-19 (found while writing the AC4 mixed-undo test)
+location: `travelplan/src/lib/repositories/dayPlanChangeRepo.ts` (`movedItems` restore), `travelplan/src/lib/validation/dayChangeReceiptSchemas.ts` (`movedItemSchema`)
+severity: medium
+summary: An apply of suggestions recomputes the day, and the recompute turns a legacy FIXED row without times FLEXIBLE (13.4 test "A seed without times sorts after Lunch"). The receipt lists it in `movedItems`, but a moved entry carries only times, sortOrder and stamps, so undo restores those and leaves `scheduleMode` FLEXIBLE (and any duration the recompute set). The database does not equal its state before the apply, contrary to the 13.4/14.3 undo promise.
+evidence: Reproduced on 2026-10-19: a FIXED "Someday" seed with null times plus a mixed apply, then undo; the whole-DB `toEqual` differs only in `scheduleMode` FIXED → FLEXIBLE. Pre-existing since 13.4, not caused by parking. A fix adds `previousScheduleMode` (and `previousDurationMinutes`) to the moved entry, optional for older receipts.
+status: open

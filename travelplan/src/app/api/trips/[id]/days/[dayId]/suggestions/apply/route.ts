@@ -24,6 +24,9 @@ import { suggestionApplyRequestSchema } from "@/lib/validation/daySuggestionAppl
  * answers `409 day_plan_changed` when the day moved since the preview: the dialog then previews again.
  * The day is recomputed with the preview's own planner and the legs sent back with it; OSRM is not
  * asked twice.
+ *
+ * Story 14.3: `parked` go to the bucket list in the same transaction, their pictures downloaded in the
+ * same call (one budget for the whole apply). An all-parked apply carries no basis and never answers 409.
  */
 
 export const runtime = "nodejs";
@@ -79,14 +82,27 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
   if (!parsedBody.success) {
     return fail(apiError("validation_error", "Invalid apply request", parsedBody.error.flatten()), 400);
   }
-  const { mode, suggestions, legs, basis } = parsedBody.data;
+  const { mode, suggestions, legs, basis, parked } = parsedBody.data;
 
   try {
-    const images = await downloadSuggestionImages(
-      suggestions.map((suggestion) => suggestion.images),
+    const downloaded = await downloadSuggestionImages(
+      [...suggestions, ...parked].map((suggestion) => suggestion.images),
       { signal: request.signal },
     );
-    const receipt = await applySuggestionsForTripDay({ userId, tripId, tripDayId: dayId, mode, suggestions, legs, basis, images });
+    const images = downloaded.slice(0, suggestions.length);
+    const parkedImages = downloaded.slice(suggestions.length);
+    const receipt = await applySuggestionsForTripDay({
+      userId,
+      tripId,
+      tripDayId: dayId,
+      mode,
+      suggestions,
+      legs,
+      basis,
+      images,
+      parked,
+      parkedImages,
+    });
     if (!receipt) {
       return fail(apiError("not_found", "Trip day not found"), 404);
     }

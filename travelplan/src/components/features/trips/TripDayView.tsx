@@ -1523,7 +1523,13 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
       // The bucket list is the trip's, not the day's: an idea parked again belongs in it whichever day
       // the user is on by now (Story 14.1: the undo of "+").
       // Story 14.2: the undo of *Parken* takes the activity back out of it.
-      if (undone && (receipt.edited.kind === "scheduled" || receipt.edited.kind === "parked")) {
+      // Story 14.3: the undo of an apply of suggestions takes the parked ones back out of it too.
+      if (
+        undone &&
+        (receipt.edited.kind === "scheduled" ||
+          receipt.edited.kind === "parked" ||
+          (receipt.edited.kind === "suggestionsApplied" && (receipt.edited.parkedItems?.length ?? 0) > 0))
+      ) {
         loadBucketListItems();
       }
       // A response for a day the user has already left is about nothing else on screen.
@@ -5176,6 +5182,8 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
                     setPlanMoveNotice(null);
                     setSuggestionsOpen(false);
                     void loadDay();
+                    // Story 14.3: parked suggestions land in the trip's bucket list, not on the day.
+                    void loadBucketListItems();
                   }
                 : undefined
             }
