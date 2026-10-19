@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
 import { POST } from "@/app/api/trips/[id]/day-activity-transfer/route";
 import { GET as TRIP_GET } from "@/app/api/trips/[id]/route";
-import { moveDayPlanItemToTripDay } from "@/lib/repositories/dayPlanItemRepo";
 import { prisma } from "@/lib/db/prisma";
 import { createSessionJwt } from "@/lib/auth/jwt";
 import { routeContext } from "./helpers/routeContext";
@@ -502,18 +501,5 @@ describe("/api/trips/[id]/day-activity-transfer recomputes (Story 13.3)", () => 
     expect(response.status).toBe(200);
     expect(await dayRows(day3.id)).toEqual(["0 Long FLEXIBLE 10:30–23:30", "1 Late FLEXIBLE null–null"]);
     expect(await prisma.dayPlanItem.findFirstOrThrow({ where: { title: "Late" } })).toMatchObject({ durationMinutes: 120 });
-  });
-
-  it("the single-activity move (6.23) recomputes the source and the target", async () => {
-    const { owner, trip, day2, day3 } = await seedTrip("recompute-single@example.com");
-    const a = await row(trip.id, day2.id, "A", 0, "FLEXIBLE", 60, "08:00", "09:00");
-    await row(trip.id, day2.id, "B", 1, "FLEXIBLE", 30, "09:00", "09:30");
-    await row(trip.id, day3.id, "X", 0, "FLEXIBLE", 90, "10:30", "12:00");
-
-    const result = await moveDayPlanItemToTripDay({ userId: owner.id, tripId: trip.id, tripDayId: day2.id, itemId: a.id, targetTripDayId: day3.id });
-
-    expect(result.status).toBe("moved");
-    expect(await dayRows(day2.id)).toEqual(["0 B FLEXIBLE 08:00–08:30"]);
-    expect(await dayRows(day3.id)).toEqual(["0 X FLEXIBLE 10:30–12:00", "1 A FLEXIBLE 12:00–13:00"]);
   });
 });

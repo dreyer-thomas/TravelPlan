@@ -408,7 +408,8 @@ const applyLegScheduleInTransaction = async (
  *
  * It lives here rather than in `dayPlanItemRepo.ts` because `TravelSegmentItemType` has exactly two
  * members and both of them now come through this one function: activities from
- * `moveDayPlanItemToTripDay` and `deleteDayPlanItemForTripDay`, accommodations from
+ * `deleteDayPlanItemForTripDay` and `parkDayPlanItemForTripDay` (Story 14.4 removed 6.23's single move),
+ * accommodations from
  * `deleteAccommodationForTripDay`. `DW-215`'s decision is one helper, not a second near-identical
  * `removeTravelSegmentsReferencingAccommodation`. Fixing only some of those paths would mean the app
  * tidies up after one kind of removal but not another, which is the defect AC6 exists to close.

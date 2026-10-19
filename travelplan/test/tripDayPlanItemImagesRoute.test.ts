@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import { DELETE, GET, PATCH, POST } from "@/app/api/trips/[id]/day-plan-items/images/route";
 import { createSessionJwt } from "@/lib/auth/jwt";
 import { prisma } from "@/lib/db/prisma";
-import { moveDayPlanItemToTripDay } from "@/lib/repositories/dayPlanItemRepo";
+import { parkDayPlanItemForTripDay, scheduleParkedDayPlanItemForTripDay } from "@/lib/repositories/dayPlanItemRepo";
 import { getTripsUploadRoot, resolveStoredMediaPath } from "@/lib/trips/uploadPaths";
 
 type ApiEnvelope<T> = {
@@ -546,9 +546,9 @@ describe("/api/trips/[id]/day-plan-items/images", () => {
   /**
    * Story 8.4 / AC9. An activity's media does not follow the activity between days.
    *
-   * `moveDayPlanItemToTripDay` moves an activity with a bare `updateMany` of `tripDayId` - deliberately,
-   * so that "everything attached to the activity travels with it for free". No file is moved and no URL
-   * is rewritten, so the stored URL keeps naming the day the photo was *uploaded* under while the row
+   * Parking an activity and scheduling it onto another day (Story 14.2, 14.1; since Story 14.4 the only
+   * way one activity changes day) reassigns its `tripDayId` - deliberately, so that everything attached to
+   * the activity travels with it for free. No file is moved and no URL is rewritten, so the stored URL keeps naming the day the photo was *uploaded* under while the row
    * names the day it is on *now*. A cleanup that composes the directory it is allowed to unlink in out
    * of the request's `tripDayId` therefore looks in the wrong place, refuses, and answers
    * `200 { deleted: true }` with the bytes still on disk - orphaned for good, because the row that named
@@ -604,16 +604,25 @@ describe("/api/trips/[id]/day-plan-items/images", () => {
     const filePath = resolveStoredMediaPath(row.imageUrl);
     expect(await fs.readFile(filePath)).toEqual(Buffer.from("fake"));
 
-    // Through the repository rather than the move route, so the test pins the *data* shape the cleanup
-    // has to cope with rather than one HTTP surface's spelling of it.
-    const move = await moveDayPlanItemToTripDay({
+    // Through the repository rather than the park and schedule routes, so the test pins the *data* shape
+    // the cleanup has to cope with rather than one HTTP surface's spelling of it.
+    const park = await parkDayPlanItemForTripDay({
       userId: owner.id,
       tripId: trip.id,
       tripDayId: uploadDay.id,
       itemId: dayPlanItem.id,
-      targetTripDayId: laterDay.id,
     });
-    expect(move.status).toBe("moved");
+    expect(park.status).toBe("parked");
+    const schedule = await scheduleParkedDayPlanItemForTripDay({
+      userId: owner.id,
+      tripId: trip.id,
+      tripDayId: laterDay.id,
+      itemId: dayPlanItem.id,
+    });
+    expect(schedule.status).toBe("scheduled");
+    expect(await prisma.dayPlanItem.findUniqueOrThrow({ where: { id: dayPlanItem.id } })).toMatchObject({
+      tripDayId: laterDay.id,
+    });
     // The URL still names the upload day - that is the premise, not an incidental detail.
     expect(row.imageUrl).toContain(`/days/${uploadDay.id}/`);
 

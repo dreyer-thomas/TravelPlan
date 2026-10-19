@@ -254,10 +254,12 @@ export const mediaPathsNameSameFile = (a: string, b: string) => mediaPathKey(a) 
  * The day id a stored media URL actually lives under, or `null` if it does not name one for this trip.
  *
  * **Why a media cleanup cannot use the day id from the request (Story 8.4 / AC9).** An activity's media
- * does not follow the activity between days. `moveDayPlanItemToTripDay`
- * (`dayPlanItemRepo.ts:660-698`) moves one with a bare `updateMany` of `tripDayId` - deliberately, so
- * that "everything attached to the activity travels with it for free" - which moves no file and rewrites
- * no URL. So after a move the row names one day and its stored URL names another, and the URL is the one
+ * does not follow the activity between days. Parking it and scheduling it onto another day
+ * (`parkDayPlanItemForTripDay`, `scheduleParkedDayPlanItemForTripDay`) and the whole-day transfer
+ * (`moveDayPlanItemsBetweenTripDays`, `swapDayPlanItemsBetweenTripDays`) reassign `tripDayId` on the row -
+ * deliberately, so that everything attached to the activity travels with it for free - which moves no
+ * file and rewrites no URL. (Story 6.23's single-activity move did the same; Story 14.4 removed it.)
+ * So after a move the row names one day and its stored URL names another, and the URL is the one
  * that is true about the disk. The second implementation of this story built the directory it was allowed
  * to unlink in out of `parsed.data.tripDayId`, the *current* day; the dirname check then failed for every
  * photo and document of every activity that had ever been moved, and the delete answered

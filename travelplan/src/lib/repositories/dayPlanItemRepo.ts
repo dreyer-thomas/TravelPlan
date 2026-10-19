@@ -3,7 +3,7 @@ import { type PaymentDetail, toPaymentDetails } from "@/lib/repositories/payment
 // Story 8.5 (`DW-215`): the segment sweep this file used to own privately now serves both members of
 // `TravelSegmentItemType` and lives beside the rows it deletes. Story 11.1 made it return full rows (for
 // the change receipt) and added the sweep of legs a write un-draws; the delete's `removedTravelSegmentIds`
-// now lists both sets, while the move's still lists only the referencing legs, as Story 6.23 shipped.
+// now lists both sets. (Story 6.23's single-activity move, the other caller, was removed by Story 14.4.)
 import {
   readDrawnSegmentKeysInTransaction,
   removeTravelSegmentsReferencingItemInTransaction,
@@ -35,8 +35,7 @@ import {
 } from "@/lib/repositories/dayScheduleTransaction";
 import { MAX_DOCUMENTS_PER_ENTRY } from "@/lib/trips/documentUploads";
 import { compareDayPlanItemsByOrder } from "@/lib/trips/dayPlanItemOrder";
-import { hasValidTimes, minutesToTime, placeFixedItem, timeToMinutes, type ScheduleMode } from "@/lib/trips/daySchedule";
-import { resolveDayStartMinute } from "@/lib/trips/stayTimes";
+import { minutesToTime, timeToMinutes, type ScheduleMode } from "@/lib/trips/daySchedule";
 import { DEFAULT_ACTIVITY_DURATION_MINUTES } from "@/lib/trips/legacySchedule";
 
 // `TransactionClient` is `travelSegmentRepo.ts`'s alias, exported for Story 11.1: this file's one
@@ -162,14 +161,6 @@ type DayPlanItemMoveParams = {
   targetTripDayId: string;
 };
 
-type SingleDayPlanItemMoveParams = {
-  userId: string;
-  tripId: string;
-  tripDayId: string;
-  itemId: string;
-  targetTripDayId: string;
-};
-
 type DayPlanItemSwapParams = {
   userId: string;
   tripId: string;
@@ -263,23 +254,6 @@ export type DayPlanItemSwapResult =
   | { status: "not_found" }
   | { status: "validation_error"; code: "same_day"; message: string }
   | { status: "swapped"; firstDayItemIds: string[]; secondDayItemIds: string[] };
-
-/**
- * Story 6.23. Deliberately a *different* result shape from `DayPlanItemMoveResult`: the day-level
- * move replaces the target day (`removedTargetItemIds`), this one appends to it and can only ever
- * remove travel segments. Sharing a type would invite sharing the function, which is Trap 1.
- */
-export type SingleDayPlanItemMoveResult =
-  | { status: "not_found" }
-  | { status: "missing" }
-  | { status: "validation_error"; code: "same_day"; message: string }
-  | {
-      status: "moved";
-      itemId: string;
-      sourceTripDayId: string;
-      targetTripDayId: string;
-      removedTravelSegmentIds: string[];
-    };
 
 const findTripDayForUser = async (userId: string, tripId: string, tripDayId: string) =>
   prisma.tripDay.findFirst({
@@ -577,7 +551,7 @@ export type DayPlanItemInTransactionDeleteResult =
  * it deletes the item, the legs referencing it (Story 6.23), and the legs its absence un-draws (11.1),
  * and returns the union of the two leg sets once each.
  *
- * Like the move below, the existence check *is* the write: `deleteMany` scoped by `[id, tripDayId]`.
+ * The existence check *is* the write: `deleteMany` scoped by `[id, tripDayId]`.
  */
 export const deleteDayPlanItemInTransaction = async (
   tx: TransactionClient,
@@ -1178,102 +1152,6 @@ export const renumberDayInTransaction = async (tx: TransactionClient, tripDayId:
       await tx.dayPlanItem.updateMany({ where: { id, tripDayId }, data: { sortOrder } });
     }
   }
-};
-
-/**
- * Story 6.23. Moves **one** activity to another day of the same trip.
- *
- * This is *not* `moveDayPlanItemsBetweenTripDays` with a narrower `where`, and must never become
- * that: the day-level move deletes the target day's activities before reassigning the source day's
- * (a whole-day replace wearing the name "move"), which for a single activity would destroy
- * everything already on the destination. Here the target day is only ever appended to (AC2).
- *
- * The move itself is a single `update` of `tripDayId`. Everything attached to the activity travels
- * with it for free (AC3): `day_plan_item_images.day_plan_item_id` and `cost_payments.day_plan_item_id`
- * are foreign keys onto the row that is being updated, not onto the day, and title, description,
- * times, cost, link and location are columns on the row itself.
- *
- * Ordering on the new day (AC7): Story 13.1 stores the order, so the moved row gets a place on the target
- * day (a FLEXIBLE one at the end, a FIXED one by its time, `placeFixedItem`) and both days are renumbered
- * densely. Story 13.3: then both days are recomputed in the same transaction (after the leg removal, so
- * the schedule counts only the legs that stay). No receipt, no undo.
- */
-export const moveDayPlanItemToTripDay = async (
-  params: SingleDayPlanItemMoveParams,
-): Promise<SingleDayPlanItemMoveResult> => {
-  const { userId, tripId, tripDayId, itemId, targetTripDayId } = params;
-  if (tripDayId === targetTripDayId) {
-    return {
-      status: "validation_error",
-      code: "same_day",
-      message: "Source and target days must be different",
-    };
-  }
-
-  const tripDays = await findTransferTripDaysForWriter(userId, tripId, [tripDayId, targetTripDayId]);
-  if (tripDays.length !== 2) {
-    return { status: "not_found" };
-  }
-
-  // The whole move is decided inside the transaction, including whether the activity is still on the
-  // day the caller thinks it is. Checking first and writing afterwards leaves a window two open tabs
-  // are enough to hit: the other tab moves the activity to a third day, this one's `update` by id
-  // alone would follow it there and sweep the wrong two days for segments. `updateMany` is what makes
-  // the day part of the write condition — `update` needs a unique `where`, and `[id, tripDayId]` is
-  // not one.
-  const outcome = await prisma.$transaction(async (tx) => {
-    // Where it goes on the target day, read before the move.
-    const target = await readScheduleInputInTransaction(tx, tripId, targetTripDayId);
-    const movedRow = await tx.dayPlanItem.findFirst({
-      where: { id: itemId, tripDayId },
-      select: { id: true, title: true, scheduleMode: true, durationMinutes: true, fromTime: true, toTime: true },
-    });
-    const targetIds = target?.rows.map((row) => row.id) ?? [];
-    let position = targetIds.length;
-    if (target && movedRow && movedRow.scheduleMode === "FIXED" && hasValidTimes(movedRow)) {
-      position = placeFixedItem({
-        dayStartMinute: resolveDayStartMinute(target.previousStay),
-        previousStayId: target.previousStay?.id ?? null,
-        items: [...target.rows, movedRow],
-        legs: target.legs,
-        itemId,
-      });
-    }
-
-    const moved = await tx.dayPlanItem.updateMany({
-      where: { id: itemId, tripDayId },
-      data: { tripDayId: targetTripDayId },
-    });
-    if (moved.count !== 1) {
-      return { status: "missing" as const };
-    }
-    await renumberDayInTransaction(tx, tripDayId);
-    await renumberDayInTransaction(tx, targetTripDayId, [...targetIds.slice(0, position), itemId, ...targetIds.slice(position)]);
-    // Both days, not just the source: AC4 says the activity's segments go from both, and scoping the
-    // sweep to one of them would leave a stray behind if one ever existed on the other.
-    const removed = await removeTravelSegmentsReferencingItemInTransaction(
-      tx,
-      [tripDayId, targetTripDayId],
-      "DAY_PLAN_ITEM",
-      itemId,
-    );
-    const now = new Date();
-    await recomputeDayInTransaction(tx, tripId, tripDayId, now);
-    await recomputeDayInTransaction(tx, tripId, targetTripDayId, now);
-    return { status: "moved" as const, removedTravelSegmentIds: removed.map((segment) => segment.id) };
-  });
-
-  if (outcome.status === "missing") {
-    return { status: "missing" };
-  }
-
-  return {
-    status: "moved",
-    itemId,
-    sourceTripDayId: tripDayId,
-    targetTripDayId,
-    removedTravelSegmentIds: outcome.removedTravelSegmentIds,
-  };
 };
 
 export const moveDayPlanItemsBetweenTripDays = async (

@@ -296,30 +296,6 @@ export const dayMakeFlexibleSchema = z
 
 export type DayMakeFlexibleInput = z.infer<typeof dayMakeFlexibleSchema>;
 
-/**
- * Story 6.23. Deliberately its own schema rather than a third `operation` on
- * `dayActivityTransferSchema` below: that schema's two operations are whole-day and its "move"
- * *replaces* the target day, so an append-one-activity operation sharing the name would be the
- * `common.save` naming trap again. It also needs a different payload — an `itemId`.
- */
-export const dayPlanItemMoveSchema = z
-  .object({
-    tripDayId: z.string().trim().min(1, "Trip day is required"),
-    itemId: z.string().trim().min(1, "Day plan item is required"),
-    targetTripDayId: z.string().trim().min(1, "Target day is required"),
-  })
-  .superRefine((value, context) => {
-    if (value.tripDayId === value.targetTripDayId) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["targetTripDayId"],
-        message: "Source and target days must be different",
-      });
-    }
-  });
-
-export type DayPlanItemMoveInput = z.infer<typeof dayPlanItemMoveSchema>;
-
 export const dayActivityTransferSchema = z
   .object({
     operation: z.enum(["move", "swap"]),

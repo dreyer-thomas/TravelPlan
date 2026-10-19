@@ -14,10 +14,10 @@ import { dayPlanItemReorderSchema } from "@/lib/validation/dayPlanItemSchemas";
  * Story 11.3 (FR43). `POST /api/trips/{id}/day-plan-items/reorder` with `{ tripDayId, itemId, direction }`
  * moves an activity one place earlier (`up`, *Nach oben*) or later (`down`, *Nach unten*).
  *
- * Its own route, beside `move/` (Story 6.23), rather than an operation on an existing one: it writes
+ * Its own route rather than an operation on an existing one: it writes
  * nothing but times, the server decides the neighbour, and it answers with a change receipt alone. It is
  * deliberately not called "swap": `swapDayPlanItemsBetweenTripDays` is the whole-day transfer, and two
- * operations sharing a name is the `common.save` naming trap the move route warns about.
+ * operations sharing a name is the `common.save` naming trap (Story 6.17).
  *
  * The check order is `day-plan-items/route.ts`'s POST: CSRF, session, the owner-or-contributor gate (404
  * for a viewer), JSON, schema. The repository adds the writer clause. Refusals are `409`:

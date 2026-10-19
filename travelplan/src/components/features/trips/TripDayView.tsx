@@ -60,7 +60,7 @@ import TripDayMapPanel, {
 } from "@/components/features/trips/TripDayMapPanel";
 import TripDayBucketListPanel from "@/components/features/trips/TripDayBucketListPanel";
 import { toBucketDialogItem, type BucketListItem } from "@/lib/trips/bucketListItem";
-import TripDayPlanDialog, { type PlanItemMoveOutcome } from "@/components/features/trips/TripDayPlanDialog";
+import TripDayPlanDialog from "@/components/features/trips/TripDayPlanDialog";
 import TripDayTravelSegmentDialog from "@/components/features/trips/TripDayTravelSegmentDialog";
 import TripDaySuggestionsDialog from "@/components/features/trips/TripDaySuggestionsDialog";
 import { MiniImageStrip, PlanItemRichContent, isSafeLink, parsePlanText, toViewerImages } from "@/components/features/trips/TripDayPlanItemContent";
@@ -737,10 +737,6 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
     /** Story 13.3 §2: a FIXED row shows the fixed-order line instead of the moves. */
     fixed: boolean;
   } | null>(null);
-  // Story 6.23 AC4. A success line, not an error: a move deletes travel segments the user typed, so
-  // it may not succeed in silence. It outlives the dialog on purpose — the dialog closes, and the
-  // sentence has to land somewhere the user is actually looking.
-  const [planMoveNotice, setPlanMoveNotice] = useState<string | null>(null);
   // Story 11.1. The last save's change receipt, while its undo window is open. Client state only and
   // never persisted (AC7): closing the notice, leaving the day, unmounting or any other write on the
   // day ends the window, and a later save's receipt replaces this one.
@@ -786,10 +782,6 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
     setDayMenuAnchor(null);
     // Story 11.3: the activity menu anchors on a card of the day being left.
     setPlanItemMenu(null);
-    // Story 6.23. Same trigger, same prescription: the move notice is about a move made *from this
-    // day*, so navigating to a sibling has to drop it or it reads as something that just happened
-    // here. It cannot key off `day?.id`, which the reload after a move leaves unchanged.
-    setPlanMoveNotice(null);
     // Story 11.1 AC7: a receipt is about this day; another day must not offer to undo it.
     setDayChange(null);
   }
@@ -1421,7 +1413,6 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
       if (response.ok && !body.error) {
         setNoticeItem({ id: item.id, title: body.data?.item?.title ?? item.title });
         takeDayChangeReceipt(body.data?.receipt ?? null);
-        setPlanMoveNotice(null);
         await loadDay({ silent: true });
         return;
       }
@@ -1581,7 +1572,6 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
       reorderInFlightRef.current = true;
 
       setError(null);
-      setPlanMoveNotice(null);
       // Story 11.1 AC7: a write on the day ends the earlier undo window; this one's receipt opens the next.
       setDayChange(null);
       const requestedDayId = day.id;
@@ -1650,7 +1640,6 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
     makeFlexibleInFlightRef.current = true;
 
     setError(null);
-    setPlanMoveNotice(null);
     // Story 11.1 AC7: a write on the day ends the earlier undo window; this one's receipt opens the next.
     setDayChange(null);
     const requestedDayId = day.id;
@@ -1710,7 +1699,6 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
       parkInFlightRef.current = true;
 
       setError(null);
-      setPlanMoveNotice(null);
       // Story 11.1 AC7: a write on the day ends the earlier undo window; this one's receipt opens the next.
       setDayChange(null);
       const requestedDayId = day.id;
@@ -1786,7 +1774,6 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
       const removedItem = removedIndex >= 0 ? snapshot[removedIndex] : null;
       setPlanItems((current) => current.filter((item) => item.id !== itemId));
       setError(null);
-      setPlanMoveNotice(null);
       // Story 11.1 AC7: a write on the day ends the earlier undo window at once, so its Undo cannot race
       // this delete; the delete's own receipt, if any, opens the next one below.
       setDayChange(null);
@@ -1866,9 +1853,6 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
     takeDayChangeReceipt(receipt);
     setPlanDialogMode(null);
     setSelectedPlanItem(null);
-    // Story 6.23. The move notice describes a move, not a save; leaving it up over later work would
-    // have it reporting something that is no longer what just happened.
-    setPlanMoveNotice(null);
     loadDay();
   };
 
@@ -1910,43 +1894,6 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
   const transferNeedsOverwriteWarning =
     transferMode === "move" && Boolean(selectedTransferTargetDay && selectedTransferTargetDay.dayPlanItems.length > 0);
 
-  /**
-   * Story 6.23. The candidates for the activity dialog's "Auf anderen Tag verschieben" picker.
-   *
-   * Derived from `transferTargetOptions`, which is the day-level transfer's own list and already
-   * excludes the current day — so the two pickers cannot come to disagree about which days exist.
-   * The label is built here rather than in the dialog because this component owns `formatDate` and
-   * the "Day {index} · date" format the day-level picker renders.
-   */
-  const buildDayLabel = useCallback(
-    (candidate: { dayIndex: number; date: string }) =>
-      `${formatMessage(t("trips.dayView.title"), { index: candidate.dayIndex })} · ${formatDate(candidate.date)}`,
-    [formatDate, t],
-  );
-
-  const planMoveTargetDays = useMemo(
-    () =>
-      transferTargetOptions.map((candidate) => ({
-        id: candidate.id,
-        label: buildDayLabel(candidate),
-      })),
-    [buildDayLabel, transferTargetOptions],
-  );
-
-  /**
-   * Every day of the trip, not just the move candidates — the success line names the day the activity
-   * landed on, and looking it up in the filtered list means an empty name ("Activity moved to .") the
-   * moment the two disagree, which a background reload between opening the picker and confirming is
-   * enough to cause.
-   */
-  const dayLabelById = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const candidate of orderedDays) {
-      map.set(candidate.id, buildDayLabel(candidate));
-    }
-    return map;
-  }, [buildDayLabel, orderedDays]);
-
   const handleSubmitTransfer = useCallback(async () => {
     if (!day || !transferMode) return;
     if (!transferTargetDayId || transferTargetDayId === day.id) {
@@ -1956,7 +1903,6 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
 
     setTransferSubmitting(true);
     setError(null);
-    setPlanMoveNotice(null);
     setDayChange(null);
 
     try {
@@ -2015,66 +1961,6 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
     transferTargetDayId,
     tripId,
   ]);
-
-  /**
-   * Story 6.23 AC4. Moves one activity to another day and reports what the move removed.
-   *
-   * Deliberately *not* the `day-activity-transfer` endpoint: that one is whole-day and its "move"
-   * deletes the target day's activities. This one appends.
-   *
-   * It returns the failure message rather than `false` and rendering it here: on failure the dialog
-   * stays open, and a page-level alert behind an open modal is a message the user cannot read. So the
-   * specific reason ("your session has expired") goes back to the dialog, and this component only
-   * owns the success line — which has to outlive the dialog, because a successful move closes it.
-   *
-   * There is no optimistic removal here, unlike delete: the reload is what proves the activity
-   * really landed on the other day, and AC3 (everything travelled with it) is not something the
-   * client can assert on its own.
-   */
-  const handleMovePlanItem = useCallback(
-    async (itemId: string, targetTripDayId: string): Promise<PlanItemMoveOutcome> => {
-      if (!day) return { moved: false, message: t("trips.plan.moveError") };
-      if (!canEditPlanning) return { moved: false, message: t("trips.plan.moveError") };
-
-      setPlanMoveNotice(null);
-      setDayChange(null);
-
-      try {
-        const token = await ensureCsrfToken();
-        const response = await fetch(`/api/trips/${tripId}/day-plan-items/move`, {
-          method: "POST",
-          credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-            "x-csrf-token": token,
-          },
-          body: JSON.stringify({ tripDayId: day.id, itemId, targetTripDayId }),
-        });
-
-        const body = (await response.json()) as ApiEnvelope<{ removedTravelSegmentIds?: string[] }>;
-        if (!response.ok || body.error) {
-          return { moved: false, message: resolveApiError(body.error?.code, t("trips.plan.moveError")) };
-        }
-
-        const removedCount = body.data?.removedTravelSegmentIds?.length ?? 0;
-        const targetLabel = dayLabelById.get(targetTripDayId) ?? t("trips.plan.moveFallbackDay");
-        // The notice is set *after* the reload, so a reload that fails shows its own error instead of
-        // a green success line floating above a blank day.
-        await loadDay();
-        setPlanMoveNotice(
-          removedCount > 1
-            ? formatMessage(t("trips.plan.moveSuccessWithSegments"), { day: targetLabel, count: removedCount })
-            : removedCount === 1
-              ? formatMessage(t("trips.plan.moveSuccessWithSegment"), { day: targetLabel })
-              : formatMessage(t("trips.plan.moveSuccess"), { day: targetLabel }),
-        );
-        return { moved: true };
-      } catch {
-        return { moved: false, message: resolveApiError("network_error", t("trips.plan.moveError")) };
-      }
-    },
-    [canEditPlanning, day, dayLabelById, ensureCsrfToken, loadDay, resolveApiError, t, tripId],
-  );
 
   useEffect(() => {
     loadDay();
@@ -3723,7 +3609,6 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
   return (
     <Box display="flex" flexDirection="column" gap={2} data-testid="trip-day-view-page">
       {error && <Alert severity="error">{error}</Alert>}
-      {planMoveNotice && <Alert severity="success">{planMoveNotice}</Alert>}
 
       {detail && day && (
         <>
@@ -5122,10 +5007,6 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
             day={day}
             item={selectedPlanItem}
             onDelete={handleDeletePlan}
-            /* Story 6.23 AC8: both are withheld from a viewer, so the action is absent rather than
-               disabled — the same way `canEditPlanning` already gates every other write here. */
-            moveTargetDays={canEditPlanning ? planMoveTargetDays : undefined}
-            onMove={canEditPlanning ? handleMovePlanItem : undefined}
             onClose={handlePlanDialogClose}
             onSaved={handlePlanDialogSaved}
             onDayWrite={() => setDayChange(null)}
@@ -5179,7 +5060,6 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
               canEditPlanning
                 ? (receipt) => {
                     takeDayChangeReceipt(receipt);
-                    setPlanMoveNotice(null);
                     setSuggestionsOpen(false);
                     void loadDay();
                     // Story 14.3: parked suggestions land in the trip's bucket list, not on the day.

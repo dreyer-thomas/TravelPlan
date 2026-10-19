@@ -2020,377 +2020,64 @@ describe("TripDayPlanDialog", () => {
   });
 
   /**
-   * Story 6.23 — "Auf anderen Tag verschieben".
-   *
-   * The action lives in the dialog's footer, outside the four tab panels, so none of these tests
-   * selects a tab: an action that needed one would be the thing AC1 says it must not be.
+   * Story 14.4 AC1. The single-activity move (Story 6.23) is gone: *Parken* and the bucket list's "+"
+   * take an activity to another day, with undo. An owner editing an existing activity sees the trash
+   * glyph and OK in the footer and nothing else.
    */
-  describe("moving the activity to another day", () => {
-    const csrfOnlyFetch = () =>
-      vi.fn(async (input: RequestInfo) => {
-        const url = typeof input === "string" ? input : input.url;
-        if (url.includes("/api/auth/csrf")) {
-          return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
-        }
-        if (url.includes("/day-plan-items/images?")) {
-          return mockFetchResponse({ data: { images: [] }, error: null });
-        }
-        return mockFetchResponse(
-          { data: null, error: { code: "server_error", message: "boom" } },
-          { status: 500 },
+  describe("no single-activity move (Story 14.4 AC1)", () => {
+    it("offers an owner editing an existing activity no 'Another day' action", async () => {
+      const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
+      stubFetch(
+        vi.fn(async (input: RequestInfo) => {
+          const url = typeof input === "string" ? input : input.url;
+          if (url.includes("/api/auth/csrf")) {
+            return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
+          }
+          if (url.includes("/day-plan-items/images?")) {
+            return mockFetchResponse({ data: { images: [] }, error: null });
+          }
+          return mockFetchResponse({ data: null, error: { code: "server_error", message: "boom" } }, { status: 500 });
+        }),
+      );
+
+      // Each language is asserted in its own render: a German label can only be absent from a German
+      // dialog, so checking "anderer Tag" against the English one would pass whether or not it exists.
+      const cases = [
+        { language: "en", deleteLabel: "Delete plan item", moveLabel: "Another day" },
+        { language: "de", deleteLabel: "Planpunkt löschen", moveLabel: "anderer Tag" },
+      ] as const;
+      for (const { language, deleteLabel, moveLabel } of cases) {
+        render(
+          <Providers language={language}>
+            <TripDayPlanDialog
+              open
+              mode="edit"
+              tripId="trip-1"
+              day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
+              item={{
+                id: "item-1",
+                tripDayId: "day-1",
+                title: "Old Town walk",
+                fromTime: "10:00",
+                toTime: "11:00",
+                contentJson: tiptapMocks.sampleDoc,
+                costCents: 2100,
+                linkUrl: null,
+                location: null,
+                createdAt: "2026-12-01T09:00:00.000Z",
+              }}
+              onDelete={async () => true}
+              onClose={() => undefined}
+              onSaved={() => undefined}
+            />
+          </Providers>,
         );
-      });
 
-    const existingItem = {
-      id: "item-1",
-      tripDayId: "day-1",
-      title: "Old Town walk",
-      fromTime: "10:00",
-      toTime: "11:00",
-      contentJson: tiptapMocks.sampleDoc,
-      costCents: 2100,
-      linkUrl: null,
-      location: null,
-      createdAt: "2026-12-01T09:00:00.000Z",
-    };
-
-    const targetDays = [
-      { id: "day-2", label: "Day 2 · Nov 2, 2026" },
-      { id: "day-3", label: "Day 3 · Nov 3, 2026" },
-    ];
-
-    it("offers the action when editing an existing activity", async () => {
-      const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
-      stubFetch(csrfOnlyFetch());
-
-      render(
-        <Providers language="en">
-          <TripDayPlanDialog
-            open
-            mode="edit"
-            tripId="trip-1"
-            day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
-            item={existingItem}
-            moveTargetDays={targetDays}
-            onMove={async () => ({ moved: true as const })}
-            onClose={() => undefined}
-            onSaved={() => undefined}
-          />
-        </Providers>,
-      );
-
-      await waitFor(() => expect(screen.getByRole("button", { name: "Another day" })).toBeInTheDocument());
-    });
-
-    /** AC1's second sentence: while creating there is nothing to move yet. */
-    it("hides the action while creating a new activity", async () => {
-      const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
-      const fetchMock = csrfOnlyFetch();
-      stubFetch(fetchMock);
-
-      render(
-        <Providers language="en">
-          <TripDayPlanDialog
-            open
-            mode="add"
-            tripId="trip-1"
-            day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
-            item={null}
-            moveTargetDays={targetDays}
-            onMove={async () => ({ moved: true as const })}
-            onClose={() => undefined}
-            onSaved={() => undefined}
-          />
-        </Providers>,
-      );
-
-      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-      expect(screen.queryByRole("button", { name: "Another day" })).toBeNull();
-    });
-
-    /**
-     * AC8. A viewer gets no `onMove` from `TripDayView`, exactly as they get no `onDelete` — so the
-     * action is absent rather than present-but-disabled, which is what the rest of this screen does.
-     */
-    it("hides the action when no move handler is supplied", async () => {
-      const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
-      const fetchMock = csrfOnlyFetch();
-      stubFetch(fetchMock);
-
-      render(
-        <Providers language="en">
-          <TripDayPlanDialog
-            open
-            mode="edit"
-            tripId="trip-1"
-            day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
-            item={existingItem}
-            moveTargetDays={targetDays}
-            onClose={() => undefined}
-            onSaved={() => undefined}
-          />
-        </Providers>,
-      );
-
-      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-      expect(screen.queryByRole("button", { name: "Another day" })).toBeNull();
-    });
-
-    /** A one-day trip has nowhere to move to, so the action would open an empty picker. */
-    it("hides the action when the trip has no other day", async () => {
-      const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
-      const fetchMock = csrfOnlyFetch();
-      stubFetch(fetchMock);
-
-      render(
-        <Providers language="en">
-          <TripDayPlanDialog
-            open
-            mode="edit"
-            tripId="trip-1"
-            day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
-            item={existingItem}
-            moveTargetDays={[]}
-            onMove={async () => ({ moved: true as const })}
-            onClose={() => undefined}
-            onSaved={() => undefined}
-          />
-        </Providers>,
-      );
-
-      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-      expect(screen.queryByRole("button", { name: "Another day" })).toBeNull();
-    });
-
-    it("moves the activity to the chosen day and closes the dialog", async () => {
-      const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
-      stubFetch(csrfOnlyFetch());
-      const onMove = vi.fn(async () => ({ moved: true as const }));
-      const onClose = vi.fn();
-
-      render(
-        <Providers language="en">
-          <TripDayPlanDialog
-            open
-            mode="edit"
-            tripId="trip-1"
-            day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
-            item={existingItem}
-            moveTargetDays={targetDays}
-            onMove={onMove}
-            onClose={onClose}
-            onSaved={() => undefined}
-          />
-        </Providers>,
-      );
-
-      fireEvent.click(await screen.findByRole("button", { name: "Another day" }));
-
-      // The picker is the day-level transfer's own field, reused: same label, same native select.
-      const picker = screen.getByLabelText("Target day");
-      expect(Array.from(picker.querySelectorAll("option")).map((option) => option.textContent)).toEqual([
-        "",
-        "Day 2 · Nov 2, 2026",
-        "Day 3 · Nov 3, 2026",
-      ]);
-      // The current day is not among them — the caller excludes it, and this is what says so.
-      expect(picker.querySelector('option[value="day-1"]')).toBeNull();
-
-      // Nothing chosen yet, so the confirm is not live.
-      expect(screen.getByRole("button", { name: "Move activity" })).toBeDisabled();
-
-      fireEvent.change(picker, { target: { value: "day-3" } });
-      fireEvent.click(screen.getByRole("button", { name: "Move activity" }));
-
-      await waitFor(() => expect(onMove).toHaveBeenCalledWith("item-1", "day-3"));
-      await waitFor(() => expect(onClose).toHaveBeenCalled());
-    });
-
-    /**
-     * A failed move must say so *in* this dialog, in the caller's own words. The page behind is
-     * covered by this dialog, so "your session has expired" rendered there is a message nobody
-     * reads — and a generic "please try again" here would send the user back to an action that
-     * cannot succeed.
-     */
-    it("keeps the dialog open and reports a failed move with the caller's message", async () => {
-      const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
-      stubFetch(csrfOnlyFetch());
-      const onMove = vi.fn(async () => ({ moved: false as const, message: "Your session has expired." }));
-      const onClose = vi.fn();
-
-      render(
-        <Providers language="en">
-          <TripDayPlanDialog
-            open
-            mode="edit"
-            tripId="trip-1"
-            day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
-            item={existingItem}
-            moveTargetDays={targetDays}
-            onMove={onMove}
-            onClose={onClose}
-            onSaved={() => undefined}
-          />
-        </Providers>,
-      );
-
-      fireEvent.click(await screen.findByRole("button", { name: "Another day" }));
-      fireEvent.change(screen.getByLabelText("Target day"), { target: { value: "day-2" } });
-      fireEvent.click(screen.getByRole("button", { name: "Move activity" }));
-
-      await waitFor(() => expect(screen.getByText("Your session has expired.")).toBeInTheDocument());
-      expect(onClose).not.toHaveBeenCalled();
-    });
-
-    /**
-     * The two costs of moving are disclosed before the move, not only in the receipt afterwards:
-     * travel segments hold a duration, a distance and sometimes a typed link, and the form behind
-     * this picker can be dirty — only the saved activity travels.
-     */
-    it("warns what the move does not carry and what it removes", async () => {
-      const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
-      stubFetch(csrfOnlyFetch());
-
-      render(
-        <Providers language="en">
-          <TripDayPlanDialog
-            open
-            mode="edit"
-            tripId="trip-1"
-            day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
-            item={existingItem}
-            moveTargetDays={targetDays}
-            onMove={async () => ({ moved: true as const })}
-            onClose={() => undefined}
-            onSaved={() => undefined}
-          />
-        </Providers>,
-      );
-
-      fireEvent.click(await screen.findByRole("button", { name: "Another day" }));
-      expect(screen.getByTestId("plan-move-warning")).toHaveTextContent(
-        "Unsaved changes in this dialog are not moved.",
-      );
-      expect(screen.getByTestId("plan-move-warning")).toHaveTextContent(
-        "Travel segments between this activity and its neighbours are removed on both days.",
-      );
-    });
-
-    /**
-     * Two clicks in one tick both run before React re-renders, so `disabled` alone does not stop the
-     * second: it would post a move for an activity that is no longer on this day.
-     */
-    it("posts a single move when the confirm is double-clicked", async () => {
-      const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
-      stubFetch(csrfOnlyFetch());
-      let release: () => void = () => undefined;
-      const onMove = vi.fn(
-        () =>
-          new Promise<{ moved: true }>((resolve) => {
-            release = () => resolve({ moved: true });
-          }),
-      );
-
-      render(
-        <Providers language="en">
-          <TripDayPlanDialog
-            open
-            mode="edit"
-            tripId="trip-1"
-            day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
-            item={existingItem}
-            moveTargetDays={targetDays}
-            onMove={onMove}
-            onClose={() => undefined}
-            onSaved={() => undefined}
-          />
-        </Providers>,
-      );
-
-      fireEvent.click(await screen.findByRole("button", { name: "Another day" }));
-      fireEvent.change(screen.getByLabelText("Target day"), { target: { value: "day-2" } });
-      const confirm = screen.getByRole("button", { name: "Move activity" });
-      fireEvent.click(confirm);
-      fireEvent.click(confirm);
-
-      expect(onMove).toHaveBeenCalledTimes(1);
-      release();
-    });
-
-    /** The German label is the binding one — it is the wording the request itself used. */
-    it("uses the requested German wording", async () => {
-      const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
-      stubFetch(csrfOnlyFetch());
-
-      render(
-        <Providers language="de">
-          <TripDayPlanDialog
-            open
-            mode="edit"
-            tripId="trip-1"
-            day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
-            item={existingItem}
-            moveTargetDays={targetDays}
-            onMove={async () => ({ moved: true as const })}
-            onClose={() => undefined}
-            onSaved={() => undefined}
-          />
-        </Providers>,
-      );
-
-      fireEvent.click(await screen.findByRole("button", { name: "anderer Tag" }));
-      expect(screen.getByLabelText("Zieltag")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Aktivität verschieben" })).toBeInTheDocument();
-    });
-
-    /**
-     * Story 6.25 code review. The picker's discard guard reads "a target day has been picked", and its
-     * docblock said it "opens with `moveTargetDayId` blank (see the open effect)" — but that effect
-     * belongs to the *activity* dialog and does not re-run when the picker alone is reopened. So a day
-     * the user picked and then explicitly discarded came back selected, with the confirm button live,
-     * one click from moving the activity to the day it had just been taken away from. The guard also
-     * reported dirty on a reopen nobody had touched.
-     *
-     * Closing the picker now clears the target, which is what makes "opens blank" true on every open
-     * rather than only the first one per activity.
-     */
-    it("forgets a target day that was picked and then discarded", async () => {
-      const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
-      stubFetch(csrfOnlyFetch());
-      const onMove = vi.fn(async () => ({ moved: true as const }));
-
-      render(
-        <Providers language="en">
-          <TripDayPlanDialog
-            open
-            mode="edit"
-            tripId="trip-1"
-            day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
-            item={existingItem}
-            moveTargetDays={targetDays}
-            onMove={onMove}
-            onClose={() => undefined}
-            onSaved={() => undefined}
-          />
-        </Providers>,
-      );
-
-      fireEvent.click(await screen.findByRole("button", { name: "Another day" }));
-      fireEvent.change(screen.getByLabelText("Target day"), { target: { value: "day-3" } });
-
-      // The picker's own `✕` is the last close control on screen — the activity dialog behind it has
-      // one too, and each closes the surface it sits on.
-      const closeControls = screen.getAllByTestId("dialog-close");
-      fireEvent.click(closeControls[closeControls.length - 1]);
-
-      // A target was chosen, so the guard asks rather than closing straight through.
-      fireEvent.click(await screen.findByRole("button", { name: "Discard changes" }));
-
-      fireEvent.click(await screen.findByRole("button", { name: "Another day" }));
-
-      expect(screen.getByLabelText("Target day")).toHaveValue("");
-      expect(screen.getByRole("button", { name: "Move activity" })).toBeDisabled();
-      expect(onMove).not.toHaveBeenCalled();
+        // The delete glyph is there, so the footer has rendered; the move label is not.
+        await waitFor(() => expect(screen.getByRole("button", { name: deleteLabel })).toBeInTheDocument());
+        expect(screen.queryByRole("button", { name: moveLabel })).toBeNull();
+        cleanup();
+      }
     });
   });
 
@@ -4529,8 +4216,6 @@ describe("TripDayPlanDialog", () => {
             item={mode === "edit" ? parkedItem : null}
             onClose={() => undefined}
             onSaved={onSaved}
-            moveTargetDays={[{ id: "day-2", label: "Day 2" }]}
-            onMove={async () => ({ moved: true })}
             onDelete={async () => true}
             dayActivities={dayActivities}
           />

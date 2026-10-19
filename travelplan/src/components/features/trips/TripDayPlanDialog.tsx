@@ -5,9 +5,6 @@ import {
   Box,
   Button,
   CircularProgress,
-  Dialog,
-  DialogActions,
-  DialogContent,
   FormControl,
   FormControlLabel,
   FormHelperText,
@@ -18,7 +15,6 @@ import {
   SvgIcon,
   Tab,
   Tabs,
-  TextField,
   ToggleButton,
   ToggleButtonGroup,
   Tooltip,
@@ -32,8 +28,7 @@ import { useEntryCurrency } from "@/components/forms/useEntryCurrency";
 import FormNotice from "@/components/forms/FormNotice";
 import PhotoUploadField from "@/components/forms/PhotoUploadField";
 import DialogShell from "@/components/ui/DialogShell";
-import { DialogTitleWithClose } from "@/components/ui/DialogCloseButton";
-import DiscardChangesDialog, { useDiscardGuard } from "@/components/ui/DiscardChangesDialog";
+import DiscardChangesDialog from "@/components/ui/DiscardChangesDialog";
 import FullscreenPhotoViewer from "@/components/ui/FullscreenPhotoViewer";
 import type { SignedDayChangeReceiptWire } from "@/lib/trips/dayChangeReceipt";
 import { combineDurationToMinutes, splitMinutesToDuration } from "@/lib/trips/durationInput";
@@ -292,8 +287,9 @@ export const PLAN_PANEL_FLOOR_SX = { minHeight: `${PLAN_PANEL_MIN_HEIGHT}px` } a
  *
  * The stack existed because four labels ("Abbrechen", "Auf anderen Tag verschieben", "Löschen",
  * "Element speichern") could not share a 390px row, so it wrapped them four deep — 243px, 31% of a
- * 780px dialog. After this story the row is `anderer Tag` + a 44px trash glyph + `OK`, which fits,
- * so the stack is no longer earning its height.
+ * 780px dialog. After this story the row was `anderer Tag` + a 44px trash glyph + `OK`, which fits,
+ * so the stack is no longer earning its height. Story 14.4 removed `anderer Tag`; the row is now the
+ * trash glyph and `OK`.
  *
  * **Both breakpoint keys are spelled out, and they have to be.** A plain `flexDirection: "row"` here
  * looks like it wins — `DialogShell` merges `footerSx` after its own `sx`, and the last entry of an
@@ -308,10 +304,11 @@ export const PLAN_PANEL_FLOOR_SX = { minHeight: `${PLAN_PANEL_MIN_HEIGHT}px` } a
  *
  * **`flexWrap` is the safety net the `xs` stack used to be.** `DialogActions` sets no `flex-wrap`, so
  * forcing `row` at every width removed the mechanism that absorbed a footer too wide for its dialog
- * and put nothing back. The row measures 174px + 64px inside 278px at 390px — about 40px of slack —
- * so a 320px viewport, 390px at 125% text zoom, or a translation longer than "anderer Tag" would
- * have overflowed horizontally instead of stacking. Wrapping degrades to what the stack did, and at
- * every width above the pinch it changes nothing.
+ * and put nothing back. With `anderer Tag` the row measured 174px + 64px inside 278px at 390px — about
+ * 40px of slack — so a 320px viewport, 390px at 125% text zoom, or a longer translation would have
+ * overflowed horizontally instead of stacking. The glyph and `OK` leave far more slack, but the net
+ * stays for the same cases: wrapping degrades to what the stack did, and at every width above the
+ * pinch it changes nothing.
  */
 export const PLAN_FOOTER_SX = {
   justifyContent: "space-between",
@@ -399,31 +396,10 @@ const planErrorFocusId = (prefix: string, key: PlanErrorKey, state: PlanErrorSta
 };
 
 /**
- * Story 6.23. One candidate day for "Auf anderen Tag verschieben", already labelled.
- *
- * The label is built by the caller rather than here: `TripDayView` owns the day-label format
- * ("Day 3 · Nov 7") and the locale-aware date formatter that produces it, and a second copy in this
- * file would be free to drift from the picker the day-level transfer renders.
- */
-type PlanMoveTargetDay = {
-  id: string;
-  label: string;
-};
-
-/**
- * Story 6.23. The result of a move attempt.
- *
- * A failure carries its message back rather than being rendered by the caller: this dialog stays
- * open when a move fails, and a page-level alert behind an open modal is a message the user cannot
- * read. A success carries nothing — the dialog closes, and the caller reports on the day screen.
- */
-export type PlanItemMoveOutcome = { moved: true } | { moved: false; message: string };
-
-/**
  * Story 14.1. Where the activity lives: on `day`, or parked on the trip's bucket list (`day` is `null`).
  * Parked, *Wann & Wo* keeps only the duration and the place (a parked activity is always FLEXIBLE and has
- * no times), the save goes to `bucket-list-items` and never to `day-plan-items`, media calls name no day,
- * and moving to another day is not offered.
+ * no times), the save goes to `bucket-list-items` and never to `day-plan-items`, and media calls name no
+ * day.
  */
 export type PlanDialogPlacement = "day" | "parked";
 
@@ -438,16 +414,6 @@ type TripDayPlanDialogProps = {
   placement?: PlanDialogPlacement;
   item: DayPlanItem | null;
   onDelete?: (itemId: string) => Promise<boolean>;
-  /**
-   * Story 6.23. The other days of this trip, current day already excluded by the caller.
-   *
-   * Passing the candidates in — rather than fetching them here — is what makes AC8 work the same way
-   * `onDelete` already does: `TripDayView` supplies `onMove` only when `canEditPlanning`, so a viewer
-   * gets no action at all rather than a disabled one.
-   */
-  moveTargetDays?: PlanMoveTargetDay[];
-  /** The caller owns the request and the success message; a failure comes back with its own text. */
-  onMove?: (itemId: string, targetTripDayId: string) => Promise<PlanItemMoveOutcome>;
   onClose: () => void;
   /**
    * Story 11.1: the save's change receipt rides along, so the day view can offer to take back what the
@@ -711,8 +677,6 @@ export default function TripDayPlanDialog({
   placement = "day",
   item,
   onDelete,
-  moveTargetDays,
-  onMove,
   onClose,
   onSaved,
   onDayWrite,
@@ -749,14 +713,6 @@ export default function TripDayPlanDialog({
   const [serverError, setServerError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  // Story 6.23. The picker is a second dialog rather than a field, because the action belongs to the
-  // activity as a whole and not to any one of the four tabs. Closed on arrival, and — like
-  // `moveTargetDayId` — a target day chosen for the *previous* activity is not a state the next one's
-  // dialog should inherit; before this dialog was remounted per open, it did.
-  const [moveOpen, setMoveOpen] = useState(false);
-  const [moveTargetDayId, setMoveTargetDayId] = useState("");
-  const [moving, setMoving] = useState(false);
-  const movingRef = useRef(false);
   // Story 6.24 AC3a. Raised only when a dismissal arrives at a form that has something to lose.
   const [discardOpen, setDiscardOpen] = useState(false);
   /**
@@ -1092,10 +1048,11 @@ export default function TripDayPlanDialog({
    *
    * Twelve `setX` calls used to stand at the top of this effect, clearing everything the previous open
    * had left behind — `serverError`, `csrfToken`, `fieldErrors`, `activeTab`, `galleryFiles`,
-   * `documentFiles`, `locationCandidates`, `fullscreenIndex`, `moveOpen`, `moveTargetDayId`,
-   * `discardOpen`, `loadingInit`. They existed because the day view mounted this dialog once and showed
-   * it with the `open` prop; the parent now changes its `key` on the open edge (`useOpenInstanceKey` in
-   * `DialogShell.tsx`), so each of those states starts from its `useState` initial value instead.
+   * `documentFiles`, `locationCandidates`, `fullscreenIndex`, the move picker's two states (Story 6.23,
+   * removed by Story 14.4), `discardOpen`, `loadingInit`. They existed because the day view mounted this
+   * dialog once and showed it with the `open` prop; the parent now changes its `key` on the open edge
+   * (`useOpenInstanceKey` in `DialogShell.tsx`), so each of those states starts from its `useState`
+   * initial value instead.
    * Three of the twelve — `galleryFiles`, `documentFiles`, `locationCandidates` — recorded shipped
    * defects in the comments beside them, and those reasons moved onto the declarations rather than
    * being deleted with the setters. The rest cleared error, loading and picker state that is
@@ -1368,16 +1325,8 @@ export default function TripDayPlanDialog({
   // Story 6.24 AC6. One key for both modes: after this story the word is "OK" either way, and two
   // keys holding one word is the shape Story 6.17 named a trap on `common.save`.
   const saveLabel = t("trips.plan.save");
-  const isBusy = saving || deleting || moving || loadingInit;
+  const isBusy = saving || deleting || loadingInit;
   const canDelete = Boolean(editingItemId && onDelete);
-  /**
-   * AC1 and AC8 in one expression, and deliberately the same shape as `canDelete`.
-   *
-   * `editingItemId` is what makes it absent while creating — there is nothing to move yet. `onMove`
-   * is what makes it absent for a viewer: `TripDayView` only passes the handler when
-   * `canEditPlanning`. The length check covers the one-day trip, which has nowhere to move to.
-   */
-  const canMove = Boolean(!parked && editingItemId && onMove && (moveTargetDays?.length ?? 0) > 0);
 
   const resolveApiError = useCallback(
     (code: string | undefined, fallback: string) => {
@@ -2044,7 +1993,7 @@ export default function TripDayPlanDialog({
    * EXPERIENCE.md's pattern is proven because it is where there is most to lose — four tabs, eleven
    * fields and a rich-text description.
    *
-   * `handleDelete`, `handleMoveConfirm` and a successful save deliberately do **not** come through
+   * `handleDelete` and a successful save deliberately do **not** come through
    * here. Each of them is a committed decision about this activity, and re-asking "discard your
    * changes?" after the user has just deleted the thing those changes belonged to is noise.
    */
@@ -2064,24 +2013,6 @@ export default function TripDayPlanDialog({
 
   const handleDiscardKeep = useCallback(() => setDiscardOpen(false), []);
 
-  /**
-   * Story 6.25 AC7, for the **move picker** — a separate dialog with its own dismissal and its own one
-   * field. It opens with `moveTargetDayId` blank, so "dirty" is "a target day has been picked".
-   * `handleMoveConfirm` closes it directly and never asks.
-   *
-   * Clearing the target here is what makes that first sentence true on *every* open rather than only
-   * the first per activity: the outer dialog is remounted per open, so `moveTargetDayId` starts blank
-   * for a new activity, but reopening the picker within one activity remounts nothing. Without this, a
-   * day the user picked and then discarded came back pre-selected with the confirm button live, one
-   * click from moving the activity to a day it had just been taken away from.
-   */
-  const closeMovePicker = useCallback(() => {
-    if (moving) return;
-    setMoveOpen(false);
-    setMoveTargetDayId("");
-  }, [moving]);
-  const moveGuard = useDiscardGuard(moveTargetDayId !== "", closeMovePicker, moving);
-
   const handleDelete = useCallback(async () => {
     if (!editingItemId || !onDelete) return;
     setDeleting(true);
@@ -2091,35 +2022,6 @@ export default function TripDayPlanDialog({
       onClose();
     }
   }, [editingItemId, onClose, onDelete]);
-
-  /**
-   * AC1/AC4. The request and the message both belong to `TripDayView`: it owns the day the user is
-   * on, the reload, and the surface a "what was removed" line can survive on once this dialog is
-   * gone. Here the only job is to close both dialogs on success — and, on failure, to say so *in*
-   * this dialog rather than on the screen behind it, which the user cannot see.
-   */
-  const handleMoveConfirm = useCallback(async () => {
-    if (!editingItemId || !onMove || !moveTargetDayId) return;
-    // `moving` and not just the button's `disabled`: two clicks in the same tick both run before
-    // React re-renders, and the second one would post a move for an activity that is no longer on
-    // this day. Delete on this surface guards itself with a ref for the same reason.
-    if (movingRef.current) return;
-    movingRef.current = true;
-    setServerError(null);
-    setMoving(true);
-    const outcome = await onMove(editingItemId, moveTargetDayId);
-    movingRef.current = false;
-    setMoving(false);
-    if (!outcome.moved) {
-      setMoveOpen(false);
-      // The caller's message, not a generic one: "your session has expired" and "please try again"
-      // ask the user to do different things, and only one of them can succeed.
-      setServerError(outcome.message);
-      return;
-    }
-    setMoveOpen(false);
-    onClose();
-  }, [editingItemId, moveTargetDayId, onClose, onMove]);
 
   const handleDeleteClick = () => {
     if (deleteTouchGuard.current) {
@@ -2511,31 +2413,9 @@ export default function TripDayPlanDialog({
       closeLabel={t("common.close")}
       footer={
         <>
-          {/* AC8. A row at every width now: the group is one text label and one 44px glyph, which
-              fits a 390px footer beside `OK` — the four full labels it replaced did not. */}
+          {/* AC8. A row at every width now: the group is the 44px trash glyph (Story 14.4 removed the
+              "anderer Tag" label beside it), which fits a 390px footer beside `OK`. */}
           <Box sx={{ display: "flex", flexDirection: "row", alignItems: "center", gap: "10px" }}>
-            {canMove ? (
-              /*
-                Story 6.23 AC1. In the action area, not among the fields and not inside a tab panel:
-                moving is an operation on the whole activity, so putting it on `Wann & Wo` (the tab
-                whose subject is closest) would say it belongs to that tab's fields.
-
-                Story 6.24 AC7 shortened the label to "anderer Tag"; the dialog it opens still carries
-                the whole sentence, so nothing is lost — only deferred by one step.
-              */
-              <Button
-                variant="text"
-                onClick={() => setMoveOpen(true)}
-                /* `galleryBusy` on top of `isBusy`, which deliberately excludes it elsewhere: the
-                   upload loop posts each photo against the *source* day, so a move committed
-                   mid-upload makes every remaining photo 404 — and this dialog is already closed by
-                   then, so the user never sees the failure. */
-                disabled={isBusy || galleryBusy}
-                sx={{ color: tokens.ink, whiteSpace: "nowrap" }}
-              >
-                {t("trips.plan.moveAction")}
-              </Button>
-            ) : null}
             {canDelete ? (
               /*
                 Story 6.24 AC5. The label became a trash glyph, so this is now an `icon-button` and
@@ -3296,71 +3176,6 @@ export default function TripDayPlanDialog({
           </Box>
         </Box>
     </DialogShell>
-      {/*
-        Story 6.23. The same picker the day-level transfer renders (`trips.dayTransfer.targetLabel`,
-        a native `select`), with the current day already excluded by the caller — reused rather than
-        reinvented so the two "choose a day" surfaces read alike.
-
-        It is a second dialog rather than an expanding block inside the first, because the first is a
-        four-tab form and an expanding block would have to live in one of the tabs, which is exactly
-        what AC1 says the action must not do.
-      */}
-      {canMove ? (
-        <Dialog open={moveOpen} onClose={moveGuard.requestClose} fullWidth maxWidth="sm">
-          {/*
-            Story 6.25 AC1/Task 2. The move picker gets the `✕` like every other dialog. It is nested
-            inside the activity dialog, which also has one, and that is fine: each closes the surface it
-            sits on. The one nested dialog that is *exempt* is the discard confirmation below — see the
-            note there.
-          */}
-          <DialogTitleWithClose label={t("common.close")} onClose={moveGuard.requestClose} disabled={moving}>
-            {t("trips.plan.moveDialogTitle")}
-          </DialogTitleWithClose>
-          <DialogContent>
-            <Box mt={0.5} display="flex" flexDirection="column" gap={1.5}>
-              {/* AC3 said in words. The story exists because the alternative is retyping, so the
-                  dialog states what travels rather than leaving the user to hope. */}
-              <Typography variant="body2" sx={{ color: tokens.inkSoft }}>
-                {t("trips.plan.moveDescription")}
-              </Typography>
-              {/* What the move costs, said before it happens. AC4 asks for the removed travel
-                  segments to be reported rather than removed in silence; a receipt after the fact is
-                  the weaker half of that, and the form can also be dirty when this opens — only the
-                  saved activity moves. */}
-              <Typography variant="body2" sx={{ color: tokens.inkSoft }} data-testid="plan-move-warning">
-                {t("trips.plan.moveWarning")}
-              </Typography>
-              <TextField
-                select
-                id={`${fieldIdPrefix}-move-target`}
-                label={t("trips.dayTransfer.targetLabel")}
-                value={moveTargetDayId}
-                onChange={(event) => setMoveTargetDayId(event.target.value)}
-                fullWidth
-                SelectProps={{ native: true }}
-              >
-                <option value="" />
-                {(moveTargetDays ?? []).map((candidate) => (
-                  <option key={candidate.id} value={candidate.id}>
-                    {candidate.label}
-                  </option>
-                ))}
-              </TextField>
-            </Box>
-          </DialogContent>
-          {/* Story 6.25 AC2 — a form dialog's footer keeps only the confirming action. */}
-          <DialogActions>
-            <Button
-              variant="contained"
-              onClick={() => void handleMoveConfirm()}
-              disabled={moving || !moveTargetDayId}
-            >
-              {moving ? <CircularProgress size={22} /> : t("trips.plan.moveConfirm")}
-            </Button>
-          </DialogActions>
-        </Dialog>
-      ) : null}
-      <DiscardChangesDialog {...moveGuard.dialogProps} />
       {/*
         Story 6.24 AC3a — EXPERIENCE.md.State Patterns → "Dismissing a dialog with unsaved input".
 

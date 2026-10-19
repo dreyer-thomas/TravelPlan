@@ -1,5 +1,8 @@
 # generated: 2026-03-01 13:08:00 CET
-# last_updated: 2026-10-19 (14-3 DONE via bmad-code-review: 4 patches applied (receipt message, 3 undo tests), DW-400 and DW-401 deferred. 213 files / 3459 tests, tsc 0, lint 0/79.)
+# last_updated: 2026-10-19 (14-4-one-way-to-another-day DONE via bmad-code-review: 4 patches applied (PLAN_FOOTER_SX docblock, dangling 'move below' repo comment, German render in the no-'anderer Tag' test, comment rewrap), 0 deferred, 17 dismissed. 213 files / 3432 tests, lint 0/79.)
+# previously: 2026-10-19 (14-4 REVIEW via bmad-dev-story: real run passed (Tommy). Next: code review.)
+# previously: 2026-10-19 (14-4 IN-PROGRESS via bmad-dev-story, baseline dd33e50: Tasks 0-6 and Task 8 gates done - single-activity move removed (dialog, day view, route, repo, schema, 10 keys), media tests re-pointed at park + schedule first. 213 files / 3432 tests, tsc 0 outside the stale .next/dev cache, lint 0/79, build ok without /day-plan-items/move, no migration. Stays in-progress until the real run with Tommy.)
+# previously: 2026-10-19 (14-3 DONE via bmad-code-review: 4 patches applied (receipt message, 3 undo tests), DW-400 and DW-401 deferred. 213 files / 3459 tests, tsc 0, lint 0/79.)
 # previously: 2026-10-19 (14-3 REVIEW via bmad-dev-story: real run confirmed by Tommy; parked suggestions go to the bucket list in the apply transaction, receipt parkedItems with undo, dialog Einplanen/Parken toggle. 213 files / 3457 tests, tsc 0, lint 0/79, build ok.)
 # previously: 2026-10-18 (14-3 IN-PROGRESS via bmad-dev-story: 13-4 committed as 088de55 (baseline); Q1-Q5 defaults confirmed. All tasks done except Task 8's real run with Tommy; 213 files / 3457 tests, tsc 0, lint 0/79, build ok; mutations 1,2,3,5,6 red, 4 green by phase-2 guard (accepted).)
 # previously: 2026-10-18 (14-3-park-the-suggestions-too created via bmad-create-story, ready-for-dev. Per ticked card Einplanen/Parken in the choose step (toggle outside the card's label); apply takes a separate `parked` list, all-parked writes nothing on the day (no basis, no 409) and skips the preview; parked rows FLEXIBLE/no day under parked/ media; receipt suggestionsApplied gains optional parkedItems (v3), undo deletes them by parkedDayPlanItemsWhere; day view reloads the bucket list after apply and undo. Commit 13-4 first. Q1-Q5 defaults to confirm.)
@@ -311,5 +314,5 @@ development_status:
   14-1-one-kind-of-entry: done
   14-2-park-it-for-another-day: done
   14-3-park-the-suggestions-too: done
-  14-4-one-way-to-another-day: ready-for-dev
+  14-4-one-way-to-another-day: done
   epic-14-retrospective: optional

@@ -28,8 +28,6 @@ type PlanDialogProps = {
   onClose: () => void;
   onDayWrite?: () => void;
   onSaved: (receipt: unknown) => void;
-  moveTargetDays?: unknown;
-  onMove?: unknown;
 };
 const planDialog = vi.hoisted(() => ({ last: null as PlanDialogProps | null }));
 vi.mock("@/components/features/trips/TripDayPlanDialog", () => ({
@@ -208,9 +206,6 @@ describe("TripBucketListPanel", () => {
 
     expect(screen.getByTestId("plan-dialog")).toHaveTextContent("add");
     expect(planDialog.last).toMatchObject({ open: true, mode: "add", tripId: "trip-1", day: null, placement: "parked", item: null });
-    // Moving to another day is not offered for an idea.
-    expect(planDialog.last?.moveTargetDays).toBeUndefined();
-    expect(planDialog.last?.onMove).toBeUndefined();
   });
 
   it("gives the panel-level add button a 44x44 hit area and no warn coloring", async () => {

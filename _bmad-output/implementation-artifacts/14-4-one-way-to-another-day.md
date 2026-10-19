@@ -1,6 +1,9 @@
+---
+baseline_commit: dd33e5092a7ddc9e84026eaf03f2eb2c9cab6eb5
+---
 # Story 14.4: One Way to Another Day
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -78,36 +81,46 @@ All code paths below are relative to `travelplan/`. Line numbers were read on 20
 
 ## Tasks / Subtasks
 
-- [ ] **Task 0: Baseline** (AC 8)
-  - [ ] Suite, `tsc`, lint, build on the commit you start from; record the counts. 14.2 ended at 203 files / 3317 tests, `tsc` 0, lint 0 errors / 79 warnings.
-- [ ] **Task 1: Re-point the tests that only used the move as a setup** (AC 5, 6; point 4). Do this **first**, while the move still exists, so each rewritten test is shown green before the function it used is deleted.
-  - [ ] `tripDayPlanItemImagesRoute.test.ts` and `tripDayPlanItemDocumentsRoute.test.ts`: park + schedule instead of `moveDayPlanItemToTripDay`; same assertions (`imageUrl`/`documentUrl` still names the upload day; the delete removes the file). The schedule needs the item parked first, and a two-day trip.
-  - [ ] `dayPlanItemTripIdConsistency.test.ts`: the "create, move to another day, whole-day move and swap" case parks and schedules instead; rename the case accordingly.
-- [ ] **Task 2: Dialog** (AC 1; `PD`)
-  - [ ] Remove `PlanMoveTargetDay`, `PlanItemMoveOutcome`, the `moveTargetDays` / `onMove` props and their docblocks (`:400-447`), the `moveOpen` / `moveTargetDayId` / `moving` / `movingRef` state (`:733-740`), `canMove` (`:1349-1356`), `closeMovePicker` / `moveGuard` / `handleMoveConfirm` (`:2024-2079`), the footer button (`:2474-2495`), the picker dialog and its `DiscardChangesDialog {...moveGuard.dialogProps}` (`:3240-3303`).
-  - [ ] `isBusy` (`:1347`) loses `moving`. The seed docblock (`:1068-1080`) lists `moveOpen`, `moveTargetDayId` among cleared states; drop them from the list. The placement docblock (`:426`, "moving to another day is not offered") loses that clause.
-  - [ ] Keep the footer's layout comment true (6.24 AC8 mentions "one text label and one 44px glyph": after this story it is the glyph and OK). Check the footer at 390 px.
-- [ ] **Task 3: Day view** (AC 3, 4; `TV`)
-  - [ ] Remove `handleMovePlanItem` (`:1910-1965`), `planMoveTargetDays` (`:1825`), `dayLabelById` (`:1840-1846`), the `PlanItemMoveOutcome` import (`:63`), the dialog props (`:4951-4952`), the `planMoveNotice` state (`:686-692`), its `Alert` (`:3590`) and every `setPlanMoveNotice(null)` (handlers for schedule, reorder, park, delete, transfer, suggestions apply, day change effect). `grep -an planMoveNotice` must return nothing.
-  - [ ] Leave `transferTargetOptions` and `buildDayLabel`: the whole-day transfer uses them.
-- [ ] **Task 4: Server** (AC 2)
-  - [ ] Delete `src/app/api/trips/[id]/day-plan-items/move/` (the folder).
-  - [ ] `DPIR`: delete `moveDayPlanItemToTripDay` (`:1147-1230`), `SingleDayPlanItemMoveParams` (`:167`), `SingleDayPlanItemMoveResult` (`:274`) and its docblock. Remove imports that become unused (`placeFixedItem`, `hasValidTimes`, `resolveDayStartMinute` only if nothing else uses them; check with `tsc` and lint).
-  - [ ] `DPIS`: delete `dayPlanItemMoveSchema` and `DayPlanItemMoveInput` (`:274-298`) with the 6.23 docblock.
-  - [ ] Update the four comments in point 5.
-- [ ] **Task 5: Tests of the removed feature** (AC 1, 2, 3)
-  - [ ] Delete: `tripDayPlanItemsRoute.test.ts` `describe("POST /day-plan-items/move")` (`:1324-1590`) and the `MOVE_POST` import; `dayPlanItemRepo.test.ts` single-move cases (`:840-1150`, the ones calling `moveDayPlanItemToTripDay`; keep "removes the travel segments referencing a deleted activity" at `:1152`, which is 6.23 AC6 and still true); `tripDayPlanDialog.test.tsx` `describe("moving the activity to another day")` (`:2056-2420`); `tripDayViewLayout.test.tsx` move cases (`:3333-3734`, "moves one activity…", "reports a move…", "names a single removed…", "hands a failed move's reason…") and "withholds the move handler from a viewer" (`:3935`).
-  - [ ] Adjust: the `TripDayPlanDialog` stubs in `tripDayViewLayout.test.tsx` (`:23-41`, `:119`, `:149-160`) and `tripBucketListPanel.test.tsx` (`:31`, `:212`) drop `onMove` / `moveTargetDays`; the parked-dialog render in `tripDayPlanDialog.test.tsx` (~`:4368`) drops the two props.
-  - [ ] Add one test each: the activity dialog in edit mode renders no "Another day" / "anderer Tag" button for an owner (`tripDayPlanDialog.test.tsx`), and `TV` passes no `onMove` to the plan dialog (`tripDayViewLayout.test.tsx`, the stub's `lastProps`).
-- [ ] **Task 6: Dictionaries** (AC 7)
-  - [ ] Delete the ten keys from `en.ts` and `de.ts`, with their 6.23/6.24 comments; delete the `moveAction` / `moveDialogTitle` assertions in `i18nDictionaries.test.ts` (`:426-429`).
-  - [ ] `grep -an "trips.plan.move" src test` afterwards shows only `moveUp` / `moveDown`.
+- [x] **Task 0: Baseline** (AC 8)
+  - [x] Suite, `tsc`, lint, build on the commit you start from; record the counts. 14.2 ended at 203 files / 3317 tests, `tsc` 0, lint 0 errors / 79 warnings.
+- [x] **Task 1: Re-point the tests that only used the move as a setup** (AC 5, 6; point 4). Do this **first**, while the move still exists, so each rewritten test is shown green before the function it used is deleted.
+  - [x] `tripDayPlanItemImagesRoute.test.ts` and `tripDayPlanItemDocumentsRoute.test.ts`: park + schedule instead of `moveDayPlanItemToTripDay`; same assertions (`imageUrl`/`documentUrl` still names the upload day; the delete removes the file). The schedule needs the item parked first, and a two-day trip.
+  - [x] `dayPlanItemTripIdConsistency.test.ts`: the "create, move to another day, whole-day move and swap" case parks and schedules instead; rename the case accordingly.
+- [x] **Task 2: Dialog** (AC 1; `PD`)
+  - [x] Remove `PlanMoveTargetDay`, `PlanItemMoveOutcome`, the `moveTargetDays` / `onMove` props and their docblocks (`:400-447`), the `moveOpen` / `moveTargetDayId` / `moving` / `movingRef` state (`:733-740`), `canMove` (`:1349-1356`), `closeMovePicker` / `moveGuard` / `handleMoveConfirm` (`:2024-2079`), the footer button (`:2474-2495`), the picker dialog and its `DiscardChangesDialog {...moveGuard.dialogProps}` (`:3240-3303`).
+  - [x] `isBusy` (`:1347`) loses `moving`. The seed docblock (`:1068-1080`) lists `moveOpen`, `moveTargetDayId` among cleared states; drop them from the list. The placement docblock (`:426`, "moving to another day is not offered") loses that clause.
+  - [x] Keep the footer's layout comment true (6.24 AC8 mentions "one text label and one 44px glyph": after this story it is the glyph and OK). Check the footer at 390 px.
+- [x] **Task 3: Day view** (AC 3, 4; `TV`)
+  - [x] Remove `handleMovePlanItem` (`:1910-1965`), `planMoveTargetDays` (`:1825`), `dayLabelById` (`:1840-1846`), the `PlanItemMoveOutcome` import (`:63`), the dialog props (`:4951-4952`), the `planMoveNotice` state (`:686-692`), its `Alert` (`:3590`) and every `setPlanMoveNotice(null)` (handlers for schedule, reorder, park, delete, transfer, suggestions apply, day change effect). `grep -an planMoveNotice` must return nothing.
+  - [x] Leave `transferTargetOptions` and `buildDayLabel`: the whole-day transfer uses them.
+- [x] **Task 4: Server** (AC 2)
+  - [x] Delete `src/app/api/trips/[id]/day-plan-items/move/` (the folder).
+  - [x] `DPIR`: delete `moveDayPlanItemToTripDay` (`:1147-1230`), `SingleDayPlanItemMoveParams` (`:167`), `SingleDayPlanItemMoveResult` (`:274`) and its docblock. Remove imports that become unused (`placeFixedItem`, `hasValidTimes`, `resolveDayStartMinute` only if nothing else uses them; check with `tsc` and lint).
+  - [x] `DPIS`: delete `dayPlanItemMoveSchema` and `DayPlanItemMoveInput` (`:274-298`) with the 6.23 docblock.
+  - [x] Update the four comments in point 5.
+- [x] **Task 5: Tests of the removed feature** (AC 1, 2, 3)
+  - [x] Delete: `tripDayPlanItemsRoute.test.ts` `describe("POST /day-plan-items/move")` (`:1324-1590`) and the `MOVE_POST` import; `dayPlanItemRepo.test.ts` single-move cases (`:840-1150`, the ones calling `moveDayPlanItemToTripDay`; keep "removes the travel segments referencing a deleted activity" at `:1152`, which is 6.23 AC6 and still true); `tripDayPlanDialog.test.tsx` `describe("moving the activity to another day")` (`:2056-2420`); `tripDayViewLayout.test.tsx` move cases (`:3333-3734`, "moves one activity…", "reports a move…", "names a single removed…", "hands a failed move's reason…") and "withholds the move handler from a viewer" (`:3935`).
+  - [x] Adjust: the `TripDayPlanDialog` stubs in `tripDayViewLayout.test.tsx` (`:23-41`, `:119`, `:149-160`) and `tripBucketListPanel.test.tsx` (`:31`, `:212`) drop `onMove` / `moveTargetDays`; the parked-dialog render in `tripDayPlanDialog.test.tsx` (~`:4368`) drops the two props.
+  - [x] Add one test each: the activity dialog in edit mode renders no "Another day" / "anderer Tag" button for an owner (`tripDayPlanDialog.test.tsx`), and `TV` passes no `onMove` to the plan dialog (`tripDayViewLayout.test.tsx`, the stub's `lastProps`).
+- [x] **Task 6: Dictionaries** (AC 7)
+  - [x] Delete the ten keys from `en.ts` and `de.ts`, with their 6.23/6.24 comments; delete the `moveAction` / `moveDialogTitle` assertions in `i18nDictionaries.test.ts` (`:426-429`).
+  - [x] `grep -an "trips.plan.move" src test` afterwards shows only `moveUp` / `moveDown`.
 - [x] **Task 7: Planning artifacts** (done with this story file, 2026-10-18)
   - [x] `epics.md`: Story 14.4 added after 14.3; Story 6.23's section carries "Removed by Story 14.4 (2026-10-18)". 6.23's ACs are left as history.
-- [ ] **Task 8: Gates and real run** (AC 8)
-  - [ ] Full suite, `tsc`, lint, `next build`, `check:migrations`.
-  - [ ] `grep -an "day-plan-items/move\|moveDayPlanItemToTripDay\|onMove\|moveTargetDays\|planMoveNotice" src test` returns nothing.
-  - [ ] Real run with Tommy: the activity dialog shows no "anderer Tag" (owner and contributor, 390 px in Safari); the day menu's whole-day move and swap still work; park on one day, "+" on another, pictures and PDF still open, and deleting a picture there removes it.
+- [x] **Task 8: Gates and real run** (AC 8)
+  - [x] Full suite, `tsc`, lint, `next build`, `check:migrations`.
+  - [x] `grep -an "day-plan-items/move\|moveDayPlanItemToTripDay\|onMove\|moveTargetDays\|planMoveNotice" src test` returns nothing.
+  - [x] Real run with Tommy: the activity dialog shows no "anderer Tag" (owner and contributor, 390 px in Safari); the day menu's whole-day move and swap still work; park on one day, "+" on another, pictures and PDF still open, and deleting a picture there removes it.
+
+
+### Review Findings
+
+Code review 2026-10-19 (Blind Hunter, Edge Case Hunter, Acceptance Auditor): 0 decision-needed, 4 patch, 0 defer, 17 dismissed. All 4 patches applied 2026-10-19 (German dialog now rendered in the absence test); 213 files / 3432 tests, lint 0 errors / 79 warnings.
+
+- [x] [Review][Patch] `PLAN_FOOTER_SX` docblock still describes the removed button: "the row is `anderer Tag` + a 44px trash glyph + `OK`" and the 174px + 64px / "longer than 'anderer Tag'" overflow reasoning (Task 2: keep the footer's layout comment true) [travelplan/src/components/features/trips/TripDayPlanDialog.tsx:290]
+- [x] [Review][Patch] `deleteDayPlanItemInTransaction` docblock says "Like the move below, the existence check *is* the write"; the move it points at was deleted (point 5) [travelplan/src/lib/repositories/dayPlanItemRepo.ts:554]
+- [x] [Review][Patch] The new "no 'Another day' action" dialog test renders `language="en"` only, so its `anderer Tag` assertion passes whether or not the button exists; render the German dialog too (Task 5) [travelplan/test/tripDayPlanDialog.test.tsx:2072]
+- [x] [Review][Patch] Rewritten comment lines were not rewrapped (146-197 chars against the ~110 of their blocks) [travelplan/src/app/api/trips/[id]/day-plan-items/images/route.ts:263, documents/route.ts:324, travelplan/src/lib/trips/uploadPaths.ts:261, TripDayPlanDialog.tsx:1052]
 
 ## Dev Notes
 
@@ -171,10 +184,51 @@ Modified: `PD`, `TV`, `DPIR`, `DPIS`, the images and documents routes (comments)
 
 ### Agent Model Used
 
+Claude Opus 5.5 (claude-opus-5-5), bmad-dev-story, 2026-10-19
+
 ### Debug Log References
 
 ### Completion Notes List
 
 - Ultimate context engine analysis completed - comprehensive developer guide created (bmad-create-story, 2026-10-18).
+- **Task 0 baseline (dd33e50):** 213 files / 3459 tests, `tsc` 0, lint 0 errors / 79 warnings.
+- **Task 1 first:** the two Story 8.4 AC9 media tests and the tripId consistency case now reach the moved state through `parkDayPlanItemForTripDay` + `scheduleParkedDayPlanItemForTripDay`, every assertion kept, plus one that the row really is on the later day. Shown green (26/26) while `moveDayPlanItemToTripDay` still existed, then the function was deleted.
+- **Tasks 2-4:** dialog footer button, picker dialog, its discard guard, the move state/handlers/props and types removed from `TripDayPlanDialog`; `handleMovePlanItem`, `planMoveTargetDays`, `dayLabelById`, `planMoveNotice` (state, Alert, 7 resets plus the day-change and save resets) removed from `TripDayView`; route folder `day-plan-items/move/`, `moveDayPlanItemToTripDay`, both its types, `dayPlanItemMoveSchema` / `DayPlanItemMoveInput` deleted. The four comments in point 5 now cite park + schedule and the whole-day transfer; also the reorder route's "beside `move/`" and the repo import comment.
+- **Deviation from the story text:** `buildDayLabel` in `TV` was *not* used by the whole-day transfer (its picker formats labels inline); after the move left it was dead and lint flagged it, so it was removed. `transferTargetOptions` stays. Imports that became unused were removed: `Dialog`, `DialogActions`, `DialogContent`, `TextField`, `DialogTitleWithClose`, `useDiscardGuard` (dialog) and `hasValidTimes`, `placeFixedItem`, `resolveDayStartMinute` (repo).
+- **Task 5:** the story's list missed one caller: `dayActivityTransferRoute.test.ts` had a case "the single-activity move (6.23) recomputes the source and the target"; it tested the removed function and was deleted with its import. The file's whole-day cases are otherwise unmodified (AC4). New tests: dialog in edit mode for an owner shows no "Another day" / "anderer Tag" (`tripDayPlanDialog.test.tsx`); `TV` hands the dialog no `onMove` / `moveTargetDays` for an owner (`tripDayViewLayout.test.tsx`, the former viewer case turned into an owner case since no role gets the props now). Mutation: passing an `onMove` from `TV` again turns the day-view test red.
+- **Task 6:** ten keys removed from `en.ts` and `de.ts` with their 6.23/6.24 comments; the 6.23 wording test in `i18nDictionaries.test.ts` became a Story 14.4 AC7 test that the ten keys are absent and `moveUp`/`moveDown`/`dayTransfer.moveAction` remain.
+- **Task 8 gates:** 213 files / 3432 tests green (27 tests of the removed feature deleted, 2 added); lint 0 errors / 79 warnings (same as baseline); `next build` OK, route list without `/day-plan-items/move`; `check:migrations` passed, no schema change. `tsc --noEmit`: 0 errors in `src` and `test`; the one remaining error is in the gitignored, `next dev`-generated `.next/dev/types/validator.ts`, which still names the deleted route and is rewritten the next time `next dev` starts (no dev server was running; the cache was left alone).
+- **Grep gate:** `day-plan-items/move|moveDayPlanItemToTripDay|onMove|moveTargetDays|planMoveNotice` in `src` returns nothing; in `test` it returns only the two `not.toHaveProperty("onMove" / "moveTargetDays")` assertions of the new AC3 test. `trips.plan.move` outside `moveUp`/`moveDown` appears only in the AC7 absence list.
+- **Real run (2026-10-19):** passed, confirmed by Tommy ("it was ok"): no "anderer Tag" in the dialog, whole-day move and swap, park + "+" with pictures and PDF. Q1/Q2: defaults applied (route removed completely; fixed activity arrives flexible), not explicitly answered.
 
 ### File List
+
+- travelplan/src/app/api/trips/[id]/day-plan-items/move/route.ts (deleted)
+- travelplan/src/app/api/trips/[id]/day-plan-items/images/route.ts (comment)
+- travelplan/src/app/api/trips/[id]/day-plan-items/documents/route.ts (comment)
+- travelplan/src/app/api/trips/[id]/day-plan-items/reorder/route.ts (comment)
+- travelplan/src/components/features/trips/TripDayPlanDialog.tsx
+- travelplan/src/components/features/trips/TripDayView.tsx
+- travelplan/src/lib/repositories/dayPlanItemRepo.ts
+- travelplan/src/lib/repositories/travelSegmentRepo.ts (comment)
+- travelplan/src/lib/trips/uploadPaths.ts (comment)
+- travelplan/src/lib/validation/dayPlanItemSchemas.ts
+- travelplan/src/i18n/en.ts
+- travelplan/src/i18n/de.ts
+- travelplan/test/tripDayPlanItemImagesRoute.test.ts
+- travelplan/test/tripDayPlanItemDocumentsRoute.test.ts
+- travelplan/test/dayPlanItemTripIdConsistency.test.ts
+- travelplan/test/tripDayPlanItemsRoute.test.ts
+- travelplan/test/dayPlanItemRepo.test.ts
+- travelplan/test/dayActivityTransferRoute.test.ts
+- travelplan/test/tripDayPlanDialog.test.tsx
+- travelplan/test/tripDayViewLayout.test.tsx
+- travelplan/test/tripBucketListPanel.test.tsx
+- travelplan/test/i18nDictionaries.test.ts
+- _bmad-output/implementation-artifacts/14-4-one-way-to-another-day.md
+- _bmad-output/implementation-artifacts/sprint-status.yaml
+
+### Change Log
+
+- 2026-10-19: Single-activity move (Story 6.23) removed: dialog action and picker, day-view plumbing, `POST day-plan-items/move`, repo function, schema, ten dictionary keys and their tests; media and tripId tests re-pointed at park + schedule. Gates green; real run passed (Tommy). Status review.
+- 2026-10-19: Code review: 4 patches applied (footer docblock, dangling "move below" comment, German absence render, comment rewrap), 17 dismissed. Status done.

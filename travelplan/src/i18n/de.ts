@@ -630,26 +630,6 @@ const de: Dictionary = {
   "trips.plan.parkError": "Konnte nicht geparkt werden – bitte erneut versuchen.",
   "trips.plan.deleteError": "Plan-Element konnte nicht gelöscht werden. Bitte erneut versuchen.",
   "trips.plan.editItemMissing": "Zu bearbeitender Planpunkt fehlt.",
-  // Story 6.23 — siehe en.ts. `trips.dayTransfer.*` bleibt der Ganztagestransfer.
-  // Story 6.24 AC7 hat die Aktion auf "anderer Tag" gekürzt, damit die Fußzeile in eine Zeile passt;
-  // der ganze Satz erreicht den Nutzer einen Schritt später als `moveDialogTitle`.
-  "trips.plan.moveAction": "anderer Tag",
-  "trips.plan.moveDialogTitle": "Auf anderen Tag verschieben",
-  "trips.plan.moveDescription":
-    "Alles, was an dieser Aktivität gespeichert ist, wird mitverschoben: Titel, Beschreibung, Zeiten, Kosten, Zahlungen, Link, Ort und Fotos. Aktivitäten, die am gewählten Tag schon eingetragen sind, bleiben erhalten.",
-  // Beides steht *vor* dem Verschieben, nicht danach: verschoben wird der zuletzt gespeicherte Stand,
-  // und Reiseabschnitte enthalten Dauer, Entfernung und manchmal einen getippten Link. AC4 verlangt,
-  // dass so etwas nicht stillschweigend verschwindet — das gilt für die Warnung wie für die Meldung.
-  "trips.plan.moveWarning":
-    "Nicht gespeicherte Änderungen in diesem Dialog werden nicht mitverschoben. Reiseabschnitte zwischen dieser Aktivität und ihren Nachbarn werden an beiden Tagen entfernt.",
-  "trips.plan.moveConfirm": "Aktivität verschieben",
-  "trips.plan.moveError": "Die Aktivität konnte nicht verschoben werden. Bitte erneut versuchen.",
-  "trips.plan.moveFallbackDay": "einen anderen Tag",
-  // Eigener Singular statt „Reiseabschnitt(e)“: `formatMessage` kann keine Pluralformen, und „1
-  // Reiseabschnitt(e) entfernt“ wäre in der Hauptsprache ein sichtbarer Fehler.
-  "trips.plan.moveSuccess": "Aktivität auf {day} verschoben.",
-  "trips.plan.moveSuccessWithSegment": "Aktivität auf {day} verschoben. 1 Reiseabschnitt entfernt.",
-  "trips.plan.moveSuccessWithSegments": "Aktivität auf {day} verschoben. {count} Reiseabschnitte entfernt.",
   "trips.plan.scheduleModeLabel": "Planung",
   "trips.plan.scheduleModeFlexible": "Flexibel",
   "trips.plan.scheduleModeFixed": "Feste Zeit",

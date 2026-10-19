@@ -417,16 +417,28 @@ describe("i18n dictionaries", () => {
     });
 
     /**
-     * AC7. The German is the binding wording — it is what the request itself said, lower case
-     * included — and it is short on purpose: the footer has to fit one row at 390px. The full
-     * sentence still reaches the user one step later, on `moveDialogTitle`, which is why shortening
-     * this one costs nothing. Pinned so a "clearer" restoration has to argue with a test.
+     * Story 14.4 AC7. The single-activity move (Story 6.23) is gone, and its copy with it. The row
+     * moves and the whole-day transfer keep theirs.
      */
-    it("shortens the move action while the dialog it opens keeps the full sentence", () => {
-      expect(de["trips.plan.moveAction"]).toBe("anderer Tag");
-      expect(en["trips.plan.moveAction"]).toBe("Another day");
-      expect(de["trips.plan.moveDialogTitle"]).toBe("Auf anderen Tag verschieben");
-      expect(en["trips.plan.moveDialogTitle"]).toBe("Move to another day");
+    it("carries no copy for the removed single-activity move (Story 14.4 AC7)", () => {
+      for (const key of [
+        "trips.plan.moveAction",
+        "trips.plan.moveDialogTitle",
+        "trips.plan.moveDescription",
+        "trips.plan.moveWarning",
+        "trips.plan.moveConfirm",
+        "trips.plan.moveError",
+        "trips.plan.moveFallbackDay",
+        "trips.plan.moveSuccess",
+        "trips.plan.moveSuccessWithSegment",
+        "trips.plan.moveSuccessWithSegments",
+      ]) {
+        expect(key in en, key).toBe(false);
+        expect(key in de, key).toBe(false);
+      }
+      expect(de["trips.plan.moveUp"]).toBe("Nach oben");
+      expect(de["trips.plan.moveDown"]).toBe("Nach unten");
+      expect(de["trips.dayTransfer.moveAction"]).toBe("Aktivitäten verschieben");
     });
 
     /**

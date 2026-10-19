@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import { DELETE, GET, POST } from "@/app/api/trips/[id]/day-plan-items/documents/route";
 import { createSessionJwt } from "@/lib/auth/jwt";
 import { prisma } from "@/lib/db/prisma";
-import { moveDayPlanItemToTripDay } from "@/lib/repositories/dayPlanItemRepo";
+import { parkDayPlanItemForTripDay, scheduleParkedDayPlanItemForTripDay } from "@/lib/repositories/dayPlanItemRepo";
 import { MAX_DOCUMENTS_PER_ENTRY } from "@/lib/trips/documentUploads";
 import { getDayPlanItemDocumentUploadDir, getTripsUploadRoot, resolveStoredMediaPath } from "@/lib/trips/uploadPaths";
 
@@ -655,9 +655,9 @@ describe("/api/trips/[id]/day-plan-items/documents", () => {
   /**
    * Story 8.4 / AC9 - the document twin of the case in `tripDayPlanItemImagesRoute.test.ts`.
    *
-   * `moveDayPlanItemToTripDay` reassigns `tripDayId` with a bare `updateMany`, moving no file and
-   * rewriting no URL, so a ticket PDF uploaded on day 1 stays under `days/<day-1>/…` after the activity
-   * has been moved to day 2. A cleanup that builds the directory it may unlink in out of the request's
+   * Parking the activity on day 1 and scheduling it onto day 2 (Story 14.2, 14.1) reassigns `tripDayId`,
+   * moving no file and rewriting no URL, so a ticket PDF uploaded on day 1 stays under `days/<day-1>/…`
+   * after the activity has gone to day 2. A cleanup that builds the directory it may unlink in out of the request's
    * `tripDayId` looks under day 2, finds nothing it is allowed to touch, and answers
    * `200 { deleted: true }` with the PDF still on disk and no row left naming it.
    */
@@ -673,14 +673,23 @@ describe("/api/trips/[id]/day-plan-items/documents", () => {
     const filePath = resolveStoredMediaPath(created.data!.document.documentUrl);
     expect(await fs.readFile(filePath, "utf8")).toContain("%PDF-1.4");
 
-    const move = await moveDayPlanItemToTripDay({
+    const park = await parkDayPlanItemForTripDay({
       userId: owner.id,
       tripId: trip.id,
       tripDayId: day.id,
       itemId: item.id,
-      targetTripDayId: laterDay.id,
     });
-    expect(move.status).toBe("moved");
+    expect(park.status).toBe("parked");
+    const schedule = await scheduleParkedDayPlanItemForTripDay({
+      userId: owner.id,
+      tripId: trip.id,
+      tripDayId: laterDay.id,
+      itemId: item.id,
+    });
+    expect(schedule.status).toBe("scheduled");
+    expect(await prisma.dayPlanItem.findUniqueOrThrow({ where: { id: item.id } })).toMatchObject({
+      tripDayId: laterDay.id,
+    });
     expect(created.data!.document.documentUrl).toContain(`/days/${day.id}/`);
 
     const response = await DELETE(

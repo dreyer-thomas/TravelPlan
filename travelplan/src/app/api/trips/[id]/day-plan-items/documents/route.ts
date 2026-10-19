@@ -318,10 +318,11 @@ export const DELETE = async (request: NextRequest, context: RouteContext) => {
   // is narrower on nesting and traversal (which that prefix admitted into any file in the trip - AC8) and
   // deliberately *wider* on spelling (a `//uploads/…` value failed the prefix test and passes this one,
   // because the decision is made on the resolved path rather than on the string). Its day segment comes
-  // from the **stored URL**, not from `parsed.data.tripDayId` (AC9). This route is where
-  // that distinction bites hardest: `moveDayPlanItemToTripDay` reassigns an activity's `tripDayId` with a
-  // bare `updateMany`, moving no file and rewriting no URL, so for any activity the user has ever moved
-  // the request's day is not the day its tickets are under. Building the directory from it answered
+  // from the **stored URL**, not from `parsed.data.tripDayId` (AC9). This route is where that
+  // distinction bites hardest: parking an activity and scheduling it onto another day (Story 14.2, 14.1),
+  // and the whole-day transfer, reassign its `tripDayId` without moving a file or rewriting a URL, so for
+  // any activity that has ever changed day the request's day is not the day its tickets are under.
+  // Building the directory from it answered
   // `200 { deleted: true }` and left the bytes orphaned - see `readStoredMediaDayId`. `null` means the URL
   // names nothing under this trip's days, so there is no file of ours to remove - and that skip is logged.
   // Story 14.1: the one rule for every activity media delete (`resolveManagedItemMediaDir`), which also

@@ -4,7 +4,7 @@ import {
   createDayPlanItemForTripDay,
   deleteDayPlanItemForTripDay,
   moveDayPlanItemsBetweenTripDays,
-  moveDayPlanItemToTripDay,
+  parkDayPlanItemForTripDay,
   scheduleParkedDayPlanItemForTripDay,
   swapDayPlanItemsBetweenTripDays,
 } from "@/lib/repositories/dayPlanItemRepo";
@@ -88,14 +88,16 @@ describe("every write path keeps DayPlanItem.tripId equal to its day's trip (Sto
     await prisma.user.deleteMany();
   });
 
-  it("create, move to another day, whole-day move and swap", async () => {
+  it("create, park and schedule onto another day, whole-day move and swap", async () => {
     const { user, trip, days } = await seed();
     const a = await create(user.id, trip.id, days[0].id, "A");
     await create(user.id, trip.id, days[1].id, "B");
     expect(a.item).toMatchObject({ tripDayId: days[0].id });
     await expectConsistent(trip.id);
 
-    await moveDayPlanItemToTripDay({ userId: user.id, tripId: trip.id, tripDayId: days[0].id, itemId: a.item.id, targetTripDayId: days[2].id });
+    expect(await parkDayPlanItemForTripDay({ userId: user.id, tripId: trip.id, tripDayId: days[0].id, itemId: a.item.id })).toMatchObject({ status: "parked" });
+    await expectConsistent(trip.id);
+    expect(await scheduleParkedDayPlanItemForTripDay({ userId: user.id, tripId: trip.id, tripDayId: days[2].id, itemId: a.item.id })).toMatchObject({ status: "scheduled" });
     await expectConsistent(trip.id);
 
     await swapDayPlanItemsBetweenTripDays({ userId: user.id, tripId: trip.id, firstTripDayId: days[1].id, secondTripDayId: days[2].id });
