@@ -80,6 +80,15 @@ simply off without a key. Full table in
 | `ANTHROPIC_MODEL` | Optional. Model for the suggestions; defaults to `claude-sonnet-5-5`. |
 | `AI_SUGGESTIONS_DAILY_LIMIT` | Optional. Searches per user per server-local day; defaults to `20`. |
 
+Since Story 8.7, every AI day search that reaches Claude records what it consumed: the token counts,
+the web searches, the outcome and the duration, but never the wish, the trip or the answer. Admins
+see these numbers month by month at `/admin/ai-usage` ("AI usage" in the header menu). The page also
+shows an **estimated** cost in USD, computed from the price table in `src/lib/ai/config.ts`. The
+Anthropic console is the actual bill. Each request uses prompt caching, so the page also shows how
+much input was read from the cache. No new variable is needed. If `ANTHROPIC_MODEL` names a model
+the price table does not list, its searches are still counted, and the page says the estimate is
+incomplete.
+
 ### The media root
 
 Since Story 8.3, uploaded photos and documents are **not** served as static files. They live outside

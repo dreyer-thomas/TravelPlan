@@ -34,6 +34,14 @@ export const PreferredLanguage = {
 export type PreferredLanguage = (typeof PreferredLanguage)[keyof typeof PreferredLanguage]
 
 
+export const AiUsageOutcome = {
+  ok: 'ok',
+  failed: 'failed'
+} as const
+
+export type AiUsageOutcome = (typeof AiUsageOutcome)[keyof typeof AiUsageOutcome]
+
+
 export const AccommodationStatus = {
   PLANNED: 'PLANNED',
   BOOKED: 'BOOKED'

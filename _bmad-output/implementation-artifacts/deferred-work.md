@@ -3885,3 +3885,15 @@ severity: medium
 summary: An apply of suggestions recomputes the day, and the recompute turns a legacy FIXED row without times FLEXIBLE (13.4 test "A seed without times sorts after Lunch"). The receipt lists it in `movedItems`, but a moved entry carries only times, sortOrder and stamps, so undo restores those and leaves `scheduleMode` FLEXIBLE (and any duration the recompute set). The database does not equal its state before the apply, contrary to the 13.4/14.3 undo promise.
 evidence: Reproduced on 2026-10-19: a FIXED "Someday" seed with null times plus a mixed apply, then undo; the whole-DB `toEqual` differs only in `scheduleMode` FIXED → FLEXIBLE. Pre-existing since 13.4, not caused by parking. A fix adds `previousScheduleMode` (and `previousDurationMinutes`) to the moved entry, optional for older receipts.
 status: open
+
+## Deferred from: code review of 8-7-what-the-ai-searches-cost (2026-10-19)
+
+### DW-402: dev.db checksum drift makes `prisma migrate dev` demand a reset
+
+source_spec: `_bmad-output/implementation-artifacts/8-7-what-the-ai-searches-cost.md`
+origin: code review of 8-7-what-the-ai-searches-cost, 2026-10-19
+location: `travelplan/prisma/migrations/20260308120020_add_cost_payments/`, `travelplan/prisma/dev.db`
+severity: low
+summary: `20260308120020_add_cost_payments` no longer matches the checksum recorded in dev.db's `_prisma_migrations`, so `prisma migrate dev` (and `--create-only`) wants to reset dev.db. 8.7 worked around it with `prisma migrate diff` plus `migrate deploy`. A diff against dev.db also carries old, unrelated CHECK-constraint drift.
+evidence: 8.7 Completion Notes (migration bullet). Pre-existing, not caused by 8.7. A fix re-baselines dev.db's checksum (`prisma migrate resolve`) or rebuilds dev.db from migrations, after a backup.
+status: open

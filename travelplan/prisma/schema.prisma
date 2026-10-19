@@ -34,6 +34,11 @@ enum PreferredLanguage {
   de
 }
 
+enum AiUsageOutcome {
+  ok
+  failed
+}
+
 enum AccommodationStatus {
   PLANNED
   BOOKED
@@ -78,6 +83,7 @@ model User {
   passwordResetTokens PasswordResetToken[]
   memberships        TripMember[]
   trips        Trip[]
+  aiUsageRecords AiUsageRecord[]
 
   @@map("users")
 }
@@ -338,4 +344,31 @@ model DayPlanItemDocument {
   @@index([dayPlanItemId], map: "idx_day_plan_item_documents_item_id")
   @@unique([dayPlanItemId, sortOrder], map: "idx_day_plan_item_documents_order")
   @@map("day_plan_item_documents")
+}
+
+// Story 8.7. One row per AI day search that reached Claude: what it consumed, never what it asked or
+// answered - no prompt, wish, place, trip or day (Story 12.1's privacy rule). Cost is computed at display
+// time from these counts and the price table in `src/lib/ai/config.ts`, so no price is stored.
+//
+// The only `SetNull` relation in this schema, on purpose: everything else cascades, but a deleted
+// account's searches were still paid for, so the rows stay (with `user_id` cleared) and a month's totals
+// do not shrink when an account goes.
+model AiUsageRecord {
+  id                       String         @id @default(cuid()) @map("id")
+  createdAt                DateTime       @default(now()) @map("created_at")
+  userId                   String?        @map("user_id")
+  model                    String         @map("model")
+  outcome                  AiUsageOutcome @map("outcome")
+  durationMs               Int            @map("duration_ms")
+  inputTokens              Int            @default(0) @map("input_tokens")
+  cacheCreationInputTokens Int            @default(0) @map("cache_creation_input_tokens")
+  cacheReadInputTokens     Int            @default(0) @map("cache_read_input_tokens")
+  outputTokens             Int            @default(0) @map("output_tokens")
+  webSearchRequests        Int            @default(0) @map("web_search_requests")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt], map: "ai_usage_records_created_at_idx")
+  @@index([userId], map: "ai_usage_records_user_id_idx")
+  @@map("ai_usage_records")
 }

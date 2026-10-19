@@ -12,6 +12,8 @@ const en: Dictionary = {
   // Story 5.10, AC2. Names the surface rather than the role - "Administration" alone would not say what
   // this administers, and the row is only ever shown to somebody who already is one.
   "header.userAdmin": "User administration",
+  // Story 8.7. The second admin-only row, directly after the user administration.
+  "header.aiUsage": "AI usage",
   "language.label": "Language",
   "language.saveError": "Unable to save language preference.",
   "language.en": "English",
@@ -1006,6 +1008,33 @@ const en: Dictionary = {
   "users.registered.empty": "No accounts registered yet.",
   "users.registered.loadError": "Unable to load registered users. Please refresh.",
   "users.registered.forbidden": "Only trip owners can view registered users.",
+  // Story 8.7. The AI usage page (/admin/ai-usage).
+  "admin.aiUsage.title": "AI usage",
+  "admin.aiUsage.subtitle": "What the AI day searches consumed, month by month",
+  "admin.aiUsage.monthLabel": "Month",
+  "admin.aiUsage.searches": "Searches",
+  "admin.aiUsage.failedCount": "{count} failed",
+  "admin.aiUsage.estimatedCost": "Estimated cost",
+  "admin.aiUsage.costPerSearch": "Per search",
+  "admin.aiUsage.cacheReadShare": "Read from cache",
+  "admin.aiUsage.webSearches": "Web searches",
+  "admin.aiUsage.tokensHeading": "Tokens",
+  "admin.aiUsage.tokenKind": "Kind",
+  "admin.aiUsage.tokenCount": "Tokens",
+  "admin.aiUsage.inputTokens": "Input",
+  "admin.aiUsage.cacheWriteTokens": "Written to cache",
+  "admin.aiUsage.cacheReadTokens": "Read from cache",
+  "admin.aiUsage.outputTokens": "Output",
+  "admin.aiUsage.perUserHeading": "By account",
+  "admin.aiUsage.account": "Account",
+  "admin.aiUsage.deletedAccount": "Deleted account",
+  "admin.aiUsage.empty": "No AI searches in this month.",
+  "admin.aiUsage.loadError": "Unable to load AI usage. Please refresh.",
+  "admin.aiUsage.forbidden": "AI usage is only available to administrators.",
+  "admin.aiUsage.estimateNote": "An estimate from the recorded token counts and Anthropic's list prices, in US dollars. The Anthropic console shows the actual bill.",
+  "admin.aiUsage.unpricedModel": "The estimate is incomplete: there is no price for model {model}, so its searches are counted but not priced.",
+  "admin.aiUsage.notAvailable": "–",
+  "admin.aiUsage.costIncomplete": "Incomplete: some searches have no price",
   // Story 5.10. An `admin.` namespace rather than more `users.registered.*`, because the two surfaces are
   // deliberately kept apart: `/users` stays the read-only list Story 5.8 built for trip owners deciding
   // whom to invite, and this is the administration of accounts, behind `ADMIN`. Sharing a key prefix would

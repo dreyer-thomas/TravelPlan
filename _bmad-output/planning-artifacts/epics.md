@@ -3996,6 +3996,43 @@ So that the day is planned in one step and I can take it back if it is wrong.
 **Given** tests
 **Then** they cover the ordering for both cases, the time chain from check-out, from the 10:00 default, from 09:00 on a first day and after existing activities, the OSRM fallback, a failed image download, and undo.
 
+
+### Story 12.5: Search Before Suggesting
+
+As someone asking for ideas for a day,
+I want the suggestions to be checked against the web for that date,
+So that what I get is open, actually taking place, and not a guess from the model's memory.
+
+**FRs covered:** FR45 (the existing promise of 12.1: opening hours, closures and events on the given date)
+
+**Depends on:** Story 8.7 (its usage records are the measurement). **Origin:** Story 8.7's real run and spike, with Tommy, 2026-10-19.
+
+**Context:** Story 8.7's usage records showed that the day search **has never used web search**: 0 web searches in all 5 real searches, 3-9 s each. Story 12.1's Task 1.2 spike (structured output together with web search) was never run because there was no key. The API accepts the combination, but with `effort: "medium"`, `output_config.format` and `web_search_20260209`'s default `allowed_callers` (dynamic filtering through code execution), the model never searches. A spike on 2026-10-19 (one run per variant, same real prompt, Berlin, "Konzerte oder Sonderausstellungen an diesem Tag"):
+
+| Variant | Web searches | Duration | Est. cost (Sonnet 5.5) |
+|---|---|---|---|
+| today (format, medium, default callers) | 0 | 13 s | ~$0.03 |
+| without format | 5 | 36 s | ~$0.10 |
+| format + `allowed_callers: ["direct"]` | 2 | 22 s | ~$0.09 |
+| format + `effort: "high"` | 5 | 37 s | ~$0.09 |
+| without format + direct | 2 | 19 s | ~$0.10 |
+
+With searching on, a search costs roughly three times what it costs today, and two or more cents of it are the web search fee itself ($10 per 1,000). **Tommy wants Haiku 5.5 checked as well** (Story 8.7 left it out deliberately). Its token prices are a twentieth of Sonnet 5.5's ($0.10 input / $0.50 output per MTok, 2026-10-19), so on Haiku the web search fee would dominate. Constraints from 8.7's context: `web_search_20260209` returns 400 on Haiku, so it needs `web_search_20250305` (no dynamic filtering, unfiltered results in the context), and Haiku has higher prices above 100k prompt tokens.
+
+**Acceptance Criteria:**
+
+**Given** the candidates (at least: format + direct callers on Sonnet, format + `effort: "high"` on Sonnet, and Haiku 5.5 with `web_search_20250305`)
+**When** each is run at least three times on the same few real wishes
+**Then** web searches, duration, estimated cost (8.7's records and price table) and the quality of the suggestions (judged by Tommy: open that day, actually taking place) are written down side by side, and **Tommy picks one**
+
+**Given** the chosen variant
+**Then** a normal day search makes at least one web search, and 8.7's page shows it (`web_search_requests > 0`)
+**And** the whole search stays within the 60 s deadline in the runs measured
+**And** if the model changes, `AI_MODEL_PRICES` has an entry for it, checked against Anthropic's pricing page with a date
+
+**Given** Story 8.7's caching
+**Then** the comparison also shows `cache_read_input_tokens` per variant, so the top-level `cache_control` is kept only if it pays off with the chosen variant
+
 ## Epic 13: Days Planned by Duration
 
 Users say how long they want to spend somewhere and the app works out when; only bookings keep a fixed time, and the app says plainly when the day no longer adds up.

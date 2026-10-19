@@ -26,7 +26,7 @@
 export type AuthMenuItem =
   | {
       kind: "destination";
-      key: "trips" | "admin" | "login" | "register";
+      key: "trips" | "admin" | "aiUsage" | "login" | "register";
       labelKey: string;
       href: string;
     }
@@ -87,8 +87,15 @@ export const getAuthMenuItems = ({ isAuthenticated, isAdmin }: AuthMenuState): A
       //
       // Hiding the row is presentation only. The page re-reads the role and every `/api/admin/*` route
       // calls `requireAdmin` - a menu that merely omits an option is not a guard.
+      //
+      // Story 8.7 adds the second admin destination, `/admin/ai-usage`, inside the same gate and directly
+      // after the first, so "who sees it" stays the one expression above. The page and its API guard
+      // themselves the same way.
       ...(isAdmin
-        ? [{ kind: "destination" as const, key: "admin" as const, labelKey: "header.userAdmin", href: "/admin/users" }]
+        ? [
+            { kind: "destination" as const, key: "admin" as const, labelKey: "header.userAdmin", href: "/admin/users" },
+            { kind: "destination" as const, key: "aiUsage" as const, labelKey: "header.aiUsage", href: "/admin/ai-usage" },
+          ]
         : []),
       { kind: "action", key: "logout", labelKey: "auth.logout" },
     ];

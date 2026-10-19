@@ -63,7 +63,14 @@ describe("getAuthMenuItems", () => {
     it("offers the administration destination to an admin, above sign out", () => {
       const items = getAuthMenuItems({ isAuthenticated: true, isAdmin: true });
 
-      expect(items.map((item) => item.key)).toEqual(["trips", "admin", "logout"]);
+      // Story 8.7 added the AI usage row directly after it.
+      expect(items.map((item) => item.key)).toEqual(["trips", "admin", "aiUsage", "logout"]);
+    });
+
+    it("points the AI usage row at its page (Story 8.7)", () => {
+      const aiUsage = getAuthMenuItems({ isAuthenticated: true, isAdmin: true }).find((item) => item.key === "aiUsage");
+
+      expect(aiUsage).toEqual({ kind: "destination", key: "aiUsage", labelKey: "header.aiUsage", href: "/admin/ai-usage" });
     });
 
     it("points it at the administration page", () => {

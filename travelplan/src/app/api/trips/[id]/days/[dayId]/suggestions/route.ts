@@ -9,7 +9,8 @@ import { dayRouteParamsSchema } from "@/lib/validation/dayRouteSchemas";
 import { suggestionsRequestSchema } from "@/lib/validation/daySuggestionSchemas";
 import { isAiSuggestionsEnabled } from "@/lib/ai/config";
 import { consumeDailySearch } from "@/lib/ai/dailyLimit";
-import { AiSuggestionError, requestDaySuggestions } from "@/lib/ai/daySuggestionService";
+import { AiSuggestionError, requestDaySuggestions, type AiSearchUsage } from "@/lib/ai/daySuggestionService";
+import { createAiUsageRecord } from "@/lib/repositories/aiUsageRepo";
 import { verifySuggestionLocations } from "@/lib/ai/verifySuggestions";
 import { attachSuggestionImages } from "@/lib/ai/suggestionImages";
 
@@ -31,6 +32,10 @@ import { attachSuggestionImages } from "@/lib/ai/suggestionImages";
  * to eight more (`suggestionImages.ts`, Story 12.2). With the model's 60 s that is at most 78 s, inside
  * the reverse proxy's 90 s read timeout (`docs/deployment-configuration.md`). No `maxDuration` is
  * exported: the app is self-hosted and sets none anywhere.
+ *
+ * Story 8.7: every search that reaches the model call leaves one usage record (counts only, no wish, trip
+ * or day), written as soon as the model call settles - before verification - whether it succeeded or not,
+ * and a failed write never changes the answer.
  */
 
 export const runtime = "nodejs";
@@ -46,6 +51,18 @@ const requireCsrf = (request: NextRequest) => {
   const csrfCookie = request.cookies.get(CSRF_COOKIE_NAME)?.value;
   const csrfHeader = request.headers.get("x-csrf-token") ?? undefined;
   return validateCsrf(csrfCookie, csrfHeader);
+};
+
+/** Awaited, but never thrown: a lost usage row must not cost the user their answer (or their `ai_failed`). */
+const recordUsage = async (userId: string, usage: AiSearchUsage | null) => {
+  if (!usage) {
+    return;
+  }
+  try {
+    await createAiUsageRecord(userId, usage);
+  } catch (error) {
+    console.error("day suggestions: usage record failed", { name: error instanceof Error ? error.name : typeof error });
+  }
 };
 
 const parseJson = async (request: NextRequest) => {
@@ -102,12 +119,21 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
   }
 
   try {
-    const suggestions = await requestDaySuggestions({
-      context: dayContext,
-      prompt: parsedBody.data.prompt,
-      mode: parsedBody.data.mode,
-      signal: request.signal,
-    });
+    let usage: AiSearchUsage | null = null;
+    let suggestions: Awaited<ReturnType<typeof requestDaySuggestions>>;
+    try {
+      suggestions = await requestDaySuggestions({
+        context: dayContext,
+        prompt: parsedBody.data.prompt,
+        mode: parsedBody.data.mode,
+        signal: request.signal,
+        onUsage: (reported) => {
+          usage = reported;
+        },
+      });
+    } finally {
+      await recordUsage(userId, usage);
+    }
     const verified = await verifySuggestionLocations(suggestions, { signal: request.signal });
     // `attachSuggestionImages` answers `images: []` on any failure, its own bugs included. This catch keeps
     // that true at the route too, so an image problem can never reach the catch below and turn a paid

@@ -409,7 +409,8 @@ export const ModelName = {
   AccommodationImage: 'AccommodationImage',
   DayPlanItemImage: 'DayPlanItemImage',
   AccommodationDocument: 'AccommodationDocument',
-  DayPlanItemDocument: 'DayPlanItemDocument'
+  DayPlanItemDocument: 'DayPlanItemDocument',
+  AiUsageRecord: 'AiUsageRecord'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -425,7 +426,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "passwordResetToken" | "trip" | "tripMember" | "tripDay" | "travelSegment" | "accommodation" | "dayPlanItem" | "costPayment" | "accommodationImage" | "dayPlanItemImage" | "accommodationDocument" | "dayPlanItemDocument"
+    modelProps: "user" | "passwordResetToken" | "trip" | "tripMember" | "tripDay" | "travelSegment" | "accommodation" | "dayPlanItem" | "costPayment" | "accommodationImage" | "dayPlanItemImage" | "accommodationDocument" | "dayPlanItemDocument" | "aiUsageRecord"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -1391,6 +1392,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    AiUsageRecord: {
+      payload: Prisma.$AiUsageRecordPayload<ExtArgs>
+      fields: Prisma.AiUsageRecordFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.AiUsageRecordFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AiUsageRecordPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.AiUsageRecordFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AiUsageRecordPayload>
+        }
+        findFirst: {
+          args: Prisma.AiUsageRecordFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AiUsageRecordPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.AiUsageRecordFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AiUsageRecordPayload>
+        }
+        findMany: {
+          args: Prisma.AiUsageRecordFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AiUsageRecordPayload>[]
+        }
+        create: {
+          args: Prisma.AiUsageRecordCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AiUsageRecordPayload>
+        }
+        createMany: {
+          args: Prisma.AiUsageRecordCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.AiUsageRecordCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AiUsageRecordPayload>[]
+        }
+        delete: {
+          args: Prisma.AiUsageRecordDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AiUsageRecordPayload>
+        }
+        update: {
+          args: Prisma.AiUsageRecordUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AiUsageRecordPayload>
+        }
+        deleteMany: {
+          args: Prisma.AiUsageRecordDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.AiUsageRecordUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.AiUsageRecordUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AiUsageRecordPayload>[]
+        }
+        upsert: {
+          args: Prisma.AiUsageRecordUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AiUsageRecordPayload>
+        }
+        aggregate: {
+          args: Prisma.AiUsageRecordAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateAiUsageRecord>
+        }
+        groupBy: {
+          args: Prisma.AiUsageRecordGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AiUsageRecordGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.AiUsageRecordCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AiUsageRecordCountAggregateOutputType> | number
+        }
+      }
+    }
   }
 } & {
   other: {
@@ -1634,6 +1709,23 @@ export const DayPlanItemDocumentScalarFieldEnum = {
 export type DayPlanItemDocumentScalarFieldEnum = (typeof DayPlanItemDocumentScalarFieldEnum)[keyof typeof DayPlanItemDocumentScalarFieldEnum]
 
 
+export const AiUsageRecordScalarFieldEnum = {
+  id: 'id',
+  createdAt: 'createdAt',
+  userId: 'userId',
+  model: 'model',
+  outcome: 'outcome',
+  durationMs: 'durationMs',
+  inputTokens: 'inputTokens',
+  cacheCreationInputTokens: 'cacheCreationInputTokens',
+  cacheReadInputTokens: 'cacheReadInputTokens',
+  outputTokens: 'outputTokens',
+  webSearchRequests: 'webSearchRequests'
+} as const
+
+export type AiUsageRecordScalarFieldEnum = (typeof AiUsageRecordScalarFieldEnum)[keyof typeof AiUsageRecordScalarFieldEnum]
+
+
 export const SortOrder = {
   asc: 'asc',
   desc: 'desc'
@@ -1737,6 +1829,13 @@ export type EnumAccommodationStatusFieldRefInput<$PrismaModel> = FieldRefInputTy
  * Reference to a field of type 'DayPlanItemScheduleMode'
  */
 export type EnumDayPlanItemScheduleModeFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'DayPlanItemScheduleMode'>
+    
+
+
+/**
+ * Reference to a field of type 'AiUsageOutcome'
+ */
+export type EnumAiUsageOutcomeFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'AiUsageOutcome'>
     
 
 /**
@@ -1903,6 +2002,7 @@ export type GlobalOmitConfig = {
   dayPlanItemImage?: Prisma.DayPlanItemImageOmit
   accommodationDocument?: Prisma.AccommodationDocumentOmit
   dayPlanItemDocument?: Prisma.DayPlanItemDocumentOmit
+  aiUsageRecord?: Prisma.AiUsageRecordOmit
 }
 
 /* Types for Logging */

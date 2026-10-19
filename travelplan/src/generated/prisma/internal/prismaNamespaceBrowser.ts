@@ -63,7 +63,8 @@ export const ModelName = {
   AccommodationImage: 'AccommodationImage',
   DayPlanItemImage: 'DayPlanItemImage',
   AccommodationDocument: 'AccommodationDocument',
-  DayPlanItemDocument: 'DayPlanItemDocument'
+  DayPlanItemDocument: 'DayPlanItemDocument',
+  AiUsageRecord: 'AiUsageRecord'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -284,6 +285,23 @@ export const DayPlanItemDocumentScalarFieldEnum = {
 } as const
 
 export type DayPlanItemDocumentScalarFieldEnum = (typeof DayPlanItemDocumentScalarFieldEnum)[keyof typeof DayPlanItemDocumentScalarFieldEnum]
+
+
+export const AiUsageRecordScalarFieldEnum = {
+  id: 'id',
+  createdAt: 'createdAt',
+  userId: 'userId',
+  model: 'model',
+  outcome: 'outcome',
+  durationMs: 'durationMs',
+  inputTokens: 'inputTokens',
+  cacheCreationInputTokens: 'cacheCreationInputTokens',
+  cacheReadInputTokens: 'cacheReadInputTokens',
+  outputTokens: 'outputTokens',
+  webSearchRequests: 'webSearchRequests'
+} as const
+
+export type AiUsageRecordScalarFieldEnum = (typeof AiUsageRecordScalarFieldEnum)[keyof typeof AiUsageRecordScalarFieldEnum]
 
 
 export const SortOrder = {

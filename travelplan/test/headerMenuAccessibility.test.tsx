@@ -351,10 +351,10 @@ describe("HeaderMenu rows declare the 44px floor at a specificity that survives 
     await user.click(trigger);
 
     const rows = within(headerMenuElement()).getAllByRole("menuitem");
-    // Language, trips, user administration, sign out - the admin row included, because it is the
-    // privileged navigation target DW-180 singles out as holding the floor on a phone and losing it on
-    // every desktop.
-    expect(rows).toHaveLength(4);
+    // Language, trips, user administration, AI usage (Story 8.7), sign out - the admin rows included,
+    // because they are the privileged navigation targets DW-180 singles out as holding the floor on a
+    // phone and losing it on every desktop.
+    expect(rows).toHaveLength(5);
     for (const row of rows) expectFloor(row);
   });
 

@@ -29,12 +29,22 @@ vi.mock("@/lib/ai/suggestionImages", async () => {
   };
 });
 
+vi.mock("@/lib/repositories/aiUsageRepo", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/repositories/aiUsageRepo")>("@/lib/repositories/aiUsageRepo");
+  return {
+    ...actual,
+    createAiUsageRecord: vi.fn(actual.createAiUsageRecord),
+  };
+});
+
 import Anthropic from "@anthropic-ai/sdk";
-import { AiSuggestionError, requestDaySuggestions } from "@/lib/ai/daySuggestionService";
+import { AiSuggestionError, requestDaySuggestions, type AiSearchUsage } from "@/lib/ai/daySuggestionService";
+import { createAiUsageRecord } from "@/lib/repositories/aiUsageRepo";
 import { verifySuggestionLocations } from "@/lib/ai/verifySuggestions";
 import { attachSuggestionImages } from "@/lib/ai/suggestionImages";
 
 const actualService = await vi.importActual<typeof import("@/lib/ai/daySuggestionService")>("@/lib/ai/daySuggestionService");
+const actualUsageRepo = await vi.importActual<typeof import("@/lib/repositories/aiUsageRepo")>("@/lib/repositories/aiUsageRepo");
 const actualVerify = await vi.importActual<typeof import("@/lib/ai/verifySuggestions")>("@/lib/ai/verifySuggestions");
 
 /**
@@ -159,6 +169,8 @@ describe("POST /api/trips/[id]/days/[dayId]/suggestions", () => {
     vi.mocked(attachSuggestionImages).mockImplementation(async (suggestions) =>
       suggestions.map((suggestion) => ({ ...suggestion, images: [] })),
     );
+    vi.mocked(createAiUsageRecord).mockImplementation(actualUsageRepo.createAiUsageRecord);
+    await prisma.aiUsageRecord.deleteMany();
     await prisma.dayPlanItem.deleteMany();
     await prisma.accommodation.deleteMany();
     await prisma.tripDay.deleteMany();
@@ -456,5 +468,151 @@ describe("POST /api/trips/[id]/days/[dayId]/suggestions", () => {
     expect(status).toBe(500);
     expect(body.error?.code).toBe("server_error");
     errorSpy.mockRestore();
+  });
+
+  describe("usage record (Story 8.7)", () => {
+    const usage = (outcome: "ok" | "failed"): AiSearchUsage => ({
+      model: "claude-sonnet-5-5",
+      outcome,
+      durationMs: 1234,
+      inputTokens: 1000,
+      cacheCreationInputTokens: 500,
+      cacheReadInputTokens: 2000,
+      outputTokens: 300,
+      webSearchRequests: 3,
+    });
+
+    /** The real service reports from its `finally`; the mock does the same before it settles. */
+    const reportingThen = (outcome: "ok" | "failed", settle: () => Promise<ReturnType<typeof threeSuggestions>>) =>
+      vi.mocked(requestDaySuggestions).mockImplementationOnce(async ({ onUsage }) => {
+        try {
+          return await settle();
+        } finally {
+          onUsage?.(usage(outcome));
+        }
+      });
+
+    it("stores one ok row for the caller after a successful search", async () => {
+      const { owner, trip, days } = await seedTrip();
+      reportingThen("ok", async () => threeSuggestions());
+
+      const { status } = await call(trip.id, days[0].id, { session: await sessionFor(owner) });
+
+      expect(status).toBe(200);
+      const rows = await prisma.aiUsageRecord.findMany();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ userId: owner.id, ...usage("ok") });
+    });
+
+    it("stores no column that could carry the wish, the trip or the day", async () => {
+      const { owner, trip, days } = await seedTrip();
+      reportingThen("ok", async () => threeSuggestions());
+
+      await call(trip.id, days[0].id, { session: await sessionFor(owner), body: { prompt: "a secret wish", mode: "car" } });
+
+      const [row] = await prisma.aiUsageRecord.findMany();
+      expect(Object.keys(row).sort()).toEqual(
+        [
+          "cacheCreationInputTokens",
+          "cacheReadInputTokens",
+          "createdAt",
+          "durationMs",
+          "id",
+          "inputTokens",
+          "model",
+          "outcome",
+          "outputTokens",
+          "userId",
+          "webSearchRequests",
+        ].sort(),
+      );
+      const stored = JSON.stringify(row);
+      expect(stored).not.toContain("a secret wish");
+      expect(stored).not.toContain(trip.id);
+      expect(stored).not.toContain(days[0].id);
+    });
+
+    it("stores one failed row after ai_failed, and the 502 is unchanged", async () => {
+      const { owner, trip, days } = await seedTrip();
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      reportingThen("failed", async () => {
+        throw new AiSuggestionError("ai_failed", "Unable to get suggestions right now");
+      });
+
+      const { status, body } = await call(trip.id, days[0].id, { session: await sessionFor(owner) });
+
+      expect(status).toBe(502);
+      expect(body).toEqual({ data: null, error: { code: "ai_failed", message: "Unable to get suggestions right now" } });
+      const rows = await prisma.aiUsageRecord.findMany();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ userId: owner.id, outcome: "failed" });
+      errorSpy.mockRestore();
+    });
+
+    it("writes the row before verification runs, so a verification bug still leaves it", async () => {
+      const { owner, trip, days } = await seedTrip();
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      reportingThen("ok", async () => threeSuggestions());
+      vi.mocked(verifySuggestionLocations).mockRejectedValueOnce(new TypeError("verify bug"));
+
+      const { status } = await call(trip.id, days[0].id, { session: await sessionFor(owner) });
+
+      expect(status).toBe(500);
+      expect(await prisma.aiUsageRecord.count()).toBe(1);
+      errorSpy.mockRestore();
+    });
+
+    it("stores nothing for ai_unavailable, a viewer, an invalid body or ai_limit_reached", async () => {
+      process.env.AI_SUGGESTIONS_DAILY_LIMIT = "1";
+      const { owner, trip, days } = await seedTrip();
+      const session = await sessionFor(owner);
+      const viewer = await addMember(trip.id, "VIEWER");
+      vi.mocked(requestDaySuggestions).mockImplementation(async ({ onUsage }) => {
+        onUsage?.(usage("ok"));
+        return threeSuggestions();
+      });
+
+      delete process.env.ANTHROPIC_API_KEY;
+      expect((await call(trip.id, days[0].id, { session })).status).toBe(503);
+      process.env.ANTHROPIC_API_KEY = "sk-ant-test-key";
+      expect((await call(trip.id, days[0].id, { session: await sessionFor(viewer) })).status).toBe(403);
+      expect((await call(trip.id, days[0].id, { session, body: { prompt: "", mode: "car" } })).status).toBe(400);
+      expect(await prisma.aiUsageRecord.count()).toBe(0);
+
+      expect((await call(trip.id, days[0].id, { session })).status).toBe(200);
+      expect((await call(trip.id, days[0].id, { session })).status).toBe(429);
+      expect(await prisma.aiUsageRecord.count()).toBe(1);
+    });
+
+    it("still answers 200 with the suggestions when the record cannot be written, logging the class name only", async () => {
+      const { owner, trip, days } = await seedTrip();
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      reportingThen("ok", async () => threeSuggestions());
+      vi.mocked(createAiUsageRecord).mockRejectedValueOnce(new RangeError("db detail museums"));
+
+      const { status, body } = await call(trip.id, days[0].id, { session: await sessionFor(owner) });
+
+      expect(status).toBe(200);
+      expect(body.data?.suggestions).toHaveLength(3);
+      expect(errorSpy).toHaveBeenCalledWith("day suggestions: usage record failed", { name: "RangeError" });
+      expect(JSON.stringify(errorSpy.mock.calls)).not.toContain("db detail");
+      expect(await prisma.aiUsageRecord.count()).toBe(0);
+      errorSpy.mockRestore();
+    });
+
+    it("still answers 502 ai_failed when the record cannot be written either", async () => {
+      const { owner, trip, days } = await seedTrip();
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      reportingThen("failed", async () => {
+        throw new AiSuggestionError("ai_failed", "Unable to get suggestions right now");
+      });
+      vi.mocked(createAiUsageRecord).mockRejectedValueOnce(new RangeError("db down"));
+
+      const { status, body } = await call(trip.id, days[0].id, { session: await sessionFor(owner) });
+
+      expect(status).toBe(502);
+      expect(body.error?.code).toBe("ai_failed");
+      errorSpy.mockRestore();
+    });
   });
 });

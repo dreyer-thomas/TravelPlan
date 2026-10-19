@@ -37,6 +37,18 @@ import {
  * paused after two resumes, and an answer that fails our schema all become `ai_failed` with a generic
  * message - no upstream text, prompt or key goes into it. Anything else is a bug and is rethrown, so the
  * route answers 500 rather than blaming the model.
+ *
+ * **Caching (Story 8.7).** Every request, the first and each resumption, carries top-level
+ * `cache_control: { type: "ephemeral" }`, which puts the cache marker on the last cacheable block. Inside
+ * one search the server-side web search loop re-reads its own growing context, and those re-reads can then
+ * bill as cache reads. Nothing that varies per request is moved into `system` for this - the prompt module
+ * is unchanged.
+ *
+ * **Usage (Story 8.7).** `response.usage` of every request that returns is added up *before* anything that
+ * could throw on it (stop reason, JSON, schema), because a response that is then rejected was still paid
+ * for. The `finally` hands the total to `onUsage` exactly once per call, on every exit path - success,
+ * `ai_failed` and a rethrown bug alike - so the caller can record it. This module stays free of the
+ * database; the route owns the write. The usage object carries counts only, never prompt or answer text.
  */
 
 export type AiSuggestionErrorCode = "ai_failed";
@@ -94,6 +106,18 @@ const extractAnswerText = (content: Anthropic.ContentBlock[]) => {
     .trim();
 };
 
+/** What one search consumed (Story 8.7): counts only, summed over the request and its resumptions. */
+export type AiSearchUsage = {
+  model: string;
+  outcome: "ok" | "failed";
+  durationMs: number;
+  inputTokens: number;
+  cacheCreationInputTokens: number;
+  cacheReadInputTokens: number;
+  outputTokens: number;
+  webSearchRequests: number;
+};
+
 const createDefaultClient = () =>
   new Anthropic({ apiKey: getAnthropicApiKey(), maxRetries: 0, timeout: SUGGESTION_TIMEOUT_MS });
 
@@ -103,15 +127,27 @@ export const requestDaySuggestions = async ({
   mode,
   client = createDefaultClient(),
   signal,
+  onUsage,
 }: {
   context: DaySuggestionContext;
   prompt: string;
   mode: SuggestionMode;
   client?: Anthropic;
   signal?: AbortSignal;
+  onUsage?: (usage: AiSearchUsage) => void;
 }): Promise<ModelDaySuggestion[]> => {
   const { system, user } = buildSuggestionPrompt(context, { prompt, mode });
+  // Read once, so the record names the model every request of this search was sent to.
+  const model = getAnthropicModel();
   const startedAt = Date.now();
+  const totals = {
+    inputTokens: 0,
+    cacheCreationInputTokens: 0,
+    cacheReadInputTokens: 0,
+    outputTokens: 0,
+    webSearchRequests: 0,
+  };
+  let succeeded = false;
   const deadline = new AbortController();
   const timer = setTimeout(() => {
     deadline.abort();
@@ -132,12 +168,13 @@ export const requestDaySuggestions = async ({
     for (;;) {
       response = await client.messages.create(
         {
-          model: getAnthropicModel(),
+          model,
           max_tokens: 16000,
           system,
           messages: [...messages],
           tools: [WEB_SEARCH_TOOL],
           output_config: { effort: "medium", format: zodOutputFormat(modelSuggestionsSchema) },
+          cache_control: { type: "ephemeral" },
         },
         {
           signal: deadline.signal,
@@ -145,6 +182,15 @@ export const requestDaySuggestions = async ({
           maxRetries: 0,
         },
       );
+
+      // Counted before any check below can throw: a response we then reject was still paid for. Read
+      // defensively - `usage` is always present on the real API, the cache and tool fields may be null.
+      const usage = response.usage as Partial<Anthropic.Usage> | undefined;
+      totals.inputTokens += usage?.input_tokens ?? 0;
+      totals.cacheCreationInputTokens += usage?.cache_creation_input_tokens ?? 0;
+      totals.cacheReadInputTokens += usage?.cache_read_input_tokens ?? 0;
+      totals.outputTokens += usage?.output_tokens ?? 0;
+      totals.webSearchRequests += usage?.server_tool_use?.web_search_requests ?? 0;
 
       if (response.stop_reason !== "pause_turn") {
         break;
@@ -173,6 +219,7 @@ export const requestDaySuggestions = async ({
     if (!parsed.success) {
       throw fail();
     }
+    succeeded = true;
     return parsed.data.suggestions;
   } catch (error) {
     if (error instanceof AiSuggestionError) {
@@ -190,5 +237,11 @@ export const requestDaySuggestions = async ({
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener("abort", forwardAbort);
+    // Guarded: recording what a search cost must never replace its result or its error.
+    try {
+      onUsage?.({ model, outcome: succeeded ? "ok" : "failed", durationMs: Date.now() - startedAt, ...totals });
+    } catch {
+      // The caller's own failure; it logs what it needs.
+    }
   }
 };

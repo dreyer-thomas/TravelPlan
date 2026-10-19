@@ -344,6 +344,23 @@ export type EnumDayPlanItemScheduleModeWithAggregatesFilter<$PrismaModel = never
   _max?: Prisma.NestedEnumDayPlanItemScheduleModeFilter<$PrismaModel>
 }
 
+export type EnumAiUsageOutcomeFilter<$PrismaModel = never> = {
+  equals?: $Enums.AiUsageOutcome | Prisma.EnumAiUsageOutcomeFieldRefInput<$PrismaModel>
+  in?: $Enums.AiUsageOutcome[]
+  notIn?: $Enums.AiUsageOutcome[]
+  not?: Prisma.NestedEnumAiUsageOutcomeFilter<$PrismaModel> | $Enums.AiUsageOutcome
+}
+
+export type EnumAiUsageOutcomeWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.AiUsageOutcome | Prisma.EnumAiUsageOutcomeFieldRefInput<$PrismaModel>
+  in?: $Enums.AiUsageOutcome[]
+  notIn?: $Enums.AiUsageOutcome[]
+  not?: Prisma.NestedEnumAiUsageOutcomeWithAggregatesFilter<$PrismaModel> | $Enums.AiUsageOutcome
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumAiUsageOutcomeFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumAiUsageOutcomeFilter<$PrismaModel>
+}
+
 export type NestedStringFilter<$PrismaModel = never> = {
   equals?: string | Prisma.StringFieldRefInput<$PrismaModel>
   in?: string[]
@@ -678,6 +695,23 @@ export type NestedEnumDayPlanItemScheduleModeWithAggregatesFilter<$PrismaModel =
   _count?: Prisma.NestedIntFilter<$PrismaModel>
   _min?: Prisma.NestedEnumDayPlanItemScheduleModeFilter<$PrismaModel>
   _max?: Prisma.NestedEnumDayPlanItemScheduleModeFilter<$PrismaModel>
+}
+
+export type NestedEnumAiUsageOutcomeFilter<$PrismaModel = never> = {
+  equals?: $Enums.AiUsageOutcome | Prisma.EnumAiUsageOutcomeFieldRefInput<$PrismaModel>
+  in?: $Enums.AiUsageOutcome[]
+  notIn?: $Enums.AiUsageOutcome[]
+  not?: Prisma.NestedEnumAiUsageOutcomeFilter<$PrismaModel> | $Enums.AiUsageOutcome
+}
+
+export type NestedEnumAiUsageOutcomeWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.AiUsageOutcome | Prisma.EnumAiUsageOutcomeFieldRefInput<$PrismaModel>
+  in?: $Enums.AiUsageOutcome[]
+  notIn?: $Enums.AiUsageOutcome[]
+  not?: Prisma.NestedEnumAiUsageOutcomeWithAggregatesFilter<$PrismaModel> | $Enums.AiUsageOutcome
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumAiUsageOutcomeFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumAiUsageOutcomeFilter<$PrismaModel>
 }
 
 

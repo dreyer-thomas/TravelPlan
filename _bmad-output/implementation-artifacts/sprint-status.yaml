@@ -1,5 +1,9 @@
 # generated: 2026-03-01 13:08:00 CET
-# last_updated: 2026-10-19 (14-4-one-way-to-another-day DONE via bmad-code-review: 4 patches applied (PLAN_FOOTER_SX docblock, dangling 'move below' repo comment, German render in the no-'anderer Tag' test, comment rewrap), 0 deferred, 17 dismissed. 213 files / 3432 tests, lint 0/79.)
+# last_updated: 2026-10-19 (8-7-what-the-ai-searches-cost DONE via bmad-code-review: 1 decision (AC13 waiver, option 1), 9 patches applied with tests (month picker, months list, year floor, priced per-search cost + incomplete marks, failed count at zero, i18n comment, pinned route-test clock, page test), 1 deferred (DW-402 dev.db checksum drift), 11 dismissed. 218 files / 3497 tests, lint 0/80.)
+# previously: 2026-10-19 (8-7-what-the-ai-searches-cost REVIEW via bmad-dev-story. Real run with Tommy: recording confirmed (4 records, 1 failed). The app NEVER used web search (0 in 5 real searches); a 5-variant spike found that format + medium + default dynamic-filtering callers never searches, while direct callers or effort high do; when searching runs, caching pays within the search (19-31k cache reads). AC13 understood. New 12-5-search-before-suggesting added to epics.md as backlog: compare Sonnet direct / Sonnet effort-high / Haiku 5.5 (Tommy wants Haiku checked for cost), Tommy picks.)
+# previously: 2026-10-19 (8-7-what-the-ai-searches-cost IN-PROGRESS via bmad-dev-story: Tasks 0-12 + gates done (218 files / 3489 tests, lint 0/80, build ok, 5 mutations red). Waiting on AC13 real run with Tommy; migration not yet applied to dev.db (use migrate deploy, NOT migrate dev - it wants a reset over an old checksum drift).)
+# previously: 2026-10-19 (8-7-what-the-ai-searches-cost created via bmad-create-story, ready-for-dev. Top-level cache_control on every request; AiUsageRecord per search that reached Claude (usage summed over pause_turn resumes, written from the route via an onUsage callback in the service's finally, never fails the search); user FK SetNull so deleted accounts keep history; price table in lib/ai/config.ts, cost computed at display in USD; /admin/ai-usage + GET /api/admin/ai-usage behind requireAdmin; header row KI-Nutzung after Nutzerverwaltung. 4 questions with defaults.)
+# previously: 2026-10-19 (14-4-one-way-to-another-day DONE via bmad-code-review: 4 patches applied (PLAN_FOOTER_SX docblock, dangling 'move below' repo comment, German render in the no-'anderer Tag' test, comment rewrap), 0 deferred, 17 dismissed. 213 files / 3432 tests, lint 0/79.)
 # previously: 2026-10-19 (14-4 REVIEW via bmad-dev-story: real run passed (Tommy). Next: code review.)
 # previously: 2026-10-19 (14-4 IN-PROGRESS via bmad-dev-story, baseline dd33e50: Tasks 0-6 and Task 8 gates done - single-activity move removed (dialog, day view, route, repo, schema, 10 keys), media tests re-pointed at park + schedule first. 213 files / 3432 tests, tsc 0 outside the stale .next/dev cache, lint 0/79, build ok without /day-plan-items/move, no migration. Stays in-progress until the real run with Tommy.)
 # previously: 2026-10-19 (14-3 DONE via bmad-code-review: 4 patches applied (receipt message, 3 undo tests), DW-400 and DW-401 deferred. 213 files / 3459 tests, tsc 0, lint 0/79.)
@@ -276,7 +280,7 @@ development_status:
   8-4-media-deletion-that-deletes-only-its-own-file: done
   8-5-travel-segments-that-match-their-day: done
   8-6-the-sixth-route-story-8-4-left-out: done
-  8-7-what-the-ai-searches-cost: backlog
+  8-7-what-the-ai-searches-cost: done
   epic-8-retrospective: optional
 
   epic-9: in-progress
@@ -301,6 +305,7 @@ development_status:
   12-2-pictures-for-each-suggestion: done
   12-3-look-through-the-ideas-and-tick-the-good-ones: done
   12-4-take-them-over-in-visiting-order: done
+  12-5-search-before-suggesting: backlog
   epic-12-retrospective: optional
 
   epic-13: in-progress

@@ -82,3 +82,8 @@ export type AccommodationDocument = Prisma.AccommodationDocumentModel
  * 
  */
 export type DayPlanItemDocument = Prisma.DayPlanItemDocumentModel
+/**
+ * Model AiUsageRecord
+ * 
+ */
+export type AiUsageRecord = Prisma.AiUsageRecordModel

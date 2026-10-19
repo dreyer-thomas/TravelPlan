@@ -63,6 +63,20 @@ describe("HeaderMenu administration entry", () => {
     expect(await screen.findByRole("menuitem", { name: "Nutzerverwaltung" })).toHaveAttribute("href", "/admin/users");
   });
 
+  it("renders the AI usage row directly after the administration row (Story 8.7)", async () => {
+    await openMenu({ isAuthenticated: true, isAdmin: true });
+
+    expect(await screen.findByRole("menuitem", { name: "AI usage" })).toHaveAttribute("href", "/admin/ai-usage");
+    const names = screen.getAllByRole("menuitem").map((item) => item.textContent);
+    expect(names.indexOf("AI usage")).toBe(names.indexOf("User administration") + 1);
+  });
+
+  it("renders the AI usage row in German", async () => {
+    await openMenu({ isAuthenticated: true, isAdmin: true, language: "de" });
+
+    expect(await screen.findByRole("menuitem", { name: "KI-Nutzung" })).toHaveAttribute("href", "/admin/ai-usage");
+  });
+
   /**
    * The three negative cases, and they are the point of the AC. Asserted as the full row list rather than
    * as the absence of one name, so an accidental extra entry fails here too - "everyone else sees the menu
@@ -73,6 +87,7 @@ describe("HeaderMenu administration entry", () => {
 
     expect(await screen.findByRole("menuitem", { name: "All trips" })).toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: "User administration" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "AI usage" })).toBeNull();
   });
 
   it("shows a caller who passes no isAdmin at all the menu unchanged", async () => {
@@ -81,6 +96,7 @@ describe("HeaderMenu administration entry", () => {
     await openMenu({ isAuthenticated: true });
 
     expect(screen.queryByRole("menuitem", { name: "User administration" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "AI usage" })).toBeNull();
   });
 
   it("shows an anonymous visitor nothing extra, even if isAdmin is somehow set", async () => {
