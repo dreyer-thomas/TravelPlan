@@ -7,6 +7,14 @@ import { currentMonthKey, monthRange, monthsBetween, summarizeAiUsage } from "@/
 
 const PRICES: Record<string, AiModelPrice> = {
   priced: { inputPerMTok: 2, outputPerMTok: 10, cacheWritePerMTok: 3, cacheReadPerMTok: 0.5, webSearchPerSearch: 0.01 },
+  tiered: {
+    inputPerMTok: 1,
+    outputPerMTok: 10,
+    cacheWritePerMTok: 2,
+    cacheReadPerMTok: 0.5,
+    webSearchPerSearch: 0.01,
+    longPrompt: { aboveInputTokens: 100_000, inputPerMTok: 5, outputPerMTok: 50, cacheWritePerMTok: 10, cacheReadPerMTok: 2.5 },
+  },
 };
 const getPrice = (model: string) => PRICES[model] ?? null;
 
@@ -71,6 +79,44 @@ describe("summarizeAiUsage", () => {
     expect(summary.estimatedCostUsd).toBeCloseTo(11.04, 10);
     expect(summary.costPerSearchUsd).toBeCloseTo(5.52, 10);
     expect(summary.unpricedModels).toEqual([]);
+  });
+
+  it("keeps the base rate while the record's whole prompt is at or below the long-prompt threshold", () => {
+    // 50K input + 30K write + 20K read = exactly 100K: 0.05 + 0.06 + 0.01 + 0.1M output × 10 = 1 → 1.12, + 1 search
+    const summary = summarizeAiUsage(
+      [
+        row({
+          model: "tiered",
+          inputTokens: 50_000,
+          cacheCreationInputTokens: 30_000,
+          cacheReadInputTokens: 20_000,
+          outputTokens: 100_000,
+          webSearchRequests: 1,
+        }),
+      ],
+      getPrice,
+    );
+
+    expect(summary.estimatedCostUsd).toBeCloseTo(1.13, 10);
+  });
+
+  it("bills every token of the record at the long-prompt rate once its prompt is above the threshold", () => {
+    // 50,001 input + 30K write + 20K read: 0.250005 + 0.3 + 0.05 + 0.1M output × 50 = 5 → 5.600005, + 1 search
+    const summary = summarizeAiUsage(
+      [
+        row({
+          model: "tiered",
+          inputTokens: 50_001,
+          cacheCreationInputTokens: 30_000,
+          cacheReadInputTokens: 20_000,
+          outputTokens: 100_000,
+          webSearchRequests: 1,
+        }),
+      ],
+      getPrice,
+    );
+
+    expect(summary.estimatedCostUsd).toBeCloseTo(5.610005, 10);
   });
 
   it("counts an unpriced model's tokens but not its cost, and names it", () => {

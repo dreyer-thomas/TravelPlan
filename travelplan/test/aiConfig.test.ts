@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { getAnthropicModel, getDailyLimit, isAiSuggestionsEnabled } from "@/lib/ai/config";
+import { getAnthropicModel, getDailyLimit, getModelPrice, isAiSuggestionsEnabled } from "@/lib/ai/config";
 import { consumeDailySearch } from "@/lib/ai/dailyLimit";
 
 const ENV_KEYS = ["ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "AI_SUGGESTIONS_DAILY_LIMIT"] as const;
@@ -34,13 +34,38 @@ describe("isAiSuggestionsEnabled", () => {
 });
 
 describe("getAnthropicModel", () => {
-  it("defaults to claude-sonnet-5-5 and trims an override", () => {
+  it("defaults to claude-haiku-5-5 and trims an override", () => {
     delete process.env.ANTHROPIC_MODEL;
-    expect(getAnthropicModel()).toBe("claude-sonnet-5-5");
+    expect(getAnthropicModel()).toBe("claude-haiku-5-5");
     process.env.ANTHROPIC_MODEL = "   ";
-    expect(getAnthropicModel()).toBe("claude-sonnet-5-5");
+    expect(getAnthropicModel()).toBe("claude-haiku-5-5");
     process.env.ANTHROPIC_MODEL = "  claude-opus-5-5 ";
     expect(getAnthropicModel()).toBe("claude-opus-5-5");
+  });
+});
+
+describe("getModelPrice", () => {
+  it("prices the shipped Haiku default, with its long-prompt rate above 100K", () => {
+    expect(getModelPrice("claude-haiku-5-5")).toEqual({
+      inputPerMTok: 0.1,
+      outputPerMTok: 0.5,
+      cacheWritePerMTok: 0.125,
+      cacheReadPerMTok: 0.01,
+      webSearchPerSearch: 0.01,
+      longPrompt: {
+        aboveInputTokens: 100_000,
+        inputPerMTok: 0.5,
+        outputPerMTok: 2.5,
+        cacheWritePerMTok: 0.625,
+        cacheReadPerMTok: 0.05,
+      },
+    });
+  });
+
+  it("keeps the Sonnet entry and knows no other model", () => {
+    expect(getModelPrice("claude-sonnet-5-5")).toMatchObject({ inputPerMTok: 2, cacheReadPerMTok: 0.1 });
+    expect(getModelPrice("claude-sonnet-5-5")).not.toHaveProperty("longPrompt");
+    expect(getModelPrice("claude-unknown")).toBeNull();
   });
 });
 

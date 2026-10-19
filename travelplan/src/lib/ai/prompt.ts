@@ -14,9 +14,9 @@ import type { SuggestionMode } from "@/lib/validation/daySuggestionSchemas";
  * **The system prompt is constant.** Everything day-specific goes into the user message, so the system
  * prompt is a stable prefix that a later story can cache without touching this one.
  *
- * The field list is spelled out even though `output_config.format` already constrains the answer: if the
- * API turns out not to accept a JSON schema alongside web search (Story 12.1 Task 1, still open), the
- * request drops the format and these sentences are the only description of the shape left.
+ * The field list is spelled out even though `output_config.format` already constrains the answer. Story
+ * 12.5 measured that a JSON schema and web search work together, so the format stays; these sentences
+ * would be the only description of the shape left if a request ever had to drop it.
  */
 
 export const SUGGESTION_SYSTEM_PROMPT = `You suggest stops for one day of a trip: concrete, real places or activities that are open on the given date.

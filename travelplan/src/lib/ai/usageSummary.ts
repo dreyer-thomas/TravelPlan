@@ -1,4 +1,4 @@
-import type { AiModelPrice } from "@/lib/ai/config";
+import type { AiModelPrice, AiModelRates } from "@/lib/ai/config";
 import type { AiUsageRow } from "@/lib/repositories/aiUsageRepo";
 
 /**
@@ -45,13 +45,26 @@ export type AiUsageSummary = {
   perUser: AiUsagePerUser[];
 };
 
-const recordCost = (row: AiUsageRow, price: AiModelPrice) =>
-  (row.inputTokens * price.inputPerMTok +
-    row.cacheCreationInputTokens * price.cacheWritePerMTok +
-    row.cacheReadInputTokens * price.cacheReadPerMTok +
-    row.outputTokens * price.outputPerMTok) /
-    1e6 +
-  row.webSearchRequests * price.webSearchPerSearch;
+/**
+ * A model's long-prompt rates (Haiku 5.5 above 100K) apply to the whole record once its total prompt is
+ * above the threshold - see `AiModelPrice` for why that is per record and errs high.
+ */
+const ratesFor = (row: AiUsageRow, price: AiModelPrice): AiModelRates => {
+  const prompt = row.inputTokens + row.cacheCreationInputTokens + row.cacheReadInputTokens;
+  return price.longPrompt && prompt > price.longPrompt.aboveInputTokens ? price.longPrompt : price;
+};
+
+const recordCost = (row: AiUsageRow, price: AiModelPrice) => {
+  const rates = ratesFor(row, price);
+  return (
+    (row.inputTokens * rates.inputPerMTok +
+      row.cacheCreationInputTokens * rates.cacheWritePerMTok +
+      row.cacheReadInputTokens * rates.cacheReadPerMTok +
+      row.outputTokens * rates.outputPerMTok) /
+      1e6 +
+    row.webSearchRequests * price.webSearchPerSearch
+  );
+};
 
 export const summarizeAiUsage = (
   rows: AiUsageRow[],

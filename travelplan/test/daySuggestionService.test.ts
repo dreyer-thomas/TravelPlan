@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Anthropic from "@anthropic-ai/sdk";
-import { AiSuggestionError, requestDaySuggestions, type AiSearchUsage } from "@/lib/ai/daySuggestionService";
+import {
+  AiSuggestionError,
+  requestDaySuggestions,
+  searchSettingsFor,
+  type AiSearchUsage,
+} from "@/lib/ai/daySuggestionService";
 import type { DaySuggestionContext } from "@/lib/repositories/tripRepo";
 
 /**
@@ -59,15 +64,16 @@ describe("requestDaySuggestions", () => {
     }
   });
 
-  it("sends the model, the web search tool with max_uses 5, medium effort and the output schema", async () => {
+  it("sends the default Haiku model, the basic web search tool with max_uses 5, medium effort and the output schema", async () => {
     const { client, create } = fakeClient(endTurn(answer(3)));
 
     const suggestions = await requestDaySuggestions({ context, prompt: "museums", mode: "walking", client });
 
     expect(suggestions).toHaveLength(3);
     const [params, options] = create.mock.calls[0] as unknown as [Record<string, unknown>, Record<string, unknown>];
-    expect(params.model).toBe("claude-sonnet-5-5");
-    expect(params.tools).toEqual([{ type: "web_search_20260209", name: "web_search", max_uses: 5 }]);
+    expect(params.model).toBe("claude-haiku-5-5");
+    // Story 12.5: Haiku takes the basic tool - web_search_20260209 is Opus/Sonnet only, a 400 here.
+    expect(params.tools).toEqual([{ type: "web_search_20250305", name: "web_search", max_uses: 5 }]);
     expect(params.output_config).toMatchObject({ effort: "medium", format: { type: "json_schema" } });
     expect(params).not.toHaveProperty("thinking");
     expect(params).not.toHaveProperty("temperature");
@@ -86,6 +92,48 @@ describe("requestDaySuggestions", () => {
     await requestDaySuggestions({ context, prompt: "museums", mode: "car", client });
 
     expect((create.mock.calls[0] as unknown as [{ model: string }])[0].model).toBe("claude-opus-5-5");
+  });
+
+  it.each(["claude-sonnet-5-5", "claude-opus-5-5", "claude-some-future-model"])(
+    "sends %s the dynamic-filtering web search with direct callers and medium effort",
+    async (model) => {
+      process.env.ANTHROPIC_MODEL = model;
+      const { client, create } = fakeClient(endTurn(answer(3)));
+
+      await requestDaySuggestions({ context, prompt: "museums", mode: "car", client });
+
+      const [params] = create.mock.calls[0] as unknown as [Record<string, unknown>];
+      // Story 12.5: with the default callers, format + medium effort never searched (8.7's spike).
+      expect(params.tools).toEqual([
+        { type: "web_search_20260209", name: "web_search", max_uses: 5, allowed_callers: ["direct"] },
+      ]);
+      expect(params.output_config).toMatchObject({ effort: "medium", format: { type: "json_schema" } });
+    },
+  );
+
+  it.each(["claude-haiku-5-5", "claude-haiku-5-5-20261001", "claude-haiku-6-0"])(
+    "sends %s the basic web search tool, by family prefix",
+    async (model) => {
+      process.env.ANTHROPIC_MODEL = model;
+      const { client, create } = fakeClient(endTurn(answer(3)));
+
+      await requestDaySuggestions({ context, prompt: "museums", mode: "car", client });
+
+      const [params] = create.mock.calls[0] as unknown as [Record<string, unknown>];
+      expect(params.tools).toEqual([{ type: "web_search_20250305", name: "web_search", max_uses: 5 }]);
+      expect(params.output_config).toMatchObject({ effort: "medium" });
+    },
+  );
+
+  it("works out the settings from the model id alone", () => {
+    expect(searchSettingsFor("claude-haiku-5-5")).toEqual({
+      tool: { type: "web_search_20250305", name: "web_search", max_uses: 5 },
+      effort: "medium",
+    });
+    expect(searchSettingsFor("claude-sonnet-5-5")).toEqual({
+      tool: { type: "web_search_20260209", name: "web_search", max_uses: 5, allowed_callers: ["direct"] },
+      effort: "medium",
+    });
   });
 
   it("sends no member data, trip name, notes, costs or links - only the day context", async () => {
@@ -113,6 +161,39 @@ describe("requestDaySuggestions", () => {
     expect(suggestions).toHaveLength(4);
   });
 
+  it("skips text before the code-execution blocks that dynamic filtering adds", async () => {
+    const { client } = fakeClient(
+      endTurn(answer(3), [
+        { type: "server_tool_use", id: "srvtoolu_1", name: "web_search", input: { query: "museums Berlin" } },
+        { type: "web_search_tool_result", tool_use_id: "srvtoolu_1", content: [] },
+        { type: "text", text: "Let me check the opening hours.", citations: null },
+        { type: "server_tool_use", id: "srvtoolu_2", name: "code_execution", input: {} },
+        { type: "code_execution_tool_result", tool_use_id: "srvtoolu_2", content: {} },
+      ]),
+    );
+
+    expect(await requestDaySuggestions({ context, prompt: "museums", mode: "car", client })).toHaveLength(3);
+  });
+
+  it.each([
+    "code_execution_tool_result",
+    "bash_code_execution_tool_result",
+    "text_editor_code_execution_tool_result",
+    "web_fetch_tool_result",
+  ])(
+    "treats %s as a tool block, so a sentence before it is not part of the answer",
+    async (type) => {
+      const { client } = fakeClient(
+        endTurn(answer(3), [
+          { type: "text", text: "Let me check.", citations: null },
+          { type, tool_use_id: "srvtoolu_1", content: {} },
+        ]),
+      );
+
+      expect(await requestDaySuggestions({ context, prompt: "museums", mode: "car", client })).toHaveLength(3);
+    },
+  );
+
   it("joins an answer split across several text blocks", async () => {
     const text = answer(3);
     const { client } = fakeClient({
@@ -139,6 +220,12 @@ describe("requestDaySuggestions", () => {
     expect(rolesOf(0)).toEqual(["user"]);
     expect(rolesOf(1)).toEqual(["user", "assistant"]);
     expect(rolesOf(2)).toEqual(["user", "assistant", "assistant"]);
+    // The resumed calls carry the same tool and effort as the first.
+    for (const call of create.mock.calls) {
+      const [params] = call as unknown as [Record<string, unknown>];
+      expect(params.tools).toEqual([{ type: "web_search_20250305", name: "web_search", max_uses: 5 }]);
+      expect(params.output_config).toMatchObject({ effort: "medium" });
+    }
   });
 
   it("fails when still paused after two resumes", async () => {
@@ -304,7 +391,7 @@ describe("requestDaySuggestions usage", () => {
     expect(suggestions).toHaveLength(3);
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({
-      model: "claude-sonnet-5-5",
+      model: "claude-haiku-5-5",
       outcome: "ok",
       inputTokens: 1200,
       cacheCreationInputTokens: 800,

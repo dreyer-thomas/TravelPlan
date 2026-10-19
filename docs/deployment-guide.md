@@ -77,7 +77,7 @@ simply off without a key. Full table in
 | `APP_BASE_URL` | Public origin for password-reset email links, and the contact in the Wikimedia picture lookups' `User-Agent`. **Silently defaults to `http://localhost:3000`** — unset in production, every reset email is unusable and nothing logs it. |
 | `OSRM_BASE_URL` | Optional. Route geometry; defaults to the public OSRM instance. |
 | `ANTHROPIC_API_KEY` | Optional. Turns on the AI day suggestions; **every search is paid by the operator**. A secret — see the warning in the configuration guide. |
-| `ANTHROPIC_MODEL` | Optional. Model for the suggestions; defaults to `claude-sonnet-5-5`. |
+| `ANTHROPIC_MODEL` | Optional. Model for the suggestions; defaults to `claude-haiku-5-5`. A `claude-haiku-*` model is sent the basic web search tool (`web_search_20250305`), any other model the dynamic-filtering one (`web_search_20260209`). |
 | `AI_SUGGESTIONS_DAILY_LIMIT` | Optional. Searches per user per server-local day; defaults to `20`. |
 
 Since Story 8.7, every AI day search that reaches Claude records what it consumed: the token counts,
@@ -88,6 +88,13 @@ Anthropic console is the actual bill. Each request uses prompt caching, so the p
 much input was read from the cache. No new variable is needed. If `ANTHROPIC_MODEL` names a model
 the price table does not list, its searches are still counted, and the page says the estimate is
 incomplete.
+
+Since Story 12.5, a day search checks the web for the given date (opening hours, closures,
+events) before it answers; the default model did so in every run of the comparison. That makes a
+search slower: on Haiku 5.5 a search took 14-31 s (about
+22 s on average) in the comparison, against 3-9 s before, when no search ever reached the web. The
+60 s deadline is unchanged. Each web search adds $0.01, which on Haiku is most of a search's cost
+(about $0.04 per search in the comparison).
 
 ### The media root
 

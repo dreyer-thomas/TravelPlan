@@ -16,19 +16,24 @@ import {
  * `AiSuggestionError("ai_failed")`. Verification against a geocoder is the caller's next step
  * (`verifySuggestions.ts`); this module only asks and validates.
  *
- * **The request.** The model from `ANTHROPIC_MODEL` (default `claude-sonnet-5-5`), the web search server
- * tool at `max_uses: 5`, `effort: "medium"` for latency, and the answer constrained by
- * `output_config.format`. No `thinking` (adaptive is this model's default and `disabled` is a 400), no
- * sampling parameters, no prefill and no forced `tool_choice` - each of those is a 400 on Sonnet 5.5.
+ * **The request.** The model from `ANTHROPIC_MODEL` (default `claude-haiku-5-5`), the web search server
+ * tool at `max_uses: 5`, `effort: "medium"`, and the answer constrained by `output_config.format`. The
+ * tool version follows the model family (`searchSettingsFor`, Story 12.5): a `claude-haiku-*` model gets
+ * the basic `web_search_20250305`, because the dynamic-filtering `web_search_20260209` is Opus/Sonnet only
+ * and a 400 on Haiku; every other model gets `web_search_20260209` with `allowed_callers: ["direct"]`.
+ * Until 2026-10-19 the request sent 20260209 with its default callers, and format + medium effort + those
+ * callers never searched at all (Story 8.7's spike). Story 12.5's comparison (3 wishes × 3 runs) then
+ * picked Haiku: it searched in every run, inside the deadline, at the lowest cost per search. No
+ * `thinking` (adaptive is the default and `disabled` is a 400 on Sonnet 5.5), no sampling parameters, no
+ * prefill and no forced `tool_choice`.
  *
  * **`create` and our own extraction, not `messages.parse`.** The SDK's `parse` runs the JSON parser on
  * *every* `text` block of the response and throws on the first that does not parse (`lib/parser.js`,
  * `parseMessage`). A web-search turn can carry text blocks that are not the answer - a sentence before a
  * search, or an answer split into cited fragments - so `parse` would fail a good response. Here the answer
  * is the text after the last server-tool block, joined, `JSON.parse`d and checked by our own
- * `suggestionsResponseSchema`. The same extraction serves Task 1's "Shape B" unchanged: if the API refuses
- * a JSON schema alongside web search, only `format` leaves the request (the system prompt already
- * describes the shape).
+ * `suggestionsResponseSchema`. (`format` and web search work together - Story 12.5 measured it on both
+ * tool versions - so 12.1's fallback "Shape B" without `format` is not needed.)
  *
  * **One deadline.** A single 60 s `AbortController` covers the first request and any `pause_turn`
  * resumption, and `maxRetries: 0` everywhere, because SDK retries would multiply the wall-clock time.
@@ -70,7 +75,18 @@ export class AiSuggestionError extends Error {
 
 export const SUGGESTION_TIMEOUT_MS = 60_000;
 const MAX_PAUSE_RESUMES = 2;
-const WEB_SEARCH_TOOL = { type: "web_search_20260209", name: "web_search", max_uses: 5 } as const;
+
+/**
+ * Story 12.5. The web search tool and effort for a model id, by family prefix rather than exact id, so an
+ * operator who names another Haiku in `ANTHROPIC_MODEL` still gets a tool version that model accepts.
+ */
+export const searchSettingsFor = (model: string): { tool: Anthropic.ToolUnion; effort: "medium" } =>
+  model.startsWith("claude-haiku-")
+    ? { tool: { type: "web_search_20250305", name: "web_search", max_uses: 5 }, effort: "medium" }
+    : {
+        tool: { type: "web_search_20260209", name: "web_search", max_uses: 5, allowed_callers: ["direct"] },
+        effort: "medium",
+      };
 
 const fail = (status?: number, upstream?: string) =>
   new AiSuggestionError("ai_failed", "Unable to get suggestions right now", status, upstream);
@@ -89,7 +105,16 @@ const upstreamName = (error: unknown) => {
   return undefined;
 };
 
-const SERVER_TOOL_BLOCK_TYPES = new Set(["server_tool_use", "web_search_tool_result"]);
+// Dynamic filtering (web_search_20260209) can add code-execution results, and a fetch result is a tool block
+// too: a sentence before any of them is not the answer (Story 12.5).
+const SERVER_TOOL_BLOCK_TYPES = new Set([
+  "server_tool_use",
+  "web_search_tool_result",
+  "web_fetch_tool_result",
+  "code_execution_tool_result",
+  "bash_code_execution_tool_result",
+  "text_editor_code_execution_tool_result",
+]);
 
 /** The answer: every `text` block after the last server-tool block, joined in order. */
 const extractAnswerText = (content: Anthropic.ContentBlock[]) => {
@@ -139,6 +164,7 @@ export const requestDaySuggestions = async ({
   const { system, user } = buildSuggestionPrompt(context, { prompt, mode });
   // Read once, so the record names the model every request of this search was sent to.
   const model = getAnthropicModel();
+  const { tool, effort } = searchSettingsFor(model);
   const startedAt = Date.now();
   const totals = {
     inputTokens: 0,
@@ -172,8 +198,8 @@ export const requestDaySuggestions = async ({
           max_tokens: 16000,
           system,
           messages: [...messages],
-          tools: [WEB_SEARCH_TOOL],
-          output_config: { effort: "medium", format: zodOutputFormat(modelSuggestionsSchema) },
+          tools: [tool],
+          output_config: { effort, format: zodOutputFormat(modelSuggestionsSchema) },
           cache_control: { type: "ephemeral" },
         },
         {
