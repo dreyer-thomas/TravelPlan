@@ -2205,7 +2205,7 @@ describe("TripDayView layout", () => {
 
     expect(await screen.findByTestId("trip-day-view-page")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Day 1", level: 5 })).toBeInTheDocument();
-    expect(screen.getByText("Dec 1, 2026")).toBeInTheDocument();
+    expect(screen.getByText("Tuesday, December 1, 2026")).toBeInTheDocument();
     // Story 6.19: the back-to-trip button left the hero for the first row of the `⋯` menu, and a
     // closed MUI Menu is not mounted, so nothing named by it is on the page until the trigger is
     // clicked. Its presence in the menu is asserted by the 6.19 block below; here the claim is that
@@ -7250,6 +7250,52 @@ describe("TripDayView layout", () => {
   const heroControls = () =>
     Array.from(screen.getByTestId("day-hero").querySelectorAll("a[href], button"));
 
+  describe("Story 7.15 weekday on the day dates", () => {
+    it("lists each transfer target with its long weekday date (AC5)", async () => {
+      navigationMockState.search = "";
+      vi.stubGlobal("fetch", buildThreeDayResponse({ trip: { accessRole: "owner" } }));
+
+      renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+      await screen.findByRole("heading", { name: "Day 1", level: 5 });
+      await activateDayOverflowItem("Move activities");
+      await screen.findByRole("heading", { name: "Move activities", level: 2 });
+
+      expect(screen.getByRole("option", { name: "Day 2 · Wednesday, December 2, 2026" })).toBeInTheDocument();
+      expect(screen.getByRole("option", { name: "Day 3 · Thursday, December 3, 2026" })).toBeInTheDocument();
+
+      vi.unstubAllGlobals();
+    });
+
+    it("prints the hero date with the German long weekday (AC4)", async () => {
+      navigationMockState.search = "";
+      vi.stubGlobal("fetch", buildDayResponse({}));
+
+      renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />, { language: "de" });
+
+      await screen.findByRole("heading", { name: "Tag 1", level: 5 });
+      expect(screen.getByText("Dienstag, 1. Dezember 2026")).toBeInTheDocument();
+
+      vi.unstubAllGlobals();
+    });
+
+    it("drops the hero date line instead of throwing when the date is malformed (AC9)", async () => {
+      navigationMockState.search = "";
+      vi.stubGlobal("fetch", buildDayResponse({ date: "" }));
+
+      renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+      await screen.findByRole("heading", { name: "Day 1", level: 5 });
+      // No year and no weekday anywhere in the hero: the date line is gone, not rendered empty or
+      // replaced by a stray "Invalid Date".
+      const heroText = screen.getByTestId("day-hero").textContent ?? "";
+      expect(heroText).not.toMatch(/\b20\d\d\b|Invalid|(Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day/);
+      expect(screen.queryByText(/December/)).not.toBeInTheDocument();
+
+      vi.unstubAllGlobals();
+    });
+  });
+
   it("carries exactly three interactive controls on the photo, in the order the corners read (AC1, AC9)", async () => {
     navigationMockState.search = "";
     vi.stubGlobal("fetch", buildThreeDayResponse({ trip: { accessRole: "owner" } }));
@@ -7380,7 +7426,7 @@ describe("TripDayView layout", () => {
     // would truncate the note in the accessible name without changing anything a screenshot shows.
     const heading = await screen.findByRole("heading", { level: 5 });
     expect(heading).toHaveTextContent(`Day 2: ${longestNote}`);
-    expect(screen.getByText("Dec 2, 2026")).toBeInTheDocument();
+    expect(screen.getByText("Wednesday, December 2, 2026")).toBeInTheDocument();
 
     // And the controls the title now grows past are all three still there, still above it, and still
     // in their corners - the arrangement whose clearance the operator then measures.

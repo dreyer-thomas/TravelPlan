@@ -92,6 +92,7 @@ import { documentDisplayName } from "@/lib/trips/documentUploads";
 import { IMAGE_UPLOAD_ACCEPT, isSupportedImageUpload } from "@/lib/trips/imageUploads";
 import { transportTypeAllowsDistance, type TransportType } from "@/lib/trips/transportTypes";
 import { formatActivityDuration } from "@/lib/trips/activityDuration";
+import { formatLongDate } from "@/lib/trips/formatLongDate";
 import type { DayPlanConflict } from "@/lib/trips/planConflicts";
 import { DEFAULT_CHECK_IN_TIME, DEFAULT_CHECK_OUT_TIME, resolveStayTime } from "@/lib/trips/stayTimes";
 
@@ -905,17 +906,6 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
       // Ignore storage failures.
     }
   }, [day, loading, scrollRestoreKey]);
-
-  const formatDate = useMemo(
-    () => (value: string) =>
-      new Intl.DateTimeFormat(language === "de" ? "de-DE" : "en-US", {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-        timeZone: "UTC",
-      }).format(new Date(value)),
-    [language],
-  );
 
   // style: "currency" places the symbol per locale - German needs "1.234,50 €", not "€1.234,50".
   const formatCost = useMemo(
@@ -3591,6 +3581,8 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
       : day
         ? formatMessage(t("trips.dayView.title"), { index: day.dayIndex })
         : "";
+  // Story 7.15: `null` on a malformed date, so the hero drops the line instead of throwing.
+  const heroDate = day ? formatLongDate(day.date, language) : null;
 
   const isDayGap = Boolean(day?.missingAccommodation);
   const dayHeroImageCss = toCssUrl(
@@ -3933,9 +3925,11 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
                 >
                   {dayTitle}
                 </Typography>
-                <Typography sx={{ color: "rgba(255,255,255,.92)", fontSize: 13, fontWeight: 600, mt: 0.75 }}>
-                  {formatDate(day.date)}
-                </Typography>
+                {heroDate ? (
+                  <Typography sx={{ color: "rgba(255,255,255,.92)", fontSize: 13, fontWeight: 600, mt: 0.75 }}>
+                    {heroDate}
+                  </Typography>
+                ) : null}
                 {/* Story 13.2 AC4. DESIGN.md's one exception to "the hero carries no stats": the day's
                     plan does not work out. Inside the title block, so `HERO_TITLE_RIGHT_CLEARANCE` keeps
                     it clear of the overflow control too. Every role sees it. */}
@@ -5090,11 +5084,15 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
                   SelectProps={{ native: true }}
                 >
                   <option value="" />
-                  {transferTargetOptions.map((candidate) => (
-                    <option key={candidate.id} value={candidate.id}>
-                      {formatMessage(t("trips.dayView.title"), { index: candidate.dayIndex })} · {formatDate(candidate.date)}
-                    </option>
-                  ))}
+                  {transferTargetOptions.map((candidate) => {
+                    const candidateDate = formatLongDate(candidate.date, language);
+                    return (
+                      <option key={candidate.id} value={candidate.id}>
+                        {formatMessage(t("trips.dayView.title"), { index: candidate.dayIndex })}
+                        {candidateDate ? ` · ${candidateDate}` : null}
+                      </option>
+                    );
+                  })}
                 </TextField>
                 {transferNeedsOverwriteWarning ? (
                   <Alert severity="warning">{t("trips.dayTransfer.moveOverwriteWarning")}</Alert>

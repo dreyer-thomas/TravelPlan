@@ -1,5 +1,7 @@
 # generated: 2026-03-01 13:08:00 CET
-# last_updated: 2026-10-19 (7-14-planned-distance-on-the-trip-overview CODE REVIEW -> DONE. 2 patches: flight/ship stored distances ignored like the day view (transportTypeAllowsDistance) + unit test; German test NBSP written as \u00A0. 18 dismissed. 219 files / 3527 tests, typecheck clean, lint 0/80.)
+# last_updated: 2026-10-20 (7-15-weekday-on-every-day-date CODE REVIEW -> DONE. 4 low patches: stray isDayGap whitespace, formatShortDate docblock rewrap, malformed-hero test asserts on the whole hero, print sheet pins English weekday + malformed-date fallback. 15 dismissed, 0 deferred. 220 files / 3537 tests, typecheck clean, lint 0/80. Open, not blocking: Tommy's ruling on the German short weekday period/comma.)
+# previously: 2026-10-20 (7-15 in-progress -> review via bmad-dev-story: weekday via formatShortDate + new formatLongDate, malformed long dates return null, 220 files / 3535 tests green, typecheck clean, lint 0/80, build OK; real run with Tommy at 390px, no wrap, no NBSP needed; period after the German short weekday still an open question. Earlier: 7-15-weekday-on-every-day-date CONTEXTED via bmad-create-story, backlog -> ready-for-dev. Short weekday through formatShortDate (overview rows + accommodation subtitle), new shared formatLongDate (day-view hero, transfer picker, print sheet), timeZone UTC kept with an LA TZ test; epic example weekday corrected (9 Aug 2026 = Sunday), German short form per Intl 'So., 9.8.' - open question to Tommy on the period. No API/schema/i18n change.)
+# previously: 2026-10-19 (7-14-planned-distance-on-the-trip-overview CODE REVIEW -> DONE. 2 patches: flight/ship stored distances ignored like the day view (transportTypeAllowsDistance) + unit test; German test NBSP written as \u00A0. 18 dismissed. 219 files / 3527 tests, typecheck clean, lint 0/80.)
 # previously: 2026-10-19 (7-14-planned-distance-on-the-trip-overview ALL TASKS DONE, status REVIEW, via bmad-dev-story. New src/lib/trips/tripTravelSummary.ts: selectDrawnTravelSegments (extracted from the TripTimeline Gantt loop, which now calls it) + summarizeTripTravel. Header 'Offene Punkte' -> 'Gesamtstrecke', Strecken card below Kosten bisher. dev.db NZ: car 4,898 km / 91 legs drawn vs naive 6,682.4 km / 107 (16 orphans excluded), total 5,869.8 km - confirmed on screen by Tommy, desktop + 390px; the 390px run caught 'km' wrapping, fixed with U+00A0. 219 files / 3526 tests, lint 0/80, build OK.)
 # previously: 2026-10-19 (7-14-planned-distance-on-the-trip-overview IN-PROGRESS via bmad-dev-story.)
 # previously: 2026-10-19 (7-14-planned-distance-on-the-trip-overview ADDED and CONTEXTED via John (PM) + bmad-create-story, backlog -> ready-for-dev. FR50 added to prd.md/epics.md. Distance card below the cost card on the trip overview (total known km, per mode km + legs + time), header 'Offene Punkte' replaced by total km; only drawn legs count (daySegmentPairs rule, orphans excluded); dashboard untouched; no API/schema change. Tommy's rulings 2026-10-19.)
@@ -279,6 +281,7 @@ development_status:
   7-12-bucket-list-sidebar-card: done
   7-13-cost-overview-redesign: done
   7-14-planned-distance-on-the-trip-overview: done
+  7-15-weekday-on-every-day-date: done
   epic-7-retrospective: optional
 
   epic-8: in-progress

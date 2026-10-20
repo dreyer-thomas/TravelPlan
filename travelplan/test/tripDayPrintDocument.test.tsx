@@ -782,10 +782,28 @@ describe("TripDayPrintDocument", () => {
       renderSheet({ payload: basePayload() }, "de");
 
       expect(screen.getByText("Tag 2")).toBeInTheDocument();
-      // The same `2026-08-10` the English cases format as `August 10, 2026`. This is the whole of what
-      // `Intl.DateTimeFormat(INTL_LOCALES[language], …)` changed, and the reason a hardcoded `en-US`
-      // survived every other localisation pass: a date is still a date, so it never looks untranslated.
-      expect(screen.getAllByText("10. August 2026").length).toBeGreaterThan(0);
+      // The same `2026-08-10` the English cases format as `Monday, August 10, 2026`. The locale is the
+      // whole of what DW-230 changed, and the reason a hardcoded `en-US` survived every other
+      // localisation pass: a date is still a date, so it never looks untranslated. Story 7.15 added
+      // the weekday.
+      expect(screen.getAllByText("Montag, 10. August 2026").length).toBeGreaterThan(0);
+    });
+
+    it("prints the English long weekday date in the header and the footer (Story 7.15)", () => {
+      renderSheet({ payload: basePayload() });
+
+      expect(screen.getAllByText("Monday, August 10, 2026")).toHaveLength(2);
+    });
+
+    it("leaves the date empty instead of throwing when day.date is malformed (Story 7.15 AC9)", () => {
+      const { container } = renderSheet({
+        payload: basePayload({
+          day: { id: "day-1", date: "", dayIndex: 2, note: null, imageUrl: null },
+        }),
+      });
+
+      expect(screen.getByText("Day 2")).toBeInTheDocument();
+      expect(container.textContent ?? "").not.toMatch(/\b20\d\d\b|Invalid/);
     });
 
     it("keeps the user's own day note beside the translated heading", () => {

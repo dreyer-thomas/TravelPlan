@@ -193,8 +193,8 @@ describe("TripTimeline plan action", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     const [firstCard, secondCard] = screen.getAllByTestId("timeline-day-card");
 
-    // Valid date: the row shows "Day 1" plus the "· 12/1" short date.
-    expect(firstCard.textContent).toContain("· 12/1");
+    // Valid date: the row shows "Day 1" plus the "· Tue, 12/1" short date (Story 7.15 weekday).
+    expect(firstCard.textContent).toContain("· Tue, 12/1");
     // Malformed date: `formatShortDate` returns null, so the row drops the date and, per the
     // TripTimeline fix, drops the leading "·" with it rather than leaving "Day 2 · " dangling.
     expect(secondCard.textContent).toContain("Day 2");

@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { TripDayPrintPayload, TripDayPrintTimelineEntry } from "@/lib/repositories/tripRepo";
-import { formatMessage, INTL_LOCALES } from "@/i18n";
+import { formatMessage } from "@/i18n";
 import { useI18n } from "@/i18n/provider";
 import { formatCostOriginal } from "@/lib/trips/convertCost";
 import { formatCost } from "@/lib/trips/formatCost";
+import { formatLongDate } from "@/lib/trips/formatLongDate";
 import { parsePlanText } from "@/lib/trips/planText";
 import { collectTimelineDocuments, getPrintEntryLabel, truncateText } from "@/lib/trips/printDocuments";
 import { isTransportType, transportTypeAllowsDistance, type TransportType } from "@/lib/trips/transportTypes";
@@ -186,16 +187,11 @@ export default function TripDayPrintDocument({ payload, onReady }: TripDayPrintD
 
   const root = useRef<HTMLDivElement | null>(null);
 
-  // The one `Intl` argument that changes, and the only formatting this story touches: `en-US` still
-  // resolves through `INTL_LOCALES.en`, so the English sheet prints the same `August 10, 2026` it always
-  // has, while German gets `10. August 2026`. The options and `timeZone: "UTC"` are untouched - the date
-  // is a calendar day stored at midnight UTC, and formatting it in the viewer's zone would move it.
-  const formattedDate = new Intl.DateTimeFormat(INTL_LOCALES[language], {
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(new Date(day.date));
+  // Long weekday plus the written-out date - `Monday, August 10, 2026` / `Montag, 10. August 2026` -
+  // through the shared formatter the day-view hero uses (Story 7.15 added the weekday). It keeps
+  // `timeZone: "UTC"`: the date is a calendar day stored at midnight UTC, and formatting it in the
+  // viewer's zone would move it. A malformed date leaves the field empty instead of throwing.
+  const formattedDate = formatLongDate(day.date, language) ?? "";
 
   // The note is appended rather than interpolated: it is the user's own text, and a `{note}` placeholder
   // in the dictionary would let a translation move it away from the colon that introduces it.

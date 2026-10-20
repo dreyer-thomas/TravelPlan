@@ -3205,6 +3205,62 @@ Tommy's rulings (2026-10-19): (1) the card shows kilometres, number of legs and 
 **When** this story ships
 **Then** its "Offene Punkte" figure is unchanged
 
+### Story 7.15: Weekday on Every Day Date
+
+As a trip planner,
+I want to see the weekday next to each day's date on the trip overview and in the day view,
+So that I can tell weekends, market days and closing days apart at a glance without counting along a calendar.
+
+**FRs covered:** none. This is a display refinement of FR9/FR22 screens built in this epic (7.2, 7.3), not a new capability.
+
+**Context:** Added 2026-10-20 at Tommy's request. Every date involved is already in the payload (`day.date`, stored as a calendar day at midnight UTC), so nothing changes in the API, the schema or the migrations. Today the dates render through three formatters:
+- `formatShortDate` (`lib/trips/formatShortDate.ts`, `month/day numeric`) for the overview's day rows (`TripTimeline.tsx`, "Tag 3 · 9.8.") and the accommodation dialog's day subtitle.
+- `formatDate` in `TripDayView.tsx` (`month short, day, year`) for the hero under the day title ("9. Aug. 2026") and the whole-day transfer target picker ("Tag 5 · 11. Aug. 2026").
+- The print sheet's own formatter in `TripDayPrintDocument.tsx` (`month long`, "10. August 2026").
+
+Tommy's rulings (2026-10-20):
+1. **Mixed format.** The overview and the accommodation dialog use the short weekday: "Mo, 9.8." / "Mon, 8/9". The day view and the print sheet use the long weekday with the month written out: "Montag, 9. August 2026" / "Monday, August 9, 2026".
+2. **Scope.** Overview day rows, day-view hero, print sheet, accommodation dialog subtitle and the whole-day transfer target picker.
+
+**Trap:** the weekday must be formatted with `timeZone: "UTC"`, exactly like the date beside it. Formatting in the viewer's zone moves the calendar day for anyone west of UTC, and the weekday shifts with it.
+
+**Out of scope:** the trip's start–end range in the overview header, the "Handlungsbedarf" gap alert date and the *Meine Reisen* dashboard keep their current format.
+
+**Acceptance Criteria:**
+
+**Given** the trip overview
+**When** a day row renders
+**Then** its date reads "Tag 3 · Mo, 9.8." in German and "Day 3 · Mon, 8/9" in English (abbreviated weekday from `Intl`, in the UI language)
+**And** at 390px width the row does not wrap any more than it does today
+
+**Given** the accommodation dialog opened for a day
+**When** its day subtitle renders
+**Then** it uses the same short weekday format as the overview's day rows (one shared formatter, `formatShortDate` or its successor)
+
+**Given** the day view
+**When** the hero renders under the day title
+**Then** the date reads "Montag, 9. August 2026" in German and "Monday, August 9, 2026" in English
+
+**Given** the whole-day transfer dialog in the day view
+**When** its target day list renders
+**Then** each candidate shows its date in the same long weekday format as the hero
+
+**Given** the day print sheet
+**When** it prints in German or English
+**Then** its date reads "Montag, 10. August 2026" / "Monday, August 10, 2026"
+
+**Given** a day whose date is stored at midnight UTC
+**When** any of these screens render in a time zone west of UTC (e.g. America/Los_Angeles)
+**Then** the weekday and the date both show the stored calendar day, not the day before
+
+**Given** a malformed `day.date`
+**When** the overview row or the accommodation subtitle renders
+**Then** the short date, weekday included, is dropped as today (no wrong weekday, no throw)
+
+**Given** the trip header date range, the gap alert and the *Meine Reisen* dashboard
+**When** this story ships
+**Then** their dates are unchanged
+
 ## Epic 8: Maintenance & Infrastructure
 
 The maintainer can keep the runtime, toolchain, and accumulated technical debt current without threading infrastructure work through feature or redesign epics. This epic is the standing home for work that is neither a feature nor a redesign — runtime and toolchain upgrades, and the deferred-work bundles that earn a story number after a `bmad-loop sweep` has verified them against the code.

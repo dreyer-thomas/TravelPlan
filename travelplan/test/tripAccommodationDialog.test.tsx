@@ -1513,7 +1513,7 @@ describe("TripAccommodationDialog", () => {
       );
       await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
-      expect(screen.getByText("Day 1 · 11/1")).toBeInTheDocument();
+      expect(screen.getByText("Day 1 · Sun, 11/1")).toBeInTheDocument();
     });
 
     it("renders the day subtitle composed via formatMessage, in German", async () => {
@@ -1532,7 +1532,7 @@ describe("TripAccommodationDialog", () => {
       );
       await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
-      expect(screen.getByText("Tag 1 · 1.11.")).toBeInTheDocument();
+      expect(screen.getByText("Tag 1 · So., 1.11.")).toBeInTheDocument();
     });
 
     it("drops the subtitle without throwing when day.date is malformed", async () => {
